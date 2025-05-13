@@ -1,0 +1,53 @@
+
+services:
+  gpt-sovits:
+    image: legwork7623/gpt-sovits:latest 
+    container_name: gpt-sovits-container
+    environment:
+      - is_half=False
+      - is_share=False
+    volumes:
+      - ./output:/workspace/output
+      - ./logs:/workspace/logs
+      - ./SoVITS_weights:/workspace/SoVITS_weights
+      - ./reference:/workspace/reference
+    working_dir: /workspace
+    ports:
+      - "9880:9880"
+    shm_size: 16G
+    gpus: "all"
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+  ollama:
+    image: ollama/ollama:0.6.4
+    container_name: ollama-container
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    tty: true
+    entrypoint: ["/bin/ollama", "serve"]
+    restart: unless-stopped
+  openai-whisper:
+    image: legwork7623/openai-whisper:latest
+    container_name: openai-whisper
+    ports:
+      - "15597:15597"
+    gpus: "all"
+    tty: true
+    restart: unless-stopped
+  
+networks:
+  default:
+
+volumes:
+  ollama:

@@ -1,22 +1,43 @@
+import os
+import re
+import subprocess
+import wave
 import torch
-import whisper
 import sounddevice as sd
 import numpy as np
-import webrtcvad
-import collections
-import threading
 import time
 import noisereduce as nr
+from helpers.utils import pretty_print
+from helpers.agent import Agent
+from transformers import pipeline
 
-
+print("Initializing...")
+vad_model, utils = torch.hub.load(
+    repo_or_dir='snakers4/silero-vad',
+    model='silero_vad',
+    force_reload=False
+)
+(get_speech_timestamps, save_audio, read_audio, VADIterator, collect_chunks) = utils
+vad_iterator = VADIterator(vad_model)
 
 # Settings
 sample_rate = 16000  # Whisper and VAD both use 16 kHz
 block_duration = 0.03  # 30 ms (must be 10, 20, or 30 ms)
 block_size = int(sample_rate * block_duration)  # Samples per block
-vad = webrtcvad.Vad(3)  # Aggressiveness
 input_device, output_device = sd.default.device
 devices = sd.query_devices()
+window_size_samples = 512           # e.g., 1024-sample window (~64ms)
+min_speech_silence_s = 2          # 2s of silence to end utterance
+torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+feedback_volume = 0.5
+start_feedback_effect =  wave.open("assets/start_effect.wav")
+start_feedback_effect = (np.frombuffer(start_feedback_effect.readframes(-1), dtype=np.int16).reshape((-1, 2)) * feedback_volume).astype(np.int16)
+stop_feedback_effect =  wave.open("assets/stop_effect.wav")
+stop_feedback_effect = (np.frombuffer(stop_feedback_effect.readframes(-1), dtype=np.int16).reshape((-1, 2)) * feedback_volume).astype(np.int16)
+last_voice_time = time.time()
+
+kurisu_agent = Agent()
 
 print("Current input device:")
 print(f"  Index: {input_device}")
@@ -25,54 +46,97 @@ print()
 print("Current output device:")
 print(f"  Index: {output_device}")
 print(f"  Name: {devices[output_device]['name']}")
-# Load Whisper model
-model = whisper.load_model("base")  # or "base", "small", etc.
 
+# Load Whisper model
+whisper_model_name = 'whisper-finetuned' if os.path.exists('whisper-finetuned') else 'openai/whisper-base'
+asr = pipeline(
+    model=whisper_model_name,
+    task='automatic-speech-recognition',
+    device='cuda',
+)
+
+audio_buffer = np.array([], dtype=np.float32)
 def record_and_detect():
     """ Continuously listen and collect speech when VAD detects voice. """
-    print("Listening for speech (Ctrl+C to stop)...")
-
-    buffer = collections.deque()
+    print("Ready to take command...")
     speaking = False
     recording = []
-    last_voice_time = time.time()
-
-    def callback(indata, frames, time_info, status):
-        nonlocal speaking, recording, last_voice_time
-
-        audio = indata[:, 0].copy()
-        pcm_data = (audio * 32768).astype(np.int16).tobytes()
-        is_speech = vad.is_speech(pcm_data, sample_rate)
-        if is_speech:
-            last_voice_time = time.time()
-            if not speaking:
-                print("Started speaking...")
-                speaking = True
-            recording.append(audio)
-        else:
-            if speaking and time.time() - last_voice_time > 1 and len(recording) > 0:
-                
-                audio_array = np.concatenate(recording).copy()
-                recording.clear()
-                threading.Thread(target=transcribe_audio, args=(audio_array,)).start()
-                speaking = False
-                print("Stopped speaking. Transcribing...")
-
-    with sd.InputStream(channels=1, samplerate=sample_rate, blocksize=block_size, dtype='float32', callback=callback):
+    with sd.InputStream(channels=1, samplerate=sample_rate, blocksize=block_size, dtype='float32') as stream:
+        audio_data = np.zeros((0, 1), dtype=np.float32)
+        last_voice_time = -1
         while True:
-            time.sleep(0.1)
+            block, overflowed = stream.read(block_size)
+            if overflowed:
+                print("Warning: input overflow")
+            audio_data = np.concatenate((audio_data, block.copy()))
 
+            recording.append(block.copy())
+
+            if len(audio_data) >= window_size_samples:
+                input_data = audio_data[:window_size_samples]
+                audio_data = audio_data[window_size_samples:]
+                speech = vad_iterator(input_data.flatten(), return_seconds=False)
+                
+                if speech is not None:
+                    if 'start' in speech:
+                        speaking = True
+                        if last_voice_time == -1:
+                            sd.play(start_feedback_effect.flatten())
+
+                    if 'end' in speech:
+                        last_voice_time = time.time()
+                        speaking = False
+
+            if not speaking and last_voice_time != -1 and (time.time() - last_voice_time) > min_speech_silence_s:
+                segment = np.concatenate(recording)
+                recording.clear()
+                sd.play(stop_feedback_effect.flatten(), blocking=True)
+                #threading.Thread(target=transcribe_audio, args=(segment,)).start()
+                transcribe_audio(segment)
+                last_voice_time = -1
+                
+
+            if not speaking and last_voice_time == -1:
+                recording.clear()
 def transcribe_audio(audio):
     """ Transcribe the captured audio """
     if len(audio) == 0:
         return
-    audio = nr.reduce_noise(y=audio, sr=sample_rate)
+    ## debug: playback the recording
+    # audio = nr.reduce_noise(y=audio, sr=sample_rate)
     # play the audio to the speaker
-    sd.play(audio, samplerate=sample_rate)
-    sd.wait()
-    # Convert back to tensor
-    result = model.transcribe(audio, fp16=False, initial_prompt="Names: Kurisu, Khoa", language="en")
-    print("Transcription:", result["text"])
+    # sd.play((audio.flatten() * 32768).astype(np.int16), samplerate=sample_rate)
+    # sd.wait()
+    try:
+        with torch.no_grad():
+            result = asr(audio.squeeze(1))
+    except Exception as e:
+        print(f"Error: {e}")
+        return
+    
+    pretty_print("User", result["text"], delay=0.05)
+    pretty_print("Kurisu", "Thinking...")
+    response = kurisu_agent.process_message(result["text"])
+    if response is not None:
+        # filter out the command before produce tts
+        tts_input = re.sub(r'```bash (flux_led.*?)```', '', response)
+        en_response = response #response.split("|")[0].strip()
+        ja_response = response #response.split("|")[-1].strip()
+        pretty_print("Kurisu", "Saying...", delay=0.05, overwrite=True)
+        voice_over = kurisu_agent.say(tts_input)
+        pattern = re.compile(r'```bash (flux_led.*?)```')
+        match = pattern.search(response)
+        if match:
+            command = match.group(1)
+            print(f"Executing command: {command}")
+            result = subprocess.run(command.split(" "), capture_output=True, text=True)
+            print(result.stdout)
+        if voice_over is not None:
+            sd.play(voice_over, samplerate=32000)
+            pretty_print("Kurisu", en_response, delay=0.05, overwrite=True)
+        
+        
+
 
 if __name__ == "__main__":
     try:

@@ -1,0 +1,12 @@
+{
+    "system_prompts": [
+        {
+            "role": "system",
+            "content": "<Your character theme>"
+        },
+        {
+            "role": "system",
+            "content": "Your answer should be a conversational language, not a written one so it should be concise and short."
+        }
+    ]
+}
