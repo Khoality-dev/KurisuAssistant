@@ -56,8 +56,13 @@ class Agent:
                 data = audio_array[:self.CHUNK_FRAMES]
                 audio_array = audio_array[self.CHUNK_FRAMES:]
                 self.asr_ws.send_binary(data.tobytes())
+            
+            self.asr_ws.send("EOS")
+            transcript = self.asr_ws.recv()
+            return transcript
         except Exception as e:
             print(f"Error: {e}")
+            
 
     def reset_state(self):
         self.conversation = []

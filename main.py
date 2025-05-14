@@ -107,16 +107,11 @@ def transcribe_audio(audio):
     # play the audio to the speaker
     # sd.play((audio.flatten() * 32768).astype(np.int16), samplerate=sample_rate)
     # sd.wait()
-    try:
-        with torch.no_grad():
-            result = asr(audio.squeeze(1))
-    except Exception as e:
-        print(f"Error: {e}")
-        return
+    transcript = kurisu_agent.transcribe((audio.flatten() * 32768).astype(np.int16))
     
-    pretty_print("User", result["text"], delay=0.05)
+    pretty_print("User", transcript, delay=0.05)
     pretty_print("Kurisu", "Thinking...")
-    response = kurisu_agent.process_message(result["text"])
+    response = kurisu_agent.process_message(transcript)
     if response is not None:
         # filter out the command before produce tts
         tts_input = re.sub(r'```bash (flux_led.*?)```', '', response)
