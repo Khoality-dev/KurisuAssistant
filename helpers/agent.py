@@ -1,9 +1,12 @@
 import io
 import os
+import threading
+import time
 import numpy as np
 import requests
 from dotenv import load_dotenv
 import json
+import websocket
 load_dotenv()
 
 class Agent:
@@ -16,6 +19,11 @@ class Agent:
             print("\033[31mWarning: TTS_API_URL not set in environment. Using default value: http://127.0.0.1:9880/tts\033[0m")
         else:
             print(f"Using TTS API URL: {os.environ['TTS_API_URL']}")
+
+        if "ASR_API_URL" not in os.environ:
+            print("\033[31mWarning: ASR_API_URL not set in environment. Using default value: ws://127.0.0.1:15597\033[0m")
+        else:
+            print(f"Using ASR API URL: {os.environ['ASR_API_URL']}")
             
         self.llm_api = os.environ.get("LLM_API_URL", "http://127.0.0.1:11434")
         self.llm_chat_api = f"{self.llm_api}/api/chat"
@@ -23,9 +31,33 @@ class Agent:
         self.model_name = model_name
         self.pull_model(model_name)
         self.conversation = []
+        self.asr_api = os.environ.get("ASR_API_URL", "ws://127.0.0.1:15597")
+        self.asr_ws = websocket.create_connection(self.asr_api)
+        if self.asr_ws.status != 101:
+            print(f"Error: {self.asr_ws.status_code}")
+            raise Exception("Error connecting to ASR API")
+        self.asr_ping_thread = threading.Thread(target=self.asr_ping)
+        self.asr_ping_thread.daemon = True
+        self.asr_ping_thread.start()
+        self.CHUNK_FRAMES = 16000
         with open("configs/default.json", "r", encoding="utf-8") as f:
             json_data = json.loads(f.read())
             self.template = json_data["system_prompts"]
+
+    def asr_ping(self):
+        while True:
+            self.asr_ws.send("PING")
+            response = self.asr_ws.recv()
+            time.sleep(10)
+
+    def transcribe(self, audio_array):
+        try:
+            while len(audio_array) > 0:
+                data = audio_array[:self.CHUNK_FRAMES]
+                audio_array = audio_array[self.CHUNK_FRAMES:]
+                self.asr_ws.send_binary(data.tobytes())
+        except Exception as e:
+            print(f"Error: {e}")
 
     def reset_state(self):
         self.conversation = []
