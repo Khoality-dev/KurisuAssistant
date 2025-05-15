@@ -32,22 +32,24 @@ class Agent:
         self.pull_model(model_name)
         self.conversation = []
         self.asr_api = os.environ.get("ASR_API_URL", "ws://127.0.0.1:15597")
-        self.asr_ws = websocket.create_connection(self.asr_api)
-        if self.asr_ws.status != 101:
-            print(f"Error: {self.asr_ws.status_code}")
-            raise Exception("Error connecting to ASR API")
-        self.asr_ping_thread = threading.Thread(target=self.asr_ping)
-        self.asr_ping_thread.daemon = True
-        self.asr_ping_thread.start()
+        self.asr_ws = None 
+        self.asr_thread = threading.Thread(target=self.asr_keep_connection)
+        self.asr_thread.daemon = True
+        self.asr_thread.start()
         self.CHUNK_FRAMES = 16000
         with open("configs/default.json", "r", encoding="utf-8") as f:
             json_data = json.loads(f.read())
             self.template = json_data["system_prompts"]
 
-    def asr_ping(self):
+    def asr_keep_connection(self):
         while True:
-            self.asr_ws.send("PING")
-            response = self.asr_ws.recv()
+            try:
+                if self.asr_ws is None or self.asr_ws.status != 101:
+                    self.asr_ws = websocket.create_connection(self.asr_api)
+                self.asr_ws.send("PING")
+                response = self.asr_ws.recv()
+            except Exception as e:
+                print(f"Error: Cannot reach ASR Server, retrying in 10 seconds. Error: {e}")
             time.sleep(10)
 
     def transcribe(self, audio_array):
