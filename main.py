@@ -26,7 +26,8 @@ block_duration = 0.03  # 30 ms (must be 10, 20, or 30 ms)
 block_size = int(sample_rate * block_duration)  # Samples per block
 input_device, output_device = sd.default.device
 devices = sd.query_devices()
-window_size_samples = 512           # e.g., 1024-sample window (~64ms)
+VAD_FIXED_WINDOW_SIZE = 512           # e.g., 1024-sample window (~64ms)
+RECORD_WINDOW_SIZE = 16000           # e.g., 16000-sample window (1 second)
 min_speech_silence_s = 2          # 2s of silence to end utterance
 torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -60,21 +61,21 @@ def record_and_detect():
     """ Continuously listen and collect speech when VAD detects voice. """
     print("Ready to take command...")
     speaking = False
-    recording = []
+    
     with sd.InputStream(channels=1, samplerate=sample_rate, blocksize=block_size, dtype='float32') as stream:
         audio_data = np.zeros((0, 1), dtype=np.float32)
+        recording = np.zeros((0, 1), dtype=np.float32)
         last_voice_time = -1
         while True:
             block, overflowed = stream.read(block_size)
             if overflowed:
                 print("Warning: input overflow")
             audio_data = np.concatenate((audio_data, block.copy()))
+            recording = np.concatenate((recording, block.copy()))
 
-            recording.append(block.copy())
-
-            if len(audio_data) >= window_size_samples:
-                input_data = audio_data[:window_size_samples]
-                audio_data = audio_data[window_size_samples:]
+            if len(audio_data) >= VAD_FIXED_WINDOW_SIZE:
+                input_data = audio_data[:VAD_FIXED_WINDOW_SIZE]
+                audio_data = audio_data[VAD_FIXED_WINDOW_SIZE:]
                 speech = vad_iterator(input_data.flatten(), return_seconds=False)
                 
                 if speech is not None:
@@ -88,8 +89,8 @@ def record_and_detect():
                         speaking = False
 
             if not speaking and last_voice_time != -1 and (time.time() - last_voice_time) > min_speech_silence_s:
-                segment = np.concatenate(recording)
-                recording.clear()
+                segment = recording.copy()
+                recording = np.zeros((0, 1), dtype=np.float32)
                 sd.play(stop_feedback_effect.flatten(), blocking=True)
                 #threading.Thread(target=transcribe_audio, args=(segment,)).start()
                 transcribe_audio(segment)
@@ -97,7 +98,8 @@ def record_and_detect():
                 
 
             if not speaking and last_voice_time == -1:
-                recording.clear()
+                if len(recording) > RECORD_WINDOW_SIZE:
+                    recording = recording[-RECORD_WINDOW_SIZE:]
 def transcribe_audio(audio):
     """ Transcribe the captured audio """
     if len(audio) == 0:
@@ -107,16 +109,12 @@ def transcribe_audio(audio):
     # play the audio to the speaker
     # sd.play((audio.flatten() * 32768).astype(np.int16), samplerate=sample_rate)
     # sd.wait()
-    try:
-        with torch.no_grad():
-            result = asr(audio.squeeze(1))
-    except Exception as e:
-        print(f"Error: {e}")
+    transcript = kurisu_agent.transcribe((audio.flatten() * 32768).astype(np.int16))
+    if transcript is None:
         return
-    
-    pretty_print("User", result["text"], delay=0.05)
+    pretty_print("User", transcript, delay=0.05)
     pretty_print("Kurisu", "Thinking...")
-    response = kurisu_agent.process_message(result["text"])
+    response = kurisu_agent.process_message(transcript)
     if response is not None:
         # filter out the command before produce tts
         tts_input = re.sub(r'```bash (flux_led.*?)```', '', response)

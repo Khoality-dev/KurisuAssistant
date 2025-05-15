@@ -40,8 +40,10 @@ async def asr_ws(ws: WebSocket):
                         pcm = np.frombuffer(audio_buffer, dtype=np.int16)
                         waveform = pcm.astype(np.float32) / 32768.0
                         final = asr(waveform)
-                        await ws.send_text(final["text"])
-                    break
+                        text = final["text"]
+                        print("Text:", text)
+                        await ws.send_text(text)
+                        audio_buffer = bytearray()
                 elif msg["text"] == "PING":
                     await ws.send_text("PONG")
 
