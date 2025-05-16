@@ -1,5 +1,7 @@
 import io
 import os
+import re
+import subprocess
 import threading
 import time
 import numpy as np
@@ -37,20 +39,75 @@ class Agent:
         self.asr_thread.daemon = True
         self.asr_thread.start()
         self.CHUNK_FRAMES = 16000
+        self.delimiter = set('.\n')
         with open("configs/default.json", "r", encoding="utf-8") as f:
             json_data = json.loads(f.read())
             self.template = json_data["system_prompts"]
 
+    def execute_command(self, response):
+        pattern = re.compile(r'```bash (flux_led.*?)```')
+        match = pattern.search(response)
+        if match:
+            command = match.group(1)
+            #print(f"Executing command: {command}")
+            result = subprocess.run(command.split(" "), capture_output=True, text=True)
+            #print(result.stdout)
+
     def asr_keep_connection(self):
         while True:
             try:
-                if self.asr_ws is None or self.asr_ws.status != 101:
-                    self.asr_ws = websocket.create_connection(self.asr_api)
                 self.asr_ws.send("PING")
                 response = self.asr_ws.recv()
             except Exception as e:
-                print(f"Error: Cannot reach ASR Server, retrying in 10 seconds. Error: {e}")
+                print(f"Error: Cannot reach ASR Server, retrying... Error: {e}")
+                self.asr_ws = websocket.create_connection(self.asr_api)
             time.sleep(10)
+
+    def process_and_say(self, message):
+        self.conversation.append({'role': 'user', 'content': message})
+        messages = self.template + self.conversation
+        headers = {"Content-Type": "application/json"}
+        json_body = {"model": self.model_name, "messages": messages, "stream": True}
+        full_response = ""
+        partial_response = ""
+        chunk_response = ""
+        with requests.post(self.llm_chat_api, headers=headers, json=json_body, stream=True) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if line:
+                    decoded_line = line.decode('utf-8')
+                    try:
+                        json_line = json.loads(decoded_line)
+                        full_response += json_line['message']['content']
+                        partial_response += json_line['message']['content']
+                        if (partial_response.count('`') !=6 and partial_response.count('`') != 0):
+                            continue
+                        if partial_response.count('`') == 6:
+                            self.execute_command(partial_response)
+                            partial_response = re.sub(r'```bash (flux_led.*?)```', '', partial_response)
+                        
+                        if json_line.get('done'):
+                            chunk_response = partial_response
+                            partial_response = None
+                            voice_data = self.say(chunk_response)
+                            yield chunk_response, voice_data
+                        else:
+                            for i, c in enumerate(partial_response):
+                                if c in self.delimiter:
+                                    chunk_response += partial_response[:i+1]
+                                    partial_response = partial_response[i+1:]
+                                    if len(chunk_response) >= 20:
+                                        break
+                                    
+                            if len(chunk_response) >= 20:
+                                voice_data = self.say(chunk_response)
+                                yield chunk_response, voice_data
+                                chunk_response = ""
+                    except json.JSONDecodeError:
+                        print(f"Error decoding JSON: {decoded_line}")
+
+        self.conversation.append({'role': 'assistant', 'content': full_response})
+
 
     def transcribe(self, audio_array):
         try:
@@ -63,16 +120,17 @@ class Agent:
             transcript = self.asr_ws.recv()
             return transcript
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Transcribe Error: {e}")
             
 
     def reset_state(self):
         self.conversation = []
 
-    def say(self, text):
+    def say(self, text, results=None):
         if text is None or len(text) == 0:
             return
         
+        text = re.sub(r'```bash (flux_led.*?)```', '', text)
         params = {
             "text_lang": "ja",
             "ref_audio_path": "reference/ayaka_ref.wav",
@@ -87,7 +145,7 @@ class Agent:
             response = requests.get(self.tts_api, params=params)
             response.raise_for_status()
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"TTS Error: {e}")
             return
         
         audio_data = response.content
