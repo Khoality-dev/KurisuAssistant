@@ -145,7 +145,7 @@ def transcribe_audio(audio):
 
     full_response = ""
     i = 0
-    for message, voice_data in kurisu_agent.process_and_say(message=transcript):
+    for message, voice_data in kurisu_agent(message=transcript):
         if i == 0:
             logging({"message": "\033[31mKurisu: \033[0m ", "end": "", "overwrite": True})
         if voice_data is not None:

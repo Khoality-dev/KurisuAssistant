@@ -37,16 +37,28 @@ services:
     tty: true
     entrypoint: ["/bin/ollama", "serve"]
     restart: unless-stopped
-  openai-whisper:
-    image: legwork7623/openai-whisper:latest
-    container_name: openai-whisper
+  # openai-whisper:
+  #   image: legwork7623/openai-whisper:latest
+  #   container_name: openai-whisper
+  #   ports:
+  #     - "15597:15597"
+  #   gpus: "all"
+  #   volumes:
+  #     - ./openai_whisper/whisper-finetuned:/app/whisper-finetuned
+  #   tty: true
+  #   restart: unless-stopped
+  core:
+    image: legwork7623/kurisu-assistant-core:latest
+    container_name: kurisu-assistant-core
     ports:
       - "15597:15597"
-    gpus: "all"
     volumes:
-      - ./openai_whisper/whisper-finetuned:/app/whisper-finetuned
-    tty: true
+      - ./configs:/app/configs
+      - ./assets:/app/assets
+    gpus: "all"
     restart: unless-stopped
+    tty: true
+    
   
 networks:
   default:

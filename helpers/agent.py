@@ -63,7 +63,7 @@ class Agent:
                 self.asr_ws = websocket.create_connection(self.asr_api)
             time.sleep(10)
 
-    def process_and_say(self, message):
+    def __call__(self, message):
         self.conversation.append({'role': 'user', 'content': message})
         messages = self.template + self.conversation
         headers = {"Content-Type": "application/json"}
