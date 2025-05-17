@@ -43,6 +43,8 @@ services:
     ports:
       - "15597:15597"
     gpus: "all"
+    volumes:
+      - ./openai_whisper/whisper-finetuned:/app/whisper-finetuned
     tty: true
     restart: unless-stopped
   
