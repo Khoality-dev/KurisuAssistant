@@ -1,16 +1,15 @@
 import os
 import requests
-import dotenv
 
-dotenv.load_dotenv()
 
 class TTS:
     def __init__(self):
         self.api_url = os.getenv("TTS_API_URL", "http://127.0.0.1:9880/tts")
-
+        print(f"TTS API URL: {self.api_url}")
     def __call__(self, text: str) -> bytes:
         try:
             params = {
+                "text": text,
                 "text_lang": "ja",
                 "ref_audio_path": "reference/ayaka_ref.wav",
                 "prompt_lang": "ja",

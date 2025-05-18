@@ -1,25 +1,27 @@
 import os
-from fastapi import FastAPI, HTTPException, WebSocketDisconnect
-from fastapi import WebSocket, Body
+from fastapi import FastAPI, HTTPException, Response, Body
 from transformers import pipeline
-from openai_whisper.helpers.tts import TTS
+from helpers.tts import TTS
 import torch
 import numpy as np
 import requests
+import dotenv
+
+dotenv.load_dotenv()
 
 app = FastAPI(
-    title="OpenAI Whisper API",
-    description="API for OpenAI Whisper model",
-    version="0.0.0"
+    title="Kurisu Assistant Core API",
+    description="API for Kurisu Assistant Core",
+    version="0.1.0"
 )
 
 whisper_model_name = 'whisper-finetuned' if os.path.exists('whisper-finetuned') else 'openai/whisper-base'
-asr = pipeline(
+asr_model = pipeline(
     model=whisper_model_name,
     task='automatic-speech-recognition',
     device='cuda' if torch.cuda.is_available() else 'cpu',
 )
-tts = TTS()
+tts_model = TTS()
 
 SAMPLE_RATE = 16_000         # Hz
 SAMPLE_WIDTH = 2             # bytes per sample (16-bit)
@@ -42,9 +44,9 @@ async def asr(
         waveform = pcm.astype(np.float32) / 32768.0
 
         # 2) Run your ASR model
-        result = asr(waveform)   # assuming `asr` is your pipeline
+        result = asr_model(waveform)   # assuming `asr` is your pipeline
         text = result["text"]
-
+        print("ASR Result: ", text)
         # 3) Return JSON
         return {"text": text}
 
@@ -54,15 +56,17 @@ async def asr(
     
 @app.post(
     "/tts",
+    response_class=Response,
     responses={200: {"content": {"application/octet-stream": {}}}}
 )
 async def tts(
-    text: str = Body(..., media_type="text/plain")
+    text: str = Body(..., embed=True)
 ):
     """
     Receive text, run TTS, and return raw audio bytes.
     """
-    result = tts(text)
+    print("Received text: ", text)
+    result = tts_model(text)
     if result is None:
         raise HTTPException(status_code=500, detail="TTS Error")
-    return result
+    return Response(content=result, media_type="apllication/octet-stream")
