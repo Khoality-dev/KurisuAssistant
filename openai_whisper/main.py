@@ -2,8 +2,10 @@ import os
 from fastapi import FastAPI, HTTPException, WebSocketDisconnect
 from fastapi import WebSocket, Body
 from transformers import pipeline
+from openai_whisper.helpers.tts import TTS
 import torch
 import numpy as np
+import requests
 
 app = FastAPI(
     title="OpenAI Whisper API",
@@ -17,6 +19,7 @@ asr = pipeline(
     task='automatic-speech-recognition',
     device='cuda' if torch.cuda.is_available() else 'cpu',
 )
+tts = TTS()
 
 SAMPLE_RATE = 16_000         # Hz
 SAMPLE_WIDTH = 2             # bytes per sample (16-bit)
@@ -26,7 +29,7 @@ SAMPLE_WIDTH = 2             # bytes per sample (16-bit)
     "/asr",
     responses={200: {"content": {"application/json": {}}}}
 )
-async def asr_post(
+async def asr(
     audio: bytes = Body(..., media_type="application/octet-stream")
 ):
     """
@@ -48,3 +51,18 @@ async def asr_post(
     except Exception as e:
         # Something went wrong during decoding or ASR
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post(
+    "/tts",
+    responses={200: {"content": {"application/octet-stream": {}}}}
+)
+async def tts(
+    text: str = Body(..., media_type="text/plain")
+):
+    """
+    Receive text, run TTS, and return raw audio bytes.
+    """
+    result = tts(text)
+    if result is None:
+        raise HTTPException(status_code=500, detail="TTS Error")
+    return result
