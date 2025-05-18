@@ -37,14 +37,19 @@ services:
     tty: true
     entrypoint: ["/bin/ollama", "serve"]
     restart: unless-stopped
-  openai-whisper:
-    image: legwork7623/openai-whisper:latest
-    container_name: openai-whisper
+  core:
+    image: legwork7623/kurisu-assistant-core:latest
     ports:
       - "15597:15597"
+    depends_on:
+      - ollama
+      - gpt-sovits
     gpus: "all"
+    environment:
+      - TTS_API_URL=http://127.0.0.1:9880/tts
     volumes:
-      - ./openai_whisper/whisper-finetuned:/app/whisper-finetuned
+      #- ./openai_whisper/whisper-finetuned:/app/whisper-finetuned
+      - ./openai_whisper:/app
     tty: true
     restart: unless-stopped
   
