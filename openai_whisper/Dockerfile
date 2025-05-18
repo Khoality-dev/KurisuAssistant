@@ -13,3 +13,4 @@ RUN pip install -r requirements.txt
 ADD . /app
 EXPOSE 15597
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "15597"]
+# uvicorn main:app --host 0.0.0.0 --port 15597

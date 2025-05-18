@@ -33,11 +33,7 @@ class Agent:
         self.model_name = model_name
         self.pull_model(model_name)
         self.conversation = []
-        self.asr_api = os.environ.get("ASR_API_URL", "ws://127.0.0.1:15597")
-        self.asr_ws = None 
-        self.asr_thread = threading.Thread(target=self.asr_keep_connection)
-        self.asr_thread.daemon = True
-        self.asr_thread.start()
+        self.asr_api = os.environ.get("ASR_API_URL", "http://127.0.0.1:15597/asr")
         self.CHUNK_FRAMES = 16000
         self.delimiter = set('.\n')
         with open("configs/default.json", "r", encoding="utf-8") as f:
@@ -52,16 +48,6 @@ class Agent:
             #print(f"Executing command: {command}")
             result = subprocess.run(command.split(" "), capture_output=True, text=True)
             #print(result.stdout)
-
-    def asr_keep_connection(self):
-        while True:
-            try:
-                self.asr_ws.send("PING")
-                response = self.asr_ws.recv()
-            except Exception as e:
-                print(f"Error: Cannot reach ASR Server, retrying... Error: {e}")
-                self.asr_ws = websocket.create_connection(self.asr_api)
-            time.sleep(10)
 
     def process_and_say(self, message):
         self.conversation.append({'role': 'user', 'content': message})
@@ -110,23 +96,25 @@ class Agent:
 
 
     def transcribe(self, audio_array):
+        resp = None
         try:
-            while len(audio_array) > 0:
-                data = audio_array[:self.CHUNK_FRAMES]
-                audio_array = audio_array[self.CHUNK_FRAMES:]
-                self.asr_ws.send_binary(data.tobytes())
-            
-            self.asr_ws.send("EOS")
-            transcript = self.asr_ws.recv()
-            return transcript
+            resp = requests.post(
+                self.asr_api,
+                headers={"Content-Type": "application/octet-stream"},
+                data=audio_array.tobytes(),
+            )
+            resp.raise_for_status()
+            resp = resp.json()['text']
         except Exception as e:
-            print(f"Transcribe Error: {e}")
-            
+            print(f"Error: {e}")
+        
+        return resp
+        
 
     def reset_state(self):
         self.conversation = []
 
-    def say(self, text, results=None):
+    def say(self, text):
         if text is None or len(text) == 0:
             return
         

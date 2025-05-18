@@ -1,6 +1,6 @@
 import os
-from fastapi import FastAPI, WebSocketDisconnect
-from fastapi import WebSocket
+from fastapi import FastAPI, HTTPException, WebSocketDisconnect
+from fastapi import WebSocket, Body
 from transformers import pipeline
 import torch
 import numpy as np
@@ -21,32 +21,30 @@ asr = pipeline(
 SAMPLE_RATE = 16_000         # Hz
 SAMPLE_WIDTH = 2             # bytes per sample (16-bit)
 
-@app.websocket("/asr")
-async def asr_ws(ws: WebSocket):
-    await ws.accept()
-    audio_buffer = bytearray()
+
+@app.post(
+    "/asr",
+    responses={200: {"content": {"application/json": {}}}}
+)
+async def asr_post(
+    audio: bytes = Body(..., media_type="application/octet-stream")
+):
+    """
+    Receive raw int16 PCM in the request body,
+    convert to float waveform, run ASR, and return JSON.
+    """
     try:
-        while True:
-            msg = await ws.receive()
+        # 1) Convert raw bytes → int16 PCM → float32 waveform
+        pcm = np.frombuffer(audio, dtype=np.int16)
+        waveform = pcm.astype(np.float32) / 32768.0
 
-            # binary frame: appends raw PCM bytes
-            if msg.get("bytes") is not None:
-                audio_buffer.extend(msg["bytes"])
+        # 2) Run your ASR model
+        result = asr(waveform)   # assuming `asr` is your pipeline
+        text = result["text"]
 
-            # text frame: use "EOS" to signal end of stream
-            elif msg.get("text"):
-                if msg["text"] == "EOS":
-                    if audio_buffer:
-                        pcm = np.frombuffer(audio_buffer, dtype=np.int16)
-                        waveform = pcm.astype(np.float32) / 32768.0
-                        final = asr(waveform)
-                        text = final["text"]
-                        print("Text:", text)
-                        await ws.send_text(text)
-                        audio_buffer = bytearray()
-                elif msg["text"] == "PING":
-                    await ws.send_text("PONG")
+        # 3) Return JSON
+        return {"text": text}
 
-    except WebSocketDisconnect:
-        # client hung up
-        pass
+    except Exception as e:
+        # Something went wrong during decoding or ASR
+        raise HTTPException(status_code=500, detail=str(e))
