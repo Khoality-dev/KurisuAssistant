@@ -19,7 +19,6 @@ class TTS:
                 "streaming_mode": True,
             }
             response = requests.get(self.api_url, params=params)
-            print(f"TTS Response: {response}")
             response.raise_for_status()
         except Exception as e:
             print(f"TTS Error: {e}")

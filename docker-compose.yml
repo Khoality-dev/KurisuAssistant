@@ -46,7 +46,7 @@ services:
       - gpt-sovits
     gpus: "all"
     environment:
-      - TTS_API_URL=http://127.0.0.1:9880/tts
+      - TTS_API_URL=http://gpt-sovits-container:9880/tts
     volumes:
       - ./openai_whisper/whisper-finetuned:/app/whisper-finetuned
     tty: true
