@@ -129,7 +129,7 @@ def transcribe_audio(audio):
     # play the audio to the speaker
     # sd.play((audio.flatten() * 32768).astype(np.int16), samplerate=sample_rate)
     # sd.wait()
-    global last_interaction_time, is_interacting
+    global last_interaction_time, is_interacting, min_speech_silence_s
     transcript = kurisu_agent.transcribe((audio.flatten() * 32768).astype(np.int16))
     if transcript is None or ('kurisu' not in transcript.lower() and not is_interacting):
         return
