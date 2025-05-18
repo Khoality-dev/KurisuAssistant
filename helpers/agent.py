@@ -29,7 +29,7 @@ class Agent:
             
         self.llm_api = os.environ.get("LLM_API_URL", "http://127.0.0.1:11434")
         self.llm_chat_api = f"{self.llm_api}/api/chat"
-        self.tts_api = os.environ.get("TTS_API_URL", "http://10.0.0.122:9880/tts")
+        self.tts_api = os.environ.get("TTS_API_URL", "http://127.0.0.1:9880/tts")
         self.model_name = model_name
         self.pull_model(model_name)
         self.conversation = []
