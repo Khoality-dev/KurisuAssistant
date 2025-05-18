@@ -48,8 +48,7 @@ services:
     environment:
       - TTS_API_URL=http://127.0.0.1:9880/tts
     volumes:
-      #- ./openai_whisper/whisper-finetuned:/app/whisper-finetuned
-      - ./openai_whisper:/app
+      - ./openai_whisper/whisper-finetuned:/app/whisper-finetuned
     tty: true
     restart: unless-stopped
   
