@@ -1,11 +1,13 @@
+import json
 import wave
-import torch
 import sounddevice as sd
 import numpy as np
+import torch
 import time
 from helpers.utils import pretty_print
 from helpers.agent import Agent
 from threading import Condition, Thread
+
 
 print("Initializing...")
 vad_model, utils = torch.hub.load(
@@ -128,33 +130,38 @@ def transcribe_audio(audio):
     # play the audio to the speaker
     # sd.play((audio.flatten() * 32768).astype(np.int16), samplerate=sample_rate)
     # sd.wait()
-    global last_interaction_time, is_interacting
-    transcript = kurisu_agent.transcribe((audio.flatten() * 32768).astype(np.int16))
-    if transcript is None or ('kurisu' not in transcript.lower() and not is_interacting):
-        return
-    
-    if not is_interacting:
-        sd.play(start_feedback_effect.flatten(), blocking=True)
-        is_interacting = True
-        min_speech_silence_s = 2
-    logging({"message": transcript, "delay": 0.05})
+    global last_interaction_time, is_interacting, min_speech_silence_s
+    audio = (audio.flatten() * 32768).astype(np.int16)
+    response = kurisu_agent(audio)
     i = 0
-    #\033[32mUser:\033[0m print in red
-    logging({"message": "\033[31mKurisu:\033[0m Thinking...", "delay": 0.05, "end": "\n"})
+    for message, voice_data in response:
+        json_body = json.loads(message)
+        role = json_body.get("role")    
+        content = json_body.get("content")
+        if role == "user":
+            if content is None or ('kurisu' not in content.lower() and not is_interacting):
+                return
+            
+            if not is_interacting:
+                sd.play(start_feedback_effect.flatten(), blocking=True)
+                is_interacting = True
+                min_speech_silence_s = 2
+            logging({"message": content, "delay": 0.05})
 
-    full_response = ""
-    i = 0
-    for message, voice_data in kurisu_agent(message=transcript):
-        if i == 0:
-            logging({"message": "\033[31mKurisu: \033[0m ", "end": "", "overwrite": True})
-        if voice_data is not None:
-            with audio_output_condition:
-                audio_output_queue.append(voice_data)
-                audio_output_condition.notify()
-            logging({"message": message, "delay": 0.05, "end": ""})
-            full_response += message
+            #\033[32mUser:\033[0m print in red
+            logging({"message": "\033[31mKurisu:\033[0m Thinking...", "delay": 0.05, "end": "\n"})
+        else:
+            if i == 0:
+                logging({"message": "\033[31mKurisu: \033[0m ", "end": "", "overwrite": True})
+
+            if voice_data is not None:
+                with audio_output_condition:
+                    audio_output_queue.append(voice_data)
+                    audio_output_condition.notify()
+                logging({"message": message, "delay": 0.05, "end": ""})
+            
             i += 1
-        
+                
     logging({})
     # print in green color 
     logging({"message":"\033[32mUser:\033[0m ", "end": ""})

@@ -35,9 +35,6 @@ class Agent:
         self.conversation = []
         self.asr_api = os.environ.get("ASR_API_URL", "ws://127.0.0.1:15597")
         self.asr_ws = None 
-        self.asr_thread = threading.Thread(target=self.asr_keep_connection)
-        self.asr_thread.daemon = True
-        self.asr_thread.start()
         self.CHUNK_FRAMES = 16000
         self.delimiter = set('.\n')
         with open("configs/default.json", "r", encoding="utf-8") as f:
@@ -52,16 +49,6 @@ class Agent:
             #print(f"Executing command: {command}")
             result = subprocess.run(command.split(" "), capture_output=True, text=True)
             #print(result.stdout)
-
-    def asr_keep_connection(self):
-        while True:
-            try:
-                self.asr_ws.send("PING")
-                response = self.asr_ws.recv()
-            except Exception as e:
-                print(f"Error: Cannot reach ASR Server, retrying... Error: {e}")
-                self.asr_ws = websocket.create_connection(self.asr_api)
-            time.sleep(10)
 
     def __call__(self, message):
         self.conversation.append({'role': 'user', 'content': message})
@@ -90,7 +77,7 @@ class Agent:
                             chunk_response = partial_response
                             partial_response = None
                             voice_data = self.say(chunk_response)
-                            yield chunk_response, voice_data
+                            yield chunk_response, voice_data, True
                         else:
                             for i, c in enumerate(partial_response):
                                 if c in self.delimiter:
@@ -101,7 +88,7 @@ class Agent:
                                     
                             if len(chunk_response) >= 20:
                                 voice_data = self.say(chunk_response)
-                                yield chunk_response, voice_data
+                                yield chunk_response, voice_data, False
                                 chunk_response = ""
                     except json.JSONDecodeError:
                         print(f"Error decoding JSON: {decoded_line}")

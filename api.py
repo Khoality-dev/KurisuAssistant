@@ -17,8 +17,8 @@ whisper_model_name = 'whisper-finetuned' if os.path.exists('whisper-finetuned') 
 asr = ASR(whisper_model_name)
 agent = Agent()
 
-@app.websocket("/chat")
-async def talk_ws(ws: WebSocket):
+@app.websocket("/asr")
+async def asr_ws(ws: WebSocket):
     await ws.accept()
     audio_buffer = bytearray()
     try:
@@ -35,33 +35,24 @@ async def talk_ws(ws: WebSocket):
                     if audio_buffer:
                         pcm = np.frombuffer(audio_buffer, dtype=np.int16)
                         waveform = pcm.astype(np.float32) / 32768.0
-                        text = asr(waveform)
+                        final = asr(waveform)
+                        text = final["text"]
                         print("Text:", text)
-                        for text, audio in agent(text):
-                            await ws.send_text(text)
-                            if audio is not None:
-                                await ws.send_bytes(audio.tobytes())
-                            await ws.send_text("EOS")
-
+                        await ws.send_text(text)
                         audio_buffer = bytearray()
                 elif msg["text"] == "PING":
                     await ws.send_text("PONG")
-                else:
-                    try:
-                        json_msg = json.loads(msg["text"])
-                    except json.JSONDecodeError:
-                        print("Invalid JSON message:", msg["text"])
-                        continue
-
-                    if "text" in json_msg:
-                        text = json_msg["text"]
-                        print("Text:", text)
-                        for text, audio in agent(text):
-                            await ws.send_text(text)
-                            if audio is not None:
-                                await ws.send_bytes(audio.tobytes())
-                            await ws.send_text("EOS")
 
     except WebSocketDisconnect:
         # client hung up
         pass
+
+class message:
+    def __init__(self, role, content):
+        self.role = role
+        self.content = content
+
+
+@app.post("/chat")
+async def chat(message: message):
+    agent(message.content)
