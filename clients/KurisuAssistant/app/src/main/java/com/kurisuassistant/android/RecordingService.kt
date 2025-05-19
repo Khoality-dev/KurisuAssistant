@@ -20,11 +20,18 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.util.Log
 import androidx.annotation.RequiresApi
+import androidx.collection.MutableFloatList
+import androidx.collection.MutableIntList
 import com.kurisuassistant.android.silerovad.SileroVadDetector
 import com.kurisuassistant.android.silerovad.SileroVadOnnxModel
 import com.kurisuassistant.android.utils.CircularQueue
+import okhttp3.MediaType.Companion.toMediaType
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okio.IOException
+import okhttp3.RequestBody.Companion.toRequestBody
 
 private const val CHANNEL_ID = "RecordingServiceChannel"
 private const val TAG = "RecordingService"
@@ -53,7 +60,9 @@ class RecordingService : Service() {
     private var recordingJob: Job? = null
     private var player: AudioTrack? = null
     private val audioBuffer: CircularQueue = CircularQueue(100000)
+    private val asrBuffer: MutableIntList = MutableIntList()
     private lateinit var vadModel : SileroVadDetector
+    private val httpClient: OkHttpClient = OkHttpClient()
 
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
@@ -65,6 +74,16 @@ class RecordingService : Service() {
         initSileroVAD()
         startRecordingLoop()
         Log.d(TAG, "onCreate")
+    }
+
+    private fun toByteArray(intArray:MutableIntList, le: Boolean = true): ByteArray {
+        val bb = ByteBuffer.allocate(intArray.size * Short.SIZE_BYTES)
+            .order(if (le) ByteOrder.LITTLE_ENDIAN else ByteOrder.BIG_ENDIAN)
+        for (i in 0 until intArray.size) {
+            val shortValue = intArray[i].toShort()
+            bb.putShort(shortValue)
+        }
+        return bb.array()
     }
 
     private fun buildNotification(): Notification {
@@ -106,7 +125,7 @@ class RecordingService : Service() {
             audioManager.setCommunicationDevice(bleDevice)
         }
         recorder = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            MediaRecorder.AudioSource.MIC,
             sampleRate,
             channelConfig,
             encoding,
@@ -138,33 +157,72 @@ class RecordingService : Service() {
         recorder?.startRecording()
 
         recordingJob = CoroutineScope(Dispatchers.IO).launch {
-            val tempAudioBuffer = ShortArray(bufferSize / 2)
+            val tempBuffer = ShortArray(bufferSize / 2)
+            var previousIsSpeaking = vadModel.isSpeaking
             while (isActive) {
-                val readCount = recorder!!.read(tempAudioBuffer, 0, tempAudioBuffer.size)
+                val readCount = recorder!!.read(tempBuffer, 0, tempBuffer.size)
                 if (readCount > 0) {
-                    player?.write(tempAudioBuffer, 0, readCount);
+                    player?.write(tempBuffer, 0, readCount);
                     val floatFrame = FloatArray(readCount) { i ->
                         // Short ranges –32768..32767, so divide by max value
-                        tempAudioBuffer[i] / 32767.0f
+                        tempBuffer[i] / 32767.0f
+                    }
+                    val intFrame = IntArray(readCount) { i ->
+                        tempBuffer[i].toInt()
                     }
                     audioBuffer.addAll(floatFrame.toList())
+
+                    asrBuffer.addAll(intFrame)
                 }
+
 
                 while (audioBuffer.size() >= sileroVADWindowSize)
                 {
                     val inputBuffer = audioBuffer.topFirst(sileroVADWindowSize)
                     audioBuffer.dropFirst(sileroVADWindowSize)
-                    val status = vadModel.call(inputBuffer.toFloatArray())
+                    vadModel.call(inputBuffer.toFloatArray())
 
-                    if (status == 1)
+                }
+
+                if (vadModel.isSpeaking == false)
+                {
+                    if (previousIsSpeaking == false)
                     {
-                        Log.d(TAG, "Start")
+                        if (asrBuffer.size > 16000)
+                        {
+                            asrBuffer.removeRange(0, asrBuffer.size - 16000)
+                        }
                     }
-                    else if (status ==2)
+                    else
                     {
-                        Log.d(TAG, "End")
+                     // TODO: make request here
+                        // 1) Prepare JSON request body
+                        val mediaType = "application/octet-stream".toMediaType()  // :contentReference[oaicite:0]{index=0}
+                        val data = toByteArray(asrBuffer)
+                        // 3. Wrap your byte array in a RequestBody
+                        val body = data.toRequestBody(mediaType)                   // :contentReference[oaicite:1]{index=1}
+
+                        // 4. Build the POST request
+                        val request = Request.Builder()
+                            .url("http://10.0.0.122:15597/asr")
+                            .post(body)
+                            .build()
+
+                        var text : String
+                        // 5. Execute synchronously (must be on a background thread)
+                        httpClient.newCall(request).execute().use { response ->        // :contentReference[oaicite:2]{index=2}
+                            if (!response.isSuccessful) {
+                                throw IOException("Unexpected HTTP code ${response.code}")
+                            }
+                            // 6. Return the response body as a String
+                            text = response.body?.string().orEmpty()
+                        }
+
+                        Log.d(TAG, text)
                     }
                 }
+
+                previousIsSpeaking = vadModel.isSpeaking
             }
         }
     }

@@ -37,6 +37,4 @@ class CircularQueue(capacity: Int) {
     fun toList(): List<Float> {
         return List(count) { i -> data[(head + i) % data.size] }
     }
-
-
 }

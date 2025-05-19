@@ -22,11 +22,20 @@ object Util {
                 activity,
                 Manifest.permission.FOREGROUND_SERVICE
             )
-            != PackageManager.PERMISSION_GRANTED)
+            != PackageManager.PERMISSION_GRANTED
+            || ContextCompat.checkSelfPermission(
+                activity,
+                Manifest.permission.INTERNET)
+            != PackageManager.PERMISSION_GRANTED
+            || ContextCompat.checkSelfPermission(
+                activity,
+                Manifest.permission.ACCESS_NETWORK_STATE)
+            != PackageManager.PERMISSION_GRANTED
+            )
             {
             ActivityCompat.requestPermissions(
                 /* activity = */ activity,
-                /* permissions = */ arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.FOREGROUND_SERVICE),
+                /* permissions = */ arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.FOREGROUND_SERVICE, Manifest.permission.ACCESS_NETWORK_STATE, Manifest.permission.INTERNET),
                 /* requestCode = */ 0
             )
         }

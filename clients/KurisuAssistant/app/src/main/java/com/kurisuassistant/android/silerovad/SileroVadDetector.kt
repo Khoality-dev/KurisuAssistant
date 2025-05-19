@@ -12,7 +12,7 @@ class SileroVadDetector(modelBuffer: ByteBuffer) {
     private val windowSizeSample = 512
     private var minSilenceMsDuration = 2 * 1000 // 2s
     private var lastDetectedTimeStamp: Long = 0
-    private var isSpeaking = false
+    var isSpeaking = false
     /**
      * Method to reset the state
      */
