@@ -125,7 +125,7 @@ class RecordingService : Service() {
             audioManager.setCommunicationDevice(bleDevice)
         }
         recorder = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             sampleRate,
             channelConfig,
             encoding,
@@ -162,7 +162,6 @@ class RecordingService : Service() {
             while (isActive) {
                 val readCount = recorder!!.read(tempBuffer, 0, tempBuffer.size)
                 if (readCount > 0) {
-                    player?.write(tempBuffer, 0, readCount);
                     val floatFrame = FloatArray(readCount) { i ->
                         // Short ranges –32768..32767, so divide by max value
                         tempBuffer[i] / 32767.0f
