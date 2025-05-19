@@ -8,7 +8,6 @@ import numpy as np
 import requests
 from dotenv import load_dotenv
 import json
-import websocket
 load_dotenv()
 
 class Agent:
@@ -33,7 +32,7 @@ class Agent:
         self.model_name = model_name
         self.pull_model(model_name)
         self.conversation = []
-        self.asr_api = os.environ.get("ASR_API_URL", "http://127.0.0.1:15597/asr")
+        self.asr_api = os.environ.get("ASR_API_URL", "http://127.0.0.1:15597")
         self.CHUNK_FRAMES = 16000
         self.delimiter = set('.\n')
         with open("configs/default.json", "r", encoding="utf-8") as f:
@@ -96,7 +95,6 @@ class Agent:
 
 
     def transcribe(self, audio_array):
-        resp = None
         try:
             resp = requests.post(
                 self.asr_api,
@@ -104,12 +102,11 @@ class Agent:
                 data=audio_array.tobytes(),
             )
             resp.raise_for_status()
-            resp = resp.json()['text']
         except Exception as e:
             print(f"Error: {e}")
+            return None
         
-        return resp
-        
+        return resp.json()['text']
 
     def reset_state(self):
         self.conversation = []
@@ -119,18 +116,9 @@ class Agent:
             return
         
         text = re.sub(r'```bash (flux_led.*?)```', '', text)
-        params = {
-            "text_lang": "ja",
-            "ref_audio_path": "reference/ayaka_ref.wav",
-            "prompt_lang": "ja",
-            "text_split_method": "cut5",
-            "batch_size": 20,
-            "media_type": "wav",
-            "streaming_mode": True,
-        }
-        params['text'] = text
+        json_body = {"text": text}
         try:
-            response = requests.get(self.tts_api, params=params)
+            response = requests.post(self.tts_api, json=json_body)
             response.raise_for_status()
         except Exception as e:
             print(f"TTS Error: {e}")
