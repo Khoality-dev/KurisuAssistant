@@ -20,6 +20,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.util.Log
 import androidx.annotation.RequiresApi
+import com.kurisuassistant.android.silerovad.SileroVadDetector
 import com.kurisuassistant.android.silerovad.SileroVadOnnxModel
 import com.kurisuassistant.android.utils.CircularQueue
 import java.nio.ByteBuffer
@@ -42,7 +43,6 @@ private fun createNotificationChannel(context: Context) {
 }
 
 class RecordingService : Service() {
-
     private val sampleRate = 16_000
     private val sileroVADWindowSize = 512
     private val vadThreshold = 0.5f
@@ -53,7 +53,7 @@ class RecordingService : Service() {
     private var recordingJob: Job? = null
     private var player: AudioTrack? = null
     private val audioBuffer: CircularQueue = CircularQueue(100000)
-    private lateinit var vadModel : SileroVadOnnxModel
+    private lateinit var vadModel : SileroVadDetector
 
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
@@ -90,7 +90,7 @@ class RecordingService : Service() {
             .order(ByteOrder.nativeOrder())
             .put(modelBytes)
             .apply { flip() }
-        vadModel = SileroVadOnnxModel(modelBuffer)
+        vadModel = SileroVadDetector(modelBuffer)
     }
 
     @RequiresApi(Build.VERSION_CODES.S)
@@ -154,10 +154,16 @@ class RecordingService : Service() {
                 {
                     val inputBuffer = audioBuffer.topFirst(sileroVADWindowSize)
                     audioBuffer.dropFirst(sileroVADWindowSize)
-                    val score = vadModel.call( arrayOf(inputBuffer.toFloatArray()), sampleRate)[0]
+                    val status = vadModel.call(inputBuffer.toFloatArray())
 
-                    val detectionResult = if (score > vadThreshold) "Voice Detected" else "No Voice"
-                    Log.d(TAG, detectionResult)
+                    if (status == 1)
+                    {
+                        Log.d(TAG, "Start")
+                    }
+                    else if (status ==2)
+                    {
+                        Log.d(TAG, "End")
+                    }
                 }
             }
         }
