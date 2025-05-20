@@ -37,25 +37,7 @@ class MainActivity : AppCompatActivity() {
             insets
         }
         Util.checkPermissions(this)
-        val modelBytes  = resources.openRawResource(R.raw.silero_vad).readBytes()
-        val modelBuffer: ByteBuffer = ByteBuffer
-            .allocateDirect(modelBytes.size)
-            .order(ByteOrder.nativeOrder())
-            .put(modelBytes)
-            .apply { flip() }
-        vadModel =
-            SileroVadOnnxModel(modelBuffer)
-
-        val audioData: Array<FloatArray> = arrayOf(
-            FloatArray(512)
-        )
-        val result = vadModel.call(audioData, SAMPLE_RATE)
-        val textView : TextView = findViewById(R.id.main_text)
-        val printOutResult = "My result: " + result[0].toString()
-        textView.text = printOutResult
-        Toast.makeText(this, printOutResult, Toast.LENGTH_SHORT).show()
         startRecordingService()
-        Log.d(TAG, "Start Activity")
     }
 
     private fun startRecordingService() {

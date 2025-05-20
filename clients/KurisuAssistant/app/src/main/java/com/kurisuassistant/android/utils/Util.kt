@@ -8,10 +8,35 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
+import androidx.collection.MutableIntList
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 object Util {
+    fun toByteArray(intArray:MutableIntList, le: Boolean = true): ByteArray {
+        val bb = ByteBuffer.allocate(intArray.size * Short.SIZE_BYTES)
+            .order(if (le) ByteOrder.LITTLE_ENDIAN else ByteOrder.BIG_ENDIAN)
+        for (i in 0 until intArray.size) {
+            val shortValue = intArray[i].toShort()
+            bb.putShort(shortValue)
+        }
+        return bb.array()
+    }
+
+    fun toShortArray(data: ByteArray, le: Boolean = true): ShortArray {
+        val bb = ByteBuffer
+            .wrap(data)
+            .order(if (le) ByteOrder.LITTLE_ENDIAN else ByteOrder.BIG_ENDIAN)
+
+        // asIntBuffer() views the bytes as ints
+        val shortBuf = bb.asShortBuffer()
+        val result = ShortArray(shortBuf.remaining())
+        shortBuf.get(result)
+        return result
+    }
+
     fun checkPermissions(activity: Activity?) {
         if (ContextCompat.checkSelfPermission(
                 activity!!,

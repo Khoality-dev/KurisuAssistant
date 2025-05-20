@@ -51,6 +51,7 @@ private fun createNotificationChannel(context: Context) {
 
 class RecordingService : Service() {
     private val sampleRate = 16_000
+    private val outSampleRate = 32_000
     private val sileroVADWindowSize = 512
     private val vadThreshold = 0.5f
     private val channelConfig = AudioFormat.CHANNEL_IN_MONO
@@ -62,8 +63,7 @@ class RecordingService : Service() {
     private val audioBuffer: CircularQueue = CircularQueue(100000)
     private val asrBuffer: MutableIntList = MutableIntList()
     private lateinit var vadModel : SileroVadDetector
-    private val httpClient: OkHttpClient = OkHttpClient()
-
+    private val agent = Agent()
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     override fun onCreate() {
@@ -76,15 +76,7 @@ class RecordingService : Service() {
         Log.d(TAG, "onCreate")
     }
 
-    private fun toByteArray(intArray:MutableIntList, le: Boolean = true): ByteArray {
-        val bb = ByteBuffer.allocate(intArray.size * Short.SIZE_BYTES)
-            .order(if (le) ByteOrder.LITTLE_ENDIAN else ByteOrder.BIG_ENDIAN)
-        for (i in 0 until intArray.size) {
-            val shortValue = intArray[i].toShort()
-            bb.putShort(shortValue)
-        }
-        return bb.array()
-    }
+
 
     private fun buildNotification(): Notification {
         val notificationIntent = Intent(this, MainActivity::class.java)
@@ -143,7 +135,7 @@ class RecordingService : Service() {
             .setAudioFormat(
                 AudioFormat.Builder()
                     .setEncoding(encoding)
-                    .setSampleRate(sampleRate)
+                    .setSampleRate(outSampleRate)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .build()
             )
@@ -194,30 +186,15 @@ class RecordingService : Service() {
                     }
                     else
                     {
-                     // TODO: make request here
-                        // 1) Prepare JSON request body
-                        val mediaType = "application/octet-stream".toMediaType()  // :contentReference[oaicite:0]{index=0}
-                        val data = toByteArray(asrBuffer)
-                        // 3. Wrap your byte array in a RequestBody
-                        val body = data.toRequestBody(mediaType)                   // :contentReference[oaicite:1]{index=1}
-
-                        // 4. Build the POST request
-                        val request = Request.Builder()
-                            .url("http://10.0.0.122:15597/asr")
-                            .post(body)
-                            .build()
-
-                        var text : String
-                        // 5. Execute synchronously (must be on a background thread)
-                        httpClient.newCall(request).execute().use { response ->        // :contentReference[oaicite:2]{index=2}
-                            if (!response.isSuccessful) {
-                                throw IOException("Unexpected HTTP code ${response.code}")
-                            }
-                            // 6. Return the response body as a String
-                            text = response.body?.string().orEmpty()
+                        val text = agent.stt(asrBuffer)
+                        Log.d(TAG, "User: $text")
+                        val chatStream = agent.chat(text)
+                        for (content in chatStream)
+                        {
+                            val playbackBuffer = agent.tts(content)?.drop(50)?.toShortArray()
+                            player?.write(playbackBuffer!!, 0, playbackBuffer.size)
+                            Log.d(TAG, "Assistant: $content")
                         }
-
-                        Log.d(TAG, text)
                     }
                 }
 
