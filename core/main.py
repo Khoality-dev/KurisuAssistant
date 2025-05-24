@@ -1,7 +1,14 @@
+import datetime
+import json
 import os
-from fastapi import FastAPI, HTTPException, Response, Body
+import re
+import subprocess
+import wave
+from fastapi import FastAPI, Request, HTTPException, Response, Body
+from fastapi.responses import StreamingResponse
 from transformers import pipeline
 from helpers.tts import TTS
+from helpers.llm import LLM
 import torch
 import numpy as np
 import requests
@@ -16,12 +23,14 @@ app = FastAPI(
 )
 
 whisper_model_name = 'whisper-finetuned' if os.path.exists('whisper-finetuned') else 'openai/whisper-base'
+print("Whiser: ", whisper_model_name)
 asr_model = pipeline(
     model=whisper_model_name,
     task='automatic-speech-recognition',
     device='cuda' if torch.cuda.is_available() else 'cpu',
 )
 tts_model = TTS()
+llm_model = LLM()
 
 SAMPLE_RATE = 16_000         # Hz
 SAMPLE_WIDTH = 2             # bytes per sample (16-bit)
@@ -53,7 +62,21 @@ async def asr(
     except Exception as e:
         # Something went wrong during decoding or ASR
         raise HTTPException(status_code=500, detail=str(e))
-    
+
+@app.post("/chat")
+async def chat_proxy(request: Request):
+    # 1. Read the incoming JSON and ensure streaming is enabled
+    payload = await request.json()
+    try:
+        response_generator = llm_model(payload)
+    except Exception as e:
+        print(str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+    return StreamingResponse(
+        response_generator,
+        media_type="application/json"
+    )
+
 @app.post(
     "/tts",
     response_class=Response,
