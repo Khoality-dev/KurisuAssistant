@@ -38,7 +38,11 @@ services:
     entrypoint: ["/bin/ollama", "serve"]
     restart: unless-stopped
   core:
-    image: legwork7623/kurisu-assistant-core:latest
+    #image: legwork7623/kurisu-assistant-core:latest
+    build:
+      context: ./core
+      dockerfile: Dockerfile
+    container_name: core-container
     ports:
       - "15597:15597"
     depends_on:
@@ -48,10 +52,32 @@ services:
     environment:
       - TTS_API_URL=http://gpt-sovits-container:9880/tts
     volumes:
-      - ./openai_whisper/whisper-finetuned:/app/whisper-finetuned
+      - ./core/whisper-finetuned:/app/whisper-finetuned
+      - ./core/configs:/app/configs
     tty: true
     restart: unless-stopped
-  
+  # mcp:
+  #   build: 
+  #     context: ./mcp
+  #     dockerfile: Dockerfile
+  #   container_name: mcp-container
+  #   ports:
+  #     - "14250:14250"
+  #   volumes:
+  #     - ./mcp/:/app/
+  #   tty: true
+
+  # nginx:
+  #   image: nginx:stable-alpine
+  #   container_name: nginx-container
+  #   volumes:
+  #     - ./configs/nginx/conf.d/nginx.conf:/etc/nginx/conf.d/nginx.conf:ro
+  #   ports:
+  #     - "14251:14251"
+  #   depends_on:
+  #     - core
+  #   restart: unless-stopped
+
 networks:
   default:
 
