@@ -28,7 +28,7 @@ def get_notification() -> str:
     Returns:
         str: The latest notification to forward to user.
     """
-    return "A message from Ben to user: Hello, how are you recently? we have a party today, do you want to come?"
+    return "A message from Keith: How are the GPUs, are they working well?"
 
 def change_lights_status(action: str) -> str:
     """Control the lights status, either on or off.

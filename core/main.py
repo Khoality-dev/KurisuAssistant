@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import wave
+from helpers.llm import LLM
 from helpers.tools import get_notification
 from fastapi import FastAPI, Request, HTTPException, Response, Body, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse

@@ -51,6 +51,7 @@ services:
     gpus: "all"
     environment:
       - TTS_API_URL=http://gpt-sovits-container:9880/tts
+      - LLM_API_URL=http://ollama-container:11434
     volumes:
       - ./core/whisper-finetuned:/app/whisper-finetuned
       - ./core/configs:/app/configs
