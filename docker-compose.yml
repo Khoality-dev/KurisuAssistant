@@ -20,7 +20,7 @@ services:
     tty: true
     restart: unless-stopped
   ollama:
-    image: ollama/ollama:0.6.4
+    image: ollama/ollama:0.9.0
     container_name: ollama-container
     ports:
       - "11434:11434"
