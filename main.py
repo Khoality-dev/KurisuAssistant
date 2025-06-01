@@ -148,13 +148,14 @@ def transcribe_audio(audio):
     for message, voice_data in kurisu_agent.process_and_say(message=transcript):
         if i == 0:
             logging({"message": "\033[31mKurisu: \033[0m ", "end": "", "overwrite": True})
+        
+        logging({"message": message, "delay": 0.05, "end": ""})
+        full_response += message
         if voice_data is not None:
             with audio_output_condition:
                 audio_output_queue.append(voice_data)
                 audio_output_condition.notify()
-            logging({"message": message, "delay": 0.05, "end": ""})
-            full_response += message
-            i += 1
+        i += 1
         
     logging({})
     # print in green color 
