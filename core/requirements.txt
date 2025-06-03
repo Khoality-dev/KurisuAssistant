@@ -35,4 +35,6 @@ typing_extensions==4.13.2
 urllib3==2.4.0
 uvicorn==0.34.2
 websockets==15.0.1
-dotenv
+dotenv==0.9.9
+ollama
+flux_led

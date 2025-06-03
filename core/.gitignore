@@ -3,4 +3,3 @@ __pycache__/
 .env
 whisper-finetuned/
 configs/default.json
-configs/nginx
