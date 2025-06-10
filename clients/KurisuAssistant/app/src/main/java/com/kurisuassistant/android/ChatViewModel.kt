@@ -2,6 +2,7 @@ package com.kurisuassistant.android
 
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.ViewModel
+import com.kurisuassistant.android.model.ChatMessage
 
 /**
  * ViewModel exposing chat messages from [ChatRepository].

@@ -3,6 +3,7 @@ package com.kurisuassistant.android
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import com.kurisuassistant.android.model.ChatMessage
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import kotlinx.coroutines.CoroutineScope
