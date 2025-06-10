@@ -42,25 +42,26 @@ class LLM:
                                 print(self.history[-1])
                         is_final = False
                     
-                    if chunk.message.content != "":
+                    if is_final:
                         full_response += chunk.message.content
                         #full_response = re.sub(r'<think>.*?</think>', '', full_response, flags=re.DOTALL)
                         partial_response += chunk.message.content
 
-                    delimiter_idx = max([partial_response.rfind(delimiter) for delimiter in self.delimiters])
-                    if delimiter_idx != -1:
-                        response_buffer += partial_response[:delimiter_idx+1]
-                        partial_response = partial_response[delimiter_idx+1:]
-                    elif chunk['done']:
-                        response_buffer += partial_response
-                        partial_response = ""
-                    
-                    if is_final and (len(response_buffer) > 20 or chunk['done']):
-                        json_response['message']['content'] = response_buffer
-                        yield json_response
-                        response_buffer = ""
+                        delimiter_idx = max([partial_response.rfind(delimiter) for delimiter in self.delimiters])
+                        if delimiter_idx != -1:
+                            response_buffer += partial_response[:delimiter_idx+1]
+                            partial_response = partial_response[delimiter_idx+1:]
+                        elif chunk['done']:
+                            response_buffer += partial_response
+                            partial_response = ""
+                        
+                        if (len(response_buffer) > 20 or chunk['done']):
+                            json_response['message']['content'] = response_buffer
+                            yield json_response
+                            response_buffer = ""
                         
             self.history.append({"role": "assistant", "content": full_response})
+            print(self.history[-1])
             
         return stream_generator()
         
