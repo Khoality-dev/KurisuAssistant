@@ -59,6 +59,7 @@ async def websocket_endpoint(ws: WebSocket):
         while True:
             data = await ws.receive()
             if data.get("text") is not None:
+                # Client is sending an LLM request encoded as a JSON string
                 text_payload = data["text"]
                 json_body = json.loads(text_payload)
                 response_generator = llm_model(json_body)
@@ -70,6 +71,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_bytes(audio_data)
 
             elif data.get("bytes") is not None:
+                # Raw PCM audio from the client for speech recognition
                 audio_data = data["bytes"]
                 pcm = np.frombuffer(audio_data, dtype=np.int16)
                 waveform = pcm.astype(np.float32) / 32768.0
@@ -78,9 +80,9 @@ async def websocket_endpoint(ws: WebSocket):
                 result = asr_model(waveform)   # assuming `asr` is your pipeline
                 text_payload = result["text"]
                 print("ASR Result: ", text_payload)
-                json_body = {
-                    "text": text_payload
-                }
+                # Send the transcribed text back to the client. The client will
+                # then forward it as a JSON chat request for LLM inference.
+                json_body = {"text": text_payload}
                 await ws.send_text(json.dumps(json_body))
     except WebSocketDisconnect:
         print("WebSocket disconnected")
