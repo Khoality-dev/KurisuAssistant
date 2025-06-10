@@ -3,17 +3,18 @@ package com.kurisuassistant.android
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
-import android.widget.TextView
+import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.Toast
+import androidx.activity.viewModels
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.recyclerview.widget.RecyclerView
 import com.kurisuassistant.android.silerovad.SileroVadOnnxModel
 import com.kurisuassistant.android.utils.Util
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 class MainActivity : AppCompatActivity() {
     companion object {
@@ -27,6 +28,9 @@ class MainActivity : AppCompatActivity() {
     val MIN_SILENCE_DURATION_MS: Int = 100
     val SPEECH_PAD_MS: Int = 30
     lateinit var vadModel: SileroVadOnnxModel
+    private val viewModel: ChatViewModel by viewModels()
+    private lateinit var adapter: ChatAdapter
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -37,6 +41,24 @@ class MainActivity : AppCompatActivity() {
             insets
         }
         Util.checkPermissions(this)
+
+        val recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
+        adapter = ChatAdapter(viewModel.messages.value ?: emptyList())
+        recyclerView.adapter = adapter
+
+        val editText = findViewById<EditText>(R.id.editTextMessage)
+        val sendButton = findViewById<ImageButton>(R.id.buttonSend)
+
+        viewModel.messages.observe(this) { adapter.update(it) }
+
+        sendButton.setOnClickListener {
+            val text = editText.text.toString().trim()
+            if (text.isNotEmpty()) {
+                viewModel.sendMessage(text)
+                editText.text.clear()
+            }
+        }
+
         startRecordingService()
     }
 

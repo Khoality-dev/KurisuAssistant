@@ -2,4 +2,6 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="userBubbleColor">#DCF8C6</color>
+    <color name="assistantBubbleColor">#FFFFFF</color>
 </resources>
