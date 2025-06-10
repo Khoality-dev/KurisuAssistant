@@ -3,8 +3,10 @@ package com.kurisuassistant.android
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.activity.enableEdgeToEdge
@@ -12,6 +14,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.kurisuassistant.android.silerovad.SileroVadOnnxModel
 import com.kurisuassistant.android.utils.Util
@@ -45,11 +48,18 @@ class MainActivity : AppCompatActivity() {
         val recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
         adapter = ChatAdapter(viewModel.messages.value ?: emptyList())
         recyclerView.adapter = adapter
+        recyclerView.layoutManager = LinearLayoutManager(this)
 
         val editText = findViewById<EditText>(R.id.editTextMessage)
         val sendButton = findViewById<ImageButton>(R.id.buttonSend)
+        val recordButton = findViewById<ImageButton>(R.id.buttonRecord)
+        val recordIndicator = findViewById<TextView>(R.id.recordIndicator)
+        var isRecording = false
 
-        viewModel.messages.observe(this) { adapter.update(it) }
+        viewModel.messages.observe(this) {
+            adapter.update(it)
+            recyclerView.scrollToPosition(adapter.itemCount - 1)
+        }
 
         sendButton.setOnClickListener {
             val text = editText.text.toString().trim()
@@ -59,13 +69,29 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        startRecordingService()
+        recordButton.setOnClickListener {
+            if (isRecording) {
+                stopRecordingService()
+                recordIndicator.visibility = View.GONE
+            } else {
+                startRecordingService()
+                recordIndicator.visibility = View.VISIBLE
+            }
+            isRecording = !isRecording
+        }
     }
 
     private fun startRecordingService() {
         val intent = Intent(this, RecordingService::class.java)
-        ContextCompat.startForegroundService(this, intent)  // start service :contentReference[oaicite:9]{index=9}
-        Log.d(TAG, "RecordingService spawned")             // debug log :contentReference[oaicite:10]{index=10}
-        Toast.makeText(this, "RecordingService spawned", Toast.LENGTH_SHORT).show()
+        ContextCompat.startForegroundService(this, intent)
+        Log.d(TAG, "RecordingService spawned")
+        Toast.makeText(this, "Recording started", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun stopRecordingService() {
+        val intent = Intent(this, RecordingService::class.java)
+        stopService(intent)
+        Log.d(TAG, "RecordingService stopped")
+        Toast.makeText(this, "Recording stopped", Toast.LENGTH_SHORT).show()
     }
 }
