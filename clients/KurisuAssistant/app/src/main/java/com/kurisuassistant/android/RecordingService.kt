@@ -25,6 +25,7 @@ import androidx.collection.MutableIntList
 import com.kurisuassistant.android.silerovad.SileroVadDetector
 import com.kurisuassistant.android.silerovad.SileroVadOnnxModel
 import com.kurisuassistant.android.utils.CircularQueue
+import com.kurisuassistant.android.utils.Util
 import okhttp3.MediaType.Companion.toMediaType
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -53,21 +54,27 @@ class RecordingService : Service() {
     private val sampleRate = 16_000
     private val outSampleRate = 32_000
     private val sileroVADWindowSize = 512
-    private val vadThreshold = 0.5f
     private val channelConfig = AudioFormat.CHANNEL_IN_MONO
     private val encoding = AudioFormat.ENCODING_PCM_16BIT
     private val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, encoding)
     private var recorder: AudioRecord? = null
     private var recordingJob: Job? = null
     private var player: AudioTrack? = null
-    private val audioBuffer: CircularQueue = CircularQueue(100000)
+    private val audioBuffer: CircularQueue = CircularQueue(16000000)
     private val asrBuffer: MutableIntList = MutableIntList()
     private lateinit var vadModel : SileroVadDetector
     private val agent = Agent()
+    private val minSilenceBetweenInteractions = 20 * 1000 // 10s
+    private lateinit var startSFX : ShortArray
+    private lateinit var stopSFX : ShortArray
+
+
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     override fun onCreate() {
         super.onCreate()
+        startSFX = Util.loadWavFile(this, R.raw.start_effect)
+        stopSFX = Util.loadWavFile(this, R.raw.stop_effect)
         createNotificationChannel(this)
         startForeground(NOTIFICATION_ID, buildNotification())
         initRecorder()
@@ -147,10 +154,13 @@ class RecordingService : Service() {
 
     private fun startRecordingLoop() {
         recorder?.startRecording()
-
         recordingJob = CoroutineScope(Dispatchers.IO).launch {
             val tempBuffer = ShortArray(bufferSize / 2)
             var previousIsSpeaking = vadModel.isSpeaking
+            var isInterating = false
+            var lastInteractionTimeStamp: Long = 0
+            var playedStartSFX = false
+
             while (isActive) {
                 val readCount = recorder!!.read(tempBuffer, 0, tempBuffer.size)
                 if (readCount > 0) {
@@ -186,14 +196,51 @@ class RecordingService : Service() {
                     }
                     else
                     {
-                        val text = agent.stt(asrBuffer)
-                        Log.d(TAG, "User: $text")
-                        val chatStream = agent.chat(text)
-                        for (content in chatStream)
+                        if (playedStartSFX)
                         {
-                            val playbackBuffer = agent.tts(content)?.drop(50)?.toShortArray()
-                            player?.write(playbackBuffer!!, 0, playbackBuffer.size)
-                            Log.d(TAG, "Assistant: $content")
+                            player?.write(stopSFX, 0, stopSFX.size)
+                            playedStartSFX = false
+                        }
+                        val text = agent.stt(asrBuffer)
+                        Log.d(TAG, "lastInteractionTimeDiff ${System.currentTimeMillis() - lastInteractionTimeStamp}")
+                        if (true || System.currentTimeMillis() - lastInteractionTimeStamp <= minSilenceBetweenInteractions)
+                        {
+                            if (isInterating == false)
+                            {
+                                isInterating = true
+                                player?.write(startSFX, 0, startSFX.size)
+                            }
+
+                            lastInteractionTimeStamp =  System.currentTimeMillis()
+                        }
+                        else if (System.currentTimeMillis() - lastInteractionTimeStamp > minSilenceBetweenInteractions)
+                        {
+                            isInterating = false
+
+                        }
+
+                        if (isInterating)
+                        {
+                            Log.d(TAG, "User: $text")
+                            val chatStream = agent.chat(text)
+                            for (content in chatStream)
+                            {
+                                val playbackBuffer = agent.tts(content)?.drop(50)?.toShortArray()
+                                player?.write(playbackBuffer!!, 0, playbackBuffer.size)
+                                Log.d(TAG, "Assistant: $content")
+                            }
+                            lastInteractionTimeStamp = System.currentTimeMillis()
+                        }
+                    }
+                }
+                else
+                {
+                    if (previousIsSpeaking == false)
+                    {
+                        if (System.currentTimeMillis() - lastInteractionTimeStamp <= minSilenceBetweenInteractions)
+                        {
+                            player?.write(startSFX, 0, startSFX.size)
+                            playedStartSFX = true
                         }
                     }
                 }

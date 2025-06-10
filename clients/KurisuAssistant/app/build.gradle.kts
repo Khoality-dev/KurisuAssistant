@@ -1,3 +1,16 @@
+import java.io.FileInputStream
+import java.util.Properties
+
+val secretsFile = rootProject.file("secrets.properties")
+val secrets = Properties().apply {
+    if (secretsFile.exists()) {
+        load(FileInputStream(secretsFile))
+    } else {
+        // fallback to environment variable, e.g. in CI
+        this["API_TOKEN"] = System.getenv("API_TOKEN") ?: ""
+    }
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -15,6 +28,12 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "API_TOKEN", "\"${secrets["API_TOKEN"]}\"")
+        buildConfigField("String", "WS_API_URL", "\"${secrets["WS_API_URL"]}\"")
+    }
+
+    buildFeatures {
+        buildConfig = true     // ← explicitly enable generation
     }
 
     buildTypes {
@@ -34,7 +53,7 @@ android {
         jvmTarget = "11"
     }
 }
-
+android.buildFeatures.buildConfig = true
 dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

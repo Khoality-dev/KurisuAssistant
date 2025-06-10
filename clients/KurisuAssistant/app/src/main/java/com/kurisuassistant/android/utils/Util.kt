@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
+import androidx.annotation.RawRes
 import androidx.collection.MutableIntList
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -72,5 +73,22 @@ object Util {
         matrix.setRotate(90f)
         var ret = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
         return ret
+    }
+
+    fun loadWavFile(context: Context, @RawRes resId: Int): ShortArray {
+        context.resources.openRawResource(resId).use { input ->
+            // Skip 44-byte WAV header
+            input.skip(44)
+
+            // Read remaining bytes into a buffer
+            val pcmBytes = input.readBytes()
+            // Convert bytes to 16-bit samples
+            val shorts = ShortArray(pcmBytes.size / 2)
+            ByteBuffer.wrap(pcmBytes)
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .asShortBuffer()
+                .get(shorts)
+            return shorts
+        }
     }
 }
