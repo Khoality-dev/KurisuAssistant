@@ -63,7 +63,7 @@ class RecordingService : Service() {
     private val audioBuffer: CircularQueue = CircularQueue(16000000)
     private val asrBuffer: MutableIntList = MutableIntList()
     private lateinit var vadModel : SileroVadDetector
-    private val agent = Agent()
+    private lateinit var agent: Agent
     private val minSilenceBetweenInteractions = 20 * 1000 // 10s
     private lateinit var startSFX : ShortArray
     private lateinit var stopSFX : ShortArray
@@ -78,6 +78,10 @@ class RecordingService : Service() {
         createNotificationChannel(this)
         startForeground(NOTIFICATION_ID, buildNotification())
         initRecorder()
+        // WebSocket agent requires a valid AudioTrack instance for streaming
+        player?.let {
+            agent = Agent(it)
+        }
         initSileroVAD()
         startRecordingLoop()
         Log.d(TAG, "onCreate")
@@ -157,7 +161,8 @@ class RecordingService : Service() {
         recordingJob = CoroutineScope(Dispatchers.IO).launch {
             val tempBuffer = ShortArray(bufferSize / 2)
             var previousIsSpeaking = vadModel.isSpeaking
-            var isInterating = false
+            // Track whether the assistant is currently in a conversation
+            var isInteracting = false
             var lastInteractionTimeStamp: Long = 0
             var playedStartSFX = false
 
@@ -205,9 +210,9 @@ class RecordingService : Service() {
                         Log.d(TAG, "lastInteractionTimeDiff ${System.currentTimeMillis() - lastInteractionTimeStamp}")
                         if (true || System.currentTimeMillis() - lastInteractionTimeStamp <= minSilenceBetweenInteractions)
                         {
-                            if (isInterating == false)
+                            if (!isInteracting)
                             {
-                                isInterating = true
+                                isInteracting = true
                                 player?.write(startSFX, 0, startSFX.size)
                             }
 
@@ -215,20 +220,19 @@ class RecordingService : Service() {
                         }
                         else if (System.currentTimeMillis() - lastInteractionTimeStamp > minSilenceBetweenInteractions)
                         {
-                            isInterating = false
+                            isInteracting = false
 
                         }
 
-                        if (isInterating)
+                        if (isInteracting)
                         {
                             Log.d(TAG, "User: $text")
                             val chatStream = agent.chat(text)
                             for (content in chatStream)
                             {
-                                val playbackBuffer = agent.tts(content)?.drop(50)?.toShortArray()
-                                player?.write(playbackBuffer!!, 0, playbackBuffer.size)
                                 Log.d(TAG, "Assistant: $content")
                             }
+                            // audio replies are streamed via WebSocket and played automatically
                             lastInteractionTimeStamp = System.currentTimeMillis()
                         }
                     }
