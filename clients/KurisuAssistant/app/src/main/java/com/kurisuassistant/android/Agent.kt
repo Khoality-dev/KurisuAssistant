@@ -17,7 +17,7 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class Agent(val player: AudioTrack) {
-    private val modelName = "qwen2.5:3b"
+    private val modelName = "gemma3:12b-it-qat-tool"
     private val TAG = "Agent"
     private var client: OkHttpClient
     private var webSocket: WebSocket? = null
