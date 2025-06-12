@@ -8,7 +8,6 @@ import android.view.MenuItem
 import android.view.View
 import android.widget.EditText
 import android.widget.ImageButton
-import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.viewModels
@@ -37,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     private val viewModel: ChatViewModel by viewModels()
     private lateinit var adapter: ChatAdapter
     private var responding: Boolean = false
+    private var connectionMenuItem: MenuItem? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,7 +55,6 @@ class MainActivity : AppCompatActivity() {
         val sendButton = findViewById<ImageButton>(R.id.buttonSend)
         val recordButton = findViewById<ImageButton>(R.id.buttonRecord)
         val recordIndicator = findViewById<TextView>(R.id.recordIndicator)
-        val connectionIndicator = findViewById<ImageView>(R.id.connectionIndicator)
         var isRecording = false
 
         viewModel.messages.observe(this) {
@@ -66,7 +65,7 @@ class MainActivity : AppCompatActivity() {
         viewModel.connected.observe(this) { connected ->
             val res = if (connected) android.R.drawable.presence_online
             else android.R.drawable.presence_offline
-            connectionIndicator.setImageResource(res)
+            connectionMenuItem?.setIcon(res)
         }
 
         viewModel.typing.observe(this) { typing ->
@@ -119,6 +118,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.menu_main, menu)
+        connectionMenuItem = menu.findItem(R.id.action_connection)
+        val res = if (viewModel.connected.value == true) {
+            android.R.drawable.presence_online
+        } else {
+            android.R.drawable.presence_offline
+        }
+        connectionMenuItem?.setIcon(res)
         return true
     }
 
