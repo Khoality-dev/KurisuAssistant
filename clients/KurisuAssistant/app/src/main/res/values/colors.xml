@@ -2,4 +2,7 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="primaryBlue">#0084FF</color>
+    <color name="userBubbleColor">@color/primaryBlue</color>
+    <color name="assistantBubbleColor">#E5E5EA</color>
 </resources>
