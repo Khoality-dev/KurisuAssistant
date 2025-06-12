@@ -73,6 +73,7 @@
             android:contentDescription="Record voice"/>
     </LinearLayout>
 
+
     <TextView
         android:id="@+id/recordIndicator"
         android:layout_width="wrap_content"

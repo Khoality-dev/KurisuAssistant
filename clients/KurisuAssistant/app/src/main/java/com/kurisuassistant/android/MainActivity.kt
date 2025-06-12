@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     lateinit var vadModel: SileroVadOnnxModel
     private val viewModel: ChatViewModel by viewModels()
     private lateinit var adapter: ChatAdapter
+    private var responding: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,6 +69,14 @@ class MainActivity : AppCompatActivity() {
             connectionIndicator.setImageResource(res)
         }
 
+        viewModel.typing.observe(this) { typing ->
+            updateResponding(typing || (viewModel.speaking.value == true))
+        }
+
+        viewModel.speaking.observe(this) { speaking ->
+            updateResponding(speaking || (viewModel.typing.value == true))
+        }
+
         sendButton.setOnClickListener {
             val text = editText.text.toString().trim()
             if (text.isNotEmpty()) {
@@ -86,6 +95,12 @@ class MainActivity : AppCompatActivity() {
             }
             isRecording = !isRecording
         }
+    }
+
+    private fun updateResponding(value: Boolean) {
+        if (responding == value) return
+        responding = value
+        adapter.setResponding(value)
     }
 
     private fun startRecordingService() {

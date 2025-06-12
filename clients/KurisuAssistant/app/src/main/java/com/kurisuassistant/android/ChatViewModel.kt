@@ -10,6 +10,8 @@ import com.kurisuassistant.android.model.ChatMessage
 class ChatViewModel : ViewModel() {
     val messages: LiveData<MutableList<ChatMessage>> = ChatRepository.messages
     val connected: LiveData<Boolean> = ChatRepository.connected
+    val typing: LiveData<Boolean> = ChatRepository.typing
+    val speaking: LiveData<Boolean> = ChatRepository.speaking
 
     init {
         ChatRepository.init()
