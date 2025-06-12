@@ -1,8 +1,10 @@
 package com.kurisuassistant.android
 
+import android.content.Context
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.kurisuassistant.android.model.ChatMessage
@@ -10,8 +12,10 @@ import com.kurisuassistant.android.model.ChatMessage
 /**
  * RecyclerView adapter displaying chat messages.
  */
-class ChatAdapter(private var messages: List<ChatMessage>) :
-    RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+class ChatAdapter(
+    private val context: Context,
+    private var messages: List<ChatMessage>
+) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     companion object {
         private const val USER = 0
@@ -39,8 +43,18 @@ class ChatAdapter(private var messages: List<ChatMessage>) :
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         val msg = messages[position]
         when (holder) {
-            is UserHolder -> holder.text.text = msg.text
-            is AssistantHolder -> holder.text.text = msg.text
+            is UserHolder -> {
+                holder.text.text = msg.text
+                val uri = AvatarManager.getUserAvatarUri()
+                if (uri != null) holder.avatar.setImageURI(uri)
+                else holder.avatar.setImageResource(R.drawable.avatar_user)
+            }
+            is AssistantHolder -> {
+                holder.text.text = msg.text
+                val uri = AvatarManager.getAgentAvatarUri()
+                if (uri != null) holder.avatar.setImageURI(uri)
+                else holder.avatar.setImageResource(R.drawable.avatar_assistant)
+            }
         }
     }
 
@@ -48,10 +62,12 @@ class ChatAdapter(private var messages: List<ChatMessage>) :
 
     class UserHolder(view: View) : RecyclerView.ViewHolder(view) {
         val text: TextView = view.findViewById(R.id.message_text)
+        val avatar: ImageView = view.findViewById(R.id.avatar)
     }
 
     class AssistantHolder(view: View) : RecyclerView.ViewHolder(view) {
         val text: TextView = view.findViewById(R.id.message_text)
+        val avatar: ImageView = view.findViewById(R.id.avatar)
     }
 }
 

@@ -3,6 +3,8 @@ package com.kurisuassistant.android
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.widget.EditText
 import android.widget.ImageButton
@@ -16,6 +18,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.kurisuassistant.android.silerovad.SileroVadOnnxModel
 import com.kurisuassistant.android.utils.Util
+import com.kurisuassistant.android.AvatarManager
+
 
 class MainActivity : AppCompatActivity() {
     companion object {
@@ -35,10 +39,11 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        AvatarManager.init(this)
         Util.checkPermissions(this)
 
         val recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
-        adapter = ChatAdapter(viewModel.messages.value ?: emptyList())
+        adapter = ChatAdapter(this, viewModel.messages.value ?: emptyList())
         recyclerView.adapter = adapter
         recyclerView.layoutManager = LinearLayoutManager(this)
 
@@ -92,5 +97,17 @@ class MainActivity : AppCompatActivity() {
         stopService(intent)
         Log.d(TAG, "RecordingService stopped")
         Toast.makeText(this, "Recording stopped", Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menuInflater.inflate(R.menu.menu_main, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return if (item.itemId == R.id.action_settings) {
+            startActivity(Intent(this, SettingsActivity::class.java))
+            true
+        } else super.onOptionsItemSelected(item)
     }
 }
