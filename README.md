@@ -1,5 +1,4 @@
-# Kuri Assistant
-&#x20;
+# Kurisu Assistant
 
 An intelligent AI assistant that helps with everything from simple daily tasks to complex workflows using state-of-the-art speech and language models.
 
@@ -42,7 +41,7 @@ The system is composed of two main components:
 2. **Server**
 
    * Hosts Whisper for STT, Gemma3-12B for dialogue, and GPT-SoVITS for TTS
-   * Exposes a JSON REST API for easy integration
+   * Exposes a WebSocket API for real-time interaction
 
 ---
 
@@ -51,7 +50,7 @@ The system is composed of two main components:
 * 🎤 **Real-time transcription** of spoken input
 * 🤖 **Contextual dialogue** powered by a 12-billion-parameter LLM
 * 🔊 **High-quality speech synthesis** for responses
-* ⚙️ **Extensible plugin system** for custom skills and integrations
+* 🔌 **Tool-calling interface** for basic home automation tasks
 
 ---
 
@@ -63,6 +62,7 @@ The system is composed of two main components:
 python -m venv venv
 source venv/bin/activate      # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
+cp .env_template .env         # Create configuration
 python main.py                # Launch the client UI/CLI
 ```
 
@@ -81,7 +81,7 @@ Ensure you have Docker Engine and Docker Compose installed.
 1. **Start the server** (`docker-compose up -d`).
 2. **Run the client** (`python main.py`).
 3. **Speak** into your microphone and watch KurisuAssistant transcribe and respond.
-4. **Customize** your settings in the `.env` file to point to your own Whisper or LLM endpoints. to point to your own Whisper or LLM endpoints.
+4. **Edit** `.env` if the WebSocket endpoint or token differ from the defaults.
 
 ---
 
@@ -89,9 +89,10 @@ Ensure you have Docker Engine and Docker Compose installed.
 
 Configure your environment by editing the `.env` file:
 
-* **STT\_API\_URL**: URL for the Whisper speech-to-text service (Not yet implemented in this version)
-* **LLM\_API\_URL**: URL for the Gemma3-12B large language model service
-* **TTS\_API\_URL**: URL for the GPT-SoVITS text-to-speech service
+* **WS_API_URL** – WebSocket endpoint of the core service
+* **AUTHENTICATION_TOKEN** – Token used when connecting (optional)
+
+LLM and TTS URLs for the core can be adjusted in `docker-compose.yml`.
 
 ## Contributing
 
