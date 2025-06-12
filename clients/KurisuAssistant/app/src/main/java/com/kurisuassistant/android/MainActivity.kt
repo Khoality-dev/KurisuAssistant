@@ -6,6 +6,7 @@ import android.util.Log
 import android.view.View
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.viewModels
@@ -45,11 +46,18 @@ class MainActivity : AppCompatActivity() {
         val sendButton = findViewById<ImageButton>(R.id.buttonSend)
         val recordButton = findViewById<ImageButton>(R.id.buttonRecord)
         val recordIndicator = findViewById<TextView>(R.id.recordIndicator)
+        val connectionIndicator = findViewById<ImageView>(R.id.connectionIndicator)
         var isRecording = false
 
         viewModel.messages.observe(this) {
             adapter.update(it)
             recyclerView.scrollToPosition(adapter.itemCount - 1)
+        }
+
+        viewModel.connected.observe(this) { connected ->
+            val res = if (connected) android.R.drawable.presence_online
+            else android.R.drawable.presence_offline
+            connectionIndicator.setImageResource(res)
         }
 
         sendButton.setOnClickListener {

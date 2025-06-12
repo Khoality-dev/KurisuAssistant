@@ -9,6 +9,11 @@ import com.kurisuassistant.android.model.ChatMessage
  */
 class ChatViewModel : ViewModel() {
     val messages: LiveData<MutableList<ChatMessage>> = ChatRepository.messages
+    val connected: LiveData<Boolean> = ChatRepository.connected
+
+    init {
+        ChatRepository.init()
+    }
 
     fun sendMessage(text: String) {
         ChatRepository.sendMessage(text)

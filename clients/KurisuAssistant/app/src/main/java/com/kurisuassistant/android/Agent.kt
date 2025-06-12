@@ -3,6 +3,8 @@ package com.kurisuassistant.android
 import android.media.AudioTrack
 import android.util.Log
 import androidx.collection.MutableIntList
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
 import com.kurisuassistant.android.utils.Util
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
@@ -15,6 +17,14 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class Agent(val player: AudioTrack) {
+    private val _connected = MutableLiveData(false)
+    val connected: LiveData<Boolean> get() = _connected
+        _connected.postValue(false)
+
+                _connected.postValue(true)
+                _connected.postValue(false)
+                _connected.postValue(false)
+        _connected.postValue(false)
     private val modelName = "gemma3:12b-it-qat-tool"
     private val TAG = "Agent"
     private var client: OkHttpClient

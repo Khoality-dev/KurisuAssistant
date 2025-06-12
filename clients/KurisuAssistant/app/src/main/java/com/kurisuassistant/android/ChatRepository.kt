@@ -41,6 +41,13 @@ object ChatRepository {
     private val agent by lazy { Agent(player) }
     private val scope = CoroutineScope(Dispatchers.IO)
 
+    val connected: LiveData<Boolean>
+        get() = agent.connected
+
+    fun init() {
+        agent
+    }
+
     /**
      * Send a user text message to the LLM and stream the assistant reply.
      */
