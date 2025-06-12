@@ -73,27 +73,6 @@
             android:contentDescription="Record voice"/>
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/speakingIndicator"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/speaking_indicator"
-        android:textColor="@color/primaryBlue"
-        android:visibility="gone"
-        app:layout_constraintBottom_toTopOf="@id/recordIndicator"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"/>
-
-    <TextView
-        android:id="@+id/typingIndicator"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/typing_indicator"
-        android:textColor="@color/primaryBlue"
-        android:visibility="gone"
-        app:layout_constraintBottom_toTopOf="@id/speakingIndicator"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"/>
 
     <TextView
         android:id="@+id/recordIndicator"

@@ -1,6 +1,8 @@
 package com.kurisuassistant.android
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -22,9 +24,39 @@ class ChatAdapter(
         private const val ASSISTANT = 1
     }
 
+    private var responding = false
+    private var ellipsis = ""
+    private val handler = Handler(Looper.getMainLooper())
+    private val animateRunnable = object : Runnable {
+        override fun run() {
+            ellipsis = when (ellipsis.length) {
+                0 -> "."
+                1 -> ".."
+                2 -> "..."
+                else -> ""
+            }
+            if (messages.isNotEmpty()) notifyItemChanged(messages.lastIndex)
+            if (responding) {
+                handler.postDelayed(this, 500)
+            }
+        }
+    }
+
     fun update(newMessages: List<ChatMessage>) {
         messages = newMessages
         notifyDataSetChanged()
+    }
+
+    fun setResponding(value: Boolean) {
+        if (responding == value) return
+        responding = value
+        if (value) {
+            handler.post(animateRunnable)
+        } else {
+            handler.removeCallbacks(animateRunnable)
+            ellipsis = ""
+            if (messages.isNotEmpty()) notifyItemChanged(messages.lastIndex)
+        }
     }
 
     override fun getItemViewType(position: Int): Int = if (messages[position].isUser) USER else ASSISTANT
@@ -50,7 +82,11 @@ class ChatAdapter(
                 else holder.avatar.setImageResource(R.drawable.avatar_user)
             }
             is AssistantHolder -> {
-                holder.text.text = msg.text
+                var text = msg.text
+                if (responding && position == messages.lastIndex) {
+                    text += ellipsis
+                }
+                holder.text.text = text
                 val uri = AvatarManager.getAgentAvatarUri()
                 if (uri != null) holder.avatar.setImageURI(uri)
                 else holder.avatar.setImageResource(R.drawable.avatar_assistant)

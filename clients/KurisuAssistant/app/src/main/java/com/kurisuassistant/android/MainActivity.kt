@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     lateinit var vadModel: SileroVadOnnxModel
     private val viewModel: ChatViewModel by viewModels()
     private lateinit var adapter: ChatAdapter
+    private var responding: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,8 +55,6 @@ class MainActivity : AppCompatActivity() {
         val sendButton = findViewById<ImageButton>(R.id.buttonSend)
         val recordButton = findViewById<ImageButton>(R.id.buttonRecord)
         val recordIndicator = findViewById<TextView>(R.id.recordIndicator)
-        val typingIndicator = findViewById<TextView>(R.id.typingIndicator)
-        val speakingIndicator = findViewById<TextView>(R.id.speakingIndicator)
         val connectionIndicator = findViewById<ImageView>(R.id.connectionIndicator)
         var isRecording = false
 
@@ -71,11 +70,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         viewModel.typing.observe(this) { typing ->
-            typingIndicator.visibility = if (typing) View.VISIBLE else View.GONE
+            updateResponding(typing || (viewModel.speaking.value == true))
         }
 
         viewModel.speaking.observe(this) { speaking ->
-            speakingIndicator.visibility = if (speaking) View.VISIBLE else View.GONE
+            updateResponding(speaking || (viewModel.typing.value == true))
         }
 
         sendButton.setOnClickListener {
@@ -96,6 +95,12 @@ class MainActivity : AppCompatActivity() {
             }
             isRecording = !isRecording
         }
+    }
+
+    private fun updateResponding(value: Boolean) {
+        if (responding == value) return
+        responding = value
+        adapter.setResponding(value)
     }
 
     private fun startRecordingService() {
