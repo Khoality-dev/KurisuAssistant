@@ -3,6 +3,8 @@ package com.kurisuassistant.android
 import android.media.AudioTrack
 import android.util.Log
 import androidx.collection.MutableIntList
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
 import com.kurisuassistant.android.utils.Util
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
@@ -15,12 +17,14 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class Agent(val player: AudioTrack) {
-    private val modelName = "qwen2.5:3b"
+    private val modelName = "gemma3:12b-it-qat-tool"
     private val TAG = "Agent"
     private var client: OkHttpClient
     private var webSocket: WebSocket? = null
     private var sttDeferred: CompletableDeferred<String>? = null
     private var chatChannel: Channel<String>? = null
+    private val _connected = MutableLiveData(false)
+    val connected: LiveData<Boolean> get() = _connected
 
     init {
         client = OkHttpClient.Builder()
@@ -41,12 +45,15 @@ class Agent(val player: AudioTrack) {
             .url(BuildConfig.WS_API_URL)
             .build()
 
+        _connected.postValue(false)
+
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
                 super.onOpen(webSocket, response)
                 Log.d(TAG, "WebSocket opened: ${response.request.url}")
                 // Authenticate with API token
                 webSocket.send(BuildConfig.API_TOKEN)
+                _connected.postValue(true)
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
@@ -87,12 +94,14 @@ class Agent(val player: AudioTrack) {
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 super.onClosed(webSocket, code, reason)
                 Log.d(TAG, "WebSocket closed: $code / $reason")
+                _connected.postValue(false)
                 reconnect()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) {
                 super.onFailure(webSocket, t, response)
                 Log.e(TAG, "WebSocket failure: ${t.localizedMessage}", t)
+                _connected.postValue(false)
                 reconnect()
             }
         }
@@ -108,6 +117,7 @@ class Agent(val player: AudioTrack) {
      */
     private fun reconnect() {
         webSocket = null
+        _connected.postValue(false)
         // Simple reconnection strategy. In a real app this could include
         // exponential backoff.
         Thread {

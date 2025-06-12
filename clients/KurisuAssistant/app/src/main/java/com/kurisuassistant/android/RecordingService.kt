@@ -26,6 +26,7 @@ import com.kurisuassistant.android.silerovad.SileroVadDetector
 import com.kurisuassistant.android.silerovad.SileroVadOnnxModel
 import com.kurisuassistant.android.utils.CircularQueue
 import com.kurisuassistant.android.utils.Util
+import com.kurisuassistant.android.ChatRepository
 import okhttp3.MediaType.Companion.toMediaType
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -227,9 +228,11 @@ class RecordingService : Service() {
                         if (isInteracting)
                         {
                             Log.d(TAG, "User: $text")
+                            val idx = ChatRepository.addVoiceUserMessage(text)
                             val chatStream = agent.chat(text)
                             for (content in chatStream)
                             {
+                                ChatRepository.appendAssistantChunk(content, idx)
                                 Log.d(TAG, "Assistant: $content")
                             }
                             // audio replies are streamed via WebSocket and played automatically
