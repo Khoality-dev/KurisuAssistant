@@ -43,6 +43,10 @@ object ChatRepository {
 
     val connected: LiveData<Boolean>
         get() = agent.connected
+    val typing: LiveData<Boolean>
+        get() = agent.typing
+    val speaking: LiveData<Boolean>
+        get() = agent.speaking
 
     fun init() {
         agent

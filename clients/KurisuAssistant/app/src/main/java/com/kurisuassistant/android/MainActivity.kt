@@ -54,6 +54,8 @@ class MainActivity : AppCompatActivity() {
         val sendButton = findViewById<ImageButton>(R.id.buttonSend)
         val recordButton = findViewById<ImageButton>(R.id.buttonRecord)
         val recordIndicator = findViewById<TextView>(R.id.recordIndicator)
+        val typingIndicator = findViewById<TextView>(R.id.typingIndicator)
+        val speakingIndicator = findViewById<TextView>(R.id.speakingIndicator)
         val connectionIndicator = findViewById<ImageView>(R.id.connectionIndicator)
         var isRecording = false
 
@@ -66,6 +68,14 @@ class MainActivity : AppCompatActivity() {
             val res = if (connected) android.R.drawable.presence_online
             else android.R.drawable.presence_offline
             connectionIndicator.setImageResource(res)
+        }
+
+        viewModel.typing.observe(this) { typing ->
+            typingIndicator.visibility = if (typing) View.VISIBLE else View.GONE
+        }
+
+        viewModel.speaking.observe(this) { speaking ->
+            speakingIndicator.visibility = if (speaking) View.VISIBLE else View.GONE
         }
 
         sendButton.setOnClickListener {

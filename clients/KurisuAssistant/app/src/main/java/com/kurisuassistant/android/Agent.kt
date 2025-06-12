@@ -7,7 +7,12 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import com.kurisuassistant.android.utils.Util
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.WebSocket
@@ -25,6 +30,12 @@ class Agent(val player: AudioTrack) {
     private var chatChannel: Channel<String>? = null
     private val _connected = MutableLiveData(false)
     val connected: LiveData<Boolean> get() = _connected
+    private val _typing = MutableLiveData(false)
+    val typing: LiveData<Boolean> get() = _typing
+    private val _speaking = MutableLiveData(false)
+    val speaking: LiveData<Boolean> get() = _speaking
+    private val scope = CoroutineScope(Dispatchers.IO)
+    private var speakingJob: Job? = null
 
     init {
         client = OkHttpClient.Builder()
@@ -61,6 +72,12 @@ class Agent(val player: AudioTrack) {
                 // Stream PCM data directly to the audio player
                 val pcmChunk = bytes.toByteArray()
                 player.write(pcmChunk, 0, pcmChunk.size)
+                _speaking.postValue(true)
+                speakingJob?.cancel()
+                speakingJob = scope.launch {
+                    delay(300)
+                    _speaking.postValue(false)
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -81,6 +98,7 @@ class Agent(val player: AudioTrack) {
                     if (json.optBoolean("done")) {
                         chatChannel?.close()
                         chatChannel = null
+                        _typing.postValue(false)
                     }
                 }
             }
@@ -95,6 +113,8 @@ class Agent(val player: AudioTrack) {
                 super.onClosed(webSocket, code, reason)
                 Log.d(TAG, "WebSocket closed: $code / $reason")
                 _connected.postValue(false)
+                _typing.postValue(false)
+                _speaking.postValue(false)
                 reconnect()
             }
 
@@ -102,6 +122,8 @@ class Agent(val player: AudioTrack) {
                 super.onFailure(webSocket, t, response)
                 Log.e(TAG, "WebSocket failure: ${t.localizedMessage}", t)
                 _connected.postValue(false)
+                _typing.postValue(false)
+                _speaking.postValue(false)
                 reconnect()
             }
         }
@@ -141,6 +163,7 @@ class Agent(val player: AudioTrack) {
     fun chat(text: String): Channel<String> {
         val channel = Channel<String>(Channel.UNLIMITED)
         chatChannel = channel
+        _typing.postValue(true)
         val json = JSONObject().apply {
             put("model", modelName)
             put("stream", true)

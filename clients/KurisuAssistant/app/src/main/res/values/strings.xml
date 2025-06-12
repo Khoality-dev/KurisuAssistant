@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">KurisuAssistant</string>
+    <string name="typing_indicator">Generating text…</string>
+    <string name="speaking_indicator">Generating speech…</string>
 </resources>
