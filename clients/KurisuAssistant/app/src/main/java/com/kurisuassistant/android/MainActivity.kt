@@ -60,7 +60,19 @@ class MainActivity : AppCompatActivity() {
 
         viewModel.messages.observe(this) {
             adapter.update(it)
-            recyclerView.scrollToPosition(adapter.itemCount - 1)
+            recyclerView.post {
+                val last = adapter.itemCount - 1
+                if (last >= 0) {
+                    recyclerView.smoothScrollToPosition(last)
+                }
+            }
+        }
+
+        recyclerView.addOnLayoutChangeListener { _, _, _, _, bottom, _, _, _, oldBottom ->
+            if (bottom > oldBottom) {
+                val last = adapter.itemCount - 1
+                if (last >= 0) recyclerView.post { recyclerView.scrollToPosition(last) }
+            }
         }
 
         viewModel.connected.observe(this) { connected ->
