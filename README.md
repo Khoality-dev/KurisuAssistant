@@ -9,8 +9,8 @@ An intelligent AI assistant that helps with everything from simple daily tasks t
 3. [Features](#features)
 4. [Installation](#installation)
 
-   * [Client](#client)
-   * [Server](#server)
+   * [Python Client](#python-client)
+   * [Backend](#backend)
 5. [Usage](#usage)
 6. [Configuration](#configuration)
 7. [Contributing](#contributing)
@@ -33,15 +33,16 @@ This fusion enables seamless voice interactions and automated task execution acr
 
 ## Architecture
 
-The system is composed of two main components:
+The repository is organized into two parts:
 
-1. **Client**
-
-   * Captures audio, streams to the server, and plays back TTS responses
-2. **Server**
+1. **Backend** (`backend/`)
 
    * Hosts Whisper for STT, Gemma3-12B for dialogue, and GPT-SoVITS for TTS
    * Exposes a WebSocket API for real-time interaction
+2. **Clients** (`clients/`)
+
+   * `python/` – command‑line client
+   * `android/` – Android application
 
 ---
 
@@ -56,17 +57,17 @@ The system is composed of two main components:
 
 ## Installation
 
-### Client
+### Python Client
 
 ```bash
 python -m venv venv
 source venv/bin/activate      # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp .env_template .env         # Create configuration
-python main.py                # Launch the client UI/CLI
+pip install -r clients/python/requirements.txt
+cp clients/python/.env_template .env   # Create configuration
+python clients/python/main.py         # Launch the client UI/CLI
 ```
 
-### Server
+### Backend
 
 ```bash
 docker-compose up -d          # Start STT, LLM, and TTS services in containers
@@ -78,8 +79,8 @@ Ensure you have Docker Engine and Docker Compose installed.
 
 ## Usage
 
-1. **Start the server** (`docker-compose up -d`).
-2. **Run the client** (`python main.py`).
+1. **Start the backend** (`docker-compose up -d`).
+2. **Run the client** (`python clients/python/main.py`).
 3. **Speak** into your microphone and watch KurisuAssistant transcribe and respond.
 4. **Edit** `.env` if the WebSocket endpoint or token differ from the defaults.
 
@@ -89,10 +90,10 @@ Ensure you have Docker Engine and Docker Compose installed.
 
 Configure your environment by editing the `.env` file:
 
-* **WS_API_URL** – WebSocket endpoint of the core service
+* **WS_API_URL** – WebSocket endpoint of the backend service
 * **AUTHENTICATION_TOKEN** – Token used when connecting (optional)
 
-LLM and TTS URLs for the core can be adjusted in `docker-compose.yml`.
+LLM and TTS URLs for the backend can be adjusted in `docker-compose.yml`.
 
 ## Contributing
 

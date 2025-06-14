@@ -10,7 +10,7 @@ services:
       - ./output:/workspace/output
       - ./logs:/workspace/logs
       - ./SoVITS_weights:/workspace/SoVITS_weights
-      - ./reference:/workspace/reference
+      - ./backend/reference:/workspace/reference
     working_dir: /workspace
     ports:
       - "9880:9880"
@@ -37,10 +37,10 @@ services:
     tty: true
     entrypoint: ["/bin/ollama", "serve"]
     restart: unless-stopped
-  core:
+  backend:
     #image: legwork7623/kurisu-assistant-core:latest
     build:
-      context: ./core
+      context: ./backend
       dockerfile: Dockerfile
     container_name: core-container
     ports:
@@ -53,8 +53,8 @@ services:
       - TTS_API_URL=http://gpt-sovits-container:9880/tts
       - LLM_API_URL=http://ollama-container:11434
     volumes:
-      - ./core/whisper-finetuned:/app/whisper-finetuned
-      - ./core/configs:/app/configs
+      - ./backend/whisper-finetuned:/app/whisper-finetuned
+      - ./backend/configs:/app/configs
     tty: true
     restart: unless-stopped
   # mcp:
@@ -76,7 +76,7 @@ services:
   #   ports:
   #     - "14251:14251"
   #   depends_on:
-  #     - core
+  #     - backend
   #   restart: unless-stopped
 
 networks:
