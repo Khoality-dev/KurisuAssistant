@@ -61,7 +61,10 @@ class MainActivity : AppCompatActivity() {
         viewModel.messages.observe(this) {
             adapter.update(it)
             recyclerView.post {
-                recyclerView.smoothScrollToPosition(adapter.itemCount - 1)
+                val last = adapter.itemCount - 1
+                if (last >= 0) {
+                    recyclerView.smoothScrollToPosition(last)
+                }
             }
         }
 
