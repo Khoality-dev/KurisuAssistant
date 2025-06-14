@@ -1,6 +1,6 @@
 import sounddevice as sd
-from helpers.agent import Agent
-from helpers.utils import slow_print
+from clients.python.helpers.agent import Agent
+from clients.python.helpers.utils import slow_print
 
 
 
