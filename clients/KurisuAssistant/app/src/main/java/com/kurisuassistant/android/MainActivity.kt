@@ -63,7 +63,7 @@ class MainActivity : AppCompatActivity() {
             recyclerView.post {
                 val last = adapter.itemCount - 1
                 if (last >= 0) {
-                    recyclerView.smoothScrollToPosition(last)
+                    recyclerView.scrollToPosition(last)
                 }
             }
         }

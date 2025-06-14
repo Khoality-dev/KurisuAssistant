@@ -16,13 +16,13 @@
 
     <TextView
         android:id="@+id/message_text"
-        android:layout_width="0dp"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_weight="1"
         android:background="@drawable/bg_assistant_message"
         android:padding="8dp"
         android:textColor="@android:color/black"
         android:textSize="16sp"
         android:scrollHorizontally="false"
-        android:breakStrategy="simple" />
+        android:breakStrategy="simple"
+        android:maxWidth="@dimen/message_max_width" />
 </LinearLayout>
