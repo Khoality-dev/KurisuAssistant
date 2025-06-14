@@ -60,7 +60,9 @@ class MainActivity : AppCompatActivity() {
 
         viewModel.messages.observe(this) {
             adapter.update(it)
-            recyclerView.scrollToPosition(adapter.itemCount - 1)
+            recyclerView.post {
+                recyclerView.scrollToPosition(adapter.itemCount - 1)
+            }
         }
 
         viewModel.connected.observe(this) { connected ->
