@@ -52,9 +52,6 @@ services:
     container_name: core-container
     ports:
       - "15597:15597"
-    depends_on:
-      - ollama
-      - gpt-sovits
     deploy:
       resources:
         reservations:
