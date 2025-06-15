@@ -3,8 +3,9 @@ import torch
 import sounddevice as sd
 import numpy as np
 import time
-from helpers.utils import pretty_print
-from helpers.agent import Agent
+from pathlib import Path
+from clients.python.helpers.utils import pretty_print
+from clients.python.helpers.agent import Agent
 from threading import Condition, Thread
 
 print("Initializing...")
@@ -32,12 +33,13 @@ audio_output_condition = Condition()
 
 
 feedback_volume = 0.5
-start_feedback_effect = wave.open("assets/start_effect.wav")
+assets_dir = Path(__file__).parent / "assets"
+start_feedback_effect = wave.open(assets_dir / "start_effect.wav")
 start_feedback_effect = (
     np.frombuffer(start_feedback_effect.readframes(-1), dtype=np.int16).reshape((-1, 2))
     * feedback_volume
 ).astype(np.int16)
-stop_feedback_effect = wave.open("assets/stop_effect.wav")
+stop_feedback_effect = wave.open(assets_dir / "stop_effect.wav")
 stop_feedback_effect = (
     np.frombuffer(stop_feedback_effect.readframes(-1), dtype=np.int16).reshape((-1, 2))
     * feedback_volume
