@@ -1,20 +1,8 @@
 import json
 import os
 from ollama import Client
-from helpers.mcp import list_tools, call_tool
-
-from fastmcp.client.transports import UvxStdioTransport
-import logging
-
-mcp_config = {
-    "mcpServers": {
-        "git": {
-            "command": "python",
-            "args": ["-m", "mcp_server_git", "--repository", r"D:/Programming/KurisuAssistant"],
-            "env": {}  # optional environment variables
-        }
-    }
-}
+from mcp_tools.client import list_tools, call_tool
+from fastmcp.client import Client as FastMCPClient
 
 class LLM:
     def __init__(self):
@@ -22,10 +10,13 @@ class LLM:
         print(f"LLM API URL: {self.api_url}")
         self.delimiters = ['.', '\n', '?']
         self.client = Client(host=self.api_url)
-
         with open("configs/default.json", "r") as f:
             json_config = json.load(f)
             self.system_prompts = json_config.get("system_prompts", [])
+            self.mcp_configs = {
+                "mcpServers": json_config.get("mcp_servers", {})
+            }
+        self.mcp_client = FastMCPClient(self.mcp_configs)
 
         self.history = []
         
@@ -42,14 +33,16 @@ class LLM:
         self.history.append(payload['message'])
         while not is_final:
             is_final = True
-            tools = await list_tools(mcp_config)
+            tools = await list_tools(self.mcp_client)
+            
             messages = self.system_prompts + self.history
             stream = self.client.chat(model = payload['model'], messages=messages, stream = payload['stream'], tools=tools)
             for chunk in stream:
                 json_response = chunk.dict()
+                print(json_response)
                 if chunk.message.tool_calls is not None:
                     for tool_call in chunk.message.tool_calls:
-                        result = await call_tool(mcp_config, tool_call.function.name, tool_call.function.arguments)
+                        result = await call_tool(self.mcp_client, tool_call.function.name, tool_call.function.arguments)
                         self.history.append({"role": "tool", "name": tool_call.function.name, "content": str(result)})
                         print(self.history[-1])
                     is_final = False

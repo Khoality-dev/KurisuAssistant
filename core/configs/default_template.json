@@ -9,13 +9,19 @@
             "content": "Your answer should be a conversational language, not a written one so it should be concise and short."
         }
     ],
-    "mcp_servers": [
-        {
-            "git": {
-                "command": "python",
-                "args": ["-m", "mcp_server_git", "--repository", "KurisuAssistant"],
-                "env": {} 
-            }
+    "mcp_servers": {
+        "git": {
+            "command": "python",
+            "args": ["-m", "mcp_server_git", "--repository", "./KurisuAssistant"],
+            "env": {} 
+        },
+        "device_control_service": {
+           "command": "docker",
+           "args": ["run", "--rm", "-i", "mcp/device_control_service"]
+        },
+        "clock_service": {
+           "command": "python",
+           "args": ["./mcp_tools/clock_service/main.py"]
         }
-    ]
+    }
 }

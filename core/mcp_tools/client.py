@@ -1,8 +1,8 @@
 from fastmcp import Client
 
 
-async def list_tools(url):
-    async with Client(url) as client:
+async def list_tools(client):
+    async with client:
         mcp_tools = await client.list_tools()
         ollama_tools = [
             {
@@ -17,6 +17,6 @@ async def list_tools(url):
         ]
         return ollama_tools
     
-async def call_tool(url, name, arguments):
-    async with Client(url) as client:
+async def call_tool(client, name, arguments):
+    async with client:
         return await client.call_tool(name, arguments)
