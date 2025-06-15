@@ -10,18 +10,16 @@ if __name__ == "__main__":
     while True:
         prompt = input("\033[32mUser: \033[0m")
         print("\033[31mKurisu:\033[0m", "Thinking...")
-        response = agent.process_message(prompt)
-        if response is None:
+        response_generator = agent.process_and_say(prompt)
+        if response_generator is None:
             print("\033[31mKurisu:\033[0m", "I'm malfunctioning. Please try again later.")
-        response = response
-        jp_response = response #response.split("|")[-1].strip()
-        # overwrite the last print line with "Saying..."
-        print("\033[F\033[K\033[31mKurisu:\033[0m", "Saying...")
-        voice_response = agent.say(jp_response)
-        if voice_response is None:
-            print("\033[31mKurisu:\033[0m", "I got cough and can't speak. Please try again later.")
-        en_response = response #response.split("|")[0].strip()
-        # print in color
-        slow_print("\033[F\033[K\033[31mKurisu:\033[0m " + en_response)
-        sd.wait()
+
+        for text_data, audio_data in response_generator:
+            if audio_data is not None:
+                sd.play(audio_data, samplerate=32000)
+                
+            en_response = text_data #response.split("|")[0].strip()
+            # print in color
+            slow_print("\033[F\033[K\033[31mKurisu:\033[0m " + en_response)
+            sd.wait()
         
