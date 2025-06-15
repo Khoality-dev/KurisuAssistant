@@ -6,7 +6,6 @@ import re
 import subprocess
 import wave
 from helpers.llm import LLM
-from helpers.tools import get_notification
 from fastapi import FastAPI, Request, HTTPException, Response, Body, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from transformers import pipeline
@@ -17,6 +16,9 @@ import requests
 import dotenv
 
 dotenv.load_dotenv()
+
+from mcp_tools.build import main as build_dockers
+build_dockers()
 
 app = FastAPI(
     title="Kurisu Assistant Core API",
@@ -33,6 +35,7 @@ asr_model = pipeline(
 tts_model = TTS()
 SAMPLE_RATE = 16_000         # Hz
 SAMPLE_WIDTH = 2             # bytes per sample (16-bit)
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
@@ -63,7 +66,7 @@ async def websocket_endpoint(ws: WebSocket):
                 text_payload = data["text"]
                 json_body = json.loads(text_payload)
                 response_generator = llm_model(json_body)
-                for response in response_generator:
+                async for response in response_generator:
                     audio_data = tts_model(response["message"]["content"])
                     await ws.send_text(json.dumps(response))
                     if audio_data is None:
