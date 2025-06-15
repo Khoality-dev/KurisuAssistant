@@ -17,6 +17,9 @@ import dotenv
 
 dotenv.load_dotenv()
 
+from mcp_tools.build import main as build_dockers
+build_dockers()
+
 app = FastAPI(
     title="Kurisu Assistant Core API",
     description="API for Kurisu Assistant Core",
