@@ -1,4 +1,3 @@
-
 services:
   gpt-sovits:
     image: legwork7623/gpt-sovits:latest 
@@ -15,7 +14,13 @@ services:
     ports:
       - "9880:9880"
     shm_size: 16G
-    gpus: "all"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     stdin_open: true
     tty: true
     restart: unless-stopped
@@ -33,7 +38,9 @@ services:
       resources:
         reservations:
           devices:
-            - capabilities: [gpu]
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     tty: true
     entrypoint: ["/bin/ollama", "serve"]
     restart: unless-stopped
@@ -48,7 +55,13 @@ services:
     depends_on:
       - ollama
       - gpt-sovits
-    gpus: "all"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     environment:
       - TTS_API_URL=http://gpt-sovits-container:9880/tts
       - LLM_API_URL=http://ollama-container:11434
