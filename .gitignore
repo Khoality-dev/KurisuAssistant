@@ -4,4 +4,3 @@ __pycache__/
 whisper-finetuned/
 configs/default.json
 configs/nginx
-core/mcp_servers/device_control_service.py
