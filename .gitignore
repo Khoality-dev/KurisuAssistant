@@ -4,3 +4,4 @@ __pycache__/
 whisper-finetuned/
 configs/default.json
 configs/nginx
+ollama

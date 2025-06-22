@@ -30,7 +30,7 @@ services:
     ports:
       - "11434:11434"
     volumes:
-      - ollama:/root/.ollama
+      - ./ollama:/root/.ollama
     environment:
       - OLLAMA_KEEP_ALIVE=24h
       - OLLAMA_HOST=0.0.0.0
@@ -65,13 +65,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker:ro
+      - ./core/mcp_tools:/app/mcp_tools
       - ./core/whisper-finetuned:/app/whisper-finetuned
       - ./core/configs:/app/configs
     tty: true
     restart: unless-stopped
-
+  
 networks:
   default:
-
-volumes:
-  ollama:
