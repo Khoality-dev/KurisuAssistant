@@ -2,10 +2,10 @@ import json
 import os
 from ollama import Client
 from mcp_tools.client import list_tools, call_tool
-from fastmcp.client import Client as FastMCPClient
+
 
 class LLM:
-    def __init__(self):
+    def __init__(self, mcp_client):
         self.api_url = os.getenv("LLM_API_URL", "http://127.0.0.1:11434")
         print(f"LLM API URL: {self.api_url}")
         self.delimiters = ['.', '\n', '?']
@@ -16,8 +16,7 @@ class LLM:
             self.mcp_configs = {
                 "mcpServers": json_config.get("mcp_servers", {})
             }
-        self.mcp_client = FastMCPClient(self.mcp_configs)
-
+        self.mcp_client = mcp_client
         self.history = []
         
     def pull_model(self, model_name):
@@ -43,7 +42,8 @@ class LLM:
                 if chunk.message.tool_calls is not None:
                     for tool_call in chunk.message.tool_calls:
                         result = await call_tool(self.mcp_client, tool_call.function.name, tool_call.function.arguments)
-                        self.history.append({"role": "tool", "name": tool_call.function.name, "content": str(result)})
+                        json_tool_response = {"text": result[0].text}
+                        self.history.append({"role": "user", "content": f"<tool_response> {json.dumps(json_tool_response)} </tool_response>"})
                         print(self.history[-1])
                     is_final = False
                 

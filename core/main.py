@@ -14,11 +14,14 @@ import torch
 import numpy as np
 import requests
 import dotenv
-
+from fastmcp.client import Client as FastMCPClient
+with open("configs/default.json", "r") as f:
+    json_config = json.load(f)
+    mcp_configs = {
+        "mcpServers": json_config.get("mcp_servers", {})
+    }
+mcp_client = FastMCPClient(mcp_configs)
 dotenv.load_dotenv()
-
-from mcp_tools.build import main as build_dockers
-build_dockers()
 
 app = FastAPI(
     title="Kurisu Assistant Core API",
@@ -57,7 +60,7 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.close()
         return
     
-    llm_model = LLM()
+    llm_model = LLM(mcp_client)
     try:
         while True:
             data = await ws.receive()
