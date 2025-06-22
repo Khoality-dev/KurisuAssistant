@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import io.noties.markwon.Markwon
 import com.kurisuassistant.android.model.ChatMessage
 
 /**
@@ -26,6 +27,7 @@ class ChatAdapter(
 
     private var responding = false
     private var ellipsis = ""
+    private val markwon = Markwon.create(context)
     private val handler = Handler(Looper.getMainLooper())
     private val animateRunnable = object : Runnable {
         override fun run() {
@@ -76,7 +78,7 @@ class ChatAdapter(
         val msg = messages[position]
         when (holder) {
             is UserHolder -> {
-                holder.text.text = msg.text
+                markwon.setMarkdown(holder.text, msg.text)
                 val uri = AvatarManager.getUserAvatarUri()
                 if (uri != null) holder.avatar.setImageURI(uri)
                 else holder.avatar.setImageResource(R.drawable.avatar_user)
@@ -86,7 +88,7 @@ class ChatAdapter(
                 if (responding && position == messages.lastIndex) {
                     text += ellipsis
                 }
-                holder.text.text = text
+                markwon.setMarkdown(holder.text, text)
                 val uri = AvatarManager.getAgentAvatarUri()
                 if (uri != null) holder.avatar.setImageURI(uri)
                 else holder.avatar.setImageResource(R.drawable.avatar_assistant)
