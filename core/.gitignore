@@ -3,3 +3,4 @@ __pycache__/
 .env
 whisper-finetuned/
 configs/default.json
+mcp_tools/**
