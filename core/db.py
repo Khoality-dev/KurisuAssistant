@@ -1,6 +1,9 @@
 import os
 import psycopg2
 import json
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://kurisu:kurisu@localhost:5432/kurisu")
 
@@ -12,6 +15,19 @@ def get_connection():
 def init_db():
     conn = get_connection()
     cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password TEXT NOT NULL
+        )
+        """
+    )
+    # ensure default admin account
+    cur.execute(
+        "INSERT INTO users (username, password) VALUES (%s, %s) ON CONFLICT (username) DO NOTHING",
+        ("admin", pwd_context.hash("admin")),
+    )
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS conversations (

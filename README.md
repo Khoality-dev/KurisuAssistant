@@ -68,7 +68,8 @@ python main.py                # Launch the client UI/CLI
 
 The Android app located in `clients/KurisuAssistant` also uses this REST API.
 On first launch it presents a login screen where you enter your account
-credentials. A "Remember me" checkbox lets you persist the token so you
+credentials. The default admin account is **admin/admin**.
+A "Remember me" checkbox lets you persist the token so you
 don't have to log in again on subsequent launches. The settings screen
 fetches the available models from the LLM hub's `/models` endpoint so you
 can choose which one to use, and lets you edit the LLM and TTS hub URLs.
@@ -80,6 +81,7 @@ docker-compose up -d          # Start STT, LLM, and TTS services in containers
 ```
 
 Ensure you have Docker Engine and Docker Compose installed.
+The database is seeded with a default **admin/admin** account for testing.
 
 ---
 
