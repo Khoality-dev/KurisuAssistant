@@ -6,6 +6,7 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.Toast
+import com.kurisuassistant.android.Settings
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +19,7 @@ class LoginActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_login)
         Auth.init(this)
+        Settings.init(this)
         if (Auth.token != null) {
             startActivity(Intent(this, MainActivity::class.java))
             finish()
@@ -51,7 +53,7 @@ class LoginActivity : AppCompatActivity() {
             .add("password", pass)
             .build()
         val request = okhttp3.Request.Builder()
-            .url("${BuildConfig.API_URL}/login")
+            .url("${Settings.llmUrl}/login")
             .post(body)
             .build()
         val client = okhttp3.OkHttpClient()

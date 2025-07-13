@@ -6,27 +6,50 @@ import android.os.Bundle
 import android.provider.MediaStore
 import androidx.appcompat.app.AppCompatActivity
 import com.yalantis.ucrop.UCrop
+import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageView
+import android.widget.Toast
 import java.io.File
 
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var userAvatar: ImageView
     private lateinit var agentAvatar: ImageView
+    private lateinit var llmUrl: EditText
+    private lateinit var ttsUrl: EditText
+    private lateinit var modelName: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
         AvatarManager.init(this)
+        Settings.init(this)
 
         userAvatar = findViewById(R.id.userAvatar)
         agentAvatar = findViewById(R.id.agentAvatar)
+        llmUrl = findViewById(R.id.editLlmUrl)
+        ttsUrl = findViewById(R.id.editTtsUrl)
+        modelName = findViewById(R.id.editModel)
+
+        llmUrl.setText(Settings.llmUrl)
+        ttsUrl.setText(Settings.ttsUrl)
+        modelName.setText(Settings.model)
 
         AvatarManager.getUserAvatarUri()?.let { userAvatar.setImageURI(it) }
         AvatarManager.getAgentAvatarUri()?.let { agentAvatar.setImageURI(it) }
 
         userAvatar.setOnClickListener { pickImage(USER_PICK) }
         agentAvatar.setOnClickListener { pickImage(AGENT_PICK) }
+
+        findViewById<Button>(R.id.buttonSaveSettings).setOnClickListener {
+            Settings.save(
+                llmUrl.text.toString().trim(),
+                ttsUrl.text.toString().trim(),
+                modelName.text.toString().trim()
+            )
+            Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun pickImage(code: Int) {

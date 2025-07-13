@@ -6,6 +6,7 @@ import androidx.collection.MutableIntList
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import com.kurisuassistant.android.utils.Util
+import com.kurisuassistant.android.Settings
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import okhttp3.MediaType.Companion.toMediaType
@@ -19,7 +20,6 @@ import org.json.JSONObject
  * Agent communicating with the REST API instead of a WebSocket.
  */
 class Agent(private val player: AudioTrack) {
-    private val modelName = "gemma3:12b-it-qat-tool"
     private val TAG = "Agent"
     private val client = OkHttpClient()
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -36,7 +36,7 @@ class Agent(private val player: AudioTrack) {
     suspend fun stt(audioBuffer: MutableIntList): String {
         val data = Util.toByteArray(audioBuffer)
         val request = Request.Builder()
-            .url("${BuildConfig.API_URL}/asr")
+            .url("${Settings.llmUrl}/asr")
             .addHeader("Authorization", "Bearer ${Auth.token ?: ""}")
             .post(ByteString.of(*data).toByteArray().toRequestBody("application/octet-stream".toMediaType()))
             .build()
@@ -50,7 +50,7 @@ class Agent(private val player: AudioTrack) {
     private fun tts(text: String): ByteArray? {
         val body = JSONObject().put("text", text).toString().toRequestBody("application/json".toMediaType())
         val request = Request.Builder()
-            .url("${BuildConfig.API_URL}/tts")
+            .url("${Settings.ttsUrl}/tts")
             .addHeader("Authorization", "Bearer ${Auth.token ?: ""}")
             .post(body)
             .build()
@@ -66,7 +66,7 @@ class Agent(private val player: AudioTrack) {
         _typing.postValue(true)
         scope.launch {
             val payload = JSONObject().apply {
-                put("model", modelName)
+                put("model", Settings.model)
                 put("stream", true)
                 put("message", JSONObject().apply {
                     put("role", "user")
@@ -74,7 +74,7 @@ class Agent(private val player: AudioTrack) {
                 })
             }
             val request = Request.Builder()
-                .url("${BuildConfig.API_URL}/chat")
+                .url("${Settings.llmUrl}/chat")
                 .addHeader("Authorization", "Bearer ${Auth.token ?: ""}")
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()

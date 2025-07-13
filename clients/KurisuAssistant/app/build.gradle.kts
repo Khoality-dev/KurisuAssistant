@@ -28,7 +28,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "API_URL", "\"${secrets["API_URL"]}\"")
+        buildConfigField("String", "LLM_URL", "\"${secrets["LLM_URL"]}\"")
+        buildConfigField("String", "TTS_URL", "\"${secrets["TTS_URL"]}\"")
+        buildConfigField("String", "DEFAULT_MODEL", "\"${secrets["DEFAULT_MODEL"] ?: "gemma3:12b-it-qat-tool"}\"")
     }
 
     buildFeatures {
