@@ -12,20 +12,22 @@ object Settings {
     private const val KEY_TTS_URL = "tts_url"
     private const val KEY_MODEL = "model"
 
+    private const val DEFAULT_LLM_URL = "http://127.0.0.1:15597"
+    private const val DEFAULT_TTS_URL = "http://127.0.0.1:15598"
+
     private lateinit var prefs: SharedPreferences
 
-    var llmUrl: String = BuildConfig.LLM_URL
+    var llmUrl: String = DEFAULT_LLM_URL
         private set
-    var ttsUrl: String = BuildConfig.TTS_URL
+    var ttsUrl: String = DEFAULT_TTS_URL
         private set
-    var model: String = BuildConfig.DEFAULT_MODEL
-        private set
+    var model: String = ""
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        llmUrl = prefs.getString(KEY_LLM_URL, BuildConfig.LLM_URL) ?: BuildConfig.LLM_URL
-        ttsUrl = prefs.getString(KEY_TTS_URL, BuildConfig.TTS_URL) ?: BuildConfig.TTS_URL
-        model = prefs.getString(KEY_MODEL, BuildConfig.DEFAULT_MODEL) ?: BuildConfig.DEFAULT_MODEL
+        llmUrl = prefs.getString(KEY_LLM_URL, DEFAULT_LLM_URL) ?: DEFAULT_LLM_URL
+        ttsUrl = prefs.getString(KEY_TTS_URL, DEFAULT_TTS_URL) ?: DEFAULT_TTS_URL
+        model = prefs.getString(KEY_MODEL, "") ?: ""
     }
 
     fun save(llm: String, tts: String, modelName: String) {

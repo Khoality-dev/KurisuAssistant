@@ -94,6 +94,16 @@ async def chat(request: Request, token: str = Depends(oauth2_scheme)):
     return StreamingResponse(stream(), media_type="application/json")
 
 
+@app.get("/models")
+async def models(token: str = Depends(oauth2_scheme)):
+    if not get_current_user(token):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    try:
+        return {"models": llm_model.list_models()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/history")
 async def history(token: str = Depends(oauth2_scheme), limit: int = 50):
     username = get_current_user(token)

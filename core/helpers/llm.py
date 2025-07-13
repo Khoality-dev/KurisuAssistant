@@ -18,6 +18,14 @@ class LLM:
             }
         self.mcp_client = mcp_client
         self.history = []
+
+    def list_models(self):
+        """Return a list of available model names."""
+        try:
+            resp = self.client.list()
+            return [m["name"] for m in resp.get("models", [])]
+        except Exception:
+            return []
         
     def pull_model(self, model_name):
         self.client.pull(model_name)
