@@ -91,7 +91,8 @@ Configure your environment by editing the `.env` file:
 
 * **LLM_HUB_URL** – URL of the LLM hub REST service
 * **TTS_HUB_URL** – URL of the TTS hub REST service
-* **AUTHENTICATION_TOKEN** – Token used when connecting (optional)
+* **DATABASE_URL** – Connection string for the PostgreSQL database
+* **JWT_SECRET_KEY** – Secret key used to sign authentication tokens
 
 LLM and TTS URLs for the core can be adjusted in `docker-compose.yml`.
 
