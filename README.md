@@ -89,7 +89,8 @@ Ensure you have Docker Engine and Docker Compose installed.
 
 Configure your environment by editing the `.env` file:
 
-* **WS_API_URL** – WebSocket endpoint of the core service
+* **LLM_HUB_URL** – URL of the LLM hub REST service
+* **TTS_HUB_URL** – URL of the TTS hub REST service
 * **AUTHENTICATION_TOKEN** – Token used when connecting (optional)
 
 LLM and TTS URLs for the core can be adjusted in `docker-compose.yml`.
