@@ -9,11 +9,27 @@ object Auth {
 
     private lateinit var prefs: SharedPreferences
 
+    /** Token for the current session, loaded from prefs if available. */
+    var token: String? = null
+        private set
+
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (token == null) {
+            token = prefs.getString(TOKEN_KEY, null)
+        }
     }
 
-    var token: String?
-        get() = prefs.getString(TOKEN_KEY, null)
-        set(value) { prefs.edit().putString(TOKEN_KEY, value).apply() }
+    /**
+     * Store the token. If [remember] is true the token is persisted in
+     * preferences, otherwise it's kept only for the running session.
+     */
+    fun setToken(value: String, remember: Boolean) {
+        token = value
+        if (remember) {
+            prefs.edit().putString(TOKEN_KEY, value).apply()
+        } else {
+            prefs.edit().remove(TOKEN_KEY).apply()
+        }
+    }
 }

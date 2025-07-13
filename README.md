@@ -68,7 +68,8 @@ python main.py                # Launch the client UI/CLI
 
 The Android app located in `clients/KurisuAssistant` also uses this REST API.
 On first launch it presents a login screen where you enter your account
-credentials.
+credentials. A "Remember me" checkbox lets you persist the token so you
+don't have to log in again on subsequent launches.
 
 ### Server
 

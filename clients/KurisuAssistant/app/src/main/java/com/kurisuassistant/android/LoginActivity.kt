@@ -3,6 +3,7 @@ package com.kurisuassistant.android
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -24,6 +25,7 @@ class LoginActivity : AppCompatActivity() {
         }
         val username = findViewById<EditText>(R.id.editUsername)
         val password = findViewById<EditText>(R.id.editPassword)
+        val remember = findViewById<CheckBox>(R.id.checkRemember)
         val button = findViewById<Button>(R.id.buttonLogin)
         button.setOnClickListener {
             val user = username.text.toString()
@@ -31,7 +33,7 @@ class LoginActivity : AppCompatActivity() {
             scope.launch {
                 val token = login(user, pass)
                 if (token != null) {
-                    Auth.token = token
+                    Auth.setToken(token, remember.isChecked)
                     startActivity(Intent(this@LoginActivity, MainActivity::class.java))
                     finish()
                 } else {
