@@ -29,7 +29,7 @@ class LLM:
         partial_response = ""
         is_final = False
         json_response = None
-        self.history.append(payload['message'])
+        self.history.append({**payload['message'], 'model': None})
         while not is_final:
             is_final = True
             tools = await list_tools(self.mcp_client)
@@ -43,7 +43,11 @@ class LLM:
                     for tool_call in chunk.message.tool_calls:
                         result = await call_tool(self.mcp_client, tool_call.function.name, tool_call.function.arguments)
                         json_tool_response = {"text": result[0].text}
-                        self.history.append({"role": "user", "content": f"<tool_response> {json.dumps(json_tool_response)} </tool_response>"})
+                        self.history.append({
+                            "role": "user",
+                            "content": f"<tool_response> {json.dumps(json_tool_response)} </tool_response>",
+                            "model": None,
+                        })
                         print(self.history[-1])
                     is_final = False
                 
@@ -65,5 +69,5 @@ class LLM:
                         yield json_response
                         response_buffer = ""
                     
-        self.history.append({"role": "assistant", "content": full_response})
+        self.history.append({"role": "assistant", "content": full_response, "model": payload.get('model')})
         print(self.history[-1])

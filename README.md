@@ -41,7 +41,7 @@ The system is composed of two main components:
 2. **Server**
 
    * Hosts Whisper for STT, Gemma3-12B for dialogue, and GPT-SoVITS for TTS
-   * Exposes a WebSocket API for real-time interaction
+  * Exposes a REST API for chat, ASR, and TTS
 
 ---
 
@@ -66,6 +66,10 @@ cp .env_template .env         # Create configuration
 python main.py                # Launch the client UI/CLI
 ```
 
+The Android app located in `clients/KurisuAssistant` also uses this REST API.
+On first launch it presents a login screen where you enter your account
+credentials.
+
 ### Server
 
 ```bash
@@ -81,7 +85,7 @@ Ensure you have Docker Engine and Docker Compose installed.
 1. **Start the server** (`docker-compose up -d`).
 2. **Run the client** (`python main.py`).
 3. **Speak** into your microphone and watch KurisuAssistant transcribe and respond.
-4. **Edit** `.env` if the WebSocket endpoint or token differ from the defaults.
+4. **Edit** `.env` if the API URL differs from the default.
 
 ---
 
@@ -95,6 +99,22 @@ Configure your environment by editing the `.env` file:
 * **JWT_SECRET_KEY** – Secret key used to sign authentication tokens
 
 LLM and TTS URLs for the core can be adjusted in `docker-compose.yml`.
+
+### Database schema
+
+On startup the LLM hub will create a `conversations` table if it does not
+exist. The table stores conversation transcripts in JSON format:
+
+```sql
+CREATE TABLE IF NOT EXISTS conversations (
+    id SERIAL PRIMARY KEY,
+    username TEXT NOT NULL,
+    messages JSONB NOT NULL,  -- {"messages": [{"role": "...", "content": "...", "model": "..."}]}
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+You can query a user's history via the `/history` endpoint of the LLM hub.
 
 ## Contributing
 

@@ -28,8 +28,7 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "API_TOKEN", "\"${secrets["API_TOKEN"]}\"")
-        buildConfigField("String", "WS_API_URL", "\"${secrets["WS_API_URL"]}\"")
+        buildConfigField("String", "API_URL", "\"${secrets["API_URL"]}\"")
     }
 
     buildFeatures {
