@@ -1,13 +1,15 @@
 import json
 import os
 import numpy as np
-from fastapi import FastAPI, HTTPException, Request, Body, Response
+from fastapi import FastAPI, HTTPException, Request, Body, Response, Depends
 from fastapi.responses import StreamingResponse
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from transformers import pipeline
 import torch
 from helpers.llm import LLM
 import dotenv
 from fastmcp.client import Client as FastMCPClient
+from auth import authenticate_user, create_access_token, get_current_user
 
 with open("configs/default.json", "r") as f:
     json_config = json.load(f)
@@ -32,8 +34,23 @@ asr_model = pipeline(
 )
 SAMPLE_RATE = 16_000
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+
+@app.post("/login")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    if authenticate_user(form_data.username, form_data.password):
+        token = create_access_token({"sub": form_data.username})
+        return {"access_token": token, "token_type": "bearer"}
+    raise HTTPException(status_code=400, detail="Incorrect username or password")
+
 @app.post("/asr")
-async def asr(audio: bytes = Body(..., media_type="application/octet-stream")):
+async def asr(
+    audio: bytes = Body(..., media_type="application/octet-stream"),
+    token: str = Depends(oauth2_scheme),
+):
+    if not get_current_user(token):
+        raise HTTPException(status_code=401, detail="Invalid token")
     try:
         pcm = np.frombuffer(audio, dtype=np.int16)
         waveform = pcm.astype(np.float32) / 32768.0
@@ -44,7 +61,9 @@ async def asr(audio: bytes = Body(..., media_type="application/octet-stream")):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/chat")
-async def chat(request: Request):
+async def chat(request: Request, token: str = Depends(oauth2_scheme)):
+    if not get_current_user(token):
+        raise HTTPException(status_code=401, detail="Invalid token")
     payload = await request.json()
     try:
         response_generator = llm_model(payload)
