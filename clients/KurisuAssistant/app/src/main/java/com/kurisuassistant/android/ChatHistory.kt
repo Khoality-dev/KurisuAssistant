@@ -48,9 +48,14 @@ object ChatHistory {
         prefs.edit().putString(KEY, arr.toString()).apply()
     }
 
-    fun conversationTitles(): List<String> = conversations.mapIndexed { index, convo ->
-        convo.firstOrNull { it.isUser }?.text?.take(30) ?: "Conversation ${index + 1}"
-    }
+    fun conversationTitles(): List<String> = conversations
+        .asReversed()
+        .mapIndexed { index, convo ->
+            convo.firstOrNull { it.isUser }?.text?.take(30)
+                ?: "Conversation ${conversations.lastIndex - index + 1}"
+        }
+
+    fun indexFromNewest(displayIndex: Int): Int = conversations.lastIndex - displayIndex
 
     fun get(index: Int): MutableList<ChatMessage> = conversations[index]
 

@@ -63,7 +63,8 @@ class MainActivity : AppCompatActivity() {
         drawerAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, ChatHistory.conversationTitles())
         convList.adapter = drawerAdapter
         convList.setOnItemClickListener { _, _, position, _ ->
-            ChatRepository.switchConversation(position)
+            val actualIndex = ChatHistory.indexFromNewest(position)
+            ChatRepository.switchConversation(actualIndex)
             drawerLayout.closeDrawers()
             refreshDrawer()
         }
