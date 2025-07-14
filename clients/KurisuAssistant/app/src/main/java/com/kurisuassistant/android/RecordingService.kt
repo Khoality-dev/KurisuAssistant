@@ -65,7 +65,7 @@ class RecordingService : Service() {
     private val asrBuffer: MutableIntList = MutableIntList()
     private lateinit var vadModel : SileroVadDetector
     private lateinit var agent: Agent
-    private val minSilenceBetweenInteractions = 20 * 1000 // 10s
+    private val conversationTimeout = 10 * 1000 // 10s
     private lateinit var startSFX : ShortArray
     private lateinit var stopSFX : ShortArray
 
@@ -85,6 +85,7 @@ class RecordingService : Service() {
         }
         initSileroVAD()
         startRecordingLoop()
+        ChatRepository.setConversationActive(false)
         Log.d(TAG, "onCreate")
     }
 
@@ -191,65 +192,53 @@ class RecordingService : Service() {
 
                 }
 
-                if (vadModel.isSpeaking == false)
-                {
-                    if (previousIsSpeaking == false)
-                    {
-                        if (asrBuffer.size > 16000)
-                        {
+                if (vadModel.isSpeaking == false) {
+                    if (previousIsSpeaking == false) {
+                        if (asrBuffer.size > 16000) {
                             asrBuffer.removeRange(0, asrBuffer.size - 16000)
                         }
-                    }
-                    else
-                    {
-                        if (playedStartSFX)
-                        {
+                    } else {
+                        if (playedStartSFX) {
                             player?.write(stopSFX, 0, stopSFX.size)
                             playedStartSFX = false
                         }
+
                         val text = agent.stt(asrBuffer)
-                        Log.d(TAG, "lastInteractionTimeDiff ${System.currentTimeMillis() - lastInteractionTimeStamp}")
-                        if (true || System.currentTimeMillis() - lastInteractionTimeStamp <= minSilenceBetweenInteractions)
-                        {
-                            if (!isInteracting)
-                            {
+                        asrBuffer.clear()
+                        Log.d(TAG, "Transcription: $text")
+
+                        if (!isInteracting) {
+                            if (text.contains("Kurisu", ignoreCase = true)) {
                                 isInteracting = true
+                                ChatRepository.setConversationActive(true)
+                                lastInteractionTimeStamp = System.currentTimeMillis()
                                 player?.write(startSFX, 0, startSFX.size)
                             }
-
-                            lastInteractionTimeStamp =  System.currentTimeMillis()
-                        }
-                        else if (System.currentTimeMillis() - lastInteractionTimeStamp > minSilenceBetweenInteractions)
-                        {
-                            isInteracting = false
-
-                        }
-
-                        if (isInteracting)
-                        {
+                        } else {
+                            lastInteractionTimeStamp = System.currentTimeMillis()
                             Log.d(TAG, "User: $text")
                             val idx = ChatRepository.addVoiceUserMessage(text)
                             val chatStream = agent.chat(text)
-                            for (content in chatStream)
-                            {
+                            for (content in chatStream) {
                                 ChatRepository.appendAssistantChunk(content, idx)
                                 Log.d(TAG, "Assistant: $content")
                             }
                             // audio replies are streamed via WebSocket and played automatically
-                            lastInteractionTimeStamp = System.currentTimeMillis()
                         }
+                    }
+                } else {
+                    if (!previousIsSpeaking && isInteracting) {
+                        player?.write(startSFX, 0, startSFX.size)
+                        playedStartSFX = true
                     }
                 }
-                else
-                {
-                    if (previousIsSpeaking == false)
-                    {
-                        if (System.currentTimeMillis() - lastInteractionTimeStamp <= minSilenceBetweenInteractions)
-                        {
-                            player?.write(startSFX, 0, startSFX.size)
-                            playedStartSFX = true
-                        }
-                    }
+
+                if (isInteracting &&
+                    System.currentTimeMillis() - lastInteractionTimeStamp > conversationTimeout &&
+                    !vadModel.isSpeaking) {
+                    isInteracting = false
+                    ChatRepository.setConversationActive(false)
+                    player?.write(stopSFX, 0, stopSFX.size)
                 }
 
                 previousIsSpeaking = vadModel.isSpeaking
@@ -270,6 +259,7 @@ class RecordingService : Service() {
             release()
         }
         player = null
+        ChatRepository.setConversationActive(false)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

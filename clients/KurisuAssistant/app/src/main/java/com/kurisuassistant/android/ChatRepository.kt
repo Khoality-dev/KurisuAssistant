@@ -48,8 +48,15 @@ object ChatRepository {
     val speaking: LiveData<Boolean>
         get() = agent.speaking
 
+    private val _conversationActive = MutableLiveData(false)
+    val conversationActive: LiveData<Boolean> = _conversationActive
+
     fun init() {
         agent
+    }
+
+    fun setConversationActive(active: Boolean) {
+        _conversationActive.postValue(active)
     }
 
     /**
