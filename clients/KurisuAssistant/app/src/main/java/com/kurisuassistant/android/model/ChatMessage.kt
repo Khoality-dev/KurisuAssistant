@@ -5,7 +5,11 @@ package com.kurisuassistant.android.model
  */
 data class ChatMessage(
     val text: String,
-    val isUser: Boolean,
+    val role: String,
     val createdAt: String? = null,
-)
+    val toolCalls: String? = null,
+) {
+    val isUser: Boolean
+        get() = role == "user"
+}
 

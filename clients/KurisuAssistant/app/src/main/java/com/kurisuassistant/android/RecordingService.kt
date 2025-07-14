@@ -227,13 +227,7 @@ class RecordingService : Service() {
                         if (isInteracting)
                         {
                             Log.d(TAG, "User: $text")
-                            val idx = ChatRepository.addVoiceUserMessage(text)
-                            val chatStream = agent.chat(text)
-                            for (content in chatStream)
-                            {
-                                ChatRepository.appendAssistantChunk(content, idx)
-                                Log.d(TAG, "Assistant: $content")
-                            }
+                            ChatRepository.sendMessage(text)
                             // audio replies are fetched via REST and played automatically
                             lastInteractionTimeStamp = System.currentTimeMillis()
                         }
