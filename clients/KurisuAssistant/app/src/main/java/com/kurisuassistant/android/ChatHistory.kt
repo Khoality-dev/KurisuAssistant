@@ -36,7 +36,7 @@ object ChatHistory {
                     convo.add(
                         ChatMessage(
                             obj.getString("text"),
-                            obj.getBoolean("isUser"),
+                            if (obj.getBoolean("isUser")) "user" else "assistant",
                             obj.optString("created_at", null)
                         )
                     )
@@ -50,11 +50,13 @@ object ChatHistory {
                 val convo = mutableListOf<ChatMessage>()
                 for (j in 0 until convoArr.length()) {
                     val msg = convoArr.getJSONObject(j)
+                    val role = msg.optString("role", if (msg.optBoolean("isUser", false)) "user" else "assistant")
                     convo.add(
                         ChatMessage(
                             msg.optString("text", msg.optString("content")),
-                            msg.optBoolean("isUser", msg.optString("role") == "user"),
-                            msg.optString("created_at", null)
+                            role,
+                            msg.optString("created_at", null),
+                            if (msg.has("tool_calls")) msg.getJSONArray("tool_calls").toString() else null
                         )
                     )
                 }
@@ -88,10 +90,8 @@ object ChatHistory {
                         val role = obj.optString("role")
                         val content = obj.optString("content")
                         val created = obj.optString("created_at", null)
-                        when (role) {
-                            "user" -> convo.add(ChatMessage(content, true, created))
-                            "assistant" -> convo.add(ChatMessage(content, false, created))
-                        }
+                        val toolCalls = if (obj.has("tool_calls")) obj.getJSONArray("tool_calls").toString() else null
+                        convo.add(ChatMessage(content, role, created, toolCalls))
                     }
                     conversations.add(convo)
                     titles.add(title)
@@ -121,9 +121,10 @@ object ChatHistory {
             val convoArr = JSONArray()
             for (msg in convo) {
                 val obj = JSONObject()
-                obj.put("text", msg.text)
-                obj.put("isUser", msg.isUser)
+                obj.put("role", msg.role)
+                obj.put("content", msg.text)
                 if (msg.createdAt != null) obj.put("created_at", msg.createdAt)
+                if (msg.toolCalls != null) obj.put("tool_calls", JSONArray(msg.toolCalls))
                 convoArr.put(obj)
             }
             convoObj.put("messages", convoArr)

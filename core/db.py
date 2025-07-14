@@ -54,11 +54,17 @@ def add_message(
     content: str,
     model: str | None = None,
     system_prompts=None,
+    tool_calls=None,
 ) -> None:
     """Append a message to the user's latest conversation.
 
     If the user has no conversation yet, a new one is started and the provided
     system prompts are included in the message history.
+
+    Parameters
+    ----------
+    tool_calls : list | None
+        If provided, the tool calls triggered by this assistant message.
     """
     conn = get_connection()
     cur = conn.cursor()
@@ -69,12 +75,15 @@ def add_message(
     row = cur.fetchone()
     if row:
         conv_id, messages = row
-        messages["messages"].append({
+        message_obj = {
             "role": role,
             "content": content,
             "model": model,
             "created_at": datetime.datetime.utcnow().isoformat(),
-        })
+        }
+        if tool_calls is not None:
+            message_obj["tool_calls"] = tool_calls
+        messages["messages"].append(message_obj)
         cur.execute(
             "UPDATE conversations SET messages=%s WHERE id=%s",
             (json.dumps(messages), conv_id),
@@ -85,16 +94,16 @@ def add_message(
         formatted_prompts = [
             {**p, "model": None} if "model" not in p else p for p in system_prompts
         ]
+        new_message = {
+            "role": role,
+            "content": content,
+            "model": model,
+            "created_at": datetime.datetime.utcnow().isoformat(),
+        }
+        if tool_calls is not None:
+            new_message["tool_calls"] = tool_calls
         new_messages = {
-            "messages": formatted_prompts
-            + [
-                {
-                    "role": role,
-                    "content": content,
-                    "model": model,
-                    "created_at": datetime.datetime.utcnow().isoformat(),
-                }
-            ]
+            "messages": formatted_prompts + [new_message]
         }
         cur.execute(
             "INSERT INTO conversations (username, title, messages) VALUES (%s, %s, %s)",

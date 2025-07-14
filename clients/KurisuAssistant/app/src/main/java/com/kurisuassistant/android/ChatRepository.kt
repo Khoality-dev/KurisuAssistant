@@ -73,52 +73,44 @@ object ChatRepository {
      */
     fun sendMessage(text: String) {
         val list = _messages.value ?: mutableListOf()
-        list.add(ChatMessage(text, true, Instant.now().toString()))
+        list.add(ChatMessage(text, "user", Instant.now().toString()))
         _messages.value = list
         ChatHistory.update(currentIndex, list)
 
         scope.launch {
-            val channel: Channel<String> = agent.chat(text)
-            val assistant = ChatMessage("", false, Instant.now().toString())
-            list.add(assistant)
-            val idx = list.lastIndex
-            _messages.postValue(ArrayList(list))
-            ChatHistory.update(currentIndex, list)
-            for (chunk in channel) {
-                list[idx] = ChatMessage(list[idx].text + chunk, false, assistant.createdAt)
+            val channel: Channel<ChatMessage> = agent.chat(text)
+            var assistant: ChatMessage? = null
+            var idx = -1
+            for (msg in channel) {
+                when (msg.role) {
+                    "assistant" -> {
+                        if (assistant == null) {
+                            assistant = ChatMessage("", "assistant", msg.createdAt)
+                            list.add(assistant!!)
+                            idx = list.lastIndex
+                        }
+                        assistant = assistant!!.copy(
+                            text = assistant!!.text + msg.text,
+                            toolCalls = msg.toolCalls ?: assistant!!.toolCalls,
+                        )
+                        list[idx] = assistant!!
+                        if (msg.toolCalls != null) {
+                            assistant = null
+                            idx = -1
+                        }
+                    }
+                    "tool" -> {
+                        list.add(msg)
+                        assistant = null
+                        idx = -1
+                    }
+                }
                 _messages.postValue(ArrayList(list))
                 ChatHistory.update(currentIndex, list)
             }
         }
     }
 
-    /**
-     * Add a user message originating from voice input. Returns the index of the
-     * assistant message that should be updated with chunks.
-     */
-    fun addVoiceUserMessage(text: String): Int {
-        val list = _messages.value ?: mutableListOf()
-        list.add(ChatMessage(text, true, Instant.now().toString()))
-        val assistant = ChatMessage("", false, Instant.now().toString())
-        list.add(assistant)
-        val idx = list.lastIndex
-        _messages.postValue(ArrayList(list))
-        ChatHistory.update(currentIndex, list)
-        return idx
-    }
-
-    /**
-     * Append a chunk of assistant text to a message at [index]. Used when the
-     * service streams replies via its own [Agent].
-     */
-    fun appendAssistantChunk(chunk: String, index: Int) {
-        val list = _messages.value ?: return
-        if (index >= list.size) return
-        val current = list[index]
-        list[index] = ChatMessage(current.text + chunk, false, current.createdAt)
-        _messages.postValue(ArrayList(list))
-        ChatHistory.update(currentIndex, list)
-    }
 
     fun startNewConversation() {
         currentIndex = ChatHistory.add()

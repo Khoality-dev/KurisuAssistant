@@ -108,13 +108,37 @@ async def chat(request: Request, token: str = Depends(oauth2_scheme)):
     async def stream():
         full_response = ""
         async for chunk in response_generator:
-            content = chunk["message"]["content"]
+            msg = chunk.get("message", {})
+            if msg.get("role") == "tool":
+                add_message(username, "tool", msg["content"])
+                yield json.dumps(chunk) + "\n"
+                continue
+
+            content = msg.get("content", "")
             full_response += content
             # send each chunk on its own line so clients can parse with
             # readUtf8Line without waiting for the whole stream
             yield json.dumps(chunk) + "\n"
+
+            if msg.get("tool_calls"):
+                add_message(
+                    username,
+                    "assistant",
+                    full_response,
+                    payload.get("model"),
+                    tool_calls=msg.get("tool_calls"),
+                )
+                full_response = ""
+                continue
+
             if chunk.get("done"):
-                add_message(username, "assistant", full_response, payload.get("model"))
+                add_message(
+                    username,
+                    "assistant",
+                    full_response,
+                    payload.get("model"),
+                )
+                full_response = ""
 
     return StreamingResponse(stream(), media_type="application/json")
 

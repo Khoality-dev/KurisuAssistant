@@ -7,6 +7,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import com.kurisuassistant.android.utils.Util
 import com.kurisuassistant.android.Settings
+import com.kurisuassistant.android.model.ChatMessage
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import okhttp3.MediaType.Companion.toMediaType
@@ -25,7 +26,7 @@ class Agent(private val player: AudioTrack) {
     private val scope = CoroutineScope(Dispatchers.IO)
     private var speakingJob: Job? = null
 
-    private var chatChannel: Channel<String>? = null
+    private var chatChannel: Channel<ChatMessage>? = null
     private val _connected = MutableLiveData(true)
     val connected: LiveData<Boolean> get() = _connected
     private val _typing = MutableLiveData(false)
@@ -68,8 +69,8 @@ class Agent(private val player: AudioTrack) {
         }
     }
 
-    fun chat(text: String): Channel<String> {
-        val channel = Channel<String>(Channel.UNLIMITED)
+    fun chat(text: String): Channel<ChatMessage> {
+        val channel = Channel<ChatMessage>(Channel.UNLIMITED)
         chatChannel = channel
         _typing.postValue(true)
         scope.launch {
@@ -99,19 +100,25 @@ class Agent(private val player: AudioTrack) {
                         if (line.isNullOrBlank()) continue
                         Log.d(TAG, line)
                         val json = JSONObject(line)
-                        val content = json.getJSONObject("message").getString("content")
-                        channel.trySend(content)
-                        val audio = tts(content)
-                        if (audio != null) {
-                            player.write(audio, 0, audio.size)
-                            _speaking.postValue(true)
-                            speakingJob?.cancel()
-                            speakingJob = scope.launch {
-                                delay(300)
-                                _speaking.postValue(false)
+                        val msgObj = json.getJSONObject("message")
+                        val role = msgObj.optString("role", "assistant")
+                        val content = msgObj.optString("content")
+                        val created = msgObj.optString("created_at", null)
+                        val toolCalls = if (msgObj.has("tool_calls")) msgObj.getJSONArray("tool_calls").toString() else null
+                        val msg = ChatMessage(content, role, created, toolCalls)
+                        channel.trySend(msg)
+                        if (role != "user" && content.isNotEmpty()) {
+                            val audio = tts(content)
+                            if (audio != null) {
+                                player.write(audio, 0, audio.size)
+                                _speaking.postValue(true)
+                                speakingJob?.cancel()
+                                speakingJob = scope.launch {
+                                    delay(300)
+                                    _speaking.postValue(false)
+                                }
                             }
                         }
-                        if (json.optBoolean("done")) break
                     }
                     _connected.postValue(true)
                 }
