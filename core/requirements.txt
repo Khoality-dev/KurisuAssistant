@@ -34,7 +34,9 @@ typing-inspection==0.4.0
 typing_extensions==4.13.2
 urllib3==2.4.0
 uvicorn==0.34.2
-websockets==15.0.1
 dotenv==0.9.9
 ollama
+python-jose==3.3.0
+passlib[bcrypt]==1.7.4
+psycopg2-binary==2.9.9
 fastmcp

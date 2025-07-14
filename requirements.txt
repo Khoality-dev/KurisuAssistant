@@ -21,3 +21,6 @@ torchaudio==2.7.0+cu118
 torchvision==0.22.0+cu118
 typing_extensions==4.12.2
 urllib3==2.4.0
+python-jose==3.3.0
+passlib[bcrypt]==1.7.4
+psycopg2-binary==2.9.9

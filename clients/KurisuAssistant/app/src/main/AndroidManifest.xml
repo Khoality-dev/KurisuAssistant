@@ -18,15 +18,18 @@
         tools:targetApi="31">
         <service android:name=".RecordingService" android:exported="false"/>
         <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:windowSoftInputMode="adjustResize">
+            android:name=".GettingStartedActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".LoginActivity" android:exported="true" />
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".SettingsActivity" />
         <activity
             android:name="com.yalantis.ucrop.UCropActivity"
