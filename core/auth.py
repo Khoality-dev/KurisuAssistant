@@ -1,5 +1,4 @@
 import os
-from datetime import datetime, timedelta
 from typing import Optional
 
 from jose import JWTError, jwt
@@ -8,7 +7,6 @@ import psycopg2
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "secret")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
 DATABASE_URL = os.getenv(
     "DATABASE_URL", "postgresql://kurisu:kurisu@localhost:5432/kurisu"
 )
@@ -34,10 +32,9 @@ def authenticate_user(username: str, password: str) -> bool:
     return verify_password(password, row[0])
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(data: dict) -> str:
+    """Return a JWT access token that never expires."""
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
