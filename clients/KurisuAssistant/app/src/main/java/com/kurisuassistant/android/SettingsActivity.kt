@@ -84,8 +84,8 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun loadModels() {
         val url = llmUrl.text.toString().trim()
+        runOnUiThread { modelSpinner.isEnabled = false }
         if (!Patterns.WEB_URL.matcher(url).matches()) {
-            runOnUiThread { modelSpinner.isEnabled = false }
             return
         }
         val request = Request.Builder()
