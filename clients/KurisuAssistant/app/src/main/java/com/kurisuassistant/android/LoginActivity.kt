@@ -7,6 +7,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.Toast
 import com.kurisuassistant.android.Settings
+import com.kurisuassistant.android.utils.HttpClient
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,7 +57,7 @@ class LoginActivity : AppCompatActivity() {
             .url("${Settings.llmUrl}/login")
             .post(body)
             .build()
-        val client = okhttp3.OkHttpClient()
+        val client = HttpClient.noTimeout
         client.newCall(request).execute().use { resp ->
             if (!resp.isSuccessful) return null
             val json = org.json.JSONObject(resp.body!!.string())

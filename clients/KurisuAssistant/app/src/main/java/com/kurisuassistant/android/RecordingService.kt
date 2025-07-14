@@ -30,7 +30,6 @@ import com.kurisuassistant.android.ChatRepository
 import okhttp3.MediaType.Companion.toMediaType
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okio.IOException
 import okhttp3.RequestBody.Companion.toRequestBody

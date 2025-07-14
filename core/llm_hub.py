@@ -10,7 +10,13 @@ from helpers.llm import LLM
 import dotenv
 from fastmcp.client import Client as FastMCPClient
 from auth import authenticate_user, create_access_token, get_current_user
-from db import init_db, add_message, get_history, create_user
+from db import (
+    init_db,
+    add_message,
+    get_history,
+    create_user,
+    admin_exists,
+)
 
 with open("configs/default.json", "r") as f:
     json_config = json.load(f)
@@ -39,6 +45,12 @@ asr_model = pipeline(
 SAMPLE_RATE = 16_000
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+
+@app.get("/needs-admin")
+async def needs_admin():
+    """Return whether the server lacks an admin account."""
+    return {"needs_admin": not admin_exists()}
 
 
 @app.post("/login")

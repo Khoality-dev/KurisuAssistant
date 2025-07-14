@@ -11,8 +11,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.FormBody
-import okhttp3.OkHttpClient
 import okhttp3.Request
+import com.kurisuassistant.android.utils.HttpClient
 
 class GettingStartedActivity : AppCompatActivity() {
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -59,11 +59,16 @@ class GettingStartedActivity : AppCompatActivity() {
         scope.launch {
             val okLlm = checkUrl("$llm/openapi.json")
             val okTts = tts.isBlank() || checkUrl("$tts/openapi.json")
+            val needsAdmin = if (okLlm && okTts) serverNeedsAdmin() else false
             runOnUiThread {
                 if (okLlm && okTts) {
                     Settings.save(llm, if (tts.isBlank()) Settings.ttsUrl else tts, Settings.model)
                     Settings.markConfigured()
-                    registerForm.visibility = View.VISIBLE
+                    if (needsAdmin) {
+                        registerForm.visibility = View.VISIBLE
+                    } else {
+                        startNext()
+                    }
                     Toast.makeText(this@GettingStartedActivity, "Hubs saved", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(this@GettingStartedActivity, "Invalid hub URLs", Toast.LENGTH_SHORT).show()
@@ -75,8 +80,21 @@ class GettingStartedActivity : AppCompatActivity() {
     private fun checkUrl(url: String): Boolean {
         return try {
             val req = Request.Builder().url(url).build()
-            OkHttpClient().newCall(req).execute().use { it.isSuccessful }
+            HttpClient.noTimeout.newCall(req).execute().use { it.isSuccessful }
         } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun serverNeedsAdmin(): Boolean {
+        return try {
+            val req = Request.Builder().url("${Settings.llmUrl}/needs-admin").build()
+            HttpClient.noTimeout.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return false
+                val json = org.json.JSONObject(resp.body!!.string())
+                json.optBoolean("needs_admin", false)
+            }
+        } catch (_: Exception) {
             false
         }
     }
@@ -88,7 +106,7 @@ class GettingStartedActivity : AppCompatActivity() {
             val body = FormBody.Builder().add("username", user).add("password", pass).build()
             val request = Request.Builder().url("${Settings.llmUrl}/register").post(body).build()
             val result = try {
-                OkHttpClient().newCall(request).execute().use { resp ->
+                HttpClient.noTimeout.newCall(request).execute().use { resp ->
                     resp.isSuccessful || (resp.code == 400 && resp.body?.string()?.contains("User already exists") == true)
                 }
             } catch (_: Exception) {

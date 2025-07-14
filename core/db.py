@@ -123,3 +123,14 @@ def create_user(username: str, password: str) -> None:
     conn.commit()
     cur.close()
     conn.close()
+
+
+def admin_exists() -> bool:
+    """Return True if the admin account already exists."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM users WHERE username=%s", ("admin",))
+    exists = cur.fetchone() is not None
+    cur.close()
+    conn.close()
+    return exists
