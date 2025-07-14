@@ -53,8 +53,13 @@ object ChatRepository {
     fun init(context: Context? = null) {
         agent
         context?.let { ChatHistory.init(it) }
-        if (context != null && ChatHistory.size > 0) {
-            _messages.value = ChatHistory.get(currentIndex)
+        if (context != null) {
+            scope.launch {
+                ChatHistory.fetchFromServer()
+                if (ChatHistory.size > 0) {
+                    _messages.postValue(ChatHistory.get(currentIndex))
+                }
+            }
         }
     }
 

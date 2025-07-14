@@ -3,6 +3,10 @@ package com.kurisuassistant.android
 import android.content.Context
 import android.content.SharedPreferences
 import com.kurisuassistant.android.model.ChatMessage
+import com.kurisuassistant.android.utils.HttpClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -31,6 +35,37 @@ object ChatHistory {
             conversations.add(convo)
         }
         if (conversations.isEmpty()) conversations.add(mutableListOf())
+    }
+
+    suspend fun fetchFromServer() = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url("${Settings.llmUrl}/history")
+            .build()
+        try {
+            HttpClient.noTimeout.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext
+                val arr = JSONArray(resp.body!!.string())
+                conversations.clear()
+                for (i in 0 until arr.length()) {
+                    val convoArr = arr.getJSONObject(i).getJSONArray("messages")
+                    val convo = mutableListOf<ChatMessage>()
+                    for (j in 0 until convoArr.length()) {
+                        val obj = convoArr.getJSONObject(j)
+                        val role = obj.optString("role")
+                        val content = obj.optString("content")
+                        when (role) {
+                            "user" -> convo.add(ChatMessage(content, true))
+                            "assistant" -> convo.add(ChatMessage(content, false))
+                        }
+                    }
+                    conversations.add(convo)
+                }
+                if (conversations.isEmpty()) conversations.add(mutableListOf())
+                persist()
+            }
+        } catch (_: Exception) {
+            // ignore on failure
+        }
     }
 
     private fun persist() {
