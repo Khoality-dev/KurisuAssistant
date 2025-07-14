@@ -102,3 +102,24 @@ def get_history(username: str, limit: int = 50):
     return [
         {"messages": r[0]["messages"], "created_at": r[1].isoformat()} for r in rows
     ]
+
+
+def create_user(username: str, password: str) -> None:
+    """Create a new user account.
+
+    Raises ValueError if the username already exists.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM users WHERE username=%s", (username,))
+    if cur.fetchone():
+        cur.close()
+        conn.close()
+        raise ValueError("User already exists")
+    cur.execute(
+        "INSERT INTO users (username, password) VALUES (%s, %s)",
+        (username, pwd_context.hash(password)),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()

@@ -10,7 +10,7 @@ from helpers.llm import LLM
 import dotenv
 from fastmcp.client import Client as FastMCPClient
 from auth import authenticate_user, create_access_token, get_current_user
-from db import init_db, add_message, get_history
+from db import init_db, add_message, get_history, create_user
 
 with open("configs/default.json", "r") as f:
     json_config = json.load(f)
@@ -47,6 +47,17 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         token = create_access_token({"sub": form_data.username})
         return {"access_token": token, "token_type": "bearer"}
     raise HTTPException(status_code=400, detail="Incorrect username or password")
+
+
+@app.post("/register")
+async def register(form_data: OAuth2PasswordRequestForm = Depends()):
+    try:
+        create_user(form_data.username, form_data.password)
+        return {"status": "ok"}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="User already exists")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/asr")
 async def asr(
