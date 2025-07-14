@@ -98,7 +98,9 @@ async def chat(request: Request, token: str = Depends(oauth2_scheme)):
         async for chunk in response_generator:
             content = chunk["message"]["content"]
             full_response += content
-            yield json.dumps(chunk)
+            # send each chunk on its own line so clients can parse with
+            # readUtf8Line without waiting for the whole stream
+            yield json.dumps(chunk) + "\n"
             if chunk.get("done"):
                 add_message(username, "assistant", full_response, payload.get("model"))
 
