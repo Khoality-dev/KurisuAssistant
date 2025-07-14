@@ -11,6 +11,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import java.time.Instant
 
 /**
  * Singleton repository that manages chat messages and communicates with [Agent].
@@ -19,6 +22,7 @@ object ChatRepository {
     private val _messages = MutableLiveData<MutableList<ChatMessage>>(mutableListOf())
     val messages: LiveData<MutableList<ChatMessage>> = _messages
     private var currentIndex = 0
+    private var pollJob: Job? = null
 
     private val player: AudioTrack by lazy {
         AudioTrack.Builder()
@@ -53,8 +57,14 @@ object ChatRepository {
     fun init(context: Context? = null) {
         agent
         context?.let { ChatHistory.init(it) }
-        if (context != null && ChatHistory.size > 0) {
-            _messages.value = ChatHistory.get(currentIndex)
+        if (context != null) {
+            scope.launch {
+                ChatHistory.fetchFromServer()
+                if (ChatHistory.size > 0) {
+                    _messages.postValue(ChatHistory.get(currentIndex))
+                    startPolling(currentIndex)
+                }
+            }
         }
     }
 
@@ -63,19 +73,19 @@ object ChatRepository {
      */
     fun sendMessage(text: String) {
         val list = _messages.value ?: mutableListOf()
-        list.add(ChatMessage(text, true))
+        list.add(ChatMessage(text, true, Instant.now().toString()))
         _messages.value = list
         ChatHistory.update(currentIndex, list)
 
         scope.launch {
             val channel: Channel<String> = agent.chat(text)
-            val assistant = ChatMessage("", false)
+            val assistant = ChatMessage("", false, Instant.now().toString())
             list.add(assistant)
             val idx = list.lastIndex
             _messages.postValue(ArrayList(list))
             ChatHistory.update(currentIndex, list)
             for (chunk in channel) {
-                list[idx] = ChatMessage(list[idx].text + chunk, false)
+                list[idx] = ChatMessage(list[idx].text + chunk, false, assistant.createdAt)
                 _messages.postValue(ArrayList(list))
                 ChatHistory.update(currentIndex, list)
             }
@@ -88,8 +98,8 @@ object ChatRepository {
      */
     fun addVoiceUserMessage(text: String): Int {
         val list = _messages.value ?: mutableListOf()
-        list.add(ChatMessage(text, true))
-        val assistant = ChatMessage("", false)
+        list.add(ChatMessage(text, true, Instant.now().toString()))
+        val assistant = ChatMessage("", false, Instant.now().toString())
         list.add(assistant)
         val idx = list.lastIndex
         _messages.postValue(ArrayList(list))
@@ -105,7 +115,7 @@ object ChatRepository {
         val list = _messages.value ?: return
         if (index >= list.size) return
         val current = list[index]
-        list[index] = ChatMessage(current.text + chunk, false)
+        list[index] = ChatMessage(current.text + chunk, false, current.createdAt)
         _messages.postValue(ArrayList(list))
         ChatHistory.update(currentIndex, list)
     }
@@ -113,6 +123,7 @@ object ChatRepository {
     fun startNewConversation() {
         currentIndex = ChatHistory.add()
         _messages.postValue(mutableListOf())
+        startPolling(currentIndex)
     }
 
     fun switchConversation(index: Int) {
@@ -120,5 +131,18 @@ object ChatRepository {
         ChatHistory.update(currentIndex, _messages.value ?: mutableListOf())
         currentIndex = index
         _messages.postValue(ArrayList(ChatHistory.get(index)))
+        startPolling(currentIndex)
+    }
+
+    private fun startPolling(index: Int) {
+        pollJob?.cancel()
+        pollJob = scope.launch {
+            while (currentIndex == index) {
+                ChatHistory.fetchConversation(index)?.let {
+                    _messages.postValue(ArrayList(it))
+                }
+                delay(1000)
+            }
+        }
     }
 }
