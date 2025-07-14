@@ -6,6 +6,7 @@ import android.media.AudioTrack
 import com.kurisuassistant.android.model.ChatMessage
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -17,6 +18,7 @@ import kotlinx.coroutines.launch
 object ChatRepository {
     private val _messages = MutableLiveData<MutableList<ChatMessage>>(mutableListOf())
     val messages: LiveData<MutableList<ChatMessage>> = _messages
+    private var currentIndex = 0
 
     private val player: AudioTrack by lazy {
         AudioTrack.Builder()
@@ -48,8 +50,12 @@ object ChatRepository {
     val speaking: LiveData<Boolean>
         get() = agent.speaking
 
-    fun init() {
+    fun init(context: Context? = null) {
         agent
+        context?.let { ChatHistory.init(it) }
+        if (context != null && ChatHistory.size > 0) {
+            _messages.value = ChatHistory.get(currentIndex)
+        }
     }
 
     /**
@@ -59,6 +65,7 @@ object ChatRepository {
         val list = _messages.value ?: mutableListOf()
         list.add(ChatMessage(text, true))
         _messages.value = list
+        ChatHistory.update(currentIndex, list)
 
         scope.launch {
             val channel: Channel<String> = agent.chat(text)
@@ -66,9 +73,11 @@ object ChatRepository {
             list.add(assistant)
             val idx = list.lastIndex
             _messages.postValue(ArrayList(list))
+            ChatHistory.update(currentIndex, list)
             for (chunk in channel) {
                 list[idx] = ChatMessage(list[idx].text + chunk, false)
                 _messages.postValue(ArrayList(list))
+                ChatHistory.update(currentIndex, list)
             }
         }
     }
@@ -84,6 +93,7 @@ object ChatRepository {
         list.add(assistant)
         val idx = list.lastIndex
         _messages.postValue(ArrayList(list))
+        ChatHistory.update(currentIndex, list)
         return idx
     }
 
@@ -97,5 +107,18 @@ object ChatRepository {
         val current = list[index]
         list[index] = ChatMessage(current.text + chunk, false)
         _messages.postValue(ArrayList(list))
+        ChatHistory.update(currentIndex, list)
+    }
+
+    fun startNewConversation() {
+        currentIndex = ChatHistory.add()
+        _messages.postValue(mutableListOf())
+    }
+
+    fun switchConversation(index: Int) {
+        if (index == currentIndex || index < 0 || index >= ChatHistory.size) return
+        ChatHistory.update(currentIndex, _messages.value ?: mutableListOf())
+        currentIndex = index
+        _messages.postValue(ArrayList(ChatHistory.get(index)))
     }
 }

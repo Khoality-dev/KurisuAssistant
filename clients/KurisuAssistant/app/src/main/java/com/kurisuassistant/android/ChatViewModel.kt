@@ -13,9 +13,7 @@ class ChatViewModel : ViewModel() {
     val typing: LiveData<Boolean> = ChatRepository.typing
     val speaking: LiveData<Boolean> = ChatRepository.speaking
 
-    init {
-        ChatRepository.init()
-    }
+
 
     fun sendMessage(text: String) {
         ChatRepository.sendMessage(text)

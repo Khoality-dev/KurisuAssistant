@@ -11,9 +11,14 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.ListView
+import android.widget.Button
+import android.widget.ArrayAdapter
 import com.kurisuassistant.android.Settings
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.drawerlayout.widget.DrawerLayout
+import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -37,6 +42,9 @@ class MainActivity : AppCompatActivity() {
     lateinit var vadModel: SileroVadOnnxModel
     private val viewModel: ChatViewModel by viewModels()
     private lateinit var adapter: ChatAdapter
+    private lateinit var drawerLayout: DrawerLayout
+    private lateinit var drawerToggle: ActionBarDrawerToggle
+    private lateinit var drawerAdapter: ArrayAdapter<String>
     private var responding: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,6 +52,26 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         val toolbar = findViewById<MaterialToolbar>(R.id.toolbar)
         setSupportActionBar(toolbar)
+        ChatRepository.init(this)
+
+        drawerLayout = findViewById(R.id.drawerLayout)
+        drawerToggle = ActionBarDrawerToggle(this, drawerLayout, toolbar, R.string.drawer_open, R.string.drawer_close)
+        drawerLayout.addDrawerListener(drawerToggle)
+        drawerToggle.syncState()
+        val convList = findViewById<ListView>(R.id.listConversations)
+        val newChat = findViewById<Button>(R.id.buttonNewChat)
+        drawerAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, ChatHistory.conversationTitles())
+        convList.adapter = drawerAdapter
+        convList.setOnItemClickListener { _, _, position, _ ->
+            ChatRepository.switchConversation(position)
+            drawerLayout.closeDrawers()
+            refreshDrawer()
+        }
+        newChat.setOnClickListener {
+            ChatRepository.startNewConversation()
+            drawerLayout.closeDrawers()
+            refreshDrawer()
+        }
         Settings.init(this)
         AvatarManager.init(this)
         Util.checkPermissions(this)
@@ -141,5 +169,11 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, SettingsActivity::class.java))
             true
         } else super.onOptionsItemSelected(item)
+    }
+
+    private fun refreshDrawer() {
+        drawerAdapter.clear()
+        drawerAdapter.addAll(ChatHistory.conversationTitles())
+        drawerAdapter.notifyDataSetChanged()
     }
 }
