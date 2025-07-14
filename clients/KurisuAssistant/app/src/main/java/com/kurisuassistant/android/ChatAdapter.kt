@@ -17,7 +17,7 @@ import com.kurisuassistant.android.model.ChatMessage
  */
 class ChatAdapter(
     private val context: Context,
-    private var messages: List<ChatMessage>
+    private var messages: List<ChatMessage>,
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     companion object {
@@ -79,6 +79,7 @@ class ChatAdapter(
         when (holder) {
             is UserHolder -> {
                 markwon.setMarkdown(holder.text, msg.text)
+                holder.time.text = msg.createdAt ?: ""
                 val uri = AvatarManager.getUserAvatarUri()
                 if (uri != null) holder.avatar.setImageURI(uri)
                 else holder.avatar.setImageResource(R.drawable.avatar_user)
@@ -89,6 +90,7 @@ class ChatAdapter(
                     text += ellipsis
                 }
                 markwon.setMarkdown(holder.text, text)
+                holder.time.text = msg.createdAt ?: ""
                 val uri = AvatarManager.getAgentAvatarUri()
                 if (uri != null) holder.avatar.setImageURI(uri)
                 else holder.avatar.setImageResource(R.drawable.avatar_assistant)
@@ -100,11 +102,13 @@ class ChatAdapter(
 
     class UserHolder(view: View) : RecyclerView.ViewHolder(view) {
         val text: TextView = view.findViewById(R.id.message_text)
+        val time: TextView = view.findViewById(R.id.message_time)
         val avatar: ImageView = view.findViewById(R.id.avatar)
     }
 
     class AssistantHolder(view: View) : RecyclerView.ViewHolder(view) {
         val text: TextView = view.findViewById(R.id.message_text)
+        val time: TextView = view.findViewById(R.id.message_time)
         val avatar: ImageView = view.findViewById(R.id.avatar)
     }
 }

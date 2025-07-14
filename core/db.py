@@ -1,6 +1,7 @@
 import os
 import psycopg2
 import json
+import datetime
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -68,7 +69,12 @@ def add_message(
     row = cur.fetchone()
     if row:
         conv_id, messages = row
-        messages["messages"].append({"role": role, "content": content, "model": model})
+        messages["messages"].append({
+            "role": role,
+            "content": content,
+            "model": model,
+            "created_at": datetime.datetime.utcnow().isoformat(),
+        })
         cur.execute(
             "UPDATE conversations SET messages=%s WHERE id=%s",
             (json.dumps(messages), conv_id),
@@ -81,7 +87,14 @@ def add_message(
         ]
         new_messages = {
             "messages": formatted_prompts
-            + [{"role": role, "content": content, "model": model}]
+            + [
+                {
+                    "role": role,
+                    "content": content,
+                    "model": model,
+                    "created_at": datetime.datetime.utcnow().isoformat(),
+                }
+            ]
         }
         cur.execute(
             "INSERT INTO conversations (username, title, messages) VALUES (%s, %s, %s)",
