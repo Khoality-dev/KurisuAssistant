@@ -57,7 +57,7 @@ class LoginActivity : AppCompatActivity() {
             .url("${Settings.llmUrl}/login")
             .post(body)
             .build()
-        val client = HttpClient.noTimeoutClient()
+        val client = HttpClient.noTimeout
         client.newCall(request).execute().use { resp ->
             if (!resp.isSuccessful) return null
             val json = org.json.JSONObject(resp.body!!.string())

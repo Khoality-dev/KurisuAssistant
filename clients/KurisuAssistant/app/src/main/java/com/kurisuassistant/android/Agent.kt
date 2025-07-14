@@ -21,7 +21,7 @@ import org.json.JSONObject
  */
 class Agent(private val player: AudioTrack) {
     private val TAG = "Agent"
-    private val client = HttpClient.noTimeoutClient()
+    private val client = HttpClient.noTimeout
     private val scope = CoroutineScope(Dispatchers.IO)
     private var speakingJob: Job? = null
 
@@ -37,7 +37,6 @@ class Agent(private val player: AudioTrack) {
         val data = Util.toByteArray(audioBuffer)
         val request = Request.Builder()
             .url("${Settings.llmUrl}/asr")
-            .addHeader("Authorization", "Bearer ${Auth.token ?: ""}")
             .post(ByteString.of(*data).toByteArray().toRequestBody("application/octet-stream".toMediaType()))
             .build()
         try {
@@ -56,7 +55,6 @@ class Agent(private val player: AudioTrack) {
         val body = JSONObject().put("text", text).toString().toRequestBody("application/json".toMediaType())
         val request = Request.Builder()
             .url("${Settings.ttsUrl}/tts")
-            .addHeader("Authorization", "Bearer ${Auth.token ?: ""}")
             .post(body)
             .build()
         return try {
@@ -85,7 +83,6 @@ class Agent(private val player: AudioTrack) {
             }
             val request = Request.Builder()
                 .url("${Settings.llmUrl}/chat")
-                .addHeader("Authorization", "Bearer ${Auth.token ?: ""}")
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
             try {

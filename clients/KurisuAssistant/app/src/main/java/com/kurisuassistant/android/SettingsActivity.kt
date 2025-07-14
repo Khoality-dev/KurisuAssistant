@@ -29,7 +29,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var llmUrl: EditText
     private lateinit var ttsUrl: EditText
     private lateinit var modelSpinner: Spinner
-    private val client = HttpClient.noTimeoutClient()
+    private val client = HttpClient.noTimeout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -90,7 +90,6 @@ class SettingsActivity : AppCompatActivity() {
         }
         val request = Request.Builder()
             .url("$url/models")
-            .addHeader("Authorization", "Bearer ${Auth.token ?: ""}")
             .build()
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {

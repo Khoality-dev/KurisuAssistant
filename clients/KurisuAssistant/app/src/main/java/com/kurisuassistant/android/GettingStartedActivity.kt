@@ -75,7 +75,7 @@ class GettingStartedActivity : AppCompatActivity() {
     private fun checkUrl(url: String): Boolean {
         return try {
             val req = Request.Builder().url(url).build()
-            HttpClient.noTimeoutClient().newCall(req).execute().use { it.isSuccessful }
+            HttpClient.noTimeout.newCall(req).execute().use { it.isSuccessful }
         } catch (e: Exception) {
             false
         }
@@ -88,7 +88,7 @@ class GettingStartedActivity : AppCompatActivity() {
             val body = FormBody.Builder().add("username", user).add("password", pass).build()
             val request = Request.Builder().url("${Settings.llmUrl}/register").post(body).build()
             val result = try {
-                HttpClient.noTimeoutClient().newCall(request).execute().use { resp ->
+                HttpClient.noTimeout.newCall(request).execute().use { resp ->
                     resp.isSuccessful || (resp.code == 400 && resp.body?.string()?.contains("User already exists") == true)
                 }
             } catch (_: Exception) {
