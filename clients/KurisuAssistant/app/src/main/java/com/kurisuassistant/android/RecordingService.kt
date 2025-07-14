@@ -202,33 +202,44 @@ class RecordingService : Service() {
                             playedStartSFX = false
                         }
 
-                        val text = agent.stt(asrBuffer)
-                        asrBuffer.clear()
-                        Log.d(TAG, "Transcription: $text")
+                        val assistantResponding = ChatRepository.typing.value == true ||
+                                ChatRepository.speaking.value == true
+                        if (assistantResponding) {
+                            asrBuffer.clear()
+                            Log.d(TAG, "Skipping speech while assistant responding")
+                        } else {
+                            val text = agent.stt(asrBuffer)
+                            asrBuffer.clear()
+                            Log.d(TAG, "Transcription: $text")
 
-                        if (!isInteracting) {
-                            if (text.contains("Kurisu", ignoreCase = true)) {
-                                isInteracting = true
-                                ChatRepository.setConversationActive(true)
+                            if (!isInteracting) {
+                                if (text.contains("Kurisu", ignoreCase = true)) {
+                                    isInteracting = true
+                                    ChatRepository.setConversationActive(true)
+                                    lastInteractionTimeStamp = System.currentTimeMillis()
+                                    player?.write(startSFX, 0, startSFX.size)
+
+                                    Log.d(TAG, "User: $text")
+                                    ChatRepository.sendMessage(text)
+                                    lastInteractionTimeStamp = System.currentTimeMillis()
+                                }
+                            } else {
                                 lastInteractionTimeStamp = System.currentTimeMillis()
-                                player?.write(startSFX, 0, startSFX.size)
-
                                 Log.d(TAG, "User: $text")
                                 ChatRepository.sendMessage(text)
+                                // audio replies are fetched via REST and played automatically
                                 lastInteractionTimeStamp = System.currentTimeMillis()
                             }
-                        } else {
-                            lastInteractionTimeStamp = System.currentTimeMillis()
-                            Log.d(TAG, "User: $text")
-                            ChatRepository.sendMessage(text)
-                            // audio replies are fetched via REST and played automatically
-                            lastInteractionTimeStamp = System.currentTimeMillis()
                         }
                     }
                 } else {
                     if (!previousIsSpeaking && isInteracting) {
-                        player?.write(startSFX, 0, startSFX.size)
-                        playedStartSFX = true
+                        val assistantResponding = ChatRepository.typing.value == true ||
+                                ChatRepository.speaking.value == true
+                        if (!assistantResponding) {
+                            player?.write(startSFX, 0, startSFX.size)
+                            playedStartSFX = true
+                        }
                     }
                 }
 
