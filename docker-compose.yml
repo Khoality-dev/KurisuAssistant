@@ -53,12 +53,12 @@ services:
       - ./openwebui:/app/backend/data
     restart: unless-stopped
 
-  core:
-    #image: legwork7623/kurisu-assistant-core:latest
+  llm-hub:
     build:
       context: ./core
       dockerfile: Dockerfile
-    container_name: core-container
+    container_name: llm-hub-container
+    command: ["uvicorn", "llm_hub:app", "--host", "0.0.0.0", "--port", "15597"]
     ports:
       - "15597:15597"
     deploy:
@@ -69,8 +69,8 @@ services:
               count: all
               capabilities: [gpu]
     environment:
-      - TTS_API_URL=http://gpt-sovits-container:9880/tts
       - LLM_API_URL=http://ollama-container:11434
+      - DATABASE_URL=postgresql://kurisu:kurisu@postgres:5432/kurisu
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker:ro
@@ -79,6 +79,35 @@ services:
       - ./core/configs:/app/configs
     tty: true
     restart: unless-stopped
-  
+
+  tts-hub:
+    build:
+      context: ./core
+      dockerfile: Dockerfile
+    container_name: tts-hub-container
+    command: ["uvicorn", "tts_hub:app", "--host", "0.0.0.0", "--port", "15598"]
+    ports:
+      - "15598:15598"
+    environment:
+      - TTS_API_URL=http://gpt-sovits-container:9880/tts
+    volumes:
+      - ./core/configs:/app/configs
+    tty: true
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    environment:
+      - POSTGRES_USER=kurisu
+      - POSTGRES_PASSWORD=kurisu
+      - POSTGRES_DB=kurisu
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
 networks:
   default:
+
+volumes:
+  postgres-data:

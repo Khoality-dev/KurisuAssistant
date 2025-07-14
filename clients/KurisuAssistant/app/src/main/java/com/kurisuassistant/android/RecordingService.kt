@@ -30,7 +30,6 @@ import com.kurisuassistant.android.ChatRepository
 import okhttp3.MediaType.Companion.toMediaType
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okio.IOException
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -79,7 +78,7 @@ class RecordingService : Service() {
         createNotificationChannel(this)
         startForeground(NOTIFICATION_ID, buildNotification())
         initRecorder()
-        // WebSocket agent requires a valid AudioTrack instance for streaming
+        // REST agent requires a valid AudioTrack instance for playback
         player?.let {
             agent = Agent(it)
         }
@@ -217,13 +216,9 @@ class RecordingService : Service() {
                         } else {
                             lastInteractionTimeStamp = System.currentTimeMillis()
                             Log.d(TAG, "User: $text")
-                            val idx = ChatRepository.addVoiceUserMessage(text)
-                            val chatStream = agent.chat(text)
-                            for (content in chatStream) {
-                                ChatRepository.appendAssistantChunk(content, idx)
-                                Log.d(TAG, "Assistant: $content")
-                            }
-                            // audio replies are streamed via WebSocket and played automatically
+                            ChatRepository.sendMessage(text)
+                            // audio replies are fetched via REST and played automatically
+                            lastInteractionTimeStamp = System.currentTimeMillis()
                         }
                     }
                 } else {

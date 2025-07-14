@@ -6,10 +6,12 @@ import re
 import subprocess
 import wave
 from helpers.llm import LLM
-from fastapi import FastAPI, Request, HTTPException, Response, Body, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, HTTPException, Response, Body, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import StreamingResponse
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from transformers import pipeline
 from helpers.tts import TTS
+from auth import get_current_user, authenticate_user, create_access_token
 import torch
 import numpy as np
 import requests
@@ -38,6 +40,15 @@ asr_model = pipeline(
 tts_model = TTS()
 SAMPLE_RATE = 16_000         # Hz
 SAMPLE_WIDTH = 2             # bytes per sample (16-bit)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+
+@app.post("/login")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    if authenticate_user(form_data.username, form_data.password):
+        token = create_access_token({"sub": form_data.username})
+        return {"access_token": token, "token_type": "bearer"}
+    raise HTTPException(status_code=400, detail="Incorrect username or password")
 
 
 @app.websocket("/ws")
@@ -48,14 +59,13 @@ async def websocket_endpoint(ws: WebSocket):
     try:
         data = await asyncio.wait_for(ws.receive(), timeout=5.0)
         if data.get("text") is not None:
-            bearer_token = data["text"]
-            local_token = os.getenv("AUTHENTICATION_TOKEN", "")
-            if bearer_token != local_token:
+            token = data["text"]
+            if not get_current_user(token):
                 print("Invalid token")
                 await ws.close()
                 return
             print("Authenticated")
-    except:
+    except Exception:
         print("Failed to authenticate")
         await ws.close()
         return
