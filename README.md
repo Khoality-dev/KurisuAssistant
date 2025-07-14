@@ -82,6 +82,9 @@ docker-compose up -d          # Start STT, LLM, and TTS services in containers
 ```
 
 Ensure you have Docker Engine and Docker Compose installed.
+The `llm-hub-container` automatically connects to the bundled PostgreSQL
+service using the hostname `postgres`. Override `DATABASE_URL` if you need a
+different connection string.
 The database is seeded with a default **admin/admin** account for testing.
 
 ---
