@@ -6,27 +6,66 @@ import android.os.Bundle
 import android.provider.MediaStore
 import androidx.appcompat.app.AppCompatActivity
 import com.yalantis.ucrop.UCrop
+import android.widget.Button
+import android.widget.EditText
+import android.widget.Spinner
+import android.widget.ArrayAdapter
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.io.IOException
 import android.widget.ImageView
+import android.widget.Toast
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
+import android.util.Patterns
 import java.io.File
 
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var userAvatar: ImageView
     private lateinit var agentAvatar: ImageView
+    private lateinit var llmUrl: EditText
+    private lateinit var ttsUrl: EditText
+    private lateinit var modelSpinner: Spinner
+    private val client = OkHttpClient()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
         AvatarManager.init(this)
+        Settings.init(this)
 
         userAvatar = findViewById(R.id.userAvatar)
         agentAvatar = findViewById(R.id.agentAvatar)
+        llmUrl = findViewById(R.id.editLlmUrl)
+        ttsUrl = findViewById(R.id.editTtsUrl)
+        modelSpinner = findViewById(R.id.spinnerModel)
+
+        llmUrl.setText(Settings.llmUrl)
+        ttsUrl.setText(Settings.ttsUrl)
 
         AvatarManager.getUserAvatarUri()?.let { userAvatar.setImageURI(it) }
         AvatarManager.getAgentAvatarUri()?.let { agentAvatar.setImageURI(it) }
 
         userAvatar.setOnClickListener { pickImage(USER_PICK) }
         agentAvatar.setOnClickListener { pickImage(AGENT_PICK) }
+
+        findViewById<Button>(R.id.buttonSaveSettings).setOnClickListener {
+            Settings.save(
+                llmUrl.text.toString().trim(),
+                ttsUrl.text.toString().trim(),
+                modelSpinner.selectedItem?.toString() ?: ""
+            )
+            Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()
+        }
+
+        llmUrl.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) loadModels()
+        }
+
+        loadModels()
     }
 
     private fun pickImage(code: Int) {
@@ -41,6 +80,47 @@ class SettingsActivity : AppCompatActivity() {
             .withAspectRatio(1f, 1f)
             .withMaxResultSize(512, 512)
             .start(this, request)
+    }
+
+    private fun loadModels() {
+        val url = llmUrl.text.toString().trim()
+        runOnUiThread { modelSpinner.isEnabled = false }
+        if (!Patterns.WEB_URL.matcher(url).matches()) {
+            return
+        }
+        val request = Request.Builder()
+            .url("$url/models")
+            .addHeader("Authorization", "Bearer ${Auth.token ?: ""}")
+            .build()
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread { modelSpinner.isEnabled = false }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    if (!it.isSuccessful) {
+                        onFailure(call, IOException("HTTP" + it.code))
+                        return
+                    }
+                    val arr = JSONObject(it.body!!.string()).optJSONArray("models")
+                        ?: return
+                    val names = mutableListOf<String>()
+                    for (i in 0 until arr.length()) names.add(arr.getString(i))
+                    runOnUiThread {
+                        val adapter = ArrayAdapter(this@SettingsActivity,
+                            android.R.layout.simple_spinner_item, names)
+                        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                        modelSpinner.adapter = adapter
+                        modelSpinner.isEnabled = true
+                        val current = if (Settings.model.isNotEmpty()) Settings.model else names.firstOrNull() ?: ""
+                        val idx = names.indexOf(current).takeIf { it >= 0 } ?: 0
+                        Settings.model = current
+                        modelSpinner.setSelection(idx)
+                    }
+                }
+            }
+        })
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

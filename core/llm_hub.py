@@ -10,6 +10,7 @@ from helpers.llm import LLM
 import dotenv
 from fastmcp.client import Client as FastMCPClient
 from auth import authenticate_user, create_access_token, get_current_user
+from db import init_db, add_message, get_history, create_user
 
 with open("configs/default.json", "r") as f:
     json_config = json.load(f)
@@ -18,6 +19,9 @@ with open("configs/default.json", "r") as f:
 mcp_client = FastMCPClient(mcp_configs)
 
 dotenv.load_dotenv()
+
+# Ensure the conversations table exists
+init_db()
 
 app = FastAPI(
     title="Kurisu LLM Hub API",
@@ -44,6 +48,17 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         return {"access_token": token, "token_type": "bearer"}
     raise HTTPException(status_code=400, detail="Incorrect username or password")
 
+
+@app.post("/register")
+async def register(form_data: OAuth2PasswordRequestForm = Depends()):
+    try:
+        create_user(form_data.username, form_data.password)
+        return {"status": "ok"}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="User already exists")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/asr")
 async def asr(
     audio: bytes = Body(..., media_type="application/octet-stream"),
@@ -62,11 +77,52 @@ async def asr(
 
 @app.post("/chat")
 async def chat(request: Request, token: str = Depends(oauth2_scheme)):
-    if not get_current_user(token):
+    username = get_current_user(token)
+    if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     payload = await request.json()
     try:
+        add_message(
+            username,
+            "user",
+            payload["message"]["content"],
+            None,
+            llm_model.system_prompts,
+        )
         response_generator = llm_model(payload)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    return StreamingResponse(response_generator, media_type="application/json")
+
+    async def stream():
+        full_response = ""
+        async for chunk in response_generator:
+            content = chunk["message"]["content"]
+            full_response += content
+            # send each chunk on its own line so clients can parse with
+            # readUtf8Line without waiting for the whole stream
+            yield json.dumps(chunk) + "\n"
+            if chunk.get("done"):
+                add_message(username, "assistant", full_response, payload.get("model"))
+
+    return StreamingResponse(stream(), media_type="application/json")
+
+
+@app.get("/models")
+async def models(token: str = Depends(oauth2_scheme)):
+    if not get_current_user(token):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    try:
+        return {"models": llm_model.list_models()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/history")
+async def history(token: str = Depends(oauth2_scheme), limit: int = 50):
+    username = get_current_user(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    try:
+        return get_history(username, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

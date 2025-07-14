@@ -79,7 +79,7 @@ class RecordingService : Service() {
         createNotificationChannel(this)
         startForeground(NOTIFICATION_ID, buildNotification())
         initRecorder()
-        // WebSocket agent requires a valid AudioTrack instance for streaming
+        // REST agent requires a valid AudioTrack instance for playback
         player?.let {
             agent = Agent(it)
         }
@@ -235,7 +235,7 @@ class RecordingService : Service() {
                                 ChatRepository.appendAssistantChunk(content, idx)
                                 Log.d(TAG, "Assistant: $content")
                             }
-                            // audio replies are streamed via WebSocket and played automatically
+                            // audio replies are fetched via REST and played automatically
                             lastInteractionTimeStamp = System.currentTimeMillis()
                         }
                     }

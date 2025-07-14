@@ -41,7 +41,7 @@ The system is composed of two main components:
 2. **Server**
 
    * Hosts Whisper for STT, Gemma3-12B for dialogue, and GPT-SoVITS for TTS
-   * Exposes a WebSocket API for real-time interaction
+  * Exposes a REST API for chat, ASR, and TTS
 
 ---
 
@@ -66,6 +66,16 @@ cp .env_template .env         # Create configuration
 python main.py                # Launch the client UI/CLI
 ```
 
+The Android app located in `clients/KurisuAssistant` also uses this REST API.
+When you run it for the first time it opens a **Getting Started** page where
+you supply the LLM and optional TTS hub URLs. The app checks the URLs and then
+lets you register an admin account. If the account already exists the request
+succeeds silently, so you can simply log in with the default credentials.
+Afterwards subsequent launches go straight to a login screen. A "Remember me"
+checkbox lets your token persist so you don't have to log in again. The settings
+screen fetches the available models from the LLM hub's `/models` endpoint so you
+can choose which one to use and edit the hub URLs.
+
 ### Server
 
 ```bash
@@ -73,6 +83,10 @@ docker-compose up -d          # Start STT, LLM, and TTS services in containers
 ```
 
 Ensure you have Docker Engine and Docker Compose installed.
+The `llm-hub-container` automatically connects to the bundled PostgreSQL
+service using the hostname `postgres`. Override `DATABASE_URL` if you need a
+different connection string.
+The database is seeded with a default **admin/admin** account for testing.
 
 ---
 
@@ -81,7 +95,7 @@ Ensure you have Docker Engine and Docker Compose installed.
 1. **Start the server** (`docker-compose up -d`).
 2. **Run the client** (`python main.py`).
 3. **Speak** into your microphone and watch KurisuAssistant transcribe and respond.
-4. **Edit** `.env` if the WebSocket endpoint or token differ from the defaults.
+4. **Edit** `.env` if the API URL differs from the default.
 
 ---
 
@@ -95,6 +109,24 @@ Configure your environment by editing the `.env` file:
 * **JWT_SECRET_KEY** – Secret key used to sign authentication tokens
 
 LLM and TTS URLs for the core can be adjusted in `docker-compose.yml`.
+
+### Database schema
+
+On startup the LLM hub will create a `conversations` table if it does not
+exist. The table stores conversation transcripts in JSON format:
+
+```sql
+CREATE TABLE IF NOT EXISTS conversations (
+    id SERIAL PRIMARY KEY,
+    username TEXT NOT NULL,
+    messages JSONB NOT NULL,  -- {"messages": [{"role": "...", "content": "...", "model": "..."}]}
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+You can query a user's history via the `/history` endpoint of the LLM hub.
+The `/models` endpoint returns the list of available LLMs for client selection.
+New accounts can be created by sending credentials to the `/register` endpoint.
 
 ## Contributing
 
