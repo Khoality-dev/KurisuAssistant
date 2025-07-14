@@ -121,7 +121,13 @@ async def chat(request: Request, token: str = Depends(oauth2_scheme)):
             yield json.dumps(chunk) + "\n"
 
             if msg.get("tool_calls"):
-                add_message(username, "assistant", full_response, payload.get("model"))
+                add_message(
+                    username,
+                    "assistant",
+                    full_response,
+                    payload.get("model"),
+                    tool_calls=msg.get("tool_calls"),
+                )
                 full_response = ""
                 continue
 
