@@ -57,10 +57,22 @@ class LLM:
                 data = chunk.dict()
                 msg = chunk.message
 
+                accumulated += msg.content
+                buffer += msg.content
+
                 if msg.tool_calls:
+                    data["message"]["content"] = accumulated
+                    data["message"]["tool_calls"] = [tc.dict() for tc in msg.tool_calls]
+                    yield data
                     self.history.append(
-                        {"role": "assistant", "content": msg.content, "model": payload.get("model")}
+                        {
+                            "role": "assistant",
+                            "content": accumulated,
+                            "model": payload.get("model"),
+                            "tool_calls": [tc.dict() for tc in msg.tool_calls],
+                        }
                     )
+                    print(self.history[-1])
                     for tool_call in msg.tool_calls:
                         result = await call_tool(
                             self.mcp_client,
@@ -70,8 +82,8 @@ class LLM:
                         tool_text = result[0].text
                         self.history.append(
                             {
-                                "role": "user",
-                                "content": f"<tool_response> {json.dumps({'text': tool_text})} </tool_response>",
+                                "role": "tool",
+                                "content": tool_text,
                                 "model": None,
                             }
                         )
@@ -83,8 +95,6 @@ class LLM:
                     made_tool_call = True
                     break
 
-                accumulated += msg.content
-                buffer += msg.content
                 if len(buffer) > 20 or data.get("done"):
                     data["message"]["content"] = buffer
                     yield data
