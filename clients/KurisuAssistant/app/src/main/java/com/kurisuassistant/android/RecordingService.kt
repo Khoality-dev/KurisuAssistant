@@ -213,12 +213,9 @@ class RecordingService : Service() {
                                 lastInteractionTimeStamp = System.currentTimeMillis()
                                 player?.write(startSFX, 0, startSFX.size)
 
-                                val sanitized = text.replace("(?i)Kurisu".toRegex(), "").trim()
-                                if (sanitized.isNotEmpty()) {
-                                    Log.d(TAG, "User: $sanitized")
-                                    ChatRepository.sendMessage(sanitized)
-                                    lastInteractionTimeStamp = System.currentTimeMillis()
-                                }
+                                Log.d(TAG, "User: $text")
+                                ChatRepository.sendMessage(text)
+                                lastInteractionTimeStamp = System.currentTimeMillis()
                             }
                         } else {
                             lastInteractionTimeStamp = System.currentTimeMillis()
