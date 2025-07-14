@@ -207,6 +207,9 @@ class RecordingService : Service() {
                         if (assistantResponding) {
                             asrBuffer.clear()
                             Log.d(TAG, "Skipping speech while assistant responding")
+                            if (isInteracting) {
+                                lastInteractionTimeStamp = System.currentTimeMillis()
+                            }
                         } else {
                             val text = agent.stt(asrBuffer)
                             asrBuffer.clear()
@@ -216,18 +219,13 @@ class RecordingService : Service() {
                                 if (text.contains("Kurisu", ignoreCase = true)) {
                                     isInteracting = true
                                     ChatRepository.setConversationActive(true)
-                                    lastInteractionTimeStamp = System.currentTimeMillis()
                                     player?.write(startSFX, 0, startSFX.size)
-
-                                    Log.d(TAG, "User: $text")
-                                    ChatRepository.sendMessage(text)
-                                    lastInteractionTimeStamp = System.currentTimeMillis()
                                 }
-                            } else {
-                                lastInteractionTimeStamp = System.currentTimeMillis()
+                            }
+
+                            if (isInteracting) {
                                 Log.d(TAG, "User: $text")
                                 ChatRepository.sendMessage(text)
-                                // audio replies are fetched via REST and played automatically
                                 lastInteractionTimeStamp = System.currentTimeMillis()
                             }
                         }
