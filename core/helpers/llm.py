@@ -23,9 +23,6 @@ class LLM:
         """Return a list of available model names."""
         try:
             resp = self.client.list()
-            # the Ollama client returns a ListResponse dataclass
-            # where "models" is a sequence of Model objects with a
-            # "model" attribute. Convert it to a simple string list.
             return [m.model for m in getattr(resp, "models", [])]
         except Exception:
             return []
