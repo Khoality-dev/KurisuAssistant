@@ -11,8 +11,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.FormBody
-import okhttp3.OkHttpClient
 import okhttp3.Request
+import com.kurisuassistant.android.utils.HttpClient
 
 class GettingStartedActivity : AppCompatActivity() {
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -75,7 +75,7 @@ class GettingStartedActivity : AppCompatActivity() {
     private fun checkUrl(url: String): Boolean {
         return try {
             val req = Request.Builder().url(url).build()
-            OkHttpClient().newCall(req).execute().use { it.isSuccessful }
+            HttpClient.noTimeoutClient().newCall(req).execute().use { it.isSuccessful }
         } catch (e: Exception) {
             false
         }
@@ -88,7 +88,7 @@ class GettingStartedActivity : AppCompatActivity() {
             val body = FormBody.Builder().add("username", user).add("password", pass).build()
             val request = Request.Builder().url("${Settings.llmUrl}/register").post(body).build()
             val result = try {
-                OkHttpClient().newCall(request).execute().use { resp ->
+                HttpClient.noTimeoutClient().newCall(request).execute().use { resp ->
                     resp.isSuccessful || (resp.code == 400 && resp.body?.string()?.contains("User already exists") == true)
                 }
             } catch (_: Exception) {

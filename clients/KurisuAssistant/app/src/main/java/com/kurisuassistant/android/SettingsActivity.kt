@@ -10,7 +10,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.Spinner
 import android.widget.ArrayAdapter
-import okhttp3.OkHttpClient
+import com.kurisuassistant.android.utils.HttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.IOException
@@ -29,7 +29,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var llmUrl: EditText
     private lateinit var ttsUrl: EditText
     private lateinit var modelSpinner: Spinner
-    private val client = OkHttpClient()
+    private val client = HttpClient.noTimeoutClient()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

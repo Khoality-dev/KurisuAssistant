@@ -10,7 +10,7 @@ import com.kurisuassistant.android.Settings
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
+import com.kurisuassistant.android.utils.HttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.ByteString
@@ -21,7 +21,7 @@ import org.json.JSONObject
  */
 class Agent(private val player: AudioTrack) {
     private val TAG = "Agent"
-    private val client = OkHttpClient()
+    private val client = HttpClient.noTimeoutClient()
     private val scope = CoroutineScope(Dispatchers.IO)
     private var speakingJob: Job? = null
 
