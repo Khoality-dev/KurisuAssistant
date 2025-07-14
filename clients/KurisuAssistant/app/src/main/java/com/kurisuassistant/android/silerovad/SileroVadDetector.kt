@@ -10,7 +10,9 @@ class SileroVadDetector(modelBuffer: ByteBuffer) {
     private val threshold = 0.5f
     private val samplingRate = 16000
     private val windowSizeSample = 512
-    private var minSilenceMsDuration = 2 * 1000 // 2s
+    // Wait time after the user stops speaking before firing an event
+    // Reduced to 1 second so transcriptions are returned faster
+    private var minSilenceMsDuration = 1 * 1000 // 1s
     private var lastDetectedTimeStamp: Long = 0
     var isSpeaking = false
     /**
