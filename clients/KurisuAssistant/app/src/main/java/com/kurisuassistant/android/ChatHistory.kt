@@ -56,7 +56,7 @@ object ChatHistory {
                             msg.optString("text", msg.optString("content")),
                             role,
                             msg.optString("created_at", null),
-                            if (msg.has("tool_calls")) msg.getJSONArray("tool_calls").toString() else null
+                            msg.optJSONArray("tool_calls")?.toString()
                         )
                     )
                 }
@@ -90,7 +90,7 @@ object ChatHistory {
                         val role = obj.optString("role")
                         val content = obj.optString("content")
                         val created = obj.optString("created_at", null)
-                        val toolCalls = if (obj.has("tool_calls")) obj.getJSONArray("tool_calls").toString() else null
+                        val toolCalls = obj.optJSONArray("tool_calls")?.toString()
                         convo.add(ChatMessage(content, role, created, toolCalls))
                     }
                     conversations.add(convo)
