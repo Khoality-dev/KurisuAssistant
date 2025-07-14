@@ -87,11 +87,17 @@ class GettingStartedActivity : AppCompatActivity() {
         scope.launch {
             val body = FormBody.Builder().add("username", user).add("password", pass).build()
             val request = Request.Builder().url("${Settings.llmUrl}/register").post(body).build()
-            val ok = try { OkHttpClient().newCall(request).execute().use { it.isSuccessful } } catch (_: Exception) { false }
+            val result = try {
+                OkHttpClient().newCall(request).execute().use { resp ->
+                    resp.isSuccessful || (resp.code == 400 && resp.body?.string()?.contains("User already exists") == true)
+                }
+            } catch (_: Exception) {
+                false
+            }
             runOnUiThread {
-                if (ok) {
+                if (result) {
                     Settings.markConfigured()
-                    Toast.makeText(this@GettingStartedActivity, "Registered", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@GettingStartedActivity, "Admin ready", Toast.LENGTH_SHORT).show()
                     startNext()
                 } else {
                     Toast.makeText(this@GettingStartedActivity, "Registration failed", Toast.LENGTH_SHORT).show()

@@ -69,11 +69,12 @@ python main.py                # Launch the client UI/CLI
 The Android app located in `clients/KurisuAssistant` also uses this REST API.
 When you run it for the first time it opens a **Getting Started** page where
 you supply the LLM and optional TTS hub URLs. The app checks the URLs and then
-lets you register an admin account. Afterwards subsequent launches go straight
-to a login screen. A "Remember me" checkbox lets your token persist so you
-don't have to log in again. The settings screen fetches the available models
-from the LLM hub's `/models` endpoint so you can choose which one to use and
-edit the hub URLs.
+lets you register an admin account. If the account already exists the request
+succeeds silently, so you can simply log in with the default credentials.
+Afterwards subsequent launches go straight to a login screen. A "Remember me"
+checkbox lets your token persist so you don't have to log in again. The settings
+screen fetches the available models from the LLM hub's `/models` endpoint so you
+can choose which one to use and edit the hub URLs.
 
 ### Server
 
