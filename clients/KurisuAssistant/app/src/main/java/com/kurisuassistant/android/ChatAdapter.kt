@@ -80,6 +80,11 @@ class ChatAdapter(
             is UserHolder -> {
                 markwon.setMarkdown(holder.text, msg.text)
                 holder.time.text = msg.createdAt ?: ""
+                holder.time.visibility = View.GONE
+                holder.text.setOnClickListener {
+                    holder.time.visibility =
+                        if (holder.time.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                }
                 val uri = AvatarManager.getUserAvatarUri()
                 if (uri != null) holder.avatar.setImageURI(uri)
                 else holder.avatar.setImageResource(R.drawable.avatar_user)
@@ -91,6 +96,11 @@ class ChatAdapter(
                 }
                 markwon.setMarkdown(holder.text, text)
                 holder.time.text = msg.createdAt ?: ""
+                holder.time.visibility = View.GONE
+                holder.text.setOnClickListener {
+                    holder.time.visibility =
+                        if (holder.time.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                }
                 val uri = AvatarManager.getAgentAvatarUri()
                 if (uri != null) holder.avatar.setImageURI(uri)
                 else holder.avatar.setImageResource(R.drawable.avatar_assistant)
