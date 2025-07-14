@@ -40,10 +40,15 @@ class Agent(private val player: AudioTrack) {
             .addHeader("Authorization", "Bearer ${Auth.token ?: ""}")
             .post(ByteString.of(*data).toByteArray().toRequestBody("application/octet-stream".toMediaType()))
             .build()
-        client.newCall(request).execute().use { resp ->
-            if (!resp.isSuccessful) throw Exception("ASR failed")
-            val json = JSONObject(resp.body!!.string())
-            return json.getString("text")
+        try {
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) throw Exception("ASR failed")
+                val json = JSONObject(resp.body!!.string())
+                return json.getString("text")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "ASR failed", e)
+            return ""
         }
     }
 
@@ -54,9 +59,14 @@ class Agent(private val player: AudioTrack) {
             .addHeader("Authorization", "Bearer ${Auth.token ?: ""}")
             .post(body)
             .build()
-        client.newCall(request).execute().use { resp ->
-            if (!resp.isSuccessful) return null
-            return resp.body!!.bytes()
+        return try {
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                resp.body!!.bytes()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "TTS failed", e)
+            null
         }
     }
 
@@ -78,28 +88,42 @@ class Agent(private val player: AudioTrack) {
                 .addHeader("Authorization", "Bearer ${Auth.token ?: ""}")
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
-            client.newCall(request).execute().use { resp ->
-                val source = resp.body!!.source()
-                while (!source.exhausted()) {
-                    val line = source.readUtf8Line()
-                    if (line.isNullOrBlank()) continue
-                    Log.d(TAG, line)
-                    val json = JSONObject(line)
-                    val content = json.getJSONObject("message").getString("content")
-                    channel.trySend(content)
-                    val audio = tts(content)
-                    if (audio != null) {
-                        player.write(audio, 0, audio.size)
-                        _speaking.postValue(true)
-                        speakingJob?.cancel()
-                        speakingJob = scope.launch {
-                            delay(300)
-                            _speaking.postValue(false)
-                        }
+            try {
+                client.newCall(request).execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        _connected.postValue(false)
+                        channel.close(Exception("HTTP ${resp.code}"))
+                        _typing.postValue(false)
+                        return@use
                     }
-                    if (json.optBoolean("done")) break
+                    val source = resp.body!!.source()
+                    while (!source.exhausted()) {
+                        val line = source.readUtf8Line()
+                        if (line.isNullOrBlank()) continue
+                        Log.d(TAG, line)
+                        val json = JSONObject(line)
+                        val content = json.getJSONObject("message").getString("content")
+                        channel.trySend(content)
+                        val audio = tts(content)
+                        if (audio != null) {
+                            player.write(audio, 0, audio.size)
+                            _speaking.postValue(true)
+                            speakingJob?.cancel()
+                            speakingJob = scope.launch {
+                                delay(300)
+                                _speaking.postValue(false)
+                            }
+                        }
+                        if (json.optBoolean("done")) break
+                    }
+                    _connected.postValue(true)
                 }
                 channel.close()
+                _typing.postValue(false)
+            } catch (e: Exception) {
+                Log.e(TAG, "Chat failed", e)
+                _connected.postValue(false)
+                channel.close(e)
                 _typing.postValue(false)
             }
         }
