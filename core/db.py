@@ -33,10 +33,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS conversations (
             id SERIAL PRIMARY KEY,
             username TEXT NOT NULL,
+            title TEXT,
             messages JSONB NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
+    )
+    cur.execute(
+        "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS title TEXT"
     )
     conn.commit()
     cur.close()
@@ -80,8 +84,8 @@ def add_message(
             + [{"role": role, "content": content, "model": model}]
         }
         cur.execute(
-            "INSERT INTO conversations (username, messages) VALUES (%s, %s)",
-            (username, json.dumps(new_messages)),
+            "INSERT INTO conversations (username, title, messages) VALUES (%s, %s, %s)",
+            (username, content[:30], json.dumps(new_messages)),
         )
     conn.commit()
     cur.close()
@@ -93,14 +97,19 @@ def get_history(username: str, limit: int = 50):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT messages, created_at FROM conversations WHERE username=%s ORDER BY id DESC LIMIT %s",
+        "SELECT messages, created_at, title FROM conversations WHERE username=%s ORDER BY id DESC LIMIT %s",
         (username, limit),
     )
     rows = cur.fetchall()
     cur.close()
     conn.close()
     return [
-        {"messages": r[0]["messages"], "created_at": r[1].isoformat()} for r in rows
+        {
+            "messages": r[0]["messages"],
+            "created_at": r[1].isoformat(),
+            "title": r[2],
+        }
+        for r in rows
     ]
 
 
