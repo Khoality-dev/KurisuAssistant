@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity() {
         drawerToggle.syncState()
         val convList = findViewById<ListView>(R.id.listConversations)
         val newChat = findViewById<Button>(R.id.buttonNewChat)
+        val mcpTools = findViewById<Button>(R.id.buttonMcpTools)
         drawerAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, ChatHistory.conversationTitles())
         convList.adapter = drawerAdapter
         convList.setOnItemClickListener { _, _, position, _ ->
@@ -72,6 +73,10 @@ class MainActivity : AppCompatActivity() {
             ChatRepository.startNewConversation()
             drawerLayout.closeDrawers()
             refreshDrawer()
+        }
+        mcpTools.setOnClickListener {
+            startActivity(Intent(this, MCPToolsActivity::class.java))
+            drawerLayout.closeDrawers()
         }
         Settings.init(this)
         AvatarManager.init(this)
@@ -166,10 +171,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return if (item.itemId == R.id.action_settings) {
-            startActivity(Intent(this, SettingsActivity::class.java))
-            true
-        } else super.onOptionsItemSelected(item)
+        return when (item.itemId) {
+            R.id.action_settings -> {
+                startActivity(Intent(this, SettingsActivity::class.java))
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
     }
 
     private fun refreshDrawer() {

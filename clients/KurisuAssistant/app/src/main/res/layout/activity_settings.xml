@@ -69,10 +69,27 @@
             android:minHeight="?attr/listPreferredItemHeight"
             android:spinnerMode="dropdown" />
 
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="System Prompt" />
+
+        <EditText
+            android:id="@+id/editSystemPrompt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Enter system prompt (optional)"
+            android:inputType="textMultiLine"
+            android:lines="3"
+            android:maxLines="5"
+            android:scrollbars="vertical" />
+
         <Button
             android:id="@+id/buttonSaveSettings"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
             android:text="Save" />
     </LinearLayout>
 </ScrollView>

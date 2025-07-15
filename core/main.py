@@ -17,12 +17,25 @@ import numpy as np
 import requests
 import dotenv
 from fastmcp.client import Client as FastMCPClient
-with open("configs/default.json", "r") as f:
-    json_config = json.load(f)
-    mcp_configs = {
-        "mcpServers": json_config.get("mcp_servers", {})
-    }
-mcp_client = FastMCPClient(mcp_configs)
+import glob
+
+# Load MCP configs from tool-specific config.json files
+def load_mcp_configs():
+    mcp_servers = {}
+    tool_config_files = glob.glob("mcp_tools/*/config.json")
+    for config_file in tool_config_files:
+        try:
+            with open(config_file, "r") as f:
+                tool_config = json.load(f)
+                tool_mcp_servers = tool_config.get("mcp_servers", {})
+                mcp_servers.update(tool_mcp_servers)
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            print(f"Warning: Could not load MCP config from {config_file}: {e}")
+    return {"mcpServers": mcp_servers}
+
+mcp_configs = load_mcp_configs()
+# Initialize mcp_client to None if no servers are configured
+mcp_client = FastMCPClient(mcp_configs) if mcp_configs.get("mcpServers") else None
 dotenv.load_dotenv()
 
 app = FastAPI(

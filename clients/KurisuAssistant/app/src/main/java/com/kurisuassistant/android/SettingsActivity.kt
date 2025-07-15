@@ -19,7 +19,10 @@ import android.widget.Toast
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Response
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaType
 import android.util.Patterns
+import kotlinx.coroutines.launch
 import java.io.File
 
 class SettingsActivity : AppCompatActivity() {
@@ -29,6 +32,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var llmUrl: EditText
     private lateinit var ttsUrl: EditText
     private lateinit var modelSpinner: Spinner
+    private lateinit var systemPrompt: EditText
     private val client = HttpClient.noTimeout
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,9 +46,14 @@ class SettingsActivity : AppCompatActivity() {
         llmUrl = findViewById(R.id.editLlmUrl)
         ttsUrl = findViewById(R.id.editTtsUrl)
         modelSpinner = findViewById(R.id.spinnerModel)
+        systemPrompt = findViewById(R.id.editSystemPrompt)
 
         llmUrl.setText(Settings.llmUrl)
         ttsUrl.setText(Settings.ttsUrl)
+        systemPrompt.setText(Settings.systemPrompt)
+        
+        // Load system prompt from server
+        loadSystemPrompt()
 
         AvatarManager.getUserAvatarUri()?.let { userAvatar.setImageURI(it) }
         AvatarManager.getAgentAvatarUri()?.let { agentAvatar.setImageURI(it) }
@@ -58,7 +67,8 @@ class SettingsActivity : AppCompatActivity() {
                 ttsUrl.text.toString().trim(),
                 modelSpinner.selectedItem?.toString() ?: ""
             )
-            Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()
+            // Save system prompt to backend
+            saveSystemPrompt(systemPrompt.text.toString().trim())
         }
 
         llmUrl.setOnFocusChangeListener { _, hasFocus ->
@@ -120,6 +130,54 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
         })
+    }
+
+    private fun loadSystemPrompt() {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                val response = HttpClient.get("${Settings.llmUrl}/system-prompt", Auth.token ?: "")
+                val json = JSONObject(response)
+                val serverSystemPrompt = json.optString("system_prompt", "")
+                
+                runOnUiThread {
+                    systemPrompt.setText(serverSystemPrompt)
+                    Settings.saveSystemPrompt(serverSystemPrompt)
+                }
+            } catch (e: Exception) {
+                // If we can't load from server, use local value
+                runOnUiThread {
+                    systemPrompt.setText(Settings.systemPrompt)
+                }
+            }
+        }
+    }
+
+    private fun saveSystemPrompt(prompt: String) {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                val requestBody = JSONObject().apply {
+                    put("system_prompt", prompt)
+                }.toString().toRequestBody("application/json".toMediaType())
+                
+                HttpClient.put("${Settings.llmUrl}/system-prompt", requestBody, Auth.token ?: "").use { response ->
+                    if (response.isSuccessful) {
+                        // Also save locally as backup
+                        Settings.saveSystemPrompt(prompt)
+                        runOnUiThread {
+                            Toast.makeText(this@SettingsActivity, "Settings saved", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        runOnUiThread {
+                            Toast.makeText(this@SettingsActivity, "Failed to save system prompt", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this@SettingsActivity, "Error saving system prompt: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

@@ -5,4 +5,7 @@
     <color name="primaryBlue">#0084FF</color>
     <color name="userBubbleColor">@color/primaryBlue</color>
     <color name="assistantBubbleColor">#E5E5EA</color>
+    <color name="status_available">#4CAF50</color>
+    <color name="status_unavailable">#F44336</color>
+    <color name="status_configured">#FF9800</color>
 </resources>

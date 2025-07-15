@@ -6,7 +6,7 @@ from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://kurisu:kurisu@localhost:5432/kurisu")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://kurisu:kurisu@10.0.0.122:5432/kurisu")
 
 
 def get_connection():
@@ -20,9 +20,14 @@ def init_db():
         """
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
-            password TEXT NOT NULL
+            password TEXT NOT NULL,
+            system_prompt TEXT DEFAULT ''
         )
         """
+    )
+    # Add system_prompt column to existing users table if it doesn't exist
+    cur.execute(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS system_prompt TEXT DEFAULT ''"
     )
     # ensure default admin account
     cur.execute(
@@ -165,3 +170,27 @@ def admin_exists() -> bool:
     cur.close()
     conn.close()
     return exists
+
+
+def get_user_system_prompt(username: str) -> str:
+    """Get the system prompt for a specific user."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT system_prompt FROM users WHERE username=%s", (username,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row[0] if row else ""
+
+
+def update_user_system_prompt(username: str, system_prompt: str) -> None:
+    """Update the system prompt for a specific user."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET system_prompt=%s WHERE username=%s",
+        (system_prompt, username)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()

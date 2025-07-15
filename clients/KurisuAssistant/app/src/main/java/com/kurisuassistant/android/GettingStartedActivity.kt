@@ -11,7 +11,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.FormBody
-import okhttp3.Request
 import com.kurisuassistant.android.utils.HttpClient
 
 class GettingStartedActivity : AppCompatActivity() {
@@ -79,8 +78,7 @@ class GettingStartedActivity : AppCompatActivity() {
 
     private fun checkUrl(url: String): Boolean {
         return try {
-            val req = Request.Builder().url(url).build()
-            HttpClient.noTimeout.newCall(req).execute().use { it.isSuccessful }
+            HttpClient.getResponse(url).use { it.isSuccessful }
         } catch (e: Exception) {
             false
         }
@@ -88,8 +86,7 @@ class GettingStartedActivity : AppCompatActivity() {
 
     private fun serverNeedsAdmin(): Boolean {
         return try {
-            val req = Request.Builder().url("${Settings.llmUrl}/needs-admin").build()
-            HttpClient.noTimeout.newCall(req).execute().use { resp ->
+            HttpClient.getResponse("${Settings.llmUrl}/needs-admin").use { resp ->
                 if (!resp.isSuccessful) return false
                 val json = org.json.JSONObject(resp.body!!.string())
                 json.optBoolean("needs_admin", false)
@@ -104,9 +101,8 @@ class GettingStartedActivity : AppCompatActivity() {
         val pass = password.text.toString()
         scope.launch {
             val body = FormBody.Builder().add("username", user).add("password", pass).build()
-            val request = Request.Builder().url("${Settings.llmUrl}/register").post(body).build()
             val result = try {
-                HttpClient.noTimeout.newCall(request).execute().use { resp ->
+                HttpClient.post("${Settings.llmUrl}/register", body).use { resp ->
                     resp.isSuccessful || (resp.code == 400 && resp.body?.string()?.contains("User already exists") == true)
                 }
             } catch (_: Exception) {

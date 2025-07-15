@@ -6,16 +6,12 @@ from mcp_tools.client import list_tools, call_tool
 
 class LLM:
     def __init__(self, mcp_client):
-        self.api_url = os.getenv("LLM_API_URL", "http://127.0.0.1:11434")
+        self.api_url = os.getenv("LLM_API_URL", "http://10.0.0.122:11434")
         print(f"LLM API URL: {self.api_url}")
         self.delimiters = ['.', '\n', '?']
         self.client = Client(host=self.api_url)
-        with open("configs/default.json", "r") as f:
-            json_config = json.load(f)
-            self.system_prompts = json_config.get("system_prompts", [])
-            self.mcp_configs = {
-                "mcpServers": json_config.get("mcp_servers", {})
-            }
+        # Default system prompt is empty - user-specific prompts are handled per-request
+        self.system_prompts = []
         self.mcp_client = mcp_client
         self.history = []
 
@@ -30,7 +26,7 @@ class LLM:
     def pull_model(self, model_name):
         self.client.pull(model_name)
 
-    async def __call__(self, payload):
+    async def __call__(self, payload, user_system_prompts=None):
         """Send a chat request and yield streaming responses.
 
         The entire conversation, including intermediate tool calls and assistant
@@ -43,8 +39,11 @@ class LLM:
         buffer = ""
 
         while True:
-            tools = await list_tools(self.mcp_client)
-            messages = self.system_prompts + self.history
+            # Get tools from MCP client if available, otherwise use empty list
+            tools = await list_tools(self.mcp_client) if self.mcp_client is not None else []
+            # Use user-specific system prompts if provided, otherwise use default
+            system_prompts = user_system_prompts if user_system_prompts is not None else self.system_prompts
+            messages = system_prompts + self.history
             stream = self.client.chat(
                 model=payload["model"],
                 messages=messages,
@@ -74,12 +73,15 @@ class LLM:
                     )
                     print(self.history[-1])
                     for tool_call in msg.tool_calls:
-                        result = await call_tool(
-                            self.mcp_client,
-                            tool_call.function.name,
-                            tool_call.function.arguments,
-                        )
-                        tool_text = result[0].text
+                        if self.mcp_client is not None:
+                            result = await call_tool(
+                                self.mcp_client,
+                                tool_call.function.name,
+                                tool_call.function.arguments,
+                            )
+                            tool_text = result[0].text
+                        else:
+                            tool_text = "MCP client not available"
                         self.history.append(
                             {
                                 "role": "tool",

@@ -1,11 +1,13 @@
 import json
 import os
+import glob
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request, Body, Response, Depends
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from transformers import pipeline
 import torch
+import uvicorn
 from helpers.llm import LLM
 import dotenv
 from fastmcp.client import Client as FastMCPClient
@@ -16,13 +18,33 @@ from db import (
     get_history,
     create_user,
     admin_exists,
+    get_user_system_prompt,
+    update_user_system_prompt,
 )
 
-with open("configs/default.json", "r") as f:
-    json_config = json.load(f)
-    mcp_configs = {"mcpServers": json_config.get("mcp_servers", {})}
+def load_mcp_configs():
+    """Load and merge MCP configurations from tool-specific config.json files."""
+    # Start with empty configuration - no more default.json
+    mcp_servers = {}
+    
+    # Find and merge tool-specific configurations
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    tool_config_files = glob.glob(os.path.join(current_dir, "mcp_tools/*/config.json"))
+    for config_file in tool_config_files:
+        try:
+            with open(config_file, "r") as f:
+                tool_config = json.load(f)
+                tool_mcp_servers = tool_config.get("mcp_servers", {})
+                # Merge tool-specific servers into main configuration
+                mcp_servers.update(tool_mcp_servers)
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            print(f"Warning: Could not load MCP config from {config_file}: {e}")
+    
+    return {"mcpServers": mcp_servers}
 
-mcp_client = FastMCPClient(mcp_configs)
+mcp_configs = load_mcp_configs()
+# Initialize mcp_client to None if no servers are configured
+mcp_client = FastMCPClient(mcp_configs) if mcp_configs.get("mcpServers") else None
 
 dotenv.load_dotenv()
 
@@ -94,14 +116,25 @@ async def chat(request: Request, token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401, detail="Invalid token")
     payload = await request.json()
     try:
+        # Get user-specific system prompt
+        user_system_prompt = get_user_system_prompt(username)
+        
+        # Create user system prompts list
+        user_system_prompts = llm_model.system_prompts.copy()
+        if user_system_prompt:
+            user_system_prompts.append({
+                "role": "system",
+                "content": user_system_prompt
+            })
+        
         add_message(
             username,
             "user",
             payload["message"]["content"],
             None,
-            llm_model.system_prompts,
+            user_system_prompts,
         )
-        response_generator = llm_model(payload)
+        response_generator = llm_model(payload, user_system_prompts)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -162,3 +195,75 @@ async def history(token: str = Depends(oauth2_scheme), limit: int = 50):
         return get_history(username, limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/system-prompt")
+async def get_system_prompt(token: str = Depends(oauth2_scheme)):
+    username = get_current_user(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    try:
+        system_prompt = get_user_system_prompt(username)
+        return {"system_prompt": system_prompt}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/system-prompt")
+async def update_system_prompt(
+    request: Request, token: str = Depends(oauth2_scheme)
+):
+    username = get_current_user(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    try:
+        payload = await request.json()
+        system_prompt = payload.get("system_prompt", "")
+        update_user_system_prompt(username, system_prompt)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/mcp-servers")
+async def mcp_servers(token: str = Depends(oauth2_scheme)):
+    username = get_current_user(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    try:
+        servers = []
+        for name, config in mcp_configs.get("mcpServers", {}).items():
+            server_info = {
+                "name": name,
+                "command": config.get("command", ""),
+                "args": config.get("args", []),
+                "status": "configured"
+            }
+            servers.append(server_info)
+        
+        # Try to get tools from each server to show availability
+        if mcp_client is not None:
+            try:
+                from helpers.llm import list_tools
+                tools = await list_tools(mcp_client)
+                available_servers = set()
+                for tool in tools:
+                    server_name = tool.get("server", "unknown")
+                    available_servers.add(server_name)
+                
+                for server in servers:
+                    if server["name"] in available_servers:
+                        server["status"] = "available"
+                    else:
+                        server["status"] = "unavailable"
+            except Exception:
+                # If we can't get tools, just mark as configured
+                pass
+        
+        return {"servers": servers}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=15597)

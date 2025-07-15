@@ -6,7 +6,6 @@ import com.kurisuassistant.android.model.ChatMessage
 import com.kurisuassistant.android.utils.HttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -71,11 +70,8 @@ object ChatHistory {
     }
 
     suspend fun fetchFromServer() = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url("${Settings.llmUrl}/history")
-            .build()
         try {
-            HttpClient.noTimeout.newCall(request).execute().use { resp ->
+            HttpClient.getResponse("${Settings.llmUrl}/history", Auth.token).use { resp ->
                 if (!resp.isSuccessful) return@withContext
                 val arr = JSONArray(resp.body!!.string())
                 conversations.clear()
