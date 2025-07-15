@@ -104,7 +104,7 @@ class Agent(private val player: AudioTrack) {
                         val role = msgObj.optString("role", "assistant")
                         val content = msgObj.optString("content")
                         val created = msgObj.optString("created_at", null)
-                        val toolCalls = if (msgObj.has("tool_calls")) msgObj.getJSONArray("tool_calls").toString() else null
+                        val toolCalls = msgObj.optJSONArray("tool_calls")?.toString()
                         val msg = ChatMessage(content, role, created, toolCalls)
                         channel.trySend(msg)
                         if (role != "user" && content.isNotEmpty()) {

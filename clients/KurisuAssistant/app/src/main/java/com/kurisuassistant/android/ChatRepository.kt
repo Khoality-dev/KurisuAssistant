@@ -81,7 +81,8 @@ object ChatRepository {
     fun sendMessage(text: String) {
         val list = _messages.value ?: mutableListOf()
         list.add(ChatMessage(text, "user", Instant.now().toString()))
-        _messages.value = list
+        // postValue ensures this can be called from background threads
+        _messages.postValue(ArrayList(list))
         ChatHistory.update(currentIndex, list)
 
         scope.launch {
