@@ -10,6 +10,9 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.Spinner
 import android.widget.ArrayAdapter
+import android.widget.ProgressBar
+import android.view.View
+import com.google.android.material.appbar.MaterialToolbar
 import com.kurisuassistant.android.utils.HttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -33,11 +36,21 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var ttsUrl: EditText
     private lateinit var modelSpinner: Spinner
     private lateinit var systemPrompt: EditText
+    private lateinit var llmValidationProgress: ProgressBar
+    private lateinit var llmValidationIcon: ImageView
+    private lateinit var ttsValidationProgress: ProgressBar
+    private lateinit var ttsValidationIcon: ImageView
     private val client = HttpClient.noTimeout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
+        
+        val toolbar = findViewById<MaterialToolbar>(R.id.toolbar)
+        setSupportActionBar(toolbar)
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        supportActionBar?.title = "Settings"
+        
         AvatarManager.init(this)
         Settings.init(this)
 
@@ -47,6 +60,10 @@ class SettingsActivity : AppCompatActivity() {
         ttsUrl = findViewById(R.id.editTtsUrl)
         modelSpinner = findViewById(R.id.spinnerModel)
         systemPrompt = findViewById(R.id.editSystemPrompt)
+        llmValidationProgress = findViewById(R.id.llmValidationProgress)
+        llmValidationIcon = findViewById(R.id.llmValidationIcon)
+        ttsValidationProgress = findViewById(R.id.ttsValidationProgress)
+        ttsValidationIcon = findViewById(R.id.ttsValidationIcon)
 
         llmUrl.setText(Settings.llmUrl)
         ttsUrl.setText(Settings.ttsUrl)
@@ -61,21 +78,48 @@ class SettingsActivity : AppCompatActivity() {
         userAvatar.setOnClickListener { pickImage(USER_PICK) }
         agentAvatar.setOnClickListener { pickImage(AGENT_PICK) }
 
-        findViewById<Button>(R.id.buttonSaveSettings).setOnClickListener {
-            Settings.save(
-                llmUrl.text.toString().trim(),
-                ttsUrl.text.toString().trim(),
-                modelSpinner.selectedItem?.toString() ?: ""
-            )
-            // Save system prompt to backend
-            saveSystemPrompt(systemPrompt.text.toString().trim())
-        }
+
 
         llmUrl.setOnFocusChangeListener { _, hasFocus ->
-            if (!hasFocus) loadModels()
+            if (!hasFocus) {
+                validateLlmUrl()
+                loadModels()
+                saveSettings()
+            }
         }
 
+        ttsUrl.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) {
+                validateTtsUrl()
+                saveSettings()
+            }
+        }
+
+        systemPrompt.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) {
+                saveSystemPrompt(systemPrompt.text.toString().trim())
+            }
+        }
+
+        // Add click listeners for manual revalidation
+        llmValidationIcon.setOnClickListener {
+            validateLlmUrl()
+        }
+        
+        ttsValidationIcon.setOnClickListener {
+            validateTtsUrl()
+        }
+
+        // Validate URLs when page opens
+        validateLlmUrl()
+        validateTtsUrl()
+
         loadModels()
+    }
+
+    override fun onSupportNavigateUp(): Boolean {
+        onBackPressed()
+        return true
     }
 
     private fun pickImage(code: Int) {
@@ -126,6 +170,14 @@ class SettingsActivity : AppCompatActivity() {
                         val idx = names.indexOf(current).takeIf { it >= 0 } ?: 0
                         Settings.model = current
                         modelSpinner.setSelection(idx)
+                        
+                        // Add listener for auto-save on model selection change
+                        modelSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                                saveSettings()
+                            }
+                            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+                        }
                     }
                 }
             }
@@ -178,6 +230,132 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun saveSettings() {
+        Settings.save(
+            llmUrl.text.toString().trim(),
+            ttsUrl.text.toString().trim(),
+            modelSpinner.selectedItem?.toString() ?: ""
+        )
+    }
+
+    private fun validateLlmUrl() {
+        val url = llmUrl.text.toString().trim()
+        if (url.isEmpty() || !Patterns.WEB_URL.matcher(url).matches()) {
+            showLlmValidationState(ValidationState.NONE)
+            return
+        }
+
+        showLlmValidationState(ValidationState.VALIDATING)
+        
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                val request = Request.Builder()
+                    .url("$url/health")
+                    .build()
+                
+                client.newCall(request).execute().use { response ->
+                    runOnUiThread {
+                        if (response.isSuccessful) {
+                            showLlmValidationState(ValidationState.VALID)
+                        } else {
+                            showLlmValidationState(ValidationState.INVALID)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    showLlmValidationState(ValidationState.INVALID)
+                }
+            }
+        }
+    }
+
+    private fun validateTtsUrl() {
+        val url = ttsUrl.text.toString().trim()
+        if (url.isEmpty() || !Patterns.WEB_URL.matcher(url).matches()) {
+            showTtsValidationState(ValidationState.NONE)
+            return
+        }
+
+        showTtsValidationState(ValidationState.VALIDATING)
+        
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                val request = Request.Builder()
+                    .url("$url/health")
+                    .build()
+                
+                client.newCall(request).execute().use { response ->
+                    runOnUiThread {
+                        if (response.isSuccessful) {
+                            showTtsValidationState(ValidationState.VALID)
+                        } else {
+                            showTtsValidationState(ValidationState.INVALID)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    showTtsValidationState(ValidationState.INVALID)
+                }
+            }
+        }
+    }
+
+    private fun showLlmValidationState(state: ValidationState) {
+        when (state) {
+            ValidationState.NONE -> {
+                llmValidationProgress.visibility = View.GONE
+                llmValidationIcon.visibility = View.GONE
+            }
+            ValidationState.VALIDATING -> {
+                llmValidationProgress.visibility = View.VISIBLE
+                llmValidationIcon.visibility = View.GONE
+            }
+            ValidationState.VALID -> {
+                llmValidationProgress.visibility = View.GONE
+                llmValidationIcon.visibility = View.VISIBLE
+                llmValidationIcon.setImageResource(android.R.drawable.presence_online)
+                llmValidationIcon.setColorFilter(android.graphics.Color.GREEN)
+            }
+            ValidationState.INVALID -> {
+                llmValidationProgress.visibility = View.GONE
+                llmValidationIcon.visibility = View.VISIBLE
+                llmValidationIcon.setImageResource(android.R.drawable.ic_dialog_alert)
+                llmValidationIcon.setColorFilter(android.graphics.Color.RED)
+            }
+        }
+    }
+
+    private fun showTtsValidationState(state: ValidationState) {
+        when (state) {
+            ValidationState.NONE -> {
+                ttsValidationProgress.visibility = View.GONE
+                ttsValidationIcon.visibility = View.GONE
+            }
+            ValidationState.VALIDATING -> {
+                ttsValidationProgress.visibility = View.VISIBLE
+                ttsValidationIcon.visibility = View.GONE
+            }
+            ValidationState.VALID -> {
+                ttsValidationProgress.visibility = View.GONE
+                ttsValidationIcon.visibility = View.VISIBLE
+                ttsValidationIcon.setImageResource(android.R.drawable.presence_online)
+                ttsValidationIcon.setColorFilter(android.graphics.Color.GREEN)
+            }
+            ValidationState.INVALID -> {
+                ttsValidationProgress.visibility = View.GONE
+                ttsValidationIcon.visibility = View.VISIBLE
+                ttsValidationIcon.setImageResource(android.R.drawable.ic_dialog_alert)
+                ttsValidationIcon.setColorFilter(android.graphics.Color.RED)
+            }
+        }
+    }
+
+    private enum class ValidationState {
+        NONE, VALIDATING, VALID, INVALID
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

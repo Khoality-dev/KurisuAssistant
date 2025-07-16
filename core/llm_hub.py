@@ -26,7 +26,7 @@ def load_mcp_configs():
     """Load and merge MCP configurations from tool-specific config.json files."""
     # Start with empty configuration - no more default.json
     mcp_servers = {}
-    
+     
     # Find and merge tool-specific configurations
     current_dir = os.path.dirname(os.path.abspath(__file__))
     tool_config_files = glob.glob(os.path.join(current_dir, "mcp_tools/*/config.json"))
@@ -73,6 +73,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 async def needs_admin():
     """Return whether the server lacks an admin account."""
     return {"needs_admin": not admin_exists()}
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint."""
+    return {"status": "ok", "service": "llm-hub"}
 
 
 @app.post("/login")

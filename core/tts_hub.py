@@ -13,6 +13,12 @@ tts_model = TTS()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 
+@app.get("/health")
+async def health():
+    """Health check endpoint."""
+    return {"status": "ok", "service": "tts-hub"}
+
+
 @app.post("/login")
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     if authenticate_user(form_data.username, form_data.password):
