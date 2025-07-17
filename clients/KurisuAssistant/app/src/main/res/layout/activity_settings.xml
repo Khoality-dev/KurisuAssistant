@@ -1,13 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <LinearLayout
-        android:layout_width="match_parent"
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
+        android:background="?attr/colorPrimary"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <ScrollView
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintTop_toBottomOf="@id/toolbar"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
 
         <TextView
             android:layout_width="wrap_content"
@@ -40,22 +58,88 @@
             android:layout_height="wrap_content"
             android:text="LLM Hub URL" />
 
-        <EditText
-            android:id="@+id/editLlmUrl"
+        <RelativeLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="LLM hub URL" />
+            android:layout_height="wrap_content">
+
+            <EditText
+                android:id="@+id/editLlmUrl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_alignParentStart="true"
+                android:layout_toStartOf="@+id/llmValidationContainer"
+                android:hint="LLM hub URL" />
+
+            <RelativeLayout
+                android:id="@+id/llmValidationContainer"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true"
+                android:layout_marginStart="8dp">
+
+                <ProgressBar
+                    android:id="@+id/llmValidationProgress"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_centerInParent="true"
+                    android:visibility="gone" />
+
+                <ImageView
+                    android:id="@+id/llmValidationIcon"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_centerInParent="true"
+                    android:src="@android:drawable/ic_menu_info_details"
+                    android:visibility="gone" />
+
+            </RelativeLayout>
+
+        </RelativeLayout>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="TTS Hub URL" />
 
-        <EditText
-            android:id="@+id/editTtsUrl"
+        <RelativeLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="TTS hub URL" />
+            android:layout_height="wrap_content">
+
+            <EditText
+                android:id="@+id/editTtsUrl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_alignParentStart="true"
+                android:layout_toStartOf="@+id/ttsValidationContainer"
+                android:hint="TTS hub URL" />
+
+            <RelativeLayout
+                android:id="@+id/ttsValidationContainer"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true"
+                android:layout_marginStart="8dp">
+
+                <ProgressBar
+                    android:id="@+id/ttsValidationProgress"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_centerInParent="true"
+                    android:visibility="gone" />
+
+                <ImageView
+                    android:id="@+id/ttsValidationIcon"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_centerInParent="true"
+                    android:src="@android:drawable/ic_menu_info_details"
+                    android:visibility="gone" />
+
+            </RelativeLayout>
+
+        </RelativeLayout>
 
         <TextView
             android:layout_width="wrap_content"
@@ -69,10 +153,24 @@
             android:minHeight="?attr/listPreferredItemHeight"
             android:spinnerMode="dropdown" />
 
-        <Button
-            android:id="@+id/buttonSaveSettings"
+        <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Save" />
-    </LinearLayout>
-</ScrollView>
+            android:layout_marginTop="16dp"
+            android:text="System Prompt" />
+
+        <EditText
+            android:id="@+id/editSystemPrompt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Enter system prompt (optional)"
+            android:inputType="textMultiLine"
+            android:lines="3"
+            android:maxLines="5"
+            android:scrollbars="vertical" />
+
+        </LinearLayout>
+
+    </ScrollView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

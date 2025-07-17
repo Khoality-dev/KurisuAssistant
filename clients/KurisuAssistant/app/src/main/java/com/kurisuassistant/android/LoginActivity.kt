@@ -53,12 +53,7 @@ class LoginActivity : AppCompatActivity() {
             .add("username", user)
             .add("password", pass)
             .build()
-        val request = okhttp3.Request.Builder()
-            .url("${Settings.llmUrl}/login")
-            .post(body)
-            .build()
-        val client = HttpClient.noTimeout
-        client.newCall(request).execute().use { resp ->
+        HttpClient.post("${Settings.llmUrl}/login", body).use { resp ->
             if (!resp.isSuccessful) return null
             val json = org.json.JSONObject(resp.body!!.string())
             return json.getString("access_token")

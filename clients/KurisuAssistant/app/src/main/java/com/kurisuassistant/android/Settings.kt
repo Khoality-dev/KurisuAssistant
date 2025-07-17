@@ -11,6 +11,7 @@ object Settings {
     private const val KEY_LLM_URL = "llm_url"
     private const val KEY_TTS_URL = "tts_url"
     private const val KEY_MODEL = "model"
+    private const val KEY_SYSTEM_PROMPT = "system_prompt"
     private const val KEY_FIRST = "first_run"
 
     private const val DEFAULT_LLM_URL = "http://127.0.0.1:15597"
@@ -23,6 +24,7 @@ object Settings {
     var ttsUrl: String = DEFAULT_TTS_URL
         private set
     var model: String = ""
+    var systemPrompt: String = ""
     
     var firstRun: Boolean = true
 
@@ -31,6 +33,7 @@ object Settings {
         llmUrl = prefs.getString(KEY_LLM_URL, DEFAULT_LLM_URL) ?: DEFAULT_LLM_URL
         ttsUrl = prefs.getString(KEY_TTS_URL, DEFAULT_TTS_URL) ?: DEFAULT_TTS_URL
         model = prefs.getString(KEY_MODEL, "") ?: ""
+        systemPrompt = prefs.getString(KEY_SYSTEM_PROMPT, "") ?: ""
         firstRun = prefs.getBoolean(KEY_FIRST, true)
     }
 
@@ -45,8 +48,23 @@ object Settings {
             .apply()
     }
 
+    fun saveSystemPrompt(prompt: String) {
+        systemPrompt = prompt
+        prefs.edit()
+            .putString(KEY_SYSTEM_PROMPT, systemPrompt)
+            .apply()
+    }
+
     fun markConfigured() {
         firstRun = false
         prefs.edit().putBoolean(KEY_FIRST, false).apply()
+    }
+
+    fun getLlmHubUrl(): String {
+        return llmUrl
+    }
+
+    fun getToken(): String {
+        return Auth.token ?: ""
     }
 }

@@ -13,9 +13,9 @@ import android.widget.TextView
 import android.widget.Toast
 import android.widget.ListView
 import android.widget.Button
-import android.widget.ArrayAdapter
 import com.kurisuassistant.android.Settings
 import androidx.activity.viewModels
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.appcompat.app.ActionBarDrawerToggle
@@ -44,7 +44,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var adapter: ChatAdapter
     private lateinit var drawerLayout: DrawerLayout
     private lateinit var drawerToggle: ActionBarDrawerToggle
-    private lateinit var drawerAdapter: ArrayAdapter<String>
+    private lateinit var drawerAdapter: ConversationAdapter
     private var responding: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,35 +52,67 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         val toolbar = findViewById<MaterialToolbar>(R.id.toolbar)
         setSupportActionBar(toolbar)
+        
+        // Initialize toolbar title
+        updateToolbarTitle()
         ChatRepository.init(this)
 
         drawerLayout = findViewById(R.id.drawerLayout)
         drawerToggle = ActionBarDrawerToggle(this, drawerLayout, toolbar, R.string.drawer_open, R.string.drawer_close)
         drawerLayout.addDrawerListener(drawerToggle)
+        drawerLayout.addDrawerListener(object : DrawerLayout.DrawerListener {
+            override fun onDrawerSlide(drawerView: View, slideOffset: Float) {}
+            override fun onDrawerOpened(drawerView: View) {
+                // Fetch conversations when drawer is opened
+                ChatRepository.refreshConversations {
+                    refreshDrawer()
+                }
+            }
+            override fun onDrawerClosed(drawerView: View) {}
+            override fun onDrawerStateChanged(newState: Int) {}
+        })
         drawerToggle.syncState()
         val convList = findViewById<ListView>(R.id.listConversations)
         val newChat = findViewById<Button>(R.id.buttonNewChat)
-        drawerAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, ChatHistory.conversationTitles())
+        val mcpTools = findViewById<Button>(R.id.buttonMcpTools)
+        drawerAdapter = ConversationAdapter(
+            this,
+            emptyList(), // Start with empty list
+            onItemClick = { actualIndex ->
+                ChatRepository.switchConversation(actualIndex)
+                drawerLayout.closeDrawers()
+                refreshDrawer()
+                updateToolbarTitle()
+            },
+            onItemDelete = { actualIndex ->
+                deleteConversation(actualIndex)
+            }
+        )
         convList.adapter = drawerAdapter
-        convList.setOnItemClickListener { _, _, position, _ ->
-            val actualIndex = ChatHistory.indexFromNewest(position)
-            ChatRepository.switchConversation(actualIndex)
-            drawerLayout.closeDrawers()
-            refreshDrawer()
-        }
         newChat.setOnClickListener {
             ChatRepository.startNewConversation()
             drawerLayout.closeDrawers()
             refreshDrawer()
+            updateToolbarTitle()
+        }
+        mcpTools.setOnClickListener {
+            startActivity(Intent(this, MCPToolsActivity::class.java))
+            drawerLayout.closeDrawers()
         }
         Settings.init(this)
         AvatarManager.init(this)
         Util.checkPermissions(this)
 
+        val swipeRefreshLayout = findViewById<SwipeRefreshLayout>(R.id.swipeRefreshLayout)
         val recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
         adapter = ChatAdapter(this, viewModel.messages.value ?: emptyList())
         recyclerView.adapter = adapter
         recyclerView.layoutManager = LinearLayoutManager(this)
+        
+        // Setup pull-to-refresh
+        swipeRefreshLayout.setOnRefreshListener {
+            refreshConversations(swipeRefreshLayout)
+        }
 
         val editText = findViewById<EditText>(R.id.editTextMessage)
         val sendButton = findViewById<ImageButton>(R.id.buttonSend)
@@ -97,6 +129,8 @@ class MainActivity : AppCompatActivity() {
                     recyclerView.smoothScrollToPosition(last)
                 }
             }
+            // Update toolbar title when messages change (conversation loaded)
+            updateToolbarTitle()
         }
 
         recyclerView.addOnLayoutChangeListener { _, _, _, _, bottom, _, _, _, oldBottom ->
@@ -166,15 +200,85 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return if (item.itemId == R.id.action_settings) {
-            startActivity(Intent(this, SettingsActivity::class.java))
-            true
-        } else super.onOptionsItemSelected(item)
+        return when (item.itemId) {
+            R.id.action_settings -> {
+                startActivity(Intent(this, SettingsActivity::class.java))
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun refreshConversations(swipeRefreshLayout: SwipeRefreshLayout) {
+        // Show loading indicator
+        swipeRefreshLayout.isRefreshing = true
+        
+        // Use a coroutine to refresh conversations
+        viewModel.refreshConversations {
+            // Hide loading indicator when done
+            runOnUiThread {
+                swipeRefreshLayout.isRefreshing = false
+                refreshDrawer()
+                updateToolbarTitle()
+            }
+        }
+    }
+    
+    private fun updateToolbarTitle() {
+        val currentIndex = ChatRepository.getCurrentConversationIndex()
+        val title = ChatHistory.getCurrentConversationTitle(currentIndex)
+        supportActionBar?.title = title
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        adapter.onDestroy()
     }
 
     private fun refreshDrawer() {
-        drawerAdapter.clear()
-        drawerAdapter.addAll(ChatHistory.conversationTitles())
-        drawerAdapter.notifyDataSetChanged()
+        val convList = findViewById<ListView>(R.id.listConversations)
+        val conversationTitles = ChatHistory.conversationTitles()
+        
+        println("MainActivity: refreshDrawer() called with ${conversationTitles.size} conversations")
+        
+        // Show all conversations for now to debug
+        drawerAdapter.updateConversations(conversationTitles)
+        
+        // Show/hide conversation list based on whether there are any conversations
+        if (conversationTitles.isEmpty()) {
+            convList.visibility = View.GONE
+            println("MainActivity: Hiding conversation list - no conversations")
+        } else {
+            convList.visibility = View.VISIBLE
+            println("MainActivity: Showing ${conversationTitles.size} conversations")
+            
+            // Highlight the active conversation
+            val currentIndex = ChatRepository.getCurrentConversationIndex()
+            if (currentIndex >= 0 && currentIndex < ChatHistory.size) {
+                val displayIndex = ChatHistory.size - 1 - currentIndex // Convert to display index
+                drawerAdapter.setActiveConversation(displayIndex)
+                println("MainActivity: Highlighting conversation at display index $displayIndex (actual: $currentIndex)")
+            } else {
+                drawerAdapter.setActiveConversation(-1)
+                println("MainActivity: No highlighting - invalid current index: $currentIndex")
+            }
+        }
+    }
+    
+    private fun deleteConversation(index: Int) {
+        if (ChatHistory.size <= 1) {
+            Toast.makeText(this, "Cannot delete the last conversation", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        ChatRepository.deleteConversation(index) { success ->
+            if (success) {
+                refreshDrawer()
+                updateToolbarTitle()
+                Toast.makeText(this, "Conversation deleted", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Failed to delete conversation", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 }

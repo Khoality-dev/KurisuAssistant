@@ -5,7 +5,7 @@ import os
 import re
 import subprocess
 import wave
-from helpers.llm import LLM
+from helpers.llm import OllamaClient
 from fastapi import FastAPI, Request, HTTPException, Response, Body, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -17,12 +17,25 @@ import numpy as np
 import requests
 import dotenv
 from fastmcp.client import Client as FastMCPClient
-with open("configs/default.json", "r") as f:
-    json_config = json.load(f)
-    mcp_configs = {
-        "mcpServers": json_config.get("mcp_servers", {})
-    }
-mcp_client = FastMCPClient(mcp_configs)
+import glob
+
+# Load MCP configs from tool-specific config.json files
+def load_mcp_configs():
+    mcp_servers = {}
+    tool_config_files = glob.glob("mcp_tools/*/config.json")
+    for config_file in tool_config_files:
+        try:
+            with open(config_file, "r") as f:
+                tool_config = json.load(f)
+                tool_mcp_servers = tool_config.get("mcp_servers", {})
+                mcp_servers.update(tool_mcp_servers)
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            print(f"Warning: Could not load MCP config from {config_file}: {e}")
+    return {"mcpServers": mcp_servers}
+
+mcp_configs = load_mcp_configs()
+# Initialize mcp_client to None if no servers are configured
+mcp_client = FastMCPClient(mcp_configs) if mcp_configs.get("mcpServers") else None
 dotenv.load_dotenv()
 
 app = FastAPI(
@@ -70,7 +83,7 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.close()
         return
     
-    llm_model = LLM(mcp_client)
+    ollama_client = OllamaClient(mcp_client)
     try:
         while True:
             data = await ws.receive()
@@ -78,7 +91,7 @@ async def websocket_endpoint(ws: WebSocket):
                 # Client is sending an LLM request encoded as a JSON string
                 text_payload = data["text"]
                 json_body = json.loads(text_payload)
-                response_generator = llm_model(json_body)
+                response_generator = ollama_client.chat(json_body)
                 async for response in response_generator:
                     audio_data = tts_model(response["message"]["content"])
                     await ws.send_text(json.dumps(response))

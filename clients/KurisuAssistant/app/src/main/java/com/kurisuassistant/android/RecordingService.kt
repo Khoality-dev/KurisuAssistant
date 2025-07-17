@@ -36,6 +36,32 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 private const val CHANNEL_ID = "RecordingServiceChannel"
 private const val TAG = "RecordingService"
+
+private class ConversationState {
+    var isActive = false
+        private set
+    private var lastInteractionTimeStamp: Long = 0
+    
+    fun startConversation() {
+        isActive = true
+        updateLastInteraction()
+    }
+    
+    fun endConversation() {
+        isActive = false
+        lastInteractionTimeStamp = 0
+    }
+    
+    fun updateLastInteraction() {
+        lastInteractionTimeStamp = System.currentTimeMillis()
+    }
+    
+    fun shouldEndConversation(timeoutMs: Int, isSpeaking: Boolean): Boolean {
+        return isActive && 
+               System.currentTimeMillis() - lastInteractionTimeStamp > timeoutMs && 
+               !isSpeaking
+    }
+}
 private fun createNotificationChannel(context: Context) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         val channel = NotificationChannel(
@@ -64,7 +90,7 @@ class RecordingService : Service() {
     private val asrBuffer: MutableIntList = MutableIntList()
     private lateinit var vadModel : SileroVadDetector
     private lateinit var agent: Agent
-    private val minSilenceBetweenInteractions = 20 * 1000 // 10s
+    private val conversationTimeout = 15 * 1000 // 15s
     private lateinit var startSFX : ShortArray
     private lateinit var stopSFX : ShortArray
 
@@ -84,6 +110,7 @@ class RecordingService : Service() {
         }
         initSileroVAD()
         startRecordingLoop()
+        ChatRepository.setConversationActive(false)
         Log.d(TAG, "onCreate")
     }
 
@@ -161,14 +188,27 @@ class RecordingService : Service() {
         recordingJob = CoroutineScope(Dispatchers.IO).launch {
             val tempBuffer = ShortArray(bufferSize / 2)
             var previousIsSpeaking = vadModel.isSpeaking
-            // Track whether the assistant is currently in a conversation
-            var isInteracting = false
-            var lastInteractionTimeStamp: Long = 0
+            var conversationState = ConversationState()
             var playedStartSFX = false
 
             while (isActive) {
                 val readCount = recorder!!.read(tempBuffer, 0, tempBuffer.size)
                 if (readCount > 0) {
+                    // Check if assistant is responding before processing audio
+                    val assistantResponding = ChatRepository.typing.value == true ||
+                            ChatRepository.speaking.value == true ||
+                            ChatRepository.isProcessingMessage
+                    
+                    if (assistantResponding) {
+                        // Clear all buffers and reset VAD when assistant is responding
+                        if (audioBuffer.size() > 0) {
+                            audioBuffer.dropFirst(audioBuffer.size())
+                        }
+                        asrBuffer.clear()
+                        vadModel.reset()
+                        continue
+                    }
+                    
                     val floatFrame = FloatArray(readCount) { i ->
                         // Short ranges –32768..32767, so divide by max value
                         tempBuffer[i] / 32767.0f
@@ -190,59 +230,66 @@ class RecordingService : Service() {
 
                 }
 
-                if (vadModel.isSpeaking == false)
-                {
-                    if (previousIsSpeaking == false)
-                    {
-                        if (asrBuffer.size > 16000)
-                        {
+                if (vadModel.isSpeaking == false) {
+                    if (previousIsSpeaking == false) {
+                        if (asrBuffer.size > 16000) {
                             asrBuffer.removeRange(0, asrBuffer.size - 16000)
                         }
-                    }
-                    else
-                    {
-                        if (playedStartSFX)
-                        {
+                    } else {
+                        if (playedStartSFX) {
                             player?.write(stopSFX, 0, stopSFX.size)
                             playedStartSFX = false
                         }
+
+                        // Process speech since assistant is not responding (checked earlier)
                         val text = agent.stt(asrBuffer)
-                        Log.d(TAG, "lastInteractionTimeDiff ${System.currentTimeMillis() - lastInteractionTimeStamp}")
-                        if (true || System.currentTimeMillis() - lastInteractionTimeStamp <= minSilenceBetweenInteractions)
-                        {
-                            if (!isInteracting)
-                            {
-                                isInteracting = true
+                        asrBuffer.clear()
+                        Log.d(TAG, "Transcription: $text")
+                        
+                        // Show STT result as temporary message
+                        if (text.trim().isNotEmpty()) {
+                            ChatAdapter.showTemporarySTT(text.trim())
+                        }
+
+                        if (!conversationState.isActive) {
+                            if (text.contains("Kurisu", ignoreCase = true)) {
+                                conversationState.startConversation()
+                                ChatRepository.setConversationActive(true)
                                 player?.write(startSFX, 0, startSFX.size)
+                                Log.d(TAG, "Wake word detected, conversation started")
+                                
+                                // Send the full message including wake word
+                                Log.d(TAG, "User command with wake word: $text")
+                                val sent = ChatRepository.sendMessage(text)
+                                if (!sent) {
+                                    Log.d(TAG, "Message rejected - assistant already processing")
+                                }
                             }
-
-                            lastInteractionTimeStamp =  System.currentTimeMillis()
+                        } else {
+                            // In active conversation, process all speech immediately
+                            if (text.trim().isNotEmpty()) {
+                                Log.d(TAG, "User: $text")
+                                val sent = ChatRepository.sendMessage(text)
+                                if (sent) {
+                                    conversationState.updateLastInteraction()
+                                } else {
+                                    Log.d(TAG, "Message rejected - assistant already processing")
+                                }
+                            }
                         }
-                        else if (System.currentTimeMillis() - lastInteractionTimeStamp > minSilenceBetweenInteractions)
-                        {
-                            isInteracting = false
-
-                        }
-
-                        if (isInteracting)
-                        {
-                            Log.d(TAG, "User: $text")
-                            ChatRepository.sendMessage(text)
-                            // audio replies are fetched via REST and played automatically
-                            lastInteractionTimeStamp = System.currentTimeMillis()
-                        }
+                    }
+                } else {
+                    if (!previousIsSpeaking && conversationState.isActive) {
+                        // Play start SFX since assistant is not responding (checked earlier in audio loop)
+                        player?.write(startSFX, 0, startSFX.size)
+                        playedStartSFX = true
                     }
                 }
-                else
-                {
-                    if (previousIsSpeaking == false)
-                    {
-                        if (System.currentTimeMillis() - lastInteractionTimeStamp <= minSilenceBetweenInteractions)
-                        {
-                            player?.write(startSFX, 0, startSFX.size)
-                            playedStartSFX = true
-                        }
-                    }
+
+                if (conversationState.shouldEndConversation(conversationTimeout, vadModel.isSpeaking)) {
+                    conversationState.endConversation()
+                    ChatRepository.setConversationActive(false)
+                    player?.write(stopSFX, 0, stopSFX.size)
                 }
 
                 previousIsSpeaking = vadModel.isSpeaking
@@ -263,6 +310,7 @@ class RecordingService : Service() {
             release()
         }
         player = null
+        ChatRepository.setConversationActive(false)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

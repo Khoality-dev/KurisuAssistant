@@ -11,7 +11,9 @@ data class ChatMessage(
     val role: String,
     val createdAt: String? = null,
     val toolCalls: String? = null,
+    val isTemporary: Boolean = false,
 ) {
+    var conversationId: Int? = null
     val isUser: Boolean
         get() = role == "user"
 
