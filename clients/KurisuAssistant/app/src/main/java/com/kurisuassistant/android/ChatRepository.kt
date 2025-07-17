@@ -13,7 +13,12 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.time.Instant
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaType
+import org.json.JSONObject
+import com.kurisuassistant.android.utils.HttpClient
 
 /**
  * Singleton repository that manages chat messages and communicates with [Agent].
@@ -23,6 +28,7 @@ object ChatRepository {
     val messages: LiveData<MutableList<ChatMessage>> = _messages
     private var currentIndex = 0
     private var pollJob: Job? = null
+    private var isProcessing = false
 
     private val player: AudioTrack by lazy {
         AudioTrack.Builder()
@@ -56,6 +62,11 @@ object ChatRepository {
 
     private val _conversationActive = MutableLiveData(false)
     val conversationActive: LiveData<Boolean> = _conversationActive
+    
+    val isProcessingMessage: Boolean
+        get() = isProcessing
+    
+    fun getCurrentConversationIndex(): Int = currentIndex
 
     fun init(context: Context? = null) {
         agent
@@ -64,8 +75,23 @@ object ChatRepository {
             scope.launch {
                 ChatHistory.fetchFromServer()
                 if (ChatHistory.size > 0) {
-                    _messages.postValue(ChatHistory.get(currentIndex))
+                    // Start with the newest conversation (last index)
+                    currentIndex = ChatHistory.size - 1
+                    val initialMessages = ChatHistory.get(currentIndex)
+                    _messages.postValue(ArrayList(initialMessages))
+                    
+                    // If conversation has placeholder messages, fetch real messages
+                    if (initialMessages.any { it.text == "Loading..." }) {
+                        val fullMessages = ChatHistory.fetchConversation(currentIndex)
+                        fullMessages?.let { messages ->
+                            _messages.postValue(ArrayList(messages))
+                        }
+                    }
+                    
                     startPolling(currentIndex)
+                } else {
+                    // No conversations exist, start with a new one
+                    startNewConversation()
                 }
             }
         }
@@ -74,72 +100,263 @@ object ChatRepository {
     fun setConversationActive(active: Boolean) {
         _conversationActive.postValue(active)
     }
-
-    /**
-     * Send a user text message to the LLM and stream the assistant reply.
-     */
-    fun sendMessage(text: String) {
-        val list = _messages.value ?: mutableListOf()
-        list.add(ChatMessage(text, "user", Instant.now().toString()))
-        // postValue ensures this can be called from background threads
-        _messages.postValue(ArrayList(list))
-        ChatHistory.update(currentIndex, list)
-
+    
+    fun refreshConversations(onComplete: () -> Unit) {
         scope.launch {
-            val channel: Channel<ChatMessage> = agent.chat(text)
-            var assistant: ChatMessage? = null
-            var idx = -1
-            for (msg in channel) {
-                when (msg.role) {
-                    "assistant" -> {
-                        if (assistant == null) {
-                            assistant = ChatMessage("", "assistant", msg.createdAt)
-                            list.add(assistant!!)
-                            idx = list.lastIndex
-                        }
-                        assistant = assistant!!.copy(
-                            text = assistant!!.text + msg.text,
-                            toolCalls = msg.toolCalls ?: assistant!!.toolCalls,
-                        )
-                        list[idx] = assistant!!
-                        if (msg.toolCalls != null) {
-                            assistant = null
-                            idx = -1
-                        }
-                    }
-                    "tool" -> {
-                        list.add(msg)
-                        assistant = null
-                        idx = -1
-                    }
+            try {
+                val oldCurrentIndex = currentIndex
+                println("ChatRepository: Refreshing conversations, current index: $oldCurrentIndex")
+                
+                // Fetch fresh conversations from server
+                ChatHistory.fetchFromServer()
+                
+                // Ensure current conversation is still valid after refresh
+                if (oldCurrentIndex >= ChatHistory.size) {
+                    // If current conversation no longer exists, switch to newest
+                    currentIndex = if (ChatHistory.size > 0) ChatHistory.size - 1 else 0
+                    println("ChatRepository: Current conversation no longer exists, switching to index $currentIndex")
+                } else {
+                    currentIndex = oldCurrentIndex
                 }
-                _messages.postValue(ArrayList(list))
-                ChatHistory.update(currentIndex, list)
+                
+                // Refresh current conversation messages
+                if (ChatHistory.size > 0) {
+                    val conversationMessages = ChatHistory.get(currentIndex)
+                    println("ChatRepository: Refreshed conversation has ${conversationMessages.size} messages")
+                    _messages.postValue(ArrayList(conversationMessages))
+                }
+                
+                // Call completion callback on main thread
+                withContext(Dispatchers.Main) {
+                    onComplete()
+                }
+            } catch (e: Exception) {
+                println("ChatRepository: Error refreshing conversations: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    onComplete()
+                }
             }
         }
     }
 
+    /**
+     * Send a user text message to the LLM and stream the assistant reply.
+     * Returns true if message was sent, false if already processing.
+     */
+    fun sendMessage(text: String): Boolean {
+        // Prevent concurrent processing
+        if (isProcessing) {
+            return false
+        }
+        
+        isProcessing = true
+        val list = _messages.value ?: mutableListOf()
+        list.add(ChatMessage(text, "user", Instant.now().toString()))
+        // postValue ensures this can be called from background threads
+        _messages.postValue(ArrayList(list))
+        
+        // Ensure we have a valid conversation index
+        if (currentIndex < 0 || currentIndex >= ChatHistory.size) {
+            currentIndex = ChatHistory.add()
+        }
+        ChatHistory.update(currentIndex, list)
+
+        scope.launch {
+            try {
+                val channel: Channel<ChatMessage> = agent.chat(text)
+                var assistant: ChatMessage? = null
+                var idx = -1
+                for (msg in channel) {
+                    when (msg.role) {
+                        "assistant" -> {
+                            if (assistant == null) {
+                                assistant = ChatMessage("", "assistant", msg.createdAt)
+                                list.add(assistant!!)
+                                idx = list.lastIndex
+                            }
+                            val updatedAssistant = assistant!!.copy(
+                                text = assistant!!.text + msg.text,
+                                toolCalls = msg.toolCalls ?: assistant!!.toolCalls,
+                            )
+                            updatedAssistant.conversationId = assistant!!.conversationId
+                            assistant = updatedAssistant
+                            list[idx] = assistant!!
+                            if (msg.toolCalls != null) {
+                                assistant = null
+                                idx = -1
+                            }
+                        }
+                        "tool" -> {
+                            list.add(msg)
+                            assistant = null
+                            idx = -1
+                        }
+                        "system" -> {
+                            // Handle conversation ID from system message
+                            msg.conversationId?.let { convId ->
+                                println("ChatRepository: Received conversation ID: $convId")
+                                if (currentIndex >= 0 && currentIndex < ChatHistory.size) {
+                                    ChatHistory.setConversationId(currentIndex, convId)
+                                }
+                            }
+                            continue // Don't add system messages to the UI
+                        }
+                    }
+                    _messages.postValue(ArrayList(list))
+                    if (currentIndex >= 0 && currentIndex < ChatHistory.size) {
+                        ChatHistory.update(currentIndex, list)
+                    }
+                }
+            } finally {
+                // Always reset processing flag when done
+                isProcessing = false
+            }
+        }
+        return true
+    }
+
 
     fun startNewConversation() {
-        currentIndex = ChatHistory.add()
-        _messages.postValue(mutableListOf())
-        startPolling(currentIndex)
+        // Reset processing flag when starting new conversation
+        isProcessing = false
+        
+        scope.launch {
+            try {
+                // Create new conversation on server
+                val response = HttpClient.post(
+                    "${Settings.llmUrl}/conversations",
+                    "".toRequestBody("application/json".toMediaType()),
+                    Auth.token
+                )
+                
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string()
+                    val conversationData = JSONObject(responseBody ?: "{}")
+                    val conversationId = conversationData.getInt("id")
+                    
+                    // Add to local history with the server ID
+                    currentIndex = ChatHistory.add()
+                    ChatHistory.setConversationId(currentIndex, conversationId)
+                    
+                    withContext(Dispatchers.Main) {
+                        _messages.postValue(mutableListOf())
+                        startPolling(currentIndex)
+                    }
+                } else {
+                    // Fallback to local-only conversation
+                    currentIndex = ChatHistory.add()
+                    withContext(Dispatchers.Main) {
+                        _messages.postValue(mutableListOf())
+                        startPolling(currentIndex)
+                    }
+                }
+            } catch (e: Exception) {
+                println("Error creating new conversation: ${e.message}")
+                // Fallback to local-only conversation
+                currentIndex = ChatHistory.add()
+                withContext(Dispatchers.Main) {
+                    _messages.postValue(mutableListOf())
+                    startPolling(currentIndex)
+                }
+            }
+        }
     }
 
     fun switchConversation(index: Int) {
-        if (index == currentIndex || index < 0 || index >= ChatHistory.size) return
+        if (index == currentIndex || index < 0 || index >= ChatHistory.size) {
+            println("ChatRepository: Cannot switch conversation - index=$index, current=$currentIndex, size=${ChatHistory.size}")
+            return
+        }
+        
+        println("ChatRepository: Switching from conversation $currentIndex to $index")
+        
+        // Reset processing flag when switching conversations
+        isProcessing = false
+        
         ChatHistory.update(currentIndex, _messages.value ?: mutableListOf())
         currentIndex = index
-        _messages.postValue(ArrayList(ChatHistory.get(index)))
+        
+        // Get conversation messages and post immediately
+        val conversationMessages = ChatHistory.get(index)
+        println("ChatRepository: Loading ${conversationMessages.size} messages for conversation $index")
+        _messages.postValue(ArrayList(conversationMessages))
+        
+        // If conversation has placeholder messages, fetch real messages
+        if (conversationMessages.any { it.text == "Loading..." }) {
+            println("ChatRepository: Detected placeholder messages, fetching full conversation")
+            scope.launch {
+                val fullMessages = ChatHistory.fetchConversation(index)
+                fullMessages?.let { messages ->
+                    println("ChatRepository: Loaded ${messages.size} messages, updating UI")
+                    _messages.postValue(ArrayList(messages))
+                } ?: println("ChatRepository: Failed to load full messages")
+            }
+        }
+        
         startPolling(currentIndex)
+    }
+
+    fun deleteConversation(index: Int, onComplete: (Boolean) -> Unit) {
+        scope.launch {
+            try {
+                val success = ChatHistory.deleteConversation(index)
+                
+                // If we deleted the current conversation, switch to another one
+                if (index == currentIndex) {
+                    val newSize = ChatHistory.size
+                    if (newSize > 0) {
+                        // Switch to the previous conversation or the first one
+                        val newIndex = if (index > 0) index - 1 else 0
+                        currentIndex = newIndex
+                        val conversationMessages = ChatHistory.get(newIndex)
+                        _messages.postValue(ArrayList(conversationMessages))
+                        startPolling(currentIndex)
+                    } else {
+                        // No conversations left, start a new one
+                        startNewConversation()
+                    }
+                } else if (index < currentIndex) {
+                    // Adjust current index if we deleted a conversation before it
+                    currentIndex--
+                }
+                
+                withContext(Dispatchers.Main) {
+                    onComplete(success)
+                }
+            } catch (e: Exception) {
+                println("Error deleting conversation: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    onComplete(false)
+                }
+            }
+        }
     }
 
     private fun startPolling(index: Int) {
         pollJob?.cancel()
         pollJob = scope.launch {
             while (currentIndex == index) {
-                ChatHistory.fetchConversation(index)?.let {
-                    _messages.postValue(ArrayList(it))
+                // Only update from server if not currently processing a message
+                if (!isProcessing) {
+                    try {
+                        val conversationId = ChatHistory.getConversationId(index)
+                        val serverMessages = if (conversationId != null) {
+                            ChatHistory.fetchConversationById(conversationId)
+                        } else {
+                            ChatHistory.fetchConversation(index)
+                        }
+                        
+                        serverMessages?.let { messages ->
+                            val currentMessages = _messages.value ?: mutableListOf()
+                            // Only update if server has more messages than local
+                            if (messages.size > currentMessages.size) {
+                                _messages.postValue(ArrayList(messages))
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // If fetching fails, don't crash but log error
+                        println("Error fetching conversation: ${e.message}")
+                    }
                 }
                 delay(1000)
             }

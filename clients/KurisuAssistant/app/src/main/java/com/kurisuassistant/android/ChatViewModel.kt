@@ -15,7 +15,11 @@ class ChatViewModel : ViewModel() {
 
 
 
-    fun sendMessage(text: String) {
-        ChatRepository.sendMessage(text)
+    fun sendMessage(text: String): Boolean {
+        return ChatRepository.sendMessage(text)
+    }
+    
+    fun refreshConversations(onComplete: () -> Unit) {
+        ChatRepository.refreshConversations(onComplete)
     }
 }

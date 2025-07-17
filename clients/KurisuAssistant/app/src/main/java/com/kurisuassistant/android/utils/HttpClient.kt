@@ -63,4 +63,14 @@ object HttpClient {
         
         return noTimeout.newCall(requestBuilder.build()).execute()
     }
+
+    fun deleteRequest(url: String, token: String? = null): Response {
+        val requestBuilder = Request.Builder()
+            .url(url)
+            .delete()
+        
+        token?.let { requestBuilder.addHeader("Authorization", "Bearer $it") }
+        
+        return noTimeout.newCall(requestBuilder.build()).execute()
+    }
 }

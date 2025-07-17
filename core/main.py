@@ -5,7 +5,7 @@ import os
 import re
 import subprocess
 import wave
-from helpers.llm import LLM
+from helpers.llm import OllamaClient
 from fastapi import FastAPI, Request, HTTPException, Response, Body, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -83,7 +83,7 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.close()
         return
     
-    llm_model = LLM(mcp_client)
+    ollama_client = OllamaClient(mcp_client)
     try:
         while True:
             data = await ws.receive()
@@ -91,7 +91,7 @@ async def websocket_endpoint(ws: WebSocket):
                 # Client is sending an LLM request encoded as a JSON string
                 text_payload = data["text"]
                 json_body = json.loads(text_payload)
-                response_generator = llm_model(json_body)
+                response_generator = ollama_client.chat(json_body)
                 async for response in response_generator:
                     audio_data = tts_model(response["message"]["content"])
                     await ws.send_text(json.dumps(response))

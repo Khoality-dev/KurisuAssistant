@@ -64,6 +64,7 @@ class Agent(private val player: AudioTrack) {
         val channel = Channel<ChatMessage>(Channel.UNLIMITED)
         chatChannel = channel
         _typing.postValue(true)
+        var conversationId: Int? = null
         scope.launch {
             val payload = JSONObject().apply {
                 put("model", Settings.model)
@@ -88,27 +89,43 @@ class Agent(private val player: AudioTrack) {
                         if (line.isNullOrBlank()) continue
                         Log.d(TAG, line)
                         val json = JSONObject(line)
-                        val msgObj = json.getJSONObject("message")
-                        val role = msgObj.optString("role", "assistant")
-                        val content = msgObj.optString("content")
-                        val created = msgObj.optString("created_at", null)
-                        val toolCalls = msgObj.optJSONArray("tool_calls")?.toString()
-                        val msg = ChatMessage(content, role, created, toolCalls)
-                        channel.trySend(msg)
-                        if (role != "user" && content.isNotEmpty()) {
-                            val audio = tts(content)
-                            if (audio != null) {
-                                player.write(audio, 0, audio.size)
-                                _speaking.postValue(true)
-                                speakingJob?.cancel()
-                                speakingJob = scope.launch {
-                                    delay(300)
-                                    _speaking.postValue(false)
+                        
+                        // Check for conversation ID
+                        if (json.has("conversation_id") && conversationId == null) {
+                            conversationId = json.getInt("conversation_id")
+                            Log.d(TAG, "Received conversation ID: $conversationId")
+                        }
+                        
+                        if (json.has("message")) {
+                            val msgObj = json.getJSONObject("message")
+                            val role = msgObj.optString("role", "assistant")
+                            val content = msgObj.optString("content")
+                            val created = msgObj.optString("created_at", null)
+                            val toolCalls = msgObj.optJSONArray("tool_calls")?.toString()
+                            val msg = ChatMessage(content, role, created, toolCalls)
+                            channel.trySend(msg)
+                            
+                            if (role != "user" && content.isNotEmpty()) {
+                                val audio = tts(content)
+                                if (audio != null) {
+                                    player.write(audio, 0, audio.size)
+                                    _speaking.postValue(true)
+                                    speakingJob?.cancel()
+                                    speakingJob = scope.launch {
+                                        delay(300)
+                                        _speaking.postValue(false)
+                                    }
                                 }
                             }
                         }
                     }
                     _connected.postValue(true)
+                }
+                // Send conversation ID info if we got one
+                conversationId?.let { id ->
+                    val idMsg = ChatMessage("", "system", null, null)
+                    idMsg.conversationId = id
+                    channel.trySend(idMsg)
                 }
                 channel.close()
                 _typing.postValue(false)
