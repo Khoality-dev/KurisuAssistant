@@ -163,7 +163,12 @@ object ChatRepository {
 
         scope.launch {
             try {
-                val channel: Channel<ChatMessage> = agent.chat(text)
+                // Get conversation ID if we have one
+                val conversationId = if (currentIndex >= 0 && currentIndex < ChatHistory.size) {
+                    ChatHistory.getConversationId(currentIndex)
+                } else null
+                
+                val channel: Channel<ChatMessage> = agent.chat(text, conversationId)
                 var assistant: ChatMessage? = null
                 var idx = -1
                 for (msg in channel) {
@@ -220,46 +225,11 @@ object ChatRepository {
         // Reset processing flag when starting new conversation
         isProcessing = false
         
-        scope.launch {
-            try {
-                // Create new conversation on server
-                val response = HttpClient.post(
-                    "${Settings.llmUrl}/conversations",
-                    "".toRequestBody("application/json".toMediaType()),
-                    Auth.token
-                )
-                
-                if (response.isSuccessful) {
-                    val responseBody = response.body?.string()
-                    val conversationData = JSONObject(responseBody ?: "{}")
-                    val conversationId = conversationData.getInt("id")
-                    
-                    // Add to local history with the server ID
-                    currentIndex = ChatHistory.add()
-                    ChatHistory.setConversationId(currentIndex, conversationId)
-                    
-                    withContext(Dispatchers.Main) {
-                        _messages.postValue(mutableListOf())
-                        startPolling(currentIndex)
-                    }
-                } else {
-                    // Fallback to local-only conversation
-                    currentIndex = ChatHistory.add()
-                    withContext(Dispatchers.Main) {
-                        _messages.postValue(mutableListOf())
-                        startPolling(currentIndex)
-                    }
-                }
-            } catch (e: Exception) {
-                println("Error creating new conversation: ${e.message}")
-                // Fallback to local-only conversation
-                currentIndex = ChatHistory.add()
-                withContext(Dispatchers.Main) {
-                    _messages.postValue(mutableListOf())
-                    startPolling(currentIndex)
-                }
-            }
-        }
+        // Add to local history without server ID initially
+        currentIndex = ChatHistory.add()
+        
+        _messages.postValue(mutableListOf())
+        startPolling(currentIndex)
     }
 
     fun switchConversation(index: Int) {

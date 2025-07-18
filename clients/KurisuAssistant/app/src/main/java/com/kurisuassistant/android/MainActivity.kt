@@ -255,9 +255,8 @@ class MainActivity : AppCompatActivity() {
             // Highlight the active conversation
             val currentIndex = ChatRepository.getCurrentConversationIndex()
             if (currentIndex >= 0 && currentIndex < ChatHistory.size) {
-                val displayIndex = ChatHistory.size - 1 - currentIndex // Convert to display index
-                drawerAdapter.setActiveConversation(displayIndex)
-                println("MainActivity: Highlighting conversation at display index $displayIndex (actual: $currentIndex)")
+                drawerAdapter.setActiveConversation(currentIndex)
+                println("MainActivity: Highlighting conversation at index $currentIndex")
             } else {
                 drawerAdapter.setActiveConversation(-1)
                 println("MainActivity: No highlighting - invalid current index: $currentIndex")

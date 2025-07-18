@@ -2,7 +2,7 @@ import json
 import os
 import glob
 import numpy as np
-from fastapi import FastAPI, HTTPException, Request, Body, Response, Depends
+from fastapi import FastAPI, HTTPException, Request, Body, Response, Depends, Form
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from transformers import pipeline
@@ -15,7 +15,7 @@ from auth import authenticate_user, create_access_token, get_current_user
 from db import (
     init_db,
     add_message,
-    get_history,
+    fetch_conversation,
     create_user,
     admin_exists,
     get_user_system_prompt,
@@ -125,50 +125,27 @@ async def asr(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/chat")
-async def chat(request: Request, token: str = Depends(oauth2_scheme)):
+async def chat(
+    text: str = Form(...),
+    model_name: str = Form(...),
+    conversation_id: int = Form(None),
+    token: str = Depends(oauth2_scheme)
+):
     username = get_current_user(token)
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
-    payload = await request.json()
-    try:
-        # Get user-specific system prompt
-        user_system_prompt = get_user_system_prompt(username)
+    
+    try:        
+        user_message_content = text
         
-        # Create user system prompts list
-        user_system_prompts = ollama_client.system_prompts.copy()
-        if user_system_prompt:
-            user_system_prompts.append({
-                "role": "system",
-                "content": user_system_prompt
-            })
-        
-        user_message_content = payload["message"]["content"]
-        
-        try:
-            conv_id = add_message(
-                username,
-                "user",
-                user_message_content,
-                None,
-            )
-        except ValueError:
-            # No conversation exists, create one first
-            conv_id = create_new_conversation(username)
-            # Update title with first user message (truncated to 50 chars)
-            title = user_message_content[:50]
-            update_conversation_title(username, title, conv_id)
+        if conversation_id:
+            # Use provided conversation_id - fetch existing conversation
+            conversation_history = fetch_conversation(username, conversation_id)
+            if not conversation_history:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+            conv_id = conversation_id
             
-            # Add system prompts to the conversation if provided
-            if user_system_prompts:
-                for prompt in user_system_prompts:
-                    add_message(
-                        username,
-                        prompt["role"],
-                        prompt["content"],
-                        None,
-                        conversation_id=conv_id,
-                    )
-            # Now add the user message
+            # Add the user message to the existing conversation
             add_message(
                 username,
                 "user",
@@ -176,7 +153,51 @@ async def chat(request: Request, token: str = Depends(oauth2_scheme)):
                 None,
                 conversation_id=conv_id,
             )
-        response_generator = ollama_client.chat(payload, user_system_prompts)
+            # Fetch updated conversation history
+            conversation_history = fetch_conversation(username, conv_id)
+        else:
+            # Create a new conversation
+            conv_id = create_new_conversation(username)
+            # Update title with first user message (truncated to 50 chars)
+            title = user_message_content[:50]
+            update_conversation_title(username, title, conv_id)
+            
+            # Get user-specific system prompt
+            user_system_prompt = get_user_system_prompt(username)
+
+            # Add system prompt to the conversation if provided
+            if user_system_prompt:
+                add_message(
+                    username,
+                    "system",
+                    user_system_prompt,
+                    None,
+                    conversation_id=conv_id,
+                )
+            # Add the user message
+            add_message(
+                username,
+                "user",
+                user_message_content,
+                None,
+                conversation_id=conv_id,
+            )
+            # Get conversation history from database
+            conversation_history = fetch_conversation(username, conv_id)
+        
+        # Convert database messages to OllamaClient format
+        messages = []
+        if conversation_history and conversation_history.get("messages"):
+            for msg in conversation_history["messages"]:
+                message = {
+                    "role": msg["role"],
+                    "content": msg["content"]
+                }
+                if msg.get("tool_calls"):
+                    message["tool_calls"] = msg["tool_calls"]
+                messages.append(message)
+        
+        response_generator = ollama_client.chat(model_name, messages)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -200,7 +221,7 @@ async def chat(request: Request, token: str = Depends(oauth2_scheme)):
                     username,
                     "assistant",
                     full_response,
-                    payload.get("model"),
+                    model_name,
                     tool_calls=msg.get("tool_calls"),
                     conversation_id=conv_id,
                 )
@@ -214,49 +235,9 @@ async def chat(request: Request, token: str = Depends(oauth2_scheme)):
                     username,
                     "assistant",
                     full_response,
-                    payload.get("model"),
+                    model_name,
                     conversation_id=conv_id,
                 )
-                # Include conversation ID in final response
-                chunk["conversation_id"] = conv_id
-                
-                # # Generate title for the conversation if this is the first assistant response
-                # try:
-                #     history = get_history(username, 1)  # Get latest conversation
-                #     if history and len(history[0]["messages"]) == 2:  # First user + first assistant message
-                #         user_message = history[0]["messages"][0]["content"]
-                        
-                #         # Generate title using the LLM generate method
-                #         title_prompt = f"Generate a short, descriptive title (3-5 words maximum) for a conversation that starts with: '{user_message}'. Only return the title, nothing else."
-                        
-                #         # Use the new generate method with payload format
-                #         user_system_prompt = get_user_system_prompt(username)
-                #         user_system_prompts = []
-                #         if user_system_prompt:
-                #             user_system_prompts.append({
-                #                 "role": "system",
-                #                 "content": user_system_prompt
-                #             })
-                        
-                #         title_payload = {
-                #             "message": {"content": title_prompt},
-                #             "model": "anhkhoan/gemma3:latest",
-                #             "options": {
-                #                 "num_predict": 20,
-                #                 "stop": ["\n", ".", "?", "!"]
-                #             }
-                #         }
-                        
-                #         title = ollama_client.generate(title_payload, user_system_prompts)
-                        
-                #         # Clean up the title
-                #         cleaned_title = title.replace('"', '').replace("'", "").strip()
-                #         if cleaned_title and len(cleaned_title) > 0:
-                #             update_conversation_title(username, cleaned_title)
-                #             print(f"Generated title for conversation: {cleaned_title}")
-                
-                # except Exception as e:
-                #     print(f"Error generating conversation title: {e}")
                 
                 full_response = ""
 
@@ -279,7 +260,7 @@ async def get_conversation(conversation_id: int, token: str = Depends(oauth2_sch
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        result = get_history(username, 1, conversation_id)
+        result = fetch_conversation(username, conversation_id)
         if result is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
         return result

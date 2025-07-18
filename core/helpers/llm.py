@@ -11,10 +11,7 @@ class OllamaClient:
         print(f"LLM API URL: {self.api_url}")
         self.delimiters = ['.', '\n', '?', ':', '!', ';']
         self.client = Client(host=self.api_url)
-        # Default system prompt is empty - user-specific prompts are handled per-request
-        self.system_prompts = []
         self.mcp_client = mcp_client
-        self.history = []
         self.cached_tools = []
         self.tools_cache_time = 0
 
@@ -32,8 +29,8 @@ class OllamaClient:
         Unlike chat, this doesn't maintain conversation history and is suitable
         for one-off text generation tasks like title generation.
         """
-        # Use user-specific system prompts if provided, otherwise use default
-        system_prompts = user_system_prompts if user_system_prompts is not None else self.system_prompts
+        # Use user-specific system prompts if provided
+        system_prompts = user_system_prompts if user_system_prompts is not None else []
         
         # Build the prompt from system prompts and user message
         full_prompt = ""
@@ -82,28 +79,26 @@ class OllamaClient:
     def pull_model(self, model_name):
         self.client.pull(model_name)
 
-    async def chat(self, payload, user_system_prompts=None):
+    async def chat(self, model_name, messages):
         """Send a chat request and yield streaming responses.
 
-        The entire conversation, including intermediate tool calls and assistant
-        replies, is stored in ``self.history``.
+        Uses the last 10 messages from the input for context.
         """
 
-        self.history.append({**payload["message"], "model": None})
-
+        # Use only the last 10 messages for context
+        recent_messages = messages[-10:] if len(messages) > 10 else messages
+        
         accumulated = ""
         buffer = ""
 
         while True:
             # Get tools with caching to avoid repeated MCP connections
             tools = await self.get_tools()
-            # Use user-specific system prompts if provided, otherwise use default
-            system_prompts = user_system_prompts if user_system_prompts is not None else self.system_prompts
-            messages = system_prompts + self.history
+            # Use the recent messages directly
             stream = self.client.chat(
-                model=payload["model"],
-                messages=messages,
-                stream=payload["stream"],
+                model=model_name,
+                messages=recent_messages,
+                stream=True,
                 tools=tools,
             )
 
@@ -119,15 +114,12 @@ class OllamaClient:
                     data["message"]["content"] = accumulated
                     data["message"]["tool_calls"] = [tc.dict() for tc in msg.tool_calls]
                     yield data
-                    self.history.append(
-                        {
-                            "role": "assistant",
-                            "content": accumulated,
-                            "model": payload.get("model"),
-                            "tool_calls": [tc.dict() for tc in msg.tool_calls],
-                        }
-                    )
-                    print(self.history[-1])
+                    # Add assistant message with tool calls to recent_messages
+                    recent_messages.append({
+                        "role": "assistant",
+                        "content": accumulated,
+                        "tool_calls": [tc.dict() for tc in msg.tool_calls],
+                    })
                     for tool_call in msg.tool_calls:
                         if self.mcp_client is not None:
                             result = await call_tool(
@@ -138,43 +130,54 @@ class OllamaClient:
                             tool_text = result[0].text
                         else:
                             tool_text = "MCP client not available"
-                        self.history.append(
-                            {
-                                "role": "tool",
-                                "content": tool_text,
-                                "model": None,
-                            }
-                        )
+                        # Add tool response to recent_messages
+                        recent_messages.append({
+                            "role": "tool",
+                            "content": tool_text,
+                        })
                         yield {
                             "message": {"role": "tool", "content": tool_text},
                             "done": True,
                         }
-                        print(self.history[-1])
                     made_tool_call = True
                     break
 
-                # Check for delimiters and minimum word count
+                # Check for complete sentences with minimum word count
                 should_yield = False
                 if data.get("done"):
                     should_yield = True
                 else:
-                    # Check if buffer contains any delimiter
-                    has_delimiter = any(delimiter in buffer for delimiter in self.delimiters)
-                    # Count words in buffer
-                    word_count = len(buffer.split())
-                    # Yield if we have a delimiter and at least 10 words
-                    if has_delimiter and word_count >= 10:
-                        should_yield = True
+                    # Find the last occurrence of any delimiter in the buffer
+                    last_delimiter_pos = -1
+                    for delimiter in self.delimiters:
+                        pos = buffer.rfind(delimiter)
+                        if pos > last_delimiter_pos:
+                            last_delimiter_pos = pos
+                    
+                    # If we found a delimiter, check if we have a complete sentence with minimum words
+                    if last_delimiter_pos >= 0:
+                        # Extract the complete sentence(s) up to and including the delimiter
+                        complete_sentence = buffer[:last_delimiter_pos + 1]
+                        word_count = len(complete_sentence.split())
+                        
+                        # Yield if we have at least 10 words
+                        if word_count >= 10:
+                            data["message"]["content"] = complete_sentence
+                            yield data
+                            # Keep the remaining part in buffer
+                            buffer = buffer[last_delimiter_pos + 1:]
+                            should_yield = False  # Don't yield again below
                 
                 if should_yield:
                     data["message"]["content"] = buffer
                     yield data
                     buffer = ""
                 if data.get("done"):
-                    self.history.append(
-                        {"role": "assistant", "content": accumulated, "model": payload.get("model")}
-                    )
-                    print(self.history[-1])
+                    # Add final assistant message to recent_messages
+                    recent_messages.append({
+                        "role": "assistant",
+                        "content": accumulated,
+                    })
                     return
 
             if not made_tool_call:

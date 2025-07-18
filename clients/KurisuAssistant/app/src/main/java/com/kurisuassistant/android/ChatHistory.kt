@@ -185,13 +185,12 @@ object ChatHistory {
     }
 
     fun conversationTitles(): List<String> = titles
-        .asReversed()
         .mapIndexed { index, title ->
             if (title.isNotEmpty()) title
             else "New conversation"
         }
 
-    fun indexFromNewest(displayIndex: Int): Int = conversations.lastIndex - displayIndex
+    fun indexFromNewest(displayIndex: Int): Int = displayIndex
 
     fun get(index: Int): MutableList<ChatMessage> {
         println("ChatHistory: Getting conversation $index, total conversations: ${conversations.size}")

@@ -41,12 +41,16 @@ def init_db():
             username TEXT NOT NULL,
             title TEXT,
             messages JSONB NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
     )
     cur.execute(
         "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS title TEXT"
+    )
+    cur.execute(
+        "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
     )
     conn.commit()
     cur.close()
@@ -113,7 +117,7 @@ def add_message(
     
     messages["messages"].append(message_obj)
     cur.execute(
-        "UPDATE conversations SET messages=%s WHERE id=%s",
+        "UPDATE conversations SET messages=%s, updated_at=CURRENT_TIMESTAMP WHERE id=%s",
         (json.dumps(messages), conv_id),
     )
     conn.commit()
@@ -122,48 +126,31 @@ def add_message(
     return conv_id
 
 
-def get_history(username: str, limit: int = 50, conversation_id: int = None):
-    """Return the most recent conversations for a user or a specific conversation."""
+def fetch_conversation(username: str, conversation_id: int):
+    """Return a specific conversation for a user."""
     conn = get_connection()
     cur = conn.cursor()
     
-    if conversation_id:
-        cur.execute(
-            "SELECT id, messages, created_at, title FROM conversations WHERE username=%s AND id=%s",
-            (username, conversation_id),
-        )
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
-        if row:
-            messages_data = row[1]  # This is the JSONB object
-            # Extract the messages array from the stored structure
-            messages_array = messages_data.get("messages", []) if messages_data else []
-            return {
-                "id": row[0],
-                "messages": messages_array,
-                "created_at": row[2].isoformat(),
-                "title": row[3] or "",
-            }
-        else:
-            return None
+    cur.execute(
+        "SELECT id, messages, created_at, title FROM conversations WHERE username=%s AND id=%s",
+        (username, conversation_id),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    
+    if row:
+        messages_data = row[1]  # This is the JSONB object
+        # Extract the messages array from the stored structure
+        messages_array = messages_data.get("messages", []) if messages_data else []
+        return {
+            "id": row[0],
+            "messages": messages_array,
+            "created_at": row[2].isoformat(),
+            "title": row[3] or "",
+        }
     else:
-        cur.execute(
-            "SELECT id, messages, created_at, title FROM conversations WHERE username=%s ORDER BY id DESC LIMIT %s",
-            (username, limit),
-        )
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        return [
-            {
-                "id": r[0],
-                "messages": r[1].get("messages", []) if r[1] else [],  # Extract messages array
-                "created_at": r[2].isoformat(),
-                "title": r[3] or "",  # Handle NULL titles
-            }
-            for r in rows
-        ]
+        return None
 
 
 def update_conversation_title(username: str, title: str, conversation_id: int = None) -> None:
@@ -207,11 +194,11 @@ def get_conversations_list(username: str, limit: int = 50):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
-        """SELECT id, title, created_at, 
+        """SELECT id, title, created_at, updated_at,
                   CASE WHEN messages IS NULL THEN 0 ELSE jsonb_array_length(messages->'messages') END as message_count
            FROM conversations 
            WHERE username = %s 
-           ORDER BY id DESC 
+           ORDER BY updated_at DESC 
            LIMIT %s""",
         (username, limit),
     )
@@ -223,7 +210,8 @@ def get_conversations_list(username: str, limit: int = 50):
             "id": r[0],
             "title": r[1] or "New conversation",
             "created_at": r[2].isoformat(),
-            "message_count": r[3] or 0,
+            "updated_at": r[3].isoformat() if r[3] else r[2].isoformat(),
+            "message_count": r[4] or 0,
         }
         for r in rows
     ]
