@@ -37,14 +37,22 @@ def init_db():
         )
         """
     )
-    # Add system_prompt column to existing users table if it doesn't exist
-    cur.execute(
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS system_prompt TEXT DEFAULT ''"
-    )
     # ensure default admin account
     cur.execute(
         "INSERT INTO users (username, password) VALUES (%s, %s) ON CONFLICT (username) DO NOTHING",
         ("admin", pwd_context.hash("admin")),
+    )
+    # Conversations table for conversation metadata (no messages column)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS conversations (
+            id SERIAL PRIMARY KEY,
+            username TEXT NOT NULL,
+            title TEXT DEFAULT 'New conversation',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
     )
     # Create messages table with each message as a row
     cur.execute(
@@ -60,44 +68,6 @@ def init_db():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
-    )
-    
-    # Add message_hash column if it doesn't exist (for migration)
-    cur.execute(
-        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS message_hash TEXT"
-    )
-    
-    # Rename columns to consistent naming (for migration)
-    try:
-        cur.execute(
-            "ALTER TABLE messages RENAME COLUMN created_time TO created_at"
-        )
-    except:
-        pass  # Column might already be renamed or not exist
-    
-    try:
-        cur.execute(
-            "ALTER TABLE messages RENAME COLUMN updated_time TO updated_at"
-        )
-    except:
-        pass  # Column might already be renamed or not exist
-    
-    # Conversations table for conversation metadata (no messages column)
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS conversations (
-            id SERIAL PRIMARY KEY,
-            username TEXT NOT NULL,
-            title TEXT DEFAULT 'New conversation',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-    
-    # Drop messages column if it exists (for migration from old schema)
-    cur.execute(
-        "ALTER TABLE conversations DROP COLUMN IF EXISTS messages"
     )
     
     # Create index for better query performance on messages table

@@ -11,18 +11,19 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import io.noties.markwon.Markwon
 import com.kurisuassistant.android.model.ChatMessage
+import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.util.*
 
 /**
  * RecyclerView adapter displaying chat messages.
  */
 class ChatAdapter(
     private val context: Context,
-    private var messages: List<ChatMessage>,
+    private var messages: List<ChatMessage>?,
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-    
-    init {
-        instance = this
-    }
 
     companion object {
         private const val USER = 0
@@ -40,6 +41,12 @@ class ChatAdapter(
     private val handler = Handler(Looper.getMainLooper())
     private var tempMessage: ChatMessage? = null
     private val tempMessages = mutableListOf<ChatMessage>()
+    private val timeFormat = SimpleDateFormat("HH:mm dd-MM-yyyy", Locale.getDefault())
+    private val localZone = ZoneId.systemDefault()
+    
+    init {
+        instance = this
+    }
     private val animateRunnable = object : Runnable {
         override fun run() {
             ellipsis = when (ellipsis.length) {
@@ -56,9 +63,54 @@ class ChatAdapter(
         }
     }
 
-    fun update(newMessages: List<ChatMessage>) {
+    fun update(newMessages: List<ChatMessage>?) {
         messages = newMessages
         notifyDataSetChanged()
+    }
+    
+    private fun formatTimeForDisplay(timestamp: String): String {
+        return try {
+            val instant = when {
+                // ISO format with Z (UTC)
+                timestamp.endsWith("Z") -> Instant.parse(timestamp)
+                // ISO format with timezone offset
+                timestamp.contains("T") && (timestamp.contains("+") || timestamp.contains("-")) -> Instant.parse(timestamp)
+                // Simple ISO format without timezone (assume UTC)
+                timestamp.contains("T") -> Instant.parse(timestamp + "Z")
+                // Try to parse as epoch timestamp
+                timestamp.all { it.isDigit() } -> Instant.ofEpochMilli(timestamp.toLong())
+                // Date only format YYYY-MM-DD
+                timestamp.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) -> Instant.parse(timestamp + "T00:00:00Z")
+                // Date and time format without T (YYYY-MM-DD HH:mm:ss)
+                timestamp.contains(" ") -> {
+                    val parts = timestamp.split(" ")
+                    if (parts.size >= 2) {
+                        Instant.parse("${parts[0]}T${parts[1]}Z")
+                    } else null
+                }
+                else -> null
+            }
+            
+            instant?.let { 
+                val localDateTime = LocalDateTime.ofInstant(it, localZone)
+                timeFormat.format(Date.from(localDateTime.atZone(localZone).toInstant()))
+            } ?: timestamp
+            
+        } catch (e: Exception) {
+            // If all parsing fails, try to extract a readable format from the original
+            if (timestamp.contains("T")) {
+                try {
+                    // Just return the part before T and format it nicely
+                    val datePart = timestamp.split("T")[0]
+                    val timePart = timestamp.split("T")[1].split(".")[0].split("Z")[0]
+                    "$timePart $datePart"
+                } catch (ex: Exception) {
+                    timestamp
+                }
+            } else {
+                timestamp
+            }
+        }
     }
     
     fun showTemporaryMessage(text: String, durationMs: Long = 3000) {
@@ -91,7 +143,7 @@ class ChatAdapter(
     }
     
     private fun getAllMessages(): List<ChatMessage> {
-        return messages + tempMessages
+        return (messages ?: emptyList()) + tempMessages
     }
     
     fun onDestroy() {
@@ -114,7 +166,10 @@ class ChatAdapter(
         }
     }
 
-    override fun getItemViewType(position: Int): Int = if (getAllMessages()[position].isUser) USER else ASSISTANT
+    override fun getItemViewType(position: Int): Int {
+        val message = getAllMessages()[position]
+        return if (message.isUser) USER else ASSISTANT
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val inflater = LayoutInflater.from(parent.context)
@@ -134,7 +189,7 @@ class ChatAdapter(
             is UserHolder -> {
                 val displayText = msg.text
                 markwon.setMarkdown(holder.text, displayText)
-                holder.time.text = msg.createdAt ?: ""
+                holder.time.text = msg.createdAt?.let { formatTimeForDisplay(it) } ?: ""
                 holder.time.visibility = View.GONE
                 holder.text.setOnClickListener {
                     holder.time.visibility =
@@ -158,7 +213,7 @@ class ChatAdapter(
                     text += ellipsis
                 }
                 markwon.setMarkdown(holder.text, text)
-                holder.time.text = msg.createdAt ?: ""
+                holder.time.text = msg.createdAt?.let { formatTimeForDisplay(it) } ?: ""
                 holder.time.visibility = View.GONE
                 holder.text.setOnClickListener {
                     holder.time.visibility =
@@ -184,5 +239,6 @@ class ChatAdapter(
         val time: TextView = view.findViewById(R.id.message_time)
         val avatar: ImageView = view.findViewById(R.id.avatar)
     }
+    
 }
 

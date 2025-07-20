@@ -97,10 +97,7 @@ object ChatHistory {
                     // We'll load them when the conversation is actually opened
                     val convo = mutableListOf<ChatMessage>()
                     
-                    // Add a placeholder if there are messages, so it's not considered "new"
-                    if (messageCount > 0) {
-                        convo.add(ChatMessage("Loading...", "system", null))
-                    }
+                    // No placeholder messages needed
                     
                     conversations.add(convo)
                     titles.add(title)
@@ -298,8 +295,8 @@ object ChatHistory {
     fun isNewConversation(index: Int): Boolean {
         return if (index >= 0 && index < conversations.size) {
             val conversation = conversations[index]
-            // A conversation is new if it's empty or only has the "Loading..." placeholder
-            val isNew = conversation.isEmpty() || (conversation.size == 1 && conversation[0].text == "Loading...")
+            // A conversation is new if it's empty
+            val isNew = conversation.isEmpty()
             println("ChatHistory: isNewConversation($index) = $isNew, messages: ${conversation.size}")
             if (conversation.isNotEmpty()) {
                 println("ChatHistory: First message: ${conversation[0].text}")

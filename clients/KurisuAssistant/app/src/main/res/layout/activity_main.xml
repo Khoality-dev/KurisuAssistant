@@ -50,6 +50,39 @@
 
         </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
+        <!-- Empty state layout -->
+        <LinearLayout
+            android:id="@+id/emptyStateLayout"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="gone"
+            app:layout_constraintTop_toBottomOf="@id/toolbar"
+            app:layout_constraintBottom_toTopOf="@+id/input_container"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <ImageView
+                android:id="@+id/emptyStateImage"
+                android:layout_width="200dp"
+                android:layout_height="200dp"
+                android:src="@drawable/empty_state_image"
+                android:scaleType="centerInside"
+                android:alpha="0.5"
+                android:contentDescription="Empty conversation" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="Start a conversation!"
+                android:textSize="18sp"
+                android:textColor="@android:color/darker_gray"
+                android:gravity="center" />
+
+        </LinearLayout>
+
         <LinearLayout
             android:id="@+id/input_container"
             android:layout_width="0dp"

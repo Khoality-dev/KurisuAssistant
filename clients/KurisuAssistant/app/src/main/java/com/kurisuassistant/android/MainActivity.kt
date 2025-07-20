@@ -13,6 +13,7 @@ import android.widget.TextView
 import android.widget.Toast
 import android.widget.ListView
 import android.widget.Button
+import android.widget.LinearLayout
 import com.kurisuassistant.android.Settings
 import androidx.activity.viewModels
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -143,16 +144,28 @@ class MainActivity : AppCompatActivity() {
         val recordButton = findViewById<ImageButton>(R.id.buttonRecord)
         val recordIndicator = findViewById<TextView>(R.id.recordIndicator)
         val connectionIndicator = findViewById<ImageView>(R.id.connectionIndicator)
+        val emptyStateLayout = findViewById<LinearLayout>(R.id.emptyStateLayout)
         var isRecording = false
 
         viewModel.messages.observe(this) {
             adapter.update(it)
-            recyclerView.post {
-                val last = adapter.itemCount - 1
-                if (last >= 0) {
-                    recyclerView.smoothScrollToPosition(last)
+            
+            // Show/hide empty state based on message count
+            val hasMessages = !it.isNullOrEmpty()
+            if (hasMessages) {
+                emptyStateLayout.visibility = View.GONE
+                recyclerView.visibility = View.VISIBLE
+                recyclerView.post {
+                    val last = adapter.itemCount - 1
+                    if (last >= 0) {
+                        recyclerView.smoothScrollToPosition(last)
+                    }
                 }
+            } else {
+                emptyStateLayout.visibility = View.VISIBLE
+                recyclerView.visibility = View.GONE
             }
+            
             // Update toolbar title when messages change (conversation loaded)
             updateToolbarTitle()
         }

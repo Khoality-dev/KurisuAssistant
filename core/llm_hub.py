@@ -206,6 +206,7 @@ async def list_conversations(token: str = Depends(oauth2_scheme), limit: int = 5
         result = get_conversations_list(username, limit)
         return result
     except Exception as e:
+        print(str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

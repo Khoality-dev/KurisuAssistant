@@ -179,18 +179,7 @@ object ChatRepository {
                     val initialMessages = ChatHistory.get(currentIndex)
                     _messages.postValue(ArrayList(initialMessages))
                     
-                    // If conversation has placeholder messages, fetch latest 20 messages
-                    if (initialMessages.any { it.text == "Loading..." }) {
-                        val conversationId = ChatHistory.getConversationId(currentIndex)
-                        if (conversationId != null) {
-                            val latestMessages = ChatHistory.fetchConversationById(conversationId, limit = 20, offset = 0, reverse = true)
-                            latestMessages?.let { messages ->
-                                _messages.postValue(ArrayList(messages))
-                                // Update local storage with latest messages
-                                ChatHistory.update(currentIndex, messages)
-                            }
-                        }
-                    }
+                    // No loading placeholder logic needed
                     
                     startPolling(currentIndex)
                 } else {
@@ -355,24 +344,7 @@ object ChatRepository {
         println("ChatRepository: Loading ${conversationMessages.size} messages for conversation $index")
         _messages.postValue(ArrayList(conversationMessages))
         
-        // If conversation has placeholder messages, fetch latest 20 messages
-        if (conversationMessages.any { it.text == "Loading..." }) {
-            println("ChatRepository: Detected placeholder messages, fetching latest messages")
-            scope.launch {
-                val conversationId = ChatHistory.getConversationId(index)
-                if (conversationId != null) {
-                    val latestMessages = ChatHistory.fetchConversationById(conversationId, limit = 20, offset = 0, reverse = true)
-                    latestMessages?.let { messages ->
-                        println("ChatRepository: Loaded ${messages.size} latest messages, updating UI")
-                        _messages.postValue(ArrayList(messages))
-                        // Update local storage with latest messages
-                        ChatHistory.update(index, messages)
-                    } ?: println("ChatRepository: Failed to load latest messages")
-                } else {
-                    println("ChatRepository: No conversation ID available for loading messages")
-                }
-            }
-        }
+        // No loading placeholder logic needed
         
         startPolling(currentIndex)
     }
