@@ -53,6 +53,54 @@ object ChatRepository {
     private val agent by lazy { Agent(player) }
     private val scope = CoroutineScope(Dispatchers.IO)
 
+    /**
+     * Resolve conflicts between local cache messages and server messages using message hashes
+     */
+    private fun resolveMessageConflicts(localMessages: MutableList<ChatMessage>, serverMessages: MutableList<ChatMessage>): MutableList<ChatMessage> {
+        // Create a map of message hashes to messages for efficient lookup
+        val localMessageMap = mutableMapOf<String, ChatMessage>()
+        val serverMessageMap = mutableMapOf<String, ChatMessage>()
+        
+        // Build maps using message hashes - all messages should have hashes from server
+        localMessages.forEach { message ->
+            message.messageHash?.let { hash ->
+                localMessageMap[hash] = message
+            }
+        }
+        
+        serverMessages.forEach { message ->
+            message.messageHash?.let { hash ->
+                serverMessageMap[hash] = message
+            }
+        }
+        
+        // Create merged list prioritizing server messages for conflicts
+        val mergedMessages = mutableListOf<ChatMessage>()
+        val processedHashes = mutableSetOf<String>()
+        
+        // Add all server messages first (they are authoritative)
+        serverMessages.forEach { serverMessage ->
+            mergedMessages.add(serverMessage)
+            serverMessage.messageHash?.let { hash ->
+                processedHashes.add(hash)
+            }
+        }
+        
+        // Add local messages that don't exist on server (e.g., pending messages without hashes)
+        localMessages.forEach { localMessage ->
+            val hash = localMessage.messageHash
+            if (hash == null || !processedHashes.contains(hash)) {
+                mergedMessages.add(localMessage)
+                hash?.let { processedHashes.add(it) }
+            }
+        }
+        
+        // Sort by created_at to ensure proper chronological order
+        mergedMessages.sortBy { it.createdAt }
+        
+        return mergedMessages
+    }
+
     val connected: LiveData<Boolean>
         get() = agent.connected
     val typing: LiveData<Boolean>
@@ -68,6 +116,57 @@ object ChatRepository {
     
     fun getCurrentConversationIndex(): Int = currentIndex
 
+    /**
+     * Load older messages for scroll-up pagination
+     * Returns true if more messages were loaded, false if none available
+     */
+    fun loadOlderMessages(callback: (Boolean) -> Unit) {
+        val conversationId = if (currentIndex >= 0 && currentIndex < ChatHistory.size) {
+            ChatHistory.getConversationId(currentIndex)
+        } else null
+        
+        if (conversationId == null) {
+            callback(false)
+            return
+        }
+        
+        scope.launch {
+            try {
+                val currentMessages = _messages.value ?: mutableListOf()
+                val offset = currentMessages.size
+                
+                val olderMessages = ChatHistory.fetchConversationById(conversationId, limit = 20, offset = offset, reverse = true)
+                
+                if (olderMessages != null && olderMessages.isNotEmpty()) {
+                    // Prepend older messages to the beginning of current messages
+                    val updatedMessages = mutableListOf<ChatMessage>()
+                    updatedMessages.addAll(olderMessages)
+                    updatedMessages.addAll(currentMessages)
+                    
+                    // Sort by created_at to ensure proper chronological order
+                    updatedMessages.sortBy { it.createdAt }
+                    
+                    // Update UI and local storage
+                    _messages.postValue(ArrayList(updatedMessages))
+                    ChatHistory.update(currentIndex, updatedMessages)
+                    
+                    withContext(Dispatchers.Main) {
+                        callback(true)
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        callback(false)
+                    }
+                }
+            } catch (e: Exception) {
+                println("ChatRepository: Error loading older messages: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    callback(false)
+                }
+            }
+        }
+    }
+
     fun init(context: Context? = null) {
         agent
         context?.let { ChatHistory.init(it) }
@@ -80,11 +179,16 @@ object ChatRepository {
                     val initialMessages = ChatHistory.get(currentIndex)
                     _messages.postValue(ArrayList(initialMessages))
                     
-                    // If conversation has placeholder messages, fetch real messages
+                    // If conversation has placeholder messages, fetch latest 20 messages
                     if (initialMessages.any { it.text == "Loading..." }) {
-                        val fullMessages = ChatHistory.fetchConversation(currentIndex)
-                        fullMessages?.let { messages ->
-                            _messages.postValue(ArrayList(messages))
+                        val conversationId = ChatHistory.getConversationId(currentIndex)
+                        if (conversationId != null) {
+                            val latestMessages = ChatHistory.fetchConversationById(conversationId, limit = 20, offset = 0, reverse = true)
+                            latestMessages?.let { messages ->
+                                _messages.postValue(ArrayList(messages))
+                                // Update local storage with latest messages
+                                ChatHistory.update(currentIndex, messages)
+                            }
                         }
                     }
                     
@@ -251,15 +355,22 @@ object ChatRepository {
         println("ChatRepository: Loading ${conversationMessages.size} messages for conversation $index")
         _messages.postValue(ArrayList(conversationMessages))
         
-        // If conversation has placeholder messages, fetch real messages
+        // If conversation has placeholder messages, fetch latest 20 messages
         if (conversationMessages.any { it.text == "Loading..." }) {
-            println("ChatRepository: Detected placeholder messages, fetching full conversation")
+            println("ChatRepository: Detected placeholder messages, fetching latest messages")
             scope.launch {
-                val fullMessages = ChatHistory.fetchConversation(index)
-                fullMessages?.let { messages ->
-                    println("ChatRepository: Loaded ${messages.size} messages, updating UI")
-                    _messages.postValue(ArrayList(messages))
-                } ?: println("ChatRepository: Failed to load full messages")
+                val conversationId = ChatHistory.getConversationId(index)
+                if (conversationId != null) {
+                    val latestMessages = ChatHistory.fetchConversationById(conversationId, limit = 20, offset = 0, reverse = true)
+                    latestMessages?.let { messages ->
+                        println("ChatRepository: Loaded ${messages.size} latest messages, updating UI")
+                        _messages.postValue(ArrayList(messages))
+                        // Update local storage with latest messages
+                        ChatHistory.update(index, messages)
+                    } ?: println("ChatRepository: Failed to load latest messages")
+                } else {
+                    println("ChatRepository: No conversation ID available for loading messages")
+                }
             }
         }
         
@@ -318,9 +429,10 @@ object ChatRepository {
                         
                         serverMessages?.let { messages ->
                             val currentMessages = _messages.value ?: mutableListOf()
-                            // Only update if server has more messages than local
-                            if (messages.size > currentMessages.size) {
-                                _messages.postValue(ArrayList(messages))
+                            // Resolve conflicts between local cache and server messages using message hashes
+                            val mergedMessages = resolveMessageConflicts(currentMessages, messages)
+                            if (mergedMessages.size > currentMessages.size) {
+                                _messages.postValue(ArrayList(mergedMessages))
                             }
                         }
                     } catch (e: Exception) {

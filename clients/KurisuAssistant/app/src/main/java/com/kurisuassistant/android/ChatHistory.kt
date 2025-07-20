@@ -37,7 +37,10 @@ object ChatHistory {
                         ChatMessage(
                             obj.getString("text"),
                             if (obj.getBoolean("isUser")) "user" else "assistant",
-                            obj.optString("created_at", null)
+                            obj.optString("created_at", null),
+                            null,
+                            false,
+                            obj.optString("message_hash", null)
                         )
                     )
                 }
@@ -57,7 +60,9 @@ object ChatHistory {
                             msg.optString("text", msg.optString("content")),
                             role,
                             msg.optString("created_at", null),
-                            msg.optJSONArray("tool_calls")?.toString()
+                            msg.optJSONArray("tool_calls")?.toString(),
+                            false,
+                            msg.optString("message_hash", null)
                         )
                     )
                 }
@@ -128,9 +133,13 @@ object ChatHistory {
         return conversations.getOrNull(index)
     }
 
-    suspend fun fetchConversationById(conversationId: Int): MutableList<ChatMessage>? = withContext(Dispatchers.IO) {
+    suspend fun fetchConversationById(conversationId: Int, limit: Int = 50, offset: Int = 0, reverse: Boolean = false): MutableList<ChatMessage>? = withContext(Dispatchers.IO) {
         try {
-            val url = "${Settings.llmUrl}/conversations/$conversationId"
+            val url = if (limit == 50 && offset == 0 && !reverse) {
+                "${Settings.llmUrl}/conversations/$conversationId"
+            } else {
+                "${Settings.llmUrl}/conversations/$conversationId?limit=$limit&offset=$offset&reverse=$reverse"
+            }
             println("Fetching conversation from: $url")
             HttpClient.getResponse(url, Auth.token).use { resp ->
                 if (!resp.isSuccessful) {
@@ -138,20 +147,30 @@ object ChatHistory {
                     return@withContext null
                 }
                 val responseBody = resp.body!!.string()
-                println("Response body: $responseBody")
                 val convoObj = JSONObject(responseBody)
                 val convoArr = convoObj.getJSONArray("messages")
                 val convo = mutableListOf<ChatMessage>()
                 println("Found ${convoArr.length()} messages in conversation $conversationId")
+                
                 for (j in 0 until convoArr.length()) {
                     val obj = convoArr.getJSONObject(j)
                     val role = obj.optString("role")
                     val content = obj.optString("content")
                     val created = obj.optString("created_at", null)
                     val toolCalls = obj.optJSONArray("tool_calls")?.toString()
+                    val messageHash = obj.optString("message_hash", null)
                     println("Message $j: role=$role, content=${content.take(50)}...")
-                    convo.add(ChatMessage(content, role, created, toolCalls))
+                    convo.add(ChatMessage(content, role, created, toolCalls, false, messageHash))
                 }
+                
+                // If reverse=true, the messages come newest first, reverse them for chronological order
+                if (reverse) {
+                    convo.reverse()
+                }
+                
+                // Always sort by created_at to ensure proper chronological order
+                convo.sortBy { it.createdAt }
+                
                 println("Loaded ${convo.size} messages for conversation $conversationId")
                 return@withContext convo
             }
@@ -161,6 +180,7 @@ object ChatHistory {
             return@withContext null
         }
     }
+
 
     private fun persist() {
         val arr = JSONArray()
@@ -176,6 +196,7 @@ object ChatHistory {
                 obj.put("content", msg.text)
                 if (msg.createdAt != null) obj.put("created_at", msg.createdAt)
                 if (msg.toolCalls != null) obj.put("tool_calls", JSONArray(msg.toolCalls))
+                if (msg.messageHash != null) obj.put("message_hash", msg.messageHash)
                 convoArr.put(obj)
             }
             convoObj.put("messages", convoArr)

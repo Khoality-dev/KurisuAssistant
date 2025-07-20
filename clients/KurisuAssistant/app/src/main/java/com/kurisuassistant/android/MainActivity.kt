@@ -107,7 +107,31 @@ class MainActivity : AppCompatActivity() {
         val recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
         adapter = ChatAdapter(this, viewModel.messages.value ?: emptyList())
         recyclerView.adapter = adapter
-        recyclerView.layoutManager = LinearLayoutManager(this)
+        val layoutManager = LinearLayoutManager(this)
+        recyclerView.layoutManager = layoutManager
+        
+        // Add scroll listener for loading older messages
+        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                super.onScrolled(recyclerView, dx, dy)
+                
+                // Check if user scrolled to the top and there might be older messages
+                val firstVisibleItem = layoutManager.findFirstVisibleItemPosition()
+                if (firstVisibleItem == 0 && dy < 0) { // dy < 0 means scrolling up
+                    // Load older messages
+                    ChatRepository.loadOlderMessages { hasMore ->
+                        if (hasMore) {
+                            // Messages were loaded, maintain scroll position
+                            val currentFirstVisible = layoutManager.findFirstVisibleItemPosition()
+                            val loadedCount = 20 // We loaded 20 messages
+                            recyclerView.post {
+                                layoutManager.scrollToPositionWithOffset(currentFirstVisible + loadedCount, 0)
+                            }
+                        }
+                    }
+                }
+            }
+        })
         
         // Setup pull-to-refresh
         swipeRefreshLayout.setOnRefreshListener {

@@ -5,7 +5,7 @@ import os
 import re
 import subprocess
 import wave
-from helpers.llm import OllamaClient
+from core.helpers.agents.age import OllamaClient
 from fastapi import FastAPI, Request, HTTPException, Response, Body, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm

@@ -2,19 +2,20 @@ import json
 import os
 import glob
 import numpy as np
+from typing import Dict, List, Any
 from fastapi import FastAPI, HTTPException, Request, Body, Response, Depends, Form
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from transformers import pipeline
 import torch
 import uvicorn
-from helpers.llm import OllamaClient
+from helpers import Agent
 import dotenv
 from fastmcp.client import Client as FastMCPClient
 from auth import authenticate_user, create_access_token, get_current_user
-from db import (
+from helpers.db import (
     init_db,
-    add_message,
+    add_messages,
     fetch_conversation,
     create_user,
     admin_exists,
@@ -24,6 +25,7 @@ from db import (
     delete_conversation_by_id,
     get_conversations_list,
     create_new_conversation,
+    get_db_connection,
 )
 
 def load_mcp_configs():
@@ -63,10 +65,7 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# MCP client connections are managed per-request via context managers
-
-# Create singleton OllamaClient instance
-ollama_client = OllamaClient(mcp_client)
+# We'll create Agent instances per request now since they need username/conversation_id
 whisper_model_name = 'whisper-finetuned' if os.path.exists('whisper-finetuned') else 'openai/whisper-base'
 asr_model = pipeline(
     model=whisper_model_name,
@@ -139,107 +138,29 @@ async def chat(
         user_message_content = text
         
         if conversation_id:
-            # Use provided conversation_id - fetch existing conversation
-            conversation_history = fetch_conversation(username, conversation_id)
-            if not conversation_history:
-                raise HTTPException(status_code=404, detail="Conversation not found")
+            # Use provided conversation_id
             conv_id = conversation_id
-            
-            # Add the user message to the existing conversation
-            add_message(
-                username,
-                "user",
-                user_message_content,
-                None,
-                conversation_id=conv_id,
-            )
-            # Fetch updated conversation history
-            conversation_history = fetch_conversation(username, conv_id)
         else:
             # Create a new conversation
             conv_id = create_new_conversation(username)
             # Update title with first user message (truncated to 50 chars)
             title = user_message_content[:50]
             update_conversation_title(username, title, conv_id)
-            
-            # Get user-specific system prompt
-            user_system_prompt = get_user_system_prompt(username)
-
-            # Add system prompt to the conversation if provided
-            if user_system_prompt:
-                add_message(
-                    username,
-                    "system",
-                    user_system_prompt,
-                    None,
-                    conversation_id=conv_id,
-                )
-            # Add the user message
-            add_message(
-                username,
-                "user",
-                user_message_content,
-                None,
-                conversation_id=conv_id,
-            )
-            # Get conversation history from database
-            conversation_history = fetch_conversation(username, conv_id)
         
-        # Convert database messages to OllamaClient format
-        messages = []
-        if conversation_history and conversation_history.get("messages"):
-            for msg in conversation_history["messages"]:
-                message = {
-                    "role": msg["role"],
-                    "content": msg["content"]
-                }
-                if msg.get("tool_calls"):
-                    message["tool_calls"] = msg["tool_calls"]
-                messages.append(message)
+        # Create Agent instance for this conversation
+        agent = Agent(username, conv_id, mcp_client)
         
-        response_generator = ollama_client.chat(model_name, messages)
+        response_generator = agent.chat(model_name, user_message_content)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
     async def stream():
-        full_response = ""
         async for chunk in response_generator:
-            msg = chunk.get("message", {})
-            if msg.get("role") == "tool":
-                add_message(username, "tool", msg["content"], conversation_id=conv_id)
-                yield json.dumps(chunk) + "\n"
-                continue
-
-            content = msg.get("content", "")
-            full_response += content
-            # send each chunk on its own line so clients can parse with
-            # readUtf8Line without waiting for the whole stream
+            # Just yield the chunk directly
             yield json.dumps(chunk) + "\n"
-
-            if msg.get("tool_calls"):
-                add_message(
-                    username,
-                    "assistant",
-                    full_response,
-                    model_name,
-                    tool_calls=msg.get("tool_calls"),
-                    conversation_id=conv_id,
-                )
-                # Include conversation ID in response
-                chunk["conversation_id"] = conv_id
-                full_response = ""
-                continue
-
-            if chunk.get("done"):
-                add_message(
-                    username,
-                    "assistant",
-                    full_response,
-                    model_name,
-                    conversation_id=conv_id,
-                )
-                
-                full_response = ""
+        
+        # Save all messages from agent context to database at the end
+        add_messages(username, agent.context_messages, conversation_id=conv_id)
 
     return StreamingResponse(stream(), media_type="application/json")
 
@@ -249,18 +170,26 @@ async def models(token: str = Depends(oauth2_scheme)):
     if not get_current_user(token):
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        return {"models": ollama_client.list_models()}
+        # Create a temporary agent instance to get models
+        temp_agent = Agent("temp", 1, mcp_client)
+        return {"models": temp_agent.list_models()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/conversations/{conversation_id}")
-async def get_conversation(conversation_id: int, token: str = Depends(oauth2_scheme)):
+async def get_conversation(
+    conversation_id: int, 
+    limit: int = 50, 
+    offset: int = 0, 
+    reverse: bool = False,
+    token: str = Depends(oauth2_scheme)
+):
     username = get_current_user(token)
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        result = fetch_conversation(username, conversation_id)
+        result = fetch_conversation(username, conversation_id, limit, offset, reverse)
         if result is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
         return result
@@ -392,8 +321,9 @@ async def generate(
             }
         }
         
-        # Use OllamaClient generate method
-        content = ollama_client.generate(generate_payload, user_system_prompts)
+        # Create temporary agent for generation
+        temp_agent = Agent(username, 1, mcp_client)
+        content = temp_agent.generate(generate_payload, user_system_prompts)
         
         return {"response": content}
         
@@ -420,7 +350,7 @@ async def mcp_servers(token: str = Depends(oauth2_scheme)):
         # Try to get tools from each server to show availability
         if mcp_client is not None:
             try:
-                from helpers.llm import list_tools
+                from core.helpers.agents.age import list_tools
                 tools = await list_tools(mcp_client)
                 available_servers = set()
                 for tool in tools:
