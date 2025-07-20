@@ -1,0 +1,13 @@
+{
+    "mcp_servers": {
+        "mcp-context": {
+            "command": "docker",
+            "args": [
+                "run",
+                "--rm",
+                "-i",
+                "mcp/mcp-context"
+            ]
+        }
+    }
+}

@@ -105,7 +105,7 @@ class Agent(private val player: AudioTrack) {
                             val msg = ChatMessage(content, role, created, toolCalls)
                             channel.trySend(msg)
                             
-                            if (role != "user" && content.isNotEmpty()) {
+                            if (role == "assistant" && content.isNotEmpty()) {
                                 val audio = tts(content)
                                 if (audio != null) {
                                     player.write(audio, 0, audio.size)
