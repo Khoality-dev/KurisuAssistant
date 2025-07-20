@@ -60,21 +60,21 @@ class Agent(private val player: AudioTrack) {
         }
     }
 
-    fun chat(text: String): Channel<ChatMessage> {
+    fun chat(text: String, conversationId: Int? = null): Channel<ChatMessage> {
         val channel = Channel<ChatMessage>(Channel.UNLIMITED)
         chatChannel = channel
         _typing.postValue(true)
-        var conversationId: Int? = null
+        var receivedConversationId: Int? = null
         scope.launch {
-            val payload = JSONObject().apply {
-                put("model", Settings.model)
-                put("stream", true)
-                put("message", JSONObject().apply {
-                    put("role", "user")
-                    put("content", text)
-                })
+            // Build the form data for the new endpoint
+            val formData = StringBuilder()
+            formData.append("text=").append(java.net.URLEncoder.encode(text, "UTF-8"))
+            formData.append("&model_name=").append(java.net.URLEncoder.encode(Settings.model, "UTF-8"))
+            conversationId?.let { 
+                formData.append("&conversation_id=").append(it)
             }
-            val body = payload.toString().toRequestBody("application/json".toMediaType())
+            
+            val body = formData.toString().toRequestBody("application/x-www-form-urlencoded".toMediaType())
             try {
                 HttpClient.post("${Settings.llmUrl}/chat", body, Auth.token).use { resp ->
                     if (!resp.isSuccessful) {
@@ -91,9 +91,9 @@ class Agent(private val player: AudioTrack) {
                         val json = JSONObject(line)
                         
                         // Check for conversation ID
-                        if (json.has("conversation_id") && conversationId == null) {
-                            conversationId = json.getInt("conversation_id")
-                            Log.d(TAG, "Received conversation ID: $conversationId")
+                        if (json.has("conversation_id") && receivedConversationId == null) {
+                            receivedConversationId = json.getInt("conversation_id")
+                            Log.d(TAG, "Received conversation ID: $receivedConversationId")
                         }
                         
                         if (json.has("message")) {
@@ -122,7 +122,7 @@ class Agent(private val player: AudioTrack) {
                     _connected.postValue(true)
                 }
                 // Send conversation ID info if we got one
-                conversationId?.let { id ->
+                receivedConversationId?.let { id ->
                     val idMsg = ChatMessage("", "system", null, null)
                     idMsg.conversationId = id
                     channel.trySend(idMsg)

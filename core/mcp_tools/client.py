@@ -1,6 +1,6 @@
 from fastmcp import Client
-
-
+import sys
+import os
 async def list_tools(client):
     try:
         # Always use context manager to ensure proper connection
@@ -24,7 +24,6 @@ async def list_tools(client):
     
 async def call_tool(client, name, arguments):
     try:
-        # Always use context manager to ensure proper connection
         async with client:
             return await client.call_tool(name, arguments)
     except Exception as e:

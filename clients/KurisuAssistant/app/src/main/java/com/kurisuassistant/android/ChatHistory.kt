@@ -37,7 +37,10 @@ object ChatHistory {
                         ChatMessage(
                             obj.getString("text"),
                             if (obj.getBoolean("isUser")) "user" else "assistant",
-                            obj.optString("created_at", null)
+                            obj.optString("created_at", null),
+                            null,
+                            false,
+                            obj.optString("message_hash", null)
                         )
                     )
                 }
@@ -57,7 +60,9 @@ object ChatHistory {
                             msg.optString("text", msg.optString("content")),
                             role,
                             msg.optString("created_at", null),
-                            msg.optJSONArray("tool_calls")?.toString()
+                            msg.optJSONArray("tool_calls")?.toString(),
+                            false,
+                            msg.optString("message_hash", null)
                         )
                     )
                 }
@@ -92,10 +97,7 @@ object ChatHistory {
                     // We'll load them when the conversation is actually opened
                     val convo = mutableListOf<ChatMessage>()
                     
-                    // Add a placeholder if there are messages, so it's not considered "new"
-                    if (messageCount > 0) {
-                        convo.add(ChatMessage("Loading...", "system", null))
-                    }
+                    // No placeholder messages needed
                     
                     conversations.add(convo)
                     titles.add(title)
@@ -128,9 +130,13 @@ object ChatHistory {
         return conversations.getOrNull(index)
     }
 
-    suspend fun fetchConversationById(conversationId: Int): MutableList<ChatMessage>? = withContext(Dispatchers.IO) {
+    suspend fun fetchConversationById(conversationId: Int, limit: Int = 50, offset: Int = 0, reverse: Boolean = false): MutableList<ChatMessage>? = withContext(Dispatchers.IO) {
         try {
-            val url = "${Settings.llmUrl}/conversations/$conversationId"
+            val url = if (limit == 50 && offset == 0 && !reverse) {
+                "${Settings.llmUrl}/conversations/$conversationId"
+            } else {
+                "${Settings.llmUrl}/conversations/$conversationId?limit=$limit&offset=$offset&reverse=$reverse"
+            }
             println("Fetching conversation from: $url")
             HttpClient.getResponse(url, Auth.token).use { resp ->
                 if (!resp.isSuccessful) {
@@ -138,20 +144,30 @@ object ChatHistory {
                     return@withContext null
                 }
                 val responseBody = resp.body!!.string()
-                println("Response body: $responseBody")
                 val convoObj = JSONObject(responseBody)
                 val convoArr = convoObj.getJSONArray("messages")
                 val convo = mutableListOf<ChatMessage>()
                 println("Found ${convoArr.length()} messages in conversation $conversationId")
+                
                 for (j in 0 until convoArr.length()) {
                     val obj = convoArr.getJSONObject(j)
                     val role = obj.optString("role")
                     val content = obj.optString("content")
                     val created = obj.optString("created_at", null)
                     val toolCalls = obj.optJSONArray("tool_calls")?.toString()
+                    val messageHash = obj.optString("message_hash", null)
                     println("Message $j: role=$role, content=${content.take(50)}...")
-                    convo.add(ChatMessage(content, role, created, toolCalls))
+                    convo.add(ChatMessage(content, role, created, toolCalls, false, messageHash))
                 }
+                
+                // If reverse=true, the messages come newest first, reverse them for chronological order
+                if (reverse) {
+                    convo.reverse()
+                }
+                
+                // Always sort by created_at to ensure proper chronological order
+                convo.sortBy { it.createdAt }
+                
                 println("Loaded ${convo.size} messages for conversation $conversationId")
                 return@withContext convo
             }
@@ -161,6 +177,7 @@ object ChatHistory {
             return@withContext null
         }
     }
+
 
     private fun persist() {
         val arr = JSONArray()
@@ -176,6 +193,7 @@ object ChatHistory {
                 obj.put("content", msg.text)
                 if (msg.createdAt != null) obj.put("created_at", msg.createdAt)
                 if (msg.toolCalls != null) obj.put("tool_calls", JSONArray(msg.toolCalls))
+                if (msg.messageHash != null) obj.put("message_hash", msg.messageHash)
                 convoArr.put(obj)
             }
             convoObj.put("messages", convoArr)
@@ -185,13 +203,12 @@ object ChatHistory {
     }
 
     fun conversationTitles(): List<String> = titles
-        .asReversed()
         .mapIndexed { index, title ->
             if (title.isNotEmpty()) title
             else "New conversation"
         }
 
-    fun indexFromNewest(displayIndex: Int): Int = conversations.lastIndex - displayIndex
+    fun indexFromNewest(displayIndex: Int): Int = displayIndex
 
     fun get(index: Int): MutableList<ChatMessage> {
         println("ChatHistory: Getting conversation $index, total conversations: ${conversations.size}")
@@ -278,8 +295,8 @@ object ChatHistory {
     fun isNewConversation(index: Int): Boolean {
         return if (index >= 0 && index < conversations.size) {
             val conversation = conversations[index]
-            // A conversation is new if it's empty or only has the "Loading..." placeholder
-            val isNew = conversation.isEmpty() || (conversation.size == 1 && conversation[0].text == "Loading...")
+            // A conversation is new if it's empty
+            val isNew = conversation.isEmpty()
             println("ChatHistory: isNewConversation($index) = $isNew, messages: ${conversation.size}")
             if (conversation.isNotEmpty()) {
                 println("ChatHistory: First message: ${conversation[0].text}")

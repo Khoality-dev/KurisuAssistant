@@ -13,6 +13,7 @@ import android.widget.TextView
 import android.widget.Toast
 import android.widget.ListView
 import android.widget.Button
+import android.widget.LinearLayout
 import com.kurisuassistant.android.Settings
 import androidx.activity.viewModels
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -107,7 +108,31 @@ class MainActivity : AppCompatActivity() {
         val recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
         adapter = ChatAdapter(this, viewModel.messages.value ?: emptyList())
         recyclerView.adapter = adapter
-        recyclerView.layoutManager = LinearLayoutManager(this)
+        val layoutManager = LinearLayoutManager(this)
+        recyclerView.layoutManager = layoutManager
+        
+        // Add scroll listener for loading older messages
+        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                super.onScrolled(recyclerView, dx, dy)
+                
+                // Check if user scrolled to the top and there might be older messages
+                val firstVisibleItem = layoutManager.findFirstVisibleItemPosition()
+                if (firstVisibleItem == 0 && dy < 0) { // dy < 0 means scrolling up
+                    // Load older messages
+                    ChatRepository.loadOlderMessages { hasMore ->
+                        if (hasMore) {
+                            // Messages were loaded, maintain scroll position
+                            val currentFirstVisible = layoutManager.findFirstVisibleItemPosition()
+                            val loadedCount = 20 // We loaded 20 messages
+                            recyclerView.post {
+                                layoutManager.scrollToPositionWithOffset(currentFirstVisible + loadedCount, 0)
+                            }
+                        }
+                    }
+                }
+            }
+        })
         
         // Setup pull-to-refresh
         swipeRefreshLayout.setOnRefreshListener {
@@ -119,16 +144,28 @@ class MainActivity : AppCompatActivity() {
         val recordButton = findViewById<ImageButton>(R.id.buttonRecord)
         val recordIndicator = findViewById<TextView>(R.id.recordIndicator)
         val connectionIndicator = findViewById<ImageView>(R.id.connectionIndicator)
+        val emptyStateLayout = findViewById<LinearLayout>(R.id.emptyStateLayout)
         var isRecording = false
 
         viewModel.messages.observe(this) {
             adapter.update(it)
-            recyclerView.post {
-                val last = adapter.itemCount - 1
-                if (last >= 0) {
-                    recyclerView.smoothScrollToPosition(last)
+            
+            // Show/hide empty state based on message count
+            val hasMessages = !it.isNullOrEmpty()
+            if (hasMessages) {
+                emptyStateLayout.visibility = View.GONE
+                recyclerView.visibility = View.VISIBLE
+                recyclerView.post {
+                    val last = adapter.itemCount - 1
+                    if (last >= 0) {
+                        recyclerView.smoothScrollToPosition(last)
+                    }
                 }
+            } else {
+                emptyStateLayout.visibility = View.VISIBLE
+                recyclerView.visibility = View.GONE
             }
+            
             // Update toolbar title when messages change (conversation loaded)
             updateToolbarTitle()
         }
@@ -255,9 +292,8 @@ class MainActivity : AppCompatActivity() {
             // Highlight the active conversation
             val currentIndex = ChatRepository.getCurrentConversationIndex()
             if (currentIndex >= 0 && currentIndex < ChatHistory.size) {
-                val displayIndex = ChatHistory.size - 1 - currentIndex // Convert to display index
-                drawerAdapter.setActiveConversation(displayIndex)
-                println("MainActivity: Highlighting conversation at display index $displayIndex (actual: $currentIndex)")
+                drawerAdapter.setActiveConversation(currentIndex)
+                println("MainActivity: Highlighting conversation at index $currentIndex")
             } else {
                 drawerAdapter.setActiveConversation(-1)
                 println("MainActivity: No highlighting - invalid current index: $currentIndex")
