@@ -12,7 +12,7 @@ data class ChatMessage(
     val createdAt: String? = null,
     val toolCalls: String? = null,
     val isTemporary: Boolean = false,
-    val messageHash: String? = null,
+    val messageId: Int? = null,
 ) {
     var conversationId: Int? = null
     val isUser: Boolean

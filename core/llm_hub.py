@@ -9,6 +9,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from transformers import pipeline
 import torch
 import uvicorn
+from mcp_tools.client import list_tools
 from helpers import Agent
 import dotenv
 from fastmcp.client import Client as FastMCPClient
@@ -17,6 +18,7 @@ from helpers.db import (
     init_db,
     add_messages,
     fetch_conversation,
+    fetch_message_by_id,
     create_user,
     admin_exists,
     get_user_system_prompt,
@@ -182,16 +184,33 @@ async def get_conversation(
     conversation_id: int, 
     limit: int = 50, 
     offset: int = 0, 
-    reverse: bool = False,
     token: str = Depends(oauth2_scheme)
 ):
     username = get_current_user(token)
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        result = fetch_conversation(username, conversation_id, limit, offset, reverse)
+        result = fetch_conversation(username, conversation_id, limit, offset)
         if result is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/messages/{message_id}")
+async def get_message(
+    message_id: int,
+    token: str = Depends(oauth2_scheme)
+):
+    """Fetch a specific message by its ID."""
+    username = get_current_user(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    try:
+        result = fetch_message_by_id(username, message_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Message not found")
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -351,7 +370,6 @@ async def mcp_servers(token: str = Depends(oauth2_scheme)):
         # Try to get tools from each server to show availability
         if mcp_client is not None:
             try:
-                from core.helpers.agents.age import list_tools
                 tools = await list_tools(mcp_client)
                 available_servers = set()
                 for tool in tools:

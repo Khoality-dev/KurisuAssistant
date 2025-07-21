@@ -31,7 +31,9 @@ object ChatHistory {
             if (element is JSONArray) {
                 val convoArr = element
                 val convo = mutableListOf<ChatMessage>()
-                for (j in 0 until convoArr.length()) {
+                // Only load the last 5 messages from local storage to avoid loading whole conversations
+                val startIndex = maxOf(0, convoArr.length() - 5)
+                for (j in startIndex until convoArr.length()) {
                     val obj = convoArr.getJSONObject(j)
                     convo.add(
                         ChatMessage(
@@ -40,7 +42,7 @@ object ChatHistory {
                             obj.optString("created_at", null),
                             null,
                             false,
-                            obj.optString("message_hash", null)
+                            obj.optInt("id", -1).takeIf { it != -1 }
                         )
                     )
                 }
@@ -52,7 +54,9 @@ object ChatHistory {
                 val title = obj.optString("title")
                 val convoArr = obj.getJSONArray("messages")
                 val convo = mutableListOf<ChatMessage>()
-                for (j in 0 until convoArr.length()) {
+                // Only load the last 5 messages from local storage to avoid loading whole conversations
+                val startIndex = maxOf(0, convoArr.length() - 5)
+                for (j in startIndex until convoArr.length()) {
                     val msg = convoArr.getJSONObject(j)
                     val role = msg.optString("role", if (msg.optBoolean("isUser", false)) "user" else "assistant")
                     convo.add(
@@ -62,7 +66,7 @@ object ChatHistory {
                             msg.optString("created_at", null),
                             msg.optJSONArray("tool_calls")?.toString(),
                             false,
-                            msg.optString("message_hash", null)
+                            msg.optInt("id", -1).takeIf { it != -1 }
                         )
                     )
                 }
@@ -92,12 +96,16 @@ object ChatHistory {
                     val title = convoObj.optString("title")
                     val id = convoObj.optInt("id", -1).takeIf { it != -1 }
                     val messageCount = convoObj.optInt("message_count", 0)
+                    val latestOffset = convoObj.optInt("latest_offset", 0)
+                    
+                    // Set total message count in ChatRepository for pagination management
+                    if (id != null && messageCount > 0) {
+                        ChatRepository.setTotalMessageCount(id, messageCount)
+                    }
                     
                     // For the list view, we don't need to load all messages
                     // We'll load them when the conversation is actually opened
                     val convo = mutableListOf<ChatMessage>()
-                    
-                    // No placeholder messages needed
                     
                     conversations.add(convo)
                     titles.add(title)
@@ -116,27 +124,13 @@ object ChatHistory {
         }
     }
 
-    suspend fun fetchConversation(index: Int): MutableList<ChatMessage>? {
-        val conversationId = conversationIds.getOrNull(index)
-        if (conversationId != null) {
-            val messages = fetchConversationById(conversationId)
-            if (messages != null) {
-                // Update the local conversation with full messages
-                conversations[index] = messages
-                persist() // Save the updated conversation
-                return messages
-            }
-        }
-        return conversations.getOrNull(index)
-    }
+    // Removed fetchConversation() - use getRecentMessages() instead to avoid loading whole conversations
 
-    suspend fun fetchConversationById(conversationId: Int, limit: Int = 50, offset: Int = 0, reverse: Boolean = false): MutableList<ChatMessage>? = withContext(Dispatchers.IO) {
+    suspend fun fetchConversationById(conversationId: Int, limit: Int = 5, offset: Int = 0): MutableList<ChatMessage>? = withContext(Dispatchers.IO) {
         try {
-            val url = if (limit == 50 && offset == 0 && !reverse) {
-                "${Settings.llmUrl}/conversations/$conversationId"
-            } else {
-                "${Settings.llmUrl}/conversations/$conversationId?limit=$limit&offset=$offset&reverse=$reverse"
-            }
+            // Always include pagination parameters to ensure we never fetch whole conversations
+            // New pagination system uses normal chronological order (oldest first)
+            val url = "${Settings.llmUrl}/conversations/$conversationId?limit=$limit&offset=$offset"
             println("Fetching conversation from: $url")
             HttpClient.getResponse(url, Auth.token).use { resp ->
                 if (!resp.isSuccessful) {
@@ -155,18 +149,12 @@ object ChatHistory {
                     val content = obj.optString("content")
                     val created = obj.optString("created_at", null)
                     val toolCalls = obj.optJSONArray("tool_calls")?.toString()
-                    val messageHash = obj.optString("message_hash", null)
-                    println("Message $j: role=$role, content=${content.take(50)}...")
-                    convo.add(ChatMessage(content, role, created, toolCalls, false, messageHash))
+                    val messageId = obj.optInt("id", -1).takeIf { it != -1 }
+                    println("Message $j: role=$role, content=${content.take(50)}..., id=$messageId")
+                    convo.add(ChatMessage(content, role, created, toolCalls, false, messageId))
                 }
                 
-                // If reverse=true, the messages come newest first, reverse them for chronological order
-                if (reverse) {
-                    convo.reverse()
-                }
-                
-                // Always sort by created_at to ensure proper chronological order
-                convo.sortBy { it.createdAt }
+                // Messages are already in chronological order from the new backend pagination system
                 
                 println("Loaded ${convo.size} messages for conversation $conversationId")
                 return@withContext convo
@@ -187,13 +175,15 @@ object ChatHistory {
             convoObj.put("title", titles.getOrElse(i) { "" })
             conversationIds.getOrNull(i)?.let { convoObj.put("id", it) }
             val convoArr = JSONArray()
-            for (msg in convo) {
+            // Only persist the last 5 messages to avoid large local storage
+            val messagesToPersist = if (convo.size > 5) convo.takeLast(5) else convo
+            for (msg in messagesToPersist) {
                 val obj = JSONObject()
                 obj.put("role", msg.role)
                 obj.put("content", msg.text)
                 if (msg.createdAt != null) obj.put("created_at", msg.createdAt)
                 if (msg.toolCalls != null) obj.put("tool_calls", JSONArray(msg.toolCalls))
-                if (msg.messageHash != null) obj.put("message_hash", msg.messageHash)
+                if (msg.messageId != null) obj.put("id", msg.messageId)
                 convoArr.put(obj)
             }
             convoObj.put("messages", convoArr)
@@ -221,12 +211,63 @@ object ChatHistory {
             return mutableListOf()
         }
     }
+    
+    /**
+     * Get conversation messages with efficient initial loading.
+     * Loads only the most recent messages for quick display,
+     * allowing pagination to load older messages as needed.
+     */
+    suspend fun getRecentMessages(index: Int, initialLimit: Int = 5): MutableList<ChatMessage> = withContext(Dispatchers.IO) {
+        println("ChatHistory: Getting recent messages for conversation $index with limit $initialLimit")
+        if (index < 0 || index >= conversations.size) {
+            println("ChatHistory: Index $index out of bounds")
+            return@withContext mutableListOf()
+        }
+        
+        val conversationId = conversationIds.getOrNull(index)
+        if (conversationId == null) {
+            println("ChatHistory: No conversation ID for index $index, using local messages")
+            return@withContext conversations[index]
+        }
+        
+        try {
+            // Get total message count and calculate offset for most recent messages
+            val totalMessages = ChatRepository.getTotalMessageCount(conversationId)
+            val offsetForRecent = if (totalMessages > initialLimit) {
+                totalMessages - initialLimit
+            } else {
+                0
+            }
+            
+            // Fetch the most recent messages from server using new pagination system
+            val recentMessages = fetchConversationById(conversationId, limit = initialLimit, offset = offsetForRecent)
+            if (recentMessages != null && recentMessages.isNotEmpty()) {
+                // Update the conversation in place with recent messages
+                conversations[index] = recentMessages
+                println("ChatHistory: Loaded ${recentMessages.size} recent messages for conversation $index (offset: $offsetForRecent)")
+                return@withContext recentMessages
+            } else {
+                println("ChatHistory: No messages fetched from server, using local messages")
+                return@withContext conversations[index]
+            }
+        } catch (e: Exception) {
+            println("ChatHistory: Error fetching recent messages: ${e.message}")
+            return@withContext conversations[index]
+        }
+    }
 
     fun update(index: Int, messages: MutableList<ChatMessage>) {
         if (index >= 0 && index < conversations.size) {
-            conversations[index] = messages
+            // Limit in-memory conversation size to prevent memory issues
+            // Keep at most 25 messages in memory (about 5x the pagination size)
+            val limitedMessages = if (messages.size > 25) {
+                messages.takeLast(25).toMutableList()
+            } else {
+                messages
+            }
+            conversations[index] = limitedMessages
             if (index < titles.size && titles[index].isEmpty()) {
-                titles[index] = messages.firstOrNull { it.isUser }?.text?.take(30) ?: "Conversation ${index + 1}"
+                titles[index] = limitedMessages.firstOrNull { it.isUser }?.text?.take(30) ?: "Conversation ${index + 1}"
             }
             persist()
         } else {

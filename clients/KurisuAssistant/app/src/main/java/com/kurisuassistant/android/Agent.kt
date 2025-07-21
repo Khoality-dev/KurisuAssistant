@@ -23,14 +23,19 @@ class Agent(private val player: AudioTrack) {
     private val TAG = "Agent"
     private val scope = CoroutineScope(Dispatchers.IO)
     private var speakingJob: Job? = null
+    private var healthCheckJob: Job? = null
 
     private var chatChannel: Channel<ChatMessage>? = null
-    private val _connected = MutableLiveData(true)
+    private val _connected = MutableLiveData(false)
     val connected: LiveData<Boolean> get() = _connected
     private val _typing = MutableLiveData(false)
     val typing: LiveData<Boolean> get() = _typing
     private val _speaking = MutableLiveData(false)
     val speaking: LiveData<Boolean> get() = _speaking
+
+    init {
+        startHealthCheck()
+    }
 
     suspend fun stt(audioBuffer: MutableIntList): String {
         val data = Util.toByteArray(audioBuffer)
@@ -137,5 +142,27 @@ class Agent(private val player: AudioTrack) {
             }
         }
         return channel
+    }
+
+    private fun startHealthCheck() {
+        healthCheckJob?.cancel()
+        healthCheckJob = scope.launch {
+            while (true) {
+                try {
+                    HttpClient.getResponse("${Settings.llmUrl}/health", Auth.token).use { resp ->
+                        _connected.postValue(resp.isSuccessful)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Health check failed", e)
+                    _connected.postValue(false)
+                }
+                delay(5000) // Check every 5 seconds
+            }
+        }
+    }
+
+    fun destroy() {
+        healthCheckJob?.cancel()
+        speakingJob?.cancel()
     }
 }

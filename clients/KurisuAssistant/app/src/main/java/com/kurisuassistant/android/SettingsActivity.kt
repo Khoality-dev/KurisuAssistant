@@ -25,6 +25,7 @@ import okhttp3.Response
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaType
 import android.util.Patterns
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -40,7 +41,9 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var llmValidationIcon: ImageView
     private lateinit var ttsValidationProgress: ProgressBar
     private lateinit var ttsValidationIcon: ImageView
+    private lateinit var saveButton: Button
     private val client = HttpClient.noTimeout
+    private var hasUnsavedChanges = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,6 +67,7 @@ class SettingsActivity : AppCompatActivity() {
         llmValidationIcon = findViewById(R.id.llmValidationIcon)
         ttsValidationProgress = findViewById(R.id.ttsValidationProgress)
         ttsValidationIcon = findViewById(R.id.ttsValidationIcon)
+        saveButton = findViewById(R.id.buttonSave)
 
         llmUrl.setText(Settings.llmUrl)
         ttsUrl.setText(Settings.ttsUrl)
@@ -84,22 +88,38 @@ class SettingsActivity : AppCompatActivity() {
             if (!hasFocus) {
                 validateLlmUrl()
                 loadModels()
-                saveSettings()
             }
         }
 
         ttsUrl.setOnFocusChangeListener { _, hasFocus ->
             if (!hasFocus) {
                 validateTtsUrl()
-                saveSettings()
             }
         }
 
-        systemPrompt.setOnFocusChangeListener { _, hasFocus ->
-            if (!hasFocus) {
-                saveSystemPrompt(systemPrompt.text.toString().trim())
-            }
+        // Save button click handler
+        saveButton.setOnClickListener {
+            saveAllSettings()
         }
+
+        // Add text change listeners to detect unsaved changes
+        llmUrl.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { markUnsavedChanges() }
+        })
+
+        ttsUrl.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { markUnsavedChanges() }
+        })
+
+        systemPrompt.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { markUnsavedChanges() }
+        })
 
         // Add click listeners for manual revalidation
         llmValidationIcon.setOnClickListener {
@@ -171,10 +191,10 @@ class SettingsActivity : AppCompatActivity() {
                         Settings.model = current
                         modelSpinner.setSelection(idx)
                         
-                        // Add listener for auto-save on model selection change
+                        // Add listener to mark unsaved changes on model selection
                         modelSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
                             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
-                                saveSettings()
+                                markUnsavedChanges()
                             }
                             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
                         }
@@ -204,33 +224,6 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun saveSystemPrompt(prompt: String) {
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-            try {
-                val requestBody = JSONObject().apply {
-                    put("system_prompt", prompt)
-                }.toString().toRequestBody("application/json".toMediaType())
-                
-                HttpClient.put("${Settings.llmUrl}/system-prompt", requestBody, Auth.token ?: "").use { response ->
-                    if (response.isSuccessful) {
-                        // Also save locally as backup
-                        Settings.saveSystemPrompt(prompt)
-                        runOnUiThread {
-                            Toast.makeText(this@SettingsActivity, "Settings saved", Toast.LENGTH_SHORT).show()
-                        }
-                    } else {
-                        runOnUiThread {
-                            Toast.makeText(this@SettingsActivity, "Failed to save system prompt", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    Toast.makeText(this@SettingsActivity, "Error saving system prompt: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
 
     private fun saveSettings() {
         Settings.save(
@@ -238,6 +231,51 @@ class SettingsActivity : AppCompatActivity() {
             ttsUrl.text.toString().trim(),
             modelSpinner.selectedItem?.toString() ?: ""
         )
+    }
+
+    private fun saveAllSettings() {
+        // Show loading state
+        saveButton.isEnabled = false
+        saveButton.text = "Saving..."
+        
+        // Save local settings first
+        saveSettings()
+        
+        // Save system prompt to server
+        val prompt = systemPrompt.text.toString().trim()
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                val requestBody = JSONObject().apply {
+                    put("system_prompt", prompt)
+                }.toString().toRequestBody("application/json".toMediaType())
+                
+                HttpClient.put("${Settings.llmUrl}/system-prompt", requestBody, Auth.token ?: "").use { response ->
+                    runOnUiThread {
+                        if (response.isSuccessful) {
+                            // Also save locally as backup
+                            Settings.saveSystemPrompt(prompt)
+                            Toast.makeText(this@SettingsActivity, "Settings saved successfully", Toast.LENGTH_SHORT).show()
+                            markChangesSaved()
+                        } else {
+                            Toast.makeText(this@SettingsActivity, "Failed to save system prompt to server", Toast.LENGTH_SHORT).show()
+                        }
+                        // Reset button state
+                        saveButton.isEnabled = true
+                        saveButton.text = "Save Settings"
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    // Save locally even if server fails
+                    Settings.saveSystemPrompt(prompt)
+                    Toast.makeText(this@SettingsActivity, "Settings saved locally (server error: ${e.message})", Toast.LENGTH_LONG).show()
+                    markChangesSaved()
+                    // Reset button state
+                    saveButton.isEnabled = true
+                    saveButton.text = "Save Settings"
+                }
+            }
+        }
     }
 
     private fun validateLlmUrl() {
@@ -351,6 +389,37 @@ class SettingsActivity : AppCompatActivity() {
                 ttsValidationIcon.setImageResource(android.R.drawable.ic_dialog_alert)
                 ttsValidationIcon.setColorFilter(android.graphics.Color.RED)
             }
+        }
+    }
+
+    private fun markUnsavedChanges() {
+        hasUnsavedChanges = true
+        saveButton.text = "Save Settings *"
+        saveButton.setBackgroundColor(ContextCompat.getColor(this, R.color.status_unavailable))
+    }
+
+    private fun markChangesSaved() {
+        hasUnsavedChanges = false
+        saveButton.text = "Save Settings"
+        saveButton.setBackgroundColor(ContextCompat.getColor(this, R.color.primaryBlue))
+    }
+
+    override fun onBackPressed() {
+        if (hasUnsavedChanges) {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Unsaved Changes")
+                .setMessage("You have unsaved changes. Do you want to save before leaving?")
+                .setPositiveButton("Save") { _, _ ->
+                    saveAllSettings()
+                    super.onBackPressed()
+                }
+                .setNegativeButton("Discard") { _, _ ->
+                    super.onBackPressed()
+                }
+                .setNeutralButton("Cancel", null)
+                .show()
+        } else {
+            super.onBackPressed()
         }
     }
 

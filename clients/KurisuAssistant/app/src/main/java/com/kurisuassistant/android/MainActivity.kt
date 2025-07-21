@@ -46,6 +46,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var drawerLayout: DrawerLayout
     private lateinit var drawerToggle: ActionBarDrawerToggle
     private lateinit var drawerAdapter: ConversationAdapter
+    private lateinit var layoutManager: LinearLayoutManager
+    private lateinit var recyclerView: RecyclerView
     private var responding: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -105,10 +107,10 @@ class MainActivity : AppCompatActivity() {
         Util.checkPermissions(this)
 
         val swipeRefreshLayout = findViewById<SwipeRefreshLayout>(R.id.swipeRefreshLayout)
-        val recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
+        recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
         adapter = ChatAdapter(this, viewModel.messages.value ?: emptyList())
         recyclerView.adapter = adapter
-        val layoutManager = LinearLayoutManager(this)
+        layoutManager = LinearLayoutManager(this)
         recyclerView.layoutManager = layoutManager
         
         // Add scroll listener for loading older messages
@@ -116,20 +118,19 @@ class MainActivity : AppCompatActivity() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 super.onScrolled(recyclerView, dx, dy)
                 
-                // Check if user scrolled to the top and there might be older messages
+                // No longer need to track auto-scroll state - just check if latest message is visible when updating
+                
+                // Check if user scrolled near the top and there might be older messages
                 val firstVisibleItem = layoutManager.findFirstVisibleItemPosition()
-                if (firstVisibleItem == 0 && dy < 0) { // dy < 0 means scrolling up
-                    // Load older messages
-                    ChatRepository.loadOlderMessages { hasMore ->
-                        if (hasMore) {
-                            // Messages were loaded, maintain scroll position
-                            val currentFirstVisible = layoutManager.findFirstVisibleItemPosition()
-                            val loadedCount = 20 // We loaded 20 messages
-                            recyclerView.post {
-                                layoutManager.scrollToPositionWithOffset(currentFirstVisible + loadedCount, 0)
-                            }
-                        }
-                    }
+                
+                if (dy < 0) { // Only log when scrolling up
+                    val totalItems = layoutManager.itemCount
+                    println("MainActivity: Scroll up - firstVisible: $firstVisibleItem, totalItems: $totalItems, dy: $dy")
+                }
+                
+                if (firstVisibleItem <= 1 && dy < 0) { // Load when within 1 item of top and scrolling up
+                    println("MainActivity: Scroll up detected, loading older messages...")
+                    loadMoreMessagesIfNeeded()
                 }
             }
         })
@@ -156,10 +157,8 @@ class MainActivity : AppCompatActivity() {
                 emptyStateLayout.visibility = View.GONE
                 recyclerView.visibility = View.VISIBLE
                 recyclerView.post {
-                    val last = adapter.itemCount - 1
-                    if (last >= 0) {
-                        recyclerView.smoothScrollToPosition(last)
-                    }
+                    // Auto-load more messages if the list doesn't fill the screen
+                    checkAndLoadMoreIfNeeded()
                 }
             } else {
                 emptyStateLayout.visibility = View.VISIBLE
@@ -170,17 +169,29 @@ class MainActivity : AppCompatActivity() {
             updateToolbarTitle()
         }
 
-        recyclerView.addOnLayoutChangeListener { _, _, _, _, bottom, _, _, _, oldBottom ->
-            if (bottom > oldBottom) {
-                val last = adapter.itemCount - 1
-                if (last >= 0) recyclerView.post { recyclerView.scrollToPosition(last) }
-            }
-        }
+        // Removed layout change listener - no auto-scrolling on layout changes
 
         viewModel.connected.observe(this) { connected ->
             val res = if (connected) android.R.drawable.presence_online
             else android.R.drawable.presence_offline
             connectionIndicator.setImageResource(res)
+            
+            // Enable/disable chat controls based on connection status
+            sendButton.isEnabled = connected
+            recordButton.isEnabled = connected
+            editText.isEnabled = connected
+            
+            // Update visual appearance of disabled controls
+            val enabledColor = ContextCompat.getColor(this, R.color.primaryBlue)
+            val disabledColor = ContextCompat.getColor(this, android.R.color.darker_gray)
+            
+            sendButton.setColorFilter(if (connected) enabledColor else disabledColor)
+            recordButton.setColorFilter(if (connected) enabledColor else disabledColor)
+            editText.setTextColor(if (connected) 
+                ContextCompat.getColor(this, R.color.black) else disabledColor)
+            
+            // Update hint text based on connection status
+            editText.hint = if (connected) "Type a message..." else "No connection - check server status"
         }
 
         viewModel.typing.observe(this) { typing ->
@@ -193,13 +204,20 @@ class MainActivity : AppCompatActivity() {
 
         sendButton.setOnClickListener {
             val text = editText.text.toString().trim()
-            if (text.isNotEmpty()) {
+            if (text.isNotEmpty() && viewModel.connected.value == true) {
                 viewModel.sendMessage(text)
                 editText.text.clear()
+            } else if (viewModel.connected.value == false) {
+                Toast.makeText(this, "No connection to server", Toast.LENGTH_SHORT).show()
             }
         }
 
         recordButton.setOnClickListener {
+            if (viewModel.connected.value == false) {
+                Toast.makeText(this, "No connection to server", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
             if (isRecording) {
                 stopRecordingService()
                 recordIndicator.visibility = View.GONE
@@ -270,6 +288,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         adapter.onDestroy()
+        ChatRepository.destroy()
     }
 
     private fun refreshDrawer() {
@@ -315,6 +334,32 @@ class MainActivity : AppCompatActivity() {
             } else {
                 Toast.makeText(this, "Failed to delete conversation", Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+    
+    private fun loadMoreMessagesIfNeeded() {
+        // Load older messages in background without scroll position manipulation
+        ChatRepository.loadOlderMessagesSmooth { updatedMessages ->
+            if (updatedMessages != null) {
+                println("MainActivity: Loading older messages without scroll manipulation")
+                
+                // Update UI without any scroll position changes
+                ChatRepository.updateMessagesSmooth(updatedMessages)
+            }
+        }
+    }
+    
+    private fun checkAndLoadMoreIfNeeded() {
+        // Check if RecyclerView can scroll (has enough content)
+        val canScrollVertically = recyclerView.canScrollVertically(-1) // Can scroll up
+        val itemCount = layoutManager.itemCount
+        
+        println("MainActivity: checkAndLoadMoreIfNeeded - canScrollUp: $canScrollVertically, itemCount: $itemCount")
+        
+        // If we can't scroll up and have fewer than 15 messages, try to load more
+        if (!canScrollVertically && itemCount > 0 && itemCount < 15) {
+            println("MainActivity: Auto-loading more messages to fill screen...")
+            loadMoreMessagesIfNeeded()
         }
     }
 }

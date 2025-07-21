@@ -3,7 +3,7 @@ import psycopg2
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://kurisu:kurisu@10.0.0.122:5432/kurisu")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://kurisu:kurisu@localhost:5432/kurisu")
 
 def get_connection():
     """Get a database connection."""
