@@ -68,7 +68,7 @@ class MainActivity : AppCompatActivity() {
             override fun onDrawerSlide(drawerView: View, slideOffset: Float) {}
             override fun onDrawerOpened(drawerView: View) {
                 // Fetch conversations when drawer is opened
-                ChatRepository.refreshConversations {
+                ChatRepository.refreshConversationList {
                     refreshDrawer()
                 }
             }
@@ -144,14 +144,18 @@ class MainActivity : AppCompatActivity() {
                 
                 if (firstVisibleItem <= 1 && dy < 0) { // Load when within 1 item of top and scrolling up
                     println("MainActivity: Scroll up detected, loading older messages...")
-                    loadMoreMessagesIfNeeded()
+                    ChatRepository.loadOlderMessages { hasMore ->
+                        if (hasMore) {
+                            println("MainActivity: Loaded older messages successfully")
+                        }
+                    }
                 }
             }
         })
         
         // Setup pull-to-refresh
         swipeRefreshLayout.setOnRefreshListener {
-            refreshConversations(swipeRefreshLayout)
+            refreshConversationList(swipeRefreshLayout)
         }
 
         val editText = findViewById<EditText>(R.id.editTextMessage)
@@ -171,8 +175,6 @@ class MainActivity : AppCompatActivity() {
                 emptyStateLayout.visibility = View.GONE
                 recyclerView.visibility = View.VISIBLE
                 recyclerView.post {
-                    // Auto-load more messages if the list doesn't fill the screen
-                    checkAndLoadMoreIfNeeded()
                     
                     // Auto-scroll to bottom if snapToLastMessage flag is true
                     if (snapToLastMessage && it.isNotEmpty()) {
@@ -284,12 +286,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun refreshConversations(swipeRefreshLayout: SwipeRefreshLayout) {
+    private fun refreshConversationList(swipeRefreshLayout: SwipeRefreshLayout) {
         // Show loading indicator
         swipeRefreshLayout.isRefreshing = true
         
         // Use a coroutine to refresh conversations
-        viewModel.refreshConversations {
+        viewModel.refreshConversationList {
             // Hide loading indicator when done
             runOnUiThread {
                 swipeRefreshLayout.isRefreshing = false
@@ -356,30 +358,5 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-    
-    private fun loadMoreMessagesIfNeeded() {
-        // Load older messages in background without scroll position manipulation
-        ChatRepository.loadOlderMessagesSmooth { updatedMessages ->
-            if (updatedMessages != null) {
-                println("MainActivity: Loading older messages without scroll manipulation")
-                
-                // Update UI without any scroll position changes
-                ChatRepository.updateMessagesSmooth(updatedMessages)
-            }
-        }
-    }
-    
-    private fun checkAndLoadMoreIfNeeded() {
-        // Check if RecyclerView can scroll (has enough content)
-        val canScrollVertically = recyclerView.canScrollVertically(-1) // Can scroll up
-        val itemCount = layoutManager.itemCount
-        
-        println("MainActivity: checkAndLoadMoreIfNeeded - canScrollUp: $canScrollVertically, itemCount: $itemCount")
-        
-        // If we can't scroll up and have fewer than 15 messages, try to load more
-        if (!canScrollVertically && itemCount > 0 && itemCount < 15) {
-            println("MainActivity: Auto-loading more messages to fill screen...")
-            loadMoreMessagesIfNeeded()
-        }
-    }
+
 }

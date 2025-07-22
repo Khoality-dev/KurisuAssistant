@@ -107,7 +107,16 @@ class Agent(private val player: AudioTrack) {
                             val content = msgObj.optString("content")
                             val created = msgObj.optString("created_at", null)
                             val toolCalls = msgObj.optJSONArray("tool_calls")?.toString()
-                            val msg = ChatMessage(content, role, created, toolCalls)
+                            val messageId = msgObj.optInt("message_id", -1)
+                            
+                            if (messageId == -1) {
+                                Log.e(TAG, "Message missing message_id: $msgObj")
+                                channel.close(Exception("Message missing required message_id"))
+                                _typing.postValue(false)
+                                return@use
+                            }
+                            
+                            val msg = ChatMessage(content, role, created, toolCalls, false, messageId)
                             channel.trySend(msg)
                             
                             if (role == "assistant" && content.isNotEmpty()) {

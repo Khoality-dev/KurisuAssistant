@@ -4,7 +4,7 @@ import time
 import datetime
 from ollama import Client as OllamaClient
 from mcp_tools.client import list_tools, call_tool
-from .db import get_user_system_prompt, generate_message_hash
+from .db import get_user_system_prompt, upsert_streaming_message
 
 SYSTEM_PROMPT = """
 You have access to conversation context tools that allow you to retrieve and search through the current conversation's message history. These tools are automatically scoped to the current conversation.
@@ -128,56 +128,26 @@ class Agent:
     def pull_model(self, model_name):
         self.ollama_client.pull(model_name)
 
-    def merge_contexts(self):
-        """Merge multiple contexts into a single context."""
-        merged_message = None
-        new_context_messages = []
-        for message in self.context_messages:
-            if merged_message is not None and merged_message["role"] == message["role"]:
-                merged_message["content"] = (
-                    merged_message["content"] + " " + message["content"]
-                )
-                # Keep the created_at from the first message, but update updated_at to the last message's created_at
-                merged_message["updated_at"] = message.get(
-                    "created_at", merged_message.get("created_at")
-                )
-            else:
-                if merged_message is not None:
-                    merged_message["content"] = merged_message["content"].strip()
-                    new_context_messages.append(merged_message)
-                merged_message = message.copy()
-                # Initialize updated_at to created_at for new merged message
-                merged_message["updated_at"] = merged_message.get("created_at")
-
-        if merged_message is not None:
-            merged_message["content"] = merged_message["content"].strip()
-            new_context_messages.append(merged_message)
-        self.context_messages = new_context_messages
-        return new_context_messages
-
     async def chat(self, model_name, user_message):
         """Send a chat request and yield streaming responses."""
         created_at = datetime.datetime.utcnow().isoformat()
-        message_hash = generate_message_hash(
-            "user", user_message, self.username, self.conversation_id, created_at
-        )
-        self.context_messages.append(
-            {
-                "role": "user",
-                "content": user_message,
-                "created_at": created_at,
-                "updated_at": created_at,
-                "message_hash": message_hash,
-            }
-        )
-
+        user_msg = {
+            "role": "user",
+            "content": user_message,
+            "created_at": created_at,
+            "updated_at": created_at,
+        }
+        
+        # Immediately save user message to database to get message_id
+        message_id = upsert_streaming_message(self.username, user_msg, self.conversation_id)
+        user_msg["message_id"] = message_id
+        self.context_messages.append(user_msg)
         buffer = ""
         while True:
             buffer = ""
             # Get tools with caching to avoid repeated MCP connections
             tools = await self.get_tools()
             # Use the recent messages directly
-            self.merge_contexts()
             messages = [
                 {
                     "role": "system",
@@ -202,14 +172,11 @@ class Agent:
                 print(chunk)
                 if msg.tool_calls:
                     created_at = datetime.datetime.utcnow().isoformat()
-                    message_hash = generate_message_hash(
-                        "assistant",
-                        msg.content,
-                        self.username,
-                        self.conversation_id,
-                        created_at,
-                    )
-                    self.context_messages.append({"role": "assistant", "content": msg.content, "tool_calls": msg.tool_calls, "created_at": created_at, "updated_at": created_at, "message_hash": message_hash})
+                    assistant_msg = {"role": "assistant", "content": msg.content, "tool_calls": msg.tool_calls, "created_at": created_at, "updated_at": created_at}
+                    # Save assistant message with tool calls to database first to get message_id
+                    message_id = upsert_streaming_message(self.username, assistant_msg, self.conversation_id)
+                    assistant_msg["message_id"] = message_id
+                    self.context_messages.append(assistant_msg)
                     for tool_call in msg.tool_calls:
                         if self.mcp_client is not None:
                             result = await call_tool(
@@ -222,21 +189,16 @@ class Agent:
                         else:
                             tool_text = "MCP client not available"
                         created_at = datetime.datetime.utcnow().isoformat()
-                        message_hash = generate_message_hash(
-                            "tool",
-                            tool_text,
-                            self.username,
-                            self.conversation_id,
-                            created_at,
-                        )
                         tool_message = {
                             "role": "tool",
                             "content": tool_text,
                             "tool_name": tool_call.function.name,
                             "created_at": created_at,
                             "updated_at": created_at,
-                            "message_hash": message_hash,
                         }
+                        # Save to database first to get message_id
+                        message_id = upsert_streaming_message(self.username, tool_message, self.conversation_id)
+                        tool_message["message_id"] = message_id
                         yield tool_message
                         # Add tool response to recent_messages
                         self.context_messages.append(tool_message)
@@ -258,22 +220,22 @@ class Agent:
                     # Yield if we have at least 10 words
                     if word_count >= 10:
                         created_at = datetime.datetime.utcnow().isoformat()
-                        message_hash = generate_message_hash(
-                            "assistant",
-                            complete_sentence,
-                            self.username,
-                            self.conversation_id,
-                            created_at,
-                        )
                         message = {
                             "role": "assistant",
                             "content": complete_sentence,
                             "created_at": created_at,
                             "updated_at": created_at,
-                            "message_hash": message_hash,
                         }
+                        # Save/update message in database first to get message_id
+                        message_id = upsert_streaming_message(self.username, message, self.conversation_id)
+                        message["message_id"] = message_id
                         yield message
-                        self.context_messages.append(message)
+                        if self.context_messages[-1]["role"] == message["role"]:
+                            self.context_messages[-1]["content"] += message["content"]
+                            self.context_messages[-1]["updated_at"] = message["updated_at"]
+                            self.context_messages[-1]["message_id"] = message_id
+                        else:
+                            self.context_messages.append(message)
                         # Keep the remaining part in buffer
                         buffer = buffer[last_delimiter_pos + 1 :]
 
@@ -284,19 +246,14 @@ class Agent:
         if rstrip_buffer != "":
             # If there's any remaining buffer, yield it as the final message
             created_at = datetime.datetime.utcnow().isoformat()
-            message_hash = generate_message_hash(
-                "assistant",
-                rstrip_buffer,
-                self.username,
-                self.conversation_id,
-                created_at,
-            )
             message = {
                 "role": "assistant",
                 "content": rstrip_buffer,
                 "created_at": created_at,
                 "updated_at": created_at,
-                "message_hash": message_hash,
             }
+            # Save final message to database first to get message_id
+            message_id = upsert_streaming_message(self.username, message, self.conversation_id)
+            message["message_id"] = message_id
             yield message
             self.context_messages.append(message)

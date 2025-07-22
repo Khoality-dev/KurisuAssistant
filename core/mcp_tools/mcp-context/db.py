@@ -21,7 +21,7 @@ def retrieve_messages_by_date_range_db(
     
     try:
         query = """
-            SELECT m.role, m.message, m.created_at, m.conversation_id, m.message_hash, c.title
+            SELECT m.role, m.message, m.created_at, m.conversation_id, c.title
             FROM messages m
             JOIN conversations c ON m.conversation_id = c.id
             WHERE m.conversation_id = %s
@@ -36,14 +36,13 @@ def retrieve_messages_by_date_range_db(
         
         messages = []
         for row in results:
-            role, content, created_at, conv_id, msg_hash, conv_title = row
+            role, content, created_at, conv_id, conv_title = row
             messages.append({
                 "role": role,
                 "content": content,
                 "created_at": created_at.isoformat(),
                 "conversation_id": conv_id,
                 "conversation_title": conv_title or "Untitled",
-                "message_hash": msg_hash
             })
         
         return messages
@@ -61,7 +60,7 @@ def retrieve_all_messages_for_regex_db(
     
     try:
         query = """
-            SELECT m.role, m.message, m.created_at, m.conversation_id, m.message_hash, c.title
+            SELECT m.role, m.message, m.created_at, m.conversation_id, c.title
             FROM messages m
             JOIN conversations c ON m.conversation_id = c.id
             WHERE m.conversation_id = %s

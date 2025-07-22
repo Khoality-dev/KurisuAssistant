@@ -160,9 +160,6 @@ async def chat(
         async for chunk in response_generator:
             # Just yield the chunk directly
             yield json.dumps(chunk) + "\n"
-        
-        # Save all messages from agent context to database at the end
-        add_messages(username, agent.context_messages, conversation_id=conv_id)
 
     return StreamingResponse(stream(), media_type="application/json")
 

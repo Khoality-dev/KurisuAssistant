@@ -101,7 +101,7 @@ def retrieve_messages_by_regex(
         # Filter results using regex in Python (since PostgreSQL regex syntax might vary)
         matching_messages = []
         for row in all_results:
-            role, content, created_at, conv_id, msg_hash, conv_title = row
+            role, content, created_at, conv_id, conv_title = row
             if compiled_pattern.search(content):
                 matching_messages.append({
                     "role": role,
@@ -109,7 +109,6 @@ def retrieve_messages_by_regex(
                     "created_at": created_at.isoformat(),
                     "conversation_id": conv_id,
                     "conversation_title": conv_title or "Untitled",
-                    "message_hash": msg_hash
                 })
                 
                 # Stop if we've reached the limit

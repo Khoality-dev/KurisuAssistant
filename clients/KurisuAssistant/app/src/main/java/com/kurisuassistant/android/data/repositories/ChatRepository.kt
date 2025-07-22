@@ -1,0 +1,474 @@
+package com.kurisuassistant.android
+
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
+import com.kurisuassistant.android.model.ChatMessage
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+// Removed Job import - no longer needed without polling
+// Removed delay import - no longer needed without polling
+import kotlinx.coroutines.withContext
+import java.time.Instant
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaType
+import org.json.JSONObject
+import com.kurisuassistant.android.utils.HttpClient
+import com.kurisuassistant.android.Settings
+import com.kurisuassistant.android.Auth
+
+/**
+ * Singleton repository that manages chat messages and communicates with [Agent].
+ */
+object ChatRepository {
+    private const val MESSAGES_PER_PAGE = 20 // Messages to fetch per page/screen
+    
+    private val _messages = MutableLiveData<MutableList<ChatMessage>>(mutableListOf())
+    val messages: LiveData<MutableList<ChatMessage>> = _messages
+    private var currentIndex = 0
+    // Removed polling - app now uses manual refresh only
+    private var isProcessing = false
+    private var isLoadingOlderMessages = false
+    
+    
+    private fun getCurrentConversation(): Conversation? {
+        return ChatHistory.getConversationByIndex(currentIndex)
+    }
+
+    private val player: AudioTrack by lazy {
+        AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(32_000)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build()
+            )
+            .setTransferMode(AudioTrack.MODE_STREAM)
+            .setBufferSizeInBytes(1024)
+            .build().apply { play() }
+    }
+
+    private val agent by lazy { Agent(player) }
+    private val scope = CoroutineScope(Dispatchers.IO)
+
+
+    val connected: LiveData<Boolean>
+        get() = agent.connected
+    val typing: LiveData<Boolean>
+        get() = agent.typing
+    val speaking: LiveData<Boolean>
+        get() = agent.speaking
+
+    private val _conversationActive = MutableLiveData(false)
+    val conversationActive: LiveData<Boolean> = _conversationActive
+    
+    val isProcessingMessage: Boolean
+        get() = isProcessing
+    
+    fun getCurrentConversationIndex(): Int = currentIndex
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    /**
+     * Load older messages for scroll-up pagination
+     * Returns true if more messages were loaded, false if none available
+     */
+    fun loadOlderMessages(callback: (Boolean) -> Unit) {
+        if (isLoadingOlderMessages) {
+            callback(false)
+            return
+        }
+        
+        val conversation = getCurrentConversation()
+        if (conversation?.id == null) {
+            callback(false)
+            return
+        }
+        
+        isLoadingOlderMessages = true
+        
+        scope.launch {
+            try {
+                // Get next offset to fetch (decrement from current position)
+                if (conversation.nextFetchOffset <= 0) {
+                    withContext(Dispatchers.Main) {
+                        isLoadingOlderMessages = false
+                        callback(false)
+                    }
+                    return@launch
+                }
+                
+                val offset = maxOf(0, conversation.nextFetchOffset - 5)
+                
+                // Fetch older messages
+                val olderMessages = ChatHistory.fetchConversationMessagesById(conversation.id, limit = 5, offset = offset)
+                
+                if (olderMessages != null && olderMessages.isNotEmpty()) {
+                    // Update next fetch offset
+                    conversation.nextFetchOffset = offset
+                    
+                    // Push older messages to beginning
+                    conversation.addMessagesAtBeginning(olderMessages)
+                    
+                    // Update UI
+                    _messages.postValue(ArrayList(conversation.messages))
+                    
+                    withContext(Dispatchers.Main) {
+                        isLoadingOlderMessages = false
+                        callback(true)
+                    }
+                } else {
+                    // No more messages available
+                    conversation.nextFetchOffset = 0
+                    withContext(Dispatchers.Main) {
+                        isLoadingOlderMessages = false
+                        callback(false)
+                    }
+                }
+            } catch (e: Exception) {
+                println("ChatRepository: Error loading older messages: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    isLoadingOlderMessages = false
+                    callback(false)
+                }
+            }
+        }
+    }
+
+    fun init(context: Context? = null) {
+        agent
+        context?.let { ChatHistory.init(it) }
+        if (context != null) {
+            scope.launch {
+                ChatHistory.fetchConversationList()
+                if (ChatHistory.size > 0) {
+                    // Start with the newest conversation (last index)
+                    currentIndex = ChatHistory.size - 1
+                    
+                    // Fetch enough messages to fill screen
+                    val conversation = getCurrentConversation()
+                    if (conversation?.id != null) {
+                        val fetchOffset = maxOf(0, conversation.maxOffset - MESSAGES_PER_PAGE)
+                        
+                        val messages = ChatHistory.fetchConversationMessagesById(conversation.id, limit = MESSAGES_PER_PAGE, offset = fetchOffset)
+                        if (messages != null && messages.isNotEmpty()) {
+                            conversation.replaceMessages(messages)
+                            conversation.nextFetchOffset = fetchOffset
+                            _messages.postValue(ArrayList(conversation.messages))
+                            println("ChatRepository: Initialized with ${messages.size} messages")
+                        }
+                    }
+                } else {
+                    // No conversations exist, start with a new one
+                    startNewConversation()
+                }
+            }
+        }
+    }
+
+    fun setConversationActive(active: Boolean) {
+        _conversationActive.postValue(active)
+    }
+    
+    fun refreshConversationList(onComplete: () -> Unit) {
+        scope.launch {
+            try {
+                val oldCurrentIndex = currentIndex
+                println("ChatRepository: Refreshing conversations, current index: $oldCurrentIndex")
+                
+                // Fetch fresh conversations from server
+                ChatHistory.fetchConversationList()
+                
+                // Ensure current conversation is still valid after refresh
+                if (oldCurrentIndex >= ChatHistory.size) {
+                    // If current conversation no longer exists, switch to newest
+                    currentIndex = if (ChatHistory.size > 0) ChatHistory.size - 1 else 0
+                    println("ChatRepository: Current conversation no longer exists, switching to index $currentIndex")
+                } else {
+                    currentIndex = oldCurrentIndex
+                }
+                
+                // Don't refresh messages here - that's handled by refreshConversationMessages
+                println("ChatRepository: Conversation list refreshed, current conversation index: $currentIndex")
+                
+                // Call completion callback on main thread
+                withContext(Dispatchers.Main) {
+                    onComplete()
+                }
+            } catch (e: Exception) {
+                println("ChatRepository: Error refreshing conversations: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    onComplete()
+                }
+            }
+        }
+    }
+    
+    fun refreshConversationMessages(callback: (Boolean) -> Unit) {
+        val conversation = getCurrentConversation()
+        if (conversation?.id == null || conversation.messageCount == 0) {
+            callback(false)
+            return
+        }
+        
+        scope.launch {
+            try {
+                // Refetch all messages we currently have
+                val currentMessageCount = conversation.messageCount
+                val fetchOffset = maxOf(0, conversation.maxOffset - currentMessageCount)
+                
+                val freshMessages = ChatHistory.fetchConversationMessagesById(conversation.id, limit = currentMessageCount, offset = fetchOffset)
+                if (freshMessages != null && freshMessages.isNotEmpty()) {
+                    // Replace conversation messages with fresh data
+                    conversation.replaceMessages(freshMessages)
+                    
+                    _messages.postValue(ArrayList(conversation.messages))
+                    println("ChatRepository: Refreshed ${freshMessages.size} conversation messages")
+                    
+                    withContext(Dispatchers.Main) {
+                        callback(true)
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        callback(false)
+                    }
+                }
+            } catch (e: Exception) {
+                println("ChatRepository: Error refreshing conversation messages: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    callback(false)
+                }
+            }
+        }
+    }
+
+    /**
+     * Send a user text message to the LLM and stream the assistant reply.
+     * Returns true if message was sent, false if already processing.
+     */
+    fun sendMessage(text: String): Boolean {
+        // Prevent concurrent processing
+        if (isProcessing) {
+            return false
+        }
+        
+        // Check connection status before sending
+        if (connected.value != true) {
+            return false
+        }
+        
+        isProcessing = true
+        
+        // Ensure we have a valid conversation index
+        if (currentIndex < 0 || currentIndex >= ChatHistory.size) {
+            currentIndex = ChatHistory.add()
+        }
+        
+        // Add user message to conversation
+        val conversation = getCurrentConversation()
+        val userMessage = ChatMessage(text, "user", Instant.now().toString())
+        conversation?.addMessage(userMessage)
+        
+        // Update UI with conversation messages
+        if (conversation != null) {
+            _messages.postValue(ArrayList(conversation.messages))
+            ChatHistory.update(currentIndex, conversation.messages.toMutableList())
+        }
+
+        scope.launch {
+            try {
+                // Get conversation ID if we have one
+                val conversationId = if (currentIndex >= 0 && currentIndex < ChatHistory.size) {
+                    ChatHistory.getConversationId(currentIndex)
+                } else null
+                
+                val channel: Channel<ChatMessage> = agent.chat(text, conversationId)
+                var assistant: ChatMessage? = null
+                for (msg in channel) {
+                    when (msg.role) {
+                        "assistant" -> {
+                            if (assistant == null) {
+                                assistant = ChatMessage("", "assistant", msg.createdAt)
+                                conversation?.addMessage(assistant!!)
+                            } else {
+                                val updatedAssistant = assistant!!.copy(
+                                    text = assistant!!.text + msg.text,
+                                    toolCalls = msg.toolCalls ?: assistant!!.toolCalls,
+                                )
+                                updatedAssistant.conversationId = assistant!!.conversationId
+                                assistant = updatedAssistant
+                                // Update the last message in conversation
+                                if (conversation != null && conversation.messageCount > 0) {
+                                    conversation.replaceMessages(conversation.messages.dropLast(1) + assistant!!)
+                                }
+                            }
+                            if (msg.toolCalls != null) {
+                                assistant = null
+                            }
+                        }
+                        "tool" -> {
+                            conversation?.addMessage(msg)
+                            assistant = null
+                        }
+                        "system" -> {
+                            // Handle conversation ID from system message
+                            msg.conversationId?.let { convId ->
+                                println("ChatRepository: Received conversation ID: $convId")
+                                if (currentIndex >= 0 && currentIndex < ChatHistory.size) {
+                                    ChatHistory.setConversationId(currentIndex, convId)
+                                }
+                            }
+                            continue // Don't add system messages to the UI
+                        }
+                    }
+                    // Update UI with conversation messages
+                    if (conversation != null) {
+                        _messages.postValue(ArrayList(conversation.messages))
+                        if (currentIndex >= 0 && currentIndex < ChatHistory.size) {
+                            ChatHistory.update(currentIndex, conversation.messages.toMutableList())
+                        }
+                    }
+                }
+                
+                // Streaming finished - messages are already saved with database IDs
+                println("ChatRepository: Streaming finished")
+            } finally {
+                // Always reset processing flag when done
+                isProcessing = false
+            }
+        }
+        return true
+    }
+
+
+    fun startNewConversation() {
+        // Reset processing flag when starting new conversation
+        isProcessing = false
+        
+        // Add to local history without server ID initially
+        currentIndex = ChatHistory.add()
+        
+        _messages.postValue(mutableListOf())
+        // Removed auto-polling - messages load on demand
+    }
+
+    fun switchConversation(index: Int) {
+        if (index == currentIndex || index < 0 || index >= ChatHistory.size) {
+            println("ChatRepository: Cannot switch conversation - index=$index, current=$currentIndex, size=${ChatHistory.size}")
+            return
+        }
+        
+        println("ChatRepository: Switching from conversation $currentIndex to $index")
+        
+        // Reset processing flag when switching conversations
+        isProcessing = false
+        
+        // Save current conversation before switching
+        val currentConversationId = ChatHistory.getConversationId(currentIndex)
+        ChatHistory.update(currentIndex, _messages.value ?: mutableListOf())
+        currentIndex = index
+        
+        // Load conversation messages efficiently - check if already loaded
+        scope.launch {
+            try {
+                val newConversation = ChatHistory.getConversationByIndex(index)
+                if (newConversation != null) {
+                    // Check if conversation already has messages loaded
+                    if (newConversation.messageCount > 0) {
+                        println("ChatRepository: Found ${newConversation.messageCount} stored messages for conversation $index")
+                        _messages.postValue(ArrayList(newConversation.messages))
+                        return@launch
+                    }
+                
+                    // No stored messages - fetch from server
+                    if (newConversation.id != null) {
+                    val fetchOffset = maxOf(0, newConversation.maxOffset - MESSAGES_PER_PAGE)
+                    
+                    val messages = ChatHistory.fetchConversationMessagesById(newConversation.id, limit = MESSAGES_PER_PAGE, offset = fetchOffset)
+                    if (messages != null && messages.isNotEmpty()) {
+                        newConversation.replaceMessages(messages)
+                        newConversation.nextFetchOffset = fetchOffset
+                        println("ChatRepository: Loaded ${messages.size} messages for conversation $index")
+                        _messages.postValue(ArrayList(newConversation.messages))
+                    } else {
+                        _messages.postValue(ArrayList<ChatMessage>())
+                    }
+                    } else {
+                        _messages.postValue(ArrayList<ChatMessage>())
+                    }
+                } else {
+                    _messages.postValue(ArrayList<ChatMessage>())
+                }
+            } catch (e: Exception) {
+                println("ChatRepository: Error loading conversation $index: ${e.message}")
+                // Fallback to local recent messages if network fetch fails
+                val localMessages = ChatHistory.get(index).takeLast(5) // Only take last 5 messages
+                _messages.postValue(ArrayList(localMessages))
+            }
+        }
+        
+        // Removed auto-polling - messages load on demand
+    }
+
+    fun deleteConversation(index: Int, onComplete: (Boolean) -> Unit) {
+        scope.launch {
+            try {
+                // Messages are now managed by the Conversation object itself
+                // No need to manually clear - will be garbage collected when conversation is removed
+                println("ChatRepository: Deleting conversation $index")
+                
+                val success = ChatHistory.deleteConversation(index)
+                
+                // If we deleted the current conversation, switch to first available or create new
+                if (index == currentIndex) {
+                    if (ChatHistory.size > 0) {
+                        // Switch to first conversation
+                        currentIndex = 0
+                        switchConversation(0)
+                    } else {
+                        // No conversations left, start a new one
+                        startNewConversation()
+                    }
+                } else if (index < currentIndex) {
+                    // Adjust current index if we deleted a conversation before it
+                    currentIndex--
+                }
+                
+                withContext(Dispatchers.Main) {
+                    onComplete(success)
+                }
+            } catch (e: Exception) {
+                println("Error deleting conversation: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    onComplete(false)
+                }
+            }
+        }
+    }
+
+    fun destroy() {
+        agent.destroy()
+        player.stop()
+        player.release()
+    }
+}
