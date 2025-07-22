@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var layoutManager: LinearLayoutManager
     private lateinit var recyclerView: RecyclerView
     private var responding: Boolean = false
+    private var snapToLastMessage: Boolean = true // Flag to auto-scroll to new messages
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -113,18 +114,31 @@ class MainActivity : AppCompatActivity() {
         layoutManager = LinearLayoutManager(this)
         recyclerView.layoutManager = layoutManager
         
-        // Add scroll listener for loading older messages
+        // Add scroll listener for loading older messages and tracking snap-to-bottom state
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 super.onScrolled(recyclerView, dx, dy)
                 
-                // No longer need to track auto-scroll state - just check if latest message is visible when updating
+                // Update snap-to-last-message flag based on scroll direction and position
+                val totalItems = layoutManager.itemCount
+                val lastVisibleItem = layoutManager.findLastVisibleItemPosition()
+                
+                if (dy > 0) { // Scrolling down
+                    // Check if user scrolled to the last message
+                    if (lastVisibleItem >= totalItems - 1) {
+                        snapToLastMessage = true
+                        println("MainActivity: User scrolled to bottom - snapToLastMessage = true")
+                    }
+                } else if (dy < 0) { // Scrolling up
+                    // User scrolled up, disable auto-scroll
+                    snapToLastMessage = false
+                    println("MainActivity: User scrolled up - snapToLastMessage = false")
+                }
                 
                 // Check if user scrolled near the top and there might be older messages
                 val firstVisibleItem = layoutManager.findFirstVisibleItemPosition()
                 
                 if (dy < 0) { // Only log when scrolling up
-                    val totalItems = layoutManager.itemCount
                     println("MainActivity: Scroll up - firstVisible: $firstVisibleItem, totalItems: $totalItems, dy: $dy")
                 }
                 
@@ -159,6 +173,12 @@ class MainActivity : AppCompatActivity() {
                 recyclerView.post {
                     // Auto-load more messages if the list doesn't fill the screen
                     checkAndLoadMoreIfNeeded()
+                    
+                    // Auto-scroll to bottom if snapToLastMessage flag is true
+                    if (snapToLastMessage && it.isNotEmpty()) {
+                        println("MainActivity: Auto-scrolling to bottom (${it.size} messages)")
+                        recyclerView.smoothScrollToPosition(it.size - 1)
+                    }
                 }
             } else {
                 emptyStateLayout.visibility = View.VISIBLE
