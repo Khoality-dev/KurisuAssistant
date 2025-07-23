@@ -69,7 +69,6 @@ class Agent(private val player: AudioTrack) {
         val channel = Channel<ChatMessage>(Channel.UNLIMITED)
         chatChannel = channel
         _typing.postValue(true)
-        var receivedConversationId: Int? = null
         scope.launch {
             // Build the form data for the new endpoint
             val formData = StringBuilder()
@@ -95,18 +94,13 @@ class Agent(private val player: AudioTrack) {
                         Log.d(TAG, line)
                         val json = JSONObject(line)
                         
-                        // Check for conversation ID
-                        if (json.has("conversation_id") && receivedConversationId == null) {
-                            receivedConversationId = json.getInt("conversation_id")
-                            Log.d(TAG, "Received conversation ID: $receivedConversationId")
-                        }
                         
                         if (json.has("message")) {
                             val msgObj = json.getJSONObject("message")
                             val role = msgObj.optString("role", "assistant")
-                            val content = msgObj.optString("content")
+                            var content = msgObj.optString("content")
                             val created = msgObj.optString("created_at", null)
-                            val toolCalls = msgObj.optJSONArray("tool_calls")?.toString()
+                            val toolCallsArray = msgObj.optJSONArray("tool_calls")
                             val messageId = msgObj.optInt("message_id", -1)
                             
                             if (messageId == -1) {
@@ -116,7 +110,20 @@ class Agent(private val player: AudioTrack) {
                                 return@use
                             }
                             
-                            val msg = ChatMessage(content, role, created, toolCalls, false, messageId)
+                            // Parse and append tool calls to content
+                            if (toolCallsArray != null && toolCallsArray.length() > 0) {
+                                val toolCallsText = StringBuilder()
+                                for (i in 0 until toolCallsArray.length()) {
+                                    val toolCall = toolCallsArray.getJSONObject(i)
+                                    val function = toolCall.getJSONObject("function")
+                                    val name = function.optString("name")
+                                    val arguments = function.optString("arguments")
+                                    toolCallsText.append("\n```tool\n$name($arguments)\n```")
+                                }
+                                content += toolCallsText.toString()
+                            }
+                            
+                            val msg = ChatMessage(content, role, created, false, messageId)
                             channel.trySend(msg)
                             
                             if (role == "assistant" && content.isNotEmpty()) {
@@ -134,12 +141,6 @@ class Agent(private val player: AudioTrack) {
                         }
                     }
                     _connected.postValue(true)
-                }
-                // Send conversation ID info if we got one
-                receivedConversationId?.let { id ->
-                    val idMsg = ChatMessage("", "system", null, null)
-                    idMsg.conversationId = id
-                    channel.trySend(idMsg)
                 }
                 channel.close()
                 _typing.postValue(false)

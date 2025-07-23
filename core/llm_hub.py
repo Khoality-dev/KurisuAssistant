@@ -129,7 +129,7 @@ async def asr(
 async def chat(
     text: str = Form(...),
     model_name: str = Form(...),
-    conversation_id: int = Form(None),
+    conversation_id: int = Form(...),
     token: str = Depends(oauth2_scheme)
 ):
     username = get_current_user(token)
@@ -139,15 +139,8 @@ async def chat(
     try:        
         user_message_content = text
         
-        if conversation_id:
-            # Use provided conversation_id
-            conv_id = conversation_id
-        else:
-            # Create a new conversation
-            conv_id = create_new_conversation(username)
-            # Update title with first user message (truncated to 50 chars)
-            title = user_message_content[:50]
-            update_conversation_title(username, title, conv_id)
+        # Use provided conversation_id (now required)
+        conv_id = conversation_id
         
         # Create Agent instance for this conversation
         agent = Agent(username, conv_id, mcp_client)
@@ -158,8 +151,9 @@ async def chat(
 
     async def stream():
         async for chunk in response_generator:
-            # Just yield the chunk directly
-            yield json.dumps(chunk) + "\n"
+            # Wrap the message in the expected format
+            wrapped_chunk = {"message": chunk}
+            yield json.dumps(wrapped_chunk) + "\n"
 
     return StreamingResponse(stream(), media_type="application/json")
 

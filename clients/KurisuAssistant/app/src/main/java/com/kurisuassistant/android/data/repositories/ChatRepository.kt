@@ -63,6 +63,27 @@ object ChatRepository {
     private val agent by lazy { Agent(player) }
     private val scope = CoroutineScope(Dispatchers.IO)
 
+    private suspend fun createNewConversationOnServer(): Int? = withContext(Dispatchers.IO) {
+        try {
+            val requestBody = "".toRequestBody("application/json".toMediaType())
+            HttpClient.post("${Settings.llmUrl}/conversations", requestBody, Auth.token).use { response ->
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string()
+                    if (responseBody != null) {
+                        val json = JSONObject(responseBody)
+                        json.getInt("id")
+                    } else null
+                } else {
+                    println("ChatRepository: Server error creating conversation: ${response.code}")
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            println("ChatRepository: Error creating conversation: ${e.message}")
+            null
+        }
+    }
+
 
     val connected: LiveData<Boolean>
         get() = agent.connected
@@ -79,15 +100,40 @@ object ChatRepository {
     
     fun getCurrentConversationIndex(): Int = currentIndex
     
-    
-    
-    
-    
-    
-    
-    
-    
-
+    /**
+     * Fetch enough messages to fill a screen page, starting from the given offset and going backwards.
+     * Continues fetching until MESSAGES_PER_PAGE messages are obtained or no more messages are available.
+     */
+    private suspend fun fetchMessagesForPage(conversation: Conversation): Boolean {
+        if (conversation.id == null) return false
+        
+        val allMessages = mutableListOf<ChatMessage>()
+        var currentOffset = conversation.maxOffset
+        
+        // Keep fetching backwards until we have enough messages or reach the beginning
+        while (allMessages.size < MESSAGES_PER_PAGE && currentOffset >= 0) {
+            val messages = ChatHistory.fetchConversationMessagesById(conversation.id, limit = MESSAGES_PER_PAGE, offset = currentOffset)
+            
+            if (messages != null && messages.isNotEmpty()) {
+                // Add messages at the beginning since we're going backwards in offset
+                allMessages.addAll(0, messages)
+                currentOffset = maxOf(0, currentOffset - MESSAGES_PER_PAGE)
+            } else {
+                break
+            }
+        }
+        
+        return if (allMessages.isNotEmpty()) {
+            conversation.replaceMessages(allMessages)
+            // Set nextFetchOffset to continue from where we stopped
+            conversation.nextFetchOffset = currentOffset
+            _messages.postValue(ArrayList(conversation.messages))
+            println("ChatRepository: Loaded ${allMessages.size} messages from offset ${conversation.maxOffset}")
+            true
+        } else {
+            false
+        }
+    }
     
     /**
      * Load older messages for scroll-up pagination
@@ -109,7 +155,7 @@ object ChatRepository {
         
         scope.launch {
             try {
-                // Get next offset to fetch (decrement from current position)
+                // Get next page-aligned offset to fetch (decrement by MESSAGES_PER_PAGE)
                 if (conversation.nextFetchOffset <= 0) {
                     withContext(Dispatchers.Main) {
                         isLoadingOlderMessages = false
@@ -118,13 +164,13 @@ object ChatRepository {
                     return@launch
                 }
                 
-                val offset = maxOf(0, conversation.nextFetchOffset - 5)
+                val offset = maxOf(0, conversation.nextFetchOffset - MESSAGES_PER_PAGE)
                 
-                // Fetch older messages
-                val olderMessages = ChatHistory.fetchConversationMessagesById(conversation.id, limit = 5, offset = offset)
+                // Fetch older messages using page-aligned limit
+                val olderMessages = ChatHistory.fetchConversationMessagesById(conversation.id, limit = MESSAGES_PER_PAGE, offset = offset)
                 
                 if (olderMessages != null && olderMessages.isNotEmpty()) {
-                    // Update next fetch offset
+                    // Update next fetch offset to the current page start
                     conversation.nextFetchOffset = offset
                     
                     // Push older messages to beginning
@@ -165,18 +211,10 @@ object ChatRepository {
                     // Start with the newest conversation (last index)
                     currentIndex = ChatHistory.size - 1
                     
-                    // Fetch enough messages to fill screen
+                    // Fetch enough messages to fill screen using backend-provided starting offset
                     val conversation = getCurrentConversation()
-                    if (conversation?.id != null) {
-                        val fetchOffset = maxOf(0, conversation.maxOffset - MESSAGES_PER_PAGE)
-                        
-                        val messages = ChatHistory.fetchConversationMessagesById(conversation.id, limit = MESSAGES_PER_PAGE, offset = fetchOffset)
-                        if (messages != null && messages.isNotEmpty()) {
-                            conversation.replaceMessages(messages)
-                            conversation.nextFetchOffset = fetchOffset
-                            _messages.postValue(ArrayList(conversation.messages))
-                            println("ChatRepository: Initialized with ${messages.size} messages")
-                        }
+                    if (conversation != null) {
+                        fetchMessagesForPage(conversation)
                     }
                 } else {
                     // No conversations exist, start with a new one
@@ -284,63 +322,58 @@ object ChatRepository {
             currentIndex = ChatHistory.add()
         }
         
-        // Add user message to conversation
         val conversation = getCurrentConversation()
-        val userMessage = ChatMessage(text, "user", Instant.now().toString())
-        conversation?.addMessage(userMessage)
-        
-        // Update UI with conversation messages
-        if (conversation != null) {
-            _messages.postValue(ArrayList(conversation.messages))
-            ChatHistory.update(currentIndex, conversation.messages.toMutableList())
-        }
 
         scope.launch {
             try {
-                // Get conversation ID if we have one
-                val conversationId = if (currentIndex >= 0 && currentIndex < ChatHistory.size) {
+                // Get conversation ID, create new conversation if needed
+                var conversationId = if (currentIndex >= 0 && currentIndex < ChatHistory.size) {
                     ChatHistory.getConversationId(currentIndex)
                 } else null
+                
+                // If conversation ID is null, create a new conversation first
+                if (conversationId == null) {
+                    try {
+                        conversationId = createNewConversationOnServer()
+                        if (conversationId != null && currentIndex >= 0 && currentIndex < ChatHistory.size) {
+                            ChatHistory.setConversationId(currentIndex, conversationId)
+                        } else {
+                            println("ChatRepository: Failed to create new conversation")
+                            isProcessing = false
+                            return@launch
+                        }
+                    } catch (e: Exception) {
+                        println("ChatRepository: Failed to create new conversation: ${e.message}")
+                        isProcessing = false
+                        return@launch
+                    }
+                }
                 
                 val channel: Channel<ChatMessage> = agent.chat(text, conversationId)
                 var assistant: ChatMessage? = null
                 for (msg in channel) {
-                    when (msg.role) {
-                        "assistant" -> {
-                            if (assistant == null) {
-                                assistant = ChatMessage("", "assistant", msg.createdAt)
-                                conversation?.addMessage(assistant!!)
-                            } else {
-                                val updatedAssistant = assistant!!.copy(
-                                    text = assistant!!.text + msg.text,
-                                    toolCalls = msg.toolCalls ?: assistant!!.toolCalls,
-                                )
-                                updatedAssistant.conversationId = assistant!!.conversationId
-                                assistant = updatedAssistant
-                                // Update the last message in conversation
-                                if (conversation != null && conversation.messageCount > 0) {
-                                    conversation.replaceMessages(conversation.messages.dropLast(1) + assistant!!)
-                                }
+                        
+                    if (msg.role == "assistant")
+                    {
+                        if (assistant == null) {
+                            assistant = ChatMessage(msg.text, "assistant", msg.createdAt)
+                            conversation?.addMessage(assistant!!)
+                        } else {
+                            val updatedAssistant = assistant!!.copy(
+                                text = assistant!!.text + msg.text
+                            )
+                            updatedAssistant.conversationId = assistant!!.conversationId
+                            assistant = updatedAssistant
+                            // Update the last message in conversation
+                            if (conversation != null && conversation.messageCount > 0) {
+                                conversation.replaceMessages(conversation.messages.dropLast(1) + assistant!!)
                             }
-                            if (msg.toolCalls != null) {
-                                assistant = null
-                            }
-                        }
-                        "tool" -> {
-                            conversation?.addMessage(msg)
-                            assistant = null
-                        }
-                        "system" -> {
-                            // Handle conversation ID from system message
-                            msg.conversationId?.let { convId ->
-                                println("ChatRepository: Received conversation ID: $convId")
-                                if (currentIndex >= 0 && currentIndex < ChatHistory.size) {
-                                    ChatHistory.setConversationId(currentIndex, convId)
-                                }
-                            }
-                            continue // Don't add system messages to the UI
                         }
                     }
+                    else {
+                        conversation?.addMessage(msg);
+                    }
+                   
                     // Update UI with conversation messages
                     if (conversation != null) {
                         _messages.postValue(ArrayList(conversation.messages))
@@ -402,17 +435,10 @@ object ChatRepository {
                 
                     // No stored messages - fetch from server
                     if (newConversation.id != null) {
-                    val fetchOffset = maxOf(0, newConversation.maxOffset - MESSAGES_PER_PAGE)
-                    
-                    val messages = ChatHistory.fetchConversationMessagesById(newConversation.id, limit = MESSAGES_PER_PAGE, offset = fetchOffset)
-                    if (messages != null && messages.isNotEmpty()) {
-                        newConversation.replaceMessages(messages)
-                        newConversation.nextFetchOffset = fetchOffset
-                        println("ChatRepository: Loaded ${messages.size} messages for conversation $index")
-                        _messages.postValue(ArrayList(newConversation.messages))
-                    } else {
-                        _messages.postValue(ArrayList<ChatMessage>())
-                    }
+                        val success = fetchMessagesForPage(newConversation)
+                        if (!success) {
+                            _messages.postValue(ArrayList<ChatMessage>())
+                        }
                     } else {
                         _messages.postValue(ArrayList<ChatMessage>())
                     }

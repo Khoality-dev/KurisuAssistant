@@ -81,12 +81,26 @@ object ChatHistory {
                 for (j in 0 until convoArr.length()) {
                     val obj = convoArr.getJSONObject(j)
                     val role = obj.optString("role")
-                    val content = obj.optString("content")
+                    var content = obj.optString("content")
                     val created = obj.optString("created_at", null)
-                    val toolCalls = obj.optJSONArray("tool_calls")?.toString()
+                    val toolCallsArray = obj.optJSONArray("tool_calls")
                     val messageId = obj.optInt("id", -1).takeIf { it != -1 }
+                    
+                    // Parse and append tool calls to content
+                    if (toolCallsArray != null && toolCallsArray.length() > 0) {
+                        val toolCallsText = StringBuilder()
+                        for (i in 0 until toolCallsArray.length()) {
+                            val toolCall = toolCallsArray.getJSONObject(i)
+                            val function = toolCall.getJSONObject("function")
+                            val name = function.optString("name")
+                            val arguments = function.optString("arguments")
+                            toolCallsText.append("\n```tool\n$name($arguments)\n```")
+                        }
+                        content += toolCallsText.toString()
+                    }
+                    
                     println("Message $j: role=$role, content=${content.take(50)}..., id=$messageId")
-                    convo.add(ChatMessage(content, role, created, toolCalls, false, messageId))
+                    convo.add(ChatMessage(content, role, created, false, messageId))
                 }
                 
                 // Messages are already in chronological order from the new backend pagination system

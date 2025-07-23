@@ -208,7 +208,7 @@ class ChatAdapter(
                 else holder.avatar.setImageResource(R.drawable.avatar_user)
             }
             is AssistantHolder -> {
-                var text = msg.displayText
+                var text = msg.text
                 if (responding && position == allMessages.lastIndex) {
                     text += ellipsis
                 }

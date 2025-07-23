@@ -141,6 +141,7 @@ class Agent:
         # Immediately save user message to database to get message_id
         message_id = upsert_streaming_message(self.username, user_msg, self.conversation_id)
         user_msg["message_id"] = message_id
+        yield user_msg
         self.context_messages.append(user_msg)
         buffer = ""
         while True:
