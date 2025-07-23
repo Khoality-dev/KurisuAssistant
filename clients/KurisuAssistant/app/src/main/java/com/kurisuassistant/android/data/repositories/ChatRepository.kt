@@ -17,8 +17,9 @@ import kotlinx.coroutines.withContext
 import java.time.Instant
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.OkHttpClient
 import org.json.JSONObject
-import com.kurisuassistant.android.utils.HttpClient
 import com.kurisuassistant.android.Settings
 import com.kurisuassistant.android.Auth
 
@@ -34,6 +35,7 @@ object ChatRepository {
     // Removed polling - app now uses manual refresh only
     private var isProcessing = false
     private var isLoadingOlderMessages = false
+    private val client = OkHttpClient()
     
     
     private fun getCurrentConversation(): Conversation? {
@@ -66,7 +68,12 @@ object ChatRepository {
     private suspend fun createNewConversationOnServer(): Int? = withContext(Dispatchers.IO) {
         try {
             val requestBody = "".toRequestBody("application/json".toMediaType())
-            HttpClient.post("${Settings.llmUrl}/conversations", requestBody, Auth.token).use { response ->
+            val request = Request.Builder()
+                .url("${Settings.llmUrl}/conversations")
+                .post(requestBody)
+                .addHeader("Authorization", "Bearer ${Auth.token}")
+                .build()
+            client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     val responseBody = response.body?.string()
                     if (responseBody != null) {

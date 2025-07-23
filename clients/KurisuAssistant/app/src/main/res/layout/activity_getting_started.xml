@@ -22,6 +22,13 @@
             android:hint="TTS hub URL (optional)"
             android:layout_marginTop="8dp"/>
 
+        <Spinner
+            android:id="@+id/setupModelSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:visibility="gone"/>
+
         <Button
             android:id="@+id/buttonCheckUrls"
             android:layout_width="wrap_content"

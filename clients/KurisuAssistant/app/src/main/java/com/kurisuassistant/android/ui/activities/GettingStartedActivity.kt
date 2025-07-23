@@ -5,22 +5,32 @@ import android.os.Bundle
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.Spinner
+import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.FormBody
-import com.kurisuassistant.android.utils.HttpClient
+import okhttp3.Request
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
+import okhttp3.OkHttpClient
+import org.json.JSONObject
+import java.io.IOException
 
 class GettingStartedActivity : AppCompatActivity() {
     private val scope = CoroutineScope(Dispatchers.IO)
 
     private lateinit var llmUrl: EditText
     private lateinit var ttsUrl: EditText
+    private lateinit var modelSpinner: Spinner
     private lateinit var username: EditText
     private lateinit var password: EditText
     private lateinit var registerForm: View
+    private val client = OkHttpClient()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,6 +45,7 @@ class GettingStartedActivity : AppCompatActivity() {
         setContentView(R.layout.activity_getting_started)
         llmUrl = findViewById(R.id.setupLlmUrl)
         ttsUrl = findViewById(R.id.setupTtsUrl)
+        modelSpinner = findViewById(R.id.setupModelSpinner)
         username = findViewById(R.id.setupUsername)
         password = findViewById(R.id.setupPassword)
         registerForm = findViewById(R.id.registerForm)
@@ -63,9 +74,11 @@ class GettingStartedActivity : AppCompatActivity() {
                 if (okLlm && okTts) {
                     Settings.save(llm, if (tts.isBlank()) Settings.ttsUrl else tts, Settings.model)
                     Settings.markConfigured()
+                    loadModels()
                     if (needsAdmin) {
                         registerForm.visibility = View.VISIBLE
                     } else {
+                        saveSelectedModel()
                         startNext()
                     }
                     Toast.makeText(this@GettingStartedActivity, "Hubs saved", Toast.LENGTH_SHORT).show()
@@ -78,7 +91,10 @@ class GettingStartedActivity : AppCompatActivity() {
 
     private fun checkUrl(url: String): Boolean {
         return try {
-            HttpClient.getResponse(url).use { it.isSuccessful }
+            val request = Request.Builder()
+                .url(url)
+                .build()
+            client.newCall(request).execute().use { it.isSuccessful }
         } catch (e: Exception) {
             false
         }
@@ -86,7 +102,10 @@ class GettingStartedActivity : AppCompatActivity() {
 
     private fun serverNeedsAdmin(): Boolean {
         return try {
-            HttpClient.getResponse("${Settings.llmUrl}/needs-admin").use { resp ->
+            val request = Request.Builder()
+                .url("${Settings.llmUrl}/needs-admin")
+                .build()
+            client.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) return false
                 val json = org.json.JSONObject(resp.body!!.string())
                 json.optBoolean("needs_admin", false)
@@ -102,7 +121,11 @@ class GettingStartedActivity : AppCompatActivity() {
         scope.launch {
             val body = FormBody.Builder().add("username", user).add("password", pass).build()
             val result = try {
-                HttpClient.post("${Settings.llmUrl}/register", body).use { resp ->
+                val request = Request.Builder()
+                    .url("${Settings.llmUrl}/register")
+                    .post(body)
+                    .build()
+                client.newCall(request).execute().use { resp ->
                     resp.isSuccessful || (resp.code == 400 && resp.body?.string()?.contains("User already exists") == true)
                 }
             } catch (_: Exception) {
@@ -110,6 +133,7 @@ class GettingStartedActivity : AppCompatActivity() {
             }
             runOnUiThread {
                 if (result) {
+                    saveSelectedModel()
                     Settings.markConfigured()
                     Toast.makeText(this@GettingStartedActivity, "Admin ready", Toast.LENGTH_SHORT).show()
                     startNext()
@@ -117,6 +141,59 @@ class GettingStartedActivity : AppCompatActivity() {
                     Toast.makeText(this@GettingStartedActivity, "Registration failed", Toast.LENGTH_SHORT).show()
                 }
             }
+        }
+    }
+
+    private fun loadModels() {
+        val url = llmUrl.text.toString().trim()
+        runOnUiThread { modelSpinner.isEnabled = false }
+        if (url.isEmpty()) {
+            return
+        }
+        val requestBuilder = Request.Builder()
+            .url("$url/models")
+        Auth.token?.let { requestBuilder.addHeader("Authorization", "Bearer $it") }
+        val request = requestBuilder.build()
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread { 
+                    modelSpinner.isEnabled = false
+                    modelSpinner.visibility = View.GONE
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    if (!it.isSuccessful) {
+                        onFailure(call, IOException("HTTP" + it.code))
+                        return
+                    }
+                    val arr = JSONObject(it.body!!.string()).optJSONArray("models")
+                        ?: return
+                    val names = mutableListOf<String>()
+                    for (i in 0 until arr.length()) names.add(arr.getString(i))
+                    runOnUiThread {
+                        if (names.isNotEmpty()) {
+                            val adapter = ArrayAdapter(this@GettingStartedActivity,
+                                android.R.layout.simple_spinner_item, names)
+                            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                            modelSpinner.adapter = adapter
+                            modelSpinner.isEnabled = true
+                            modelSpinner.visibility = View.VISIBLE
+                            val current = if (Settings.model.isNotEmpty()) Settings.model else names.firstOrNull() ?: ""
+                            val idx = names.indexOf(current).takeIf { it >= 0 } ?: 0
+                            modelSpinner.setSelection(idx)
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    private fun saveSelectedModel() {
+        if (modelSpinner.adapter != null && modelSpinner.selectedItem != null) {
+            val selectedModel = modelSpinner.selectedItem.toString()
+            Settings.save(Settings.llmUrl, Settings.ttsUrl, selectedModel)
         }
     }
 }

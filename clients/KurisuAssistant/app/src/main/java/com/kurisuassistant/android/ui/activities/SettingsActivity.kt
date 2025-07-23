@@ -13,8 +13,8 @@ import android.widget.ArrayAdapter
 import android.widget.ProgressBar
 import android.view.View
 import com.google.android.material.appbar.MaterialToolbar
-import com.kurisuassistant.android.utils.HttpClient
 import okhttp3.Request
+import okhttp3.OkHttpClient
 import org.json.JSONObject
 import java.io.IOException
 import android.widget.ImageView
@@ -42,7 +42,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var ttsValidationProgress: ProgressBar
     private lateinit var ttsValidationIcon: ImageView
     private lateinit var saveButton: Button
-    private val client = HttpClient.noTimeout
+    private val client = OkHttpClient()
     private var hasUnsavedChanges = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,6 +54,7 @@ class SettingsActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.title = "Settings"
         
+        Auth.init(this)
         AvatarManager.init(this)
         Settings.init(this)
 
@@ -205,23 +206,41 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun loadSystemPrompt() {
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-            try {
-                val response = HttpClient.get("${Settings.llmUrl}/system-prompt", Auth.token ?: "")
-                val json = JSONObject(response)
-                val serverSystemPrompt = json.optString("system_prompt", "")
-                
-                runOnUiThread {
-                    systemPrompt.setText(serverSystemPrompt)
-                    Settings.saveSystemPrompt(serverSystemPrompt)
-                }
-            } catch (e: Exception) {
+        val token = Auth.token
+        if (token == null) {
+            // If no token, just use local value
+            systemPrompt.setText(Settings.systemPrompt)
+            return
+        }
+        
+        val request = Request.Builder()
+            .url("${Settings.llmUrl}/system-prompt")
+            .build() 
+            
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
                 // If we can't load from server, use local value
                 runOnUiThread {
                     systemPrompt.setText(Settings.systemPrompt)
                 }
             }
-        }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    if (!it.isSuccessful) {
+                        onFailure(call, IOException("HTTP ${it.code}"))
+                        return
+                    }
+                    val json = JSONObject(it.body!!.string())
+                    val serverSystemPrompt = json.optString("system_prompt", "")
+                    
+                    runOnUiThread {
+                        systemPrompt.setText(serverSystemPrompt)
+                        Settings.saveSystemPrompt(serverSystemPrompt)
+                    }
+                }
+            }
+        })
     }
 
 
@@ -243,15 +262,32 @@ class SettingsActivity : AppCompatActivity() {
         
         // Save system prompt to server
         val prompt = systemPrompt.text.toString().trim()
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-            try {
-                val requestBody = JSONObject().apply {
-                    put("system_prompt", prompt)
-                }.toString().toRequestBody("application/json".toMediaType())
-                
-                HttpClient.put("${Settings.llmUrl}/system-prompt", requestBody, Auth.token ?: "").use { response ->
+        val requestBody = JSONObject().apply {
+            put("system_prompt", prompt)
+        }.toString().toRequestBody("application/json".toMediaType())
+        
+        val request = Request.Builder()
+            .url("${Settings.llmUrl}/system-prompt")
+            .put(requestBody)
+            .build()
+            
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread {
+                    // Save locally even if server fails
+                    Settings.saveSystemPrompt(prompt)
+                    Toast.makeText(this@SettingsActivity, "Settings saved locally (server error: ${e.message})", Toast.LENGTH_LONG).show()
+                    markChangesSaved()
+                    // Reset button state
+                    saveButton.isEnabled = true
+                    saveButton.text = "Save Settings"
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
                     runOnUiThread {
-                        if (response.isSuccessful) {
+                        if (it.isSuccessful) {
                             // Also save locally as backup
                             Settings.saveSystemPrompt(prompt)
                             Toast.makeText(this@SettingsActivity, "Settings saved successfully", Toast.LENGTH_SHORT).show()
@@ -264,18 +300,8 @@ class SettingsActivity : AppCompatActivity() {
                         saveButton.text = "Save Settings"
                     }
                 }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    // Save locally even if server fails
-                    Settings.saveSystemPrompt(prompt)
-                    Toast.makeText(this@SettingsActivity, "Settings saved locally (server error: ${e.message})", Toast.LENGTH_LONG).show()
-                    markChangesSaved()
-                    // Reset button state
-                    saveButton.isEnabled = true
-                    saveButton.text = "Save Settings"
-                }
             }
-        }
+        })
     }
 
     private fun validateLlmUrl() {

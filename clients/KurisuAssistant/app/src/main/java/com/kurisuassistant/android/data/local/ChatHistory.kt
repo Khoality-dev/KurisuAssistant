@@ -3,11 +3,19 @@ package com.kurisuassistant.android
 import android.content.Context
 import android.content.SharedPreferences
 import com.kurisuassistant.android.model.ChatMessage
-import com.kurisuassistant.android.utils.HttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import okhttp3.Request
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
+import okhttp3.OkHttpClient
+import okhttp3.RequestBody
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.IOException
 
 /**
  * Helper object to persist chat conversations.
@@ -18,6 +26,7 @@ object ChatHistory {
 
     private lateinit var prefs: SharedPreferences
     private val conversations = mutableListOf<Conversation>()
+    private val client = OkHttpClient()
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -37,7 +46,11 @@ object ChatHistory {
 
     suspend fun fetchConversationList() = withContext(Dispatchers.IO) {
         try {
-            HttpClient.getResponse("${Settings.llmUrl}/conversations", Auth.token).use { resp ->
+            val request = Request.Builder()
+                .url("${Settings.llmUrl}/conversations")
+                .addHeader("Authorization", "Bearer ${Auth.token}")
+                .build()
+            client.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) return@withContext
                 val arr = JSONArray(resp.body!!.string())
                 conversations.clear()
@@ -67,7 +80,11 @@ object ChatHistory {
             // New pagination system uses normal chronological order (oldest first)
             val url = "${Settings.llmUrl}/conversations/$conversationId?limit=$limit&offset=$offset"
             println("Fetching conversation from: $url")
-            HttpClient.getResponse(url, Auth.token).use { resp ->
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer ${Auth.token}")
+                .build()
+            client.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) {
                     println("Failed to fetch conversation $conversationId: ${resp.code} ${resp.message}")
                     return@withContext null
@@ -185,7 +202,12 @@ object ChatHistory {
         // Delete from server if conversation has an ID
         if (conversation.id != null) {
             try {
-                HttpClient.deleteRequest("${Settings.llmUrl}/conversation/${conversation.id}", Auth.token).use { resp ->
+                val request = Request.Builder()
+                    .url("${Settings.llmUrl}/conversation/${conversation.id}")
+                    .delete()
+                    .addHeader("Authorization", "Bearer ${Auth.token}")
+                    .build()
+                client.newCall(request).execute().use { resp ->
                     success = resp.isSuccessful
                 }
             } catch (e: Exception) {

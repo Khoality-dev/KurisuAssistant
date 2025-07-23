@@ -11,8 +11,9 @@ import com.kurisuassistant.android.model.ChatMessage
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import okhttp3.MediaType.Companion.toMediaType
-import com.kurisuassistant.android.utils.HttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Request
+import okhttp3.OkHttpClient
 import okio.ByteString
 import org.json.JSONObject
 
@@ -24,6 +25,7 @@ class Agent(private val player: AudioTrack) {
     private val scope = CoroutineScope(Dispatchers.IO)
     private var speakingJob: Job? = null
     private var healthCheckJob: Job? = null
+    private val client = OkHttpClient()
 
     private var chatChannel: Channel<ChatMessage>? = null
     private val _connected = MutableLiveData(false)
@@ -41,7 +43,12 @@ class Agent(private val player: AudioTrack) {
         val data = Util.toByteArray(audioBuffer)
         val body = ByteString.of(*data).toByteArray().toRequestBody("application/octet-stream".toMediaType())
         try {
-            HttpClient.post("${Settings.llmUrl}/asr", body, Auth.token).use { resp ->
+            val request = Request.Builder()
+                .url("${Settings.llmUrl}/asr")
+                .post(body)
+                .addHeader("Authorization", "Bearer ${Auth.token}")
+                .build()
+            client.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) throw Exception("ASR failed")
                 val json = JSONObject(resp.body!!.string())
                 return json.getString("text")
@@ -55,7 +62,11 @@ class Agent(private val player: AudioTrack) {
     private fun tts(text: String): ByteArray? {
         val body = JSONObject().put("text", text).toString().toRequestBody("application/json".toMediaType())
         return try {
-            HttpClient.post("${Settings.ttsUrl}/tts", body).use { resp ->
+            val request = Request.Builder()
+                .url("${Settings.ttsUrl}/tts")
+                .post(body)
+                .build()
+            client.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) return null
                 resp.body!!.bytes()
             }
@@ -80,7 +91,12 @@ class Agent(private val player: AudioTrack) {
             
             val body = formData.toString().toRequestBody("application/x-www-form-urlencoded".toMediaType())
             try {
-                HttpClient.post("${Settings.llmUrl}/chat", body, Auth.token).use { resp ->
+                val request = Request.Builder()
+                    .url("${Settings.llmUrl}/chat")
+                    .post(body)
+                    .addHeader("Authorization", "Bearer ${Auth.token}")
+                    .build()
+                client.newCall(request).execute().use { resp ->
                     if (!resp.isSuccessful) {
                         _connected.postValue(false)
                         channel.close(Exception("HTTP ${resp.code}"))
@@ -159,7 +175,11 @@ class Agent(private val player: AudioTrack) {
         healthCheckJob = scope.launch {
             while (true) {
                 try {
-                    HttpClient.getResponse("${Settings.llmUrl}/health", Auth.token).use { resp ->
+                    val request = Request.Builder()
+                        .url("${Settings.llmUrl}/health")
+                        .addHeader("Authorization", "Bearer ${Auth.token}")
+                        .build()
+                    client.newCall(request).execute().use { resp ->
                         _connected.postValue(resp.isSuccessful)
                     }
                 } catch (e: Exception) {

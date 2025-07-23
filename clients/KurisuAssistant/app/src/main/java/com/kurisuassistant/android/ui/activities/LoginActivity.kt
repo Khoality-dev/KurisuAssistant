@@ -7,14 +7,17 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.Toast
 import com.kurisuassistant.android.Settings
-import com.kurisuassistant.android.utils.HttpClient
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import okhttp3.Request
+import okhttp3.OkHttpClient
+import okhttp3.FormBody
 
 class LoginActivity : AppCompatActivity() {
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val client = OkHttpClient()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,7 +56,11 @@ class LoginActivity : AppCompatActivity() {
             .add("username", user)
             .add("password", pass)
             .build()
-        HttpClient.post("${Settings.llmUrl}/login", body).use { resp ->
+        val request = Request.Builder()
+            .url("${Settings.llmUrl}/login")
+            .post(body)
+            .build()
+        client.newCall(request).execute().use { resp ->
             if (!resp.isSuccessful) return null
             val json = org.json.JSONObject(resp.body!!.string())
             return json.getString("access_token")
