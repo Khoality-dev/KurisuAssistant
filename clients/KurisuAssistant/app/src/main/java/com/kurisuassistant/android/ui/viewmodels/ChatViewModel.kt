@@ -19,7 +19,7 @@ class ChatViewModel : ViewModel() {
         return ChatRepository.sendMessage(text)
     }
     
-    fun refreshConversations(onComplete: () -> Unit) {
-        ChatRepository.refreshConversations(onComplete)
+    fun refreshConversationList(onComplete: () -> Unit) {
+        ChatRepository.refreshConversationList(onComplete)
     }
 }
