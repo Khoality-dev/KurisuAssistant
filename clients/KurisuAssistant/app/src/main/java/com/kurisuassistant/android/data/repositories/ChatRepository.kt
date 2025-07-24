@@ -20,6 +20,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.OkHttpClient
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 import com.kurisuassistant.android.Settings
 import com.kurisuassistant.android.Auth
 
@@ -35,7 +36,11 @@ object ChatRepository {
     // Removed polling - app now uses manual refresh only
     private var isProcessing = false
     private var isLoadingOlderMessages = false
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)  // Longer read timeout for streaming responses
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
     
     
     private fun getCurrentConversation(): Conversation? {
@@ -124,7 +129,7 @@ object ChatRepository {
             if (messages != null && messages.isNotEmpty()) {
                 // Add messages at the beginning since we're going backwards in offset
                 allMessages.addAll(0, messages)
-                currentOffset = maxOf(0, currentOffset - MESSAGES_PER_PAGE)
+                currentOffset = currentOffset - MESSAGES_PER_PAGE
             } else {
                 break
             }
@@ -163,7 +168,7 @@ object ChatRepository {
         scope.launch {
             try {
                 // Get next page-aligned offset to fetch (decrement by MESSAGES_PER_PAGE)
-                if (conversation.nextFetchOffset <= 0) {
+                if (conversation.nextFetchOffset < 0) {
                     withContext(Dispatchers.Main) {
                         isLoadingOlderMessages = false
                         callback(false)
@@ -191,8 +196,8 @@ object ChatRepository {
                         callback(true)
                     }
                 } else {
-                    // No more messages available
-                    conversation.nextFetchOffset = 0
+                    // No more messages available - set to -1 to indicate we've reached the beginning
+                    conversation.nextFetchOffset = -1
                     withContext(Dispatchers.Main) {
                         isLoadingOlderMessages = false
                         callback(false)

@@ -14,6 +14,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request
 import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import okio.ByteString
 import org.json.JSONObject
 
@@ -25,7 +26,11 @@ class Agent(private val player: AudioTrack) {
     private val scope = CoroutineScope(Dispatchers.IO)
     private var speakingJob: Job? = null
     private var healthCheckJob: Job? = null
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)  // Longer read timeout for streaming chat responses
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
 
     private var chatChannel: Channel<ChatMessage>? = null
     private val _connected = MutableLiveData(false)
@@ -65,6 +70,7 @@ class Agent(private val player: AudioTrack) {
             val request = Request.Builder()
                 .url("${Settings.ttsUrl}/tts")
                 .post(body)
+                .addHeader("Authorization", "Bearer ${Auth.token}")
                 .build()
             client.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) return null

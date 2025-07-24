@@ -165,6 +165,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         val request = Request.Builder()
             .url("$url/models")
+            .addHeader("Authorization", "Bearer ${Auth.token}")
             .build()
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -215,6 +216,7 @@ class SettingsActivity : AppCompatActivity() {
         
         val request = Request.Builder()
             .url("${Settings.llmUrl}/system-prompt")
+            .addHeader("Authorization", "Bearer ${Auth.token}")
             .build() 
             
         client.newCall(request).enqueue(object : Callback {
@@ -269,6 +271,7 @@ class SettingsActivity : AppCompatActivity() {
         val request = Request.Builder()
             .url("${Settings.llmUrl}/system-prompt")
             .put(requestBody)
+            .addHeader("Authorization", "Bearer ${Auth.token}")
             .build()
             
         client.newCall(request).enqueue(object : Callback {
