@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 import glob
@@ -9,6 +10,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from transformers import pipeline
 import torch
 import uvicorn
+from helpers.utils import get_current_time
 from mcp_tools.client import list_tools
 from helpers import Agent
 import dotenv
@@ -78,6 +80,7 @@ SAMPLE_RATE = 16_000
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
+sessions = {}
 
 @app.get("/needs-admin")
 async def needs_admin():
@@ -143,8 +146,10 @@ async def chat(
         conv_id = conversation_id
         
         # Create Agent instance for this conversation
-        agent = Agent(username, conv_id, mcp_client)
-        
+        if conv_id not in sessions or len(sessions[conv_id].context_messages) == 0 or get_current_time() - datetime.fromisoformat(sessions[conv_id].context_messages[-1]["updated_at"]) >= datetime.timedelta(minutes=10):
+            sessions[conv_id] = Agent(username, conv_id, mcp_client)
+
+        agent = sessions[conv_id]
         response_generator = agent.chat(model_name, user_message_content)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
