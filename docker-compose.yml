@@ -70,7 +70,7 @@ services:
               capabilities: [gpu]
     environment:
       - LLM_API_URL=http://ollama-container:11434
-      - DATABASE_URL=postgresql://kurisu:kurisu@postgres:5432/kurisu
+      - DATABASE_URL=postgresql://kurisu:kurisu@postgres-container:5432/kurisu
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker:ro
@@ -97,7 +97,9 @@ services:
 
   postgres:
     image: postgres:16
-    container_name: postgres
+    container_name: postgres-container
+    ports:
+      - "5432:5432"
     environment:
       - POSTGRES_USER=kurisu
       - POSTGRES_PASSWORD=kurisu
