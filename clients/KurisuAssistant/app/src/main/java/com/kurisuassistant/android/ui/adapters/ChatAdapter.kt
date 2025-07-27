@@ -3,6 +3,7 @@ package com.kurisuassistant.android
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.text.method.LinkMovementMethod
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -10,6 +11,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import io.noties.markwon.Markwon
+import io.noties.markwon.linkify.LinkifyPlugin
 import com.kurisuassistant.android.model.ChatMessage
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -37,7 +39,9 @@ class ChatAdapter(
 
     private var responding = false
     private var ellipsis = ""
-    private val markwon = Markwon.create(context)
+    private val markwon = Markwon.builder(context)
+        .usePlugin(LinkifyPlugin.create())
+        .build()
     private val handler = Handler(Looper.getMainLooper())
     private var tempMessage: ChatMessage? = null
     private val tempMessages = mutableListOf<ChatMessage>()
@@ -189,6 +193,7 @@ class ChatAdapter(
             is UserHolder -> {
                 val displayText = msg.text
                 markwon.setMarkdown(holder.text, displayText)
+                holder.text.movementMethod = LinkMovementMethod.getInstance()
                 holder.time.text = msg.createdAt?.let { formatTimeForDisplay(it) } ?: ""
                 holder.time.visibility = View.GONE
                 holder.text.setOnClickListener {
@@ -213,6 +218,7 @@ class ChatAdapter(
                     text += ellipsis
                 }
                 markwon.setMarkdown(holder.text, text)
+                holder.text.movementMethod = LinkMovementMethod.getInstance()
                 holder.time.text = msg.createdAt?.let { formatTimeForDisplay(it) } ?: ""
                 holder.time.visibility = View.GONE
                 holder.text.setOnClickListener {
