@@ -22,7 +22,6 @@
             android:textSize="16sp"
             android:scrollHorizontally="false"
             android:breakStrategy="simple"
-            android:autoLink="web"
             android:maxWidth="@dimen/message_max_width" />
         <TextView
             android:id="@+id/message_time"
