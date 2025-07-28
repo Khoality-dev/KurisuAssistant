@@ -14,5 +14,7 @@ data class ChatMessage(
     var conversationId: Int? = null
     val isUser: Boolean
         get() = role == "user"
+    val isTool: Boolean
+        get() = role == "tool"
 }
 

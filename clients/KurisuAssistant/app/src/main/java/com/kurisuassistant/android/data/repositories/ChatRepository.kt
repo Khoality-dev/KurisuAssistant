@@ -362,28 +362,48 @@ object ChatRepository {
                 }
                 
                 val channel: Channel<ChatMessage> = agent.chat(text, conversationId)
-                var assistant: ChatMessage? = null
+                var streamingAssistant: ChatMessage? = null
                 for (msg in channel) {
-                        
-                    if (msg.role == "assistant")
-                    {
-                        if (assistant == null) {
-                            assistant = ChatMessage(msg.text, "assistant", msg.createdAt)
-                            conversation?.addMessage(assistant!!)
-                        } else {
-                            val updatedAssistant = assistant!!.copy(
-                                text = assistant!!.text + msg.text
-                            )
-                            updatedAssistant.conversationId = assistant!!.conversationId
-                            assistant = updatedAssistant
-                            // Update the last message in conversation
-                            if (conversation != null && conversation.messageCount > 0) {
-                                conversation.replaceMessages(conversation.messages.dropLast(1) + assistant!!)
+                    when (msg.role) {
+                        "assistant" -> {
+                            if (streamingAssistant == null) {
+                                // First assistant message chunk - add new message
+                                streamingAssistant = ChatMessage(msg.text, "assistant", msg.createdAt, false, msg.messageId)
+                                conversation?.addMessage(streamingAssistant)
+                            } else {
+                                // Subsequent chunks - update the existing assistant message
+                                val updatedAssistant = streamingAssistant.copy(
+                                    text = streamingAssistant.text + msg.text
+                                )
+                                updatedAssistant.conversationId = streamingAssistant.conversationId
+                                streamingAssistant = updatedAssistant
+                                
+                                // Update only the last assistant message without affecting other messages
+                                if (conversation != null && conversation.messageCount > 0) {
+                                    val messages = conversation.messages.toMutableList()
+                                    // Find the last message that matches our streaming assistant
+                                    for (i in messages.indices.reversed()) {
+                                        if (messages[i].role == "assistant" && messages[i].messageId == streamingAssistant.messageId) {
+                                            messages[i] = streamingAssistant
+                                            break
+                                        }
+                                    }
+                                    conversation.replaceMessages(messages)
+                                }
                             }
                         }
-                    }
-                    else {
-                        conversation?.addMessage(msg);
+                        "tool" -> {
+                            // Tool messages are complete when received - add directly
+                            conversation?.addMessage(msg)
+                        }
+                        "user" -> {
+                            // User messages are complete when received - add directly
+                            conversation?.addMessage(msg)
+                        }
+                        else -> {
+                            // Any other role - add directly
+                            conversation?.addMessage(msg)
+                        }
                     }
                    
                     // Update UI with conversation messages

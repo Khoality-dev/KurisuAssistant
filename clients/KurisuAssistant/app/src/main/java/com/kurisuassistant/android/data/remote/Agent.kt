@@ -132,21 +132,27 @@ class Agent(private val player: AudioTrack) {
                                 return@use
                             }
                             
-                            // Parse and append tool calls to content
-                            if (toolCallsArray != null && toolCallsArray.length() > 0) {
-                                val toolCallsText = StringBuilder()
-                                for (i in 0 until toolCallsArray.length()) {
-                                    val toolCall = toolCallsArray.getJSONObject(i)
-                                    val function = toolCall.getJSONObject("function")
-                                    val name = function.optString("name")
-                                    val arguments = function.optString("arguments")
-                                    toolCallsText.append("\n```tool\n$name($arguments)\n```")
+                            // For tool messages, send directly without modification
+                            if (role == "tool") {
+                                val msg = ChatMessage(content, role, created, false, messageId)
+                                channel.trySend(msg)
+                            } else {
+                                // Parse and append tool calls to content for assistant messages
+                                if (toolCallsArray != null && toolCallsArray.length() > 0) {
+                                    val toolCallsText = StringBuilder()
+                                    for (i in 0 until toolCallsArray.length()) {
+                                        val toolCall = toolCallsArray.getJSONObject(i)
+                                        val function = toolCall.getJSONObject("function")
+                                        val name = function.optString("name")
+                                        val arguments = function.optString("arguments")
+                                        toolCallsText.append("\n```tool\n$name($arguments)\n```")
+                                    }
+                                    content += toolCallsText.toString()
                                 }
-                                content += toolCallsText.toString()
+                                
+                                val msg = ChatMessage(content, role, created, false, messageId)
+                                channel.trySend(msg)
                             }
-                            
-                            val msg = ChatMessage(content, role, created, false, messageId)
-                            channel.trySend(msg)
                             
                             if (role == "assistant" && content.isNotEmpty()) {
                                 val audio = tts(content)
