@@ -30,6 +30,7 @@ class ChatAdapter(
     companion object {
         private const val USER = 0
         private const val ASSISTANT = 1
+        private const val TOOL = 2
         private var instance: ChatAdapter? = null
         
         fun showTemporarySTT(text: String) {
@@ -172,17 +173,28 @@ class ChatAdapter(
 
     override fun getItemViewType(position: Int): Int {
         val message = getAllMessages()[position]
-        return if (message.isUser) USER else ASSISTANT
+        return when {
+            message.isUser -> USER
+            message.isTool -> TOOL
+            else -> ASSISTANT
+        }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val inflater = LayoutInflater.from(parent.context)
-        return if (viewType == USER) {
-            val view = inflater.inflate(R.layout.item_user_message, parent, false)
-            UserHolder(view)
-        } else {
-            val view = inflater.inflate(R.layout.item_assistant_message, parent, false)
-            AssistantHolder(view)
+        return when (viewType) {
+            USER -> {
+                val view = inflater.inflate(R.layout.item_user_message, parent, false)
+                UserHolder(view)
+            }
+            TOOL -> {
+                val view = inflater.inflate(R.layout.item_tool_message, parent, false)
+                ToolHolder(view)
+            }
+            else -> {
+                val view = inflater.inflate(R.layout.item_assistant_message, parent, false)
+                AssistantHolder(view)
+            }
         }
     }
 
@@ -229,6 +241,17 @@ class ChatAdapter(
                 if (uri != null) holder.avatar.setImageURI(uri)
                 else holder.avatar.setImageResource(R.drawable.avatar_assistant)
             }
+            is ToolHolder -> {
+                markwon.setMarkdown(holder.text, msg.text)
+                holder.text.movementMethod = LinkMovementMethod.getInstance()
+                holder.time.text = msg.createdAt?.let { formatTimeForDisplay(it) } ?: ""
+                holder.time.visibility = View.GONE
+                holder.text.setOnClickListener {
+                    holder.time.visibility =
+                        if (holder.time.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                }
+                holder.avatar.setImageResource(R.drawable.ic_build) // Use a tool icon
+            }
         }
     }
 
@@ -241,6 +264,12 @@ class ChatAdapter(
     }
 
     class AssistantHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val text: TextView = view.findViewById(R.id.message_text)
+        val time: TextView = view.findViewById(R.id.message_time)
+        val avatar: ImageView = view.findViewById(R.id.avatar)
+    }
+
+    class ToolHolder(view: View) : RecyclerView.ViewHolder(view) {
         val text: TextView = view.findViewById(R.id.message_text)
         val time: TextView = view.findViewById(R.id.message_time)
         val avatar: ImageView = view.findViewById(R.id.avatar)
