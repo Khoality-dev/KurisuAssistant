@@ -2,12 +2,11 @@ import os
 import psycopg2
 import json
 import datetime
-import hashlib
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://kurisu:kurisu@10.0.0.122:5432/kurisu")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://kurisu:kurisu@localhost:5432/kurisu")
 
 
 def get_connection():
@@ -19,10 +18,6 @@ def get_db_connection():
     return get_connection()
 
 
-def generate_message_hash(role: str, content: str, username: str, conversation_id: int, created_at: str) -> str:
-    """Generate a unique hash for a message based on its content and metadata."""
-    message_data = f"{role}:{content}:{username}:{conversation_id}:{created_at}"
-    return hashlib.sha256(message_data.encode()).hexdigest()[:16]
 
 
 def init_db():
@@ -63,7 +58,6 @@ def init_db():
             username TEXT NOT NULL,
             message TEXT NOT NULL,
             conversation_id INTEGER,
-            message_hash TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -77,9 +71,6 @@ def init_db():
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_messages_username ON messages(username)"
     )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_messages_hash ON messages(message_hash)"
-    )
     conn.commit()
     cur.close()
     conn.close()
@@ -89,7 +80,7 @@ def add_messages(
     username: str,
     messages: list,
     conversation_id: int | None = None,
-) -> int:
+) -> tuple[int, list[int]]:
     """Add multiple messages to an existing conversation at once.
 
     Parameters
@@ -104,8 +95,8 @@ def add_messages(
     
     Returns
     -------
-    int
-        The conversation ID that the messages were added to.
+    tuple[int, list[int]]
+        A tuple containing (conversation_id, list_of_message_ids).
         
     Raises
     ------
@@ -113,7 +104,7 @@ def add_messages(
         If no conversation exists for the user.
     """
     if not messages:
-        return conversation_id or 0
+        return conversation_id or 0, []
         
     conn = get_connection()
     cur = conn.cursor()
@@ -136,17 +127,19 @@ def add_messages(
         raise ValueError(f"No conversation found for user {username}")
     
     conv_id = row[0]
+    message_ids = []
     
     # Insert all new messages into the messages table
     for msg in messages:
         created_at = msg.get("created_at")
         updated_at = msg.get("updated_at")
-        message_hash = msg.get("message_hash")
         
         cur.execute(
-            "INSERT INTO messages (role, username, message, conversation_id, message_hash, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (msg["role"], username, msg["content"], conv_id, message_hash, created_at, updated_at)
+            "INSERT INTO messages (role, username, message, conversation_id, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+            (msg["role"], username, msg["content"], conv_id, created_at, updated_at)
         )
+        message_id = cur.fetchone()[0]
+        message_ids.append(message_id)
     
     # Update conversation's updated_at timestamp
     cur.execute(
@@ -156,13 +149,73 @@ def add_messages(
     conn.commit()
     cur.close()
     conn.close()
-    return conv_id
+    return conv_id, message_ids
+
+
+def upsert_streaming_message(username: str, message: dict, conversation_id: int) -> int:
+    """Upsert a streaming message - create new message or update existing one based on role sequence.
+    
+    If the last message in the conversation has the same role, concatenate content.
+    Otherwise, create a new message.
+    
+    Returns the message ID of the created or updated message.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    role = message.get("role")
+    content = message.get("content", "")
+    created_at = message.get("created_at")
+    updated_at = message.get("updated_at", created_at)
+    
+    # Get the last message for this conversation to check if we should append or create new
+    cur.execute(
+        "SELECT id, role, message FROM messages WHERE username=%s AND conversation_id=%s ORDER BY created_at DESC, id DESC LIMIT 1",
+        (username, conversation_id)
+    )
+    last_message = cur.fetchone()
+    
+    message_id = None
+    
+    if last_message and last_message[1] == role:
+        # Same role as last message - concatenate content
+        last_id, last_role, last_content = last_message
+        new_content = last_content + content
+        
+        cur.execute(
+            "UPDATE messages SET message=%s, updated_at=%s WHERE id=%s",
+            (new_content, updated_at, last_id)
+        )
+        message_id = last_id
+    else:
+        # Different role or no previous message - create new message
+        cur.execute(
+            "INSERT INTO messages (role, username, message, conversation_id, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+            (role, username, content, conversation_id, created_at, updated_at)
+        )
+        message_id = cur.fetchone()[0]
+    
+    # Update conversation's updated_at timestamp
+    cur.execute(
+        "UPDATE conversations SET updated_at=CURRENT_TIMESTAMP WHERE id=%s",
+        (conversation_id,)
+    )
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    return message_id
 
 
 
 
-def fetch_conversation(username: str, conversation_id: int, limit: int = 50, offset: int = 0, reverse: bool = False):
+def fetch_conversation(username: str, conversation_id: int, limit: int = 50, offset: int = 0):
     """Return a specific conversation for a user with paging support.
+    
+    Messages are always returned in chronological order (oldest first) within the page.
+    Use offset to get different ranges of messages:
+    - offset=0: oldest messages
+    - offset=total_messages-5: newest messages
     
     Parameters
     ----------
@@ -173,9 +226,7 @@ def fetch_conversation(username: str, conversation_id: int, limit: int = 50, off
     limit : int, optional
         Maximum number of messages to return (default: 50)
     offset : int, optional
-        Number of messages to skip (default: 0)
-    reverse : bool, optional
-        If True, order by newest first (for Android app). If False, order by oldest first (default: False)
+        Number of messages to skip from the beginning (default: 0)
     
     Returns
     -------
@@ -204,12 +255,10 @@ def fetch_conversation(username: str, conversation_id: int, limit: int = 50, off
     )
     total_messages = cur.fetchone()[0]
     
-    # Choose ordering based on reverse parameter
-    order_clause = "ORDER BY created_at DESC" if reverse else "ORDER BY created_at ASC"
-    
+    # Always order by created_at ASC (chronological order)
     # Get messages for this conversation with paging
     cur.execute(
-        f"SELECT role, message, created_at, message_hash, updated_at FROM messages WHERE username=%s AND conversation_id=%s {order_clause} LIMIT %s OFFSET %s",
+        "SELECT id, role, message, created_at, updated_at FROM messages WHERE username=%s AND conversation_id=%s ORDER BY created_at ASC LIMIT %s OFFSET %s",
         (username, conversation_id, limit, offset),
     )
     message_rows = cur.fetchall()
@@ -220,11 +269,11 @@ def fetch_conversation(username: str, conversation_id: int, limit: int = 50, off
     messages_array = []
     for msg_row in message_rows:
         messages_array.append({
-            "role": msg_row[0],
-            "content": msg_row[1],
-            "created_at": msg_row[2].isoformat(),
-            "message_hash": msg_row[3],
-            "updated_at": msg_row[4].isoformat() if msg_row[4] else msg_row[2].isoformat(),
+            "id": msg_row[0],
+            "role": msg_row[1],
+            "content": msg_row[2],
+            "created_at": msg_row[3].isoformat(),
+            "updated_at": msg_row[4].isoformat() if msg_row[4] else msg_row[3].isoformat(),
         })
     
     return {
@@ -235,7 +284,6 @@ def fetch_conversation(username: str, conversation_id: int, limit: int = 50, off
         "total_messages": total_messages,
         "offset": offset,
         "limit": limit,
-        "reverse": reverse,
         "has_more": offset + len(messages_array) < total_messages,
     }
 
@@ -285,7 +333,7 @@ def delete_conversation_by_id(username: str, conversation_id: int) -> bool:
 
 
 def get_conversations_list(username: str, limit: int = 50):
-    """Return a list of conversations with basic info (id, title, created_at, message_count) for a user."""
+    """Return a list of conversations with basic info (id, title, created_at, message_count, latest_offset) for a user."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
@@ -302,16 +350,24 @@ def get_conversations_list(username: str, limit: int = 50):
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    return [
-        {
+    
+    conversations = []
+    for r in rows:
+        message_count = r[4] or 0
+        # Calculate latest_offset: aligned to page boundaries (20 messages per page)
+        # This ensures the last page starts at a multiple of 20 and contains the most recent messages
+        latest_offset = ((message_count - 1) // 20) * 20 if message_count > 0 else 0
+        
+        conversations.append({
             "id": r[0],
             "title": r[1] or "New conversation",
             "created_at": r[2].isoformat(),
             "updated_at": r[3].isoformat() if r[3] else r[2].isoformat(),
-            "message_count": r[4] or 0,
-        }
-        for r in rows
-    ]
+            "message_count": message_count,
+            "max_offset": latest_offset,
+        })
+    
+    return conversations
 
 
 def create_new_conversation(username: str) -> int:
@@ -385,46 +441,42 @@ def update_user_system_prompt(username: str, system_prompt: str) -> None:
     conn.close()
 
 
-def upsert_streaming_message(username: str, message: dict, conversation_id: int) -> None:
-    """Upsert a streaming message - update existing partial message or create new one."""
+
+def fetch_message_by_id(username: str, message_id: int):
+    """Fetch a specific message by its ID.
+    
+    Parameters
+    ----------
+    username : str
+        The username of the message owner
+    message_id : int
+        The ID of the message to fetch
+    
+    Returns
+    -------
+    dict or None
+        Message data if found, None if not found or access denied
+    """
     conn = get_connection()
     cur = conn.cursor()
     
-    message_hash = message.get("message_hash")
-    if not message_hash:
-        raise ValueError("Message hash is required for streaming messages")
-    
-    role = message.get("role")
-    content = message.get("content", "")
-    created_at = message.get("created_at")
-    updated_at = message.get("updated_at", created_at)
-    
-    # Check if message already exists
+    # Fetch the message and verify ownership
     cur.execute(
-        "SELECT id FROM messages WHERE message_hash=%s AND username=%s AND conversation_id=%s",
-        (message_hash, username, conversation_id)
+        "SELECT id, role, message, conversation_id, created_at, updated_at FROM messages WHERE id=%s AND username=%s",
+        (message_id, username)
     )
-    existing = cur.fetchone()
-    
-    if existing:
-        # Update existing message
-        cur.execute(
-            "UPDATE messages SET message=%s, updated_at=%s WHERE message_hash=%s AND username=%s AND conversation_id=%s",
-            (content, updated_at, message_hash, username, conversation_id)
-        )
-    else:
-        # Insert new message
-        cur.execute(
-            "INSERT INTO messages (role, username, message, conversation_id, message_hash, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (role, username, content, conversation_id, message_hash, created_at, updated_at)
-        )
-    
-    # Update conversation's updated_at timestamp
-    cur.execute(
-        "UPDATE conversations SET updated_at=CURRENT_TIMESTAMP WHERE id=%s",
-        (conversation_id,)
-    )
-    
-    conn.commit()
+    row = cur.fetchone()
     cur.close()
     conn.close()
+    
+    if not row:
+        return None
+    
+    return {
+        "id": row[0],
+        "role": row[1],
+        "content": row[2],
+        "conversation_id": row[3],
+        "created_at": row[4].isoformat(),
+        "updated_at": row[5].isoformat() if row[5] else row[4].isoformat(),
+    }

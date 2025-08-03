@@ -10,16 +10,18 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.kurisuassistant.android.model.McpServer
-import com.kurisuassistant.android.utils.HttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import okhttp3.Request
+import okhttp3.OkHttpClient
 
 class MCPToolsActivity : AppCompatActivity() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: McpServerAdapter
+    private val client = OkHttpClient()
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var statusText: TextView
     private val scope = CoroutineScope(Dispatchers.Main)
@@ -93,7 +95,14 @@ class MCPToolsActivity : AppCompatActivity() {
             throw Exception("LLM Hub URL or token not configured")
         }
 
-        val response = HttpClient.get("$llmHubUrl/mcp-servers", token)
+        val request = Request.Builder()
+            .url("$llmHubUrl/mcp-servers")
+            .addHeader("Authorization", "Bearer $token")
+            .build()
+        val response = client.newCall(request).execute().use { resp ->
+            if (!resp.isSuccessful) throw Exception("HTTP ${resp.code}")
+            resp.body?.string() ?: ""
+        }
         val jsonResponse = JSONObject(response)
         val serversArray = jsonResponse.getJSONArray("servers")
 
