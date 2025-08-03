@@ -1,4 +1,5 @@
 from fastmcp import Client
+from .error import ErrorResult
 import sys
 import os
 async def list_tools(client):
@@ -45,4 +46,8 @@ async def call_tool(client, name, arguments, conversation_id=None):
             return await client.call_tool(name, arguments)
     except Exception as e:
         print(f"Error calling MCP tool {name}: {e}")
-        return {"error": str(e)}
+        # Return in the same format as successful calls for consistency
+        class ErrorResult:
+            def __init__(self, error_msg):
+                self.text = f"Error calling tool {name}: {error_msg}"
+        return [ErrorResult(str(e))]

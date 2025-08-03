@@ -148,10 +148,13 @@ async def chat(
             update_conversation_title(username, title, conv_id)
         
         # Create Agent instance for this conversation
-        agent = Agent(username, conv_id, mcp_client)
-        
+        if conv_id not in sessions or len(sessions[conv_id].context_messages) == 0 or get_current_time() - datetime.datetime.fromisoformat(sessions[conv_id].context_messages[-1]["updated_at"]).replace(tzinfo=datetime.timezone.utc) >= datetime.timedelta(minutes=10):
+            sessions[conv_id] = Agent(username, conv_id, mcp_client)
+
+        agent = sessions[conv_id]
         response_generator = agent.chat(model_name, user_message_content)
     except Exception as e:
+        print(str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
     async def stream():
