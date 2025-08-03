@@ -40,3 +40,4 @@ python-jose==3.3.0
 passlib[bcrypt]==1.7.4
 psycopg2-binary==2.9.9
 fastmcp
+alembic==1.16.4

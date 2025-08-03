@@ -1,12 +1,29 @@
 import os
 import psycopg2
-import json
-import datetime
 from passlib.context import CryptContext
+from alembic.config import Config
+from alembic import command
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://kurisu:kurisu@localhost:5432/kurisu")
+
+
+def authenticate_user(username: str, password: str) -> bool:
+    """Authenticate a user with username and password."""
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT password FROM users WHERE username=%s", (username,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if not row:
+            return False
+        return pwd_context.verify(password, row[0])
+    except Exception:
+        return False
 
 
 def get_connection():
@@ -21,6 +38,32 @@ def get_db_connection():
 
 
 def init_db():
+    """Initialize database using Alembic migrations."""
+    try:
+        # Run Alembic migrations to create/update schema
+        alembic_cfg = Config(os.path.join(os.path.dirname(os.path.dirname(__file__)), "alembic.ini"))
+        command.upgrade(alembic_cfg, "head")
+        
+        # Ensure default admin account exists
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO users (username, password) VALUES (%s, %s) ON CONFLICT (username) DO NOTHING",
+            ("admin", pwd_context.hash("admin")),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        print("Database initialized successfully using Alembic migrations")
+    except Exception as e:
+        print(f"Error initializing database: {e}")
+        # Fallback to manual table creation if needed
+        _init_db_manual()
+
+
+def _init_db_manual():
+    """Fallback manual database initialization."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
@@ -28,14 +71,10 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
             password TEXT NOT NULL,
-            system_prompt TEXT DEFAULT ''
+            system_prompt TEXT DEFAULT '',
+            preferred_name TEXT DEFAULT ''
         )
         """
-    )
-    # ensure default admin account
-    cur.execute(
-        "INSERT INTO users (username, password) VALUES (%s, %s) ON CONFLICT (username) DO NOTHING",
-        ("admin", pwd_context.hash("admin")),
     )
     # Conversations table for conversation metadata (no messages column)
     cur.execute(
@@ -71,9 +110,16 @@ def init_db():
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_messages_username ON messages(username)"
     )
+    
+    # ensure default admin account
+    cur.execute(
+        "INSERT INTO users (username, password) VALUES (%s, %s) ON CONFLICT (username) DO NOTHING",
+        ("admin", pwd_context.hash("admin")),
+    )
     conn.commit()
     cur.close()
     conn.close()
+    print("Database initialized using manual schema creation")
 
 
 def add_messages(
@@ -436,6 +482,82 @@ def update_user_system_prompt(username: str, system_prompt: str) -> None:
         "UPDATE users SET system_prompt=%s WHERE username=%s",
         (system_prompt, username)
     )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_user_preferred_name(username: str) -> str:
+    """Get the preferred name for a specific user."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT preferred_name FROM users WHERE username=%s", (username,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row[0] if row else ""
+
+
+def update_user_preferred_name(username: str, preferred_name: str) -> None:
+    """Update the preferred name for a specific user."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET preferred_name=%s WHERE username=%s",
+        (preferred_name, username)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_user_preferences(username: str) -> tuple[str, str]:
+    """Get both system prompt and preferred name for a specific user in a single query.
+    
+    Returns:
+        tuple: (system_prompt, preferred_name)
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT system_prompt, preferred_name FROM users WHERE username=%s", (username,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if row:
+        return row[0] if row[0] else "", row[1] if row[1] else ""
+    else:
+        return "", ""
+
+
+def update_user_preferences(username: str, system_prompt: str = None, preferred_name: str = None) -> None:
+    """Update system prompt and/or preferred name for a specific user.
+    
+    Args:
+        username: The username to update
+        system_prompt: New system prompt (optional, if None, won't be updated)
+        preferred_name: New preferred name (optional, if None, won't be updated)
+    """
+    if system_prompt is None and preferred_name is None:
+        return
+    
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    updates = []
+    params = []
+    
+    if system_prompt is not None:
+        updates.append("system_prompt=%s")
+        params.append(system_prompt)
+    
+    if preferred_name is not None:
+        updates.append("preferred_name=%s")
+        params.append(preferred_name)
+    
+    params.append(username)
+    
+    query = f"UPDATE users SET {', '.join(updates)} WHERE username=%s"
+    cur.execute(query, params)
     conn.commit()
     cur.close()
     conn.close()

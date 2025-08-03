@@ -4,9 +4,8 @@ Simple test script for the MCP Context Server.
 Tests database connection and MCP functions.
 """
 
-import sys
 from datetime import datetime, timedelta
-from db import test_connection, get_conversation_summary_db
+from db import test_connection
 from main import retrieve_messages_by_date_range, retrieve_messages_by_regex, get_conversation_summary
 
 def test_database():
