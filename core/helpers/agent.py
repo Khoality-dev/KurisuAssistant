@@ -4,7 +4,7 @@ import time
 import datetime
 from ollama import Client as OllamaClient
 from mcp_tools.client import list_tools, call_tool
-from .db import get_user_system_prompt, upsert_streaming_message
+from .db import get_user_system_prompt, get_user_preferred_name, upsert_streaming_message
 
 SYSTEM_PROMPT = """
 You have access to conversation context tools that allow you to retrieve and search through the current conversation's message history. These tools are automatically scoped to the current conversation.
@@ -148,12 +148,17 @@ class Agent:
             buffer = ""
             # Get tools with caching to avoid repeated MCP connections
             tools = await self.get_tools()
+            # Get user's preferred name and build system message
+            user_preferred_name = get_user_preferred_name(self.username)
+            preferred_name_text = f"\n\nThe user prefers to be called: {user_preferred_name}" if user_preferred_name else ""
+            
             # Use the recent messages directly
             messages = [
                 {
                     "role": "system",
                     "content": SYSTEM_PROMPT
-                    + f"\n\nCurrent time is {datetime.datetime.utcnow().isoformat()}",
+                    + f"\n\nCurrent time is {datetime.datetime.utcnow().isoformat()}"
+                    + preferred_name_text,
                 },
                 {"role": "system", "content": self.system_prompt},
                 *self.context_messages,

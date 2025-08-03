@@ -25,6 +25,8 @@ from helpers.db import (
     admin_exists,
     get_user_system_prompt,
     update_user_system_prompt,
+    get_user_preferred_name,
+    update_user_preferred_name,
     update_conversation_title,
     delete_conversation_by_id,
     get_conversations_list,
@@ -272,20 +274,26 @@ async def delete_conversation(conversation_id: int, token: str = Depends(oauth2_
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/system-prompt")
-async def get_system_prompt(token: str = Depends(oauth2_scheme)):
+
+@app.get("/user")
+async def get_user_profile(token: str = Depends(oauth2_scheme)):
     username = get_current_user(token)
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
         system_prompt = get_user_system_prompt(username)
-        return {"system_prompt": system_prompt}
+        preferred_name = get_user_preferred_name(username)
+        return {
+            "username": username,
+            "system_prompt": system_prompt,
+            "preferred_name": preferred_name
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.put("/system-prompt")
-async def update_system_prompt(
+@app.put("/user")
+async def update_user_profile(
     request: Request, token: str = Depends(oauth2_scheme)
 ):
     username = get_current_user(token)
@@ -293,8 +301,17 @@ async def update_system_prompt(
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
         payload = await request.json()
-        system_prompt = payload.get("system_prompt", "")
-        update_user_system_prompt(username, system_prompt)
+        
+        # Update system prompt if provided
+        if "system_prompt" in payload:
+            system_prompt = payload.get("system_prompt", "")
+            update_user_system_prompt(username, system_prompt)
+        
+        # Update preferred name if provided
+        if "preferred_name" in payload:
+            preferred_name = payload.get("preferred_name", "")
+            update_user_preferred_name(username, preferred_name)
+        
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

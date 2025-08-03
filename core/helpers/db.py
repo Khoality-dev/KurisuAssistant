@@ -28,7 +28,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
             password TEXT NOT NULL,
-            system_prompt TEXT DEFAULT ''
+            system_prompt TEXT DEFAULT '',
+            preferred_name TEXT DEFAULT ''
         )
         """
     )
@@ -435,6 +436,30 @@ def update_user_system_prompt(username: str, system_prompt: str) -> None:
     cur.execute(
         "UPDATE users SET system_prompt=%s WHERE username=%s",
         (system_prompt, username)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_user_preferred_name(username: str) -> str:
+    """Get the preferred name for a specific user."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT preferred_name FROM users WHERE username=%s", (username,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row[0] if row else ""
+
+
+def update_user_preferred_name(username: str, preferred_name: str) -> None:
+    """Update the preferred name for a specific user."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET preferred_name=%s WHERE username=%s",
+        (preferred_name, username)
     )
     conn.commit()
     cur.close()

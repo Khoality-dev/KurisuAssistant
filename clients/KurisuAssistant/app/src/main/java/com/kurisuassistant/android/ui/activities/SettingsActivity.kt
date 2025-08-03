@@ -36,6 +36,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var llmUrl: EditText
     private lateinit var ttsUrl: EditText
     private lateinit var modelSpinner: Spinner
+    private lateinit var preferredName: EditText
     private lateinit var systemPrompt: EditText
     private lateinit var llmValidationProgress: ProgressBar
     private lateinit var llmValidationIcon: ImageView
@@ -63,6 +64,7 @@ class SettingsActivity : AppCompatActivity() {
         llmUrl = findViewById(R.id.editLlmUrl)
         ttsUrl = findViewById(R.id.editTtsUrl)
         modelSpinner = findViewById(R.id.spinnerModel)
+        preferredName = findViewById(R.id.editPreferredName)
         systemPrompt = findViewById(R.id.editSystemPrompt)
         llmValidationProgress = findViewById(R.id.llmValidationProgress)
         llmValidationIcon = findViewById(R.id.llmValidationIcon)
@@ -74,8 +76,8 @@ class SettingsActivity : AppCompatActivity() {
         ttsUrl.setText(Settings.ttsUrl)
         systemPrompt.setText(Settings.systemPrompt)
         
-        // Load system prompt from server
-        loadSystemPrompt()
+        // Load user profile from server
+        loadUserProfile()
 
         AvatarManager.getUserAvatarUri()?.let { userAvatar.setImageURI(it) }
         AvatarManager.getAgentAvatarUri()?.let { agentAvatar.setImageURI(it) }
@@ -111,6 +113,12 @@ class SettingsActivity : AppCompatActivity() {
         })
 
         ttsUrl.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { markUnsavedChanges() }
+        })
+
+        preferredName.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: android.text.Editable?) { markUnsavedChanges() }
@@ -206,7 +214,7 @@ class SettingsActivity : AppCompatActivity() {
         })
     }
 
-    private fun loadSystemPrompt() {
+    private fun loadUserProfile() {
         val token = Auth.token
         if (token == null) {
             // If no token, just use local value
@@ -215,7 +223,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         
         val request = Request.Builder()
-            .url("${Settings.llmUrl}/system-prompt")
+            .url("${Settings.llmUrl}/user")
             .addHeader("Authorization", "Bearer ${Auth.token}")
             .build() 
             
@@ -235,9 +243,11 @@ class SettingsActivity : AppCompatActivity() {
                     }
                     val json = JSONObject(it.body!!.string())
                     val serverSystemPrompt = json.optString("system_prompt", "")
+                    val serverPreferredName = json.optString("preferred_name", "")
                     
                     runOnUiThread {
                         systemPrompt.setText(serverSystemPrompt)
+                        preferredName.setText(serverPreferredName)
                         Settings.saveSystemPrompt(serverSystemPrompt)
                     }
                 }
@@ -262,14 +272,16 @@ class SettingsActivity : AppCompatActivity() {
         // Save local settings first
         saveSettings()
         
-        // Save system prompt to server
+        // Save user profile to server
         val prompt = systemPrompt.text.toString().trim()
+        val preferredNameText = preferredName.text.toString().trim()
         val requestBody = JSONObject().apply {
             put("system_prompt", prompt)
+            put("preferred_name", preferredNameText)
         }.toString().toRequestBody("application/json".toMediaType())
         
         val request = Request.Builder()
-            .url("${Settings.llmUrl}/system-prompt")
+            .url("${Settings.llmUrl}/user")
             .put(requestBody)
             .addHeader("Authorization", "Bearer ${Auth.token}")
             .build()
@@ -296,7 +308,7 @@ class SettingsActivity : AppCompatActivity() {
                             Toast.makeText(this@SettingsActivity, "Settings saved successfully", Toast.LENGTH_SHORT).show()
                             markChangesSaved()
                         } else {
-                            Toast.makeText(this@SettingsActivity, "Failed to save system prompt to server", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@SettingsActivity, "Failed to save user profile to server", Toast.LENGTH_SHORT).show()
                         }
                         // Reset button state
                         saveButton.isEnabled = true
