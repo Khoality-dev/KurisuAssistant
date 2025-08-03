@@ -1,20 +1,14 @@
 import asyncio
-import datetime
 import json
 import os
-import re
-import subprocess
-import wave
 from core.helpers.agents.age import OllamaClient
-from fastapi import FastAPI, Request, HTTPException, Response, Body, WebSocket, WebSocketDisconnect, Depends
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from transformers import pipeline
 from helpers.tts import TTS
 from auth import get_current_user, authenticate_user, create_access_token
 import torch
 import numpy as np
-import requests
 import dotenv
 from fastmcp.client import Client as FastMCPClient
 import glob

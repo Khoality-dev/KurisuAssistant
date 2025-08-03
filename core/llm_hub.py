@@ -3,8 +3,7 @@ import json
 import os
 import glob
 import numpy as np
-from typing import Dict, List, Any
-from fastapi import FastAPI, HTTPException, Request, Body, Response, Depends, Form
+from fastapi import FastAPI, HTTPException, Request, Body, Depends, Form
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from transformers import pipeline
@@ -12,47 +11,13 @@ import torch
 import uvicorn
 from helpers.utils import get_current_time
 from mcp_tools.client import list_tools
+from mcp_tools.config import load_mcp_configs
 from helpers import Agent
 import dotenv
 from fastmcp.client import Client as FastMCPClient
 from auth import authenticate_user, create_access_token, get_current_user
-from helpers.db import (
-    init_db,
-    add_messages,
-    fetch_conversation,
-    fetch_message_by_id,
-    create_user,
-    admin_exists,
-    get_user_system_prompt,
-    update_user_system_prompt,
-    get_user_preferred_name,
-    update_user_preferred_name,
-    update_conversation_title,
-    delete_conversation_by_id,
-    get_conversations_list,
-    create_new_conversation,
-    get_db_connection,
-)
+from db import operations
 
-def load_mcp_configs():
-    """Load and merge MCP configurations from tool-specific config.json files."""
-    # Start with empty configuration - no more default.json
-    mcp_servers = {}
-     
-    # Find and merge tool-specific configurations
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    tool_config_files = glob.glob(os.path.join(current_dir, "mcp_tools/*/config.json"))
-    for config_file in tool_config_files:
-        try:
-            with open(config_file, "r") as f:
-                tool_config = json.load(f)
-                tool_mcp_servers = tool_config.get("mcp_servers", {})
-                # Merge tool-specific servers into main configuration
-                mcp_servers.update(tool_mcp_servers)
-        except (json.JSONDecodeError, FileNotFoundError) as e:
-            print(f"Warning: Could not load MCP config from {config_file}: {e}")
-    
-    return {"mcpServers": mcp_servers}
 
 mcp_configs = load_mcp_configs()
 # Initialize mcp_client to None if no servers are configured
@@ -63,7 +28,7 @@ mcp_client = FastMCPClient(mcp_configs) if mcp_configs.get("mcpServers") else No
 dotenv.load_dotenv()
 
 # Ensure the conversations table exists
-init_db()
+operations.init_db()
 
 app = FastAPI(
     title="Kurisu LLM Hub API",
@@ -87,7 +52,7 @@ sessions = {}
 @app.get("/needs-admin")
 async def needs_admin():
     """Return whether the server lacks an admin account."""
-    return {"needs_admin": not admin_exists()}
+    return {"needs_admin": not operations.admin_exists()}
 
 
 @app.get("/health")
@@ -107,7 +72,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 @app.post("/register")
 async def register(form_data: OAuth2PasswordRequestForm = Depends()):
     try:
-        create_user(form_data.username, form_data.password)
+        operations.create_user(form_data.username, form_data.password)
         return {"status": "ok"}
     except ValueError:
         raise HTTPException(status_code=400, detail="User already exists")
@@ -189,7 +154,7 @@ async def get_conversation(
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        result = fetch_conversation(username, conversation_id, limit, offset)
+        result = operations.fetch_conversation(username, conversation_id, limit, offset)
         if result is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
         return result
@@ -207,7 +172,7 @@ async def get_message(
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        result = fetch_message_by_id(username, message_id)
+        result = operations.fetch_message_by_id(username, message_id)
         if result is None:
             raise HTTPException(status_code=404, detail="Message not found")
         return result
@@ -221,7 +186,7 @@ async def list_conversations(token: str = Depends(oauth2_scheme), limit: int = 5
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        result = get_conversations_list(username, limit)
+        result = operations.get_conversations_list(username, limit)
         return result
     except Exception as e:
         print(str(e))
@@ -234,7 +199,7 @@ async def create_conversation(token: str = Depends(oauth2_scheme)):
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        conversation_id = create_new_conversation(username)
+        conversation_id = operations.create_new_conversation(username)
         return {"id": conversation_id, "title": "New conversation", "message_count": 0}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -253,7 +218,7 @@ async def update_conversation(conversation_id: int, request: Request, token: str
         if not title:
             raise HTTPException(status_code=400, detail="Title is required")
         
-        update_conversation_title(username, title, conversation_id)
+        operations.update_conversation_title(username, title, conversation_id)
         return {"message": "Conversation title updated successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -265,7 +230,7 @@ async def delete_conversation(conversation_id: int, token: str = Depends(oauth2_
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        result = delete_conversation_by_id(username, conversation_id)
+        result = operations.delete_conversation_by_id(username, conversation_id)
         if result:
             return {"message": "Conversation deleted successfully"}
         else:
@@ -281,8 +246,7 @@ async def get_user_profile(token: str = Depends(oauth2_scheme)):
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        system_prompt = get_user_system_prompt(username)
-        preferred_name = get_user_preferred_name(username)
+        system_prompt, preferred_name = operations.get_user_preferences(username)
         return {
             "username": username,
             "system_prompt": system_prompt,
@@ -302,15 +266,12 @@ async def update_user_profile(
     try:
         payload = await request.json()
         
-        # Update system prompt if provided
-        if "system_prompt" in payload:
-            system_prompt = payload.get("system_prompt", "")
-            update_user_system_prompt(username, system_prompt)
+        # Update preferences using the combined function
+        system_prompt = payload.get("system_prompt") if "system_prompt" in payload else None
+        preferred_name = payload.get("preferred_name") if "preferred_name" in payload else None
         
-        # Update preferred name if provided
-        if "preferred_name" in payload:
-            preferred_name = payload.get("preferred_name", "")
-            update_user_preferred_name(username, preferred_name)
+        if system_prompt is not None or preferred_name is not None:
+            operations.update_user_preferences(username, system_prompt, preferred_name)
         
         return {"status": "ok"}
     except Exception as e:
@@ -336,7 +297,7 @@ async def generate(
             raise HTTPException(status_code=400, detail="Prompt is required")
         
         # Prepare system prompts
-        user_system_prompt = get_user_system_prompt(username)
+        user_system_prompt, _ = operations.get_user_preferences(username)
         user_system_prompts = []
         if user_system_prompt:
             user_system_prompts.append({

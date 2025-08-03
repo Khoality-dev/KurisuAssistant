@@ -1,17 +1,14 @@
-import sys
-import os
 import re
 from datetime import datetime
 from fastmcp import FastMCP
-from typing import Annotated, List, Optional
+from typing import Annotated, Optional
 from pydantic import Field
 
 # Import local database functions
 from db import (
     retrieve_messages_by_date_range_db,
     retrieve_all_messages_for_regex_db,
-    get_conversation_summary_db,
-    test_connection
+    get_conversation_summary_db
 )
 
 mcp = FastMCP(

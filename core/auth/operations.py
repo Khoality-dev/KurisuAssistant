@@ -3,13 +3,10 @@ from typing import Optional
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-import psycopg2
+from db import operations
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "secret")
 ALGORITHM = "HS256"
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://kurisu:kurisu@localhost:5432/kurisu"
-)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -19,17 +16,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def authenticate_user(username: str, password: str) -> bool:
-    try:
-        conn = psycopg2.connect(DATABASE_URL)
-        cur = conn.cursor()
-        cur.execute("SELECT password FROM users WHERE username=%s", (username,))
-        row = cur.fetchone()
-        conn.close()
-    except Exception:
-        return False
-    if not row:
-        return False
-    return verify_password(password, row[0])
+    return operations.authenticate_user(username, password)
 
 
 def create_access_token(data: dict) -> str:

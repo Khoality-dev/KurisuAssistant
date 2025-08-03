@@ -1,7 +1,7 @@
 import os
 import psycopg2
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Tuple
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://kurisu:kurisu@localhost:5432/kurisu")
 
