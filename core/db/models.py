@@ -10,6 +10,8 @@ class User(Base):
     password = Column(Text, nullable=False)
     system_prompt = Column(Text, default='')
     preferred_name = Column(Text, default='')
+    user_avatar_uuid = Column(String, nullable=True)
+    agent_avatar_uuid = Column(String, nullable=True)
     
     conversations = relationship("Conversation", back_populates="user")
 

@@ -2,9 +2,12 @@ import datetime
 import json
 import os
 import glob
+import uuid
 import numpy as np
-from fastapi import FastAPI, HTTPException, Request, Body, Depends, Form
-from fastapi.responses import StreamingResponse
+import cv2
+from pathlib import Path
+from fastapi import FastAPI, HTTPException, Request, Body, Depends, Form, File, UploadFile
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from transformers import pipeline
 import torch
@@ -38,6 +41,10 @@ app = FastAPI(
 
 # We'll create Agent instances per request now since they need username/conversation_id
 whisper_model_name = 'whisper-finetuned' if os.path.exists('whisper-finetuned') else 'openai/whisper-base'
+
+# Image storage configuration
+IMAGES_DIR = Path("/app/data/images")
+IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 asr_model = pipeline(
     model=whisper_model_name,
     task='automatic-speech-recognition',
@@ -247,10 +254,13 @@ async def get_user_profile(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
         system_prompt, preferred_name = operations.get_user_preferences(username)
+        user_avatar_uuid, agent_avatar_uuid = operations.get_user_avatars(username)
         return {
             "username": username,
             "system_prompt": system_prompt,
-            "preferred_name": preferred_name
+            "preferred_name": preferred_name,
+            "user_avatar_uuid": user_avatar_uuid,
+            "agent_avatar_uuid": agent_avatar_uuid
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -361,6 +371,118 @@ async def mcp_servers(token: str = Depends(oauth2_scheme)):
                 pass
         
         return {"servers": servers}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/images/{image_uuid}")
+async def get_image(image_uuid: str, token: str = Depends(oauth2_scheme)):
+    """Serve image with token verification."""
+    username = get_current_user(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    # Validate UUID format
+    try:
+        uuid.UUID(image_uuid)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    image_path = IMAGES_DIR / f"{image_uuid}.png"
+    
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    return FileResponse(
+        path=image_path,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"}
+    )
+
+
+@app.post("/images")
+async def upload_image(file: UploadFile = File(...), token: str = Depends(oauth2_scheme)):
+    """Upload image and return UUID."""
+    username = get_current_user(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+        
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    # Generate UUID for the image
+    image_uuid = str(uuid.uuid4())
+    image_path = IMAGES_DIR / f"{image_uuid}.jpg"
+    
+    try:
+        # Read image using OpenCV
+        content = await file.read()
+        nparr = np.frombuffer(content, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if image is None:
+            raise HTTPException(status_code=400, detail="Invalid image format")
+        
+        # Save as JPG with quality optimization
+        cv2.imwrite(str(image_path), image, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        
+        return {"image_uuid": image_uuid, "url": f"/images/{image_uuid}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process image: {str(e)}")
+
+
+@app.put("/avatars/{avatar_type}")
+async def set_avatar(avatar_type: str, request: Request, token: str = Depends(oauth2_scheme)):
+    """Set user or agent avatar using existing image UUID."""
+    username = get_current_user(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    if avatar_type not in ["user", "agent"]:
+        raise HTTPException(status_code=400, detail="avatar_type must be 'user' or 'agent'")
+    
+    try:
+        payload = await request.json()
+        image_uuid = payload.get("image_uuid")
+        
+        if not image_uuid:
+            raise HTTPException(status_code=400, detail="image_uuid is required")
+        
+        # Verify the image exists
+        image_path = IMAGES_DIR / f"{image_uuid}.jpg"
+        if not image_path.exists():
+            # Also check for PNG (backward compatibility)
+            png_path = IMAGES_DIR / f"{image_uuid}.png"
+            if not png_path.exists():
+                raise HTTPException(status_code=404, detail="Image not found")
+        
+        # Update user's avatar UUID in database
+        operations.update_user_avatar(username, avatar_type, image_uuid)
+        
+        return {
+            "avatar_uuid": image_uuid, 
+            "url": f"/images/{image_uuid}",
+            "avatar_type": avatar_type
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to set avatar: {str(e)}")
+
+
+@app.get("/avatars")
+async def get_user_avatars(token: str = Depends(oauth2_scheme)):
+    """Get current user's avatar UUIDs."""
+    username = get_current_user(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    try:
+        user_avatar_uuid, agent_avatar_uuid = operations.get_user_avatars(username)
+        return {
+            "user_avatar_uuid": user_avatar_uuid,
+            "agent_avatar_uuid": agent_avatar_uuid,
+            "user_avatar_url": f"/images/{user_avatar_uuid}" if user_avatar_uuid else None,
+            "agent_avatar_url": f"/images/{agent_avatar_uuid}" if agent_avatar_uuid else None
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
