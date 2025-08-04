@@ -14,14 +14,11 @@ object Settings {
     private const val KEY_SYSTEM_PROMPT = "system_prompt"
     private const val KEY_FIRST = "first_run"
 
-    private const val DEFAULT_LLM_URL = "http://127.0.0.1:15597"
-    private const val DEFAULT_TTS_URL = "http://127.0.0.1:15598"
-
     private lateinit var prefs: SharedPreferences
 
-    var llmUrl: String = DEFAULT_LLM_URL
+    var llmUrl: String = ""
         private set
-    var ttsUrl: String = DEFAULT_TTS_URL
+    var ttsUrl: String = ""
         private set
     var model: String = ""
     var systemPrompt: String = ""
@@ -30,8 +27,8 @@ object Settings {
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        llmUrl = prefs.getString(KEY_LLM_URL, DEFAULT_LLM_URL) ?: DEFAULT_LLM_URL
-        ttsUrl = prefs.getString(KEY_TTS_URL, DEFAULT_TTS_URL) ?: DEFAULT_TTS_URL
+        llmUrl = prefs.getString(KEY_LLM_URL, "") ?: ""
+        ttsUrl = prefs.getString(KEY_TTS_URL, "") ?: ""
         model = prefs.getString(KEY_MODEL, "") ?: ""
         systemPrompt = prefs.getString(KEY_SYSTEM_PROMPT, "") ?: ""
         firstRun = prefs.getBoolean(KEY_FIRST, true)

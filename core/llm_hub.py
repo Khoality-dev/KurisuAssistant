@@ -3,8 +3,9 @@ import json
 import os
 import glob
 import numpy as np
-from fastapi import FastAPI, HTTPException, Request, Body, Depends, Form
-from fastapi.responses import StreamingResponse
+from pathlib import Path
+from fastapi import FastAPI, HTTPException, Request, Body, Depends, Form, File, UploadFile
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from transformers import pipeline
 import torch
@@ -13,10 +14,11 @@ from helpers.utils import get_current_time
 from mcp_tools.client import list_tools
 from mcp_tools.config import load_mcp_configs
 from helpers import Agent
+from image_storage import operations as image_operations
 import dotenv
 from fastmcp.client import Client as FastMCPClient
 from auth import authenticate_user, create_access_token, get_current_user
-from db import operations
+from db import operations as db_operations
 
 
 mcp_configs = load_mcp_configs()
@@ -28,7 +30,7 @@ mcp_client = FastMCPClient(mcp_configs) if mcp_configs.get("mcpServers") else No
 dotenv.load_dotenv()
 
 # Ensure the conversations table exists
-operations.init_db()
+db_operations.init_db()
 
 app = FastAPI(
     title="Kurisu LLM Hub API",
@@ -38,6 +40,8 @@ app = FastAPI(
 
 # We'll create Agent instances per request now since they need username/conversation_id
 whisper_model_name = 'whisper-finetuned' if os.path.exists('whisper-finetuned') else 'openai/whisper-base'
+
+# Image storage handled by separate image-storage service
 asr_model = pipeline(
     model=whisper_model_name,
     task='automatic-speech-recognition',
@@ -52,7 +56,7 @@ sessions = {}
 @app.get("/needs-admin")
 async def needs_admin():
     """Return whether the server lacks an admin account."""
-    return {"needs_admin": not operations.admin_exists()}
+    return {"needs_admin": not db_operations.admin_exists()}
 
 
 @app.get("/health")
@@ -72,7 +76,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 @app.post("/register")
 async def register(form_data: OAuth2PasswordRequestForm = Depends()):
     try:
-        operations.create_user(form_data.username, form_data.password)
+        db_operations.create_user(form_data.username, form_data.password)
         return {"status": "ok"}
     except ValueError:
         raise HTTPException(status_code=400, detail="User already exists")
@@ -100,6 +104,7 @@ async def chat(
     text: str = Form(...),
     model_name: str = Form(...),
     conversation_id: int = Form(...),
+    images: list[UploadFile] = File(default=[]),
     token: str = Depends(oauth2_scheme)
 ):
     username = get_current_user(token)
@@ -108,6 +113,23 @@ async def chat(
     
     try:        
         user_message_content = text
+        
+        # Handle image attachments if provided
+        if images:
+            valid_images = [img for img in images if img.size > 0]  # Filter out empty files
+            if valid_images:
+                image_markdowns = []
+                for image in valid_images:
+                    # Upload image and get UUID
+                    image_uuid = image_operations.upload_image(image)
+                    image_url = f"/images/{image_uuid}"
+                    # Add image in markdown format for frontend display
+                    image_markdowns.append(f"![Image]({image_url})")
+                
+                # Include image markdown in the message content
+                if image_markdowns:
+                    images_text = "\n\n" + "\n".join(image_markdowns)
+                    user_message_content += images_text
         
         # Use provided conversation_id (now required)
         conv_id = conversation_id
@@ -154,7 +176,7 @@ async def get_conversation(
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        result = operations.fetch_conversation(username, conversation_id, limit, offset)
+        result = db_operations.fetch_conversation(username, conversation_id, limit, offset)
         if result is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
         return result
@@ -172,7 +194,7 @@ async def get_message(
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        result = operations.fetch_message_by_id(username, message_id)
+        result = db_operations.fetch_message_by_id(username, message_id)
         if result is None:
             raise HTTPException(status_code=404, detail="Message not found")
         return result
@@ -186,7 +208,7 @@ async def list_conversations(token: str = Depends(oauth2_scheme), limit: int = 5
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        result = operations.get_conversations_list(username, limit)
+        result = db_operations.get_conversations_list(username, limit)
         return result
     except Exception as e:
         print(str(e))
@@ -199,7 +221,7 @@ async def create_conversation(token: str = Depends(oauth2_scheme)):
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        conversation_id = operations.create_new_conversation(username)
+        conversation_id = db_operations.create_new_conversation(username)
         return {"id": conversation_id, "title": "New conversation", "message_count": 0}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -218,7 +240,7 @@ async def update_conversation(conversation_id: int, request: Request, token: str
         if not title:
             raise HTTPException(status_code=400, detail="Title is required")
         
-        operations.update_conversation_title(username, title, conversation_id)
+        db_operations.update_conversation_title(username, title, conversation_id)
         return {"message": "Conversation title updated successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -230,7 +252,7 @@ async def delete_conversation(conversation_id: int, token: str = Depends(oauth2_
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        result = operations.delete_conversation_by_id(username, conversation_id)
+        result = db_operations.delete_conversation_by_id(username, conversation_id)
         if result:
             return {"message": "Conversation deleted successfully"}
         else:
@@ -246,11 +268,14 @@ async def get_user_profile(token: str = Depends(oauth2_scheme)):
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        system_prompt, preferred_name = operations.get_user_preferences(username)
+        system_prompt, preferred_name = db_operations.get_user_preferences(username)
+        user_avatar_uuid, agent_avatar_uuid = db_operations.get_user_avatars(username)
         return {
             "username": username,
             "system_prompt": system_prompt,
-            "preferred_name": preferred_name
+            "preferred_name": preferred_name,
+            "user_avatar_uuid": user_avatar_uuid,
+            "agent_avatar_uuid": agent_avatar_uuid
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -258,22 +283,45 @@ async def get_user_profile(token: str = Depends(oauth2_scheme)):
 
 @app.put("/user")
 async def update_user_profile(
-    request: Request, token: str = Depends(oauth2_scheme)
+    token: str = Depends(oauth2_scheme),
+    system_prompt: str = Form(None),
+    preferred_name: str = Form(None),
+    user_avatar: UploadFile = File(None),
+    agent_avatar: UploadFile = File(None)
 ):
     username = get_current_user(token)
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        payload = await request.json()
-        
         # Update preferences using the combined function
-        system_prompt = payload.get("system_prompt") if "system_prompt" in payload else None
-        preferred_name = payload.get("preferred_name") if "preferred_name" in payload else None
-        
         if system_prompt is not None or preferred_name is not None:
-            operations.update_user_preferences(username, system_prompt, preferred_name)
+            db_operations.update_user_preferences(username, system_prompt, preferred_name)
         
-        return {"status": "ok"}
+        # Handle avatar updates
+        if user_avatar is not None:
+            if user_avatar.size > 0:  # File was uploaded
+                user_avatar_uuid = image_operations.upload_image(user_avatar)
+                db_operations.update_user_avatar(username, "user", user_avatar_uuid)
+            else:
+                # Empty file means clear avatar
+                db_operations.update_user_avatar(username, "user", None)
+        
+        if agent_avatar is not None:
+            if agent_avatar.size > 0:  # File was uploaded
+                agent_avatar_uuid = image_operations.upload_image(agent_avatar)
+                db_operations.update_user_avatar(username, "agent", agent_avatar_uuid)
+            else:
+                # Empty file means clear avatar
+                db_operations.update_user_avatar(username, "agent", None)
+        
+        # Get the updated avatar UUIDs to return to client
+        user_avatar_uuid, agent_avatar_uuid = db_operations.get_user_avatars(username)
+        
+        return {
+            "status": "ok",
+            "user_avatar_uuid": user_avatar_uuid,
+            "agent_avatar_uuid": agent_avatar_uuid
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -297,7 +345,7 @@ async def generate(
             raise HTTPException(status_code=400, detail="Prompt is required")
         
         # Prepare system prompts
-        user_system_prompt, _ = operations.get_user_preferences(username)
+        user_system_prompt, _ = db_operations.get_user_preferences(username)
         user_system_prompts = []
         if user_system_prompt:
             user_system_prompts.append({
@@ -363,6 +411,37 @@ async def mcp_servers(token: str = Depends(oauth2_scheme)):
         return {"servers": servers}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/images")
+async def upload_image(file: UploadFile = File(...), token: str = Depends(oauth2_scheme)):
+    """Upload image and return UUID."""
+    username = get_current_user(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    image_uuid = image_operations.upload_image(file)
+    return {"image_uuid": image_uuid, "url": f"/images/{image_uuid}"}
+
+
+@app.get("/images/{image_uuid}")
+async def get_image(image_uuid: str):
+    """Serve image publicly."""
+    
+    image_path = image_operations.get_image_path(image_uuid)
+    if not image_path:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    # Determine media type based on file extension
+    media_type = "image/jpeg" if image_path.suffix.lower() == ".jpg" else "image/png"
+    
+    return FileResponse(
+        path=image_path,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=31536000, immutable"}
+    )
+
+
 
 
 if __name__ == "__main__":

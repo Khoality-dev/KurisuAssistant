@@ -529,6 +529,55 @@ def get_user_preferences(username: str) -> tuple[str, str]:
         return "", ""
 
 
+def get_user_avatars(username: str) -> tuple[str | None, str | None]:
+    """Get avatar UUIDs for a specific user.
+    
+    Returns:
+        tuple: (user_avatar_uuid, agent_avatar_uuid)
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT user_avatar_uuid, agent_avatar_uuid FROM users WHERE username=%s", (username,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if row:
+        return row[0], row[1]
+    else:
+        return None, None
+
+
+def update_user_avatar(username: str, avatar_type: str, avatar_uuid: str) -> None:
+    """Update avatar UUID for a specific user.
+    
+    Args:
+        username: The username to update
+        avatar_type: Either 'user' or 'agent'
+        avatar_uuid: The UUID of the uploaded avatar image
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    if avatar_type == 'user':
+        cur.execute(
+            "UPDATE users SET user_avatar_uuid=%s WHERE username=%s",
+            (avatar_uuid, username)
+        )
+    elif avatar_type == 'agent':
+        cur.execute(
+            "UPDATE users SET agent_avatar_uuid=%s WHERE username=%s",
+            (avatar_uuid, username)
+        )
+    else:
+        cur.close()
+        conn.close()
+        raise ValueError("avatar_type must be 'user' or 'agent'")
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 def update_user_preferences(username: str, system_prompt: str = None, preferred_name: str = None) -> None:
     """Update system prompt and/or preferred name for a specific user.
     

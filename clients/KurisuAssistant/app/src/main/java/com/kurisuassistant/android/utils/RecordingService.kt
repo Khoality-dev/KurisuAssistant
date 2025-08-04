@@ -106,7 +106,7 @@ class RecordingService : Service() {
         initRecorder()
         // REST agent requires a valid AudioTrack instance for playback
         player?.let {
-            agent = Agent(it)
+            agent = Agent(it, this)
         }
         initSileroVAD()
         startRecordingLoop()

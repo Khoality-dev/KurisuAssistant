@@ -7,6 +7,7 @@ import com.kurisuassistant.android.model.ChatMessage
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import android.content.Context
+import android.net.Uri
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -67,7 +68,7 @@ object ChatRepository {
             .build().apply { play() }
     }
 
-    private val agent by lazy { Agent(player) }
+    private lateinit var agent: Agent
     private val scope = CoroutineScope(Dispatchers.IO)
 
     private suspend fun createNewConversationOnServer(): Int? = withContext(Dispatchers.IO) {
@@ -214,8 +215,10 @@ object ChatRepository {
     }
 
     fun init(context: Context? = null) {
-        agent
-        context?.let { ChatHistory.init(it) }
+        context?.let { 
+            agent = Agent(player, it)
+            ChatHistory.init(it) 
+        }
         if (context != null) {
             scope.launch {
                 ChatHistory.fetchConversationList()
@@ -316,7 +319,7 @@ object ChatRepository {
      * Send a user text message to the LLM and stream the assistant reply.
      * Returns true if message was sent, false if already processing.
      */
-    fun sendMessage(text: String): Boolean {
+    fun sendMessage(text: String, imageUris: List<Uri> = emptyList()): Boolean {
         // Prevent concurrent processing
         if (isProcessing) {
             return false
@@ -361,7 +364,7 @@ object ChatRepository {
                     }
                 }
                 
-                val channel: Channel<ChatMessage> = agent.chat(text, conversationId)
+                val channel: Channel<ChatMessage> = agent.chat(text, conversationId, imageUris)
                 var streamingAssistant: ChatMessage? = null
                 for (msg in channel) {
                     when (msg.role) {

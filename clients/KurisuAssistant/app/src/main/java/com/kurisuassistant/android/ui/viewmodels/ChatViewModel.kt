@@ -3,6 +3,7 @@ package com.kurisuassistant.android
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.ViewModel
 import com.kurisuassistant.android.model.ChatMessage
+import android.net.Uri
 
 /**
  * ViewModel exposing chat messages from [ChatRepository].
@@ -15,8 +16,8 @@ class ChatViewModel : ViewModel() {
 
 
 
-    fun sendMessage(text: String): Boolean {
-        return ChatRepository.sendMessage(text)
+    fun sendMessage(text: String, imageUris: List<Uri> = emptyList()): Boolean {
+        return ChatRepository.sendMessage(text, imageUris)
     }
     
     fun refreshConversationList(onComplete: () -> Unit) {

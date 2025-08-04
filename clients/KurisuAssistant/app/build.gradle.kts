@@ -66,6 +66,7 @@ dependencies {
     implementation(libs.ucrop)
     implementation(libs.markwon)
     implementation(libs.markwon.linkify)
+    implementation("io.noties.markwon:image:4.6.2")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -77,6 +77,8 @@ services:
       - ./core/mcp_tools:/app/mcp_tools
       - ./core/whisper-finetuned:/app/whisper-finetuned
       - ./core/configs:/app/configs
+      - ./whisper-finetuned:/app/whisper-finetuned
+      - ./core/image_storage/data:/app/image_storage/data
     tty: true
     restart: unless-stopped
 
