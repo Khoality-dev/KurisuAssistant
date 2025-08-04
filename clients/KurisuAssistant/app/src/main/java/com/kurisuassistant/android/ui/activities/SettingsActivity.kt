@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
+import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import com.yalantis.ucrop.UCrop
 import android.widget.Button
@@ -27,7 +28,9 @@ import okhttp3.MediaType.Companion.toMediaType
 import android.util.Patterns
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
+import okhttp3.MultipartBody
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -43,8 +46,20 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var ttsValidationProgress: ProgressBar
     private lateinit var ttsValidationIcon: ImageView
     private lateinit var saveButton: Button
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
     private var hasUnsavedChanges = false
+    
+    // Change tracking
+    private var systemPromptChanged = false
+    private var preferredNameChanged = false
+    private var userAvatarChanged = false
+    private var agentAvatarChanged = false
+    private var newUserAvatarUri: Uri? = null
+    private var newAgentAvatarUri: Uri? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,8 +91,10 @@ class SettingsActivity : AppCompatActivity() {
         ttsUrl.setText(Settings.ttsUrl)
         systemPrompt.setText(Settings.systemPrompt)
         
-        // Load user profile from server
-        loadUserProfile()
+        // Load user profile from server if URL is configured
+        if (Settings.llmUrl.isNotEmpty()) {
+            loadUserProfile()
+        }
 
         AvatarManager.getUserAvatarUri()?.let { userAvatar.setImageURI(it) }
         AvatarManager.getAgentAvatarUri()?.let { agentAvatar.setImageURI(it) }
@@ -121,13 +138,19 @@ class SettingsActivity : AppCompatActivity() {
         preferredName.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) { markUnsavedChanges() }
+            override fun afterTextChanged(s: android.text.Editable?) { 
+                preferredNameChanged = true
+                markUnsavedChanges() 
+            }
         })
 
         systemPrompt.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) { markUnsavedChanges() }
+            override fun afterTextChanged(s: android.text.Editable?) { 
+                systemPromptChanged = true
+                markUnsavedChanges() 
+            }
         })
 
         // Add click listeners for manual revalidation
@@ -139,11 +162,18 @@ class SettingsActivity : AppCompatActivity() {
             validateTtsUrl()
         }
 
-        // Validate URLs when page opens
-        validateLlmUrl()
-        validateTtsUrl()
+        // Only validate URLs if they're not empty
+        if (llmUrl.text.toString().trim().isNotEmpty()) {
+            validateLlmUrl()
+        }
+        if (ttsUrl.text.toString().trim().isNotEmpty()) {
+            validateTtsUrl()
+        }
 
-        loadModels()
+        // Only load models if LLM URL is configured
+        if (llmUrl.text.toString().trim().isNotEmpty()) {
+            loadModels()
+        }
     }
 
     override fun onSupportNavigateUp(): Boolean {
@@ -272,14 +302,59 @@ class SettingsActivity : AppCompatActivity() {
         // Save local settings first
         saveSettings()
         
-        // Save user profile to server
-        val prompt = systemPrompt.text.toString().trim()
-        val preferredNameText = preferredName.text.toString().trim()
-        val requestBody = JSONObject().apply {
-            put("system_prompt", prompt)
-            put("preferred_name", preferredNameText)
-        }.toString().toRequestBody("application/json".toMediaType())
+        // Check if there are any changes to send to server
+        val hasChangesToSend = systemPromptChanged || preferredNameChanged || userAvatarChanged || agentAvatarChanged
         
+        if (!hasChangesToSend) {
+            // No changes to send to server, just mark as saved
+            runOnUiThread {
+                Toast.makeText(this@SettingsActivity, "No changes to save", Toast.LENGTH_SHORT).show()
+                markChangesSaved()
+                saveButton.isEnabled = true
+                saveButton.text = "Save Settings"
+            }
+            return
+        }
+        
+        // Save user profile to server - only send changed fields
+        val formBodyBuilder = MultipartBody.Builder().setType(MultipartBody.FORM)
+        
+        if (systemPromptChanged) {
+            val prompt = systemPrompt.text.toString().trim()
+            formBodyBuilder.addFormDataPart("system_prompt", prompt)
+            Settings.saveSystemPrompt(prompt)
+        }
+        
+        if (preferredNameChanged) {
+            val preferredNameText = preferredName.text.toString().trim()
+            formBodyBuilder.addFormDataPart("preferred_name", preferredNameText)
+        }
+        
+        if (userAvatarChanged && newUserAvatarUri != null) {
+            val inputStream = contentResolver.openInputStream(newUserAvatarUri!!)
+            val bytes = inputStream?.readBytes()
+            inputStream?.close()
+            if (bytes != null) {
+                formBodyBuilder.addFormDataPart(
+                    "user_avatar", "user_avatar.jpg",
+                    bytes.toRequestBody("image/jpeg".toMediaType())
+                )
+            }
+        }
+        
+        if (agentAvatarChanged && newAgentAvatarUri != null) {
+            val inputStream = contentResolver.openInputStream(newAgentAvatarUri!!)
+            val bytes = inputStream?.readBytes()
+            inputStream?.close()
+            if (bytes != null) {
+                formBodyBuilder.addFormDataPart(
+                    "agent_avatar", "agent_avatar.jpg",
+                    bytes.toRequestBody("image/jpeg".toMediaType())
+                )
+            }
+        }
+        
+        val requestBody = formBodyBuilder.build()
         val request = Request.Builder()
             .url("${Settings.llmUrl}/user")
             .put(requestBody)
@@ -289,24 +364,74 @@ class SettingsActivity : AppCompatActivity() {
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 runOnUiThread {
-                    // Save locally even if server fails
-                    Settings.saveSystemPrompt(prompt)
-                    Toast.makeText(this@SettingsActivity, "Settings saved locally (server error: ${e.message})", Toast.LENGTH_LONG).show()
-                    markChangesSaved()
+                    // Save locally even if server fails (only for system prompt)
+                    if (systemPromptChanged) {
+                        val prompt = systemPrompt.text.toString().trim()
+                        Settings.saveSystemPrompt(prompt)
+                        // Only reset system prompt flag since we saved it locally
+                        systemPromptChanged = false
+                    }
+                    
+                    // Check if all changes are now handled
+                    val allChangesSaved = !systemPromptChanged && !preferredNameChanged && !userAvatarChanged && !agentAvatarChanged
+                    
+                    if (allChangesSaved) {
+                        Toast.makeText(this@SettingsActivity, "Settings saved locally (server unavailable)", Toast.LENGTH_LONG).show()
+                        markChangesSaved()
+                    } else {
+                        Toast.makeText(this@SettingsActivity, "Server error: ${e.message}. Some changes could not be saved.", Toast.LENGTH_LONG).show()
+                        // Keep showing unsaved changes indicator
+                    }
+                    
                     // Reset button state
                     saveButton.isEnabled = true
-                    saveButton.text = "Save Settings"
+                    saveButton.text = if (allChangesSaved) "Save Settings" else "Save Settings *"
                 }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 response.use {
+                    val responseBody = if (it.isSuccessful) it.body?.string() else null
                     runOnUiThread {
                         if (it.isSuccessful) {
-                            // Also save locally as backup
-                            Settings.saveSystemPrompt(prompt)
-                            Toast.makeText(this@SettingsActivity, "Settings saved successfully", Toast.LENGTH_SHORT).show()
-                            markChangesSaved()
+                            try {
+                                Log.d("SettingsActivity", "Server response: $responseBody")
+                                
+                                if (responseBody.isNullOrEmpty()) {
+                                    Toast.makeText(this@SettingsActivity, "Server error: Empty response", Toast.LENGTH_LONG).show()
+                                    return@runOnUiThread
+                                }
+                                
+                                val json = JSONObject(responseBody)
+                                val serverUserUuid = if (json.isNull("user_avatar_uuid")) null else json.optString("user_avatar_uuid")
+                                val serverAgentUuid = if (json.isNull("agent_avatar_uuid")) null else json.optString("agent_avatar_uuid")
+                                
+                                // Update UUIDs from server response
+                                if (userAvatarChanged) {
+                                    AvatarManager.updateUserAvatarUuid(serverUserUuid)
+                                }
+                                if (agentAvatarChanged) {
+                                    AvatarManager.updateAgentAvatarUuid(serverAgentUuid)
+                                }
+                                
+                                // Refresh avatar display in settings
+                                AvatarManager.getUserAvatarUri()?.let { 
+                                    userAvatar.setImageURI(null) // Clear cache
+                                    userAvatar.setImageURI(it) 
+                                }
+                                AvatarManager.getAgentAvatarUri()?.let { 
+                                    agentAvatar.setImageURI(null) // Clear cache
+                                    agentAvatar.setImageURI(it) 
+                                }
+                                
+                                Toast.makeText(this@SettingsActivity, "Settings saved successfully", Toast.LENGTH_SHORT).show()
+                                resetChangeTracking()
+                                markChangesSaved()
+                            } catch (e: Exception) {
+                                Log.e("SettingsActivity", "Failed to parse response. Body: '$responseBody'", e)
+                                Toast.makeText(this@SettingsActivity, "Server error: Invalid response format - ${e.message}", Toast.LENGTH_LONG).show()
+                                // Don't reset tracking since we couldn't confirm what was saved
+                            }
                         } else {
                             Toast.makeText(this@SettingsActivity, "Failed to save user profile to server", Toast.LENGTH_SHORT).show()
                         }
@@ -444,6 +569,15 @@ class SettingsActivity : AppCompatActivity() {
         saveButton.text = "Save Settings"
         saveButton.setBackgroundColor(ContextCompat.getColor(this, R.color.primaryBlue))
     }
+    
+    private fun resetChangeTracking() {
+        systemPromptChanged = false
+        preferredNameChanged = false
+        userAvatarChanged = false
+        agentAvatarChanged = false
+        newUserAvatarUri = null
+        newAgentAvatarUri = null
+    }
 
     override fun onBackPressed() {
         if (hasUnsavedChanges) {
@@ -476,13 +610,23 @@ class SettingsActivity : AppCompatActivity() {
             AGENT_PICK -> startCrop(data.data!!, AGENT_CROP)
             USER_CROP -> {
                 val uri = UCrop.getOutput(data) ?: return
-                AvatarManager.setUserAvatar(uri)
+                newUserAvatarUri = uri
+                userAvatarChanged = true
+                userAvatar.setImageURI(null) // Clear cache
                 userAvatar.setImageURI(uri)
+                // Update AvatarManager immediately (without UUID since not saved yet)
+                AvatarManager.setUserAvatar(uri, null)
+                markUnsavedChanges()
             }
             AGENT_CROP -> {
                 val uri = UCrop.getOutput(data) ?: return
-                AvatarManager.setAgentAvatar(uri)
+                newAgentAvatarUri = uri
+                agentAvatarChanged = true
+                agentAvatar.setImageURI(null) // Clear cache
                 agentAvatar.setImageURI(uri)
+                // Update AvatarManager immediately (without UUID since not saved yet)
+                AvatarManager.setAgentAvatar(uri, null)
+                markUnsavedChanges()
             }
         }
     }

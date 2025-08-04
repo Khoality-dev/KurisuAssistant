@@ -51,6 +51,11 @@ class ChatAdapter(
     
     init {
         instance = this
+        // Register for avatar change notifications
+        AvatarManager.setAvatarChangeListener {
+            // Refresh all visible items when avatars change
+            notifyDataSetChanged()
+        }
     }
     private val animateRunnable = object : Runnable {
         override fun run() {
@@ -155,6 +160,8 @@ class ChatAdapter(
         handler.removeCallbacksAndMessages(null)
         if (instance == this) {
             instance = null
+            // Clear avatar change listener when this adapter is destroyed
+            AvatarManager.setAvatarChangeListener(null)
         }
     }
 
@@ -221,8 +228,12 @@ class ChatAdapter(
                 }
                 
                 val uri = AvatarManager.getUserAvatarUri()
-                if (uri != null) holder.avatar.setImageURI(uri)
-                else holder.avatar.setImageResource(R.drawable.avatar_user)
+                if (uri != null) {
+                    holder.avatar.setImageURI(null) // Clear cache
+                    holder.avatar.setImageURI(uri)
+                } else {
+                    holder.avatar.setImageResource(R.drawable.avatar_user)
+                }
             }
             is AssistantHolder -> {
                 var text = msg.text
@@ -238,8 +249,12 @@ class ChatAdapter(
                         if (holder.time.visibility == View.VISIBLE) View.GONE else View.VISIBLE
                 }
                 val uri = AvatarManager.getAgentAvatarUri()
-                if (uri != null) holder.avatar.setImageURI(uri)
-                else holder.avatar.setImageResource(R.drawable.avatar_assistant)
+                if (uri != null) {
+                    holder.avatar.setImageURI(null) // Clear cache
+                    holder.avatar.setImageURI(uri)
+                } else {
+                    holder.avatar.setImageResource(R.drawable.avatar_assistant)
+                }
             }
             is ToolHolder -> {
                 markwon.setMarkdown(holder.text, msg.text)

@@ -8,6 +8,10 @@ import androidx.lifecycle.MutableLiveData
 import com.kurisuassistant.android.utils.Util
 import com.kurisuassistant.android.Settings
 import com.kurisuassistant.android.model.ChatMessage
+import android.content.Context
+import android.net.Uri
+import java.io.File
+import java.io.FileOutputStream
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import okhttp3.MediaType.Companion.toMediaType

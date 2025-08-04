@@ -14,7 +14,7 @@ from helpers.utils import get_current_time
 from mcp_tools.client import list_tools
 from mcp_tools.config import load_mcp_configs
 from helpers import Agent
-from image import operations as image_operations
+from image_storage import operations as image_operations
 import dotenv
 from fastmcp.client import Client as FastMCPClient
 from auth import authenticate_user, create_access_token, get_current_user
@@ -265,36 +265,45 @@ async def get_user_profile(token: str = Depends(oauth2_scheme)):
 
 @app.put("/user")
 async def update_user_profile(
-    request: Request, token: str = Depends(oauth2_scheme)
+    token: str = Depends(oauth2_scheme),
+    system_prompt: str = Form(None),
+    preferred_name: str = Form(None),
+    user_avatar: UploadFile = File(None),
+    agent_avatar: UploadFile = File(None)
 ):
     username = get_current_user(token)
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        payload = await request.json()
-        
         # Update preferences using the combined function
-        system_prompt = payload.get("system_prompt") if "system_prompt" in payload else None
-        preferred_name = payload.get("preferred_name") if "preferred_name" in payload else None
-        
         if system_prompt is not None or preferred_name is not None:
             db_operations.update_user_preferences(username, system_prompt, preferred_name)
         
         # Handle avatar updates
-        user_avatar_uuid = payload.get("user_avatar_uuid")
-        agent_avatar_uuid = payload.get("agent_avatar_uuid")
+        if user_avatar is not None:
+            if user_avatar.size > 0:  # File was uploaded
+                user_avatar_uuid = image_operations.upload_image(user_avatar)
+                db_operations.update_user_avatar(username, "user", user_avatar_uuid)
+            else:
+                # Empty file means clear avatar
+                db_operations.update_user_avatar(username, "user", None)
         
-        if user_avatar_uuid is not None:
-            if user_avatar_uuid and not image_operations.check_image_exists(user_avatar_uuid):
-                raise HTTPException(status_code=404, detail="User avatar image not found")
-            db_operations.update_user_avatar(username, "user", user_avatar_uuid if user_avatar_uuid else None)
+        if agent_avatar is not None:
+            if agent_avatar.size > 0:  # File was uploaded
+                agent_avatar_uuid = image_operations.upload_image(agent_avatar)
+                db_operations.update_user_avatar(username, "agent", agent_avatar_uuid)
+            else:
+                # Empty file means clear avatar
+                db_operations.update_user_avatar(username, "agent", None)
         
-        if agent_avatar_uuid is not None:
-            if agent_avatar_uuid and not image_operations.check_image_exists(agent_avatar_uuid):
-                raise HTTPException(status_code=404, detail="Agent avatar image not found")
-            db_operations.update_user_avatar(username, "agent", agent_avatar_uuid if agent_avatar_uuid else None)
+        # Get the updated avatar UUIDs to return to client
+        user_avatar_uuid, agent_avatar_uuid = db_operations.get_user_avatars(username)
         
-        return {"status": "ok"}
+        return {
+            "status": "ok",
+            "user_avatar_uuid": user_avatar_uuid,
+            "agent_avatar_uuid": agent_avatar_uuid
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
