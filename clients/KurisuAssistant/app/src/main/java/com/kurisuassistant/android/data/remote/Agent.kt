@@ -18,6 +18,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request
 import okhttp3.OkHttpClient
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import java.util.concurrent.TimeUnit
 import okio.ByteString
 import org.json.JSONObject
@@ -25,7 +27,7 @@ import org.json.JSONObject
 /**
  * Agent communicating with the REST API instead of a WebSocket.
  */
-class Agent(private val player: AudioTrack) {
+class Agent(private val player: AudioTrack, private val context: Context) {
     private val TAG = "Agent"
     private val scope = CoroutineScope(Dispatchers.IO)
     private var speakingJob: Job? = null
@@ -86,20 +88,38 @@ class Agent(private val player: AudioTrack) {
         }
     }
 
-    fun chat(text: String, conversationId: Int? = null): Channel<ChatMessage> {
+    fun chat(text: String, conversationId: Int? = null, imageUris: List<Uri>? = null): Channel<ChatMessage> {
         val channel = Channel<ChatMessage>(Channel.UNLIMITED)
         chatChannel = channel
         _typing.postValue(true)
         scope.launch {
-            // Build the form data for the new endpoint
-            val formData = StringBuilder()
-            formData.append("text=").append(java.net.URLEncoder.encode(text, "UTF-8"))
-            formData.append("&model_name=").append(java.net.URLEncoder.encode(Settings.model, "UTF-8"))
+            // Build multipart form data
+            val multipartBuilder = MultipartBody.Builder().setType(MultipartBody.FORM)
+                .addFormDataPart("text", text)
+                .addFormDataPart("model_name", Settings.model)
+            
             conversationId?.let { 
-                formData.append("&conversation_id=").append(it)
+                multipartBuilder.addFormDataPart("conversation_id", it.toString())
             }
             
-            val body = formData.toString().toRequestBody("application/x-www-form-urlencoded".toMediaType())
+            // Add images if provided
+            imageUris?.forEach { uri ->
+                try {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    inputStream?.use { stream ->
+                        val tempFile = File.createTempFile("image", ".jpg", context.cacheDir)
+                        FileOutputStream(tempFile).use { outputStream ->
+                            stream.copyTo(outputStream)
+                        }
+                        val requestBody = tempFile.asRequestBody("image/*".toMediaType())
+                        multipartBuilder.addFormDataPart("images", tempFile.name, requestBody)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to process image: $uri", e)
+                }
+            }
+            
+            val body = multipartBuilder.build()
             try {
                 val request = Request.Builder()
                     .url("${Settings.llmUrl}/chat")

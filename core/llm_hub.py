@@ -104,6 +104,7 @@ async def chat(
     text: str = Form(...),
     model_name: str = Form(...),
     conversation_id: int = Form(...),
+    images: list[UploadFile] = File(default=[]),
     token: str = Depends(oauth2_scheme)
 ):
     username = get_current_user(token)
@@ -112,6 +113,23 @@ async def chat(
     
     try:        
         user_message_content = text
+        
+        # Handle image attachments if provided
+        if images:
+            valid_images = [img for img in images if img.size > 0]  # Filter out empty files
+            if valid_images:
+                image_markdowns = []
+                for image in valid_images:
+                    # Upload image and get UUID
+                    image_uuid = image_operations.upload_image(image)
+                    image_url = f"/images/{image_uuid}"
+                    # Add image in markdown format for frontend display
+                    image_markdowns.append(f"![Image]({image_url})")
+                
+                # Include image markdown in the message content
+                if image_markdowns:
+                    images_text = "\n\n" + "\n".join(image_markdowns)
+                    user_message_content += images_text
         
         # Use provided conversation_id (now required)
         conv_id = conversation_id
@@ -407,11 +425,8 @@ async def upload_image(file: UploadFile = File(...), token: str = Depends(oauth2
 
 
 @app.get("/images/{image_uuid}")
-async def get_image(image_uuid: str, token: str = Depends(oauth2_scheme)):
-    """Serve image with token verification."""
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
+async def get_image(image_uuid: str):
+    """Serve image publicly."""
     
     image_path = image_operations.get_image_path(image_uuid)
     if not image_path:

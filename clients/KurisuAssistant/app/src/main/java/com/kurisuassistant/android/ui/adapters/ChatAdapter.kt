@@ -12,6 +12,8 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import io.noties.markwon.Markwon
 import io.noties.markwon.linkify.LinkifyPlugin
+import io.noties.markwon.image.ImagesPlugin
+import io.noties.markwon.image.network.NetworkSchemeHandler
 import com.kurisuassistant.android.model.ChatMessage
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -42,6 +44,9 @@ class ChatAdapter(
     private var ellipsis = ""
     private val markwon = Markwon.builder(context)
         .usePlugin(LinkifyPlugin.create())
+        .usePlugin(ImagesPlugin.create { plugin ->
+            plugin.addSchemeHandler(NetworkSchemeHandler.create())
+        })
         .build()
     private val handler = Handler(Looper.getMainLooper())
     private var tempMessage: ChatMessage? = null
@@ -156,6 +161,18 @@ class ChatAdapter(
         return (messages ?: emptyList()) + tempMessages
     }
     
+    private fun resolveImageUrls(text: String): String {
+        // Convert relative image URLs to full URLs
+        // Pattern matches: ![Image](/images/uuid) or ![anything](/images/uuid)  
+        val pattern = Regex("!\\[([^\\]]*)\\]\\((/images/[^)]+)\\)")
+        return pattern.replace(text) { matchResult ->
+            val altText = matchResult.groupValues[1]
+            val relativePath = matchResult.groupValues[2]
+            val fullUrl = "${Settings.llmUrl}$relativePath"
+            "![$altText]($fullUrl)"
+        }
+    }
+    
     fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         if (instance == this) {
@@ -210,7 +227,7 @@ class ChatAdapter(
         val msg = allMessages[position]
         when (holder) {
             is UserHolder -> {
-                val displayText = msg.text
+                val displayText = resolveImageUrls(msg.text)
                 markwon.setMarkdown(holder.text, displayText)
                 holder.text.movementMethod = LinkMovementMethod.getInstance()
                 holder.time.text = msg.createdAt?.let { formatTimeForDisplay(it) } ?: ""
@@ -240,7 +257,8 @@ class ChatAdapter(
                 if (responding && position == allMessages.lastIndex) {
                     text += ellipsis
                 }
-                markwon.setMarkdown(holder.text, text)
+                val displayText = resolveImageUrls(text)
+                markwon.setMarkdown(holder.text, displayText)
                 holder.text.movementMethod = LinkMovementMethod.getInstance()
                 holder.time.text = msg.createdAt?.let { formatTimeForDisplay(it) } ?: ""
                 holder.time.visibility = View.GONE
@@ -257,7 +275,8 @@ class ChatAdapter(
                 }
             }
             is ToolHolder -> {
-                markwon.setMarkdown(holder.text, msg.text)
+                val displayText = resolveImageUrls(msg.text)
+                markwon.setMarkdown(holder.text, displayText)
                 holder.text.movementMethod = LinkMovementMethod.getInstance()
                 holder.time.text = msg.createdAt?.let { formatTimeForDisplay(it) } ?: ""
                 holder.time.visibility = View.GONE

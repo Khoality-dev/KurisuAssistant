@@ -6,6 +6,9 @@ import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.net.Uri
+import android.provider.MediaStore
+import androidx.activity.result.contract.ActivityResultContracts
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -50,6 +53,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var recyclerView: RecyclerView
     private var responding: Boolean = false
     private var snapToLastMessage: Boolean = true // Flag to auto-scroll to new messages
+    private var selectedImageUri: Uri? = null
+    
+    private val imagePickerLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            selectedImageUri = it
+            // Show a visual indicator that an image is selected
+            val editText = findViewById<EditText>(R.id.editTextMessage)
+            editText.hint = "Image selected - type message to send with image"
+            Toast.makeText(this, "Image selected", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -160,6 +174,7 @@ class MainActivity : AppCompatActivity() {
 
         val editText = findViewById<EditText>(R.id.editTextMessage)
         val sendButton = findViewById<ImageButton>(R.id.buttonSend)
+        val attachButton = findViewById<ImageButton>(R.id.buttonAttach)
         val recordButton = findViewById<ImageButton>(R.id.buttonRecord)
         val recordIndicator = findViewById<TextView>(R.id.recordIndicator)
         val connectionIndicator = findViewById<ImageView>(R.id.connectionIndicator)
@@ -200,6 +215,7 @@ class MainActivity : AppCompatActivity() {
             
             // Enable/disable chat controls based on connection status
             sendButton.isEnabled = connected
+            attachButton.isEnabled = connected
             recordButton.isEnabled = connected
             editText.isEnabled = connected
             
@@ -208,6 +224,7 @@ class MainActivity : AppCompatActivity() {
             val disabledColor = ContextCompat.getColor(this, android.R.color.darker_gray)
             
             sendButton.setColorFilter(if (connected) enabledColor else disabledColor)
+            attachButton.setColorFilter(if (connected) enabledColor else disabledColor)
             recordButton.setColorFilter(if (connected) enabledColor else disabledColor)
             editText.setTextColor(if (connected) 
                 ContextCompat.getColor(this, R.color.black) else disabledColor)
@@ -224,14 +241,36 @@ class MainActivity : AppCompatActivity() {
             updateResponding(speaking || (viewModel.typing.value == true))
         }
 
+        attachButton.setOnClickListener {
+            if (viewModel.connected.value == false) {
+                Toast.makeText(this, "No connection to server", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            imagePickerLauncher.launch("image/*")
+        }
+
         sendButton.setOnClickListener {
             val text = editText.text.toString().trim()
-            if (text.isNotEmpty() && viewModel.connected.value == true) {
-                viewModel.sendMessage(text)
-                editText.text.clear()
-            } else if (viewModel.connected.value == false) {
+            if (viewModel.connected.value == false) {
                 Toast.makeText(this, "No connection to server", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
+            
+            if (selectedImageUri != null) {
+                // Send message with image
+                viewModel.sendMessage(text, listOf(selectedImageUri!!))
+                selectedImageUri = null
+                editText.hint = "Type a message"
+            } else if (text.isNotEmpty()) {
+                // Send text-only message
+                viewModel.sendMessage(text)
+            } else {
+                Toast.makeText(this, "Enter a message", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            editText.text.clear()
         }
 
         recordButton.setOnClickListener {
