@@ -24,6 +24,7 @@
             android:orientation="vertical"
             android:background="@drawable/bg_tool_message"
             android:padding="8dp"
+            android:layout_marginEnd="60dp"
             android:maxWidth="@dimen/message_max_width"
             android:alpha="0.8">
             <TextView
