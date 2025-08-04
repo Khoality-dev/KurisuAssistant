@@ -71,6 +71,7 @@ services:
     environment:
       - LLM_API_URL=http://ollama-container:11434
       - DATABASE_URL=postgresql://kurisu:kurisu@postgres-container:5432/kurisu
+      - IMAGE_SERVICE_URL=http://image-storage-container:15599
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker:ro
