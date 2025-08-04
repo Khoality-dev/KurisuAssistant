@@ -12,8 +12,12 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import io.noties.markwon.Markwon
 import io.noties.markwon.linkify.LinkifyPlugin
-import io.noties.markwon.image.ImagesPlugin
-import io.noties.markwon.image.network.NetworkSchemeHandler
+import android.widget.LinearLayout
+import android.graphics.drawable.Drawable
+import android.os.AsyncTask
+import java.net.URL
+import android.graphics.BitmapFactory
+import java.io.InputStream
 import com.kurisuassistant.android.model.ChatMessage
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -44,9 +48,6 @@ class ChatAdapter(
     private var ellipsis = ""
     private val markwon = Markwon.builder(context)
         .usePlugin(LinkifyPlugin.create())
-        .usePlugin(ImagesPlugin.create { plugin ->
-            plugin.addSchemeHandler(NetworkSchemeHandler.create())
-        })
         .build()
     private val handler = Handler(Looper.getMainLooper())
     private var tempMessage: ChatMessage? = null
@@ -161,16 +162,68 @@ class ChatAdapter(
         return (messages ?: emptyList()) + tempMessages
     }
     
-    private fun resolveImageUrls(text: String): String {
-        // Convert relative image URLs to full URLs
-        // Pattern matches: ![Image](/images/uuid) or ![anything](/images/uuid)  
+    private fun extractImages(text: String): Pair<String, List<String>> {
+        // Extract image URLs and remove them from text
         val pattern = Regex("!\\[([^\\]]*)\\]\\((/images/[^)]+)\\)")
-        return pattern.replace(text) { matchResult ->
-            val altText = matchResult.groupValues[1]
+        val imageUrls = mutableListOf<String>()
+        
+        val cleanedText = pattern.replace(text) { matchResult ->
             val relativePath = matchResult.groupValues[2]
             val fullUrl = "${Settings.llmUrl}$relativePath"
-            "![$altText]($fullUrl)"
+            imageUrls.add(fullUrl)
+            "" // Remove the image markdown from text
         }
+        
+        return Pair(cleanedText.trim(), imageUrls)
+    }
+    
+    private fun displayImages(container: LinearLayout, imageUrls: List<String>) {
+        container.removeAllViews()
+        
+        if (imageUrls.isEmpty()) {
+            container.visibility = View.GONE
+            return
+        }
+        
+        container.visibility = View.VISIBLE
+        
+        imageUrls.forEach { imageUrl ->
+            val imageView = ImageView(context).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    200.dpToPx(context), // Fixed width
+                    200.dpToPx(context)  // Fixed height
+                ).apply {
+                    bottomMargin = 8
+                }
+                adjustViewBounds = true
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                contentDescription = "Message image"
+            }
+            
+            loadImageIntoView(imageUrl, imageView)
+                
+            container.addView(imageView)
+        }
+    }
+    
+    private fun Int.dpToPx(context: Context): Int {
+        return (this * context.resources.displayMetrics.density).toInt()
+    }
+    
+    private fun loadImageIntoView(imageUrl: String, imageView: ImageView) {
+        Thread {
+            try {
+                val url = URL(imageUrl)
+                val inputStream = url.openConnection().getInputStream()
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                handler.post {
+                    imageView.setImageBitmap(bitmap)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                // Handle error - could set a placeholder image
+            }
+        }.start()
     }
     
     fun onDestroy() {
@@ -227,9 +280,15 @@ class ChatAdapter(
         val msg = allMessages[position]
         when (holder) {
             is UserHolder -> {
-                val displayText = resolveImageUrls(msg.text)
-                markwon.setMarkdown(holder.text, displayText)
-                holder.text.movementMethod = LinkMovementMethod.getInstance()
+                val (cleanedText, imageUrls) = extractImages(msg.text)
+                if (cleanedText.isBlank()) {
+                    holder.text.visibility = View.GONE
+                } else {
+                    holder.text.visibility = View.VISIBLE
+                    markwon.setMarkdown(holder.text, cleanedText.trim())
+                    holder.text.movementMethod = LinkMovementMethod.getInstance()
+                }
+                displayImages(holder.imagesContainer, imageUrls)
                 holder.time.text = msg.createdAt?.let { formatTimeForDisplay(it) } ?: ""
                 holder.time.visibility = View.GONE
                 holder.text.setOnClickListener {
@@ -257,9 +316,15 @@ class ChatAdapter(
                 if (responding && position == allMessages.lastIndex) {
                     text += ellipsis
                 }
-                val displayText = resolveImageUrls(text)
-                markwon.setMarkdown(holder.text, displayText)
-                holder.text.movementMethod = LinkMovementMethod.getInstance()
+                val (cleanedText, imageUrls) = extractImages(text)
+                if (cleanedText.isBlank()) {
+                    holder.text.visibility = View.GONE
+                } else {
+                    holder.text.visibility = View.VISIBLE
+                    markwon.setMarkdown(holder.text, cleanedText.trim())
+                    holder.text.movementMethod = LinkMovementMethod.getInstance()
+                }
+                displayImages(holder.imagesContainer, imageUrls)
                 holder.time.text = msg.createdAt?.let { formatTimeForDisplay(it) } ?: ""
                 holder.time.visibility = View.GONE
                 holder.text.setOnClickListener {
@@ -275,9 +340,15 @@ class ChatAdapter(
                 }
             }
             is ToolHolder -> {
-                val displayText = resolveImageUrls(msg.text)
-                markwon.setMarkdown(holder.text, displayText)
-                holder.text.movementMethod = LinkMovementMethod.getInstance()
+                val (cleanedText, imageUrls) = extractImages(msg.text)
+                if (cleanedText.isBlank()) {
+                    holder.text.visibility = View.GONE
+                } else {
+                    holder.text.visibility = View.VISIBLE
+                    markwon.setMarkdown(holder.text, cleanedText.trim())
+                    holder.text.movementMethod = LinkMovementMethod.getInstance()
+                }
+                displayImages(holder.imagesContainer, imageUrls)
                 holder.time.text = msg.createdAt?.let { formatTimeForDisplay(it) } ?: ""
                 holder.time.visibility = View.GONE
                 holder.text.setOnClickListener {
@@ -295,18 +366,21 @@ class ChatAdapter(
         val text: TextView = view.findViewById(R.id.message_text)
         val time: TextView = view.findViewById(R.id.message_time)
         val avatar: ImageView = view.findViewById(R.id.avatar)
+        val imagesContainer: LinearLayout = view.findViewById(R.id.images_container)
     }
 
     class AssistantHolder(view: View) : RecyclerView.ViewHolder(view) {
         val text: TextView = view.findViewById(R.id.message_text)
         val time: TextView = view.findViewById(R.id.message_time)
         val avatar: ImageView = view.findViewById(R.id.avatar)
+        val imagesContainer: LinearLayout = view.findViewById(R.id.images_container)
     }
 
     class ToolHolder(view: View) : RecyclerView.ViewHolder(view) {
         val text: TextView = view.findViewById(R.id.message_text)
         val time: TextView = view.findViewById(R.id.message_time)
         val avatar: ImageView = view.findViewById(R.id.avatar)
+        val imagesContainer: LinearLayout = view.findViewById(R.id.images_container)
     }
     
 }
