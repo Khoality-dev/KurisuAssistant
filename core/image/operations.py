@@ -1,54 +1,86 @@
-"""Image operations via image-storage service."""
+"""Image storage operations."""
 
-import os
-import requests
+import uuid
+import cv2
+import numpy as np
+from pathlib import Path
 from typing import Optional
 from fastapi import HTTPException, UploadFile
 
-IMAGE_SERVICE_URL = os.getenv("IMAGE_SERVICE_URL", "http://localhost:15599")
+# Image storage configuration - relative to this operations.py file
+IMAGES_DIR = Path(__file__).parent / "../image_storage/data"
+IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def upload_image(file: UploadFile) -> str:
-    """Upload image to image-storage service and return UUID."""
-    files = {"file": (file.filename, file.file, file.content_type)}
-    response = requests.post(f"{IMAGE_SERVICE_URL}/images", files=files)
+    """Save uploaded image and return UUID."""
+    if not file.content_type.startswith('image/'):
+        raise HTTPException(status_code=400, detail="File must be an image")
     
-    if response.status_code != 200:
-        raise HTTPException(status_code=response.status_code, 
-                          detail=f"Image upload failed: {response.text}")
+    # Generate UUID for the image
+    image_uuid = str(uuid.uuid4())
+    image_path = IMAGES_DIR / f"{image_uuid}.jpg"
     
-    result = response.json()
-    return result["image_uuid"]
+    try:
+        # Read and process the image
+        contents = file.file.read()
+        nparr = np.frombuffer(contents, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if image is None:
+            raise HTTPException(status_code=400, detail="Invalid image format")
+        
+        # Save as JPEG with quality 90
+        cv2.imwrite(str(image_path), image, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        
+        return image_uuid
+    except Exception as e:
+        # Clean up partial file if it exists
+        if image_path.exists():
+            image_path.unlink()
+        raise HTTPException(status_code=500, detail=f"Failed to process image: {str(e)}")
 
 
 def check_image_exists(image_uuid: str) -> bool:
-    """Check if an image exists in image-storage service."""
+    """Check if an image exists by UUID."""
     try:
-        response = requests.get(f"{IMAGE_SERVICE_URL}/images/{image_uuid}/exists")
-        
-        if response.status_code != 200:
-            return False
-        
-        result = response.json()
-        return result.get("exists", False)
-    except requests.RequestException:
+        uuid.UUID(image_uuid)  # Validate UUID format
+    except ValueError:
         return False
+    
+    # Check for JPG first, then PNG (backward compatibility)
+    jpg_path = IMAGES_DIR / f"{image_uuid}.jpg"
+    png_path = IMAGES_DIR / f"{image_uuid}.png"
+    
+    return jpg_path.exists() or png_path.exists()
+
+
+def get_image_path(image_uuid: str) -> Optional[Path]:
+    """Get the path to an image file by UUID."""
+    try:
+        uuid.UUID(image_uuid)  # Validate UUID format
+    except ValueError:
+        return None
+    
+    # Check for JPG first, then PNG (backward compatibility)
+    jpg_path = IMAGES_DIR / f"{image_uuid}.jpg"
+    if jpg_path.exists():
+        return jpg_path
+    
+    png_path = IMAGES_DIR / f"{image_uuid}.png"
+    if png_path.exists():
+        return png_path
+    
+    return None
 
 
 def delete_image(image_uuid: str) -> bool:
-    """Delete an image from image-storage service."""
-    try:
-        response = requests.delete(f"{IMAGE_SERVICE_URL}/images/{image_uuid}")
-        
-        if response.status_code == 404:
-            return False
-        elif response.status_code != 200:
-            raise HTTPException(status_code=response.status_code,
-                              detail=f"Image deletion failed: {response.text}")
-        
+    """Delete an image by UUID."""
+    image_path = get_image_path(image_uuid)
+    if image_path and image_path.exists():
+        image_path.unlink()
         return True
-    except requests.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Image service error: {str(e)}")
+    return False
 
 
 def get_image_url(image_uuid: str) -> str:

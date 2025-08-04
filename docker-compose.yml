@@ -71,7 +71,6 @@ services:
     environment:
       - LLM_API_URL=http://ollama-container:11434
       - DATABASE_URL=postgresql://kurisu:kurisu@postgres-container:5432/kurisu
-      - IMAGE_SERVICE_URL=http://image-storage-container:15599
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker:ro
@@ -79,19 +78,7 @@ services:
       - ./core/whisper-finetuned:/app/whisper-finetuned
       - ./core/configs:/app/configs
       - ./whisper-finetuned:/app/whisper-finetuned
-    tty: true
-    restart: unless-stopped
-
-  image-storage:
-    build:
-      context: ./image_storage
-      dockerfile: Dockerfile
-    container_name: image-storage-container
-    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "15599"]
-    ports:
-      - "15599:15599"
-    volumes:
-      - ./image_storage/data:/app/data
+      - ./core/image_storage/data:/app/image_storage/data
     tty: true
     restart: unless-stopped
 

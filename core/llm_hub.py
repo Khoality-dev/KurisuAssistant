@@ -4,8 +4,8 @@ import os
 import glob
 import numpy as np
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request, Body, Depends, Form
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, Request, Body, Depends, Form, File, UploadFile
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from transformers import pipeline
 import torch
@@ -386,7 +386,36 @@ async def mcp_servers(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Image endpoints moved to image-storage service
+@app.post("/images")
+async def upload_image(file: UploadFile = File(...), token: str = Depends(oauth2_scheme)):
+    """Upload image and return UUID."""
+    username = get_current_user(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    image_uuid = image_operations.upload_image(file)
+    return {"image_uuid": image_uuid, "url": f"/images/{image_uuid}"}
+
+
+@app.get("/images/{image_uuid}")
+async def get_image(image_uuid: str, token: str = Depends(oauth2_scheme)):
+    """Serve image with token verification."""
+    username = get_current_user(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    image_path = image_operations.get_image_path(image_uuid)
+    if not image_path:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    # Determine media type based on file extension
+    media_type = "image/jpeg" if image_path.suffix.lower() == ".jpg" else "image/png"
+    
+    return FileResponse(
+        path=image_path,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=31536000, immutable"}
+    )
 
 
 
