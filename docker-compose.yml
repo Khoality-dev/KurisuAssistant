@@ -77,7 +77,20 @@ services:
       - ./core/mcp_tools:/app/mcp_tools
       - ./core/whisper-finetuned:/app/whisper-finetuned
       - ./core/configs:/app/configs
-      - ./core/image_storage:/app/data
+      - ./whisper-finetuned:/app/whisper-finetuned
+    tty: true
+    restart: unless-stopped
+
+  image-storage:
+    build:
+      context: ./image_storage
+      dockerfile: Dockerfile
+    container_name: image-storage-container
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "15599"]
+    ports:
+      - "15599:15599"
+    volumes:
+      - ./image_storage/data:/app/data
     tty: true
     restart: unless-stopped
 

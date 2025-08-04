@@ -2,12 +2,10 @@ import datetime
 import json
 import os
 import glob
-import uuid
 import numpy as np
-import cv2
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request, Body, Depends, Form, File, UploadFile
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi import FastAPI, HTTPException, Request, Body, Depends, Form
+from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from transformers import pipeline
 import torch
@@ -16,6 +14,7 @@ from helpers.utils import get_current_time
 from mcp_tools.client import list_tools
 from mcp_tools.config import load_mcp_configs
 from helpers import Agent
+from image import operations as image_ops
 import dotenv
 from fastmcp.client import Client as FastMCPClient
 from auth import authenticate_user, create_access_token, get_current_user
@@ -42,9 +41,7 @@ app = FastAPI(
 # We'll create Agent instances per request now since they need username/conversation_id
 whisper_model_name = 'whisper-finetuned' if os.path.exists('whisper-finetuned') else 'openai/whisper-base'
 
-# Image storage configuration
-IMAGES_DIR = Path("/app/data/images")
-IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+# Image storage handled by separate image-storage service
 asr_model = pipeline(
     model=whisper_model_name,
     task='automatic-speech-recognition',
@@ -283,6 +280,20 @@ async def update_user_profile(
         if system_prompt is not None or preferred_name is not None:
             operations.update_user_preferences(username, system_prompt, preferred_name)
         
+        # Handle avatar updates
+        user_avatar_uuid = payload.get("user_avatar_uuid")
+        agent_avatar_uuid = payload.get("agent_avatar_uuid")
+        
+        if user_avatar_uuid is not None:
+            if user_avatar_uuid and not image_ops.check_image_exists(user_avatar_uuid):
+                raise HTTPException(status_code=404, detail="User avatar image not found")
+            operations.update_user_avatar(username, "user", user_avatar_uuid if user_avatar_uuid else None)
+        
+        if agent_avatar_uuid is not None:
+            if agent_avatar_uuid and not image_ops.check_image_exists(agent_avatar_uuid):
+                raise HTTPException(status_code=404, detail="Agent avatar image not found")
+            operations.update_user_avatar(username, "agent", agent_avatar_uuid if agent_avatar_uuid else None)
+        
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -375,116 +386,9 @@ async def mcp_servers(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/images/{image_uuid}")
-async def get_image(image_uuid: str, token: str = Depends(oauth2_scheme)):
-    """Serve image with token verification."""
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    
-    # Validate UUID format
-    try:
-        uuid.UUID(image_uuid)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Image not found")
-    
-    image_path = IMAGES_DIR / f"{image_uuid}.png"
-    
-    if not image_path.exists():
-        raise HTTPException(status_code=404, detail="Image not found")
-    
-    return FileResponse(
-        path=image_path,
-        media_type="image/png",
-        headers={"Cache-Control": "public, max-age=31536000, immutable"}
-    )
+# Image endpoints moved to image-storage service
 
 
-@app.post("/images")
-async def upload_image(file: UploadFile = File(...), token: str = Depends(oauth2_scheme)):
-    """Upload image and return UUID."""
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
-        
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File must be an image")
-    
-    # Generate UUID for the image
-    image_uuid = str(uuid.uuid4())
-    image_path = IMAGES_DIR / f"{image_uuid}.jpg"
-    
-    try:
-        # Read image using OpenCV
-        content = await file.read()
-        nparr = np.frombuffer(content, np.uint8)
-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        if image is None:
-            raise HTTPException(status_code=400, detail="Invalid image format")
-        
-        # Save as JPG with quality optimization
-        cv2.imwrite(str(image_path), image, [cv2.IMWRITE_JPEG_QUALITY, 90])
-        
-        return {"image_uuid": image_uuid, "url": f"/images/{image_uuid}"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process image: {str(e)}")
-
-
-@app.put("/avatars/{avatar_type}")
-async def set_avatar(avatar_type: str, request: Request, token: str = Depends(oauth2_scheme)):
-    """Set user or agent avatar using existing image UUID."""
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    
-    if avatar_type not in ["user", "agent"]:
-        raise HTTPException(status_code=400, detail="avatar_type must be 'user' or 'agent'")
-    
-    try:
-        payload = await request.json()
-        image_uuid = payload.get("image_uuid")
-        
-        if not image_uuid:
-            raise HTTPException(status_code=400, detail="image_uuid is required")
-        
-        # Verify the image exists
-        image_path = IMAGES_DIR / f"{image_uuid}.jpg"
-        if not image_path.exists():
-            # Also check for PNG (backward compatibility)
-            png_path = IMAGES_DIR / f"{image_uuid}.png"
-            if not png_path.exists():
-                raise HTTPException(status_code=404, detail="Image not found")
-        
-        # Update user's avatar UUID in database
-        operations.update_user_avatar(username, avatar_type, image_uuid)
-        
-        return {
-            "avatar_uuid": image_uuid, 
-            "url": f"/images/{image_uuid}",
-            "avatar_type": avatar_type
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to set avatar: {str(e)}")
-
-
-@app.get("/avatars")
-async def get_user_avatars(token: str = Depends(oauth2_scheme)):
-    """Get current user's avatar UUIDs."""
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    
-    try:
-        user_avatar_uuid, agent_avatar_uuid = operations.get_user_avatars(username)
-        return {
-            "user_avatar_uuid": user_avatar_uuid,
-            "agent_avatar_uuid": agent_avatar_uuid,
-            "user_avatar_url": f"/images/{user_avatar_uuid}" if user_avatar_uuid else None,
-            "agent_avatar_url": f"/images/{agent_avatar_uuid}" if agent_avatar_uuid else None
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
