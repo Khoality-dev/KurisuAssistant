@@ -95,7 +95,7 @@ class Agent:
     def pull_model(self, model_name):
         self.ollama_client.pull(model_name)
 
-    async def chat(self, model_name, user_message):
+    async def chat(self, model_name, user_message, images=None):
         """Send a chat request and yield streaming responses."""
         created_at = datetime.datetime.utcnow().isoformat()
         user_msg = {
@@ -105,13 +105,17 @@ class Agent:
             "updated_at": created_at,
         }
         
+        
+        
         # Immediately save user message to database to get message_id
         message_id = operations.upsert_streaming_message(self.username, user_msg, self.conversation_id)
         user_msg["message_id"] = message_id
         yield user_msg
+        # Add images to user message if provided
+        if images:
+            user_msg["images"] = images
         self.context_messages.append(user_msg)
         buffer = ""
-
         # Get user preferences in a single database call
         user_system_prompt, preferred_name = operations.get_user_preferences(self.username)
         user_system_prompt += f"\n\nThe user prefers to be called: {preferred_name}" if preferred_name else ""
@@ -130,13 +134,13 @@ class Agent:
             
             # Use the recent messages directly
             messages.extend(self.context_messages)
+            
             stream = self.ollama_client.chat(
                 model=model_name,
                 messages=messages,
                 stream=True,
                 tools=tools,
             )
-
             made_tool_call = False
             for chunk in stream:
                 msg = chunk.message
