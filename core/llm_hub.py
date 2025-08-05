@@ -3,6 +3,7 @@ import json
 import os
 import glob
 import numpy as np
+import base64
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Body, Depends, Form, File, UploadFile
 from fastapi.responses import StreamingResponse, FileResponse
@@ -113,6 +114,7 @@ async def chat(
     
     try:        
         user_message_content = text
+        image_data = []
         
         # Handle image attachments if provided
         if images:
@@ -120,11 +122,17 @@ async def chat(
             if valid_images:
                 image_markdowns = []
                 for image in valid_images:
-                    # Upload image and get UUID
+                    # Upload image and get UUID for frontend display
                     image_uuid = image_operations.upload_image(image)
                     image_url = f"/images/{image_uuid}"
                     # Add image in markdown format for frontend display
                     image_markdowns.append(f"![Image]({image_url})")
+                    
+                    # Convert image to base64 for agent processing
+                    image.file.seek(0)  # Reset file pointer
+                    image_bytes = await image.read()
+                    image_b64 = base64.b64encode(image_bytes).decode('utf-8')
+                    image_data.append(image_b64)
                 
                 # Include image markdown in the message content
                 if image_markdowns:
@@ -139,7 +147,7 @@ async def chat(
             sessions[conv_id] = Agent(username, conv_id, mcp_client)
 
         agent = sessions[conv_id]
-        response_generator = agent.chat(model_name, user_message_content)
+        response_generator = agent.chat(model_name, user_message_content, images=image_data)
     except Exception as e:
         print(str(e))
         raise HTTPException(status_code=500, detail=str(e))
