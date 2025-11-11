@@ -1,25 +1,28 @@
+import base64
 import datetime
 import json
 import os
-import glob
+
+import dotenv
 import numpy as np
-import base64
-from pathlib import Path
+import torch
+import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Body, Depends, Form, File, UploadFile
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from transformers import pipeline
-import torch
-import uvicorn
-from helpers.utils import get_current_time
-from mcp_tools.client import list_tools
-from mcp_tools.config import load_mcp_configs
-from helpers import Agent
-from image_storage import operations as image_operations
-import dotenv
 from fastmcp.client import Client as FastMCPClient
+from transformers import pipeline
+
+from sqlalchemy.orm import Session
+
 from auth import authenticate_user, create_access_token, get_current_user
 from db import operations as db_operations
+from db.session import get_session
+from helpers import Agent
+from helpers.utils import get_current_time
+from data.image_storage import operations as image_operations
+from mcp_tools.client import list_tools
+from mcp_tools.config import load_mcp_configs
 
 
 mcp_configs = load_mcp_configs()
@@ -37,6 +40,17 @@ app = FastAPI(
     title="Kurisu LLM Hub API",
     description="REST API for Kurisu Assistant LLM hub",
     version="0.1.0",
+    openapi_tags=[
+        {"name": "health", "description": "Health check and status endpoints"},
+        {"name": "auth", "description": "Authentication operations"},
+        {"name": "asr", "description": "Automatic speech recognition"},
+        {"name": "chat", "description": "Chat and LLM operations"},
+        {"name": "conversations", "description": "Conversation management"},
+        {"name": "messages", "description": "Message operations"},
+        {"name": "users", "description": "User profile management"},
+        {"name": "mcp", "description": "MCP server management"},
+        {"name": "images", "description": "Image upload and retrieval"},
+    ]
 )
 
 # We'll create Agent instances per request now since they need username/conversation_id
@@ -54,19 +68,46 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 sessions = {}
 
-@app.get("/needs-admin")
-async def needs_admin():
-    """Return whether the server lacks an admin account."""
-    return {"needs_admin": not db_operations.admin_exists()}
+
+# ============================================================================
+# Dependencies
+# ============================================================================
+
+def get_db() -> Session:
+    """Dependency to get database session."""
+    with get_session() as session:
+        yield session
 
 
-@app.get("/health")
+def get_authenticated_user(token: str = Depends(oauth2_scheme)) -> str:
+    """Dependency to get and validate the current user."""
+    username = get_current_user(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return username
+
+
+# ============================================================================
+# Health & Status Endpoints
+# ============================================================================
+
+@app.get("/health", tags=["health"])
 async def health():
     """Health check endpoint."""
     return {"status": "ok", "service": "llm-hub"}
 
 
-@app.post("/login")
+@app.get("/needs-admin", tags=["health"])
+async def needs_admin(db: Session = Depends(get_db)):
+    """Return whether the server lacks an admin account."""
+    return {"needs_admin": not db_operations.admin_exists()}
+
+
+# ============================================================================
+# Authentication Endpoints
+# ============================================================================
+
+@app.post("/login", tags=["auth"])
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     if authenticate_user(form_data.username, form_data.password):
         token = create_access_token({"sub": form_data.username})
@@ -74,8 +115,11 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     raise HTTPException(status_code=400, detail="Incorrect username or password")
 
 
-@app.post("/register")
-async def register(form_data: OAuth2PasswordRequestForm = Depends()):
+@app.post("/register", tags=["auth"])
+async def register(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
     try:
         db_operations.create_user(form_data.username, form_data.password)
         return {"status": "ok"}
@@ -84,7 +128,12 @@ async def register(form_data: OAuth2PasswordRequestForm = Depends()):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/asr")
+
+# ============================================================================
+# Speech-to-Text Endpoint
+# ============================================================================
+
+@app.post("/asr", tags=["asr"])
 async def asr(
     audio: bytes = Body(..., media_type="application/octet-stream"),
     token: str = Depends(oauth2_scheme),
@@ -100,7 +149,12 @@ async def asr(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/chat")
+
+# ============================================================================
+# Chat & LLM Endpoints
+# ============================================================================
+
+@app.post("/chat", tags=["chat"])
 async def chat(
     text: str = Form(...),
     model_name: str = Form(...),
@@ -161,7 +215,7 @@ async def chat(
     return StreamingResponse(stream(), media_type="application/json")
 
 
-@app.get("/models")
+@app.get("/models", tags=["chat"])
 async def models(token: str = Depends(oauth2_scheme)):
     if not get_current_user(token):
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -173,16 +227,31 @@ async def models(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/conversations/{conversation_id}")
-async def get_conversation(
-    conversation_id: int, 
-    limit: int = 50, 
-    offset: int = 0, 
-    token: str = Depends(oauth2_scheme)
+# ============================================================================
+# Conversation Endpoints
+# ============================================================================
+
+@app.get("/conversations", tags=["conversations"])
+async def list_conversations(
+    limit: int = 50,
+    username: str = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
 ):
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    try:
+        result = db_operations.get_conversations_list(username, limit)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/conversations/{conversation_id}", tags=["conversations"])
+async def get_conversation(
+    conversation_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    username: str = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
     try:
         result = db_operations.fetch_conversation(username, conversation_id, limit, offset)
         if result is None:
@@ -192,42 +261,11 @@ async def get_conversation(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/messages/{message_id}")
-async def get_message(
-    message_id: int,
-    token: str = Depends(oauth2_scheme)
+@app.post("/conversations", tags=["conversations"])
+async def create_conversation(
+    username: str = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
 ):
-    """Fetch a specific message by its ID."""
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    try:
-        result = db_operations.fetch_message_by_id(username, message_id)
-        if result is None:
-            raise HTTPException(status_code=404, detail="Message not found")
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/conversations")
-async def list_conversations(token: str = Depends(oauth2_scheme), limit: int = 50):
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    try:
-        result = db_operations.get_conversations_list(username, limit)
-        return result
-    except Exception as e:
-        print(str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/conversations")
-async def create_conversation(token: str = Depends(oauth2_scheme)):
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
     try:
         conversation_id = db_operations.create_new_conversation(username)
         return {"id": conversation_id, "title": "New conversation", "message_count": 0}
@@ -235,30 +273,32 @@ async def create_conversation(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/conversations/{conversation_id}")
-async def update_conversation(conversation_id: int, request: Request, token: str = Depends(oauth2_scheme)):
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    
+@app.post("/conversations/{conversation_id}", tags=["conversations"])
+async def update_conversation(
+    conversation_id: int,
+    request: Request,
+    username: str = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
     try:
         payload = await request.json()
         title = payload.get("title")
-        
+
         if not title:
             raise HTTPException(status_code=400, detail="Title is required")
-        
+
         db_operations.update_conversation_title(username, title, conversation_id)
         return {"message": "Conversation title updated successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/conversation/{conversation_id}")
-async def delete_conversation(conversation_id: int, token: str = Depends(oauth2_scheme)):
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
+@app.delete("/conversations/{conversation_id}", tags=["conversations"])
+async def delete_conversation(
+    conversation_id: int,
+    username: str = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
     try:
         result = db_operations.delete_conversation_by_id(username, conversation_id)
         if result:
@@ -269,12 +309,35 @@ async def delete_conversation(conversation_id: int, token: str = Depends(oauth2_
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# Message Endpoints
+# ============================================================================
 
-@app.get("/user")
-async def get_user_profile(token: str = Depends(oauth2_scheme)):
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
+@app.get("/messages/{message_id}", tags=["messages"])
+async def get_message(
+    message_id: int,
+    username: str = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
+    """Fetch a specific message by its ID."""
+    try:
+        result = db_operations.fetch_message_by_id(username, message_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Message not found")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# User Profile Endpoints
+# ============================================================================
+
+@app.get("/users/me", tags=["users"])
+async def get_user_profile(
+    username: str = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
     try:
         system_prompt, preferred_name = db_operations.get_user_preferences(username)
         user_avatar_uuid, agent_avatar_uuid = db_operations.get_user_avatars(username)
@@ -289,22 +352,20 @@ async def get_user_profile(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.put("/user")
+@app.put("/users/me", tags=["users"])
 async def update_user_profile(
-    token: str = Depends(oauth2_scheme),
     system_prompt: str = Form(None),
     preferred_name: str = Form(None),
     user_avatar: UploadFile = File(None),
-    agent_avatar: UploadFile = File(None)
+    agent_avatar: UploadFile = File(None),
+    username: str = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
 ):
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
     try:
         # Update preferences using the combined function
         if system_prompt is not None or preferred_name is not None:
             db_operations.update_user_preferences(username, system_prompt, preferred_name)
-        
+
         # Handle avatar updates
         if user_avatar is not None:
             if user_avatar.size > 0:  # File was uploaded
@@ -313,7 +374,7 @@ async def update_user_profile(
             else:
                 # Empty file means clear avatar
                 db_operations.update_user_avatar(username, "user", None)
-        
+
         if agent_avatar is not None:
             if agent_avatar.size > 0:  # File was uploaded
                 agent_avatar_uuid = image_operations.upload_image(agent_avatar)
@@ -321,10 +382,10 @@ async def update_user_profile(
             else:
                 # Empty file means clear avatar
                 db_operations.update_user_avatar(username, "agent", None)
-        
+
         # Get the updated avatar UUIDs to return to client
         user_avatar_uuid, agent_avatar_uuid = db_operations.get_user_avatars(username)
-        
+
         return {
             "status": "ok",
             "user_avatar_uuid": user_avatar_uuid,
@@ -334,59 +395,15 @@ async def update_user_profile(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/generate")
-async def generate(
-    request: Request, token: str = Depends(oauth2_scheme)
+# ============================================================================
+# MCP Server Endpoints
+# ============================================================================
+
+@app.get("/mcp-servers", tags=["mcp"])
+async def mcp_servers(
+    username: str = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
 ):
-    """Generate text for the given prompt using Ollama's generate API."""
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    
-    try:
-        data = await request.json()
-        prompt = data.get("prompt", "")
-        model = data.get("model", "anhkhoan/gemma3:latest")
-        max_tokens = data.get("max_tokens", 50)
-        
-        if not prompt:
-            raise HTTPException(status_code=400, detail="Prompt is required")
-        
-        # Prepare system prompts
-        user_system_prompt, _ = db_operations.get_user_preferences(username)
-        user_system_prompts = []
-        if user_system_prompt:
-            user_system_prompts.append({
-                "role": "system",
-                "content": user_system_prompt
-            })
-        
-        # Prepare payload for generate method
-        generate_payload = {
-            "message": {"content": prompt},
-            "model": model,
-            "options": {
-                "num_predict": max_tokens,
-                "temperature": 0.7,
-                "stop": ["\n", ".", "?", "!"]
-            }
-        }
-        
-        # Create temporary agent for generation
-        temp_agent = Agent(username, 1, mcp_client)
-        content = temp_agent.generate(generate_payload, user_system_prompts)
-        
-        return {"response": content}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/mcp-servers")
-async def mcp_servers(token: str = Depends(oauth2_scheme)):
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
     try:
         servers = []
         for name, config in mcp_configs.get("mcpServers", {}).items():
@@ -421,18 +438,22 @@ async def mcp_servers(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/images")
-async def upload_image(file: UploadFile = File(...), token: str = Depends(oauth2_scheme)):
+# ============================================================================
+# Image Endpoints
+# ============================================================================
+
+@app.post("/images", tags=["images"])
+async def create_image(
+    file: UploadFile = File(...),
+    username: str = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
     """Upload image and return UUID."""
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    
     image_uuid = image_operations.upload_image(file)
     return {"image_uuid": image_uuid, "url": f"/images/{image_uuid}"}
 
 
-@app.get("/images/{image_uuid}")
+@app.get("/images/{image_uuid}", tags=["images"])
 async def get_image(image_uuid: str):
     """Serve image publicly."""
     

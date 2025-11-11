@@ -7,8 +7,10 @@ from sqlalchemy import pool
 
 from alembic import context
 
-# Add the parent directory to sys.path so we can import our models
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+# Add the project root to sys.path so we can import our models
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 # Import our models
 from db import Base

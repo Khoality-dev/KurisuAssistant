@@ -55,7 +55,7 @@ services:
 
   llm-hub:
     build:
-      context: ./core
+      context: .
       dockerfile: Dockerfile
     container_name: llm-hub-container
     command: ["uvicorn", "llm_hub:app", "--host", "0.0.0.0", "--port", "15597"]
@@ -70,21 +70,23 @@ services:
               capabilities: [gpu]
     environment:
       - LLM_API_URL=http://ollama-container:11434
-      - DATABASE_URL=postgresql://kurisu:kurisu@postgres-container:5432/kurisu
+      - POSTGRES_USER=kurisu
+      - POSTGRES_PASSWORD=kurisu
+      - POSTGRES_HOST=postgres-container
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=kurisu
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker:ro
-      - ./core/mcp_tools:/app/mcp_tools
-      - ./core/whisper-finetuned:/app/whisper-finetuned
-      - ./core/configs:/app/configs
+      - ./mcp_tools:/app/mcp_tools
       - ./whisper-finetuned:/app/whisper-finetuned
-      - ./core/image_storage/data:/app/image_storage/data
+      - ./data:/app/data
     tty: true
     restart: unless-stopped
 
   tts-hub:
     build:
-      context: ./core
+      context: .
       dockerfile: Dockerfile
     container_name: tts-hub-container
     command: ["uvicorn", "tts_hub:app", "--host", "0.0.0.0", "--port", "15598"]
@@ -92,8 +94,6 @@ services:
       - "15598:15598"
     environment:
       - TTS_API_URL=http://gpt-sovits-container:9880/tts
-    volumes:
-      - ./core/configs:/app/configs
     tty: true
     restart: unless-stopped
 
