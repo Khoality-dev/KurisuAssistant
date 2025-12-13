@@ -1,7 +1,9 @@
 import base64
 import datetime
 import json
+import logging
 import os
+from contextlib import asynccontextmanager
 
 import dotenv
 import numpy as np
@@ -24,19 +26,34 @@ from data.image_storage import operations as image_operations
 from mcp_tools.client import list_tools
 from mcp_tools.config import load_mcp_configs
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+dotenv.load_dotenv()
 
 mcp_configs = load_mcp_configs()
 # Initialize mcp_client to None if no servers are configured
 mcp_client = FastMCPClient(mcp_configs) if mcp_configs.get("mcpServers") else None
 
-# MCP client uses context managers for connection management
 
-dotenv.load_dotenv()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan events - runs on startup and shutdown."""
+    # Startup
+    logger.info("Application starting up...")
 
-# Ensure the conversations table exists
-db_operations.init_db()
+    yield
+
+    # Shutdown: Cleanup resources
+    logger.info("Shutting down application...")
+    from db.session import engine
+    engine.dispose()
+    logger.info("Database connections closed")
+
 
 app = FastAPI(
+    lifespan=lifespan,
     title="Kurisu LLM Hub API",
     description="REST API for Kurisu Assistant LLM hub",
     version="0.1.0",

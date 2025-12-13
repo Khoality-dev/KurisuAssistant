@@ -11,6 +11,11 @@ WORKDIR /app
 RUN pip install -r requirements.txt
 
 ADD . /app
+
+# Copy and set up entrypoint script
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 EXPOSE 15597
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "15597"]
-# uvicorn main:app --host 0.0.0.0 --port 15597
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["uvicorn", "llm_hub:app", "--host", "0.0.0.0", "--port", "15597"]

@@ -86,7 +86,16 @@ Ensure you have Docker Engine and Docker Compose installed.
 The `llm-hub-container` automatically connects to the bundled PostgreSQL
 service using the hostname `postgres`. Override `DATABASE_URL` if you need a
 different connection string.
-The database is seeded with a default **admin/admin** account for testing.
+
+**Database Migrations**: The llm-hub container automatically runs database
+migrations on startup via `migrate.py`. For local development without Docker:
+
+```bash
+python migrate.py             # Run migrations manually
+```
+
+The database is seeded with a default **admin/admin** account during the
+first migration.
 
 ---
 
@@ -112,21 +121,18 @@ LLM and TTS URLs for the core can be adjusted in `docker-compose.yml`.
 
 ### Database schema
 
-On startup the LLM hub will create a `conversations` table if it does not
-exist. The table stores conversation transcripts in JSON format:
+The database uses **Alembic** for migrations. Schema is managed via migration
+files in `db/alembic/versions/`. The main tables are:
 
-```sql
-CREATE TABLE IF NOT EXISTS conversations (
-    id SERIAL PRIMARY KEY,
-    username TEXT NOT NULL,
-    messages JSONB NOT NULL,  -- {"messages": [{"role": "...", "content": "...", "model": "..."}]}
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
+* **users** – User accounts with authentication and preferences
+* **conversations** – Conversation metadata (title, timestamps)
+* **messages** – Individual messages linked to conversations
 
-You can query a user's history via the `/history` endpoint of the LLM hub.
+Migrations are run automatically in Docker or manually via `python migrate.py`.
+
 The `/models` endpoint returns the list of available LLMs for client selection.
 New accounts can be created by sending credentials to the `/register` endpoint.
+The `/conversations` endpoint provides access to conversation history.
 
 ## Contributing
 

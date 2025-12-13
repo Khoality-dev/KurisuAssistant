@@ -58,7 +58,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: llm-hub-container
-    command: ["uvicorn", "llm_hub:app", "--host", "0.0.0.0", "--port", "15597"]
+    depends_on:
+      - postgres
     ports:
       - "15597:15597"
     deploy:
