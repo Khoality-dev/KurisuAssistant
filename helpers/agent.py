@@ -3,7 +3,7 @@ import time
 import datetime
 from ollama import Client as OllamaClient
 from mcp_tools.client import list_tools, call_tool
-from db import operations
+from db import services
 
 def load_global_system_prompt():
     """Load the global system prompt from AGENT.md file."""
@@ -108,7 +108,7 @@ class Agent:
         
         
         # Immediately save user message to database to get message_id
-        message_id = operations.upsert_streaming_message(self.username, user_msg, self.conversation_id)
+        message_id = services.upsert_streaming_message(self.username, user_msg, self.conversation_id)
         user_msg["message_id"] = message_id
         yield user_msg
         # Add images to user message if provided
@@ -117,7 +117,7 @@ class Agent:
         self.context_messages.append(user_msg)
         buffer = ""
         # Get user preferences in a single database call
-        user_system_prompt, preferred_name = operations.get_user_preferences(self.username)
+        user_system_prompt, preferred_name = services.get_user_preferences(self.username)
         user_system_prompt += f"\n\nThe user prefers to be called: {preferred_name}" if preferred_name else ""
         user_system_prompt += f"\n\nCurrent time is {datetime.datetime.utcnow().isoformat()}"
         messages = [
@@ -151,7 +151,7 @@ class Agent:
                     created_at = datetime.datetime.utcnow().isoformat()
                     assistant_msg = {"role": "assistant", "content": msg.content, "tool_calls": msg.tool_calls, "created_at": created_at, "updated_at": created_at}
                     # Save assistant message with tool calls to database first to get message_id
-                    message_id = operations.upsert_streaming_message(self.username, assistant_msg, self.conversation_id)
+                    message_id = services.upsert_streaming_message(self.username, assistant_msg, self.conversation_id)
                     assistant_msg["message_id"] = message_id
                     self.context_messages.append(assistant_msg)
                     for tool_call in msg.tool_calls:
@@ -174,7 +174,7 @@ class Agent:
                             "updated_at": created_at,
                         }
                         # Save to database first to get message_id
-                        message_id = operations.upsert_streaming_message(self.username, tool_message, self.conversation_id)
+                        message_id = services.upsert_streaming_message(self.username, tool_message, self.conversation_id)
                         tool_message["message_id"] = message_id
                         yield tool_message
                         # Add tool response to recent_messages
@@ -204,7 +204,7 @@ class Agent:
                             "updated_at": created_at,
                         }
                         # Save/update message in database first to get message_id
-                        message_id = operations.upsert_streaming_message(self.username, message, self.conversation_id)
+                        message_id = services.upsert_streaming_message(self.username, message, self.conversation_id)
                         message["message_id"] = message_id
                         yield message
                         if self.context_messages[-1]["role"] == message["role"]:
@@ -230,7 +230,7 @@ class Agent:
                 "updated_at": created_at,
             }
             # Save final message to database first to get message_id
-            message_id = operations.upsert_streaming_message(self.username, message, self.conversation_id)
+            message_id = services.upsert_streaming_message(self.username, message, self.conversation_id)
             message["message_id"] = message_id
             yield message
             self.context_messages.append(message)

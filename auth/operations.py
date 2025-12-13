@@ -5,7 +5,7 @@ from typing import Optional
 
 from jose import JWTError, jwt
 
-from db import operations
+from db import services
 
 # Security configuration
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_urlsafe(32))
@@ -16,9 +16,9 @@ ACCESS_TOKEN_EXPIRE_DAYS = int(os.getenv("ACCESS_TOKEN_EXPIRE_DAYS", "30"))
 def authenticate_user(username: str, password: str) -> bool:
     """Authenticate user with username and password.
 
-    Delegates to db.operations for actual verification.
+    Delegates to db.services for actual verification.
     """
-    return operations.authenticate_user(username, password)
+    return services.authenticate_user(username, password)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

@@ -1,20 +1,18 @@
+"""Database service layer providing business logic and transaction management."""
+
 import os
 import logging
 from datetime import datetime
 from typing import Optional
-from passlib.context import CryptContext
-from sqlalchemy import func, desc
 from alembic.config import Config
 from alembic import command
 
+from auth.password import hash_password, verify_password
 from .session import get_session, engine
-from .models import User, Conversation, Message
 from .base import Base
 from .repositories import UserRepository, ConversationRepository, MessageRepository
 
 logger = logging.getLogger(__name__)
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 # ============================================================================
@@ -45,7 +43,7 @@ def init_db():
             user_repo = UserRepository(session)
             if not user_repo.admin_exists():
                 logger.info("Creating default admin account")
-                user_repo.create_user("admin", pwd_context.hash("admin"))
+                user_repo.create_user("admin", hash_password("admin"))
             else:
                 logger.info("Admin account already exists")
 
@@ -65,7 +63,7 @@ def _init_db_manual():
         with get_session() as session:
             user_repo = UserRepository(session)
             if not user_repo.admin_exists():
-                user_repo.create_user("admin", pwd_context.hash("admin"))
+                user_repo.create_user("admin", hash_password("admin"))
 
         logger.info("Database initialized using manual schema creation")
     except Exception as e:
@@ -74,7 +72,7 @@ def _init_db_manual():
 
 
 # ============================================================================
-# User Operations
+# User Services
 # ============================================================================
 
 def authenticate_user(username: str, password: str) -> bool:
@@ -85,7 +83,7 @@ def authenticate_user(username: str, password: str) -> bool:
             user = user_repo.get_by_username(username)
             if not user:
                 return False
-            return pwd_context.verify(password, user.password)
+            return verify_password(password, user.password)
     except Exception as e:
         logger.error(f"Error authenticating user: {e}")
         return False
@@ -98,7 +96,7 @@ def create_user(username: str, password: str) -> None:
     """
     with get_session() as session:
         user_repo = UserRepository(session)
-        user_repo.create_user(username, pwd_context.hash(password))
+        user_repo.create_user(username, hash_password(password))
 
 
 def admin_exists() -> bool:
@@ -158,7 +156,7 @@ def update_user_avatar(username: str, avatar_type: str, avatar_uuid: Optional[st
 
 
 # ============================================================================
-# Conversation Operations
+# Conversation Services
 # ============================================================================
 
 def create_new_conversation(username: str) -> int:
@@ -236,43 +234,8 @@ def delete_conversation_by_id(username: str, conversation_id: int) -> bool:
 
 
 # ============================================================================
-# Message Operations
+# Message Services
 # ============================================================================
-
-def add_messages(username: str, messages: list[dict], conversation_id: Optional[int] = None) -> tuple[int, list[int]]:
-    """Add multiple messages to an existing conversation at once."""
-    if not messages:
-        return conversation_id or 0, []
-
-    with get_session() as session:
-        conv_repo = ConversationRepository(session)
-        msg_repo = MessageRepository(session)
-
-        if conversation_id:
-            conversation = conv_repo.get_by_user_and_id(username, conversation_id)
-        else:
-            conversation = conv_repo.get_latest_by_user(username)
-
-        if not conversation:
-            raise ValueError(f"No conversation found for user {username}")
-
-        message_ids = []
-        for msg in messages:
-            message = msg_repo.create_message(
-                role=msg["role"],
-                username=username,
-                message=msg["content"],
-                conversation_id=conversation.id,
-                created_at=msg.get("created_at"),
-                updated_at=msg.get("updated_at"),
-            )
-            message_ids.append(message.id)
-
-        # Update conversation's updated_at
-        conv_repo.update_timestamp(conversation)
-
-        return conversation.id, message_ids
-
 
 def upsert_streaming_message(username: str, message: dict, conversation_id: int) -> int:
     """Upsert a streaming message - create new or update existing based on role sequence."""
@@ -329,5 +292,3 @@ def fetch_message_by_id(username: str, message_id: int) -> Optional[dict]:
             "created_at": message.created_at.isoformat(),
             "updated_at": message.updated_at.isoformat() if message.updated_at else message.created_at.isoformat(),
         }
-
-

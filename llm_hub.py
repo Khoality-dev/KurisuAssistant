@@ -18,7 +18,7 @@ from transformers import pipeline
 from sqlalchemy.orm import Session
 
 from auth import authenticate_user, create_access_token, get_current_user
-from db import operations as db_operations
+from db import services as db_services
 from db.session import get_session
 from helpers import Agent
 from helpers.utils import get_current_time
@@ -117,7 +117,7 @@ async def health():
 @app.get("/needs-admin", tags=["health"])
 async def needs_admin(db: Session = Depends(get_db)):
     """Return whether the server lacks an admin account."""
-    return {"needs_admin": not db_operations.admin_exists()}
+    return {"needs_admin": not db_services.admin_exists()}
 
 
 # ============================================================================
@@ -138,7 +138,7 @@ async def register(
     db: Session = Depends(get_db)
 ):
     try:
-        db_operations.create_user(form_data.username, form_data.password)
+        db_services.create_user(form_data.username, form_data.password)
         return {"status": "ok"}
     except ValueError:
         raise HTTPException(status_code=400, detail="User already exists")
@@ -255,7 +255,7 @@ async def list_conversations(
     db: Session = Depends(get_db)
 ):
     try:
-        result = db_operations.get_conversations_list(username, limit)
+        result = db_services.get_conversations_list(username, limit)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -270,7 +270,7 @@ async def get_conversation(
     db: Session = Depends(get_db)
 ):
     try:
-        result = db_operations.fetch_conversation(username, conversation_id, limit, offset)
+        result = db_services.fetch_conversation(username, conversation_id, limit, offset)
         if result is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
         return result
@@ -284,7 +284,7 @@ async def create_conversation(
     db: Session = Depends(get_db)
 ):
     try:
-        conversation_id = db_operations.create_new_conversation(username)
+        conversation_id = db_services.create_new_conversation(username)
         return {"id": conversation_id, "title": "New conversation", "message_count": 0}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -304,7 +304,7 @@ async def update_conversation(
         if not title:
             raise HTTPException(status_code=400, detail="Title is required")
 
-        db_operations.update_conversation_title(username, title, conversation_id)
+        db_services.update_conversation_title(username, title, conversation_id)
         return {"message": "Conversation title updated successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -317,7 +317,7 @@ async def delete_conversation(
     db: Session = Depends(get_db)
 ):
     try:
-        result = db_operations.delete_conversation_by_id(username, conversation_id)
+        result = db_services.delete_conversation_by_id(username, conversation_id)
         if result:
             return {"message": "Conversation deleted successfully"}
         else:
@@ -338,7 +338,7 @@ async def get_message(
 ):
     """Fetch a specific message by its ID."""
     try:
-        result = db_operations.fetch_message_by_id(username, message_id)
+        result = db_services.fetch_message_by_id(username, message_id)
         if result is None:
             raise HTTPException(status_code=404, detail="Message not found")
         return result
@@ -356,8 +356,8 @@ async def get_user_profile(
     db: Session = Depends(get_db)
 ):
     try:
-        system_prompt, preferred_name = db_operations.get_user_preferences(username)
-        user_avatar_uuid, agent_avatar_uuid = db_operations.get_user_avatars(username)
+        system_prompt, preferred_name = db_services.get_user_preferences(username)
+        user_avatar_uuid, agent_avatar_uuid = db_services.get_user_avatars(username)
         return {
             "username": username,
             "system_prompt": system_prompt,
@@ -381,27 +381,27 @@ async def update_user_profile(
     try:
         # Update preferences using the combined function
         if system_prompt is not None or preferred_name is not None:
-            db_operations.update_user_preferences(username, system_prompt, preferred_name)
+            db_services.update_user_preferences(username, system_prompt, preferred_name)
 
         # Handle avatar updates
         if user_avatar is not None:
             if user_avatar.size > 0:  # File was uploaded
                 user_avatar_uuid = image_operations.upload_image(user_avatar)
-                db_operations.update_user_avatar(username, "user", user_avatar_uuid)
+                db_services.update_user_avatar(username, "user", user_avatar_uuid)
             else:
                 # Empty file means clear avatar
-                db_operations.update_user_avatar(username, "user", None)
+                db_services.update_user_avatar(username, "user", None)
 
         if agent_avatar is not None:
             if agent_avatar.size > 0:  # File was uploaded
                 agent_avatar_uuid = image_operations.upload_image(agent_avatar)
-                db_operations.update_user_avatar(username, "agent", agent_avatar_uuid)
+                db_services.update_user_avatar(username, "agent", agent_avatar_uuid)
             else:
                 # Empty file means clear avatar
-                db_operations.update_user_avatar(username, "agent", None)
+                db_services.update_user_avatar(username, "agent", None)
 
         # Get the updated avatar UUIDs to return to client
-        user_avatar_uuid, agent_avatar_uuid = db_operations.get_user_avatars(username)
+        user_avatar_uuid, agent_avatar_uuid = db_services.get_user_avatars(username)
 
         return {
             "status": "ok",
