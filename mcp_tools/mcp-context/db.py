@@ -11,29 +11,30 @@ def get_connection():
 
 def retrieve_messages_by_date_range_db(
     conversation_id: int,
-    start_date: datetime, 
+    start_date: datetime,
     end_date: datetime,
     limit: int = 100
 ) -> List[Dict]:
     """Retrieve messages from database within a specific date range."""
     conn = get_connection()
     cur = conn.cursor()
-    
+
     try:
         query = """
-            SELECT m.role, m.message, m.created_at, m.conversation_id, c.title
+            SELECT m.role, m.message, m.created_at, ch.conversation_id, c.title
             FROM messages m
-            JOIN conversations c ON m.conversation_id = c.id
-            WHERE m.conversation_id = %s
+            JOIN chunks ch ON m.chunk_id = ch.id
+            JOIN conversations c ON ch.conversation_id = c.id
+            WHERE ch.conversation_id = %s
             AND m.created_at BETWEEN %s AND %s
             ORDER BY m.created_at ASC
             LIMIT %s
         """
         params = (conversation_id, start_date, end_date, limit)
-        
+
         cur.execute(query, params)
         results = cur.fetchall()
-        
+
         messages = []
         for row in results:
             role, content, created_at, conv_id, conv_title = row
@@ -44,9 +45,9 @@ def retrieve_messages_by_date_range_db(
                 "conversation_id": conv_id,
                 "conversation_title": conv_title or "Untitled",
             })
-        
+
         return messages
-        
+
     finally:
         cur.close()
         conn.close()
@@ -57,20 +58,21 @@ def retrieve_all_messages_for_regex_db(
     """Retrieve all messages for regex filtering."""
     conn = get_connection()
     cur = conn.cursor()
-    
+
     try:
         query = """
-            SELECT m.role, m.message, m.created_at, m.conversation_id, c.title
+            SELECT m.role, m.message, m.created_at, ch.conversation_id, c.title
             FROM messages m
-            JOIN conversations c ON m.conversation_id = c.id
-            WHERE m.conversation_id = %s
+            JOIN chunks ch ON m.chunk_id = ch.id
+            JOIN conversations c ON ch.conversation_id = c.id
+            WHERE ch.conversation_id = %s
             ORDER BY m.created_at DESC
         """
         params = (conversation_id,)
-        
+
         cur.execute(query, params)
         return cur.fetchall()
-        
+
     finally:
         cur.close()
         conn.close()
@@ -81,24 +83,25 @@ def get_conversation_summary_db(
     """Get conversation summary from database."""
     conn = get_connection()
     cur = conn.cursor()
-    
+
     try:
         query = """
             SELECT c.id, c.title, c.created_at, c.updated_at, COUNT(m.id) as message_count,
                    MIN(m.created_at) as first_message, MAX(m.created_at) as last_message
             FROM conversations c
-            LEFT JOIN messages m ON c.id = m.conversation_id
+            LEFT JOIN chunks ch ON c.id = ch.conversation_id
+            LEFT JOIN messages m ON ch.id = m.chunk_id
             WHERE c.id = %s
             GROUP BY c.id, c.title, c.created_at, c.updated_at
         """
         params = (conversation_id,)
-        
+
         cur.execute(query, params)
         result = cur.fetchone()
-        
+
         if not result:
             return None
-            
+
         conv_id, title, created_at, updated_at, msg_count, first_msg, last_msg = result
         return {
             "id": conv_id,
@@ -109,7 +112,7 @@ def get_conversation_summary_db(
             "first_message": first_msg.strftime('%Y-%m-%d %H:%M') if first_msg else None,
             "last_message": last_msg.strftime('%Y-%m-%d %H:%M') if last_msg else None
         }
-        
+
     finally:
         cur.close()
         conn.close()

@@ -23,7 +23,7 @@ class MessageRepository(BaseRepository[Message]):
         role: str,
         username: str,
         message: str,
-        conversation_id: int,
+        chunk_id: int,
         created_at: Optional[datetime] = None,
         updated_at: Optional[datetime] = None,
     ) -> Message:
@@ -33,7 +33,7 @@ class MessageRepository(BaseRepository[Message]):
             role: Message role (user/assistant)
             username: Username who owns the message
             message: Message content
-            conversation_id: Conversation ID this message belongs to
+            chunk_id: Chunk ID this message belongs to
             created_at: Creation timestamp (optional)
             updated_at: Update timestamp (optional)
 
@@ -44,7 +44,7 @@ class MessageRepository(BaseRepository[Message]):
             "role": role,
             "username": username,
             "message": message,
-            "conversation_id": conversation_id,
+            "chunk_id": chunk_id,
         }
         if created_at is not None:
             data["created_at"] = created_at
@@ -65,6 +65,33 @@ class MessageRepository(BaseRepository[Message]):
         """
         return self.get_by_filter(username=username, id=message_id)
 
+    def get_by_chunk(
+        self,
+        username: str,
+        chunk_id: int,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Message]:
+        """Get messages for a specific chunk with pagination.
+
+        Args:
+            username: Username who owns the messages
+            chunk_id: Chunk ID
+            limit: Maximum number of messages to return
+            offset: Number of messages to skip
+
+        Returns:
+            List of Message instances ordered by creation time
+        """
+        return (
+            self.session.query(Message)
+            .filter_by(username=username, chunk_id=chunk_id)
+            .order_by(Message.created_at)
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
+
     def get_by_conversation(
         self,
         username: str,
@@ -72,7 +99,7 @@ class MessageRepository(BaseRepository[Message]):
         limit: int = 50,
         offset: int = 0,
     ) -> List[Message]:
-        """Get messages for a conversation with pagination.
+        """Get messages for a conversation (across all chunks) with pagination.
 
         Args:
             username: Username who owns the messages
@@ -83,19 +110,41 @@ class MessageRepository(BaseRepository[Message]):
         Returns:
             List of Message instances ordered by creation time
         """
+        from ..models import Chunk
         return (
             self.session.query(Message)
-            .filter_by(username=username, conversation_id=conversation_id)
+            .join(Chunk, Message.chunk_id == Chunk.id)
+            .filter(Chunk.conversation_id == conversation_id)
+            .filter(Message.username == username)
             .order_by(Message.created_at)
             .limit(limit)
             .offset(offset)
             .all()
         )
 
+    def get_latest_by_chunk(
+        self, username: str, chunk_id: int
+    ) -> Optional[Message]:
+        """Get the most recent message in a chunk.
+
+        Args:
+            username: Username who owns the message
+            chunk_id: Chunk ID
+
+        Returns:
+            Most recent Message or None if no messages exist
+        """
+        return (
+            self.session.query(Message)
+            .filter_by(username=username, chunk_id=chunk_id)
+            .order_by(desc(Message.created_at), desc(Message.id))
+            .first()
+        )
+
     def get_latest_by_conversation(
         self, username: str, conversation_id: int
     ) -> Optional[Message]:
-        """Get the most recent message in a conversation.
+        """Get the most recent message in a conversation (across all chunks).
 
         Args:
             username: Username who owns the message
@@ -104,15 +153,30 @@ class MessageRepository(BaseRepository[Message]):
         Returns:
             Most recent Message or None if no messages exist
         """
+        from ..models import Chunk
         return (
             self.session.query(Message)
-            .filter_by(username=username, conversation_id=conversation_id)
+            .join(Chunk, Message.chunk_id == Chunk.id)
+            .filter(Chunk.conversation_id == conversation_id)
+            .filter(Message.username == username)
             .order_by(desc(Message.created_at), desc(Message.id))
             .first()
         )
 
+    def count_by_chunk(self, username: str, chunk_id: int) -> int:
+        """Count messages in a chunk.
+
+        Args:
+            username: Username who owns the messages
+            chunk_id: Chunk ID
+
+        Returns:
+            Number of messages
+        """
+        return self.count(username=username, chunk_id=chunk_id)
+
     def count_by_conversation(self, username: str, conversation_id: int) -> int:
-        """Count messages in a conversation.
+        """Count messages in a conversation (across all chunks).
 
         Args:
             username: Username who owns the messages
@@ -121,7 +185,14 @@ class MessageRepository(BaseRepository[Message]):
         Returns:
             Number of messages
         """
-        return self.count(username=username, conversation_id=conversation_id)
+        from ..models import Chunk
+        return (
+            self.session.query(Message)
+            .join(Chunk, Message.chunk_id == Chunk.id)
+            .filter(Chunk.conversation_id == conversation_id)
+            .filter(Message.username == username)
+            .count()
+        )
 
     def append_to_message(self, message: Message, content: str) -> Message:
         """Append content to an existing message.
@@ -137,7 +208,7 @@ class MessageRepository(BaseRepository[Message]):
         return self.update(message, message=new_content, updated_at=datetime.utcnow())
 
     def delete_by_conversation(self, username: str, conversation_id: int) -> int:
-        """Delete all messages in a conversation.
+        """Delete all messages in a conversation (across all chunks).
 
         Args:
             username: Username who owns the messages
@@ -146,4 +217,12 @@ class MessageRepository(BaseRepository[Message]):
         Returns:
             Number of messages deleted
         """
-        return self.delete_by_filter(username=username, conversation_id=conversation_id)
+        from ..models import Chunk
+        deleted_count = (
+            self.session.query(Message)
+            .join(Chunk, Message.chunk_id == Chunk.id)
+            .filter(Chunk.conversation_id == conversation_id)
+            .filter(Message.username == username)
+            .delete(synchronize_session=False)
+        )
+        return deleted_count

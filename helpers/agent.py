@@ -18,7 +18,7 @@ def load_global_system_prompt():
 GLOBAL_SYSTEM_PROMPT = load_global_system_prompt()
 
 class Agent:
-    def __init__(self, username, conversation_id, mcp_client):
+    def __init__(self, username, conversation_id, chunk_id, mcp_client):
         self.api_url = os.getenv("LLM_API_URL", "http://10.0.0.122:11434")
         print(f"LLM API URL: {self.api_url}")
         self.delimiters = [".", "\n", "?", ":", "!", ";"]
@@ -27,9 +27,11 @@ class Agent:
         self.cached_tools = []
         self.tools_cache_time = 0
         self.context_messages = []
+        self.context_loaded = False  # Track if DB context loaded
 
         self.username = username
         self.conversation_id = conversation_id
+        self.chunk_id = chunk_id
 
     def list_models(self):
         """Return a list of available model names."""
@@ -95,8 +97,39 @@ class Agent:
     def pull_model(self, model_name):
         self.ollama_client.pull(model_name)
 
+    def _load_chunk_context(self):
+        """Load messages from current chunk into context_messages."""
+        if self.context_loaded:
+            return
+
+        try:
+            messages = services.get_chunk_messages(
+                self.username,
+                self.conversation_id,
+                self.chunk_id
+            )
+
+            # Convert to agent message format
+            for msg in messages:
+                self.context_messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"],
+                    "created_at": msg["created_at"],
+                    "updated_at": msg["updated_at"],
+                    "message_id": msg["id"]
+                })
+
+            self.context_loaded = True
+        except Exception as e:
+            print(f"Error loading chunk context: {e}")
+            # Continue with empty context if loading fails
+            self.context_loaded = True
+
     async def chat(self, model_name, user_message, images=None):
         """Send a chat request and yield streaming responses."""
+        # Load chunk context on first call
+        self._load_chunk_context()
+
         created_at = datetime.datetime.utcnow().isoformat()
         user_msg = {
             "role": "user",
@@ -104,11 +137,11 @@ class Agent:
             "created_at": created_at,
             "updated_at": created_at,
         }
-        
-        
-        
+
+
+
         # Immediately save user message to database to get message_id
-        message_id = services.upsert_streaming_message(self.username, user_msg, self.conversation_id)
+        message_id = services.upsert_streaming_message(self.username, user_msg, self.conversation_id, self.chunk_id)
         user_msg["message_id"] = message_id
         yield user_msg
         # Add images to user message if provided
@@ -151,7 +184,7 @@ class Agent:
                     created_at = datetime.datetime.utcnow().isoformat()
                     assistant_msg = {"role": "assistant", "content": msg.content, "tool_calls": msg.tool_calls, "created_at": created_at, "updated_at": created_at}
                     # Save assistant message with tool calls to database first to get message_id
-                    message_id = services.upsert_streaming_message(self.username, assistant_msg, self.conversation_id)
+                    message_id = services.upsert_streaming_message(self.username, assistant_msg, self.conversation_id, self.chunk_id)
                     assistant_msg["message_id"] = message_id
                     self.context_messages.append(assistant_msg)
                     for tool_call in msg.tool_calls:
@@ -174,7 +207,7 @@ class Agent:
                             "updated_at": created_at,
                         }
                         # Save to database first to get message_id
-                        message_id = services.upsert_streaming_message(self.username, tool_message, self.conversation_id)
+                        message_id = services.upsert_streaming_message(self.username, tool_message, self.conversation_id, self.chunk_id)
                         tool_message["message_id"] = message_id
                         yield tool_message
                         # Add tool response to recent_messages
@@ -204,7 +237,7 @@ class Agent:
                             "updated_at": created_at,
                         }
                         # Save/update message in database first to get message_id
-                        message_id = services.upsert_streaming_message(self.username, message, self.conversation_id)
+                        message_id = services.upsert_streaming_message(self.username, message, self.conversation_id, self.chunk_id)
                         message["message_id"] = message_id
                         yield message
                         if self.context_messages[-1]["role"] == message["role"]:
@@ -230,7 +263,7 @@ class Agent:
                 "updated_at": created_at,
             }
             # Save final message to database first to get message_id
-            message_id = services.upsert_streaming_message(self.username, message, self.conversation_id)
+            message_id = services.upsert_streaming_message(self.username, message, self.conversation_id, self.chunk_id)
             message["message_id"] = message_id
             yield message
             self.context_messages.append(message)

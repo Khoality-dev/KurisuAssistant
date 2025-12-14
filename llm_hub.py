@@ -176,17 +176,18 @@ async def chat(
     text: str = Form(...),
     model_name: str = Form(...),
     conversation_id: int = Form(...),
+    chunk_id: int = Form(None),  # NEW: Optional, None = auto-resume
     images: list[UploadFile] = File(default=[]),
     token: str = Depends(oauth2_scheme)
 ):
     username = get_current_user(token)
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
-    
-    try:        
+
+    try:
         user_message_content = text
         image_data = []
-        
+
         # Handle image attachments if provided
         if images:
             valid_images = [img for img in images if img.size > 0]  # Filter out empty files
@@ -198,35 +199,58 @@ async def chat(
                     image_url = f"/images/{image_uuid}"
                     # Add image in markdown format for frontend display
                     image_markdowns.append(f"![Image]({image_url})")
-                    
+
                     # Convert image to base64 for agent processing
                     image.file.seek(0)  # Reset file pointer
                     image_bytes = await image.read()
                     image_b64 = base64.b64encode(image_bytes).decode('utf-8')
                     image_data.append(image_b64)
-                
+
                 # Include image markdown in the message content
                 if image_markdowns:
                     images_text = "\n\n" + "\n".join(image_markdowns)
                     user_message_content += images_text
-        
-        # Use provided conversation_id (now required)
-        conv_id = conversation_id
-        
-        # Create Agent instance for this conversation
-        if conv_id not in sessions or len(sessions[conv_id].context_messages) == 0 or get_current_time() - datetime.datetime.fromisoformat(sessions[conv_id].context_messages[-1]["updated_at"]).replace(tzinfo=datetime.timezone.utc) >= datetime.timedelta(minutes=10):
-            sessions[conv_id] = Agent(username, conv_id, mcp_client)
 
-        agent = sessions[conv_id]
+        # Auto-resume logic: handle chunk_id
+        if chunk_id is None:
+            # Auto-resume: use latest chunk or create new if conversation is empty
+            last_chunk = db_services.get_latest_chunk(username, conversation_id)
+            actual_chunk_id = last_chunk["id"] if last_chunk else db_services.create_chunk(username, conversation_id)
+        elif chunk_id == -1:
+            # Explicitly create new chunk
+            actual_chunk_id = db_services.create_chunk(username, conversation_id)
+        else:
+            # Validate chunk belongs to conversation
+            chunk = db_services.get_chunk_by_id(username, conversation_id, chunk_id)
+            if not chunk:
+                raise HTTPException(status_code=400, detail="Invalid chunk_id")
+            actual_chunk_id = chunk_id
+
+        # Session key now includes chunk_id
+        session_key = f"{conversation_id}_{actual_chunk_id}"
+
+        # Create Agent instance for this conversation+chunk
+        if session_key not in sessions or len(sessions[session_key].context_messages) == 0 or get_current_time() - datetime.datetime.fromisoformat(sessions[session_key].context_messages[-1]["updated_at"]).replace(tzinfo=datetime.timezone.utc) >= datetime.timedelta(minutes=10):
+            sessions[session_key] = Agent(username, conversation_id, actual_chunk_id, mcp_client)
+
+        agent = sessions[session_key]
         response_generator = agent.chat(model_name, user_message_content, images=image_data)
     except Exception as e:
         print(str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
+    # Store chunk_id for streaming response
+    current_chunk_id = actual_chunk_id
+
     async def stream():
+        chunk_id_sent = False
         async for chunk in response_generator:
-            # Wrap the message in the expected format
-            wrapped_chunk = {"message": chunk}
+            # Include chunk_id in first response
+            if not chunk_id_sent:
+                wrapped_chunk = {"message": chunk, "chunk_id": current_chunk_id}
+                chunk_id_sent = True
+            else:
+                wrapped_chunk = {"message": chunk}
             yield json.dumps(wrapped_chunk) + "\n"
 
     return StreamingResponse(stream(), media_type="application/json")
@@ -237,8 +261,8 @@ async def models(token: str = Depends(oauth2_scheme)):
     if not get_current_user(token):
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        # Create a temporary agent instance to get models
-        temp_agent = Agent("temp", 1, mcp_client)
+        # Create a temporary agent instance to get models (chunk_id doesn't matter here)
+        temp_agent = Agent("temp", 1, 1, mcp_client)
         return {"models": temp_agent.list_models()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -322,6 +346,22 @@ async def delete_conversation(
             return {"message": "Conversation deleted successfully"}
         else:
             raise HTTPException(status_code=404, detail="Conversation not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/conversations/{conversation_id}/chunks", tags=["conversations"])
+async def list_chunks(
+    conversation_id: int,
+    username: str = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
+    """List all chunks in a conversation with metadata."""
+    try:
+        chunks = db_services.get_chunks_by_conversation(username, conversation_id)
+        if chunks is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return {"chunks": chunks}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

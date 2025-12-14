@@ -17,25 +17,36 @@ class User(Base):
 
 class Conversation(Base):
     __tablename__ = 'conversations'
-    
+
     id = Column(Integer, primary_key=True)
     username = Column(String, ForeignKey('users.username'), nullable=False)
     title = Column(Text, default='New conversation')
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
-    
+
     user = relationship("User", back_populates="conversations")
-    messages = relationship("Message", back_populates="conversation")
+    chunks = relationship("Chunk", back_populates="conversation", cascade="all, delete-orphan")
+
+class Chunk(Base):
+    __tablename__ = 'chunks'
+
+    id = Column(Integer, primary_key=True)
+    conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    conversation = relationship("Conversation", back_populates="chunks")
+    messages = relationship("Message", back_populates="chunk", cascade="all, delete-orphan")
 
 class Message(Base):
     __tablename__ = 'messages'
-    
+
     id = Column(Integer, primary_key=True)
     role = Column(Text, nullable=False)
     username = Column(String, nullable=False)
     message = Column(Text, nullable=False)
-    conversation_id = Column(Integer, ForeignKey('conversations.id'))
+    chunk_id = Column(Integer, ForeignKey('chunks.id', ondelete='CASCADE'))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
-    
-    conversation = relationship("Conversation", back_populates="messages")
+
+    chunk = relationship("Chunk", back_populates="messages")

@@ -10,7 +10,7 @@ from alembic import command
 from auth.password import hash_password, verify_password
 from .session import get_session, engine
 from .base import Base
-from .repositories import UserRepository, ConversationRepository, MessageRepository
+from .repositories import UserRepository, ConversationRepository, MessageRepository, ChunkRepository
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +195,7 @@ def fetch_conversation(username: str, conversation_id: int, limit: int = 50, off
                 "id": msg.id,
                 "role": msg.role,
                 "content": msg.message,
+                "chunk_id": msg.chunk_id,
                 "created_at": msg.created_at.isoformat(),
                 "updated_at": msg.updated_at.isoformat() if msg.updated_at else msg.created_at.isoformat(),
             }
@@ -234,17 +235,186 @@ def delete_conversation_by_id(username: str, conversation_id: int) -> bool:
 
 
 # ============================================================================
+# Chunk Services
+# ============================================================================
+
+def create_chunk(username: str, conversation_id: int) -> int:
+    """Create a new chunk in a conversation.
+
+    Args:
+        username: Username who owns the conversation
+        conversation_id: Conversation ID
+
+    Returns:
+        ID of the created chunk
+
+    Raises:
+        ValueError: If conversation not found or doesn't belong to user
+    """
+    with get_session() as session:
+        conv_repo = ConversationRepository(session)
+        chunk_repo = ChunkRepository(session)
+
+        # Verify conversation ownership
+        conversation = conv_repo.get_by_user_and_id(username, conversation_id)
+        if not conversation:
+            raise ValueError("Conversation not found")
+
+        chunk = chunk_repo.create_chunk(conversation_id)
+        return chunk.id
+
+
+def get_chunk_by_id(username: str, conversation_id: int, chunk_id: int) -> Optional[dict]:
+    """Get chunk ensuring it belongs to the specified conversation and user.
+
+    Args:
+        username: Username who owns the conversation
+        conversation_id: Conversation ID
+        chunk_id: Chunk ID
+
+    Returns:
+        Chunk dictionary or None if not found or doesn't belong to user
+    """
+    with get_session() as session:
+        chunk_repo = ChunkRepository(session)
+        conv_repo = ConversationRepository(session)
+
+        chunk = chunk_repo.get_by_id(chunk_id)
+        if not chunk or chunk.conversation_id != conversation_id:
+            return None
+
+        # Verify conversation belongs to user
+        conversation = conv_repo.get_by_user_and_id(username, conversation_id)
+        if not conversation:
+            return None
+
+        return {
+            "id": chunk.id,
+            "conversation_id": chunk.conversation_id,
+            "created_at": chunk.created_at.isoformat(),
+            "updated_at": chunk.updated_at.isoformat(),
+        }
+
+
+def get_latest_chunk(username: str, conversation_id: int) -> Optional[dict]:
+    """Get the most recent chunk in a conversation.
+
+    Args:
+        username: Username who owns the conversation
+        conversation_id: Conversation ID
+
+    Returns:
+        Latest chunk dictionary or None if no chunks exist
+    """
+    with get_session() as session:
+        conv_repo = ConversationRepository(session)
+        chunk_repo = ChunkRepository(session)
+
+        # Verify conversation ownership
+        conversation = conv_repo.get_by_user_and_id(username, conversation_id)
+        if not conversation:
+            return None
+
+        chunk = chunk_repo.get_latest_by_conversation(conversation_id)
+        if not chunk:
+            return None
+
+        return {
+            "id": chunk.id,
+            "conversation_id": chunk.conversation_id,
+            "created_at": chunk.created_at.isoformat(),
+            "updated_at": chunk.updated_at.isoformat(),
+        }
+
+
+def get_chunks_by_conversation(username: str, conversation_id: int) -> Optional[list[dict]]:
+    """Get all chunks for a conversation with message counts.
+
+    Args:
+        username: Username who owns the conversation
+        conversation_id: Conversation ID
+
+    Returns:
+        List of chunk dictionaries with message counts, or None if conversation not found
+    """
+    with get_session() as session:
+        conv_repo = ConversationRepository(session)
+        chunk_repo = ChunkRepository(session)
+
+        # Verify conversation ownership
+        conversation = conv_repo.get_by_user_and_id(username, conversation_id)
+        if not conversation:
+            return None
+
+        return chunk_repo.list_by_conversation(conversation_id)
+
+
+def get_chunk_messages(username: str, conversation_id: int, chunk_id: int) -> list[dict]:
+    """Get all messages in a specific chunk.
+
+    Args:
+        username: Username who owns the conversation
+        conversation_id: Conversation ID
+        chunk_id: Chunk ID
+
+    Returns:
+        List of message dictionaries
+
+    Raises:
+        ValueError: If chunk doesn't belong to conversation or user
+    """
+    with get_session() as session:
+        chunk_repo = ChunkRepository(session)
+        msg_repo = MessageRepository(session)
+        conv_repo = ConversationRepository(session)
+
+        # Verify conversation ownership
+        conversation = conv_repo.get_by_user_and_id(username, conversation_id)
+        if not conversation:
+            raise ValueError("Conversation not found")
+
+        # Validate chunk access
+        chunk = chunk_repo.get_by_id(chunk_id)
+        if not chunk or chunk.conversation_id != conversation_id:
+            raise ValueError("Invalid chunk or conversation")
+
+        messages = msg_repo.get_by_chunk(username, chunk_id, limit=1000)  # No pagination for context
+
+        return [
+            {
+                "id": msg.id,
+                "role": msg.role,
+                "content": msg.message,
+                "created_at": msg.created_at.isoformat(),
+                "updated_at": msg.updated_at.isoformat() if msg.updated_at else msg.created_at.isoformat(),
+            }
+            for msg in messages
+        ]
+
+
+# ============================================================================
 # Message Services
 # ============================================================================
 
-def upsert_streaming_message(username: str, message: dict, conversation_id: int) -> int:
-    """Upsert a streaming message - create new or update existing based on role sequence."""
+def upsert_streaming_message(username: str, message: dict, conversation_id: int, chunk_id: int) -> int:
+    """Upsert a streaming message - create new or update existing based on role sequence.
+
+    Args:
+        username: Username who owns the message
+        message: Message dictionary with role, content, created_at, updated_at
+        conversation_id: Conversation ID
+        chunk_id: Chunk ID this message belongs to
+
+    Returns:
+        ID of the created or updated message
+    """
     with get_session() as session:
         conv_repo = ConversationRepository(session)
+        chunk_repo = ChunkRepository(session)
         msg_repo = MessageRepository(session)
 
-        # Get the last message for this conversation
-        last_message = msg_repo.get_latest_by_conversation(username, conversation_id)
+        # Get the last message for this CHUNK (changed from conversation)
+        last_message = msg_repo.get_latest_by_chunk(username, chunk_id)
 
         role = message.get("role")
         content = message.get("content", "")
@@ -261,11 +431,16 @@ def upsert_streaming_message(username: str, message: dict, conversation_id: int)
                 role=role,
                 username=username,
                 message=content,
-                conversation_id=conversation_id,
+                chunk_id=chunk_id,  # CHANGED: was conversation_id
                 created_at=created_at,
                 updated_at=updated_at,
             )
             message_id = new_message.id
+
+        # Update chunk's updated_at
+        chunk = chunk_repo.get_by_id(chunk_id)
+        if chunk:
+            chunk_repo.update_timestamp(chunk)
 
         # Update conversation's updated_at
         conversation = conv_repo.get_by_id(conversation_id)
