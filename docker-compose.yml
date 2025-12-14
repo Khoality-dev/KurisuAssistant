@@ -24,35 +24,6 @@ services:
     stdin_open: true
     tty: true
     restart: unless-stopped
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama-container
-    ports:
-      - "11434:11434"
-    volumes:
-      - ./ollama:/root/.ollama
-    environment:
-      - OLLAMA_KEEP_ALIVE=24h
-      - OLLAMA_HOST=0.0.0.0
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    tty: true
-    entrypoint: ["/bin/ollama", "serve"]
-    restart: unless-stopped
-  open-webui:
-    image: ghcr.io/open-webui/open-webui:v0.6.15
-    container_name: open-webui-container
-    ports:
-      - "3000:8080"
-    volumes:
-      - ./openwebui:/app/backend/data
-    restart: unless-stopped
-
   llm-hub:
     build:
       context: .

@@ -8,7 +8,12 @@ until python -c "from db.session import engine; engine.connect()" 2>/dev/null; d
 done
 
 echo "PostgreSQL is up - running migrations"
-python migrate.py
+if python migrate.py; then
+    echo "Migrations completed successfully"
+else
+    echo "Migration failed with exit code $?"
+    exit 1
+fi
 
 echo "Starting application..."
-exec "$@"
+exec uvicorn llm_hub:app --host 0.0.0.0 --port 15597

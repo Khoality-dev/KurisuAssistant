@@ -17,5 +17,4 @@ COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 15597
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["uvicorn", "llm_hub:app", "--host", "0.0.0.0", "--port", "15597"]
+CMD ["/app/docker-entrypoint.sh"]

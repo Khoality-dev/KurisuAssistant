@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
-from ..models import Conversation, Message
+from ..models import Conversation, Chunk
 from .base import BaseRepository
 
 
@@ -66,7 +66,7 @@ class ConversationRepository(BaseRepository[Conversation]):
             limit: Maximum number of conversations to return
 
         Returns:
-            List of conversation dictionaries with metadata
+            List of conversation dictionaries with chunk count metadata
         """
         conversations = (
             self.session.query(
@@ -74,13 +74,9 @@ class ConversationRepository(BaseRepository[Conversation]):
                 Conversation.title,
                 Conversation.created_at,
                 Conversation.updated_at,
-                func.count(Message.id).label("message_count"),
+                func.count(Chunk.id).label("chunk_count"),
             )
-            .outerjoin(
-                Message,
-                (Conversation.id == Message.conversation_id)
-                & (Message.username == username),
-            )
+            .outerjoin(Chunk, Conversation.id == Chunk.conversation_id)
             .filter(Conversation.username == username)
             .group_by(
                 Conversation.id,
@@ -95,8 +91,7 @@ class ConversationRepository(BaseRepository[Conversation]):
 
         result = []
         for conv in conversations:
-            message_count = conv.message_count or 0
-            latest_offset = ((message_count - 1) // 20) * 20 if message_count > 0 else 0
+            chunk_count = conv.chunk_count or 0
 
             result.append(
                 {
@@ -108,8 +103,7 @@ class ConversationRepository(BaseRepository[Conversation]):
                         if conv.updated_at
                         else conv.created_at.isoformat()
                     ),
-                    "message_count": message_count,
-                    "max_offset": latest_offset,
+                    "chunk_count": chunk_count,
                 }
             )
 

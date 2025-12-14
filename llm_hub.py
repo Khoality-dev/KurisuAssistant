@@ -114,12 +114,6 @@ async def health():
     return {"status": "ok", "service": "llm-hub"}
 
 
-@app.get("/needs-admin", tags=["health"])
-async def needs_admin(db: Session = Depends(get_db)):
-    """Return whether the server lacks an admin account."""
-    return {"needs_admin": not db_services.admin_exists()}
-
-
 # ============================================================================
 # Authentication Endpoints
 # ============================================================================
@@ -175,8 +169,8 @@ async def asr(
 async def chat(
     text: str = Form(...),
     model_name: str = Form(...),
-    conversation_id: int = Form(...),
-    chunk_id: int = Form(None),  # NEW: Optional, None = auto-resume
+    conversation_id: int = Form(None),  # None = create new conversation
+    chunk_id: int = Form(None),  # None = auto-resume or create new if conversation is new
     images: list[UploadFile] = File(default=[]),
     token: str = Depends(oauth2_scheme)
 ):
@@ -185,6 +179,12 @@ async def chat(
         raise HTTPException(status_code=401, detail="Invalid token")
 
     try:
+        # Auto-create conversation if needed
+        if conversation_id is None:
+            actual_conversation_id = db_services.create_new_conversation(username)
+        else:
+            actual_conversation_id = conversation_id
+
         user_message_content = text
         image_data = []
 
@@ -214,24 +214,21 @@ async def chat(
         # Auto-resume logic: handle chunk_id
         if chunk_id is None:
             # Auto-resume: use latest chunk or create new if conversation is empty
-            last_chunk = db_services.get_latest_chunk(username, conversation_id)
-            actual_chunk_id = last_chunk["id"] if last_chunk else db_services.create_chunk(username, conversation_id)
-        elif chunk_id == -1:
-            # Explicitly create new chunk
-            actual_chunk_id = db_services.create_chunk(username, conversation_id)
+            last_chunk = db_services.get_latest_chunk(username, actual_conversation_id)
+            actual_chunk_id = last_chunk["id"] if last_chunk else db_services.create_chunk(username, actual_conversation_id)
         else:
             # Validate chunk belongs to conversation
-            chunk = db_services.get_chunk_by_id(username, conversation_id, chunk_id)
+            chunk = db_services.get_chunk_by_id(username, actual_conversation_id, chunk_id)
             if not chunk:
                 raise HTTPException(status_code=400, detail="Invalid chunk_id")
             actual_chunk_id = chunk_id
 
         # Session key now includes chunk_id
-        session_key = f"{conversation_id}_{actual_chunk_id}"
+        session_key = f"{actual_conversation_id}_{actual_chunk_id}"
 
         # Create Agent instance for this conversation+chunk
         if session_key not in sessions or len(sessions[session_key].context_messages) == 0 or get_current_time() - datetime.datetime.fromisoformat(sessions[session_key].context_messages[-1]["updated_at"]).replace(tzinfo=datetime.timezone.utc) >= datetime.timedelta(minutes=10):
-            sessions[session_key] = Agent(username, conversation_id, actual_chunk_id, mcp_client)
+            sessions[session_key] = Agent(username, actual_conversation_id, actual_chunk_id, mcp_client)
 
         agent = sessions[session_key]
         response_generator = agent.chat(model_name, user_message_content, images=image_data)
@@ -239,16 +236,21 @@ async def chat(
         print(str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-    # Store chunk_id for streaming response
+    # Store IDs for streaming response
+    current_conversation_id = actual_conversation_id
     current_chunk_id = actual_chunk_id
 
     async def stream():
-        chunk_id_sent = False
+        ids_sent = False
         async for chunk in response_generator:
-            # Include chunk_id in first response
-            if not chunk_id_sent:
-                wrapped_chunk = {"message": chunk, "chunk_id": current_chunk_id}
-                chunk_id_sent = True
+            # Include conversation_id and chunk_id in first response
+            if not ids_sent:
+                wrapped_chunk = {
+                    "message": chunk,
+                    "conversation_id": current_conversation_id,
+                    "chunk_id": current_chunk_id
+                }
+                ids_sent = True
             else:
                 wrapped_chunk = {"message": chunk}
             yield json.dumps(wrapped_chunk) + "\n"
@@ -298,18 +300,6 @@ async def get_conversation(
         if result is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
         return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/conversations", tags=["conversations"])
-async def create_conversation(
-    username: str = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
-):
-    try:
-        conversation_id = db_services.create_new_conversation(username)
-        return {"id": conversation_id, "title": "New conversation", "message_count": 0}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
