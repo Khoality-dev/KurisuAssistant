@@ -53,7 +53,11 @@ KurisuAssistant-Client-Windows/
   - `ChatStreamWorker`: QThread worker for async streaming
   - Parses newline-delimited JSON responses
   - Emits `message_chunk` signals for UI updates
-- **Signal**: `conversation_list_changed` - emitted when conversation is auto-created
+- **Typewriter Effect**:
+  - Letter-by-letter display using QTimer (20ms per character = 50 chars/sec)
+  - Buffers incoming chunks and displays progressively
+  - Smooth visual feedback during streaming
+- **Signal**: `conversation_list_changed` - emitted when conversation is auto-created or needs refresh
 
 #### `api_client.py`
 - Centralized HTTP client using `requests` library
@@ -209,9 +213,41 @@ Images in messages use markdown syntax: `![Image](/images/{uuid})`
 
 ### Error Handling
 
-- Network errors caught in `RequestHandler` with retry logic
-- UI displays `QMessageBox` warnings on critical failures
-- Logging via Python's `logging` module
+**Network Layer** (`api_client.py`):
+- `RequestHandler` catches all HTTP errors with retry logic
+- Response validation (e.g., verify conversations list is actually a list)
+- Raises `ValueError` with descriptive message on invalid response format
+
+**UI Layer** (widgets):
+- Try-except blocks around API calls
+- `QMessageBox.critical()` for user-facing errors
+- Graceful degradation (e.g., empty model list if loading fails)
+- Console logging for debugging (`print()` statements)
+
+**Examples**:
+```python
+# api_client.py - Validate response format
+if not isinstance(conversations, list):
+    raise ValueError(f"Backend returned invalid format: expected list, got {type(conversations).__name__}")
+
+# main_window.py - Handle loading errors
+try:
+    conversations = self.api_client.get_conversations()
+except Exception as e:
+    QMessageBox.critical(self, "Error", f"Failed to load conversations: {str(e)}")
+    return
+
+# chat_widget.py - Graceful degradation
+try:
+    self.models = self.api_client.get_models()
+    if self.models:
+        self.model_selector.addItems(self.models)
+except Exception as e:
+    print(f"Error loading models: {e}")
+    # Model selector stays empty, send button disabled
+```
+
+**Design principle**: Validate backend responses, fail gracefully, inform users of critical errors.
 
 ### Token Management
 
@@ -239,10 +275,12 @@ Auth token stored in `APIClient` instance:
 
 ### Conversation List Behavior
 
+- Displays conversations with title and chunk count (e.g., "My Chat (2 chunks)")
 - Clicking conversation loads its messages
 - Delete button enabled only when conversation selected
 - New conversation opens empty chat (no backend call)
 - List auto-refreshes when new conversation created via chat
+- Backend returns conversations as list with `chunk_count` field
 
 ### Chat Input
 
@@ -333,6 +371,28 @@ DEFAULT_SERVER_PORT = 8000
 ### Version Pinning
 
 Only `requests` and `markdown2` are pinned in `requirements.txt`. PySide6 uses latest compatible version.
+
+## Recent Updates
+
+### Error Handling
+- Response validation in `api_client.py` (raises `ValueError` on invalid format)
+- Try-except blocks in UI components with user-facing error dialogs
+- Graceful degradation (e.g., empty model list doesn't crash app)
+
+### Typewriter Effect
+- Letter-by-letter message display using `QTimer` (20ms/char)
+- Buffers incoming chunks, displays progressively
+- Configurable speed via `typewriter_speed` parameter
+
+### Conversation List
+- Displays `chunk_count` instead of message count
+- Backend returns list directly (no wrapper object)
+- Auto-refreshes via `conversation_list_changed` signal
+
+### API Changes
+- `chat_stream()` accepts `conversation_id=None` for auto-creation
+- Removed `create_conversation()` method
+- First stream chunk includes `conversation_id` and `chunk_id`
 
 ## Future Improvements
 
