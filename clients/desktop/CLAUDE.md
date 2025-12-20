@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-KurisuAssistant-Client-Windows is a modern desktop client for the KurisuAssistant AI platform. Built with React, Electron, TypeScript, Material-UI, and Framer Motion, it provides a rich chat interface with smooth animations for interacting with the LLM backend, supporting text and image messages, conversation management, and real-time streaming responses with visual typing indicators.
+KurisuAssistant-Client-Windows is a modern desktop client for the KurisuAssistant AI platform. Built with React, Electron, TypeScript, Material-UI, and Framer Motion, it provides a rich chat interface with smooth animations for interacting with the LLM backend, supporting text and image messages, conversation management, user settings with avatar uploads, and real-time streaming responses with visual typing indicators.
 
 ## Tech Stack
 
@@ -108,10 +108,11 @@ KurisuAssistant-Client-Windows/
   - Displays content immediately as it streams (no artificial delay)
   - **Database Sync**: Store updated with final content only after streaming completes
   - **Typing Indicators**:
-    - "Assistant is typing..." with animated bouncing dots shown while waiting for first chunk
-    - Blinking cursor shown at the end of streaming message content (visual indicator only, no delay)
+    - "{Role} is typing..." with animated bouncing dots shown **inside the message bubble** while waiting for first chunk
+    - Typing indicator appears in the same message bubble that will contain the response
+    - Blinking cursor shown at the end of streaming message content during typing animation
     - "Done" indicator with checkmark icon appears when streaming completes (fades after 3 seconds)
-  - **Real-time Display**: Content appears immediately as received from backend (no artificial typewriter delay)
+  - **Typing Effect**: Character-by-character display animation (2 chars every 20ms) for smooth typing appearance
   - **Multi-Agent Support**: Handles any role name from backend, not limited to predefined roles
 - **Message Rendering**:
   - ReactMarkdown for content rendering
@@ -134,6 +135,20 @@ KurisuAssistant-Client-Windows/
   - Loading indicator shown at top while fetching
   - `hasMoreMessages` prevents unnecessary loading attempts
 - **Auto-scroll**: Scrolls to bottom on new messages (but not when loading older messages)
+- **Model Selection Persistence**: Selected model saved to localStorage and restored on app restart
+
+#### `src/components/SettingsWindow.tsx`
+- Settings page for user preferences and customization
+- Accessible via Settings icon in MainWindow sidebar
+- **Features**:
+  - **User Avatar Upload**: Upload and preview user avatar image
+  - **Agent Avatar Upload**: Upload and preview agent/assistant avatar image
+  - **Preferred Name**: Set how the agent should address the user
+  - **System Prompt**: Custom instructions for agent behavior (multiline text area)
+- **Avatar Preview**: Shows current avatar or default fallback
+- **Form Handling**: Uses FormData to send text fields and image files together
+- **Success/Error Messages**: Material-UI Alerts for user feedback
+- **Back Navigation**: Arrow button returns to chat interface
 
 ### State Management (Zustand)
 
@@ -218,7 +233,8 @@ Built with Axios and native Fetch API in singleton pattern (`apiClient`).
   - User message is NOT streamed back (backend saves directly to DB)
   - Proper error handling and reader cleanup in finally block
 - `getModels()`: Returns `string[]` of available models
-- `getUserProfile()`, `updateUserProfile(profile)`: User settings
+- `getUserProfile()`: Get user settings and profile data
+- `updateUserProfile(profile)`: Update user settings (accepts Partial<UserProfile> or FormData for file uploads)
 - `uploadImage(file)`: Returns `{uuid}`, used for image uploads
 - `getImageUrl(uuid)`: Constructs image URL for markdown
 
@@ -258,9 +274,10 @@ await authStore.initializeAuth();
 The app implements persistent authentication via localStorage:
 
 **Storage Layer** (`src/utils/storage.ts`):
-- Encapsulates localStorage access for auth tokens
-- Keys: `kurisu_auth_token`, `kurisu_remember_me`
-- Methods: `setToken()`, `getToken()`, `clearToken()`, `setRememberMe()`, `getRememberMe()`
+- Encapsulates localStorage access for persistent data
+- Keys: `kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`
+- **Auth Methods**: `setToken()`, `getToken()`, `clearToken()`, `setRememberMe()`, `getRememberMe()`
+- **Model Selection Methods**: `setSelectedModel()`, `getSelectedModel()`
 
 **Auth Store** (`src/store/authStore.ts`):
 - `rememberMe` state tracked in Zustand store
@@ -432,15 +449,25 @@ for await (const chunk of apiClient.chatStream(...)) {
 - Fade in + slide up on new message
 - Smooth exit animation
 
-### Streaming Display with Visual Cursor
-- **Immediate Display**: Content appears instantly as received from backend (no artificial delay)
-- **Visual Indicator**: Blinking cursor at the end of streaming content provides "typing" visual effect
-- **No Character Delay**: Unlike traditional typewriter effects, text is not delayed character-by-character
-- **Real-time**: Content streams in real-time sentence-by-sentence from backend
-- CSS animation for blinking cursor:
+### Streaming Display with Typing Effect
+- **Typing Animation**: Content displays character-by-character (2 chars every 20ms) for smooth typing appearance
+- **Visual Indicators**:
+  - Bouncing dots "{Role} is typing..." shown inside message bubble before content appears
+  - Blinking cursor at the end of content during typing animation
+- **Real-time**: Backend streams sentence-by-sentence, client displays with typing animation
+- **State Management**:
+  - `streamingContent`: Full content received from backend
+  - `displayedContent`: Subset of content currently displayed (grows during typing animation)
+  - Interval-based animation updates displayedContent to match streamingContent
+- CSS animations:
   ```css
+  /* Blinking cursor */
   animation: blink 1s infinite
   @keyframes blink: 0%, 49% { opacity: 1 } | 50%, 100% { opacity: 0 }
+
+  /* Bouncing dots */
+  animation: bounce 1.4s infinite ease-in-out
+  @keyframes bounce: 0%, 80%, 100% { scale(0), opacity: 0.5 } | 40% { scale(1), opacity: 1 }
   ```
 
 ## Development Workflow

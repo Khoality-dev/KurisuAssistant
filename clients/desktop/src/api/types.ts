@@ -42,6 +42,8 @@ export interface UserProfile {
   username: string;
   email?: string;
   system_prompt?: string;
-  user_avatar?: string;
-  assistant_avatar?: string;
+  preferred_name?: string;
+  user_avatar_uuid?: string;
+  agent_avatar_uuid?: string;
+  assistant_avatar_uuid?: string; // Alias for agent_avatar_uuid
 }

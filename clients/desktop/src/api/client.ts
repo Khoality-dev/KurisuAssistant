@@ -200,8 +200,8 @@ class APIClient {
     return response.data;
   }
 
-  async updateUserProfile(profile: Partial<UserProfile>): Promise<UserProfile> {
-    const response = await this.client.put<UserProfile>('/users/me', profile, {
+  async updateUserProfile(profile: Partial<UserProfile> | FormData): Promise<any> {
+    const response = await this.client.put('/users/me', profile, {
       headers: this.getHeaders(),
     });
     return response.data;

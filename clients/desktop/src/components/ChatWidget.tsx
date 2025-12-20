@@ -24,6 +24,7 @@ import ReactMarkdown from 'react-markdown';
 import { useConversationStore } from '../store/conversationStore';
 import { apiClient } from '../api/client';
 import { config } from '../config';
+import { storage } from '../utils/storage';
 import type { Message } from '../api/types';
 
 interface ChatWidgetProps {
@@ -52,15 +53,69 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onConversationCreated })
   const [images, setImages] = useState<File[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
+  const [displayedContent, setDisplayedContent] = useState(''); // For typing effect
   const [justFinishedStreaming, setJustFinishedStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previousScrollHeightRef = useRef<number>(0);
+  const typingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     loadModels().catch(console.error);
   }, [loadModels]);
+
+  // Load selected model from localStorage on mount
+  useEffect(() => {
+    const savedModel = storage.getSelectedModel();
+    if (savedModel && models.includes(savedModel)) {
+      setSelectedModel(savedModel);
+    }
+  }, [models, setSelectedModel]);
+
+  // Save selected model to localStorage whenever it changes
+  useEffect(() => {
+    if (selectedModel) {
+      storage.setSelectedModel(selectedModel);
+    }
+  }, [selectedModel]);
+
+  // Typing effect - display characters one by one
+  useEffect(() => {
+    // Clear any existing interval
+    if (typingIntervalRef.current) {
+      clearInterval(typingIntervalRef.current);
+      typingIntervalRef.current = null;
+    }
+
+    // If streaming content is longer than displayed content, start typing
+    if (streamingContent.length > displayedContent.length) {
+      typingIntervalRef.current = setInterval(() => {
+        setDisplayedContent((prev) => {
+          if (prev.length < streamingContent.length) {
+            // Display 2 characters at a time for faster typing
+            return streamingContent.slice(0, prev.length + 2);
+          }
+          // Finished typing
+          if (typingIntervalRef.current) {
+            clearInterval(typingIntervalRef.current);
+            typingIntervalRef.current = null;
+          }
+          return prev;
+        });
+      }, 20); // 20ms interval for smooth typing effect
+    } else if (streamingContent === '' && displayedContent !== '') {
+      // Reset when streaming content is cleared
+      setDisplayedContent('');
+    }
+
+    return () => {
+      if (typingIntervalRef.current) {
+        clearInterval(typingIntervalRef.current);
+        typingIntervalRef.current = null;
+      }
+    };
+  }, [streamingContent]);
 
   // Reset "just finished" indicator after 3 seconds
   useEffect(() => {
@@ -77,7 +132,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onConversationCreated })
     if (!isLoadingMessages) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, streamingContent, isLoadingMessages]);
+  }, [messages, displayedContent, isLoadingMessages]);
 
   // Preserve scroll position after loading more messages
   useEffect(() => {
@@ -118,6 +173,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onConversationCreated })
     setImages([]);
     setIsStreaming(true);
     setStreamingContent('');
+    setDisplayedContent(''); // Reset typing effect
     setJustFinishedStreaming(false); // Clear previous "done" indicator
 
     try {
@@ -303,67 +359,15 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onConversationCreated })
           </Box>
         )}
 
-        {/* Typing indicator */}
-        {isStreaming && !streamingContent && (
-          <Box
-            sx={{
-              mb: 2,
-              display: 'flex',
-              justifyContent: 'flex-start',
-            }}
-          >
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                backgroundColor: '#F0FDF9',
-                border: '1px solid',
-                borderColor: '#10A37F33',
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="body2" color="text.secondary">
-                  Assistant is typing
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 0.5 }}>
-                  {[0, 1, 2].map((i) => (
-                    <Box
-                      key={i}
-                      sx={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: '50%',
-                        backgroundColor: 'primary.main',
-                        animation: 'bounce 1.4s infinite ease-in-out',
-                        animationDelay: `${i * 0.16}s`,
-                        '@keyframes bounce': {
-                          '0%, 80%, 100%': {
-                            transform: 'scale(0)',
-                            opacity: 0.5,
-                          },
-                          '40%': {
-                            transform: 'scale(1)',
-                            opacity: 1,
-                          },
-                        },
-                      }}
-                    />
-                  ))}
-                </Box>
-              </Box>
-            </Paper>
-          </Box>
-        )}
-
         <AnimatePresence>
           {messages.map((message, index) => {
             const isLast = index === messages.length - 1;
             const isStreamingThisMessage = isLast && message.role !== 'user' && isStreaming;
             const showFinishedIndicator = isLast && message.role !== 'user' && justFinishedStreaming && !isStreaming;
 
-            // IMPORTANT: During streaming, display from streaming response (streamingContent), NOT from database (message.content)
-            // This ensures we show live-generated content immediately with no delay
-            const displayContent = isStreamingThisMessage ? streamingContent : message.content;
+            // IMPORTANT: During streaming, display from typing effect (displayedContent), NOT from database (message.content)
+            // This ensures we show live-generated content with typing animation
+            const displayContent = isStreamingThisMessage ? displayedContent : message.content;
 
             console.log('[ChatWidget] Rendering message', index, 'isStreamingThisMessage:', isStreamingThisMessage, 'displayContent length:', displayContent?.length);
 
@@ -457,23 +461,61 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onConversationCreated })
                       },
                     }}
                   >
-                    <ReactMarkdown>{displayContent}</ReactMarkdown>
-                    {isStreamingThisMessage && (
-                      <Box
-                        component="span"
-                        sx={{
-                          display: 'inline-block',
-                          width: '8px',
-                          height: '16px',
-                          backgroundColor: 'primary.main',
-                          marginLeft: '2px',
-                          animation: 'blink 1s infinite',
-                          '@keyframes blink': {
-                            '0%, 49%': { opacity: 1 },
-                            '50%, 100%': { opacity: 0 },
-                          },
-                        }}
-                      />
+                    {/* Show typing indicator if streaming but no content yet */}
+                    {isStreamingThisMessage && !displayContent && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          {label} is typing
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 0.5 }}>
+                          {[0, 1, 2].map((i) => (
+                            <Box
+                              key={i}
+                              sx={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: '50%',
+                                backgroundColor: 'primary.main',
+                                animation: 'bounce 1.4s infinite ease-in-out',
+                                animationDelay: `${i * 0.16}s`,
+                                '@keyframes bounce': {
+                                  '0%, 80%, 100%': {
+                                    transform: 'scale(0)',
+                                    opacity: 0.5,
+                                  },
+                                  '40%': {
+                                    transform: 'scale(1)',
+                                    opacity: 1,
+                                  },
+                                },
+                              }}
+                            />
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
+                    {/* Show content with typing effect */}
+                    {displayContent && (
+                      <>
+                        <ReactMarkdown>{displayContent}</ReactMarkdown>
+                        {isStreamingThisMessage && (
+                          <Box
+                            component="span"
+                            sx={{
+                              display: 'inline-block',
+                              width: '8px',
+                              height: '16px',
+                              backgroundColor: 'primary.main',
+                              marginLeft: '2px',
+                              animation: 'blink 1s infinite',
+                              '@keyframes blink': {
+                                '0%, 49%': { opacity: 1 },
+                                '50%, 100%': { opacity: 0 },
+                              },
+                            }}
+                          />
+                        )}
+                      </>
                     )}
                     {showFinishedIndicator && (
                       <Box

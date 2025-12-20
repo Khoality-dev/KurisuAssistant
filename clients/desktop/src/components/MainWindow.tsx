@@ -15,11 +15,13 @@ import {
   Add as AddIcon,
   Delete as DeleteIcon,
   Logout as LogoutIcon,
+  Settings as SettingsIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '../store/authStore';
 import { useConversationStore } from '../store/conversationStore';
 import { ChatWidget } from './ChatWidget';
+import { SettingsWindow } from './SettingsWindow';
 
 const DRAWER_WIDTH = 280;
 
@@ -38,6 +40,7 @@ export const MainWindow: React.FC = () => {
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     loadConversations().catch((err) => {
@@ -114,13 +117,21 @@ export const MainWindow: React.FC = () => {
               <DeleteIcon />
             </IconButton>
           </Box>
-          <IconButton
-            onClick={logout}
-            size="small"
-            sx={{ position: 'absolute', top: 16, right: 16 }}
-          >
-            <LogoutIcon />
-          </IconButton>
+          <Box sx={{ position: 'absolute', top: 16, right: 16, display: 'flex', gap: 1 }}>
+            <IconButton
+              onClick={() => setShowSettings(!showSettings)}
+              size="small"
+              color={showSettings ? 'primary' : 'default'}
+            >
+              <SettingsIcon />
+            </IconButton>
+            <IconButton
+              onClick={logout}
+              size="small"
+            >
+              <LogoutIcon />
+            </IconButton>
+          </Box>
         </Box>
 
         <Divider />
@@ -162,7 +173,11 @@ export const MainWindow: React.FC = () => {
             {error}
           </Alert>
         )}
-        <ChatWidget onConversationCreated={handleConversationCreated} />
+        {showSettings ? (
+          <SettingsWindow onBack={() => setShowSettings(false)} />
+        ) : (
+          <ChatWidget onConversationCreated={handleConversationCreated} />
+        )}
       </Box>
     </Box>
   );

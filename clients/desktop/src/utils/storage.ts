@@ -6,6 +6,7 @@
 const STORAGE_KEYS = {
   AUTH_TOKEN: 'kurisu_auth_token',
   REMEMBER_ME: 'kurisu_remember_me',
+  SELECTED_MODEL: 'kurisu_selected_model',
 } as const;
 
 export const storage = {
@@ -63,6 +64,29 @@ export const storage = {
     } catch (error) {
       console.error('Failed to get remember me preference:', error);
       return false;
+    }
+  },
+
+  /**
+   * Save selected model to persistent storage
+   */
+  setSelectedModel(model: string): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.SELECTED_MODEL, model);
+    } catch (error) {
+      console.error('Failed to save selected model:', error);
+    }
+  },
+
+  /**
+   * Get selected model from persistent storage
+   */
+  getSelectedModel(): string | null {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.SELECTED_MODEL);
+    } catch (error) {
+      console.error('Failed to get selected model:', error);
+      return null;
     }
   },
 };
