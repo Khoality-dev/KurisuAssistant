@@ -7,6 +7,7 @@ export interface Message {
   id?: number;
   role: string; // Can be 'user', 'assistant', 'tool', or any custom agent role
   content: string;
+  thinking?: string; // Optional thinking content (for assistant messages)
   images?: string[];
   chunk_id?: number;
   created_at?: string;

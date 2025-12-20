@@ -145,6 +145,16 @@ KurisuAssistant-Client-Windows/
   - `hasMoreMessages` prevents unnecessary loading attempts
 - **Auto-scroll**: Scrolls to bottom on new messages (but not when loading older messages)
 - **Model Selection Persistence**: Selected model saved to localStorage and restored on app restart
+- **Thinking Display**:
+  - Messages with thinking content show a collapsible "Thinking" button with Psychology icon
+  - Toggle button with ExpandMore icon that rotates when expanded
+  - Thinking content hidden by default (user must click to reveal)
+  - Expanded thinking shown in monospace font with light gray background
+  - Max height 400px with scroll for long thinking blocks
+  - Smooth expand/collapse animation with Framer Motion
+  - Thinking streamed progressively and accumulated in real-time
+  - Displayed above main message content with separator
+  - State tracked via `expandedThinking` Set (by message index)
 
 #### `src/components/SettingsWindow.tsx`
 - Settings page for user preferences and customization
@@ -351,6 +361,8 @@ images.forEach(img => formData.append('images', img));
 
 **Response**: Newline-delimited JSON stream
 ```json
+{"message": {"role": "assistant", "content": "", "thinking": "Let me think about this..."}, "conversation_id": 123, "chunk_id": 456}
+{"message": {"role": "assistant", "content": "", "thinking": " The answer is..."}, "conversation_id": 123, "chunk_id": 456}
 {"message": {"role": "assistant", "content": "Hello"}, "conversation_id": 123, "chunk_id": 456}
 {"message": {"role": "assistant", "content": " world"}, "conversation_id": 123, "chunk_id": 456}
 {"message": {"role": "assistant", "content": "!"}, "conversation_id": 123, "chunk_id": 456}
@@ -362,6 +374,8 @@ images.forEach(img => formData.append('images', img));
 - All response chunks include `conversation_id` and `chunk_id`
 - Backend sends sentence-chunked assistant responses
 - Final chunk contains `{"done": true}` to signal completion
+- **Thinking content** (if present) is streamed progressively as separate chunks with empty content
+- Both thinking and content are streamed in real-time as they arrive from the LLM
 
 **Client-side handling**:
 ```typescript
@@ -375,6 +389,10 @@ for await (const chunk of apiClient.chatStream(...)) {
   // Handle streaming completion
   if (chunk.done) {
     updateLastMessage(accumulatedContent);
+    // Update last message with thinking if present
+    if (accumulatedThinking && messages.length > 0) {
+      messages[messages.length - 1].thinking = accumulatedThinking;
+    }
     setJustFinishedStreaming(true);
     break;
   }
@@ -383,6 +401,12 @@ for await (const chunk of apiClient.chatStream(...)) {
   if (chunk.message?.content) {
     fullContent += chunk.message.content;
     setStreamingContent(fullContent);  // Display immediately
+  }
+
+  // Accumulate thinking progressively as it streams
+  if (chunk.message?.thinking) {
+    accumulatedThinking += chunk.message.thinking;
+    setStreamingThinking(accumulatedThinking);
   }
 }
 ```

@@ -18,6 +18,8 @@ import {
   Close as CloseIcon,
   CheckCircle as CheckCircleIcon,
   Refresh as RefreshIcon,
+  Psychology as PsychologyIcon,
+  ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
@@ -55,6 +57,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onConversationCreated })
   const [streamingContent, setStreamingContent] = useState('');
   const [displayedContent, setDisplayedContent] = useState(''); // For typing effect
   const [justFinishedStreaming, setJustFinishedStreaming] = useState(false);
+  const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set()); // Track which messages have thinking expanded
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -189,6 +192,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onConversationCreated })
       // Will start with empty message from backend
       let currentRole: string | null = null;
       let accumulatedContent = '';
+      let accumulatedThinking = ''; // Track thinking
 
       console.log('[ChatWidget] Starting stream...');
 
@@ -212,10 +216,19 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onConversationCreated })
         // Handle "done" signal from backend
         if (chunk.done) {
           console.log('[ChatWidget] Received DONE signal from backend');
-          // When streaming ends, update the store with final content
-          if (accumulatedContent) {
+          // When streaming ends, update the store with final content and thinking
+          if (accumulatedContent || accumulatedThinking) {
+            const finalMessage: Partial<Message> = { content: accumulatedContent };
+            if (accumulatedThinking) {
+              finalMessage.thinking = accumulatedThinking;
+            }
             updateLastMessage(accumulatedContent);
-            console.log('[ChatWidget] Updated last message in store with final content');
+            // Update the last message with thinking if present
+            if (accumulatedThinking && messages.length > 0) {
+              const lastMessage = messages[messages.length - 1];
+              lastMessage.thinking = accumulatedThinking;
+            }
+            console.log('[ChatWidget] Updated last message in store with final content and thinking');
           }
 
           // Brief delay before showing "done" indicator and clearing streaming state
@@ -270,13 +283,15 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onConversationCreated })
             // Same role, accumulate content
             if (chunk.message.content) {
               accumulatedContent += chunk.message.content;
-
-              // Update streaming display immediately (no delay)
-              // IMPORTANT: We do NOT update the store here - only update local streaming state
-              // Store will be updated only when streaming completes (ensures display shows streaming response, not DB)
               setStreamingContent(accumulatedContent);
               console.log('[ChatWidget] Accumulated content length:', accumulatedContent.length);
             }
+          }
+
+          // Always accumulate thinking regardless of role logic (simple append to thinking section)
+          if (chunk.message.thinking) {
+            accumulatedThinking += chunk.message.thinking;
+            console.log('[ChatWidget] Accumulated thinking, length:', accumulatedThinking.length);
           }
         }
       }
@@ -309,6 +324,18 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onConversationCreated })
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const toggleThinking = (index: number) => {
+    setExpandedThinking(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
   };
 
   return (
@@ -470,6 +497,58 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onConversationCreated })
                       },
                     }}
                   >
+                    {/* Thinking Section - Show FIRST */}
+                    {(message.thinking || isStreamingThisMessage) && (
+                      <Box sx={{ mb: displayContent || message.images ? 1 : 0, pb: displayContent || message.images ? 1 : 0, borderBottom: displayContent || message.images ? '1px solid' : 'none', borderColor: 'divider' }}>
+                        <Button
+                          size="small"
+                          startIcon={<PsychologyIcon />}
+                          endIcon={
+                            <ExpandMoreIcon
+                              sx={{
+                                transform: expandedThinking.has(index) ? 'rotate(180deg)' : 'rotate(0deg)',
+                                transition: 'transform 0.2s',
+                              }}
+                            />
+                          }
+                          onClick={() => toggleThinking(index)}
+                          sx={{
+                            textTransform: 'none',
+                            color: 'text.secondary',
+                            fontSize: '0.75rem',
+                            minWidth: 'auto',
+                            px: 1,
+                            py: 0.5,
+                          }}
+                        >
+                          Thinking
+                        </Button>
+                        {expandedThinking.has(index) && (
+                          <Box
+                            component={motion.div}
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.2 }}
+                            sx={{
+                              mt: 1,
+                              p: 1.5,
+                              backgroundColor: 'rgba(0, 0, 0, 0.02)',
+                              borderRadius: 1,
+                              fontSize: '0.875rem',
+                              color: 'text.secondary',
+                              fontFamily: 'monospace',
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-word',
+                              maxHeight: '400px',
+                              overflow: 'auto',
+                            }}
+                          >
+                            {message.thinking}
+                          </Box>
+                        )}
+                      </Box>
+                    )}
                     {/* Show typing indicator if streaming but no content yet */}
                     {isStreamingThisMessage && !displayContent && (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
