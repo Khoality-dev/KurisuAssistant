@@ -341,11 +341,7 @@ async def chat(
 
     return StreamingResponse(
         stream(),
-        media_type="application/x-ndjson",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
-        }
+        media_type="application/json"
     )
 
 
