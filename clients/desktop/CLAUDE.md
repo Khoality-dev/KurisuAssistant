@@ -4,7 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-KurisuAssistant-Client-Windows is a desktop Qt-based client for the KurisuAssistant voice AI platform. Built with PySide6, it provides a chat interface for interacting with the LLM backend, supporting text and image messages, conversation management, and real-time streaming responses.
+KurisuAssistant-Client-Windows is a modern desktop client for the KurisuAssistant AI platform. Built with React, Electron, TypeScript, Material-UI, and Framer Motion, it provides a rich chat interface with smooth animations for interacting with the LLM backend, supporting text and image messages, conversation management, and real-time streaming responses with visual typing indicators.
+
+## Tech Stack
+
+- **Frontend Framework**: React 18 with TypeScript
+- **Desktop Platform**: Electron 28
+- **UI Library**: Material-UI (MUI) v5
+- **Animation**: Framer Motion
+- **State Management**: Zustand
+- **HTTP Client**: Axios
+- **Build Tool**: Vite
+- **Markdown Rendering**: react-markdown
 
 ## Architecture
 
@@ -12,393 +23,646 @@ KurisuAssistant-Client-Windows is a desktop Qt-based client for the KurisuAssist
 
 ```
 KurisuAssistant-Client-Windows/
-├── main.py                 # Application entry point
-├── login_window.py         # Authentication UI
-├── main_window.py          # Main window with conversation list
-├── chat_widget.py          # Chat interface with message streaming
-├── api_client.py           # HTTP client for backend API
-├── config.py               # Application configuration
-└── requirements.txt        # Python dependencies
+├── electron/               # Electron main process
+│   ├── main.ts            # Electron entry point, window management
+│   └── preload.ts         # Preload script for security (context bridge)
+├── src/                    # React application source
+│   ├── api/               # API client layer
+│   │   ├── client.ts      # Axios HTTP client with streaming support
+│   │   └── types.ts       # TypeScript interfaces for API responses
+│   ├── components/        # React components
+│   │   ├── LoginWindow.tsx    # Authentication UI with tabs
+│   │   ├── MainWindow.tsx     # Main layout with sidebar
+│   │   └── ChatWidget.tsx     # Chat interface with streaming
+│   ├── store/             # Zustand state management
+│   │   ├── authStore.ts       # Authentication state & actions
+│   │   └── conversationStore.ts # Conversation & message state
+│   ├── theme/             # Material-UI theming
+│   │   └── theme.ts       # ChatGPT-inspired theme configuration
+│   ├── utils/             # Utility functions
+│   │   └── storage.ts     # localStorage wrapper for token persistence
+│   ├── config.ts          # App configuration (API URL)
+│   ├── App.tsx            # Root component with theme provider
+│   └── main.tsx           # React entry point
+├── public/                # Static assets
+├── index.html             # HTML entry point
+├── package.json           # Dependencies and npm scripts
+├── tsconfig.json          # TypeScript configuration
+├── vite.config.ts         # Vite + Electron plugin configuration
+└── README.md              # User documentation
 ```
 
 ### Key Components
 
-#### `main.py`
-- Application entry point
-- Initializes QApplication
-- Shows LoginWindow on startup
-- Transitions to MainWindow after successful authentication
+#### `electron/main.ts`
+- Electron main process entry point
+- Creates browser window (1200x800, min 800x600)
+- Loads Vite dev server in development or bundled HTML in production
+- Handles app lifecycle (quit, activate, window-all-closed)
+- Security: contextIsolation enabled, nodeIntegration disabled
 
-#### `login_window.py`
-- Login/registration forms
-- Token-based authentication flow
-- Validates credentials against backend `/login` endpoint
-- Stores auth token for subsequent requests
+#### `electron/preload.ts`
+- Exposes safe APIs to renderer process via contextBridge
+- Currently minimal (only exposes platform info)
+- Future: Can add IPC handlers for gRPC communication
 
-#### `main_window.py`
-- Main application window with two-panel layout:
-  - **Left Panel**: Conversation list with New/Delete buttons
-  - **Right Panel**: Active ChatWidget
-- Manages conversation selection and navigation
-- Handles conversation list refresh via `conversation_list_changed` signal
+#### `src/App.tsx`
+- Root React component
+- Conditional rendering: LoginWindow vs MainWindow based on auth state
+- Wraps app with Material-UI ThemeProvider
+- Applies CssBaseline for consistent styling
 
-#### `chat_widget.py`
-- Core chat interface with:
-  - Message history display (markdown-rendered)
-  - Text input field
-  - Model selector dropdown
-  - Image attachment support
-  - Send button
-- **Streaming Architecture**:
-  - `ChatStreamWorker`: QThread worker for async streaming
-  - Parses newline-delimited JSON responses
-  - Emits `message_chunk` signals for UI updates
-- **Typewriter Effect**:
-  - Letter-by-letter display using QTimer (20ms per character = 50 chars/sec)
-  - Buffers incoming chunks and displays progressively
-  - Smooth visual feedback during streaming
-- **Signal**: `conversation_list_changed` - emitted when conversation is auto-created or needs refresh
+#### `src/components/LoginWindow.tsx`
+- Tabbed interface (Login / Register) using MUI Tabs
+- Material-UI form components (TextField, Button)
+- Framer Motion `MotionPaper` with fade-in animation
+- Calls `authStore.login()` or `authStore.register()`
+- Purple gradient background for visual appeal
+- Error handling with MUI Alert component
 
-#### `api_client.py`
-- Centralized HTTP client using `requests` library
-- **Request Handler Pattern**:
-  - `RequestHandler` class wraps all HTTP operations
-  - Automatic retry logic with exponential backoff
-  - Handles streaming and non-streaming responses
-- **Key Methods**:
-  - `login()`, `register()`: Authentication
-  - `get_conversations()`: List user conversations
-  - `get_conversation(id)`: Fetch conversation messages
-  - `chat_stream()`: Stream chat responses (supports `conversation_id=None` for auto-creation)
-  - `delete_conversation(id)`: Delete conversation
-  - `get_user_profile()`, `update_user_profile()`: User settings management
+#### `src/components/MainWindow.tsx`
+- Main layout with Material-UI permanent Drawer (280px sidebar)
+- **Left Drawer**:
+  - User info display
+  - New conversation button (green)
+  - Delete conversation button (red, disabled when no selection)
+  - Logout button (top-right)
+  - Scrollable conversation list with AnimatePresence
+- **Right Panel**: ChatWidget component
+- Loads conversations on mount
+- Handles conversation selection/deletion
+- Error alerts at top of panel
 
-#### `config.py`
-- Application-wide constants
-- Server endpoint configuration
-- UI dimensions and chat settings
-- Default: `http://localhost:15597`
+#### `src/components/ChatWidget.tsx`
+- Three-section layout:
+  1. **Top bar**: Model selector (MUI Select) with reload button to refresh available models
+  2. **Messages area**: Scrollable chat history with Framer Motion animations
+  3. **Input area**: Multi-line TextField + Attach button + Send button
+- **Streaming Implementation**:
+  - Uses async generator `apiClient.chatStream()`
+  - Parses newline-delimited JSON chunks (sentence-by-sentence from backend)
+  - **Message Accumulation**: Sentence chunks with the same role are accumulated into a single message
+  - **Role Changes**: When role changes (e.g., assistant → tool, assistant → agent), creates a new message
+  - **Display Priority**: During streaming, displays content from streaming response (`streamingContent`), NOT from database
+  - Message added to store with empty content initially, updated only when streaming completes
+  - Displays content immediately as it streams (no artificial delay)
+  - **Database Sync**: Store updated with final content only after streaming completes
+  - **Typing Indicators**:
+    - "Assistant is typing..." with animated bouncing dots shown while waiting for first chunk
+    - Blinking cursor shown at the end of streaming message content (visual indicator only, no delay)
+    - "Done" indicator with checkmark icon appears when streaming completes (fades after 3 seconds)
+  - **Real-time Display**: Content appears immediately as received from backend (no artificial typewriter delay)
+  - **Multi-Agent Support**: Handles any role name from backend, not limited to predefined roles
+- **Message Rendering**:
+  - ReactMarkdown for content rendering
+  - **Alignment**: User messages aligned right, all other roles aligned left
+  - **Role Labels**: Automatically capitalizes role name for display (e.g., "assistant" → "Assistant")
+  - User messages: white background
+  - Assistant messages: light teal background
+  - Tool messages: light amber background
+  - Custom agent roles: default to teal background (can be customized)
+  - Code blocks styled with gray background
+- **Image Attachments**:
+  - File input for multiple image selection
+  - Chips display attached images with delete option
+  - Images sent as FormData with chat request
+- **Infinite Scroll Pagination**:
+  - Initial load shows most recent 50 messages
+  - Scroll to top (within 100px) triggers `loadMoreMessages()`
+  - Older messages prepended to the beginning of the messages array
+  - Scroll position preserved after loading (prevents jumping)
+  - Loading indicator shown at top while fetching
+  - `hasMoreMessages` prevents unnecessary loading attempts
+- **Auto-scroll**: Scrolls to bottom on new messages (but not when loading older messages)
+
+### State Management (Zustand)
+
+#### `authStore.ts`
+```typescript
+{
+  isAuthenticated: boolean,
+  user: UserProfile | null,
+  rememberMe: boolean,
+  login(username, password, rememberMe): Promise<void>,
+  register(username, password, email?, rememberMe?): Promise<void>,
+  logout(): void,
+  loadUserProfile(): Promise<void>,
+  initializeAuth(): Promise<void>,
+  setRememberMe(remember): void
+}
+```
+
+- Stores auth token in apiClient singleton AND localStorage (if rememberMe=true)
+- Token persisted across app restarts when "Remember Me" is enabled
+- Auto-login on app startup via `initializeAuth()` method
+- Token validation on startup ensures expired tokens are cleared
+
+#### `conversationStore.ts`
+```typescript
+{
+  conversations: Conversation[],
+  currentConversation: Conversation | null,
+  messages: Message[],
+  models: string[],
+  selectedModel: string,
+
+  // Pagination state
+  totalMessages: number,
+  hasMoreMessages: boolean,
+  messagesOffset: number,
+  isLoadingMessages: boolean,
+
+  loadConversations(): Promise<void>,
+  loadConversation(id): Promise<void>,       // Loads first page (most recent 50 messages)
+  loadMoreMessages(): Promise<void>,         // Loads next page of older messages
+  deleteConversation(id): Promise<void>,
+  createNewConversation(): void,              // Clears messages, resets pagination state
+  loadModels(): Promise<void>,
+  setSelectedModel(model): void,
+  addMessage(message): void,
+  updateLastMessage(content): void,           // For streaming updates
+  setCurrentConversationId(id): void          // After backend creates conversation
+}
+```
+
+- **Pagination**: Messages loaded in pages of 50, newest first
+- `loadConversation()` loads most recent 50 messages (offset=0)
+- `loadMoreMessages()` loads next 50 older messages (increments offset)
+- `hasMoreMessages` indicates if more pages available
+- `isLoadingMessages` prevents duplicate loading requests
+- Messages array rebuilt on conversation selection
+- `currentConversation=null` indicates new, unsaved conversation
+- After first message sent, backend returns `conversation_id` and `chunk_id` in all chunks
+
+### API Client (`src/api/client.ts`)
+
+Built with Axios and native Fetch API in singleton pattern (`apiClient`).
+- Regular API calls use Axios for convenience
+- Streaming chat uses native Fetch API for better browser compatibility
+
+**Key Methods**:
+
+- `login(username, password)`: Returns `{access_token, token_type}`, stores token
+- `register(username, password, email?)`: Same as login
+- `setToken(token)`, `clearToken()`: Manage auth token
+- `getConversations()`: Returns `Conversation[]`
+- `getConversation(id)`: Returns `{messages: Message[]}`
+- `deleteConversation(id)`: Deletes conversation
+- `updateConversation(id, title)`: Updates conversation title
+- **`chatStream(text, modelName, conversationId?, images?)`**:
+  - Async generator yielding `StreamChunk` objects
+  - Uses native Fetch API for streaming (better browser compatibility than Axios)
+  - Reads response.body as ReadableStream with proper lock management
+  - Parses newline-delimited JSON
+  - All chunks include `conversation_id` and `chunk_id` (not just first chunk)
+  - User message is NOT streamed back (backend saves directly to DB)
+  - Proper error handling and reader cleanup in finally block
+- `getModels()`: Returns `string[]` of available models
+- `getUserProfile()`, `updateUserProfile(profile)`: User settings
+- `uploadImage(file)`: Returns `{uuid}`, used for image uploads
+- `getImageUrl(uuid)`: Constructs image URL for markdown
+
+**Error Handling**:
+- Network errors caught by try/catch in components
+- Displays user-facing errors via MUI Alert or QMessageBox equivalent
+- Console.error for debugging
 
 ## API Integration
 
 ### Authentication Flow
 
-```python
-# 1. User logs in
-response = api_client.login(username, password)
-# Returns: {"access_token": "...", "token_type": "bearer"}
+```typescript
+// 1. User submits login form with "Remember Me" checkbox
+await authStore.login(username, password, rememberMe);
+// Internally:
+//   - Calls apiClient.login() → POST /login
+//   - Stores token in apiClient instance
+//   - If rememberMe=true: Saves token to localStorage
+//   - Fetches user profile → GET /users/me
+//   - Sets isAuthenticated = true
 
-# 2. Token stored in api_client.token
-# 3. All subsequent requests include: Authorization: Bearer <token>
+// 2. All subsequent requests include header:
+//    Authorization: Bearer <token>
+
+// 3. On app startup (App.tsx useEffect):
+await authStore.initializeAuth();
+// Internally:
+//   - Checks localStorage for saved token
+//   - If found: Sets token in apiClient, verifies by fetching user profile
+//   - If valid: Auto-login, user stays authenticated
+//   - If invalid/expired: Clears stored token, shows login screen
 ```
+
+### Token Persistence ("Remember Me")
+
+The app implements persistent authentication via localStorage:
+
+**Storage Layer** (`src/utils/storage.ts`):
+- Encapsulates localStorage access for auth tokens
+- Keys: `kurisu_auth_token`, `kurisu_remember_me`
+- Methods: `setToken()`, `getToken()`, `clearToken()`, `setRememberMe()`, `getRememberMe()`
+
+**Auth Store** (`src/store/authStore.ts`):
+- `rememberMe` state tracked in Zustand store
+- `login()` and `register()` accept `rememberMe: boolean` parameter
+- Token saved to localStorage only if `rememberMe=true`
+- `initializeAuth()` method loads token on app startup
+- Token validation: Attempts to fetch user profile to verify token is still valid
+- Auto-clears invalid/expired tokens from storage
+
+**UI Components**:
+- `LoginWindow`: "Remember Me" checkbox (default: checked)
+- `App.tsx`: Shows loading spinner during `initializeAuth()` on startup
+- Seamless auto-login if valid token exists
+
+**Security Notes**:
+- Tokens stored in localStorage (accessible to renderer process only)
+- No XSS risk in Electron with contextIsolation enabled
+- Tokens validated on each app startup (not blindly trusted)
+- User can opt out via unchecking "Remember Me"
 
 ### Conversation Creation Pattern
 
-**Important**: Conversations are **not** created via explicit API call. Instead:
+**Important**: Conversations are NOT created via explicit `POST /conversations` call.
 
-1. User clicks "New Conversation" → Opens empty `ChatWidget(conversation_id=None)`
-2. User sends first message → Backend auto-creates conversation
-3. First streaming chunk contains: `{"conversation_id": <id>, "chunk_id": <id>, "message": {...}}`
-4. `ChatWidget` updates `self.conversation_id` and emits `conversation_list_changed` signal
-5. `MainWindow` refreshes conversation list to show new conversation
-
-This eliminates the need for a separate `POST /conversations` endpoint.
+**Flow**:
+1. User clicks "New Conversation" → `createNewConversation()` → Clears messages, sets `currentConversation=null`
+2. User types message → Clicks Send
+3. `chatStream()` called with `conversationId=null`
+4. Backend auto-creates conversation on first message
+5. First streaming chunk contains: `{conversation_id: 123, chunk_id: 456, message: {...}}`
+6. ChatWidget calls `setCurrentConversationId(123)` and triggers `onConversationCreated()` callback
+7. MainWindow calls `loadConversations()` to refresh sidebar list
 
 ### Message Streaming Protocol
 
-POST `/chat` with form data:
-```python
-data = {
-    "text": "user message",
-    "model_name": "model-name",
-    "conversation_id": str(conversation_id),  # Optional: None = create new
-    "chunk_id": str(chunk_id),                # Optional: None = auto-resume
-}
-files = [("images", (filename, bytes, "image/png"))]  # Optional
+**POST /chat** with FormData:
+```typescript
+const formData = new FormData();
+formData.append('text', userMessage);
+formData.append('model_name', selectedModel);
+if (conversationId) formData.append('conversation_id', conversationId.toString());
+// Note: chunk_id is no longer sent by client - backend manages chunks automatically
+images.forEach(img => formData.append('images', img));
 ```
 
-Response: Newline-delimited JSON stream
+**Response**: Newline-delimited JSON stream
 ```json
-{"message": {"role": "assistant", "content": "..."}, "conversation_id": 123, "chunk_id": 456}
-{"message": {"role": "assistant", "content": "..."}}
-{"message": {"role": "assistant", "content": "..."}}
+{"message": {"role": "assistant", "content": "Hello"}, "conversation_id": 123, "chunk_id": 456}
+{"message": {"role": "assistant", "content": " world"}, "conversation_id": 123, "chunk_id": 456}
+{"message": {"role": "assistant", "content": "!"}, "conversation_id": 123, "chunk_id": 456}
+{"done": true}
 ```
 
-**First chunk** includes `conversation_id` and `chunk_id` for client sync.
+**Important**:
+- User message is NOT streamed back to client (saved to DB only)
+- All response chunks include `conversation_id` and `chunk_id`
+- Backend sends sentence-chunked assistant responses
+- Final chunk contains `{"done": true}` to signal completion
 
-### Backend API Endpoints Used
+**Client-side handling**:
+```typescript
+for await (const chunk of apiClient.chatStream(...)) {
+  // Handle conversation creation (ID in every chunk now)
+  if (chunk.conversation_id && !currentConversation) {
+    setCurrentConversationId(chunk.conversation_id);
+    onConversationCreated();
+  }
 
-- `POST /login` - Authenticate user
-- `POST /register` - Create account
-- `GET /conversations` - List conversations
-- `GET /conversations/{id}` - Get conversation messages
+  // Handle streaming completion
+  if (chunk.done) {
+    updateLastMessage(accumulatedContent);
+    setJustFinishedStreaming(true);
+    break;
+  }
+
+  // Accumulate content
+  if (chunk.message?.content) {
+    fullContent += chunk.message.content;
+    setStreamingContent(fullContent);  // Display immediately
+  }
+}
+```
+
+### Backend API Endpoints
+
+- `POST /login` - Authenticate, returns JWT token
+- `POST /register` - Create account, returns JWT token
+- `GET /conversations` - List user's conversations (returns array directly)
+- `GET /conversations/{id}` - Get messages for conversation
 - `DELETE /conversations/{id}` - Delete conversation
 - `POST /conversations/{id}` - Update conversation (e.g., title)
-- `POST /chat` - Send message and stream response
-- `GET /models` - List available models
+- `POST /chat` - Send message, stream response (FormData with text, model_name, conversation_id?, images? - chunk_id auto-managed by backend)
+- `GET /models` - List available LLM models (returns `{models: string[]}`)
 - `GET /users/me` - Get user profile
-- `PUT /users/me` - Update user profile (system prompt, avatars, etc.)
-- `GET /images/{uuid}` - Fetch uploaded images
-- `POST /images` - Upload image
+- `PUT /users/me` - Update user profile (system_prompt, avatars, etc.)
+- `GET /images/{uuid}` - Fetch uploaded image
+- `POST /images` - Upload image, returns `{uuid}`
 
-## Development Setup
+## Material-UI Theme (`src/theme/theme.ts`)
 
-### Prerequisites
+### Color Palette
 
-- Python 3.8+
-- Backend server running (see KurisuAssistant repository)
+- **Primary**: `#10A37F` (ChatGPT teal)
+- **Background**: `#F7F7F8` (chat area), `#FFFFFF` (paper/cards)
+- **Text**: `#0D0D0D` (primary), `#565869` (secondary)
+- **Divider**: `#E5E5E5`
+- **Error**: `#EF4444` (red for delete button)
 
-### Installation
+### Typography
+
+- **Font**: "Segoe UI", Roboto, "Helvetica Neue", sans-serif
+- **Sizes**: 14px base, buttons 0.875rem, headings 1.25-2rem
+- **Button text**: No transform (textTransform: 'none')
+
+### Component Customizations
+
+- **Buttons**: 8px border-radius, 12px vertical padding, no shadow (elevation 0)
+- **TextFields**: 8px border-radius, white background, teal border on focus
+- **Papers**: 12px border-radius, subtle shadow (elevation 1)
+- **ListItemButton** (conversations): 8px border-radius, 4px margin, selected = light teal bg + left border
+
+### Design Tokens
+
+- **Spacing**: 8px base unit (MUI default)
+- **Border Radius**: 8px (buttons, inputs), 12px (papers)
+
+## Framer Motion Animations
+
+### LoginWindow
+```typescript
+<MotionPaper
+  initial={{ opacity: 0, y: 20 }}
+  animate={{ opacity: 1, y: 0 }}
+  transition={{ duration: 0.5 }}
+>
+```
+- Fade in + slide up on mount
+
+### MainWindow - Conversation List
+```typescript
+<AnimatePresence>
+  {conversations.map(conv => (
+    <MotionListItemButton
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -20 }}
+      transition={{ duration: 0.2 }}
+    />
+  ))}
+</AnimatePresence>
+```
+- Slide in from left on add
+- Slide out to left on delete
+- AnimatePresence handles exit animations
+
+### ChatWidget - Messages
+```typescript
+<AnimatePresence>
+  {messages.map((msg, i) => (
+    <MotionBox
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.3 }}
+    />
+  ))}
+</AnimatePresence>
+```
+- Fade in + slide up on new message
+- Smooth exit animation
+
+### Streaming Display with Visual Cursor
+- **Immediate Display**: Content appears instantly as received from backend (no artificial delay)
+- **Visual Indicator**: Blinking cursor at the end of streaming content provides "typing" visual effect
+- **No Character Delay**: Unlike traditional typewriter effects, text is not delayed character-by-character
+- **Real-time**: Content streams in real-time sentence-by-sentence from backend
+- CSS animation for blinking cursor:
+  ```css
+  animation: blink 1s infinite
+  @keyframes blink: 0%, 49% { opacity: 1 } | 50%, 100% { opacity: 0 }
+  ```
+
+## Development Workflow
+
+### Running the App
+
+**Development**:
+```bash
+npm run electron:dev
+```
+- Starts Vite dev server on `http://localhost:5173`
+- Launches Electron window
+- Hot reload enabled for React code
+- DevTools open by default
+
+**Production Build**:
+```bash
+npm run electron:build
+```
+- Runs TypeScript compiler
+- Builds React app with Vite
+- Packages Electron app with electron-builder
+- Output: `release/` directory with distributable
+
+### Project Setup
 
 ```bash
-# Create virtual environment
-python -m venv venv
-
-# Activate (Windows)
-venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
+npm install
 ```
 
-### Running the Application
+**Dependencies**:
+- React, React-DOM
+- Material-UI (`@mui/material`, `@emotion/react`, `@emotion/styled`)
+- MUI Icons (`@mui/icons-material`)
+- Framer Motion
+- Zustand
+- Axios
+- react-markdown
+- Electron, Vite, TypeScript (dev dependencies)
 
-```bash
-python main.py
-```
+### File Conventions
 
-**Important**: Update `config.py` if backend is not on `localhost:15597`
+- **Components**: PascalCase `.tsx` files in `src/components/`
+- **Stores**: camelCase `.ts` files in `src/store/` (e.g., `authStore.ts`)
+- **Types**: Centralized in `src/api/types.ts`
+- **Config**: Single `src/config.ts` for app-wide constants
 
-## Key Patterns & Conventions
+### Code Style
 
-### Signal-Slot Communication
-
-The application uses Qt's signal-slot mechanism extensively:
-
-```python
-# ChatWidget emits signal when conversation created
-conversation_list_changed = Signal()
-
-# MainWindow connects to refresh list
-chat_widget.conversation_list_changed.connect(self.load_conversations)
-```
-
-### Threading for Network Operations
-
-All network-blocking operations run in `QThread` workers:
-
-```python
-class ChatStreamWorker(QThread):
-    message_chunk = Signal(dict)
-    finished = Signal()
-    error = Signal(str)
-
-    def run(self):
-        for chunk in self.api_client.chat_stream(...):
-            self.message_chunk.emit(chunk)
-```
-
-**Why**: Prevents UI freezing during network I/O.
-
-### Markdown Rendering
-
-Messages are rendered as markdown using `markdown2`:
-
-```python
-import markdown2
-html = markdown2.markdown(message_content, extras=["fenced-code-blocks", "tables"])
-```
-
-Images in messages use markdown syntax: `![Image](/images/{uuid})`
-
-### Error Handling
-
-**Network Layer** (`api_client.py`):
-- `RequestHandler` catches all HTTP errors with retry logic
-- Response validation (e.g., verify conversations list is actually a list)
-- Raises `ValueError` with descriptive message on invalid response format
-
-**UI Layer** (widgets):
-- Try-except blocks around API calls
-- `QMessageBox.critical()` for user-facing errors
-- Graceful degradation (e.g., empty model list if loading fails)
-- Console logging for debugging (`print()` statements)
-
-**Examples**:
-```python
-# api_client.py - Validate response format
-if not isinstance(conversations, list):
-    raise ValueError(f"Backend returned invalid format: expected list, got {type(conversations).__name__}")
-
-# main_window.py - Handle loading errors
-try:
-    conversations = self.api_client.get_conversations()
-except Exception as e:
-    QMessageBox.critical(self, "Error", f"Failed to load conversations: {str(e)}")
-    return
-
-# chat_widget.py - Graceful degradation
-try:
-    self.models = self.api_client.get_models()
-    if self.models:
-        self.model_selector.addItems(self.models)
-except Exception as e:
-    print(f"Error loading models: {e}")
-    # Model selector stays empty, send button disabled
-```
-
-**Design principle**: Validate backend responses, fail gracefully, inform users of critical errors.
-
-### Token Management
-
-Auth token stored in `APIClient` instance:
-- Passed to all endpoints via `Authorization` header
-- Cleared on logout or 401 response
-- No local persistence (re-login required on app restart)
-
-## UI/UX Design Notes
-
-### Two-Panel Layout
-
-```
-┌─────────────────────────────────────┐
-│ [➕ New] [🗑️ Delete]                │
-├──────────────┬──────────────────────┤
-│ Conversations│  Chat Widget         │
-│  - Conv 1    │  ┌────────────────┐  │
-│  - Conv 2    │  │ Message History│  │
-│  - Conv 3    │  │                │  │
-│              │  └────────────────┘  │
-│              │  [Input] [Model] [📤]│
-└──────────────┴──────────────────────┘
-```
-
-### Conversation List Behavior
-
-- Displays conversations with title and chunk count (e.g., "My Chat (2 chunks)")
-- Clicking conversation loads its messages
-- Delete button enabled only when conversation selected
-- New conversation opens empty chat (no backend call)
-- List auto-refreshes when new conversation created via chat
-- Backend returns conversations as list with `chunk_count` field
-
-### Chat Input
-
-- Supports drag-and-drop images
-- Image previews shown before sending
-- Model selector populated from `GET /models`
-- Send button disabled during streaming
+- **TypeScript**: Strict mode enabled
+- **React**: Functional components with hooks (no class components)
+- **State**: Zustand for global state, useState for local component state
+- **Styling**: Material-UI `sx` prop (avoid inline styles or CSS files)
+- **Animations**: Framer Motion for all transitions (avoid CSS animations)
+- **Error Handling**: Try/catch around async calls, display errors with MUI Alert
 
 ## Common Development Tasks
 
 ### Adding a New API Endpoint
 
-1. Add method to `api_client.py`:
-```python
-def new_endpoint(self, param: str) -> Dict:
-    url = f"{self.base_url}/new-endpoint"
-    headers = self._get_headers()
-    response = self.request_handler.request("GET", url, headers=headers)
-    return response.json() if response else {}
+1. Add TypeScript interface to `src/api/types.ts`:
+```typescript
+export interface NewData {
+  id: number;
+  name: string;
+}
 ```
 
-2. Call from UI component:
-```python
-result = self.api_client.new_endpoint("value")
+2. Add method to `src/api/client.ts`:
+```typescript
+async getNewData(): Promise<NewData> {
+  const response = await this.client.get<NewData>('/new-endpoint', {
+    headers: this.getHeaders(),
+  });
+  return response.data;
+}
 ```
 
-### Adding a New UI Component
-
-1. Create new QWidget subclass
-2. Initialize UI in `init_ui()` method
-3. Connect signals to slots
-4. Add to layout in parent widget
-
-### Updating Configuration
-
-Edit `config.py`:
-```python
-DEFAULT_SERVER_HOST = "your-server"
-DEFAULT_SERVER_PORT = 8000
+3. Use in component:
+```typescript
+const data = await apiClient.getNewData();
 ```
 
-## Testing Notes
+### Adding a New Component
 
-**Current Status**: No automated tests implemented
+1. Create `src/components/NewComponent.tsx`:
+```typescript
+import React from 'react';
+import { Box, Typography } from '@mui/material';
+import { motion } from 'framer-motion';
 
-**Manual Testing Checklist**:
-- [ ] Login with valid/invalid credentials
-- [ ] Create new conversation
-- [ ] Send text message
-- [ ] Send message with image
-- [ ] Switch between conversations
-- [ ] Delete conversation
-- [ ] Update user profile
-- [ ] Logout and re-login
+export const NewComponent: React.FC = () => {
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <Box sx={{ p: 2 }}>
+        <Typography>Hello World</Typography>
+      </Box>
+    </motion.div>
+  );
+};
+```
+
+2. Import and use in parent component:
+```typescript
+import { NewComponent } from './NewComponent';
+// ...
+<NewComponent />
+```
+
+### Adding State to Zustand Store
+
+1. Edit `src/store/conversationStore.ts`:
+```typescript
+interface ConversationState {
+  newField: string;
+  setNewField: (value: string) => void;
+}
+
+export const useConversationStore = create<ConversationState>((set) => ({
+  newField: '',
+  setNewField: (value) => set({ newField: value }),
+}));
+```
+
+2. Use in component:
+```typescript
+const { newField, setNewField } = useConversationStore();
+```
+
+### Customizing Theme
+
+Edit `src/theme/theme.ts`:
+```typescript
+primary: {
+  main: '#FF5722',  // Change to orange
+},
+```
+
+All components automatically update.
+
+## Future Enhancements
+
+### gRPC Integration
+
+The architecture is designed to support gRPC communication with a separate process:
+
+**Planned Structure**:
+1. Create `src/grpc/` directory for gRPC client code
+2. Use `@grpc/grpc-js` for Node.js gRPC client
+3. Expose gRPC methods via `electron/preload.ts` using IPC
+4. Call from React components using `window.electron.grpc.method()`
+
+**Example**:
+```typescript
+// electron/preload.ts
+contextBridge.exposeInMainWorld('grpc', {
+  callMethod: (request) => ipcRenderer.invoke('grpc-call', request),
+});
+
+// src/components/Component.tsx
+const result = await (window as any).grpc.callMethod(params);
+```
+
+### Other Potential Features
+
+- **Dark Mode**: Add theme toggle, create dark variant of MUI theme
+- **Voice Support**: Integrate Web Speech API or external TTS/STT
+- **Multi-window**: Support multiple chat windows
+- **Settings Panel**: Add user preferences UI
+- **Conversation Search**: Add search functionality to sidebar
+- **Message Editing**: Allow editing sent messages
+- **Export**: Export conversations to markdown/PDF
 
 ## Troubleshooting
 
-### Connection Refused
+### Streaming Not Working
 
-- Verify backend server is running
-- Check `config.py` has correct `DEFAULT_SERVER_HOST` and `DEFAULT_SERVER_PORT`
+- Check that backend returns `Content-Type: text/event-stream` or similar
+- Verify newline-delimited JSON format
+- Use browser DevTools Network tab to inspect response
 
-### Authentication Failed
+### Animations Laggy
 
-- Ensure backend database has admin account (username: `admin`, password: `admin`)
-- Check network logs for 401 responses
+- Reduce number of animated elements
+- Use `layoutId` in Framer Motion for layout animations
+- Consider `useReducedMotion` hook for accessibility
 
-### Streaming Broken
+### Build Errors
 
-- Check backend `/chat` endpoint returns newline-delimited JSON
-- Verify `requests` streaming with `stream=True`
-- Look for JSON decode errors in logs
+- Clear caches: `rm -rf node_modules dist dist-electron && npm install`
+- Check TypeScript errors: `npm run build` (runs tsc)
+- Ensure all dependencies installed
 
-### Images Not Loading
+### Electron Window Not Opening
 
-- Ensure images uploaded successfully (check network response)
-- Verify `GET /images/{uuid}` endpoint accessible
-- Check image UUID in markdown is correct
+- Check console for errors in terminal
+- Verify Vite dev server is running (http://localhost:5173)
+- Check `electron/main.ts` for correct URL loading
 
-## Dependencies
+## Testing Strategy (Future)
 
-### Core Libraries
+**Planned**:
+- **Unit Tests**: Jest + React Testing Library for components
+- **E2E Tests**: Playwright or Spectron for Electron app testing
+- **API Mocking**: MSW (Mock Service Worker) for API tests
 
-- **PySide6**: Qt6 Python bindings for UI
-- **requests**: HTTP client library
-- **markdown2**: Markdown to HTML converter
+**Current**: Manual testing only
 
-### Version Pinning
+## Performance Considerations
 
-Only `requests` and `markdown2` are pinned in `requirements.txt`. PySide6 uses latest compatible version.
+- **Lazy Loading**: Consider React.lazy() for routes/modals
+- **Message Virtualization**: For very long conversations, use `react-window`
+- **Memoization**: Use `React.memo()` for expensive components
+- **Debouncing**: Debounce search/filter inputs
 
-## Recent Updates
+## Security Notes
 
-### Error Handling
-- Response validation in `api_client.py` (raises `ValueError` on invalid format)
-- Try-except blocks in UI components with user-facing error dialogs
-- Graceful degradation (e.g., empty model list doesn't crash app)
+- **Context Isolation**: Enabled in Electron (prevents direct Node.js access from renderer)
+- **No Node Integration**: Renderer process cannot use require()
+- **CSP**: Consider adding Content Security Policy headers
+- **Token Storage**: Currently in-memory only (no XSS risk, but not persistent)
 
-### Typewriter Effect
-- Letter-by-letter message display using `QTimer` (20ms/char)
-- Buffers incoming chunks, displays progressively
-- Configurable speed via `typewriter_speed` parameter
+## License
 
-### Conversation List
-- Displays `chunk_count` instead of message count
-- Backend returns list directly (no wrapper object)
-- Auto-refreshes via `conversation_list_changed` signal
-
-### API Changes
-- `chat_stream()` accepts `conversation_id=None` for auto-creation
-- Removed `create_conversation()` method
-- First stream chunk includes `conversation_id` and `chunk_id`
-
-## Future Improvements
-
-- Persistent token storage (keyring integration)
-- Voice input/output support
-- Message search functionality
-- Conversation export
-- Dark mode theme
-- Automated testing suite
+See LICENSE file for details.

@@ -1,20 +1,34 @@
-# KurisuAssistant Qt Client
+# KurisuAssistant Desktop Client
 
-A desktop chat client for KurisuAssistant built with PyQt6.
+A modern desktop chat client for KurisuAssistant built with React, Electron, TypeScript, Material-UI, and Framer Motion.
 
 ## Features
 
 - 🔐 User authentication (login/registration)
-- 💬 Real-time streaming chat responses
+- 💬 Real-time streaming chat responses with typewriter effect
 - 📋 Conversation management (create, view, delete)
 - 🖼️ Image attachment support
 - 🤖 Multiple LLM model selection
 - 📦 Chunk-based message management for efficient token usage
-- 🎨 Clean and intuitive Qt-based UI
+- 🎨 Modern UI with smooth animations
+- 🎭 ChatGPT-inspired design with Material-UI components
+- ⚡ Fast and responsive Electron desktop app
+
+## Tech Stack
+
+- **Frontend**: React 18 + TypeScript
+- **Desktop**: Electron
+- **UI Library**: Material-UI (MUI)
+- **Animations**: Framer Motion
+- **State Management**: Zustand
+- **HTTP Client**: Axios
+- **Build Tool**: Vite
+- **Markdown**: react-markdown
 
 ## Prerequisites
 
-- Python 3.10 or higher
+- Node.js 18 or higher
+- npm or yarn
 - KurisuAssistant server running (default: http://localhost:15597)
 
 ## Installation
@@ -24,39 +38,39 @@ A desktop chat client for KurisuAssistant built with PyQt6.
 cd D:\Programming\KurisuAssistant-Client-Windows
 ```
 
-2. Create a virtual environment (recommended):
+2. Install dependencies:
 ```bash
-python -m venv venv
-```
-
-3. Activate the virtual environment:
-   - Windows:
-     ```bash
-     venv\Scripts\activate
-     ```
-   - Linux/Mac:
-     ```bash
-     source venv/bin/activate
-     ```
-
-4. Install dependencies:
-```bash
-pip install -r requirements.txt
+npm install
 ```
 
 ## Configuration
 
-Edit `config.py` to change the server URL and other settings:
+Edit `src/config.ts` to change the server URL and other settings:
 
-```python
-API_BASE_URL = "http://localhost:15597"  # Change to your server URL
+```typescript
+export const config = {
+  apiBaseUrl: 'http://localhost:15597',
+  typewriterSpeed: 20, // milliseconds per character
+};
 ```
 
 ## Running the Application
 
+### Development Mode
+
 ```bash
-python main.py
+npm run electron:dev
 ```
+
+This will start the Vite dev server and launch Electron with hot-reload enabled.
+
+### Build for Production
+
+```bash
+npm run electron:build
+```
+
+This will create a distributable application in the `release/` directory.
 
 ## Usage
 
@@ -87,13 +101,30 @@ python main.py
 
 ```
 KurisuAssistant-Client-Windows/
-├── main.py                 # Entry point
-├── api_client.py          # API communication layer
-├── login_window.py        # Login/registration UI
-├── main_window.py         # Main application window
-├── chat_widget.py         # Chat interface component
-├── config.py              # Configuration settings
-├── requirements.txt       # Python dependencies
+├── electron/               # Electron main process
+│   ├── main.ts            # Main Electron entry point
+│   └── preload.ts         # Preload script
+├── src/                    # React application source
+│   ├── api/               # API client layer
+│   │   ├── client.ts      # Axios HTTP client
+│   │   └── types.ts       # TypeScript types
+│   ├── components/        # React components
+│   │   ├── LoginWindow.tsx
+│   │   ├── MainWindow.tsx
+│   │   └── ChatWidget.tsx
+│   ├── store/             # Zustand state management
+│   │   ├── authStore.ts
+│   │   └── conversationStore.ts
+│   ├── theme/             # Material-UI theme
+│   │   └── theme.ts
+│   ├── config.ts          # App configuration
+│   ├── App.tsx            # Main App component
+│   └── main.tsx           # React entry point
+├── public/                # Static assets
+├── index.html             # HTML entry point
+├── package.json           # Node dependencies
+├── tsconfig.json          # TypeScript configuration
+├── vite.config.ts         # Vite build configuration
 └── README.md              # This file
 ```
 
@@ -116,36 +147,45 @@ The client integrates with the following KurisuAssistant API endpoints:
 
 If you get a connection error, make sure:
 1. The KurisuAssistant server is running
-2. The server URL in `config.py` is correct
+2. The server URL in `src/config.ts` is correct
 3. Your firewall allows the connection
 
-### Module Import Errors
+### Build Errors
 
 Make sure you've installed all dependencies:
 ```bash
-pip install -r requirements.txt
+npm install
 ```
 
-### Qt Platform Plugin Error
-
-If you get a Qt platform plugin error, try:
+If you encounter issues, try clearing the cache:
 ```bash
-pip install --force-reinstall PyQt6
+rm -rf node_modules dist dist-electron
+npm install
 ```
 
 ## Development
 
 ### Adding New Features
 
-1. API endpoints: Add methods to `api_client.py`
-2. UI components: Create new widgets in separate files
-3. Configuration: Add settings to `config.py`
+1. **API endpoints**: Add methods to `src/api/client.ts`
+2. **UI components**: Create new React components in `src/components/`
+3. **State management**: Add new stores in `src/store/`
+4. **Configuration**: Update `src/config.ts`
 
 ### Code Style
 
-- Follow PEP 8 guidelines
-- Use type hints where possible
-- Document functions with docstrings
+- Follow TypeScript best practices
+- Use functional components with hooks
+- Use Material-UI components for consistency
+- Add Framer Motion animations for smooth transitions
+- Keep components focused and reusable
+
+### Future Enhancements
+
+- **gRPC Integration**: Architecture is ready to support gRPC communication with a separate process
+- **Persistent auth**: Add token storage
+- **Dark mode**: Extend Material-UI theme
+- **Voice support**: Add audio input/output
 
 ## License
 

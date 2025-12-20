@@ -1,0 +1,574 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Box,
+  TextField,
+  Button,
+  IconButton,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Paper,
+  Typography,
+  Chip,
+} from '@mui/material';
+import {
+  Send as SendIcon,
+  AttachFile as AttachFileIcon,
+  Close as CloseIcon,
+  CheckCircle as CheckCircleIcon,
+  Refresh as RefreshIcon,
+} from '@mui/icons-material';
+import { motion, AnimatePresence } from 'framer-motion';
+import ReactMarkdown from 'react-markdown';
+import { useConversationStore } from '../store/conversationStore';
+import { apiClient } from '../api/client';
+import { config } from '../config';
+import type { Message } from '../api/types';
+
+interface ChatWidgetProps {
+  onConversationCreated: () => void;
+}
+
+const MotionBox = motion(Box);
+
+export const ChatWidget: React.FC<ChatWidgetProps> = ({ onConversationCreated }) => {
+  const {
+    messages,
+    models,
+    selectedModel,
+    currentConversation,
+    hasMoreMessages,
+    isLoadingMessages,
+    loadModels,
+    loadMoreMessages,
+    setSelectedModel,
+    addMessage,
+    updateLastMessage,
+    setCurrentConversationId,
+  } = useConversationStore();
+
+  const [input, setInput] = useState('');
+  const [images, setImages] = useState<File[]>([]);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingContent, setStreamingContent] = useState('');
+  const [justFinishedStreaming, setJustFinishedStreaming] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const previousScrollHeightRef = useRef<number>(0);
+
+  useEffect(() => {
+    loadModels().catch(console.error);
+  }, [loadModels]);
+
+  // Reset "just finished" indicator after 3 seconds
+  useEffect(() => {
+    if (justFinishedStreaming) {
+      const timer = setTimeout(() => {
+        setJustFinishedStreaming(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [justFinishedStreaming]);
+
+  // Scroll to bottom on new messages (but not when loading more old messages)
+  useEffect(() => {
+    if (!isLoadingMessages) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, streamingContent, isLoadingMessages]);
+
+  // Preserve scroll position after loading more messages
+  useEffect(() => {
+    if (!isLoadingMessages && previousScrollHeightRef.current > 0) {
+      const container = messagesContainerRef.current;
+      if (container) {
+        const newScrollHeight = container.scrollHeight;
+        const scrollDiff = newScrollHeight - previousScrollHeightRef.current;
+        container.scrollTop = scrollDiff;
+        previousScrollHeightRef.current = 0;
+      }
+    }
+  }, [isLoadingMessages]);
+
+  // Handle scroll to load more messages
+  const handleScroll = () => {
+    const container = messagesContainerRef.current;
+    if (!container || isLoadingMessages || !hasMoreMessages) return;
+
+    // If user scrolled near the top (within 100px), load more
+    if (container.scrollTop < 100) {
+      previousScrollHeightRef.current = container.scrollHeight;
+      loadMoreMessages();
+    }
+  };
+
+  const handleSend = async () => {
+    if (!input.trim() || isStreaming || !selectedModel) return;
+
+    const userMessage: Message = {
+      role: 'user',
+      content: input,
+      images: images.map((img) => img.name),
+    };
+
+    addMessage(userMessage);
+    setInput('');
+    setImages([]);
+    setIsStreaming(true);
+    setStreamingContent('');
+    setJustFinishedStreaming(false); // Clear previous "done" indicator
+
+    try {
+      // Will start with empty message from backend
+      let currentRole: string | null = null;
+      let accumulatedContent = '';
+
+      console.log('[ChatWidget] Starting stream...');
+
+      const stream = apiClient.chatStream(
+        userMessage.content,
+        selectedModel,
+        currentConversation?.id || null,
+        images
+      );
+
+      for await (const chunk of stream) {
+        console.log('[ChatWidget] Received chunk:', chunk);
+
+        // Handle conversation creation
+        if (chunk.conversation_id && !currentConversation) {
+          console.log('[ChatWidget] Setting conversation ID:', chunk.conversation_id);
+          setCurrentConversationId(chunk.conversation_id);
+          onConversationCreated();
+        }
+
+        // Handle "done" signal from backend
+        if (chunk.done) {
+          console.log('[ChatWidget] Received DONE signal from backend');
+          // When streaming ends, update the store with final content
+          if (accumulatedContent) {
+            updateLastMessage(accumulatedContent);
+            console.log('[ChatWidget] Updated last message in store with final content');
+          }
+
+          // Brief delay before showing "done" indicator and clearing streaming state
+          setTimeout(() => {
+            setStreamingContent('');
+            setJustFinishedStreaming(true);
+            console.log('[ChatWidget] Cleared streaming state, showing done indicator');
+          }, 300);
+          break; // Exit the loop when done
+        }
+
+        // Handle message chunks
+        if (chunk.message) {
+          const messageRole = chunk.message.role;
+          console.log('[ChatWidget] Message role:', messageRole, 'Content:', chunk.message.content);
+
+          // If role changes (e.g., assistant -> tool, or assistant -> agent), create new message
+          if (currentRole && messageRole !== currentRole) {
+            console.log('[ChatWidget] Role changed from', currentRole, 'to', messageRole);
+            // Finalize previous message
+            if (accumulatedContent) {
+              updateLastMessage(accumulatedContent);
+            }
+
+            // Start new message for different role (empty content initially)
+            const newMessage: Message = {
+              role: messageRole,
+              content: '' // Start empty - will display from streaming state
+            };
+            addMessage(newMessage);
+            currentRole = messageRole;
+            accumulatedContent = chunk.message.content || '';
+
+            // Update streaming content immediately
+            setStreamingContent(accumulatedContent);
+            console.log('[ChatWidget] Set streaming content (new role):', accumulatedContent);
+          } else if (!currentRole) {
+            console.log('[ChatWidget] First message chunk, role:', messageRole);
+            // First message chunk - create initial message (empty content initially)
+            const firstMessage: Message = {
+              role: messageRole,
+              content: '' // Start empty - will display from streaming state
+            };
+            addMessage(firstMessage);
+            currentRole = messageRole;
+            accumulatedContent = chunk.message.content || '';
+
+            // Update streaming content immediately
+            setStreamingContent(accumulatedContent);
+            console.log('[ChatWidget] Set streaming content (first):', accumulatedContent);
+          } else {
+            // Same role, accumulate content
+            if (chunk.message.content) {
+              accumulatedContent += chunk.message.content;
+
+              // Update streaming display immediately (no delay)
+              // IMPORTANT: We do NOT update the store here - only update local streaming state
+              // Store will be updated only when streaming completes (ensures display shows streaming response, not DB)
+              setStreamingContent(accumulatedContent);
+              console.log('[ChatWidget] Accumulated content length:', accumulatedContent.length);
+            }
+          }
+        }
+      }
+
+      console.log('[ChatWidget] Stream ended, final content length:', accumulatedContent.length);
+    } catch (err: any) {
+      console.error('Chat error:', err);
+      // Only update if we have a message to update
+      if (messages.length > 0) {
+        updateLastMessage('Error: ' + (err.message || 'Failed to send message'));
+      }
+      setStreamingContent('');
+    } finally {
+      setIsStreaming(false);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setImages([...images, ...Array.from(e.target.files)]);
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setImages(images.filter((_, i) => i !== index));
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Top bar with model selector */}
+      <Paper
+        elevation={0}
+        sx={{
+          p: 2,
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
+        }}
+      >
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel>Model</InputLabel>
+          <Select
+            value={selectedModel}
+            label="Model"
+            onChange={(e) => setSelectedModel(e.target.value)}
+          >
+            {models.map((model) => (
+              <MenuItem key={model} value={model}>
+                {model}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <IconButton
+          onClick={() => loadModels()}
+          size="small"
+          title="Reload models"
+          sx={{ color: 'primary.main' }}
+        >
+          <RefreshIcon />
+        </IconButton>
+      </Paper>
+
+      {/* Messages area */}
+      <Box
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
+        sx={{
+          flex: 1,
+          overflow: 'auto',
+          p: 3,
+          backgroundColor: '#F7F7F8',
+        }}
+      >
+        {isLoadingMessages && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+            <Typography variant="body2" color="text.secondary">
+              Loading earlier messages...
+            </Typography>
+          </Box>
+        )}
+
+        {/* Typing indicator */}
+        {isStreaming && !streamingContent && (
+          <Box
+            sx={{
+              mb: 2,
+              display: 'flex',
+              justifyContent: 'flex-start',
+            }}
+          >
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2,
+                backgroundColor: '#F0FDF9',
+                border: '1px solid',
+                borderColor: '#10A37F33',
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Assistant is typing
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                  {[0, 1, 2].map((i) => (
+                    <Box
+                      key={i}
+                      sx={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        backgroundColor: 'primary.main',
+                        animation: 'bounce 1.4s infinite ease-in-out',
+                        animationDelay: `${i * 0.16}s`,
+                        '@keyframes bounce': {
+                          '0%, 80%, 100%': {
+                            transform: 'scale(0)',
+                            opacity: 0.5,
+                          },
+                          '40%': {
+                            transform: 'scale(1)',
+                            opacity: 1,
+                          },
+                        },
+                      }}
+                    />
+                  ))}
+                </Box>
+              </Box>
+            </Paper>
+          </Box>
+        )}
+
+        <AnimatePresence>
+          {messages.map((message, index) => {
+            const isLast = index === messages.length - 1;
+            const isStreamingThisMessage = isLast && message.role !== 'user' && isStreaming;
+            const showFinishedIndicator = isLast && message.role !== 'user' && justFinishedStreaming && !isStreaming;
+
+            // IMPORTANT: During streaming, display from streaming response (streamingContent), NOT from database (message.content)
+            // This ensures we show live-generated content immediately with no delay
+            const displayContent = isStreamingThisMessage ? streamingContent : message.content;
+
+            console.log('[ChatWidget] Rendering message', index, 'isStreamingThisMessage:', isStreamingThisMessage, 'displayContent length:', displayContent?.length);
+
+            // Determine message styling based on role
+            const isUser = message.role === 'user';
+
+            // Use role name for label (capitalize first letter)
+            const label = isUser
+              ? 'You'
+              : message.role.charAt(0).toUpperCase() + message.role.slice(1);
+
+            // Color scheme for different roles
+            const getColorScheme = () => {
+              if (isUser) {
+                return {
+                  bg: '#FFFFFF',
+                  border: '#E5E5E5',
+                  label: 'text.primary'
+                };
+              }
+              // For all non-user roles (assistant, tool, agents, etc.)
+              switch (message.role) {
+                case 'tool':
+                  return {
+                    bg: '#FFF8E1',
+                    border: '#FFB74D',
+                    label: '#F57C00'
+                  };
+                case 'assistant':
+                default:
+                  return {
+                    bg: '#F0FDF9',
+                    border: '#10A37F33',
+                    label: 'primary.main'
+                  };
+              }
+            };
+
+            const colorScheme = getColorScheme();
+
+            return (
+              <MotionBox
+                key={index}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                sx={{
+                  mb: 2,
+                  display: 'flex',
+                  justifyContent: isUser ? 'flex-end' : 'flex-start',
+                }}
+              >
+                <Paper
+                  elevation={0}
+                  sx={{
+                    maxWidth: '80%',
+                    p: 2,
+                    backgroundColor: colorScheme.bg,
+                    border: '1px solid',
+                    borderColor: colorScheme.border,
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontWeight: 600,
+                      color: colorScheme.label,
+                      mb: 1,
+                      display: 'block',
+                    }}
+                  >
+                    {label}
+                  </Typography>
+                  <Box
+                    sx={{
+                      '& p': { margin: 0, marginBottom: 1 },
+                      '& p:last-child': { marginBottom: 0 },
+                      '& code': {
+                        backgroundColor: '#F3F4F6',
+                        padding: '2px 6px',
+                        borderRadius: 1,
+                        fontFamily: 'Consolas, Monaco, monospace',
+                        fontSize: '0.875em',
+                      },
+                      '& pre': {
+                        backgroundColor: '#F3F4F6',
+                        padding: 2,
+                        borderRadius: 1,
+                        overflow: 'auto',
+                      },
+                    }}
+                  >
+                    <ReactMarkdown>{displayContent}</ReactMarkdown>
+                    {isStreamingThisMessage && (
+                      <Box
+                        component="span"
+                        sx={{
+                          display: 'inline-block',
+                          width: '8px',
+                          height: '16px',
+                          backgroundColor: 'primary.main',
+                          marginLeft: '2px',
+                          animation: 'blink 1s infinite',
+                          '@keyframes blink': {
+                            '0%, 49%': { opacity: 1 },
+                            '50%, 100%': { opacity: 0 },
+                          },
+                        }}
+                      />
+                    )}
+                    {showFinishedIndicator && (
+                      <Box
+                        component={motion.div}
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.3 }}
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 0.5,
+                          mt: 1,
+                          pt: 1,
+                          borderTop: '1px solid',
+                          borderColor: 'divider',
+                          color: 'success.main',
+                        }}
+                      >
+                        <CheckCircleIcon sx={{ fontSize: 16 }} />
+                        <Typography variant="caption" color="success.main">
+                          Done
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Paper>
+              </MotionBox>
+            );
+          })}
+        </AnimatePresence>
+        <div ref={messagesEndRef} />
+      </Box>
+
+      {/* Input area */}
+      <Paper
+        elevation={3}
+        sx={{
+          p: 2,
+          borderTop: '1px solid',
+          borderColor: 'divider',
+        }}
+      >
+        {images.length > 0 && (
+          <Box sx={{ mb: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {images.map((img, index) => (
+              <Chip
+                key={index}
+                label={img.name}
+                onDelete={() => removeImage(index)}
+                deleteIcon={<CloseIcon />}
+                size="small"
+              />
+            ))}
+          </Box>
+        )}
+
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: 'none' }}
+            onChange={handleFileSelect}
+          />
+          <IconButton
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isStreaming}
+          >
+            <AttachFileIcon />
+          </IconButton>
+
+          <TextField
+            fullWidth
+            multiline
+            maxRows={4}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder="Type your message..."
+            disabled={isStreaming}
+          />
+
+          <Button
+            variant="contained"
+            endIcon={<SendIcon />}
+            onClick={handleSend}
+            disabled={!input.trim() || isStreaming || !selectedModel}
+            sx={{ minWidth: 100 }}
+          >
+            Send
+          </Button>
+        </Box>
+      </Paper>
+    </Box>
+  );
+};
