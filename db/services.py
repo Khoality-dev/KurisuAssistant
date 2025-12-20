@@ -1,9 +1,10 @@
 """Database service layer providing business logic and transaction management."""
 
 import os
+import re
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from alembic.config import Config
 from alembic import command
 
@@ -197,7 +198,6 @@ def fetch_conversation(username: str, conversation_id: int, limit: int = 50, off
                 "content": msg.message,
                 "chunk_id": msg.chunk_id,
                 "created_at": msg.created_at.isoformat(),
-                "updated_at": msg.updated_at.isoformat() if msg.updated_at else msg.created_at.isoformat(),
             }
             for msg in messages
         ]
@@ -222,15 +222,14 @@ def update_conversation_title(username: str, title: str, conversation_id: Option
 
 
 def delete_conversation_by_id(username: str, conversation_id: int) -> bool:
-    """Delete a specific conversation by ID for the given user."""
+    """Delete a specific conversation by ID for the given user.
+
+    Cascade deletes will automatically remove chunks and messages.
+    """
     with get_session() as session:
-        msg_repo = MessageRepository(session)
         conv_repo = ConversationRepository(session)
 
-        # Delete messages first (cascade should handle this, but explicit is better)
-        msg_repo.delete_by_conversation(username, conversation_id)
-
-        # Delete conversation
+        # Delete conversation (cascade deletes chunks and messages automatically)
         return conv_repo.delete_by_user_and_id(username, conversation_id)
 
 
@@ -386,7 +385,6 @@ def get_chunk_messages(username: str, conversation_id: int, chunk_id: int) -> li
                 "role": msg.role,
                 "content": msg.message,
                 "created_at": msg.created_at.isoformat(),
-                "updated_at": msg.updated_at.isoformat() if msg.updated_at else msg.created_at.isoformat(),
             }
             for msg in messages
         ]
@@ -396,46 +394,36 @@ def get_chunk_messages(username: str, conversation_id: int, chunk_id: int) -> li
 # Message Services
 # ============================================================================
 
-def upsert_streaming_message(username: str, message: dict, conversation_id: int, chunk_id: int) -> int:
-    """Upsert a streaming message - create new or update existing based on role sequence.
+def create_message(username: str, message: dict, conversation_id: int, chunk_id: int) -> int:
+    """Create a new message in the database.
 
     Args:
         username: Username who owns the message
-        message: Message dictionary with role, content, created_at, updated_at
+        message: Message dictionary with role, content, created_at
         conversation_id: Conversation ID
         chunk_id: Chunk ID this message belongs to
 
     Returns:
-        ID of the created or updated message
+        ID of the created message
     """
     with get_session() as session:
         conv_repo = ConversationRepository(session)
         chunk_repo = ChunkRepository(session)
         msg_repo = MessageRepository(session)
 
-        # Get the last message for this CHUNK (changed from conversation)
-        last_message = msg_repo.get_latest_by_chunk(username, chunk_id)
-
         role = message.get("role")
         content = message.get("content", "")
         created_at = message.get("created_at")
-        updated_at = message.get("updated_at", created_at)
 
-        if last_message and last_message.role == role:
-            # Same role - concatenate content
-            msg_repo.append_to_message(last_message, content)
-            message_id = last_message.id
-        else:
-            # Different role or no previous message - create new
-            new_message = msg_repo.create_message(
-                role=role,
-                username=username,
-                message=content,
-                chunk_id=chunk_id,  # CHANGED: was conversation_id
-                created_at=created_at,
-                updated_at=updated_at,
-            )
-            message_id = new_message.id
+        # Create new message
+        new_message = msg_repo.create_message(
+            role=role,
+            username=username,
+            message=content,
+            chunk_id=chunk_id,
+            created_at=created_at,
+        )
+        message_id = new_message.id
 
         # Update chunk's updated_at
         chunk = chunk_repo.get_by_id(chunk_id)
@@ -465,5 +453,89 @@ def fetch_message_by_id(username: str, message_id: int) -> Optional[dict]:
             "content": message.message,
             "conversation_id": message.conversation_id,
             "created_at": message.created_at.isoformat(),
-            "updated_at": message.updated_at.isoformat() if message.updated_at else message.created_at.isoformat(),
         }
+
+
+# ============================================================================
+# Context Retrieval Services (for LLM context)
+# ============================================================================
+
+def retrieve_messages_by_date_range(
+    conversation_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    limit: int = 100
+) -> List[dict]:
+    """Retrieve messages within a specific date range for a conversation.
+
+    Args:
+        conversation_id: Conversation ID
+        start_date: Start date/time
+        end_date: End date/time
+        limit: Maximum number of messages to return (default: 100)
+
+    Returns:
+        List of message dictionaries with role, content, created_at
+    """
+    with get_session() as session:
+        msg_repo = MessageRepository(session)
+        return msg_repo.get_by_date_range(conversation_id, start_date, end_date, limit)
+
+
+def retrieve_messages_by_regex(
+    conversation_id: int,
+    pattern: str,
+    case_sensitive: bool = False,
+    limit: int = 50
+) -> List[dict]:
+    """Search for messages matching a regular expression pattern.
+
+    Args:
+        conversation_id: Conversation ID
+        pattern: Regular expression pattern to search for
+        case_sensitive: Whether the search should be case sensitive (default: False)
+        limit: Maximum number of messages to return (default: 50)
+
+    Returns:
+        List of matching message dictionaries
+
+    Raises:
+        ValueError: If regex pattern is invalid
+    """
+    # Compile regex pattern
+    try:
+        flags = 0 if case_sensitive else re.IGNORECASE
+        compiled_pattern = re.compile(pattern, flags)
+    except re.error as e:
+        raise ValueError(f"Invalid regex pattern: {e}")
+
+    with get_session() as session:
+        msg_repo = MessageRepository(session)
+        all_messages = msg_repo.get_all_for_conversation(conversation_id)
+
+        # Filter results using regex
+        matching_messages = []
+        for msg in all_messages:
+            if compiled_pattern.search(msg["content"]):
+                matching_messages.append(msg)
+
+                # Stop if we've reached the limit
+                if len(matching_messages) >= limit:
+                    break
+
+        return matching_messages
+
+
+def get_conversation_summary(conversation_id: int) -> Optional[dict]:
+    """Get a summary of a conversation.
+
+    Args:
+        conversation_id: Conversation ID
+
+    Returns:
+        Dictionary with conversation metadata (id, title, message counts, timestamps)
+        or None if conversation not found
+    """
+    with get_session() as session:
+        conv_repo = ConversationRepository(session)
+        return conv_repo.get_summary(conversation_id)

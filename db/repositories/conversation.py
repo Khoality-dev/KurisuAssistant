@@ -154,3 +154,49 @@ class ConversationRepository(BaseRepository[Conversation]):
         """
         rows_deleted = self.delete_by_filter(username=username, id=conversation_id)
         return rows_deleted > 0
+
+    def get_summary(self, conversation_id: int) -> Optional[dict]:
+        """Get conversation summary with message counts and timestamps.
+
+        Args:
+            conversation_id: Conversation ID
+
+        Returns:
+            Dictionary with conversation metadata or None if not found
+        """
+        from ..models import Message
+
+        result = (
+            self.session.query(
+                Conversation.id,
+                Conversation.title,
+                Conversation.created_at,
+                Conversation.updated_at,
+                func.count(Message.id).label("message_count"),
+                func.min(Message.created_at).label("first_message"),
+                func.max(Message.created_at).label("last_message"),
+            )
+            .outerjoin(Chunk, Conversation.id == Chunk.conversation_id)
+            .outerjoin(Message, Chunk.id == Message.chunk_id)
+            .filter(Conversation.id == conversation_id)
+            .group_by(
+                Conversation.id,
+                Conversation.title,
+                Conversation.created_at,
+                Conversation.updated_at,
+            )
+            .first()
+        )
+
+        if not result:
+            return None
+
+        return {
+            "id": result[0],
+            "title": result[1] or "Untitled",
+            "created_at": result[2].strftime('%Y-%m-%d %H:%M') if result[2] else None,
+            "updated_at": result[3].strftime('%Y-%m-%d %H:%M') if result[3] else None,
+            "message_count": result[4] or 0,
+            "first_message": result[5].strftime('%Y-%m-%d %H:%M') if result[5] else None,
+            "last_message": result[6].strftime('%Y-%m-%d %H:%M') if result[6] else None,
+        }

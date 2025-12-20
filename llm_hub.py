@@ -10,6 +10,7 @@ import numpy as np
 import torch
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Body, Depends, Form, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastmcp.client import Client as FastMCPClient
@@ -20,11 +21,14 @@ from sqlalchemy.orm import Session
 from auth import authenticate_user, create_access_token, get_current_user
 from db import services as db_services
 from db.session import get_session
-from helpers import Agent
+import llm_adapter
+from context import manager as context_manager
+from prompts import builder as prompt_builder
 from helpers.utils import get_current_time
 from data.image_storage import operations as image_operations
 from mcp_tools.client import list_tools
 from mcp_tools.config import load_mcp_configs
+from mcp_tools.orchestrator import init_orchestrator, get_orchestrator
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,6 +46,10 @@ async def lifespan(app: FastAPI):
     """Application lifespan events - runs on startup and shutdown."""
     # Startup
     logger.info("Application starting up...")
+
+    # Initialize MCP orchestrator globally
+    init_orchestrator(mcp_client)
+    logger.info("MCP orchestrator initialized")
 
     yield
 
@@ -70,6 +78,18 @@ app = FastAPI(
     ]
 )
 
+# Configure CORS to allow Electron/React frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",  # Vite dev server
+        "http://localhost:3000",  # Alternative React dev port
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # We'll create Agent instances per request now since they need username/conversation_id
 whisper_model_name = 'whisper-finetuned' if os.path.exists('whisper-finetuned') else 'openai/whisper-base'
 
@@ -82,8 +102,6 @@ asr_model = pipeline(
 SAMPLE_RATE = 16_000
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
-
-sessions = {}
 
 
 # ============================================================================
@@ -98,10 +116,14 @@ def get_db() -> Session:
 
 def get_authenticated_user(token: str = Depends(oauth2_scheme)) -> str:
     """Dependency to get and validate the current user."""
-    username = get_current_user(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    return username
+    # BYPASS AUTH: Always return admin for development
+    return "admin"
+
+    # Original auth code (disabled):
+    # username = get_current_user(token)
+    # if not username:
+    #     raise HTTPException(status_code=401, detail="Invalid token")
+    # return username
 
 
 # ============================================================================
@@ -137,6 +159,7 @@ async def register(
     except ValueError:
         raise HTTPException(status_code=400, detail="User already exists")
     except Exception as e:
+        logger.error(f"Error registering user {form_data.username}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -158,6 +181,7 @@ async def asr(
         text = result["text"]
         return {"text": text}
     except Exception as e:
+        logger.error(f"Error processing ASR request: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -170,7 +194,6 @@ async def chat(
     text: str = Form(...),
     model_name: str = Form(...),
     conversation_id: int = Form(None),  # None = create new conversation
-    chunk_id: int = Form(None),  # None = auto-resume or create new if conversation is new
     images: list[UploadFile] = File(default=[]),
     token: str = Depends(oauth2_scheme)
 ):
@@ -211,51 +234,119 @@ async def chat(
                     images_text = "\n\n" + "\n".join(image_markdowns)
                     user_message_content += images_text
 
-        # Auto-resume logic: handle chunk_id
-        if chunk_id is None:
-            # Auto-resume: use latest chunk or create new if conversation is empty
-            last_chunk = db_services.get_latest_chunk(username, actual_conversation_id)
-            actual_chunk_id = last_chunk["id"] if last_chunk else db_services.create_chunk(username, actual_conversation_id)
-        else:
-            # Validate chunk belongs to conversation
-            chunk = db_services.get_chunk_by_id(username, actual_conversation_id, chunk_id)
-            if not chunk:
-                raise HTTPException(status_code=400, detail="Invalid chunk_id")
-            actual_chunk_id = chunk_id
+        # Always use latest chunk or create new if conversation is empty
+        last_chunk = db_services.get_latest_chunk(username, actual_conversation_id)
+        actual_chunk_id = last_chunk["id"] if last_chunk else db_services.create_chunk(username, actual_conversation_id)
 
-        # Session key now includes chunk_id
-        session_key = f"{actual_conversation_id}_{actual_chunk_id}"
-
-        # Create Agent instance for this conversation+chunk
-        if session_key not in sessions or len(sessions[session_key].context_messages) == 0 or get_current_time() - datetime.datetime.fromisoformat(sessions[session_key].context_messages[-1]["updated_at"]).replace(tzinfo=datetime.timezone.utc) >= datetime.timedelta(minutes=10):
-            sessions[session_key] = Agent(username, actual_conversation_id, actual_chunk_id, mcp_client)
-
-        agent = sessions[session_key]
-        response_generator = agent.chat(model_name, user_message_content, images=image_data)
     except Exception as e:
-        print(str(e))
+        logger.error(f"Error preparing chat request: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
     # Store IDs for streaming response
     current_conversation_id = actual_conversation_id
     current_chunk_id = actual_chunk_id
 
-    async def stream():
-        ids_sent = False
-        async for chunk in response_generator:
-            # Include conversation_id and chunk_id in first response
-            if not ids_sent:
+    # 1. Load context from database
+    context_messages = context_manager.get_chunk_messages(
+        username=username,
+        conversation_id=current_conversation_id,
+        chunk_id=current_chunk_id
+    )
+
+    # 2. Get user preferences and build system prompts
+    user_system_prompt, preferred_name = db_services.get_user_preferences(username)
+    system_messages = prompt_builder.build_system_messages(user_system_prompt, preferred_name)
+
+    # 3. Create user message
+    created_at = datetime.datetime.utcnow().isoformat()
+    user_message = {
+        "role": "user",
+        "content": user_message_content,
+        "created_at": created_at,
+    }
+
+    # 4. Build full message list for LLM
+    messages = system_messages + context_messages + [user_message]
+
+    # 5. Get tools from orchestrator
+    # DEBUG: Comment out MCP tools
+    # orchestrator = get_orchestrator()
+    # tools = await orchestrator.get_tools()
+    tools = []
+
+    # 6. Call llm_adapter to get sentence-chunked stream
+    sentence_stream = llm_adapter.chat(
+        model_name=model_name,
+        messages=messages,
+        tools=tools,
+        images=image_data
+    )
+
+    def stream():
+        try:
+            # Concatenate all assistant responses
+            complete_content = ""
+            last_created_at = None
+
+            # Iterate over sentence-chunked stream from llm_adapter
+            for message in sentence_stream:
+                # Yield to frontend
                 wrapped_chunk = {
-                    "message": chunk,
+                    "message": message,
                     "conversation_id": current_conversation_id,
                     "chunk_id": current_chunk_id
                 }
-                ids_sent = True
-            else:
-                wrapped_chunk = {"message": chunk}
-            yield json.dumps(wrapped_chunk) + "\n"
+                yield json.dumps(wrapped_chunk) + "\n"
 
-    return StreamingResponse(stream(), media_type="application/json")
+                # Concatenate for database
+                complete_content += message.get("content", "")
+                last_created_at = message.get("created_at")
+
+            # Save messages to database after streaming completes
+            # Save user message first
+            try:
+                db_services.create_message(username, user_message, current_conversation_id, current_chunk_id)
+            except Exception as e:
+                logger.error(f"Failed to save user message: {e}")
+
+            # Save complete assistant response as one message
+            if complete_content:
+                complete_message = {
+                    "role": "assistant",
+                    "content": complete_content,
+                    "created_at": last_created_at
+                }
+                try:
+                    db_services.create_message(username, complete_message, current_conversation_id, current_chunk_id)
+                except Exception as e:
+                    logger.error(f"Failed to save assistant message: {e}")
+
+            # Send "done" signal to frontend
+            done_chunk = {"done": True}
+            yield json.dumps(done_chunk) + "\n"
+
+        except Exception as e:
+            logger.error(f"Error in chat stream: {e}")
+            error_msg = {
+                "message": {
+                    "role": "assistant",
+                    "content": f"Error: {str(e)}",
+                    "created_at": datetime.datetime.utcnow().isoformat(),
+                }
+            }
+            yield json.dumps(error_msg) + "\n"
+            # Send "done" signal even on error
+            done_chunk = {"done": True}
+            yield json.dumps(done_chunk) + "\n"
+
+    return StreamingResponse(
+        stream(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )
 
 
 @app.get("/models", tags=["chat"])
@@ -263,10 +354,9 @@ async def models(token: str = Depends(oauth2_scheme)):
     if not get_current_user(token):
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        # Create a temporary agent instance to get models (chunk_id doesn't matter here)
-        temp_agent = Agent("temp", 1, 1, mcp_client)
-        return {"models": temp_agent.list_models()}
+        return {"models": llm_adapter.list_models()}
     except Exception as e:
+        logger.error(f"Error fetching models from LLM provider: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -284,6 +374,7 @@ async def list_conversations(
         result = db_services.get_conversations_list(username, limit)
         return result
     except Exception as e:
+        logger.error(f"Error listing conversations for user {username}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -300,7 +391,10 @@ async def get_conversation(
         if result is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
         return result
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error fetching conversation {conversation_id} for user {username}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -320,7 +414,10 @@ async def update_conversation(
 
         db_services.update_conversation_title(username, title, conversation_id)
         return {"message": "Conversation title updated successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error updating conversation {conversation_id} for user {username}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -336,7 +433,10 @@ async def delete_conversation(
             return {"message": "Conversation deleted successfully"}
         else:
             raise HTTPException(status_code=404, detail="Conversation not found")
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error deleting conversation {conversation_id} for user {username}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -352,7 +452,10 @@ async def list_chunks(
         if chunks is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
         return {"chunks": chunks}
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error listing chunks for conversation {conversation_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -372,7 +475,10 @@ async def get_message(
         if result is None:
             raise HTTPException(status_code=404, detail="Message not found")
         return result
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error fetching message {message_id} for user {username}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -396,6 +502,7 @@ async def get_user_profile(
             "agent_avatar_uuid": agent_avatar_uuid
         }
     except Exception as e:
+        logger.error(f"Error fetching user profile for {username}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -439,6 +546,7 @@ async def update_user_profile(
             "agent_avatar_uuid": agent_avatar_uuid
         }
     except Exception as e:
+        logger.error(f"Error updating user profile for {username}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -479,9 +587,10 @@ async def mcp_servers(
             except Exception:
                 # If we can't get tools, just mark as configured
                 pass
-        
+
         return {"servers": servers}
     except Exception as e:
+        logger.error(f"Error fetching MCP servers: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

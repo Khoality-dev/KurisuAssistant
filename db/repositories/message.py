@@ -25,7 +25,6 @@ class MessageRepository(BaseRepository[Message]):
         message: str,
         chunk_id: int,
         created_at: Optional[datetime] = None,
-        updated_at: Optional[datetime] = None,
     ) -> Message:
         """Create a new message.
 
@@ -35,7 +34,6 @@ class MessageRepository(BaseRepository[Message]):
             message: Message content
             chunk_id: Chunk ID this message belongs to
             created_at: Creation timestamp (optional)
-            updated_at: Update timestamp (optional)
 
         Returns:
             Created Message instance
@@ -48,8 +46,6 @@ class MessageRepository(BaseRepository[Message]):
         }
         if created_at is not None:
             data["created_at"] = created_at
-        if updated_at is not None:
-            data["updated_at"] = updated_at
 
         return self.create(**data)
 
@@ -101,26 +97,32 @@ class MessageRepository(BaseRepository[Message]):
     ) -> List[Message]:
         """Get messages for a conversation (across all chunks) with pagination.
 
+        Messages are fetched in reverse chronological order (newest first) for pagination,
+        then reversed to return in chronological order (oldest first) for display.
+
         Args:
             username: Username who owns the messages
             conversation_id: Conversation ID
             limit: Maximum number of messages to return
-            offset: Number of messages to skip
+            offset: Number of messages to skip from the newest messages
 
         Returns:
-            List of Message instances ordered by creation time
+            List of Message instances ordered by creation time (oldest first within the page)
         """
         from ..models import Chunk
-        return (
+        # Fetch in reverse order (newest first) with offset, then reverse for display
+        messages = (
             self.session.query(Message)
             .join(Chunk, Message.chunk_id == Chunk.id)
             .filter(Chunk.conversation_id == conversation_id)
             .filter(Message.username == username)
-            .order_by(Message.created_at)
+            .order_by(desc(Message.created_at))
             .limit(limit)
             .offset(offset)
             .all()
         )
+        # Reverse to get chronological order (oldest first) for display
+        return list(reversed(messages))
 
     def get_latest_by_chunk(
         self, username: str, chunk_id: int
@@ -194,19 +196,6 @@ class MessageRepository(BaseRepository[Message]):
             .count()
         )
 
-    def append_to_message(self, message: Message, content: str) -> Message:
-        """Append content to an existing message.
-
-        Args:
-            message: Message instance to update
-            content: Content to append
-
-        Returns:
-            Updated Message instance
-        """
-        new_content = message.message + content
-        return self.update(message, message=new_content, updated_at=datetime.utcnow())
-
     def delete_by_conversation(self, username: str, conversation_id: int) -> int:
         """Delete all messages in a conversation (across all chunks).
 
@@ -226,3 +215,87 @@ class MessageRepository(BaseRepository[Message]):
             .delete(synchronize_session=False)
         )
         return deleted_count
+
+    def get_by_date_range(
+        self,
+        conversation_id: int,
+        start_date: datetime,
+        end_date: datetime,
+        limit: int = 100
+    ) -> List[dict]:
+        """Get messages within a date range for a conversation.
+
+        Args:
+            conversation_id: Conversation ID
+            start_date: Start date/time
+            end_date: End date/time
+            limit: Maximum number of messages to return
+
+        Returns:
+            List of message dictionaries with role, content, created_at
+        """
+        from ..models import Chunk, Conversation
+
+        results = (
+            self.session.query(
+                Message.role,
+                Message.message,
+                Message.created_at,
+                Conversation.title
+            )
+            .join(Chunk, Message.chunk_id == Chunk.id)
+            .join(Conversation, Chunk.conversation_id == Conversation.id)
+            .filter(Chunk.conversation_id == conversation_id)
+            .filter(Message.created_at.between(start_date, end_date))
+            .order_by(Message.created_at)
+            .limit(limit)
+            .all()
+        )
+
+        return [
+            {
+                "role": row[0],
+                "content": row[1],
+                "created_at": row[2].isoformat(),
+                "conversation_title": row[3] or "Untitled",
+            }
+            for row in results
+        ]
+
+    def get_all_for_conversation(
+        self,
+        conversation_id: int
+    ) -> List[dict]:
+        """Get all messages for a conversation (for regex searching).
+
+        Args:
+            conversation_id: Conversation ID
+
+        Returns:
+            List of message dictionaries ordered by created_at descending
+        """
+        from ..models import Chunk, Conversation
+
+        results = (
+            self.session.query(
+                Message.role,
+                Message.message,
+                Message.created_at,
+                Conversation.title
+            )
+            .join(Chunk, Message.chunk_id == Chunk.id)
+            .join(Conversation, Chunk.conversation_id == Conversation.id)
+            .filter(Chunk.conversation_id == conversation_id)
+            .order_by(desc(Message.created_at))
+            .all()
+        )
+
+        return [
+            {
+                "role": row[0],
+                "content": row[1],
+                "created_at": row[2].isoformat(),
+                "conversation_title": row[3] or "Untitled",
+            }
+            for row in results
+        ]

@@ -47,6 +47,5 @@ class Message(Base):
     message = Column(Text, nullable=False)
     chunk_id = Column(Integer, ForeignKey('chunks.id', ondelete='CASCADE'))
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
 
     chunk = relationship("Chunk", back_populates="messages")
