@@ -125,8 +125,17 @@ KurisuAssistant-Client-Windows/
   - Code blocks styled with gray background
 - **Image Attachments**:
   - File input for multiple image selection
-  - Chips display attached images with delete option
-  - Images sent as FormData with chat request
+  - Chips display attached images with delete option before sending
+  - Images uploaded to server first (via POST /images) to get UUIDs
+  - UUIDs stored in message.images array
+  - Images sent as FormData with chat request to backend
+- **Image Display**:
+  - User uploaded images displayed at top of message bubble
+  - Images are clickable and open in new tab at full resolution
+  - Assistant images rendered from markdown `![Image](/images/uuid)` syntax
+  - Custom ReactMarkdown component for styling images
+  - Max width 100%, max height 300px (user) / 400px (assistant)
+  - Rounded corners and hover cursor for better UX
 - **Infinite Scroll Pagination**:
   - Initial load shows most recent 50 messages
   - Scroll to top (within 100px) triggers `loadMoreMessages()`
@@ -235,8 +244,8 @@ Built with Axios and native Fetch API in singleton pattern (`apiClient`).
 - `getModels()`: Returns `string[]` of available models
 - `getUserProfile()`: Get user settings and profile data
 - `updateUserProfile(profile)`: Update user settings (accepts Partial<UserProfile> or FormData for file uploads)
-- `uploadImage(file)`: Returns `{uuid}`, used for image uploads
-- `getImageUrl(uuid)`: Constructs image URL for markdown
+- `uploadImage(file)`: Upload image file, returns `{image_uuid, url}`
+- `getImageUrl(uuid)`: Constructs full image URL from UUID for display
 
 **Error Handling**:
 - Network errors caught by try/catch in components
@@ -297,6 +306,23 @@ The app implements persistent authentication via localStorage:
 - No XSS risk in Electron with contextIsolation enabled
 - Tokens validated on each app startup (not blindly trusted)
 - User can opt out via unchecking "Remember Me"
+
+### Image Handling Workflow
+
+**User uploads images:**
+1. User selects images via file input in ChatWidget
+2. Images shown as preview chips with delete option
+3. On send: Images uploaded one by one via `POST /images`
+4. Server returns `{image_uuid, url}` for each image
+5. UUIDs stored in `message.images` array
+6. Original File objects sent to backend via chat request (FormData)
+7. User message rendered with image previews at top of bubble
+
+**Assistant returns images:**
+1. Backend includes images as markdown: `![Image](/images/uuid)`
+2. ReactMarkdown renders images with custom component
+3. Images displayed inline with message content
+4. Click to open full resolution in new tab
 
 ### Conversation Creation Pattern
 

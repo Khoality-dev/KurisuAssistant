@@ -162,21 +162,30 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onConversationCreated })
   const handleSend = async () => {
     if (!input.trim() || isStreaming || !selectedModel) return;
 
-    const userMessage: Message = {
-      role: 'user',
-      content: input,
-      images: images.map((img) => img.name),
-    };
-
-    addMessage(userMessage);
-    setInput('');
-    setImages([]);
     setIsStreaming(true);
-    setStreamingContent('');
-    setDisplayedContent(''); // Reset typing effect
-    setJustFinishedStreaming(false); // Clear previous "done" indicator
 
     try {
+      // Upload images first and get UUIDs
+      const imageFiles = images; // Keep reference before clearing
+      const imageUuids: string[] = [];
+      for (const imageFile of imageFiles) {
+        const result = await apiClient.uploadImage(imageFile);
+        imageUuids.push(result.image_uuid);
+      }
+
+      const userMessage: Message = {
+        role: 'user',
+        content: input,
+        images: imageUuids,
+      };
+
+      addMessage(userMessage);
+      setInput('');
+      setImages([]);
+      setStreamingContent('');
+      setDisplayedContent(''); // Reset typing effect
+      setJustFinishedStreaming(false); // Clear previous "done" indicator
+
       // Will start with empty message from backend
       let currentRole: string | null = null;
       let accumulatedContent = '';
@@ -187,7 +196,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onConversationCreated })
         userMessage.content,
         selectedModel,
         currentConversation?.id || null,
-        images
+        imageFiles
       );
 
       for await (const chunk of stream) {
@@ -494,10 +503,49 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onConversationCreated })
                         </Box>
                       </Box>
                     )}
+                    {/* Show images if present */}
+                    {message.images && message.images.length > 0 && (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: displayContent ? 1 : 0 }}>
+                        {message.images.map((imageUuid, idx) => (
+                          <Box
+                            key={idx}
+                            component="img"
+                            src={apiClient.getImageUrl(imageUuid)}
+                            alt={`Image ${idx + 1}`}
+                            sx={{
+                              maxWidth: '100%',
+                              maxHeight: 300,
+                              borderRadius: 1,
+                              cursor: 'pointer',
+                            }}
+                            onClick={() => window.open(apiClient.getImageUrl(imageUuid), '_blank')}
+                          />
+                        ))}
+                      </Box>
+                    )}
                     {/* Show content with typing effect */}
                     {displayContent && (
                       <>
-                        <ReactMarkdown>{displayContent}</ReactMarkdown>
+                        <ReactMarkdown
+                          components={{
+                            img: ({ node, ...props }) => (
+                              <Box
+                                component="img"
+                                {...props}
+                                sx={{
+                                  maxWidth: '100%',
+                                  maxHeight: 400,
+                                  borderRadius: 1,
+                                  cursor: 'pointer',
+                                  my: 1,
+                                }}
+                                onClick={() => window.open(props.src, '_blank')}
+                              />
+                            ),
+                          }}
+                        >
+                          {displayContent}
+                        </ReactMarkdown>
                         {isStreamingThisMessage && (
                           <Box
                             component="span"

@@ -207,11 +207,11 @@ class APIClient {
     return response.data;
   }
 
-  async uploadImage(file: File): Promise<{ uuid: string }> {
+  async uploadImage(file: File): Promise<{ image_uuid: string; url: string }> {
     const formData = new FormData();
-    formData.append('image', file);
+    formData.append('file', file);
 
-    const response = await this.client.post<{ uuid: string }>('/images', formData, {
+    const response = await this.client.post<{ image_uuid: string; url: string }>('/images', formData, {
       headers: this.getHeaders(),
     });
     return response.data;
