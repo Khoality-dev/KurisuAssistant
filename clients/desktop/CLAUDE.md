@@ -33,7 +33,8 @@ KurisuAssistant-Client-Windows/
 │   ├── components/        # React components
 │   │   ├── LoginWindow.tsx    # Authentication UI with tabs
 │   │   ├── MainWindow.tsx     # Main layout with sidebar
-│   │   └── ChatWidget.tsx     # Chat interface with streaming
+│   │   ├── ChatWidget.tsx     # Chat interface with streaming
+│   │   └── MessageBubble.tsx  # Individual message bubble component
 │   ├── store/             # Zustand state management
 │   │   ├── authStore.ts       # Authentication state & actions
 │   │   └── conversationStore.ts # Conversation & message state
@@ -110,9 +111,12 @@ KurisuAssistant-Client-Windows/
   - **Typing Indicators**:
     - "{Role} is typing..." with animated bouncing dots shown **inside the message bubble** while waiting for first chunk
     - Typing indicator appears in the same message bubble that will contain the response
-    - Blinking cursor shown at the end of streaming message content during typing animation
+    - Blinking cursor shown during typing animation (first in thinking section if present, then in content)
     - "Done" indicator with checkmark icon appears when streaming completes (fades after 3 seconds)
-  - **Typing Effect**: Character-by-character display animation (2 chars every 20ms) for smooth typing appearance
+  - **Typing Effect**: **Sequential** character-by-character display (2 chars every 20ms)
+    - Thinking types out first (if present), then content types out
+    - Both thinking and content are part of the same turn/message
+    - Cursor appears in thinking section while thinking is typing, then moves to content section
   - **Multi-Agent Support**: Handles any role name from backend, not limited to predefined roles
 - **Message Rendering**:
   - ReactMarkdown for content rendering
@@ -147,14 +151,41 @@ KurisuAssistant-Client-Windows/
 - **Model Selection Persistence**: Selected model saved to localStorage and restored on app restart
 - **Thinking Display**:
   - Messages with thinking content show a collapsible "Thinking" button with Psychology icon
+  - Thinking section appears immediately when thinking starts streaming
   - Toggle button with ExpandMore icon that rotates when expanded
   - Thinking content hidden by default (user must click to reveal)
   - Expanded thinking shown in monospace font with light gray background
   - Max height 400px with scroll for long thinking blocks
   - Smooth expand/collapse animation with Framer Motion
-  - Thinking streamed progressively and accumulated in real-time
+  - **Sequential Typing**: Thinking types out FIRST, then content types out (both part of same message)
+  - Blinking cursor appears in thinking section while it's typing
   - Displayed above main message content with separator
   - State tracked via `expandedThinking` Set (by message index)
+  - Display logic: Shows if saved `message.thinking` exists OR (streaming AND `streamingThinking` has content)
+
+#### `src/components/MessageBubble.tsx`
+- Extracted component for rendering individual message bubbles
+- **Props**:
+  - `message`: Message data (role, content, thinking, images)
+  - `index`: Message index in the list
+  - `isLast`: Whether this is the last message
+  - `isStreaming`: Global streaming state
+  - `streamingThinking`, `streamingContent`: Full streamed data from backend
+  - `displayedThinking`, `displayedContent`: Currently displayed subset (for typing effect)
+  - `justFinishedStreaming`: Whether streaming just finished (for "Done" indicator)
+  - `expandedThinking`: Set of indices with expanded thinking panels
+  - `onToggleThinking`: Callback to toggle thinking panel expansion
+- **Responsibilities**:
+  - Renders message bubble with role-based styling
+  - Handles thinking section with expand/collapse
+  - Shows typing indicators and blinking cursors
+  - Displays images from user or markdown
+  - Shows "Done" indicator when streaming completes
+  - Sequential typing effect (thinking first, then content)
+- **Benefits**:
+  - Cleaner code organization (extracted from ChatWidget)
+  - Easier to maintain and test
+  - Reusable message rendering logic
 
 #### `src/components/SettingsWindow.tsx`
 - Settings page for user preferences and customization
@@ -214,8 +245,8 @@ KurisuAssistant-Client-Windows/
   loadModels(): Promise<void>,
   setSelectedModel(model): void,
   addMessage(message): void,
-  updateLastMessage(content): void,           // For streaming updates
-  setCurrentConversationId(id): void          // After backend creates conversation
+  updateLastMessage(content, thinking?, role?): void,  // For streaming updates
+  setCurrentConversationId(id): Promise<void>  // After backend creates conversation, auto-refreshes list if new
 }
 ```
 
@@ -344,8 +375,10 @@ The app implements persistent authentication via localStorage:
 3. `chatStream()` called with `conversationId=null`
 4. Backend auto-creates conversation on first message
 5. First streaming chunk contains: `{conversation_id: 123, chunk_id: 456, message: {...}}`
-6. ChatWidget calls `setCurrentConversationId(123)` and triggers `onConversationCreated()` callback
-7. MainWindow calls `loadConversations()` to refresh sidebar list
+6. ChatWidget calls `setCurrentConversationId(123)` which:
+   - Searches for conversation in current list
+   - If not found (new conversation), automatically calls `loadConversations()` to refresh sidebar
+   - Sets `currentConversation` to the newly created conversation
 
 ### Message Streaming Protocol
 
@@ -381,32 +414,31 @@ images.forEach(img => formData.append('images', img));
 ```typescript
 for await (const chunk of apiClient.chatStream(...)) {
   // Handle conversation creation (ID in every chunk now)
-  if (chunk.conversation_id && !currentConversation) {
-    setCurrentConversationId(chunk.conversation_id);
-    onConversationCreated();
+  if (chunk.conversation_id && !streamConversationId) {
+    streamConversationId = chunk.conversation_id;
+    setActiveConversationId(chunk.conversation_id);
+    // Auto-refreshes conversation list if this is a new conversation
+    setCurrentConversationId(chunk.conversation_id).catch(console.error);
   }
 
   // Handle streaming completion
   if (chunk.done) {
-    updateLastMessage(accumulatedContent);
-    // Update last message with thinking if present
-    if (accumulatedThinking && messages.length > 0) {
-      messages[messages.length - 1].thinking = accumulatedThinking;
-    }
+    // Update store with final content and thinking
+    updateLastMessage(accumulatedContent, accumulatedThinking || undefined);
     setJustFinishedStreaming(true);
     break;
   }
 
   // Accumulate content
   if (chunk.message?.content) {
-    fullContent += chunk.message.content;
-    setStreamingContent(fullContent);  // Display immediately
+    accumulatedContent += chunk.message.content;
+    scheduleStreamUpdate(accumulatedContent, accumulatedThinking);
   }
 
   // Accumulate thinking progressively as it streams
   if (chunk.message?.thinking) {
     accumulatedThinking += chunk.message.thinking;
-    setStreamingThinking(accumulatedThinking);
+    scheduleStreamUpdate(accumulatedContent, accumulatedThinking);
   }
 }
 ```
@@ -499,16 +531,22 @@ for await (const chunk of apiClient.chatStream(...)) {
 - Fade in + slide up on new message
 - Smooth exit animation
 
-### Streaming Display with Typing Effect
-- **Typing Animation**: Content displays character-by-character (2 chars every 20ms) for smooth typing appearance
+### Streaming Display with Sequential Typing Effect
+- **Sequential Typing Animation**: Character-by-character display (2 chars every 20ms)
+  - **Thinking types first**, then **content types second** (both part of same turn/message)
+  - Single interval controls both, sequentially
 - **Visual Indicators**:
-  - Bouncing dots "{Role} is typing..." shown inside message bubble before content appears
-  - Blinking cursor at the end of content during typing animation
-- **Real-time**: Backend streams sentence-by-sentence, client displays with typing animation
+  - Bouncing dots "{Role} is typing..." shown inside message bubble before any content appears
+  - Blinking cursor appears in **thinking section** while thinking is typing
+  - Once thinking is fully displayed, cursor moves to **content section** during content typing
+  - Cursor only shows in the section actively being typed
+- **Real-time**: Backend streams sentence-by-sentence, client displays with sequential typing animation
 - **State Management**:
+  - `streamingThinking`: Full thinking received from backend
   - `streamingContent`: Full content received from backend
-  - `displayedContent`: Subset of content currently displayed (grows during typing animation)
-  - Interval-based animation updates displayedContent to match streamingContent
+  - `displayedThinking`: Subset of thinking currently displayed (grows first during typing)
+  - `displayedContent`: Subset of content currently displayed (grows after thinking is done)
+  - Single interval (`typingIntervalRef`) controls sequential typing of both
 - CSS animations:
   ```css
   /* Blinking cursor */

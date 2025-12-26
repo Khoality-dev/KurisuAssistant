@@ -76,10 +76,6 @@ export const MainWindow: React.FC = () => {
     }
   };
 
-  const handleConversationCreated = () => {
-    loadConversations().catch(console.error);
-  };
-
   return (
     <Box sx={{ display: 'flex', height: '100vh' }}>
       <Drawer
@@ -176,7 +172,7 @@ export const MainWindow: React.FC = () => {
         {showSettings ? (
           <SettingsWindow onBack={() => setShowSettings(false)} />
         ) : (
-          <ChatWidget onConversationCreated={handleConversationCreated} />
+          <ChatWidget />
         )}
       </Box>
     </Box>

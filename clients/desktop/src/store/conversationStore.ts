@@ -23,8 +23,8 @@ interface ConversationState {
   loadModels: () => Promise<void>;
   setSelectedModel: (model: string) => void;
   addMessage: (message: Message) => void;
-  updateLastMessage: (content: string) => void;
-  setCurrentConversationId: (id: number) => void;
+  updateLastMessage: (content: string, thinking?: string, role?: string) => void;
+  setCurrentConversationId: (id: number) => Promise<void>;
 }
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
@@ -120,19 +120,29 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set((state) => ({ messages: [...state.messages, message] }));
   },
 
-  updateLastMessage: (content: string) => {
+  updateLastMessage: (content: string, thinking?: string, role?: string) => {
     set((state) => {
       const messages = [...state.messages];
       if (messages.length > 0) {
         const lastMessage = messages[messages.length - 1];
-        messages[messages.length - 1] = { ...lastMessage, content };
+        messages[messages.length - 1] = {
+          ...lastMessage,
+          content,
+          ...(thinking !== undefined ? { thinking } : {}),
+          ...(role !== undefined ? { role } : {}),
+        };
       }
       return { messages };
     });
   },
 
-  setCurrentConversationId: (id: number) => {
+  setCurrentConversationId: async (id: number) => {
     const conversation = get().conversations.find((c) => c.id === id) || null;
     set({ currentConversation: conversation });
+
+    // If conversation not found in current list, it's new - refresh the list
+    if (!conversation) {
+      await get().loadConversations();
+    }
   },
 }));
