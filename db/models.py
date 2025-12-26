@@ -45,6 +45,7 @@ class Message(Base):
     role = Column(Text, nullable=False)
     username = Column(String, nullable=False)
     message = Column(Text, nullable=False)
+    thinking = Column(Text, nullable=True)
     chunk_id = Column(Integer, ForeignKey('chunks.id', ondelete='CASCADE'))
     created_at = Column(DateTime, default=datetime.utcnow)
 

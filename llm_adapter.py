@@ -66,10 +66,27 @@ def chat(
     def sentence_chunked_generator():
         delimiters = [".", "\n", "?", ":", "!", ";"]
         buffer = ""
+        thinking_buffer = ""
 
         try:
             for chunk in stream:
                 msg = chunk.message
+
+                # Stream thinking content as it arrives
+                thinking_content = getattr(msg, 'thinking', None)
+                if thinking_content:
+                    thinking_buffer += thinking_content
+
+                    # Yield thinking chunks immediately
+                    created_at = datetime.datetime.utcnow().isoformat()
+                    thinking_message = {
+                        "role": "assistant",
+                        "content": "",  # No content, just thinking
+                        "thinking": thinking_content,
+                        "created_at": created_at,
+                    }
+                    yield thinking_message
+
                 buffer += msg.content
 
                 # Sentence chunking: Find the last occurrence of any delimiter in the buffer

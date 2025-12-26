@@ -296,6 +296,7 @@ return StreamingResponse(
 - `conversation_id`: Conversation ID (may be auto-created)
 - `chunk_id`: Chunk ID
 - `message`: Sentence fragments for real-time streaming (assistant/tool responses only)
+  - May include `thinking` field in the final message chunk (only for assistant messages with thinking enabled)
 
 **Final chunk**:
 - `done`: `True` - Signals streaming completion to frontend
@@ -304,6 +305,7 @@ return StreamingResponse(
 - User message saved to database (but not streamed to frontend)
 - Agent responses grouped by role into complete paragraphs
 - One database row per role change (not per sentence)
+- Thinking blocks (if present) accumulated progressively during streaming and saved with the assistant message
 
 **Note**: Uses `media_type="application/x-ndjson"` (newline-delimited JSON) with `Cache-Control: no-cache` and `X-Accel-Buffering: no` headers to prevent buffering and enable real-time streaming
 
@@ -333,6 +335,43 @@ This pattern:
 - Reduces database load (one write per role, not per sentence)
 - Follows standard practice (adapters don't write to DB)
 - Enables easy swapping of LLM providers
+
+### Thinking Support
+
+**Overview**: The system supports capturing and displaying LLM thinking blocks (extended chain-of-thought reasoning) for models that support this feature.
+
+**Implementation Flow**:
+
+1. **LLM Adapter** (`llm_adapter.py:66-136`):
+   - Captures thinking content from Ollama response stream via `getattr(msg, 'thinking', None)`
+   - Yields thinking chunks immediately as they arrive from the LLM
+   - Each thinking chunk has empty content field and thinking field: `{"content": "", "thinking": "..."}`
+   - Thinking is streamed progressively along with content chunks
+
+2. **Streaming** (`llm_hub.py:285-348`):
+   - Frontend receives both content and thinking chunks in real-time
+   - Thinking chunks have empty content field: `{"content": "", "thinking": "..."}`
+   - Content chunks have thinking field empty or omitted
+   - Both are accumulated progressively on the frontend
+
+3. **Database Persistence**:
+   - Thinking saved to `messages.thinking` column (nullable TEXT)
+   - Only included in assistant messages (user/tool messages don't have thinking)
+   - Stored with the complete assistant message after streaming completes
+
+4. **API Responses**:
+   - `GET /conversations/{id}`: Returns `thinking` field if present for each message
+   - `GET /messages/{id}`: Returns `thinking` field if present
+   - Frontend can toggle visibility (hidden by default)
+
+**Database Schema**:
+- Column: `messages.thinking` (TEXT, nullable)
+- Migration: `7dd75b21ce44_add_thinking_field_to_messages.py`
+
+**Frontend Integration**:
+- Messages with thinking should display a toggle button
+- Thinking content shown/hidden via button click (default: hidden)
+- Thinking appears as separate collapsible section below message content
 
 ### Repository Usage Pattern
 
@@ -409,9 +448,9 @@ Message (PK: id)
 ├── role: Text (user/assistant/tool)
 ├── username: String (denormalized)
 ├── message: Text
+├── thinking: Text (nullable, for assistant messages)
 ├── chunk_id: FK → chunks.id
-├── created_at: DateTime
-└── updated_at: DateTime
+└── created_at: DateTime
 ```
 
 **Chunk Model**: Chunks segment conversations into context windows. Each chunk contains a sequence of messages. When context exceeds limits or user explicitly creates a new chunk, messages go into a new chunk.

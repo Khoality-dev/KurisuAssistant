@@ -286,6 +286,7 @@ async def chat(
         try:
             # Concatenate all assistant responses
             complete_content = ""
+            complete_thinking = None
             last_created_at = None
 
             # Iterate over sentence-chunked stream from llm_adapter
@@ -302,6 +303,13 @@ async def chat(
                 complete_content += message.get("content", "")
                 last_created_at = message.get("created_at")
 
+                # Capture thinking from the message (only last message will have it)
+                if message.get("thinking"):
+                    if complete_thinking is None:  # First message with thinking
+                        complete_thinking = message.get("thinking")
+                    else:  # Merge thinking from multiple messages
+                        complete_thinking += message.get("thinking")
+
             # Save messages to database after streaming completes
             # Save user message first
             try:
@@ -316,6 +324,9 @@ async def chat(
                     "content": complete_content,
                     "created_at": last_created_at
                 }
+                # Include thinking if captured
+                if complete_thinking:
+                    complete_message["thinking"] = complete_thinking
                 try:
                     db_services.create_message(username, complete_message, current_conversation_id, current_chunk_id)
                 except Exception as e:

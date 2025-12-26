@@ -25,6 +25,7 @@ class MessageRepository(BaseRepository[Message]):
         message: str,
         chunk_id: int,
         created_at: Optional[datetime] = None,
+        thinking: Optional[str] = None,
     ) -> Message:
         """Create a new message.
 
@@ -34,6 +35,7 @@ class MessageRepository(BaseRepository[Message]):
             message: Message content
             chunk_id: Chunk ID this message belongs to
             created_at: Creation timestamp (optional)
+            thinking: Thinking content (optional, for assistant messages)
 
         Returns:
             Created Message instance
@@ -46,6 +48,8 @@ class MessageRepository(BaseRepository[Message]):
         }
         if created_at is not None:
             data["created_at"] = created_at
+        if thinking is not None:
+            data["thinking"] = thinking
 
         return self.create(**data)
 

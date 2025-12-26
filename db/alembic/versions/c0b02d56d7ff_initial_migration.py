@@ -30,11 +30,11 @@ def upgrade() -> None:
                existing_type=sa.TEXT(),
                type_=sa.String(),
                existing_nullable=False)
-    op.drop_index(op.f('idx_messages_conversation_id'), table_name='messages')
-    op.drop_index(op.f('idx_messages_hash'), table_name='messages')
-    op.drop_index(op.f('idx_messages_username'), table_name='messages')
+    op.drop_index(op.f('idx_messages_conversation_id'), table_name='messages', if_exists=True)
+    op.drop_index(op.f('idx_messages_hash'), table_name='messages', if_exists=True)
+    op.drop_index(op.f('idx_messages_username'), table_name='messages', if_exists=True)
     op.create_foreign_key(None, 'messages', 'conversations', ['conversation_id'], ['id'])
-    op.drop_column('messages', 'message_hash')
+    op.drop_column('messages', 'message_hash', if_exists=True)
     op.add_column('users', sa.Column('preferred_name', sa.Text(), nullable=True))
     op.alter_column('users', 'username',
                existing_type=sa.TEXT(),

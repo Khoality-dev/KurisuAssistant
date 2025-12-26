@@ -191,16 +191,18 @@ def fetch_conversation(username: str, conversation_id: int, limit: int = 50, off
         # Get messages with paging
         messages = msg_repo.get_by_conversation(username, conversation_id, limit, offset)
 
-        messages_array = [
-            {
+        messages_array = []
+        for msg in messages:
+            message_dict = {
                 "id": msg.id,
                 "role": msg.role,
                 "content": msg.message,
                 "chunk_id": msg.chunk_id,
                 "created_at": msg.created_at.isoformat(),
             }
-            for msg in messages
-        ]
+            if msg.thinking:
+                message_dict["thinking"] = msg.thinking
+            messages_array.append(message_dict)
 
         return {
             "id": conversation.id,
@@ -399,7 +401,7 @@ def create_message(username: str, message: dict, conversation_id: int, chunk_id:
 
     Args:
         username: Username who owns the message
-        message: Message dictionary with role, content, created_at
+        message: Message dictionary with role, content, created_at, thinking (optional)
         conversation_id: Conversation ID
         chunk_id: Chunk ID this message belongs to
 
@@ -414,6 +416,7 @@ def create_message(username: str, message: dict, conversation_id: int, chunk_id:
         role = message.get("role")
         content = message.get("content", "")
         created_at = message.get("created_at")
+        thinking = message.get("thinking")
 
         # Create new message
         new_message = msg_repo.create_message(
@@ -422,6 +425,7 @@ def create_message(username: str, message: dict, conversation_id: int, chunk_id:
             message=content,
             chunk_id=chunk_id,
             created_at=created_at,
+            thinking=thinking,
         )
         message_id = new_message.id
 
@@ -447,13 +451,16 @@ def fetch_message_by_id(username: str, message_id: int) -> Optional[dict]:
         if not message:
             return None
 
-        return {
+        result = {
             "id": message.id,
             "role": message.role,
             "content": message.message,
             "conversation_id": message.conversation_id,
             "created_at": message.created_at.isoformat(),
         }
+        if message.thinking:
+            result["thinking"] = message.thinking
+        return result
 
 
 # ============================================================================
