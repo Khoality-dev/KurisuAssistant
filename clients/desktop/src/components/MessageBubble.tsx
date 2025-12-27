@@ -1,13 +1,17 @@
 import React from 'react';
-import { Box, Paper, Typography, Button } from '@mui/material';
+import { Box, Paper, Typography, Button, IconButton, Tooltip } from '@mui/material';
 import {
   CheckCircle as CheckCircleIcon,
   Psychology as PsychologyIcon,
   ExpandMore as ExpandMoreIcon,
+  VolumeUp as VolumeUpIcon,
+  Stop as StopIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import { apiClient } from '../api/client';
+import { useTTS } from '../hooks/useTTS';
+import { storage } from '../utils/storage';
 import type { Message } from '../api/types';
 
 const MotionBox = motion(Box);
@@ -24,6 +28,9 @@ interface MessageBubbleProps {
   justFinishedStreaming: boolean;
   expandedThinking: Set<number>;
   onToggleThinking: (index: number) => void;
+  ttsVoice?: string;
+  ttsLanguage?: string;
+  ttsBackend?: string;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -38,9 +45,36 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   justFinishedStreaming,
   expandedThinking,
   onToggleThinking,
+  ttsVoice,
+  ttsLanguage,
+  ttsBackend,
 }) => {
   const isStreamingThisMessage = isLast && message.role !== 'user' && isStreaming;
   const showFinishedIndicator = isLast && message.role !== 'user' && justFinishedStreaming && !isStreaming;
+  const { speak, stop, isPlaying } = useTTS();
+
+  const handleTTS = async () => {
+    if (isPlaying) {
+      stop();
+    } else {
+      try {
+        // Load emotion parameters from storage (for INDEX-TTS)
+        const emotionParams =
+          ttsBackend === 'index-tts'
+            ? {
+                emo_audio: storage.getTTSEmotionAudio() || undefined,
+                emo_alpha: storage.getTTSEmotionAlpha(),
+                use_emo_text: storage.getTTSUseEmotionText(),
+              }
+            : undefined;
+
+        // Use the message content (not thinking) for TTS
+        await speak(message.content, ttsVoice, ttsLanguage, ttsBackend, emotionParams);
+      } catch (error) {
+        console.error('Failed to play TTS:', error);
+      }
+    }
+  };
 
   // During streaming, display from typing effect, NOT from database
   const displayContent = isStreamingThisMessage ? displayedContent : message.content;
@@ -106,17 +140,35 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           borderColor: colorScheme.border,
         }}
       >
-        <Typography
-          variant="caption"
-          sx={{
-            fontWeight: 600,
-            color: colorScheme.label,
-            mb: 1,
-            display: 'block',
-          }}
-        >
-          {label}
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+          <Typography
+            variant="caption"
+            sx={{
+              fontWeight: 600,
+              color: colorScheme.label,
+            }}
+          >
+            {label}
+          </Typography>
+          {/* TTS button for non-user messages */}
+          {!isUser && message.content && (
+            <Tooltip title={isPlaying ? 'Stop' : 'Play'}>
+              <IconButton
+                size="small"
+                onClick={handleTTS}
+                sx={{
+                  p: 0.5,
+                  color: isPlaying ? 'error.main' : 'text.secondary',
+                  '&:hover': {
+                    backgroundColor: isPlaying ? 'error.light' : 'action.hover',
+                  },
+                }}
+              >
+                {isPlaying ? <StopIcon sx={{ fontSize: 18 }} /> : <VolumeUpIcon sx={{ fontSize: 18 }} />}
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
         <Box
           sx={{
             '& p': { margin: 0, marginBottom: 1 },

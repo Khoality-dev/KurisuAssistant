@@ -53,6 +53,11 @@ export const ChatWidget: React.FC = () => {
   const [activeConversationId, setActiveConversationId] = useState<number | null>(
     currentConversation?.id || null
   );
+  const [ttsVoice, setTtsVoice] = useState<string>(storage.getTTSVoice() || '');
+  const [ttsLanguage, setTtsLanguage] = useState<string>(storage.getTTSLanguage() || '');
+  const [ttsBackend, setTtsBackend] = useState<string>(storage.getTTSBackend() || '');
+  const [ttsVoices, setTtsVoices] = useState<string[]>([]);
+  const [ttsBackends, setTtsBackends] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -130,6 +135,36 @@ export const ChatWidget: React.FC = () => {
       storage.setSelectedModel(selectedModel);
     }
   }, [selectedModel]);
+
+  // Load TTS voices and backends on mount
+  useEffect(() => {
+    const loadTTSOptions = async () => {
+      try {
+        const [voices, backends] = await Promise.all([
+          apiClient.listVoices(),
+          apiClient.listBackends(),
+        ]);
+        setTtsVoices(voices);
+        setTtsBackends(backends);
+      } catch (error) {
+        console.error('Failed to load TTS options:', error);
+      }
+    };
+    loadTTSOptions();
+  }, []);
+
+  // Save TTS settings to localStorage whenever they change
+  useEffect(() => {
+    if (ttsBackend) storage.setTTSBackend(ttsBackend);
+  }, [ttsBackend]);
+
+  useEffect(() => {
+    if (ttsVoice) storage.setTTSVoice(ttsVoice);
+  }, [ttsVoice]);
+
+  useEffect(() => {
+    if (ttsLanguage) storage.setTTSLanguage(ttsLanguage);
+  }, [ttsLanguage]);
 
   useEffect(() => {
     setActiveConversationId(currentConversation?.id || null);
@@ -382,7 +417,7 @@ export const ChatWidget: React.FC = () => {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Top bar with model selector */}
+      {/* Top bar with model and TTS selectors */}
       <Paper
         elevation={0}
         sx={{
@@ -392,6 +427,7 @@ export const ChatWidget: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           gap: 2,
+          flexWrap: 'wrap',
         }}
       >
         <FormControl size="small" sx={{ minWidth: 200 }}>
@@ -416,6 +452,44 @@ export const ChatWidget: React.FC = () => {
         >
           <RefreshIcon />
         </IconButton>
+
+        {/* TTS Backend Selector */}
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <InputLabel>TTS Backend</InputLabel>
+          <Select
+            value={ttsBackend}
+            label="TTS Backend"
+            onChange={(e) => setTtsBackend(e.target.value)}
+          >
+            <MenuItem value="">
+              <em>Default</em>
+            </MenuItem>
+            {ttsBackends.map((backend) => (
+              <MenuItem key={backend} value={backend}>
+                {backend}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        {/* TTS Voice Selector */}
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <InputLabel>TTS Voice</InputLabel>
+          <Select
+            value={ttsVoice}
+            label="TTS Voice"
+            onChange={(e) => setTtsVoice(e.target.value)}
+          >
+            <MenuItem value="">
+              <em>Default</em>
+            </MenuItem>
+            {ttsVoices.map((voice) => (
+              <MenuItem key={voice} value={voice}>
+                {voice}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
       </Paper>
 
       {/* Messages area */}
@@ -452,6 +526,9 @@ export const ChatWidget: React.FC = () => {
               justFinishedStreaming={justFinishedStreaming}
               expandedThinking={expandedThinking}
               onToggleThinking={toggleThinking}
+              ttsVoice={ttsVoice}
+              ttsLanguage={ttsLanguage}
+              ttsBackend={ttsBackend}
             />
           ))}
         </AnimatePresence>

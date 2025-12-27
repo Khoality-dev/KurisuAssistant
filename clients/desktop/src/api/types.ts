@@ -48,3 +48,22 @@ export interface UserProfile {
   agent_avatar_uuid?: string;
   assistant_avatar_uuid?: string; // Alias for agent_avatar_uuid
 }
+
+export interface VoicesResponse {
+  voices: string[];
+}
+
+export interface BackendsResponse {
+  backends: string[];
+}
+
+export interface TTSRequest {
+  text: string;
+  voice?: string;
+  language?: string;
+  provider?: string;
+  // INDEX-TTS emotion parameters
+  emo_audio?: string;
+  emo_alpha?: number;
+  use_emo_text?: boolean;
+}

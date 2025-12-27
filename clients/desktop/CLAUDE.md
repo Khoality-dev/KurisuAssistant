@@ -35,13 +35,15 @@ KurisuAssistant-Client-Windows/
 │   │   ├── MainWindow.tsx     # Main layout with sidebar
 │   │   ├── ChatWidget.tsx     # Chat interface with streaming
 │   │   └── MessageBubble.tsx  # Individual message bubble component
+│   ├── hooks/             # Custom React hooks
+│   │   └── useTTS.ts      # TTS audio synthesis and playback hook
 │   ├── store/             # Zustand state management
 │   │   ├── authStore.ts       # Authentication state & actions
 │   │   └── conversationStore.ts # Conversation & message state
 │   ├── theme/             # Material-UI theming
 │   │   └── theme.ts       # ChatGPT-inspired theme configuration
 │   ├── utils/             # Utility functions
-│   │   └── storage.ts     # localStorage wrapper for token persistence
+│   │   └── storage.ts     # localStorage wrapper for token and settings persistence
 │   ├── config.ts          # App configuration (API URL)
 │   ├── App.tsx            # Root component with theme provider
 │   └── main.tsx           # React entry point
@@ -175,6 +177,8 @@ KurisuAssistant-Client-Windows/
   - `justFinishedStreaming`: Whether streaming just finished (for "Done" indicator)
   - `expandedThinking`: Set of indices with expanded thinking panels
   - `onToggleThinking`: Callback to toggle thinking panel expansion
+  - `ttsVoice`: Optional TTS voice name for synthesis
+  - `ttsLanguage`: Optional TTS language code
 - **Responsibilities**:
   - Renders message bubble with role-based styling
   - Handles thinking section with expand/collapse
@@ -182,6 +186,13 @@ KurisuAssistant-Client-Windows/
   - Displays images from user or markdown
   - Shows "Done" indicator when streaming completes
   - Sequential typing effect (thinking first, then content)
+  - **TTS Playback**: Speaker button for non-user messages to play/stop audio
+- **TTS Integration**:
+  - Uses `useTTS()` hook for audio synthesis and playback
+  - Speaker button appears next to role label for assistant/tool/agent messages
+  - Click to play message content as speech, click again to stop
+  - Visual feedback: Icon changes from VolumeUp to Stop when playing
+  - Uses configured voice and language from settings
 - **Benefits**:
   - Cleaner code organization (extracted from ChatWidget)
   - Easier to maintain and test
@@ -190,15 +201,58 @@ KurisuAssistant-Client-Windows/
 #### `src/components/SettingsWindow.tsx`
 - Settings page for user preferences and customization
 - Accessible via Settings icon in MainWindow sidebar
-- **Features**:
+- **Tabbed Interface** using Material-UI Tabs:
+
+  **Tab 1: Account Settings (Backend)**
+  - Icon: AccountCircleIcon
   - **User Avatar Upload**: Upload and preview user avatar image
   - **Agent Avatar Upload**: Upload and preview agent/assistant avatar image
   - **Preferred Name**: Set how the agent should address the user
   - **System Prompt**: Custom instructions for agent behavior (multiline text area)
+  - **Save Button**: "Save Account Settings" - Updates backend via `PATCH /users/me`
+  - Data stored in backend database (persists across devices)
+
+  **Tab 2: TTS Settings (Client-side)**
+  - Icon: VolumeUpIcon
+  - **TTS Backend**: Dropdown selector for TTS provider (gpt-sovits, index-tts, etc.)
+  - **TTS Voice**: Dropdown selector for available voices (dynamically loaded from backend)
+  - **TTS Language**: Text field for language code (e.g., "en", "ja", "zh")
+  - **TTS Auto-Play**: Toggle switch to automatically play assistant messages
+  - **Emotion Controls** (INDEX-TTS only, shown when backend is "index-tts"):
+    - **Emotion Reference Audio**: Dropdown to select emotion voice from available voices
+    - **Emotion Strength**: Slider (0.0 - 1.0) to control emotion intensity
+    - **Infer emotion from text**: Toggle to enable text-based emotion inference
+  - **Save Button**: "Save TTS Settings" - Updates localStorage only
+  - Data stored in localStorage (client-specific preferences)
+
+- **Tab Navigation**: Smooth transitions with Framer Motion animations
 - **Avatar Preview**: Shows current avatar or default fallback
-- **Form Handling**: Uses FormData to send text fields and image files together
-- **Success/Error Messages**: Material-UI Alerts for user feedback
+- **Success/Error Messages**: Material-UI Alerts displayed above tabs
 - **Back Navigation**: Arrow button returns to chat interface
+
+### Custom Hooks
+
+#### `src/hooks/useTTS.ts`
+- Custom React hook for TTS (Text-to-Speech) functionality
+- **State**:
+  - `isPlaying`: Boolean indicating if audio is currently playing
+  - `voices`: Array of available voice names (strings) from backend
+  - `backends`: Array of available TTS backend names (e.g., ["gpt-sovits", "index-tts"])
+- **Methods**:
+  - `speak(text, voice?, language?, backend?)`: Synthesize and play text as speech
+    - Calls `apiClient.synthesize()` to get audio Blob
+    - Supports backend selection (gpt-sovits, index-tts, etc.)
+    - Creates Audio element and plays it
+    - Manages object URL lifecycle (creation and revocation)
+    - Stops previous audio if playing
+  - `stop()`: Stop current audio playback
+  - `loadVoices()`: Fetch available voices from backend (`GET /tts/voices`)
+  - `loadBackends()`: Fetch available TTS backends from backend (`GET /tts/backends`)
+- **Audio Management**:
+  - Uses `useRef` for current audio element and audio URL
+  - Cleanup effect on unmount to prevent memory leaks
+  - Event handlers for audio end and error events
+- **Usage**: Import and call `useTTS()` to get `{speak, stop, isPlaying, voices, loadVoices, backends, loadBackends}`
 
 ### State Management (Zustand)
 
@@ -287,6 +341,13 @@ Built with Axios and native Fetch API in singleton pattern (`apiClient`).
 - `updateUserProfile(profile)`: Update user settings (accepts Partial<UserProfile> or FormData for file uploads)
 - `uploadImage(file)`: Upload image file, returns `{image_uuid, url}`
 - `getImageUrl(uuid)`: Constructs full image URL from UUID for display
+- **`synthesize(text, voice?, language?)`**: Synthesize speech from text, returns audio Blob
+  - Calls `POST /tts` with JSON body
+  - Returns audio data as Blob for playback
+  - Uses Axios with `responseType: 'blob'`
+- **`listVoices()`**: Get available TTS voices from backend
+  - Calls `GET /tts/voices`
+  - Returns `string[]` of voice names (scanned from reference/ folder)
 
 **Error Handling**:
 - Network errors caught by try/catch in components
@@ -325,9 +386,11 @@ The app implements persistent authentication via localStorage:
 
 **Storage Layer** (`src/utils/storage.ts`):
 - Encapsulates localStorage access for persistent data
-- Keys: `kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`
+- Keys: `kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_tts_auto_play`, `kurisu_tts_emo_audio`, `kurisu_tts_emo_alpha`, `kurisu_tts_use_emo_text`
 - **Auth Methods**: `setToken()`, `getToken()`, `clearToken()`, `setRememberMe()`, `getRememberMe()`
 - **Model Selection Methods**: `setSelectedModel()`, `getSelectedModel()`
+- **TTS Settings Methods**: `setTTSBackend()`, `getTTSBackend()`, `setTTSVoice()`, `getTTSVoice()`, `setTTSLanguage()`, `getTTSLanguage()`, `setTTSAutoPlay()`, `getTTSAutoPlay()`
+- **TTS Emotion Settings Methods** (INDEX-TTS): `setTTSEmotionAudio()`, `getTTSEmotionAudio()`, `setTTSEmotionAlpha()`, `getTTSEmotionAlpha()`, `setTTSUseEmotionText()`, `getTTSUseEmotionText()`
 
 **Auth Store** (`src/store/authStore.ts`):
 - `rememberMe` state tracked in Zustand store

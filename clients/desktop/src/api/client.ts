@@ -7,6 +7,9 @@ import type {
   Message,
   StreamChunk,
   UserProfile,
+  VoicesResponse,
+  BackendsResponse,
+  TTSRequest,
 } from './types';
 
 class APIClient {
@@ -200,8 +203,24 @@ class APIClient {
     return response.data;
   }
 
-  async updateUserProfile(profile: Partial<UserProfile> | FormData): Promise<any> {
-    const response = await this.client.put('/users/me', profile, {
+  async updateUserProfile(profile: Partial<UserProfile>): Promise<any> {
+    const response = await this.client.patch('/users/me', profile, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async updateUserAvatars(userAvatar?: File, agentAvatar?: File): Promise<any> {
+    const formData = new FormData();
+
+    if (userAvatar) {
+      formData.append('user_avatar', userAvatar);
+    }
+    if (agentAvatar) {
+      formData.append('agent_avatar', agentAvatar);
+    }
+
+    const response = await this.client.patch('/users/me/avatars', formData, {
       headers: this.getHeaders(),
     });
     return response.data;
@@ -219,6 +238,64 @@ class APIClient {
 
   getImageUrl(uuid: string): string {
     return `${config.apiBaseUrl}/images/${uuid}`;
+  }
+
+  // TTS Methods
+
+  /**
+   * Synthesize speech from text and return audio blob
+   */
+  async synthesize(
+    text: string,
+    voice?: string,
+    language?: string,
+    backend?: string,
+    emotionParams?: {
+      emo_audio?: string;
+      emo_alpha?: number;
+      use_emo_text?: boolean;
+    }
+  ): Promise<Blob> {
+    const requestData: TTSRequest = {
+      text,
+      voice,
+      language,
+      provider: backend, // Map 'backend' to 'provider' for API
+      ...emotionParams, // Spread emotion parameters if provided
+    };
+
+    const response = await this.client.post('/tts', requestData, {
+      headers: {
+        ...this.getHeaders(),
+        'Content-Type': 'application/json',
+      },
+      responseType: 'blob',
+      timeout: 300000, // 5 minutes timeout for TTS generation (can take a while for long texts)
+    });
+
+    return response.data;
+  }
+
+  /**
+   * List available TTS voices (scans reference/ folder)
+   */
+  async listVoices(backend?: string): Promise<string[]> {
+    const params = backend ? { provider: backend } : {};
+    const response = await this.client.get<VoicesResponse>('/tts/voices', {
+      headers: this.getHeaders(),
+      params,
+    });
+    return response.data.voices;
+  }
+
+  /**
+   * List available TTS backends
+   */
+  async listBackends(): Promise<string[]> {
+    const response = await this.client.get<BackendsResponse>('/tts/backends', {
+      headers: this.getHeaders(),
+    });
+    return response.data.backends;
   }
 }
 
