@@ -31,7 +31,7 @@ def chat(
 
     This function is a PURE LLM INTERFACE - it knows nothing about users, conversations,
     chunks, or database. All business logic (context loading, prompt building, user
-    preferences) must be handled by the caller (llm_hub.py).
+    preferences) must be handled by the caller (main.py).
 
     Args:
         model_name: LLM model to use

@@ -56,18 +56,6 @@ services:
     tty: true
     restart: unless-stopped
 
-  tts-hub:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: tts-hub-container
-    command: ["uvicorn", "tts_hub:app", "--host", "0.0.0.0", "--port", "15598"]
-    ports:
-      - "15598:15598"
-    environment:
-      - TTS_API_URL=http://gpt-sovits-container:9880/tts
-    tty: true
-    restart: unless-stopped
 
   postgres:
     image: postgres:16

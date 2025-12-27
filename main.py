@@ -11,7 +11,7 @@ import torch
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Body, Depends, Form, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastmcp.client import Client as FastMCPClient
 from transformers import pipeline
@@ -22,6 +22,7 @@ from auth import authenticate_user, create_access_token, get_current_user
 from db import services as db_services
 from db.session import get_session
 import llm_adapter
+import tts_adapter
 from context import manager as context_manager
 from prompts import builder as prompt_builder
 from helpers.utils import get_current_time
@@ -75,6 +76,7 @@ app = FastAPI(
         {"name": "users", "description": "User profile management"},
         {"name": "mcp", "description": "MCP server management"},
         {"name": "images", "description": "Image upload and retrieval"},
+        {"name": "tts", "description": "Text-to-speech synthesis"},
     ]
 )
 
@@ -513,38 +515,73 @@ async def get_user_profile(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.put("/users/me", tags=["users"])
+@app.patch("/users/me", tags=["users"])
 async def update_user_profile(
-    system_prompt: str = Form(None),
-    preferred_name: str = Form(None),
+    request: Request,
+    username: str = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
+    """Update user profile fields (text only). Use PATCH /users/me/avatars for avatar uploads."""
+    try:
+        body = await request.json()
+        system_prompt = body.get("system_prompt")
+        preferred_name = body.get("preferred_name")
+
+        if system_prompt is not None or preferred_name is not None:
+            db_services.update_user_preferences(username, system_prompt, preferred_name)
+            return {"status": "ok", "message": "Profile updated successfully"}
+        else:
+            return {"status": "ok", "message": "No changes"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating user profile for {username}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/users/me/avatars", tags=["users"])
+async def update_user_avatars(
     user_avatar: UploadFile = File(None),
     agent_avatar: UploadFile = File(None),
     username: str = Depends(get_authenticated_user),
     db: Session = Depends(get_db)
 ):
+    """Update user and/or agent avatar images."""
     try:
-        # Update preferences using the combined function
-        if system_prompt is not None or preferred_name is not None:
-            db_services.update_user_preferences(username, system_prompt, preferred_name)
+        updated_avatars = {}
 
-        # Handle avatar updates
-        if user_avatar is not None:
-            if user_avatar.size > 0:  # File was uploaded
-                user_avatar_uuid = image_operations.upload_image(user_avatar)
-                db_services.update_user_avatar(username, "user", user_avatar_uuid)
-            else:
-                # Empty file means clear avatar
-                db_services.update_user_avatar(username, "user", None)
+        # Handle user avatar
+        if user_avatar is not None and user_avatar.filename:
+            try:
+                file_size = user_avatar.size if hasattr(user_avatar, 'size') else 0
+                if file_size > 0:
+                    user_avatar_uuid = image_operations.upload_image(user_avatar)
+                    db_services.update_user_avatar(username, "user", user_avatar_uuid)
+                    updated_avatars["user_avatar_uuid"] = user_avatar_uuid
+                else:
+                    db_services.update_user_avatar(username, "user", None)
+                    updated_avatars["user_avatar_uuid"] = None
+            except Exception as e:
+                logger.warning(f"Error processing user avatar: {e}")
+                raise HTTPException(status_code=400, detail=f"Invalid user avatar: {e}")
 
-        if agent_avatar is not None:
-            if agent_avatar.size > 0:  # File was uploaded
-                agent_avatar_uuid = image_operations.upload_image(agent_avatar)
-                db_services.update_user_avatar(username, "agent", agent_avatar_uuid)
-            else:
-                # Empty file means clear avatar
-                db_services.update_user_avatar(username, "agent", None)
+        # Handle agent avatar
+        if agent_avatar is not None and agent_avatar.filename:
+            try:
+                file_size = agent_avatar.size if hasattr(agent_avatar, 'size') else 0
+                if file_size > 0:
+                    agent_avatar_uuid = image_operations.upload_image(agent_avatar)
+                    db_services.update_user_avatar(username, "agent", agent_avatar_uuid)
+                    updated_avatars["agent_avatar_uuid"] = agent_avatar_uuid
+                else:
+                    db_services.update_user_avatar(username, "agent", None)
+                    updated_avatars["agent_avatar_uuid"] = None
+            except Exception as e:
+                logger.warning(f"Error processing agent avatar: {e}")
+                raise HTTPException(status_code=400, detail=f"Invalid agent avatar: {e}")
 
-        # Get the updated avatar UUIDs to return to client
+        # Get current avatar UUIDs
         user_avatar_uuid, agent_avatar_uuid = db_services.get_user_avatars(username)
 
         return {
@@ -552,8 +589,11 @@ async def update_user_profile(
             "user_avatar_uuid": user_avatar_uuid,
             "agent_avatar_uuid": agent_avatar_uuid
         }
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error updating user profile for {username}: {e}", exc_info=True)
+        logger.error(f"Error updating avatars for {username}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -634,6 +674,91 @@ async def get_image(image_uuid: str):
     )
 
 
+# ============================================================================
+# TTS Endpoints
+# ============================================================================
+
+@app.post("/tts", tags=["tts"])
+async def synthesize_speech(
+    text: str = Body(..., embed=True),
+    voice: str = Body(None, embed=True),
+    language: str = Body(None, embed=True),
+    provider: str = Body(None, embed=True),
+    username: str = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
+    """Synthesize speech from text.
+
+    Args:
+        text: Text to synthesize
+        voice: Voice identifier (optional, provider-specific)
+        language: Language code (optional, e.g., "en", "ja")
+        provider: TTS provider to use (optional, defaults to TTS_PROVIDER env var or "gpt-sovits")
+
+    Returns:
+        Audio data as WAV file
+    """
+    try:
+        audio_data = tts_adapter.synthesize(
+            text=text,
+            voice=voice,
+            language=language,
+            provider=provider
+        )
+        # save audio_data to disk
+        with open("speech.wav", "wb") as f:
+            f.write(audio_data)
+        
+        return Response(
+            content=audio_data,
+            media_type="audio/wav",
+            headers={
+                "Content-Disposition": "attachment; filename=speech.wav"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error synthesizing speech for user {username}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/tts/voices", tags=["tts"])
+async def list_tts_voices(
+    provider: str = None,
+    username: str = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
+    """List available TTS voices.
+
+    Args:
+        provider: TTS provider to use (optional, defaults to TTS_PROVIDER env var or "gpt-sovits")
+
+    Returns:
+        List of voice metadata dictionaries
+    """
+    try:
+        voices = tts_adapter.list_voices(provider=provider)
+        return {"voices": voices}
+    except Exception as e:
+        logger.error(f"Error listing TTS voices for user {username}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/tts/backends", tags=["tts"])
+async def list_tts_backends(
+    username: str = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
+    """List available TTS backends.
+
+    Returns:
+        List of backend names (e.g., gpt-sovits, cosyvoice, fish-speech)
+    """
+    try:
+        backends = tts_adapter.list_backends()
+        return {"backends": backends}
+    except Exception as e:
+        logger.error(f"Error listing TTS backends for user {username}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

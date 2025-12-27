@@ -33,4 +33,4 @@ if %errorlevel% neq 0 (
 
 REM Start the application
 echo Starting llm-hub application...
-%VENV_PYTHON% -m uvicorn llm_hub:app --host 0.0.0.0 --port 15597 --reload
+%VENV_PYTHON% -m uvicorn main:app --host 0.0.0.0 --port 15597 --reload
