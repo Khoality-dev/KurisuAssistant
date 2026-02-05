@@ -7,7 +7,7 @@ Usage:
 """
 import logging
 import sys
-from db.services import init_db
+from db.init import init_db
 
 # Configure logging
 logging.basicConfig(

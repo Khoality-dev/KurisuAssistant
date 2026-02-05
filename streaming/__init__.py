@@ -1,1 +1,0 @@
-"""Streaming response formatting utilities."""
