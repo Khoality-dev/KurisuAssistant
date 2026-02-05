@@ -59,9 +59,11 @@ def upgrade() -> None:
         WHERE agents.username = users.username
     """)
 
-    # Step 6: Drop old foreign key constraints
+    # Step 6: Drop old foreign key constraints and unique constraints
     op.drop_constraint('conversations_username_fkey', 'conversations', type_='foreignkey')
     op.drop_constraint('agents_username_fkey', 'agents', type_='foreignkey')
+    # Drop unique constraint BEFORE dropping username column (constraint depends on column)
+    op.drop_constraint('uq_agent_username_name', 'agents', type_='unique')
 
     # Step 7: Make user_id NOT NULL
     op.alter_column('conversations', 'user_id', nullable=False)
@@ -85,8 +87,7 @@ def upgrade() -> None:
     op.create_foreign_key('conversations_user_id_fkey', 'conversations', 'users', ['user_id'], ['id'])
     op.create_foreign_key('agents_user_id_fkey', 'agents', 'users', ['user_id'], ['id'])
 
-    # Step 13: Drop old unique constraint on agents (username, name) and create new one (user_id, name)
-    op.drop_constraint('uq_agent_username_name', 'agents', type_='unique')
+    # Step 13: Create new unique constraint for agents (user_id, name)
     op.create_unique_constraint('uq_agent_user_id_name', 'agents', ['user_id', 'name'])
 
     # Step 14: Rename chunks table to frames
