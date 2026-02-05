@@ -28,58 +28,46 @@ The codebase uses a **Repository Pattern** with a generic base class:
 db/
 ├── models.py          # SQLAlchemy ORM models
 ├── session.py         # Session management with connection pooling
-├── services.py        # High-level business logic (delegates to repositories)
 └── repositories/
     ├── base.py        # BaseRepository[T] with generic CRUD
     ├── user.py        # UserRepository
     ├── conversation.py # ConversationRepository
-    ├── chunk.py       # ChunkRepository
-    └── message.py     # MessageRepository
+    ├── frame.py       # FrameRepository (context frames)
+    ├── message.py     # MessageRepository
+    └── agent.py       # AgentRepository
 ```
 
-**Key Pattern**: `db/services.py` functions use context managers (`with get_session()`) for automatic transaction handling and delegate to repository classes for database operations.
+**Key Pattern**: Repository classes use context managers (`with get_session()`) for automatic transaction handling. Routers and handlers call repository methods directly.
 
 ### LLM Integration Architecture
 
 The LLM integration follows a **clean separation of concerns** with modular components:
 
 ```
-main.py (business logic - users, conversations, chunks, DB)
-  ├─> context/manager.py (load messages from DB)
-  ├─> prompts/builder.py (build system prompts from user preferences)
-  ├─> mcp_tools/orchestrator.py (get tools, inject conversation_id)
-  └─> llm_adapter.py (pure LLM interface - no DB knowledge)
-        └─> llm_providers/ollama_provider.py (LLM API calls)
+routers/chat.py (business logic - users, conversations, frames, DB)
+  ├─> utils/prompts.py (build system prompts from user preferences)
+  └─> llm/ (pure LLM interface - no DB knowledge)
+        └─> llm/providers/ollama_provider.py (LLM API calls)
 ```
 
 **Key Modules**:
 
-1. **`llm_adapter.py`** - Pure LLM interface (NO business logic)
-   - Orchestrates LLM calls with streaming and tool execution
-   - NO knowledge of users, conversations, chunks, or database
-   - Handles sentence chunking by delimiters (`.`, `\n`, `?`, `:`, `!`, `;`)
-   - Delegates to `llm_providers` for actual LLM API calls
+1. **`llm/`** - LLM provider package
+   - Pure LLM interface (NO business logic)
+   - NO knowledge of users, conversations, frames, or database
+   - Delegates to providers for actual LLM API calls
 
-2. **`llm_providers/`** - LLM provider abstraction
+2. **`llm/providers/`** - LLM provider abstraction
    - `base.py`: Abstract `BaseLLMProvider` interface
    - `ollama_provider.py`: Ollama implementation
    - `__init__.py`: Factory function `create_llm_provider()`
    - Supports multiple LLM backends (Ollama, OpenAI, etc.)
 
-3. **`context/manager.py`** - Context loading utilities
-   - Stateless functions to load chunk messages from database
-   - No in-memory caching (context loaded fresh on each request)
-
-4. **`prompts/builder.py`** - System prompt building
-   - `load_global_system_prompt()`: Load from `prompts/AGENT.md`
+3. **`utils/prompts.py`** - System prompt building
    - `build_system_messages()`: Combine global + user prompts + timestamp + preferred name
+   - Loads global prompt from `SYSTEM_PROMPT.md`
 
-5. **`mcp_tools/orchestrator.py`** - MCP tool management
-   - Singleton `MCPOrchestrator` for tool caching (30-second TTL)
-   - `get_tools()`: Get cached tools
-   - `execute_tool_calls()`: Execute tools with conversation_id injection
-
-**Important**: All business logic (context, prompts, user preferences, database) is handled in `main.py` BEFORE calling `llm_adapter.chat()`. The adapter is a pure LLM communication layer.
+**Important**: All business logic (context, prompts, user preferences, database) is handled in routers BEFORE calling `llm.chat()`. The LLM module is a pure communication layer.
 
 ### MCP (Model Context Protocol) Integration
 
@@ -244,14 +232,15 @@ db/alembic/versions/
 JWT-based authentication with bcrypt password hashing:
 
 ```python
-# Token generation (auth/operations.py)
+# Token generation (core/security.py)
 - Algorithm: HS256
 - Expiration: 30 days (configurable via ACCESS_TOKEN_EXPIRE_DAYS)
 - Secret: JWT_SECRET_KEY environment variable
 
 # Protected endpoints
 - Dependency: Depends(get_authenticated_user)
-- Returns: username string
+- Returns: User object (detached from session)
+- Use: user.id for DB operations, user.username for API responses
 - Raises: HTTPException(401) if invalid
 ```
 
@@ -312,22 +301,17 @@ except Exception as e:
 
 ### Context Management
 
-Context is managed in `ollama_adapter.py` using module-level state:
+Context is loaded fresh on each request from the database:
 
 ```python
-# Context keyed by (conversation_id, chunk_id)
-_contexts = {
-    (conv_id, chunk_id): {
-        "messages": [...],  # List of message dicts
-        "loaded": True      # Whether chunk messages loaded from DB
-    }
-}
+# Context loaded per request via frame_id
+messages = msg_repo.get_by_frame(frame_id, limit=1000)
 ```
 
 **Context loading**:
-- Lazy-loaded from database on first chat request
-- Cached in memory for subsequent requests
-- No explicit TTL - context persists until server restart
+- Loaded from database on each chat request
+- No in-memory caching (stateless design)
+- Messages organized by frame (context window)
 
 ### Database Sessions
 
@@ -353,7 +337,7 @@ async def stream():
         yield json.dumps({
             "message": sentence_chunk,
             "conversation_id": conversation_id,
-            "chunk_id": chunk_id
+            "frame_id": frame_id
         }) + "\n"
 
         # Group by role for database
@@ -366,9 +350,9 @@ async def stream():
             current_content += sentence_chunk["content"]
 
     # Save complete paragraphs to database (grouped by role)
-    db_services.create_message(username, user_message, ...)  # User message (not streamed to frontend)
+    msg_repo.create_message(role, message, frame_id)  # User message (not streamed to frontend)
     for msg in grouped_messages:  # Complete assistant/tool paragraphs
-        db_services.create_message(username, msg, ...)
+        msg_repo.create_message(role, message, frame_id)
 
     # IMPORTANT: Send "done" signal to frontend
     yield json.dumps({"done": True}) + "\n"
@@ -385,7 +369,7 @@ return StreamingResponse(
 
 **All chunks include**:
 - `conversation_id`: Conversation ID (may be auto-created)
-- `chunk_id`: Chunk ID
+- `frame_id`: Frame ID (context frame)
 - `message`: Sentence fragments for real-time streaming (assistant/tool responses only)
   - May include `thinking` field in the final message chunk (only for assistant messages with thinking enabled)
 
@@ -470,20 +454,22 @@ When adding new database operations:
 
 1. Add methods to appropriate repository class (`db/repositories/*.py`)
 2. Keep repositories focused on data access (CRUD operations)
-3. Business logic stays in `db/services.py`
+3. Business logic stays in routers/handlers
 4. Use repository methods within `with get_session()` context
 
 Example:
 ```python
-def some_operation(username: str) -> ResultType:
+def some_operation(user: User) -> ResultType:
     with get_session() as session:
         user_repo = UserRepository(session)
         conv_repo = ConversationRepository(session)
         # Multiple repos can share same session for transactions
-        user = user_repo.get_by_username(username)
-        conversation = conv_repo.create_conversation(username)
+        # Use user.id (not username) for all DB operations
+        conversation = conv_repo.create_conversation(user.id)
         return result
 ```
+
+**Important**: All repositories use `user_id: int` instead of `username: str` for ownership checks. The `get_authenticated_user` dependency returns a User object - use `user.id` for DB operations.
 
 ## Environment Configuration
 
@@ -515,8 +501,9 @@ INDEX_TTS_API_URL=http://localhost:19770  # For INDEX-TTS
 Main tables with relationships:
 
 ```
-User (PK: username)
-├── username: String
+User (PK: id)
+├── id: Integer (auto-increment)
+├── username: String (unique)
 ├── password: Text (bcrypt hash)
 ├── system_prompt: Text
 ├── preferred_name: Text
@@ -525,12 +512,12 @@ User (PK: username)
 
 Conversation (PK: id)
 ├── id: Integer
-├── username: FK → users.username
+├── user_id: FK → users.id
 ├── title: Text
 ├── created_at: DateTime
 └── updated_at: DateTime
 
-Chunk (PK: id)
+Frame (PK: id) - context frames
 ├── id: Integer
 ├── conversation_id: FK → conversations.id
 ├── created_at: DateTime
@@ -539,14 +526,25 @@ Chunk (PK: id)
 Message (PK: id)
 ├── id: Integer
 ├── role: Text (user/assistant/tool)
-├── username: String (denormalized)
 ├── message: Text
 ├── thinking: Text (nullable, for assistant messages)
-├── chunk_id: FK → chunks.id
+├── frame_id: FK → frames.id
+└── created_at: DateTime
+
+Agent (PK: id)
+├── id: Integer
+├── user_id: FK → users.id
+├── name: String
+├── system_prompt: Text
+├── voice_reference: String
+├── avatar_uuid: String
+├── model_name: String
+├── tools: JSON
+├── is_main: Boolean
 └── created_at: DateTime
 ```
 
-**Chunk Model**: Chunks segment conversations into context windows. Each chunk contains a sequence of messages. When context exceeds limits or user explicitly creates a new chunk, messages go into a new chunk.
+**Frame Model**: Frames segment conversations into context windows. Each frame contains a sequence of messages. When context exceeds limits or user explicitly creates a new frame, messages go into a new frame.
 
 ## API Endpoint Structure
 
@@ -632,19 +630,19 @@ Stream chat responses with LLM. Returns JSON Lines (newline-delimited JSON).
 
 **Response**: Streaming JSON Lines
 ```jsonl
-{"message": {"role": "assistant", "content": "...", "created_at": "..."}, "conversation_id": 1, "chunk_id": 1}
-{"message": {"role": "assistant", "content": "...", "created_at": "..."}, "conversation_id": 1, "chunk_id": 1}
-{"message": {"role": "tool", "content": "...", "tool_call_id": "...", "created_at": "..."}, "conversation_id": 1, "chunk_id": 1}
+{"message": {"role": "assistant", "content": "...", "created_at": "..."}, "conversation_id": 1, "frame_id": 1}
+{"message": {"role": "assistant", "content": "...", "created_at": "..."}, "conversation_id": 1, "frame_id": 1}
+{"message": {"role": "tool", "content": "...", "tool_call_id": "...", "created_at": "..."}, "conversation_id": 1, "frame_id": 1}
 {"done": true}
 ```
 **Note**:
 - User message is saved to database but NOT streamed to frontend
-- All agent response chunks include `conversation_id` and `chunk_id`
+- All agent response chunks include `conversation_id` and `frame_id`
 - Final chunk contains `{"done": true}` to signal streaming completion
 
 **All chunks include**:
 - `conversation_id`: Auto-created if null was provided
-- `chunk_id`: Current chunk ID
+- `frame_id`: Current frame ID (context frame)
 - `message`: Agent response message (assistant or tool role only)
 
 **Message roles**: "assistant", "tool" (user messages not streamed)
@@ -711,7 +709,7 @@ Get conversation details with messages.
       "id": 1,
       "role": "user",
       "content": "Hello",
-      "chunk_id": 1,
+      "frame_id": 1,
       "created_at": "2025-01-15T10:30:00"
     },
     ...
@@ -758,13 +756,13 @@ Delete conversation and all its messages.
 
 **Error (404)**: Conversation not found
 
-#### `GET /conversations/{conversation_id}/chunks` (Protected)
-List all chunks in a conversation.
+#### `GET /conversations/{conversation_id}/frames` (Protected)
+List all frames in a conversation.
 
 **Response**:
 ```json
 {
-  "chunks": [
+  "frames": [
     {
       "id": 1,
       "conversation_id": 1,
@@ -981,24 +979,24 @@ List available TTS backends.
 Conversations are **NOT** created via explicit API call:
 
 1. User sends message with `conversation_id=None` to `POST /chat`
-2. Backend auto-creates conversation and chunk
-3. First streaming response includes `conversation_id` and `chunk_id`
+2. Backend auto-creates conversation and frame
+3. First streaming response includes `conversation_id` and `frame_id`
 4. Frontend updates state with returned IDs
 
 **Rationale**: Eliminates empty conversations and simplifies client code.
 
-### Chunk Management
+### Frame Management
 
-Chunk management is **fully automatic and internal** - clients never see or specify `chunk_id`:
+Frame management is **fully automatic and internal** - clients never see or specify `frame_id`:
 
-- Chunks are auto-created on first message to new conversation
-- Backend always continues on the latest chunk for each conversation
-- `chunk_id` is returned in streaming responses for client state tracking only
-- Clients cannot specify which chunk to use (this is an internal implementation detail)
+- Frames are auto-created on first message to new conversation
+- Backend always continues on the latest frame for each conversation
+- `frame_id` is returned in streaming responses for client state tracking only
+- Clients cannot specify which frame to use (this is an internal implementation detail)
 
 ### Message Persistence
 
-Messages are saved **after streaming completes** in `main.py`:
+Messages are saved **after streaming completes** in routers:
 
 ```python
 # In stream() function
@@ -1010,7 +1008,7 @@ async for chunk in response_generator:
 
 # After streaming
 for msg in messages_to_save:
-    db_services.create_message(username, msg, conversation_id, chunk_id)
+    msg_repo.create_message(role, message, frame_id)
 ```
 
 Each message is a **new database row** - no append/upsert logic.

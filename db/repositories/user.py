@@ -48,24 +48,20 @@ class UserRepository(BaseRepository[User]):
 
     def update_preferences(
         self,
-        username: str,
+        user: User,
         system_prompt: Optional[str] = None,
         preferred_name: Optional[str] = None,
-    ) -> Optional[User]:
+    ) -> User:
         """Update user preferences.
 
         Args:
-            username: Username to update
+            user: User instance to update
             system_prompt: New system prompt (optional)
             preferred_name: New preferred name (optional)
 
         Returns:
-            Updated User instance or None if user not found
+            Updated User instance
         """
-        user = self.get_by_username(username)
-        if not user:
-            return None
-
         update_data = {}
         if system_prompt is not None:
             update_data["system_prompt"] = system_prompt
@@ -77,17 +73,17 @@ class UserRepository(BaseRepository[User]):
         return user
 
     def update_avatar(
-        self, username: str, avatar_type: str, avatar_uuid: Optional[str]
-    ) -> Optional[User]:
+        self, user: User, avatar_type: str, avatar_uuid: Optional[str]
+    ) -> User:
         """Update user avatar UUID.
 
         Args:
-            username: Username to update
+            user: User instance to update
             avatar_type: Either 'user' or 'agent'
             avatar_uuid: UUID of the avatar image or None to clear
 
         Returns:
-            Updated User instance or None if user not found
+            Updated User instance
 
         Raises:
             ValueError: If avatar_type is invalid
@@ -95,40 +91,30 @@ class UserRepository(BaseRepository[User]):
         if avatar_type not in ("user", "agent"):
             raise ValueError("avatar_type must be 'user' or 'agent'")
 
-        user = self.get_by_username(username)
-        if not user:
-            return None
-
         field_name = "user_avatar_uuid" if avatar_type == "user" else "agent_avatar_uuid"
         return self.update(user, **{field_name: avatar_uuid})
 
-    def get_preferences(self, username: str) -> Tuple[str, str]:
+    def get_preferences(self, user: User) -> Tuple[str, str]:
         """Get user preferences.
 
         Args:
-            username: Username to retrieve preferences for
+            user: User instance
 
         Returns:
             Tuple of (system_prompt, preferred_name)
         """
-        user = self.get_by_username(username)
-        if user:
-            return user.system_prompt or "", user.preferred_name or ""
-        return "", ""
+        return user.system_prompt or "", user.preferred_name or ""
 
-    def get_avatars(self, username: str) -> Tuple[Optional[str], Optional[str]]:
+    def get_avatars(self, user: User) -> Tuple[Optional[str], Optional[str]]:
         """Get user avatar UUIDs.
 
         Args:
-            username: Username to retrieve avatars for
+            user: User instance
 
         Returns:
             Tuple of (user_avatar_uuid, agent_avatar_uuid)
         """
-        user = self.get_by_username(username)
-        if user:
-            return user.user_avatar_uuid, user.agent_avatar_uuid
-        return None, None
+        return user.user_avatar_uuid, user.agent_avatar_uuid
 
     def admin_exists(self) -> bool:
         """Check if admin account exists.

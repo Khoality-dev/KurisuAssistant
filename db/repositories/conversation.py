@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
-from ..models import Conversation, Chunk
+from ..models import Conversation, Frame
 from .base import BaseRepository
 
 
@@ -18,55 +18,55 @@ class ConversationRepository(BaseRepository[Conversation]):
         """
         super().__init__(Conversation, session)
 
-    def create_conversation(self, username: str, title: str = "New conversation") -> Conversation:
+    def create_conversation(self, user_id: int, title: str = "New conversation") -> Conversation:
         """Create a new conversation for a user.
 
         Args:
-            username: Username who owns the conversation
+            user_id: User ID who owns the conversation
             title: Conversation title
 
         Returns:
             Created Conversation instance
         """
-        return self.create(username=username, title=title)
+        return self.create(user_id=user_id, title=title)
 
-    def get_by_user_and_id(self, username: str, conversation_id: int) -> Optional[Conversation]:
-        """Get conversation by username and ID.
+    def get_by_user_and_id(self, user_id: int, conversation_id: int) -> Optional[Conversation]:
+        """Get conversation by user ID and conversation ID.
 
         Args:
-            username: Username who owns the conversation
+            user_id: User ID who owns the conversation
             conversation_id: Conversation ID
 
         Returns:
             Conversation instance or None if not found
         """
-        return self.get_by_filter(username=username, id=conversation_id)
+        return self.get_by_filter(user_id=user_id, id=conversation_id)
 
-    def get_latest_by_user(self, username: str) -> Optional[Conversation]:
+    def get_latest_by_user(self, user_id: int) -> Optional[Conversation]:
         """Get the most recent conversation for a user.
 
         Args:
-            username: Username to search for
+            user_id: User ID to search for
 
         Returns:
             Most recent Conversation or None if no conversations exist
         """
         return (
             self.session.query(Conversation)
-            .filter_by(username=username)
+            .filter_by(user_id=user_id)
             .order_by(desc(Conversation.id))
             .first()
         )
 
-    def list_by_user(self, username: str, limit: int = 50) -> List[dict]:
+    def list_by_user(self, user_id: int, limit: int = 50) -> List[dict]:
         """List conversations with metadata for a user.
 
         Args:
-            username: Username to search for
+            user_id: User ID to search for
             limit: Maximum number of conversations to return
 
         Returns:
-            List of conversation dictionaries with chunk count metadata
+            List of conversation dictionaries with frame count metadata
         """
         conversations = (
             self.session.query(
@@ -74,10 +74,10 @@ class ConversationRepository(BaseRepository[Conversation]):
                 Conversation.title,
                 Conversation.created_at,
                 Conversation.updated_at,
-                func.count(Chunk.id).label("chunk_count"),
+                func.count(Frame.id).label("frame_count"),
             )
-            .outerjoin(Chunk, Conversation.id == Chunk.conversation_id)
-            .filter(Conversation.username == username)
+            .outerjoin(Frame, Conversation.id == Frame.conversation_id)
+            .filter(Conversation.user_id == user_id)
             .group_by(
                 Conversation.id,
                 Conversation.title,
@@ -91,7 +91,7 @@ class ConversationRepository(BaseRepository[Conversation]):
 
         result = []
         for conv in conversations:
-            chunk_count = conv.chunk_count or 0
+            frame_count = conv.frame_count or 0
 
             result.append(
                 {
@@ -103,19 +103,19 @@ class ConversationRepository(BaseRepository[Conversation]):
                         if conv.updated_at
                         else conv.created_at.isoformat()
                     ),
-                    "chunk_count": chunk_count,
+                    "frame_count": frame_count,
                 }
             )
 
         return result
 
     def update_title(
-        self, username: str, title: str, conversation_id: Optional[int] = None
+        self, user_id: int, title: str, conversation_id: Optional[int] = None
     ) -> Optional[Conversation]:
         """Update conversation title.
 
         Args:
-            username: Username who owns the conversation
+            user_id: User ID who owns the conversation
             title: New title
             conversation_id: Specific conversation ID, or None to update latest
 
@@ -123,9 +123,9 @@ class ConversationRepository(BaseRepository[Conversation]):
             Updated Conversation or None if not found
         """
         if conversation_id:
-            conversation = self.get_by_user_and_id(username, conversation_id)
+            conversation = self.get_by_user_and_id(user_id, conversation_id)
         else:
-            conversation = self.get_latest_by_user(username)
+            conversation = self.get_latest_by_user(user_id)
 
         if conversation:
             return self.update(conversation, title=title)
@@ -142,61 +142,15 @@ class ConversationRepository(BaseRepository[Conversation]):
         """
         return self.update(conversation, updated_at=datetime.utcnow())
 
-    def delete_by_user_and_id(self, username: str, conversation_id: int) -> bool:
-        """Delete a conversation by username and ID.
+    def delete_by_user_and_id(self, user_id: int, conversation_id: int) -> bool:
+        """Delete a conversation by user ID and conversation ID.
 
         Args:
-            username: Username who owns the conversation
+            user_id: User ID who owns the conversation
             conversation_id: Conversation ID to delete
 
         Returns:
             True if deleted, False if not found
         """
-        rows_deleted = self.delete_by_filter(username=username, id=conversation_id)
+        rows_deleted = self.delete_by_filter(user_id=user_id, id=conversation_id)
         return rows_deleted > 0
-
-    def get_summary(self, conversation_id: int) -> Optional[dict]:
-        """Get conversation summary with message counts and timestamps.
-
-        Args:
-            conversation_id: Conversation ID
-
-        Returns:
-            Dictionary with conversation metadata or None if not found
-        """
-        from ..models import Message
-
-        result = (
-            self.session.query(
-                Conversation.id,
-                Conversation.title,
-                Conversation.created_at,
-                Conversation.updated_at,
-                func.count(Message.id).label("message_count"),
-                func.min(Message.created_at).label("first_message"),
-                func.max(Message.created_at).label("last_message"),
-            )
-            .outerjoin(Chunk, Conversation.id == Chunk.conversation_id)
-            .outerjoin(Message, Chunk.id == Message.chunk_id)
-            .filter(Conversation.id == conversation_id)
-            .group_by(
-                Conversation.id,
-                Conversation.title,
-                Conversation.created_at,
-                Conversation.updated_at,
-            )
-            .first()
-        )
-
-        if not result:
-            return None
-
-        return {
-            "id": result[0],
-            "title": result[1] or "Untitled",
-            "created_at": result[2].strftime('%Y-%m-%d %H:%M') if result[2] else None,
-            "updated_at": result[3].strftime('%Y-%m-%d %H:%M') if result[3] else None,
-            "message_count": result[4] or 0,
-            "first_message": result[5].strftime('%Y-%m-%d %H:%M') if result[5] else None,
-            "last_message": result[6].strftime('%Y-%m-%d %H:%M') if result[6] else None,
-        }
