@@ -139,6 +139,7 @@ agents/
    - Equal-tier responders (all user-created agents)
    - Processes messages with LLM and tools
    - No special routing logic
+   - `_prepare_messages()` builds a unified system prompt: agent identity + agent's system_prompt + user's system_prompt + preferred_name + timestamp + other agent descriptions. System messages from conversation history are filtered out (already incorporated). Administrator messages are also filtered.
 
 **Turn-Based Flow**:
 ```
@@ -249,6 +250,7 @@ main.py (business logic)
 - Backend selector in ChatWidget for per-session switching
 - All settings stored in localStorage (client-specific)
 - Automatic discovery of available backends via `/tts/backends` endpoint
+- **Streaming TTS Auto-Play**: When enabled, sentences are batched and synthesized in parallel during streaming, then played sequentially via a FIFO queue. Sentence boundaries (`.!?。！？\n`) trigger immediate synthesis. Buffer is flushed on stream completion or agent switch.
 
 See `TTS_FRONTEND_INTEGRATION.md` for detailed examples of integrating TTS playback in React, TypeScript, and vanilla JavaScript applications.
 
@@ -627,6 +629,7 @@ Message (PK: id)
 ├── thinking: Text (nullable, for assistant messages)
 ├── raw_input: Text (nullable, JSON of messages array sent to LLM)
 ├── raw_output: Text (nullable, full concatenated LLM response)
+├── name: String (nullable, display name - agent name or tool name)
 ├── frame_id: FK → frames.id
 ├── agent_id: FK → agents.id (nullable, SET NULL on delete)
 └── created_at: DateTime
@@ -1197,6 +1200,16 @@ When LLM returns tool calls:
 4. Continues streaming with tool context
 
 All tool messages saved to database after streaming completes.
+
+### Agent Tool Access Control
+
+Agents only receive tools they are assigned in their configuration:
+
+- `Agent.tools` (JSON array in DB) stores the list of tool names the agent can use
+- `SimpleAgent.process()` calls `tool_registry.get_schemas(config.tools)` — only assigned tools are sent to the LLM
+- If `tools` is empty or `None`, the agent gets **no tools** (not all tools)
+- `execute_tool()` enforces access: if agent tries to call an unassigned tool, the call is rejected with a warning log
+- The Administrator agent is separate — it only has routing tools (`route_to_agent`, `route_to_user`), not the global registry
 
 ## Running Tests
 

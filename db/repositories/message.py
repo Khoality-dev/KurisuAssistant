@@ -26,6 +26,7 @@ class MessageRepository(BaseRepository[Message]):
         created_at: Optional[datetime] = None,
         thinking: Optional[str] = None,
         agent_id: Optional[int] = None,
+        name: Optional[str] = None,
         raw_input: Optional[str] = None,
         raw_output: Optional[str] = None,
     ) -> Message:
@@ -38,6 +39,7 @@ class MessageRepository(BaseRepository[Message]):
             created_at: Creation timestamp (optional)
             thinking: Thinking content (optional, for assistant messages)
             agent_id: Agent ID that sent this message (optional)
+            name: Display name - agent name or tool name (optional)
             raw_input: JSON string of messages array sent to LLM (optional)
             raw_output: Full concatenated LLM response text (optional)
 
@@ -55,6 +57,8 @@ class MessageRepository(BaseRepository[Message]):
             data["thinking"] = thinking
         if agent_id is not None:
             data["agent_id"] = agent_id
+        if name is not None:
+            data["name"] = name
         if raw_input is not None:
             data["raw_input"] = raw_input
         if raw_output is not None:

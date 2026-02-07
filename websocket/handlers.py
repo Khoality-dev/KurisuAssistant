@@ -126,7 +126,7 @@ class ChatSessionHandler:
         """
         try:
             # Setup conversation/frame
-            conversation_id, frame_id, system_messages = await self._setup_conversation(event)
+            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name = await self._setup_conversation(event)
 
             # Reset accumulated state for new task
             self._accumulated_messages = []
@@ -277,6 +277,8 @@ class ChatSessionHandler:
                 model_name=event.model_name or DEFAULT_ADMIN_MODEL,
                 handler=self,
                 available_agents=available_agents,
+                user_system_prompt=user_system_prompt,
+                preferred_name=preferred_name,
             )
 
             # Build agent lookup
@@ -386,18 +388,23 @@ class ChatSessionHandler:
                 # Update context with agent's model
                 agent_context.model_name = current_agent.model_name or event.model_name or DEFAULT_ADMIN_MODEL
 
-                # Capture raw input (messages sent to LLM) before processing
-                raw_input_json = json.dumps(conversation_messages, ensure_ascii=False, default=str)
-
                 # Collect agent's response
                 agent_response = ""
                 agent_thinking = ""
                 current_role = "assistant"
                 chunk_content = ""
                 chunk_thinking = ""
+                raw_input_json = None  # Captured from agent's prepared messages on first chunk
 
                 # Stream agent response
                 async for chunk in agent.process(conversation_messages, agent_context):
+                    # Capture raw input on first chunk (prepared messages are set before first yield)
+                    if raw_input_json is None:
+                        raw_input_json = json.dumps(
+                            getattr(agent, 'last_prepared_messages', conversation_messages),
+                            ensure_ascii=False, default=str,
+                        )
+
                     # Attach agent voice reference for TTS
                     chunk.voice_reference = current_agent.voice_reference
                     # Send to client immediately
@@ -499,11 +506,11 @@ class ChatSessionHandler:
                 code="INTERNAL_ERROR",
             ))
 
-    async def _setup_conversation(self, event: ChatRequestEvent) -> tuple[int, int, list]:
+    async def _setup_conversation(self, event: ChatRequestEvent) -> tuple[int, int, list, str, str]:
         """Setup conversation, frame, and system messages.
 
         Returns:
-            Tuple of (conversation_id, frame_id, system_messages)
+            Tuple of (conversation_id, frame_id, system_messages, user_system_prompt, preferred_name)
         """
         with get_session() as session:
             conv_repo = ConversationRepository(session)
@@ -536,7 +543,7 @@ class ChatSessionHandler:
         # Build system messages
         system_messages = build_system_messages(system_prompt, preferred_name)
 
-        return conversation_id, frame_id, system_messages
+        return conversation_id, frame_id, system_messages, system_prompt, preferred_name or ""
 
     def _load_user_agents(self) -> List[AgentConfig]:
         """Load all agents for the current user."""
@@ -735,6 +742,7 @@ class ChatSessionHandler:
                     frame_id=frame_id,
                     thinking=msg.get("thinking"),
                     agent_id=msg.get("agent_id"),
+                    name=msg.get("agent_name"),
                     raw_input=msg.get("raw_input"),
                     raw_output=msg.get("raw_output"),
                 )

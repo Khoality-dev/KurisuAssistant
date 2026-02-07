@@ -51,6 +51,7 @@ class Message(Base):
     thinking = Column(Text, nullable=True)
     raw_input = Column(Text, nullable=True)   # JSON: messages array sent to LLM
     raw_output = Column(Text, nullable=True)  # Full concatenated LLM response
+    name = Column(String, nullable=True)  # Display name (agent name or tool name)
     frame_id = Column(Integer, ForeignKey('frames.id', ondelete='CASCADE'), index=True)
     agent_id = Column(Integer, ForeignKey('agents.id', ondelete='SET NULL'), nullable=True)  # Which agent sent this message
     created_at = Column(DateTime, default=datetime.utcnow)

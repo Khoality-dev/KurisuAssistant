@@ -59,6 +59,8 @@ class AgentContext:
     model_name: str = ""
     handler: Optional["ChatSessionHandler"] = None
     available_agents: List[AgentConfig] = field(default_factory=list)
+    user_system_prompt: str = ""
+    preferred_name: str = ""
 
 
 class BaseAgent(ABC):
@@ -103,6 +105,11 @@ class BaseAgent(ABC):
         Returns:
             Tool execution result
         """
+        # Enforce tool access: agent can only use its assigned tools
+        if self.config.tools and tool_name not in self.config.tools:
+            logger.warning(f"Agent '{self.config.name}' tried to use unassigned tool: {tool_name}")
+            return f"Tool not available: {tool_name}"
+
         tool = self.tool_registry.get(tool_name)
 
         if require_approval and tool and tool.requires_approval:
@@ -255,10 +262,12 @@ class SimpleAgent(BaseAgent):
     ) -> List[Dict]:
         """Prepare messages for LLM by filtering and enriching.
 
+        - Builds a unified system prompt with agent persona + user preferences
+        - Filters out system messages from conversation history (already incorporated)
         - Filters out Administrator routing messages
         - Adds speaker name prefix to agent/tool messages
-        - Prepends agent descriptions and own system prompt
         """
+        import datetime
         from agents.administrator import ADMINISTRATOR_NAME
 
         # Build agent descriptions for context
@@ -269,23 +278,31 @@ class SimpleAgent(BaseAgent):
             desc = agent.system_prompt[:150] if agent.system_prompt else "General assistant"
             agent_descriptions.append(f"- {agent.name}: {desc}")
 
-        # Build system prompt with agent identity and context
+        # Build unified system prompt: agent persona + user preferences
         system_parts = []
         system_parts.append(f"You are {self.config.name}.")
         if self.config.system_prompt:
             system_parts.append(self.config.system_prompt)
+        if context.user_system_prompt:
+            system_parts.append(context.user_system_prompt)
+        if context.preferred_name:
+            system_parts.append(f"The user prefers to be called: {context.preferred_name}")
+        system_parts.append(f"Current time: {datetime.datetime.utcnow().isoformat()}")
         if agent_descriptions:
             system_parts.append(
                 "Other agents in this conversation:\n" + "\n".join(agent_descriptions)
             )
 
         prepared = []
-        if system_parts:
-            prepared.append({"role": "system", "content": "\n\n".join(system_parts)})
+        prepared.append({"role": "system", "content": "\n\n".join(system_parts)})
 
         for msg in messages:
             role = msg.get("role", "user")
             agent_name = msg.get("agent_name", "")
+
+            # Skip system messages — already incorporated into agent's system prompt
+            if role == "system":
+                continue
 
             # Filter out Administrator messages (routing decisions)
             if agent_name == ADMINISTRATOR_NAME:
@@ -293,14 +310,22 @@ class SimpleAgent(BaseAgent):
 
             content = msg.get("content", "")
 
-            # Add speaker name prefix for non-system messages
-            if role == "user":
-                content = f"[User]: {content}"
-            elif agent_name and role != "system":
-                content = f"[{agent_name}]: {content}"
+            # Ollama roles:
+            #   "assistant" = this agent's own messages
+            #   "tool"      = tool results from this agent's tool calls
+            #   "user"      = everyone else (user, other agents, their tool results)
+            is_self = agent_name and agent_name == self.config.name
 
-            # Map roles for Ollama compatibility
-            chat_role = "user" if role == "user" else ("system" if role == "system" else "assistant")
+            if is_self and role == "tool":
+                chat_role = "tool"
+            elif is_self:
+                chat_role = "assistant"
+            else:
+                chat_role = "user"
+                if role == "user":
+                    content = f"[User]: {content}"
+                elif agent_name:
+                    content = f"[{agent_name}]: {content}"
 
             prepared.append({"role": chat_role, "content": content})
 
@@ -319,8 +344,11 @@ class SimpleAgent(BaseAgent):
         # Prepare messages: filter Administrator, add speaker names, inject agent descriptions
         messages = self._prepare_messages(messages, context)
 
-        # Get tools for this agent
-        tool_schemas = self.tool_registry.get_schemas(self.config.tools or None)
+        # Expose prepared messages for raw_input logging
+        self.last_prepared_messages = messages
+
+        # Get tools for this agent (only assigned tools; empty list = no tools)
+        tool_schemas = self.tool_registry.get_schemas(self.config.tools if self.config.tools else [])
 
         # Determine model
         model = self.config.model_name or context.model_name

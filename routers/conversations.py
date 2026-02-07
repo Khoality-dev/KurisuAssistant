@@ -62,6 +62,8 @@ async def get_conversation(
                     "created_at": msg.created_at.isoformat(),
                     "has_raw_data": bool(msg.raw_input or msg.raw_output),
                 }
+                if msg.name:
+                    message_dict["name"] = msg.name
                 if msg.thinking:
                     message_dict["thinking"] = msg.thinking
                 if msg.agent_id:

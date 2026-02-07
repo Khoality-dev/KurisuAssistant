@@ -22,22 +22,19 @@ logger = logging.getLogger(__name__)
 ADMINISTRATOR_NAME = "Administrator"
 
 # System prompt for the Administrator
-ADMINISTRATOR_SYSTEM_PROMPT = """You are a conversation router (Administrator). Your job is to analyze messages and route them to the appropriate agents.
+ADMINISTRATOR_SYSTEM_PROMPT = """You moderate a group chat. Everyone — the user and the agents — are equal participants. Your only job is to decide who speaks next using the routing tools.
 
-You have two routing tools:
-1. route_to_agent - Route to a specific agent. You can call this MULTIPLE TIMES to route to several agents sequentially.
-2. route_to_user - Return control to the user when all responses are complete.
+Tools:
+- route_to_agent: Let an agent speak. Call multiple times to queue several.
+- route_to_user: Let the user speak (it's their turn).
 
-ROUTING RULES:
-- If the user's message involves multiple agents, call route_to_agent for EACH relevant agent in order.
-- If only one agent is needed, call route_to_agent once.
-- If an agent's response contains a question for the user, route to user.
-- If an agent mentions another agent by name or asks for their help, route to that agent.
-- If an agent's response is a complete answer with no pending questions, route to user.
-- If an agent explicitly addresses the user, route to user.
-- When in doubt, route to user.
+Guidelines:
+- If someone is addressed or mentioned by name, let them speak.
+- If multiple people would naturally want to chime in, queue them.
+- When the conversation needs user input or feels like the user's turn, route to user.
+- Not every message needs a reply from everyone — let it flow naturally.
 
-You MUST use the routing tools to make your decision. Do not respond with text."""
+You MUST call a routing tool. Do not reply with text."""
 
 
 def _build_chat_messages(
@@ -144,12 +141,12 @@ class AdministratorAgent:
         latest_content = latest_message.get("content", "")
         latest_agent = latest_message.get("agent_name", "User")
 
-        instruction = f"""Available agents: {', '.join(agent_names)}
+        instruction = f"""People in this chat: {', '.join(agent_names)}, User
 
-Latest message from {latest_agent}:
+{latest_agent} just said:
 {latest_content}
 
-Use a routing tool to decide who should receive this message."""
+Who speaks next? Use a routing tool."""
 
         messages = _build_chat_messages(
             ADMINISTRATOR_SYSTEM_PROMPT,
@@ -299,12 +296,12 @@ Use a routing tool to decide who should receive this message."""
         latest_content = latest_message.get("content", "")
         latest_agent = latest_message.get("agent_name", "User")
 
-        instruction = f"""Available agents: {', '.join(agent_names)}
+        instruction = f"""People in this chat: {', '.join(agent_names)}, User
 
-Latest message from {latest_agent}:
+{latest_agent} just said:
 {latest_content}
 
-Use a routing tool to decide who should receive this message."""
+Who speaks next? Use a routing tool."""
 
         messages = _build_chat_messages(
             ADMINISTRATOR_SYSTEM_PROMPT,
@@ -431,17 +428,17 @@ Use a routing tool to decide who should receive this message."""
             desc = f"- {agent.name}: {agent.system_prompt[:100]}..." if agent.system_prompt else f"- {agent.name}: General assistant"
             agent_descriptions.append(desc)
 
-        instruction = f"""Select which agent should handle this user message.
+        instruction = f"""The user just spoke. Who speaks next?
 
-Available agents:
+People in this chat:
 {chr(10).join(agent_descriptions)}
 
-User's message: {user_message[:500]}
+User said: {user_message[:500]}
 
-Use route_to_agent to select the best agent for this task."""
+Use route_to_agent to pick who responds. You can pick multiple people."""
 
         messages = _build_chat_messages(
-            "You are an agent selector. Use route_to_agent to select the best agent(s). You can call route_to_agent multiple times to select several agents sequentially.",
+            ADMINISTRATOR_SYSTEM_PROMPT,
             conversation_history,
             instruction,
         )
@@ -590,17 +587,17 @@ Use route_to_agent to select the best agent for this task."""
             desc = f"- {agent.name}: {agent.system_prompt[:100]}..." if agent.system_prompt else f"- {agent.name}: General assistant"
             agent_descriptions.append(desc)
 
-        instruction = f"""Select which agent should handle this user message.
+        instruction = f"""The user just spoke. Who speaks next?
 
-Available agents:
+People in this chat:
 {chr(10).join(agent_descriptions)}
 
-User's message: {user_message[:500]}
+User said: {user_message[:500]}
 
-Use route_to_agent to select the best agent for this task."""
+Use route_to_agent to pick who responds. You can pick multiple people."""
 
         messages = _build_chat_messages(
-            "You are an agent selector. Use route_to_agent to select the best agent(s). You can call route_to_agent multiple times to select several agents sequentially.",
+            ADMINISTRATOR_SYSTEM_PROMPT,
             conversation_history,
             instruction,
         )
