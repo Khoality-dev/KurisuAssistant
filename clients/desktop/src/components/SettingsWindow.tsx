@@ -57,8 +57,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
 
   // TTS settings
   const [ttsBackend, setTtsBackend] = useState(storage.getTTSBackend() || 'gpt-sovits');
-  const [ttsVoice, setTtsVoice] = useState(storage.getTTSVoice() || '');
-  const [ttsLanguage, setTtsLanguage] = useState(storage.getTTSLanguage() || 'ja');
+  const [gptSovitsUrl, setGptSovitsUrl] = useState(storage.getGPTSoVITSUrl() || '');
   const [ttsAutoPlay, setTtsAutoPlay] = useState(storage.getTTSAutoPlay());
 
   // INDEX-TTS emotion settings
@@ -161,8 +160,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
     try {
       // Save TTS settings to localStorage only
       storage.setTTSBackend(ttsBackend);
-      storage.setTTSVoice(ttsVoice);
-      storage.setTTSLanguage(ttsLanguage);
+      storage.setGPTSoVITSUrl(gptSovitsUrl);
       storage.setTTSAutoPlay(ttsAutoPlay);
 
       // Save INDEX-TTS emotion settings
@@ -365,35 +363,15 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
             </FormControl>
           </Box>
 
-          {/* TTS Voice */}
-          <Box sx={{ mb: 3 }}>
-            <FormControl fullWidth>
-              <InputLabel>Voice</InputLabel>
-              <Select
-                value={ttsVoice}
-                label="Voice"
-                onChange={(e) => setTtsVoice(e.target.value)}
-              >
-                <MenuItem value="">
-                  <em>Default</em>
-                </MenuItem>
-                {voices.map((voice) => (
-                  <MenuItem key={voice} value={voice}>
-                    {voice}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Box>
-
-          {/* TTS Language */}
+          {/* GPT-SoVITS Server URL */}
           <Box sx={{ mb: 3 }}>
             <TextField
-              label="Language Code"
-              value={ttsLanguage}
-              onChange={(e) => setTtsLanguage(e.target.value)}
+              label="GPT-SoVITS Server URL"
+              value={gptSovitsUrl}
+              onChange={(e) => setGptSovitsUrl(e.target.value)}
               fullWidth
-              helperText='Language code (e.g., "en", "ja", "zh")'
+              placeholder="http://localhost:9880/tts"
+              helperText="Leave empty to use the default server"
             />
           </Box>
 

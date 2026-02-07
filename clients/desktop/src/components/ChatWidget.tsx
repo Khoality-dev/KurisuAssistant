@@ -46,9 +46,8 @@ export const ChatWidget: React.FC = () => {
   const [activeConversationId, setActiveConversationId] = useState<number | null>(
     currentConversation?.id || null
   );
-  const [ttsVoice] = useState<string>(storage.getTTSVoice() || '');
-  const [ttsLanguage] = useState<string>(storage.getTTSLanguage() || '');
   const [ttsBackend] = useState<string>(storage.getTTSBackend() || '');
+  const [ttsApiUrl] = useState<string>(storage.getGPTSoVITSUrl() || '');
   const [showAdministrator, setShowAdministrator] = useState<boolean>(storage.getShowAdministrator());
 
   // Ref to track streaming state without stale closures
@@ -554,9 +553,8 @@ export const ChatWidget: React.FC = () => {
                   justFinishedStreaming={index === arr.length - 1 && justFinishedStreaming}
                   expandedThinking={expandedThinking}
                   onToggleThinking={toggleThinking}
-                  ttsVoice={ttsVoice}
-                  ttsLanguage={ttsLanguage}
                   ttsBackend={ttsBackend}
+                  ttsApiUrl={ttsApiUrl}
                 />
               );
             });

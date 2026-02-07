@@ -34,9 +34,8 @@ interface MessageBubbleProps {
   expandedThinking: Set<number>;
   onToggleThinking: (index: number) => void;
   onRegenerate?: (messageIndex: number) => void;
-  ttsVoice?: string;
-  ttsLanguage?: string;
   ttsBackend?: string;
+  ttsApiUrl?: string;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -52,9 +51,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   expandedThinking,
   onToggleThinking,
   onRegenerate,
-  ttsVoice,
-  ttsLanguage,
   ttsBackend,
+  ttsApiUrl,
 }) => {
   const isStreamingThisMessage = isLast && message.role !== 'user' && isStreaming;
   const showFinishedIndicator = isLast && message.role !== 'user' && justFinishedStreaming && !isStreaming;
@@ -96,7 +94,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               }
             : undefined;
 
-        await speak(message.content, ttsVoice, ttsLanguage, ttsBackend, emotionParams);
+        await speak(message.content, undefined, undefined, ttsBackend, emotionParams, ttsApiUrl);
       } catch (error) {
         console.error('Failed to play TTS:', error);
       }

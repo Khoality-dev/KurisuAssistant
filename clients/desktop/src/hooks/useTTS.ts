@@ -49,7 +49,8 @@ export function useTTS() {
         emo_audio?: string;
         emo_alpha?: number;
         use_emo_text?: boolean;
-      }
+      },
+      apiUrl?: string,
     ) => {
       try {
         // Stop current audio if playing
@@ -67,7 +68,7 @@ export function useTTS() {
         setIsPlaying(true);
 
         // Synthesize speech
-        const audioBlob = await apiClient.synthesize(text, voice, language, backend, emotionParams);
+        const audioBlob = await apiClient.synthesize(text, voice, language, backend, emotionParams, apiUrl);
 
         // Create audio element
         const audioUrl = URL.createObjectURL(audioBlob);

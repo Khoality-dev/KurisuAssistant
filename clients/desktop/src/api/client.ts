@@ -176,13 +176,15 @@ class APIClient {
       emo_audio?: string;
       emo_alpha?: number;
       use_emo_text?: boolean;
-    }
+    },
+    apiUrl?: string,
   ): Promise<Blob> {
     const requestData: TTSRequest = {
       text,
       voice,
       language,
       provider: backend, // Map 'backend' to 'provider' for API
+      api_url: apiUrl || undefined,
       ...emotionParams, // Spread emotion parameters if provided
     };
 

@@ -11,6 +11,7 @@ const STORAGE_KEYS = {
   TTS_LANGUAGE: 'kurisu_tts_language',
   TTS_AUTO_PLAY: 'kurisu_tts_auto_play',
   TTS_BACKEND: 'kurisu_tts_backend',
+  GPT_SOVITS_URL: 'kurisu_gpt_sovits_url',
   SHOW_ADMINISTRATOR: 'kurisu_show_administrator',
 } as const;
 
@@ -239,6 +240,23 @@ export const storage = {
     } catch (error) {
       console.error('Failed to get TTS use emotion text:', error);
       return false;
+    }
+  },
+
+  setGPTSoVITSUrl(url: string): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.GPT_SOVITS_URL, url);
+    } catch (error) {
+      console.error('Failed to save GPT-SoVITS URL:', error);
+    }
+  },
+
+  getGPTSoVITSUrl(): string | null {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.GPT_SOVITS_URL);
+    } catch (error) {
+      console.error('Failed to get GPT-SoVITS URL:', error);
+      return null;
     }
   },
 
