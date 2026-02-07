@@ -1,26 +1,25 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   TextField,
   Button,
   IconButton,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
   Paper,
   Typography,
   Chip,
+  Tooltip,
 } from '@mui/material';
 import {
   Send as SendIcon,
   AttachFile as AttachFileIcon,
   Close as CloseIcon,
-  Refresh as RefreshIcon,
+  Visibility as VisibilityIcon,
+  VisibilityOff as VisibilityOffIcon,
+  Stop as StopIcon,
 } from '@mui/icons-material';
 import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '../store/conversationStore';
-import { apiClient } from '../api/client';
+import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, BaseEvent } from '../api/websocket';
 import { storage } from '../utils/storage';
 import { MessageBubble } from './MessageBubble';
 import type { Message } from '../api/types';
@@ -28,41 +27,59 @@ import type { Message } from '../api/types';
 export const ChatWidget: React.FC = () => {
   const {
     messages,
-    models,
-    selectedModel,
     currentConversation,
     hasMoreMessages,
     isLoadingMessages,
-    loadModels,
     loadMoreMessages,
-    setSelectedModel,
-    addMessage,
-    updateLastMessage,
+    loadConversation,
     setCurrentConversationId,
   } = useConversationStore();
 
   const [input, setInput] = useState('');
   const [images, setImages] = useState<File[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingMessages, setStreamingMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState('');
   const [streamingThinking, setStreamingThinking] = useState('');
-  const [displayedContent, setDisplayedContent] = useState(''); // For typing effect
-  const [displayedThinking, setDisplayedThinking] = useState(''); // For typing effect
   const [justFinishedStreaming, setJustFinishedStreaming] = useState(false);
-  const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set()); // Track which messages have thinking expanded
+  const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
   const [activeConversationId, setActiveConversationId] = useState<number | null>(
     currentConversation?.id || null
   );
-  const [ttsVoice, setTtsVoice] = useState<string>(storage.getTTSVoice() || '');
-  const [ttsLanguage, setTtsLanguage] = useState<string>(storage.getTTSLanguage() || '');
-  const [ttsBackend, setTtsBackend] = useState<string>(storage.getTTSBackend() || '');
-  const [ttsVoices, setTtsVoices] = useState<string[]>([]);
-  const [ttsBackends, setTtsBackends] = useState<string[]>([]);
+  const [ttsVoice] = useState<string>(storage.getTTSVoice() || '');
+  const [ttsLanguage] = useState<string>(storage.getTTSLanguage() || '');
+  const [ttsBackend] = useState<string>(storage.getTTSBackend() || '');
+  const [showAdministrator, setShowAdministrator] = useState<boolean>(storage.getShowAdministrator());
+
+  // Ref to track streaming state without stale closures
+  const isStreamingRef = useRef(false);
+
+  // Refs for streaming state (to avoid stale closures in callbacks)
+  const streamingStateRef = useRef({
+    currentRole: null as string | null,
+    currentAgentId: undefined as number | undefined,
+    currentAgentName: undefined as string | undefined,
+    accumulatedContent: '',
+    accumulatedThinking: '',
+    hasPlaceholder: false,
+    hasStarted: false,
+    conversationId: null as number | null,
+  });
+
+  useEffect(() => {
+    isStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
+  const toggleShowAdministrator = () => {
+    const newValue = !showAdministrator;
+    setShowAdministrator(newValue);
+    storage.setShowAdministrator(newValue);
+  };
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previousScrollHeightRef = useRef<number>(0);
-  const typingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const streamFrameRef = useRef<number | null>(null);
   const pendingStreamRef = useRef<{ content: string; thinking: string }>({ content: '', thinking: '' });
 
@@ -73,7 +90,7 @@ export const ChatWidget: React.FC = () => {
     }
   };
 
-  const scheduleStreamUpdate = (content: string, thinking: string) => {
+  const scheduleStreamUpdate = useCallback((content: string, thinking: string) => {
     pendingStreamRef.current = { content, thinking };
     if (streamFrameRef.current === null) {
       streamFrameRef.current = requestAnimationFrame(() => {
@@ -83,119 +100,29 @@ export const ChatWidget: React.FC = () => {
         streamFrameRef.current = null;
       });
     }
-  };
-
-  // Sequential typing effect: thinking first, then content
-  const startSequentialTypingEffect = () => {
-    if (typingIntervalRef.current) {
-      clearInterval(typingIntervalRef.current);
-      typingIntervalRef.current = null;
-    }
-
-    typingIntervalRef.current = setInterval(() => {
-      setDisplayedThinking((prevThinking) => {
-        // First, type out thinking
-        if (prevThinking.length < streamingThinking.length) {
-          return streamingThinking.slice(0, prevThinking.length + 2);
-        }
-
-        // Thinking is done, now type content
-        setDisplayedContent((prevContent) => {
-          if (prevContent.length < streamingContent.length) {
-            return streamingContent.slice(0, prevContent.length + 2);
-          }
-          // Both done, clear interval
-          if (typingIntervalRef.current) {
-            clearInterval(typingIntervalRef.current);
-            typingIntervalRef.current = null;
-          }
-          return prevContent;
-        });
-
-        return prevThinking;
-      });
-    }, 20);
-  };
-
-  useEffect(() => {
-    loadModels().catch(console.error);
-  }, [loadModels]);
-
-  // Load selected model from localStorage on mount
-  useEffect(() => {
-    const savedModel = storage.getSelectedModel();
-    if (savedModel && models.includes(savedModel)) {
-      setSelectedModel(savedModel);
-    }
-  }, [models, setSelectedModel]);
-
-  // Save selected model to localStorage whenever it changes
-  useEffect(() => {
-    if (selectedModel) {
-      storage.setSelectedModel(selectedModel);
-    }
-  }, [selectedModel]);
-
-  // Load TTS voices and backends on mount
-  useEffect(() => {
-    const loadTTSOptions = async () => {
-      try {
-        const [voices, backends] = await Promise.all([
-          apiClient.listVoices(),
-          apiClient.listBackends(),
-        ]);
-        setTtsVoices(voices);
-        setTtsBackends(backends);
-      } catch (error) {
-        console.error('Failed to load TTS options:', error);
-      }
-    };
-    loadTTSOptions();
   }, []);
-
-  // Save TTS settings to localStorage whenever they change
-  useEffect(() => {
-    if (ttsBackend) storage.setTTSBackend(ttsBackend);
-  }, [ttsBackend]);
-
-  useEffect(() => {
-    if (ttsVoice) storage.setTTSVoice(ttsVoice);
-  }, [ttsVoice]);
-
-  useEffect(() => {
-    if (ttsLanguage) storage.setTTSLanguage(ttsLanguage);
-  }, [ttsLanguage]);
 
   useEffect(() => {
     setActiveConversationId(currentConversation?.id || null);
-  }, [currentConversation]);
-
-  // Sequential typing effect - thinking first, then content
-  useEffect(() => {
-    if (!isStreaming) {
-      // Not streaming, clear any typing effects
-      if (typingIntervalRef.current) {
-        clearInterval(typingIntervalRef.current);
-        typingIntervalRef.current = null;
-      }
-      return;
-    }
-
-    // Reset and start sequential typing when streaming data changes
-    if (streamingThinking === '' && streamingContent === '') {
-      setDisplayedThinking('');
-      setDisplayedContent('');
-    } else {
-      startSequentialTypingEffect();
-    }
-
-    return () => {
-      if (typingIntervalRef.current) {
-        clearInterval(typingIntervalRef.current);
-        typingIntervalRef.current = null;
-      }
+    // Clear local streaming state when conversation changes
+    setStreamingMessages([]);
+    setStreamingContent('');
+    setStreamingThinking('');
+    setJustFinishedStreaming(false);
+    setIsStreaming(false);
+    isStreamingRef.current = false;
+    cancelStreamUpdate();
+    streamingStateRef.current = {
+      currentRole: null,
+      currentAgentId: undefined,
+      currentAgentName: undefined,
+      accumulatedContent: '',
+      accumulatedThinking: '',
+      hasPlaceholder: false,
+      hasStarted: false,
+      conversationId: currentConversation?.id || null,
     };
-  }, [streamingThinking, streamingContent, isStreaming]);
+  }, [currentConversation]);
 
   useEffect(() => {
     return () => {
@@ -213,12 +140,12 @@ export const ChatWidget: React.FC = () => {
     }
   }, [justFinishedStreaming]);
 
-  // Scroll to bottom on new messages (but not when loading more old messages)
+  // Scroll to bottom on new messages
   useEffect(() => {
     if (!isLoadingMessages) {
       messagesEndRef.current?.scrollIntoView({ behavior: isStreaming ? 'auto' : 'smooth' });
     }
-  }, [messages, displayedContent, isLoadingMessages, isStreaming]);
+  }, [messages, streamingMessages, streamingContent, isLoadingMessages, isStreaming]);
 
   // Preserve scroll position after loading more messages
   useEffect(() => {
@@ -233,12 +160,209 @@ export const ChatWidget: React.FC = () => {
     }
   }, [isLoadingMessages]);
 
+  // WebSocket event handlers
+  const handleStreamChunk = useCallback((event: StreamChunkEvent) => {
+    const state = streamingStateRef.current;
+
+    // Ignore events for a different conversation (prevents cross-conversation leaks)
+    if (event.conversation_id && state.conversationId && event.conversation_id !== state.conversationId) {
+      return;
+    }
+
+    // Auto-enter streaming mode on replayed chunks (reconnect scenario)
+    if (!isStreamingRef.current) {
+      setIsStreaming(true);
+      isStreamingRef.current = true;
+    }
+
+    // Track conversation ID
+    if (event.conversation_id && !state.conversationId) {
+      state.conversationId = event.conversation_id;
+      setActiveConversationId(event.conversation_id);
+      setCurrentConversationId(event.conversation_id).catch(console.error);
+    }
+
+    const messageRole = event.role;
+    const agentName = event.agent_name || undefined;
+    const agentId = event.agent_id ?? undefined;
+
+    // Check if we need to create a new bubble:
+    // - Role changed (user -> assistant -> tool)
+    // - Agent changed (Administrator -> Agent1 -> Administrator) - compare by name since admin may not have ID
+    const roleChanged = state.currentRole && messageRole !== state.currentRole;
+    const agentChanged = state.hasStarted && state.currentAgentName !== agentName;
+    const needsNewBubble = roleChanged || agentChanged;
+
+    if (needsNewBubble) {
+      // Finalize previous message content and add new bubble
+      setStreamingMessages(prev => {
+        const updated = [...prev];
+        if (updated.length > 0) {
+          updated[updated.length - 1] = {
+            ...updated[updated.length - 1],
+            content: state.accumulatedContent,
+            thinking: state.accumulatedThinking || undefined,
+          };
+        }
+        updated.push({
+          role: messageRole,
+          content: '',
+          agent_name: agentName,
+          agent_id: agentId,
+        });
+        return updated;
+      });
+
+      state.currentRole = messageRole;
+      state.currentAgentId = agentId;
+      state.currentAgentName = agentName;
+      state.accumulatedContent = event.content || '';
+      state.accumulatedThinking = '';
+
+      scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
+    } else if (!state.hasStarted) {
+      // First message chunk - update placeholder bubble
+      state.hasStarted = true;
+      state.currentRole = messageRole;
+      state.currentAgentId = agentId;
+      state.currentAgentName = agentName;
+      state.accumulatedContent = event.content || '';
+      state.accumulatedThinking = '';
+
+      if (state.hasPlaceholder) {
+        // Update placeholder with actual role/agent info
+        setStreamingMessages(prev => {
+          const updated = [...prev];
+          if (updated.length > 0) {
+            updated[updated.length - 1] = {
+              ...updated[updated.length - 1],
+              role: messageRole,
+              agent_name: agentName,
+              agent_id: agentId,
+            };
+          }
+          return updated;
+        });
+        state.hasPlaceholder = false;
+      } else {
+        setStreamingMessages(prev => [...prev, {
+          role: messageRole,
+          content: '',
+          agent_name: agentName,
+          agent_id: agentId,
+        }]);
+      }
+
+      scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
+    } else {
+      // Same role and agent, accumulate content
+      if (event.content) {
+        state.accumulatedContent += event.content;
+        scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
+      }
+    }
+
+    // Always accumulate thinking
+    if (event.thinking) {
+      state.accumulatedThinking += event.thinking;
+      scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
+    }
+  }, [setCurrentConversationId, scheduleStreamUpdate]);
+
+  const handleDone = useCallback((event: DoneEvent) => {
+    const state = streamingStateRef.current;
+
+    // Ignore done events for a different conversation
+    if (event.conversation_id && state.conversationId && event.conversation_id !== state.conversationId) {
+      return;
+    }
+
+    // Finalize last streaming message with accumulated content
+    setStreamingMessages(prev => {
+      if (prev.length === 0) return prev;
+      const updated = [...prev];
+      updated[updated.length - 1] = {
+        ...updated[updated.length - 1],
+        content: state.accumulatedContent,
+        thinking: state.accumulatedThinking || undefined,
+      };
+      return updated;
+    });
+
+    // Brief delay before showing "done" indicator
+    setTimeout(async () => {
+      cancelStreamUpdate();
+      setStreamingContent('');
+      setStreamingThinking('');
+      setJustFinishedStreaming(true);
+      setIsStreaming(false);
+
+      // Reload conversation to get proper message IDs, agent info, and has_raw_data flags
+      if (event.conversation_id) {
+        try {
+          await loadConversation(event.conversation_id);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      // Clear streaming messages after store is updated with DB records
+      setStreamingMessages([]);
+    }, 300);
+  }, [loadConversation]);
+
+  const handleError = useCallback((event: ErrorEvent) => {
+    console.error('WebSocket error:', event.error);
+    setStreamingMessages(prev => {
+      if (prev.length === 0) return prev;
+      const updated = [...prev];
+      updated[updated.length - 1] = {
+        ...updated[updated.length - 1],
+        content: 'Error: ' + event.error,
+      };
+      return updated;
+    });
+    cancelStreamUpdate();
+    setStreamingContent('');
+    setStreamingThinking('');
+    setIsStreaming(false);
+  }, []);
+
+  const handleReconnected = useCallback((_event: BaseEvent) => {
+    console.log('[ChatWidget] WebSocket reconnected, reloading conversation');
+    const convId = activeConversationId || streamingStateRef.current.conversationId;
+    if (convId) {
+      // Reload immediately to show whatever is saved
+      const reload = () => loadConversation(convId)
+        .then(() => setStreamingMessages([]))
+        .catch(console.error);
+
+      reload();
+      // Retry after delays to catch messages saved while disconnected
+      setTimeout(reload, 3000);
+      setTimeout(reload, 8000);
+    }
+  }, [activeConversationId, loadConversation]);
+
+  // Set up WebSocket event listeners
+  useEffect(() => {
+    wsManager.on('stream_chunk', handleStreamChunk);
+    wsManager.on('done', handleDone);
+    wsManager.on('error', handleError);
+    wsManager.on('reconnected', handleReconnected);
+
+    return () => {
+      wsManager.off('stream_chunk', handleStreamChunk);
+      wsManager.off('done', handleDone);
+      wsManager.off('error', handleError);
+      wsManager.off('reconnected', handleReconnected);
+    };
+  }, [handleStreamChunk, handleDone, handleError, handleReconnected]);
+
   // Handle scroll to load more messages
   const handleScroll = () => {
     const container = messagesContainerRef.current;
     if (!container || isLoadingMessages || !hasMoreMessages) return;
 
-    // If user scrolled near the top (within 100px), load more
     if (container.scrollTop < 100) {
       previousScrollHeightRef.current = container.scrollHeight;
       loadMoreMessages();
@@ -246,144 +370,93 @@ export const ChatWidget: React.FC = () => {
   };
 
   const handleSend = async () => {
-    if (!input.trim() || isStreaming || !selectedModel) return;
+    if (!input.trim() || isStreaming) return;
 
     setIsStreaming(true);
 
     try {
       // Upload images first and get UUIDs
-      const imageFiles = images; // Keep reference before clearing
-      const imageUuids: string[] = [];
+      const imageFiles = images;
+      const imageBase64: string[] = [];
       for (const imageFile of imageFiles) {
-        const result = await apiClient.uploadImage(imageFile);
-        imageUuids.push(result.image_uuid);
+        // Convert to base64 for WebSocket
+        const base64 = await fileToBase64(imageFile);
+        imageBase64.push(base64);
       }
 
       const userMessage: Message = {
         role: 'user',
         content: input,
-        images: imageUuids,
+        images: [], // Will be handled differently
       };
 
-      addMessage(userMessage);
-      addMessage({ role: 'assistant', content: '' });
+      // Add user message + placeholder to local streaming state (not store)
+      setStreamingMessages([userMessage, { role: 'assistant', content: '' }]);
+
+      // Reset streaming state
+      streamingStateRef.current = {
+        currentRole: null,
+        currentAgentId: undefined,
+        currentAgentName: undefined,
+        accumulatedContent: '',
+        accumulatedThinking: '',
+        hasPlaceholder: true,
+        hasStarted: false,
+        conversationId: activeConversationId,
+      };
+
       setInput('');
       setImages([]);
       setStreamingContent('');
       setStreamingThinking('');
-      setDisplayedContent(''); // Reset typing effect
-      setDisplayedThinking('');
-      setJustFinishedStreaming(false); // Clear previous "done" indicator
+      setJustFinishedStreaming(false);
 
-      // Will start with empty message from backend
-      let currentRole: string | null = null;
-      let hasPlaceholder = true;
-      let accumulatedContent = '';
-      let accumulatedThinking = ''; // Track thinking
-
-      const stream = apiClient.chatStream(
+      // Send via WebSocket
+      await wsManager.sendChatRequest(
         userMessage.content,
-        selectedModel,
+        '', // Model determined by backend
         activeConversationId,
-        imageFiles
+        null, // agent_id - let Administrator route
+        imageBase64
       );
-
-      let streamConversationId = activeConversationId;
-
-      for await (const chunk of stream) {
-        if (chunk.conversation_id && !streamConversationId) {
-          streamConversationId = chunk.conversation_id;
-          setActiveConversationId(chunk.conversation_id);
-          // Notify store to refresh conversation list if this is a new conversation
-          setCurrentConversationId(chunk.conversation_id).catch(console.error);
-        }
-
-        // Handle "done" signal from backend
-        if (chunk.done) {
-          // When streaming ends, update the store with final content and thinking
-          if (accumulatedContent || accumulatedThinking) {
-            updateLastMessage(accumulatedContent, accumulatedThinking || undefined);
-          }
-
-          // Brief delay before showing "done" indicator and clearing streaming state
-          setTimeout(() => {
-            cancelStreamUpdate();
-            setStreamingContent('');
-            setStreamingThinking('');
-            setJustFinishedStreaming(true);
-          }, 300);
-          break; // Exit the loop when done
-        }
-
-        // Handle message chunks
-        if (chunk.message) {
-          const messageRole = chunk.message.role;
-
-          // If role changes (e.g., assistant -> tool, or assistant -> agent), create new message
-          if (currentRole && messageRole !== currentRole) {
-            // Finalize previous message
-            updateLastMessage(accumulatedContent, accumulatedThinking || undefined);
-
-            // Start new message for different role (empty content initially)
-            const newMessage: Message = {
-              role: messageRole,
-              content: '' // Start empty - will display from streaming state
-            };
-            addMessage(newMessage);
-            currentRole = messageRole;
-            accumulatedContent = chunk.message.content || '';
-            accumulatedThinking = '';
-            setDisplayedThinking('');
-
-            // Update streaming content immediately
-            scheduleStreamUpdate(accumulatedContent, accumulatedThinking);
-          } else if (!currentRole) {
-            // First message chunk - reuse placeholder bubble
-            currentRole = messageRole;
-            accumulatedContent = chunk.message.content || '';
-            accumulatedThinking = '';
-            setDisplayedThinking('');
-
-            if (hasPlaceholder) {
-              updateLastMessage(accumulatedContent, accumulatedThinking || undefined, messageRole);
-              hasPlaceholder = false;
-            } else {
-              const firstMessage: Message = {
-                role: messageRole,
-                content: '' // Start empty - will display from streaming state
-              };
-              addMessage(firstMessage);
-            }
-
-            // Update streaming content immediately
-            scheduleStreamUpdate(accumulatedContent, accumulatedThinking);
-          } else {
-            // Same role, accumulate content
-            if (chunk.message.content) {
-              accumulatedContent += chunk.message.content;
-              scheduleStreamUpdate(accumulatedContent, accumulatedThinking);
-            }
-          }
-
-          // Always accumulate thinking regardless of role logic (simple append to thinking section)
-          if (chunk.message.thinking) {
-            accumulatedThinking += chunk.message.thinking;
-            scheduleStreamUpdate(accumulatedContent, accumulatedThinking);
-          }
-        }
-      }
     } catch (err: any) {
       console.error('Chat error:', err);
-      // Only update if we have a message to update
-      if (messages.length > 0) {
-        updateLastMessage('Error: ' + (err.message || 'Failed to send message'));
-      }
+      setStreamingMessages(prev => {
+        if (prev.length === 0) return prev;
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          ...updated[updated.length - 1],
+          content: 'Error: ' + (err.message || 'Failed to send message'),
+        };
+        return updated;
+      });
       cancelStreamUpdate();
       setStreamingContent('');
       setStreamingThinking('');
-    } finally {
       setIsStreaming(false);
     }
+  };
+
+  const handleCancel = () => {
+    wsManager.sendCancel();
+
+    // Finalize streaming messages with partial content
+    const state = streamingStateRef.current;
+    setStreamingMessages(prev => {
+      if (prev.length === 0) return prev;
+      const updated = [...prev];
+      updated[updated.length - 1] = {
+        ...updated[updated.length - 1],
+        content: state.accumulatedContent,
+        thinking: state.accumulatedThinking || undefined,
+      };
+      return updated;
+    });
+
+    setIsStreaming(false);
+    cancelStreamUpdate();
+    setStreamingContent('');
+    setStreamingThinking('');
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -417,80 +490,6 @@ export const ChatWidget: React.FC = () => {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Top bar with model and TTS selectors */}
-      <Paper
-        elevation={0}
-        sx={{
-          p: 2,
-          borderBottom: '1px solid',
-          borderColor: 'divider',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 2,
-          flexWrap: 'wrap',
-        }}
-      >
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel>Model</InputLabel>
-          <Select
-            value={selectedModel}
-            label="Model"
-            onChange={(e) => setSelectedModel(e.target.value)}
-          >
-            {models.map((model) => (
-              <MenuItem key={model} value={model}>
-                {model}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <IconButton
-          onClick={() => loadModels()}
-          size="small"
-          title="Reload models"
-          sx={{ color: 'primary.main' }}
-        >
-          <RefreshIcon />
-        </IconButton>
-
-        {/* TTS Backend Selector */}
-        <FormControl size="small" sx={{ minWidth: 150 }}>
-          <InputLabel>TTS Backend</InputLabel>
-          <Select
-            value={ttsBackend}
-            label="TTS Backend"
-            onChange={(e) => setTtsBackend(e.target.value)}
-          >
-            <MenuItem value="">
-              <em>Default</em>
-            </MenuItem>
-            {ttsBackends.map((backend) => (
-              <MenuItem key={backend} value={backend}>
-                {backend}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
-        {/* TTS Voice Selector */}
-        <FormControl size="small" sx={{ minWidth: 150 }}>
-          <InputLabel>TTS Voice</InputLabel>
-          <Select
-            value={ttsVoice}
-            label="TTS Voice"
-            onChange={(e) => setTtsVoice(e.target.value)}
-          >
-            <MenuItem value="">
-              <em>Default</em>
-            </MenuItem>
-            {ttsVoices.map((voice) => (
-              <MenuItem key={voice} value={voice}>
-                {voice}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Paper>
 
       {/* Messages area */}
       <Box
@@ -500,9 +499,22 @@ export const ChatWidget: React.FC = () => {
           flex: 1,
           overflow: 'auto',
           p: 3,
-          backgroundColor: '#F7F7F8',
+          backgroundColor: '#F8FAFC',
         }}
       >
+        {/* Administrator visibility toggle */}
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+          <Tooltip title={showAdministrator ? 'Hide Administrator messages' : 'Show Administrator messages'}>
+            <IconButton
+              size="small"
+              onClick={toggleShowAdministrator}
+              sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
+            >
+              {showAdministrator ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+        </Box>
+
         {isLoadingMessages && (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
             <Typography variant="body2" color="text.secondary">
@@ -512,25 +524,43 @@ export const ChatWidget: React.FC = () => {
         )}
 
         <AnimatePresence>
-          {messages.map((message, index) => (
-            <MessageBubble
-              key={index}
-              message={message}
-              index={index}
-              isLast={index === messages.length - 1}
-              isStreaming={isStreaming}
-              streamingThinking={streamingThinking}
-              streamingContent={streamingContent}
-              displayedThinking={displayedThinking}
-              displayedContent={displayedContent}
-              justFinishedStreaming={justFinishedStreaming}
-              expandedThinking={expandedThinking}
-              onToggleThinking={toggleThinking}
-              ttsVoice={ttsVoice}
-              ttsLanguage={ttsLanguage}
-              ttsBackend={ttsBackend}
-            />
-          ))}
+          {(() => {
+            const combined = [...messages, ...streamingMessages];
+            // The active streaming message is the last one in streamingMessages
+            const activeStreamingMsg = isStreaming && streamingMessages.length > 0
+              ? streamingMessages[streamingMessages.length - 1]
+              : null;
+            const filtered = combined.filter((message) => {
+              const agentName = message.agent?.name || message.agent_name;
+              if (agentName === 'Administrator' && !showAdministrator) {
+                return false;
+              }
+              return true;
+            });
+            return filtered.map((message, index, arr) => {
+              // Match by object identity to find the actual streaming message
+              const isActiveStreaming = message === activeStreamingMsg;
+              return (
+                <MessageBubble
+                  key={message.id ? `msg-${message.id}` : `stream-${index}`}
+                  message={message}
+                  index={index}
+                  isLast={index === arr.length - 1}
+                  isStreaming={isActiveStreaming}
+                  streamingThinking={isActiveStreaming ? streamingThinking : ''}
+                  streamingContent={isActiveStreaming ? streamingContent : ''}
+                  displayedThinking={isActiveStreaming ? streamingThinking : ''}
+                  displayedContent={isActiveStreaming ? streamingContent : ''}
+                  justFinishedStreaming={index === arr.length - 1 && justFinishedStreaming}
+                  expandedThinking={expandedThinking}
+                  onToggleThinking={toggleThinking}
+                  ttsVoice={ttsVoice}
+                  ttsLanguage={ttsLanguage}
+                  ttsBackend={ttsBackend}
+                />
+              );
+            });
+          })()}
         </AnimatePresence>
         <div ref={messagesEndRef} />
       </Box>
@@ -585,17 +615,44 @@ export const ChatWidget: React.FC = () => {
             disabled={isStreaming}
           />
 
-          <Button
-            variant="contained"
-            endIcon={<SendIcon />}
-            onClick={handleSend}
-            disabled={!input.trim() || isStreaming || !selectedModel}
-            sx={{ minWidth: 100 }}
-          >
-            Send
-          </Button>
+          {isStreaming ? (
+            <Button
+              variant="contained"
+              color="error"
+              endIcon={<StopIcon />}
+              onClick={handleCancel}
+              sx={{ minWidth: 100 }}
+            >
+              Stop
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              endIcon={<SendIcon />}
+              onClick={handleSend}
+              disabled={!input.trim()}
+              sx={{ minWidth: 100 }}
+            >
+              Send
+            </Button>
+          )}
         </Box>
       </Paper>
     </Box>
   );
 };
+
+// Helper function to convert File to base64
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Remove the data URL prefix (e.g., "data:image/png;base64,")
+      const base64 = result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+  });
+}
