@@ -34,7 +34,7 @@ async def list_conversations(
 @router.get("/{conversation_id}")
 async def get_conversation(
     conversation_id: int,
-    limit: int = 50,
+    limit: int = 20,
     offset: int = 0,
     user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db)

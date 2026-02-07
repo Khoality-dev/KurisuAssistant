@@ -35,7 +35,7 @@ class Frame(Base):
     __tablename__ = 'frames'
 
     id = Column(Integer, primary_key=True)
-    conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), nullable=False)
+    conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
@@ -51,7 +51,7 @@ class Message(Base):
     thinking = Column(Text, nullable=True)
     raw_input = Column(Text, nullable=True)   # JSON: messages array sent to LLM
     raw_output = Column(Text, nullable=True)  # Full concatenated LLM response
-    frame_id = Column(Integer, ForeignKey('frames.id', ondelete='CASCADE'))
+    frame_id = Column(Integer, ForeignKey('frames.id', ondelete='CASCADE'), index=True)
     agent_id = Column(Integer, ForeignKey('agents.id', ondelete='SET NULL'), nullable=True)  # Which agent sent this message
     created_at = Column(DateTime, default=datetime.utcnow)
 

@@ -20,6 +20,8 @@ class OrchestrationSession:
     current_agent_name: Optional[str] = None
     is_cancelled: bool = False
     pending_routes: List[Dict[str, Any]] = field(default_factory=list)
+    last_raw_input: Optional[str] = None   # JSON of messages sent to Administrator LLM
+    last_raw_output: Optional[str] = None  # Full concatenated Administrator LLM response
 
     def increment_turn(self) -> bool:
         """Increment turn counter and check if we can continue.

@@ -22,7 +22,7 @@ class OllamaProvider(BaseLLMProvider):
         if api_url is None:
             api_url = os.getenv("LLM_API_URL", "http://10.0.0.122:11434")
 
-        print(f"LLM API URL: {api_url}")
+        logger.info(f"Initializing Ollama provider with URL: {api_url}")
         self.client = OllamaClient(host=api_url)
 
     def chat(

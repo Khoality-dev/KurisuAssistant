@@ -58,6 +58,7 @@ class AgentContext:
     frame_id: int = 0
     model_name: str = ""
     handler: Optional["ChatSessionHandler"] = None
+    available_agents: List[AgentConfig] = field(default_factory=list)
 
 
 class BaseAgent(ABC):
@@ -243,6 +244,64 @@ class BaseAgent(ABC):
 class SimpleAgent(BaseAgent):
     """Simple agent that just processes with LLM - no delegation."""
 
+    def _prepare_messages(
+        self,
+        messages: List[Dict],
+        context: AgentContext,
+    ) -> List[Dict]:
+        """Prepare messages for LLM by filtering and enriching.
+
+        - Filters out Administrator routing messages
+        - Adds speaker name prefix to agent/tool messages
+        - Prepends agent descriptions and own system prompt
+        """
+        from agents.administrator import ADMINISTRATOR_NAME
+
+        # Build agent descriptions for context
+        agent_descriptions = []
+        for agent in context.available_agents:
+            if agent.name == self.config.name:
+                continue  # Skip self
+            desc = agent.system_prompt[:150] if agent.system_prompt else "General assistant"
+            agent_descriptions.append(f"- {agent.name}: {desc}")
+
+        # Build system prompt with agent identity and context
+        system_parts = []
+        system_parts.append(f"You are {self.config.name}.")
+        if self.config.system_prompt:
+            system_parts.append(self.config.system_prompt)
+        if agent_descriptions:
+            system_parts.append(
+                "Other agents in this conversation:\n" + "\n".join(agent_descriptions)
+            )
+
+        prepared = []
+        if system_parts:
+            prepared.append({"role": "system", "content": "\n\n".join(system_parts)})
+
+        for msg in messages:
+            role = msg.get("role", "user")
+            agent_name = msg.get("agent_name", "")
+
+            # Filter out Administrator messages (routing decisions)
+            if agent_name == ADMINISTRATOR_NAME:
+                continue
+
+            content = msg.get("content", "")
+
+            # Add speaker name prefix for non-system messages
+            if role == "user":
+                content = f"[User]: {content}"
+            elif agent_name and role != "system":
+                content = f"[{agent_name}]: {content}"
+
+            # Map roles for Ollama compatibility
+            chat_role = "user" if role == "user" else ("system" if role == "system" else "assistant")
+
+            prepared.append({"role": chat_role, "content": content})
+
+        return prepared
+
     async def process(
         self,
         messages: List[Dict],
@@ -253,10 +312,8 @@ class SimpleAgent(BaseAgent):
 
         llm = create_llm_provider("ollama")
 
-        # Add agent's system prompt
-        if self.config.system_prompt:
-            agent_system = {"role": "system", "content": self.config.system_prompt}
-            messages = [agent_system] + messages
+        # Prepare messages: filter Administrator, add speaker names, inject agent descriptions
+        messages = self._prepare_messages(messages, context)
 
         # Get tools for this agent
         tool_schemas = self.tool_registry.get_schemas(self.config.tools or None)

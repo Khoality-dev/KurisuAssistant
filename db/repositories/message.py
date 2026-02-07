@@ -1,7 +1,7 @@
 from typing import Optional, List
 from datetime import datetime
-from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy.orm import Session, defer
+from sqlalchemy import desc, func
 
 from ..models import Message
 from .base import BaseRepository
@@ -90,13 +90,16 @@ class MessageRepository(BaseRepository[Message]):
     def get_by_conversation(
         self,
         conversation_id: int,
-        limit: int = 50,
+        limit: int = 20,
         offset: int = 0,
     ) -> List[Message]:
         """Get messages for a conversation (across all frames) with pagination.
 
         Messages are fetched in reverse chronological order (newest first) for pagination,
         then reversed to return in chronological order (oldest first) for display.
+
+        Heavy columns (raw_input, raw_output) are deferred to avoid loading large
+        text blobs that are only needed for the /messages/{id}/raw endpoint.
 
         Args:
             conversation_id: Conversation ID
@@ -108,8 +111,10 @@ class MessageRepository(BaseRepository[Message]):
         """
         from ..models import Frame
         # Fetch in reverse order (newest first) with offset, then reverse for display
+        # Defer raw_input/raw_output to avoid loading large text blobs
         messages = (
             self.session.query(Message)
+            .options(defer(Message.raw_input), defer(Message.raw_output))
             .join(Frame, Message.frame_id == Frame.id)
             .filter(Frame.conversation_id == conversation_id)
             .order_by(desc(Message.created_at))

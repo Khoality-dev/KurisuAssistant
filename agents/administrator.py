@@ -53,15 +53,26 @@ def _build_chat_messages(
     messages = [{"role": "system", "content": system_prompt}]
 
     # Add conversation history as native messages
+    # From Administrator's perspective: only its own messages are "assistant",
+    # everything else (user messages, other agents' messages) are "user" input.
     if conversation_history:
         for msg in conversation_history:
             role = msg.get("role", "user")
             content = msg.get("content", "")
-            # Map all non-user roles to assistant for Ollama compatibility
-            chat_role = "user" if role == "user" else "assistant"
             agent_name = msg.get("agent_name", "")
-            if agent_name:
+
+            if role == "system":
+                chat_role = "system"
+            elif agent_name == ADMINISTRATOR_NAME:
+                chat_role = "assistant"
+            else:
+                chat_role = "user"
+
+            if agent_name and agent_name != ADMINISTRATOR_NAME:
                 content = f"[{agent_name}]: {content}"
+            elif role == "user":
+                content = f"[User]: {content}"
+
             messages.append({"role": chat_role, "content": content})
 
     # Final instruction as user message
@@ -88,12 +99,12 @@ class AdministratorAgent:
             agent_id: Database ID of Administrator agent
             model_name: LLM model to use for routing decisions
             api_url: Optional custom LLM API URL
-            think: Ignored - Administrator never uses extended thinking
+            think: Enable extended thinking for routing decisions
         """
         self.agent_id = agent_id
         self.model_name = model_name
         self.api_url = api_url
-        self.think = False  # Routing decisions don't need extended thinking
+        self.think = think
         self._llm = None
 
     @property
@@ -146,6 +157,9 @@ Use a routing tool to decide who should receive this message."""
             instruction,
         )
 
+        # Store raw input on session
+        session.last_raw_input = json.dumps(messages, ensure_ascii=False, default=str)
+
         try:
             # Log input
             logger.info(f"[Administrator] Routing decision - Model: {self.model_name}")
@@ -156,7 +170,7 @@ Use a routing tool to decide who should receive this message."""
                 messages=messages,
                 tools=tool_schemas,
                 stream=True,
-                think=False,
+                think=self.think,
             )
 
             tool_calls = []
@@ -164,7 +178,19 @@ Use a routing tool to decide who should receive this message."""
             async for chunk in async_iterate(stream):
                 msg = chunk.message
 
-                # Skip thinking - Administrator doesn't need it
+                # Stream thinking
+                thinking = getattr(msg, 'thinking', None)
+                if thinking:
+                    yield StreamChunkEvent(
+                        content="",
+                        thinking=thinking,
+                        role="assistant",
+                        agent_id=self.agent_id,
+                        agent_name=ADMINISTRATOR_NAME,
+                        conversation_id=session.conversation_id,
+                        frame_id=session.frame_id,
+                    )
+
                 # Stream content (if any)
                 if msg.content:
                     full_content += msg.content
@@ -180,6 +206,9 @@ Use a routing tool to decide who should receive this message."""
                 # Collect tool calls
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     tool_calls.extend(msg.tool_calls)
+
+            # Store raw output on session
+            session.last_raw_output = full_content
 
             # Log output
             if full_content:
@@ -293,7 +322,7 @@ Use a routing tool to decide who should receive this message."""
                 messages=messages,
                 tools=tool_schemas,
                 stream=True,
-                think=False,
+                think=self.think,
             )
 
             tool_calls = []
@@ -417,6 +446,9 @@ Use route_to_agent to select the best agent for this task."""
             instruction,
         )
 
+        # Store raw input on session
+        session.last_raw_input = json.dumps(messages, ensure_ascii=False, default=str)
+
         try:
             # Log input
             logger.info(f"[Administrator] Initial selection - Model: {self.model_name}")
@@ -426,7 +458,7 @@ Use route_to_agent to select the best agent for this task."""
                 messages=messages,
                 tools=tool_schemas,
                 stream=True,
-                think=False,
+                think=self.think,
             )
 
             tool_calls = []
@@ -434,7 +466,19 @@ Use route_to_agent to select the best agent for this task."""
             async for chunk in async_iterate(stream):
                 msg = chunk.message
 
-                # Skip thinking - Administrator doesn't need it
+                # Stream thinking
+                thinking = getattr(msg, 'thinking', None)
+                if thinking:
+                    yield StreamChunkEvent(
+                        content="",
+                        thinking=thinking,
+                        role="assistant",
+                        agent_id=self.agent_id,
+                        agent_name=ADMINISTRATOR_NAME,
+                        conversation_id=session.conversation_id,
+                        frame_id=session.frame_id,
+                    )
+
                 # Stream content
                 if msg.content:
                     full_content += msg.content
@@ -450,6 +494,9 @@ Use route_to_agent to select the best agent for this task."""
                 # Collect tool calls
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     tool_calls.extend(msg.tool_calls)
+
+            # Store raw output on session
+            session.last_raw_output = full_content
 
             # Log output
             if full_content:
@@ -567,7 +614,7 @@ Use route_to_agent to select the best agent for this task."""
                 messages=messages,
                 tools=tool_schemas,
                 stream=True,
-                think=False,
+                think=self.think,
             )
 
             tool_calls = []
