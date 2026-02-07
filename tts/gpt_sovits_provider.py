@@ -22,13 +22,31 @@ class GPTSoVITSProvider(BaseTTSProvider):
         """Initialize GPT-SoVITS provider.
 
         Args:
-            api_url: API endpoint URL (defaults to env var TTS_API_URL)
+            api_url: Base server URL (defaults to env var TTS_API_URL)
         """
         self.api_url = api_url or os.getenv(
             "TTS_API_URL",
-            "http://10.0.0.122:9880/tts"
+            "http://10.0.0.122:9880"
         )
+        # Strip trailing /tts for consistency — path is appended in synthesize()
+        self.api_url = self.api_url.rstrip("/").removesuffix("/tts")
         logger.info(f"GPT-SoVITS provider initialized with URL: {self.api_url}")
+
+    def check_health(self, api_url=None) -> dict:
+        """Check GPT-SoVITS server connectivity."""
+        base = api_url or self.api_url
+        base = base.rstrip("/").removesuffix("/tts")
+        url = f"{base}/tts"
+        try:
+            # Send minimal params to avoid server crash on None fields
+            response = requests.get(url, params={"text": "", "text_lang": "ja"}, timeout=5)
+            return {"ok": True, "message": f"Connected to {base}"}
+        except requests.exceptions.ConnectionError:
+            return {"ok": False, "message": f"Cannot connect to {base}"}
+        except requests.exceptions.Timeout:
+            return {"ok": False, "message": f"Connection timed out: {base}"}
+        except Exception as e:
+            return {"ok": False, "message": str(e)}
 
     def _find_voice_file(self, voice_name: str) -> str:
         """Find the full path to a voice file by its stem name.
@@ -168,16 +186,21 @@ class GPTSoVITSProvider(BaseTTSProvider):
         Returns:
             Audio data as bytes (WAV format)
         """
-        # Find reference audio file by voice name
-        # Frontend MUST send only voice names (not paths) from /tts/voices endpoint
-        voice_name = voice or "ayaka_ref"
-        ref_audio_path = self._find_voice_file(voice_name)
+        # Find reference audio file by voice name (required for GPT-SoVITS)
+        if not voice:
+            raise RuntimeError(
+                "GPT-SoVITS requires a voice reference for synthesis. "
+                "Set a voice reference on the agent or upload one to data/voice_storage/."
+            )
+        ref_audio_path = self._find_voice_file(voice)
 
         text_lang = language or "ja"
         prompt_lang = language or "ja"
         max_chunk_length = kwargs.get("max_chunk_length", 200)
-        # Allow per-request URL override
+        # Allow per-request URL override, normalize to base URL
         api_url = kwargs.get("api_url") or self.api_url
+        api_url = api_url.rstrip("/").removesuffix("/tts")
+        endpoint = f"{api_url}/tts"
 
         # Split text into chunks
         text_chunks = self._split_text(text, max_length=max_chunk_length)
@@ -200,7 +223,7 @@ class GPTSoVITSProvider(BaseTTSProvider):
             }
 
             try:
-                response = requests.get(api_url, params=params, timeout=60)
+                response = requests.get(endpoint, params=params, timeout=60)
                 response.raise_for_status()
                 audio_chunks.append(response.content)
             except requests.exceptions.RequestException as e:

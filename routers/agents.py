@@ -249,11 +249,8 @@ async def update_agent_voice(
     user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db),
 ) -> AgentResponse:
-    """Update agent voice reference.
-
-    The uploaded audio file will be saved to the reference/ directory.
-    """
-    import os
+    """Update agent voice reference."""
+    import uuid
     from pathlib import Path
 
     with get_session() as session:
@@ -267,24 +264,30 @@ async def update_agent_voice(
         voice_dir = Path("data") / "voice_storage"
         voice_dir.mkdir(parents=True, exist_ok=True)
 
-        # Generate unique filename using agent name
-        safe_name = "".join(c for c in agent.name if c.isalnum() or c in "._-")
-        voice_filename = f"agent_{agent.id}_{safe_name}"
-
         # Get file extension
         ext = Path(voice.filename).suffix.lower() if voice.filename else ".wav"
         if ext not in {".wav", ".mp3", ".flac", ".ogg"}:
             ext = ".wav"
 
-        voice_path = voice_dir / f"{voice_filename}{ext}"
+        # Generate UUID filename
+        voice_id = str(uuid.uuid4())
+        voice_path = voice_dir / f"{voice_id}{ext}"
+
+        # Delete old voice file if it exists
+        if agent.voice_reference:
+            for old_ext in {".wav", ".mp3", ".flac", ".ogg"}:
+                old_path = voice_dir / f"{agent.voice_reference}{old_ext}"
+                if old_path.exists():
+                    old_path.unlink()
+                    break
 
         # Save file
         contents = await voice.read()
         with open(voice_path, "wb") as f:
             f.write(contents)
 
-        # Update agent with voice reference (filename without extension)
-        agent = agent_repo.update_agent(agent, voice_reference=voice_filename)
+        # Update agent with voice reference (UUID without extension)
+        agent = agent_repo.update_agent(agent, voice_reference=voice_id)
 
         return _agent_to_response(agent)
 

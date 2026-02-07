@@ -72,6 +72,7 @@ async def get_conversation(
                             "id": msg.agent.id,
                             "name": msg.agent.name,
                             "avatar_uuid": msg.agent.avatar_uuid,
+                            "voice_reference": msg.agent.voice_reference,
                         }
                 messages_array.append(message_dict)
 

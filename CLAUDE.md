@@ -12,11 +12,10 @@ KurisuAssistant is a voice-based AI assistant platform combining Speech-to-Text 
 
 The application consists of multiple containerized services:
 
-- **llm-hub** (port 15597): Main FastAPI application (`main.py`) handling chat, authentication, conversation management, and TTS
-- **postgres** (port 5432): PostgreSQL 16 database for persistence
-- **ollama** (port 11434): LLM inference server
+- **nginx** (ports 80/443): Reverse proxy with HTTPS termination (self-signed certs)
+- **api** (internal port 15597): Main FastAPI application (`main.py`) handling chat, authentication, conversation management, and TTS
+- **postgres** (internal port 5432): PostgreSQL 16 database for persistence (not exposed to host)
 - **gpt-sovits** (port 9880): Voice synthesis engine (external TTS backend)
-- **open-webui** (port 3000): Optional web UI
 
 **Note**: The standalone `tts-hub` service has been removed. TTS functionality is now integrated into the main application via the `tts_providers` abstraction layer.
 

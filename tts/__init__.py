@@ -49,7 +49,7 @@ def list_available_backends() -> list[str]:
 
 
 # Re-export adapter functions for convenience
-from .adapter import synthesize, list_voices, list_backends
+from .adapter import synthesize, list_voices, list_backends, check_health
 
 
 __all__ = [
@@ -62,4 +62,5 @@ __all__ = [
     "synthesize",
     "list_voices",
     "list_backends",
+    "check_health",
 ]

@@ -173,10 +173,10 @@ class IndexTTSProvider(BaseTTSProvider):
         Raises:
             RuntimeError: If synthesis fails
         """
-        # Find speaker reference audio file by voice name
-        # Frontend MUST send only voice names (not paths) from /tts/voices endpoint
-        voice_name = voice or "ayaka_ref"
-        spk_audio_path = self._find_voice_file(voice_name).replace("\\", "/")
+        # Find speaker reference audio file by voice name (optional)
+        spk_audio_path = None
+        if voice:
+            spk_audio_path = self._find_voice_file(voice).replace("\\", "/")
 
         # Find emotion reference audio (optional)
         emo_audio_path = None
@@ -213,8 +213,9 @@ class IndexTTSProvider(BaseTTSProvider):
             # Prepare files for this chunk
             files = {}
             try:
-                # Speaker audio (required)
-                files['spk_audio'] = open(spk_audio_path, 'rb')
+                # Speaker audio (optional)
+                if spk_audio_path:
+                    files['spk_audio'] = open(spk_audio_path, 'rb')
 
                 # Emotion reference audio (optional)
                 if emo_audio_path:

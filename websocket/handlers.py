@@ -398,6 +398,8 @@ class ChatSessionHandler:
 
                 # Stream agent response
                 async for chunk in agent.process(conversation_messages, agent_context):
+                    # Attach agent voice reference for TTS
+                    chunk.voice_reference = current_agent.voice_reference
                     # Send to client immediately
                     await self.send_event(chunk)
 

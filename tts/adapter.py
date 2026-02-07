@@ -110,3 +110,21 @@ def list_backends() -> list[str]:
     except Exception as e:
         logger.error(f"Error listing TTS backends: {e}", exc_info=True)
         raise
+
+
+def check_health(provider: Optional[str] = None, api_url: Optional[str] = None) -> dict:
+    """Check if a TTS server is reachable.
+
+    Args:
+        provider: TTS provider to check (defaults to TTS_PROVIDER env var or "gpt-sovits")
+        api_url: Custom URL to check (optional, overrides provider default)
+
+    Returns:
+        Dict with 'ok' (bool) and 'message' (str)
+    """
+    try:
+        tts_provider = _get_provider(provider)
+        return tts_provider.check_health(api_url=api_url)
+    except Exception as e:
+        logger.error(f"Error checking TTS health: {e}", exc_info=True)
+        return {"ok": False, "message": str(e)}
