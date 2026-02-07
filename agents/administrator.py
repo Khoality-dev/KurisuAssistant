@@ -238,9 +238,9 @@ Use a routing tool to decide who should receive this message."""
 
                             yield StreamChunkEvent(
                                 content=decision_text + "\n",
-                                role="assistant",
+                                role="tool",
                                 agent_id=self.agent_id,
-                                agent_name=ADMINISTRATOR_NAME,
+                                agent_name=tool_name,
                                 conversation_id=session.conversation_id,
                                 frame_id=session.frame_id,
                             )
@@ -250,9 +250,9 @@ Use a routing tool to decide who should receive this message."""
             else:
                 yield StreamChunkEvent(
                     content="→ No routing decision made, returning to user",
-                    role="assistant",
+                    role="tool",
                     agent_id=self.agent_id,
-                    agent_name=ADMINISTRATOR_NAME,
+                    agent_name="route_to_user",
                     conversation_id=session.conversation_id,
                     frame_id=session.frame_id,
                 )
@@ -517,9 +517,9 @@ Use route_to_agent to select the best agent for this task."""
 
                         yield StreamChunkEvent(
                             content=f"→ Selected {agent_name}: {reason}\n",
-                            role="assistant",
+                            role="tool",
                             agent_id=self.agent_id,
-                            agent_name=ADMINISTRATOR_NAME,
+                            agent_name="route_to_agent",
                             conversation_id=session.conversation_id,
                             frame_id=session.frame_id,
                         )
@@ -533,9 +533,9 @@ Use route_to_agent to select the best agent for this task."""
             session.pending_routes = [{"action": "route_to_agent", "agent_name": available_agents[0].name, "reason": "default"}]
             yield StreamChunkEvent(
                 content=f"→ Selected {available_agents[0].name} (default)",
-                role="assistant",
+                role="tool",
                 agent_id=self.agent_id,
-                agent_name=ADMINISTRATOR_NAME,
+                agent_name="route_to_agent",
                 conversation_id=session.conversation_id,
                 frame_id=session.frame_id,
             )

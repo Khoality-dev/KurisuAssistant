@@ -94,6 +94,18 @@ mcp_tools/custom-tool/
 └── requirements.txt # Python dependencies
 ```
 
+### Unified Tool System
+
+```
+tools/
+├── __init__.py    # Registers built-in tools in global registry
+├── base.py        # BaseTool abstract class
+├── registry.py    # ToolRegistry, global tool_registry singleton
+└── routing.py     # RouteToAgentTool, RouteToUserTool (built-in routing tools)
+```
+
+**Built-in Routing Tools**: `RouteToAgentTool` and `RouteToUserTool` are registered as built-in tools in `tools/__init__.py`. They appear on the Tools page alongside MCP tools but are not user-configurable. The Administrator uses these tools internally for agent routing decisions.
+
 ### Multi-Agent Orchestration Architecture
 
 The system uses **turn-based orchestration** where an Administrator agent manages conversation flow and routes messages between agents.
@@ -113,7 +125,8 @@ agents/
    - Receives ALL messages (from user and agents)
    - Decides which agent should respond next
    - Detects when conversation topic is complete
-   - NOT displayed in main chat (only in logs)
+   - NOT displayed in main chat by default (toggle via `showAdministrator`)
+   - Routing decisions (tool calls) are yielded with `role="tool"` and `agent_name` set to the tool name (`route_to_agent`, `route_to_user`), creating separate bubbles from the Administrator's LLM reasoning content
 
 2. **OrchestrationSession** (`agents/orchestration.py`)
    - Tracks turn-based conversation state

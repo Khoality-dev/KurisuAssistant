@@ -219,9 +219,10 @@ class ChatSessionHandler:
                 session.pending_routes = [{"action": "route_to_agent", "agent_name": selected_agent.name, "reason": "User selected"}]
             else:
                 # Administrator selects agent(s) using routing tools - stream the process
+                admin_role = "assistant"
+                admin_agent_name = ADMINISTRATOR_NAME
                 admin_content = ""
                 admin_thinking = ""
-                agent_by_name = {a.name.lower(): a for a in available_agents}
 
                 async for chunk in self.administrator.stream_initial_selection(
                     user_message=event.text,
@@ -230,22 +231,43 @@ class ChatSessionHandler:
                     conversation_history=messages,
                 ):
                     await self.send_event(chunk)
-                    admin_content += chunk.content
-                    if chunk.thinking:
-                        admin_thinking += chunk.thinking
 
-                # Save Administrator selection message
-                admin_sel_msg = {
-                    "role": "assistant",
-                    "content": admin_content,
-                    "thinking": admin_thinking if admin_thinking else None,
-                    "agent_id": admin_id,
-                    "agent_name": ADMINISTRATOR_NAME,
-                    "raw_input": session.last_raw_input,
-                    "raw_output": session.last_raw_output,
-                }
-                messages_to_save.append(admin_sel_msg)
-                self._accumulated_messages.append(admin_sel_msg)
+                    if chunk.role != admin_role:
+                        # Role changed (e.g. assistant → tool), save accumulated
+                        if admin_content or admin_thinking:
+                            msg = {
+                                "role": admin_role,
+                                "content": admin_content,
+                                "thinking": admin_thinking if admin_thinking else None,
+                                "agent_id": admin_id,
+                                "agent_name": admin_agent_name,
+                                "raw_input": session.last_raw_input if admin_role == "assistant" else None,
+                                "raw_output": session.last_raw_output if admin_role == "assistant" else None,
+                            }
+                            messages_to_save.append(msg)
+                            self._accumulated_messages.append(msg)
+                        admin_role = chunk.role
+                        admin_agent_name = chunk.agent_name or ADMINISTRATOR_NAME
+                        admin_content = chunk.content
+                        admin_thinking = chunk.thinking or ""
+                    else:
+                        admin_content += chunk.content
+                        if chunk.thinking:
+                            admin_thinking += chunk.thinking
+
+                # Save final accumulated content
+                if admin_content or admin_thinking:
+                    admin_sel_msg = {
+                        "role": admin_role,
+                        "content": admin_content,
+                        "thinking": admin_thinking if admin_thinking else None,
+                        "agent_id": admin_id,
+                        "agent_name": admin_agent_name,
+                        "raw_input": session.last_raw_input if admin_role == "assistant" else None,
+                        "raw_output": session.last_raw_output if admin_role == "assistant" else None,
+                    }
+                    messages_to_save.append(admin_sel_msg)
+                    self._accumulated_messages.append(admin_sel_msg)
 
             # Create agent context
             agent_context = AgentContext(
@@ -279,6 +301,8 @@ class ChatSessionHandler:
                         "agent_name": session.current_agent_name,
                     }
 
+                    admin_role = "assistant"
+                    admin_agent_name = ADMINISTRATOR_NAME
                     routing_content = ""
                     routing_thinking = ""
                     async for chunk in self.administrator.stream_routing_decision(
@@ -288,22 +312,43 @@ class ChatSessionHandler:
                         conversation_history=conversation_messages,
                     ):
                         await self.send_event(chunk)
-                        routing_content += chunk.content
-                        if chunk.thinking:
-                            routing_thinking += chunk.thinking
 
-                    # Save Administrator routing decision
-                    admin_route_msg = {
-                        "role": "assistant",
-                        "content": routing_content,
-                        "thinking": routing_thinking if routing_thinking else None,
-                        "agent_id": admin_id,
-                        "agent_name": ADMINISTRATOR_NAME,
-                        "raw_input": session.last_raw_input,
-                        "raw_output": session.last_raw_output,
-                    }
-                    messages_to_save.append(admin_route_msg)
-                    self._accumulated_messages.append(admin_route_msg)
+                        if chunk.role != admin_role:
+                            # Role changed (e.g. assistant → tool), save accumulated
+                            if routing_content or routing_thinking:
+                                msg = {
+                                    "role": admin_role,
+                                    "content": routing_content,
+                                    "thinking": routing_thinking if routing_thinking else None,
+                                    "agent_id": admin_id,
+                                    "agent_name": admin_agent_name,
+                                    "raw_input": session.last_raw_input if admin_role == "assistant" else None,
+                                    "raw_output": session.last_raw_output if admin_role == "assistant" else None,
+                                }
+                                messages_to_save.append(msg)
+                                self._accumulated_messages.append(msg)
+                            admin_role = chunk.role
+                            admin_agent_name = chunk.agent_name or ADMINISTRATOR_NAME
+                            routing_content = chunk.content
+                            routing_thinking = chunk.thinking or ""
+                        else:
+                            routing_content += chunk.content
+                            if chunk.thinking:
+                                routing_thinking += chunk.thinking
+
+                    # Save final accumulated content
+                    if routing_content or routing_thinking:
+                        admin_route_msg = {
+                            "role": admin_role,
+                            "content": routing_content,
+                            "thinking": routing_thinking if routing_thinking else None,
+                            "agent_id": admin_id,
+                            "agent_name": admin_agent_name,
+                            "raw_input": session.last_raw_input if admin_role == "assistant" else None,
+                            "raw_output": session.last_raw_output if admin_role == "assistant" else None,
+                        }
+                        messages_to_save.append(admin_route_msg)
+                        self._accumulated_messages.append(admin_route_msg)
 
                     # If still no routes after asking, break
                     if not session.pending_routes:
