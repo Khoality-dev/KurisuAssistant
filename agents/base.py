@@ -127,6 +127,10 @@ class BaseAgent(ABC):
                 if response.modified_args:
                     tool_args = response.modified_args
 
+        # Inject conversation_id for context-aware tools
+        if context.conversation_id:
+            tool_args["conversation_id"] = context.conversation_id
+
         # Execute the tool
         if tool:
             try:

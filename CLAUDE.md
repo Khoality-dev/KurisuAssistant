@@ -79,12 +79,11 @@ MCP tools provide external capabilities to the LLM via the Model Context Protoco
 - `mcp_tools/orchestrator.py`: Singleton orchestrator with tool caching and execution
 - Automatic `conversation_id` injection for context-aware tools
 
-**Context Retrieval Functions** (formerly MCP tools, now in `db/services.py`):
-- `retrieve_messages_by_date_range()`: Search messages by date range
-- `retrieve_messages_by_regex()`: Search messages by regex pattern
-- `get_conversation_summary()`: Get conversation metadata and stats
+**Context Retrieval Tools** (built-in tools in `tools/context.py`):
+- `SearchMessagesTool` (`search_messages`): Unified search with text/regex query and/or date range filtering
+- `GetConversationInfoTool` (`get_conversation_info`): Get conversation metadata (title, dates, message/frame counts)
 
-These are now regular Python functions instead of MCP tools, callable directly from the application code.
+These are registered as built-in tools in `tools/__init__.py` and receive `conversation_id` automatically via injection in `agents/base.py:execute_tool()`.
 
 Example MCP tool structure (for custom tools):
 ```
@@ -101,10 +100,13 @@ tools/
 ├── __init__.py    # Registers built-in tools in global registry
 ├── base.py        # BaseTool abstract class
 ├── registry.py    # ToolRegistry, global tool_registry singleton
-└── routing.py     # RouteToAgentTool, RouteToUserTool (built-in routing tools)
+├── routing.py     # RouteToAgentTool, RouteToUserTool (built-in routing tools)
+└── context.py     # SearchMessagesTool, GetConversationInfoTool (context querying tools)
 ```
 
 **Built-in Routing Tools**: `RouteToAgentTool` and `RouteToUserTool` are registered as built-in tools in `tools/__init__.py`. They appear on the Tools page alongside MCP tools but are not user-configurable. The Administrator uses these tools internally for agent routing decisions.
+
+**Built-in Context Tools**: `SearchMessagesTool` and `GetConversationInfoTool` are registered as built-in tools. They query conversation history via the database and receive `conversation_id` automatically injected by `execute_tool()` in `agents/base.py`. Agents can use these to search past messages or retrieve conversation metadata.
 
 ### Multi-Agent Orchestration Architecture
 
