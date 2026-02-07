@@ -292,9 +292,10 @@ class SimpleAgent(BaseAgent):
             system_parts.append(
                 "Other agents in this conversation:\n"
                 + "\n".join(agent_descriptions)
-                + "\n\nYou can talk to or reference other agents directly. "
-                "Not every message needs to involve the user — "
-                "feel free to discuss, collaborate, or delegate among yourselves."
+                + "\n\nYou may see messages from these agents. "
+                "Just focus on your own response — "
+                "do not direct others to speak, ask them to chime in, "
+                "or manage the conversation flow. A separate system handles turn-taking."
             )
 
         prepared = []
