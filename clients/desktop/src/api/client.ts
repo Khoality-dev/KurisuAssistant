@@ -104,6 +104,13 @@ class APIClient {
     );
   }
 
+  async deleteMessage(messageId: number): Promise<{ deleted: number }> {
+    const response = await this.client.delete<{ deleted: number }>(`/messages/${messageId}`, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
   async getMessageRaw(messageId: number): Promise<MessageRawData> {
     const response = await this.client.get<MessageRawData>(`/messages/${messageId}/raw`, {
       headers: this.getHeaders(),

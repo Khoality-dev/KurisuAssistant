@@ -19,7 +19,7 @@ interface ConversationState {
   deleteConversation: (id: number) => Promise<void>;
   createNewConversation: () => void;
   addMessage: (message: Message) => void;
-  updateLastMessage: (content: string, thinking?: string, role?: string, agent_name?: string) => void;
+  updateLastMessage: (content: string, thinking?: string, role?: string, name?: string) => void;
   setCurrentConversationId: (id: number) => Promise<void>;
 }
 
@@ -105,7 +105,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set((state) => ({ messages: [...state.messages, message] }));
   },
 
-  updateLastMessage: (content: string, thinking?: string, role?: string, agent_name?: string) => {
+  updateLastMessage: (content: string, thinking?: string, role?: string, name?: string) => {
     set((state) => {
       const messages = [...state.messages];
       if (messages.length > 0) {
@@ -115,7 +115,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           content,
           ...(thinking !== undefined ? { thinking } : {}),
           ...(role !== undefined ? { role } : {}),
-          ...(agent_name !== undefined ? { agent_name } : {}),
+          ...(name !== undefined ? { name } : {}),
         };
       }
       return { messages };

@@ -10,6 +10,7 @@ import {
   DataObject as DataObjectIcon,
   Refresh as RefreshIcon,
   ContentCopy as ContentCopyIcon,
+  Delete as DeleteIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
@@ -34,6 +35,8 @@ interface MessageBubbleProps {
   expandedThinking: Set<number>;
   onToggleThinking: (index: number) => void;
   onRegenerate?: (messageIndex: number) => void;
+  onResend?: (messageIndex: number) => void;
+  onDelete?: (messageIndex: number) => void;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -49,6 +52,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   expandedThinking,
   onToggleThinking,
   onRegenerate,
+  onResend,
+  onDelete,
 }) => {
   const isStreamingThisMessage = isLast && message.role !== 'user' && isStreaming;
   const showFinishedIndicator = isLast && message.role !== 'user' && justFinishedStreaming && !isStreaming;
@@ -118,11 +123,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   // Determine message styling based on role
   const isUser = message.role === 'user';
 
-  // Resolve display name: streaming agent_name → persisted name → agent relationship → role
+  // Resolve display name: name field → agent relationship → role
   // For tool messages, skip agent?.name (it would show the calling agent, e.g. "Administrator")
   const agentName = message.role === 'tool'
-    ? (message.agent_name || message.name)
-    : (message.agent_name || message.name || message.agent?.name);
+    ? message.name
+    : (message.name || message.agent?.name);
   const label = isUser
     ? 'You'
     : agentName || message.role.charAt(0).toUpperCase() + message.role.slice(1);
@@ -486,6 +491,22 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 </IconButton>
               </Tooltip>
             )}
+            {/* Resend - user messages only */}
+            {isUser && onResend && (
+              <Tooltip title="Resend">
+                <IconButton
+                  size="small"
+                  onClick={() => onResend(index)}
+                  sx={{
+                    p: 0.5,
+                    color: 'text.disabled',
+                    '&:hover': { color: 'text.secondary', backgroundColor: 'action.hover' },
+                  }}
+                >
+                  <RefreshIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+            )}
             {/* Regenerate - non-user messages only */}
             {!isUser && onRegenerate && (
               <Tooltip title="Regenerate">
@@ -499,6 +520,22 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   }}
                 >
                   <RefreshIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+            )}
+            {/* Delete */}
+            {message.id && onDelete && (
+              <Tooltip title="Delete from here">
+                <IconButton
+                  size="small"
+                  onClick={() => onDelete(index)}
+                  sx={{
+                    p: 0.5,
+                    color: 'text.disabled',
+                    '&:hover': { color: 'error.main', backgroundColor: 'action.hover' },
+                  }}
+                >
+                  <DeleteIcon sx={{ fontSize: 16 }} />
                 </IconButton>
               </Tooltip>
             )}

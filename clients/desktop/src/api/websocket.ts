@@ -44,7 +44,7 @@ export interface StreamChunkEvent extends BaseEvent {
   thinking: string | null;
   role: string;
   agent_id: number | null;
-  agent_name: string | null;
+  name: string | null;
   voice_reference: string | null;
   conversation_id: number;
   frame_id: number;
@@ -77,7 +77,7 @@ export interface ToolApprovalRequestEvent extends BaseEvent {
   tool_name: string;
   tool_args: Record<string, unknown>;
   agent_id: number | null;
-  agent_name: string | null;
+  name: string | null;
   description: string;
   risk_level: string;
 }

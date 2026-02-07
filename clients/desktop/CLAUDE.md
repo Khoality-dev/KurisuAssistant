@@ -189,8 +189,8 @@ KurisuAssistant-Client-Windows/
   - `justFinishedStreaming`: Whether streaming just finished (for "Done" indicator)
   - `expandedThinking`: Set of indices with expanded thinking panels
   - `onToggleThinking`: Callback to toggle thinking panel expansion
-  - `ttsVoice`: Optional TTS voice name for synthesis
-  - `ttsLanguage`: Optional TTS language code
+  - `onResend`: Callback to resend a user message (deletes from that point, re-sends text)
+  - `onDelete`: Callback to delete a message and all subsequent messages
 - **Responsibilities**:
   - Renders message bubble with role-based styling
   - Handles thinking section with expand/collapse
@@ -199,6 +199,8 @@ KurisuAssistant-Client-Windows/
   - Shows "Done" indicator when streaming completes
   - Instant content display (no typing animation delay)
   - **TTS Playback**: Speaker button for non-user messages to play/stop audio
+  - **Resend**: Refresh button on user messages to re-send the message (truncates conversation from that point)
+  - **Delete**: Delete button on all persisted messages to remove from that point onward
 - **TTS Integration**:
   - Uses `useTTS()` hook for audio synthesis and playback
   - Speaker button appears next to role label for assistant/tool/agent messages
@@ -335,7 +337,7 @@ KurisuAssistant-Client-Windows/
   loadModels(): Promise<void>,
   setSelectedModel(model): void,
   addMessage(message): void,                 // Legacy - not used during streaming (streaming uses local state)
-  updateLastMessage(content, thinking?, role?): void,  // Legacy - not used during streaming
+  updateLastMessage(content, thinking?, role?, name?): void,  // Legacy - not used during streaming
   setCurrentConversationId(id): Promise<void>  // After backend creates conversation, auto-refreshes list if new
 }
 ```

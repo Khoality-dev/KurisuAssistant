@@ -19,6 +19,7 @@ import {
 } from '@mui/icons-material';
 import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '../store/conversationStore';
+import { apiClient } from '../api/client';
 import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, BaseEvent } from '../api/websocket';
 import { storage } from '../utils/storage';
 import { useTTS } from '../hooks/useTTS';
@@ -191,7 +192,7 @@ export const ChatWidget: React.FC = () => {
     }
 
     const messageRole = event.role;
-    const agentName = event.agent_name || undefined;
+    const agentName = event.name || undefined;
     const agentId = event.agent_id ?? undefined;
 
     // Check if we need to create a new bubble:
@@ -226,7 +227,7 @@ export const ChatWidget: React.FC = () => {
         updated.push({
           role: messageRole,
           content: '',
-          agent_name: agentName,
+          name: agentName,
           agent_id: agentId,
           voice_reference: event.voice_reference || undefined,
         });
@@ -260,7 +261,7 @@ export const ChatWidget: React.FC = () => {
             updated[updated.length - 1] = {
               ...updated[updated.length - 1],
               role: messageRole,
-              agent_name: agentName,
+              name: agentName,
               agent_id: agentId,
               voice_reference: event.voice_reference || undefined,
             };
@@ -272,7 +273,7 @@ export const ChatWidget: React.FC = () => {
         setStreamingMessages(prev => [...prev, {
           role: messageRole,
           content: '',
-          agent_name: agentName,
+          name: agentName,
           agent_id: agentId,
           voice_reference: event.voice_reference || undefined,
         }]);
@@ -546,6 +547,72 @@ export const ChatWidget: React.FC = () => {
     });
   };
 
+  const handleDelete = async (messageIndex: number) => {
+    const combined = [...messages, ...streamingMessages];
+    const filtered = combined.filter((message) => {
+      const speakerName = message.name || message.agent?.name;
+      return speakerName !== 'Administrator' || showAdministrator;
+    });
+    const message = filtered[messageIndex];
+    if (!message?.id || !activeConversationId) return;
+
+    try {
+      await apiClient.deleteMessage(message.id);
+      await loadConversation(activeConversationId);
+    } catch (e) {
+      console.error('Failed to delete message:', e);
+    }
+  };
+
+  const handleResend = async (messageIndex: number) => {
+    if (isStreaming) return;
+
+    const combined = [...messages, ...streamingMessages];
+    const filtered = combined.filter((message) => {
+      const speakerName = message.name || message.agent?.name;
+      return speakerName !== 'Administrator' || showAdministrator;
+    });
+    const message = filtered[messageIndex];
+    if (!message?.id || message.role !== 'user' || !activeConversationId) return;
+
+    const text = message.content;
+
+    try {
+      // Delete from this message onward
+      await apiClient.deleteMessage(message.id);
+      await loadConversation(activeConversationId);
+
+      // Re-send the same text
+      setIsStreaming(true);
+      clearQueue();
+      ttsBufferRef.current = '';
+      ttsVoiceRef.current = undefined;
+
+      const userMessage: Message = { role: 'user', content: text, images: [] };
+      setStreamingMessages([userMessage, { role: 'assistant', content: '' }]);
+
+      streamingStateRef.current = {
+        currentRole: null,
+        currentAgentId: undefined,
+        currentAgentName: undefined,
+        accumulatedContent: '',
+        accumulatedThinking: '',
+        hasPlaceholder: true,
+        hasStarted: false,
+        conversationId: activeConversationId,
+      };
+
+      setStreamingContent('');
+      setStreamingThinking('');
+      setJustFinishedStreaming(false);
+
+      await wsManager.sendChatRequest(text, '', activeConversationId, null, []);
+    } catch (e) {
+      console.error('Failed to resend message:', e);
+      setIsStreaming(false);
+    }
+  };
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
 
@@ -589,8 +656,8 @@ export const ChatWidget: React.FC = () => {
               ? streamingMessages[streamingMessages.length - 1]
               : null;
             const filtered = combined.filter((message) => {
-              const agentName = message.agent?.name || message.agent_name;
-              if (agentName === 'Administrator' && !showAdministrator) {
+              const speakerName = message.name || message.agent?.name;
+              if (speakerName === 'Administrator' && !showAdministrator) {
                 return false;
               }
               return true;
@@ -612,6 +679,8 @@ export const ChatWidget: React.FC = () => {
                   justFinishedStreaming={index === arr.length - 1 && justFinishedStreaming}
                   expandedThinking={expandedThinking}
                   onToggleThinking={toggleThinking}
+                  onResend={handleResend}
+                  onDelete={handleDelete}
                 />
               );
             });
