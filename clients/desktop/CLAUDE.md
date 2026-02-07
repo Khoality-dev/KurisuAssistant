@@ -101,24 +101,27 @@ KurisuAssistant-Client-Windows/
   1. **Top bar**: Model selector (MUI Select) with reload button to refresh available models
   2. **Messages area**: Scrollable chat history with Framer Motion animations
   3. **Input area**: Multi-line TextField + Attach button + Send button
+- **Streaming Architecture** (Store vs Local State Separation):
+  - **Store `messages`** = only DB-persisted records (never mutated during streaming)
+  - **`streamingMessages`** = ephemeral local state in ChatWidget (user message + agent responses during streaming)
+  - Render combines both: `[...messages, ...streamingMessages]`
+  - On `DoneEvent`: reload conversation from API (replaces store with DB records), then clear `streamingMessages`
+  - On cancel: finalize streaming messages with partial content (they remain visible until next DoneEvent clears them)
+  - On error: update last streaming message with error text
+  - **Key benefit**: Store is never in an inconsistent state; streaming messages are purely ephemeral
 - **Streaming Implementation**:
-  - Uses async generator `apiClient.chatStream()`
-  - Parses newline-delimited JSON chunks (sentence-by-sentence from backend)
-  - **Message Accumulation**: Sentence chunks with the same role are accumulated into a single message
-  - **Role Changes**: When role changes (e.g., assistant → tool, assistant → agent), creates a new message
-  - **Display Priority**: During streaming, displays content from streaming response (`streamingContent`), NOT from database
-  - Message added to store with empty content initially, updated only when streaming completes
-  - Displays content immediately as it streams (no artificial delay)
-  - **Database Sync**: Store updated with final content only after streaming completes
+  - Uses WebSocket via `wsManager` for real-time chat (StreamChunkEvent, DoneEvent, ErrorEvent)
+  - **Message Accumulation**: Sentence chunks with the same role/agent are accumulated into a single message via `streamingStateRef`
+  - **Role/Agent Changes**: When role or agent changes, finalizes previous streaming message content and adds a new bubble to `streamingMessages`
+  - **Display Priority**: During streaming, last message displays content from `streamingContent`/`streamingThinking` (updated via `requestAnimationFrame` batching)
+  - Streaming messages added to local `streamingMessages` state (not Zustand store)
+  - **Database Sync**: On DoneEvent, `loadConversation()` fetches all messages from DB (with proper IDs, agent info, has_raw_data flags)
   - **Typing Indicators**:
     - "{Role} is typing..." with animated bouncing dots shown **inside the message bubble** while waiting for first chunk
     - Typing indicator appears in the same message bubble that will contain the response
-    - Blinking cursor shown during typing animation (first in thinking section if present, then in content)
     - "Done" indicator with checkmark icon appears when streaming completes (fades after 3 seconds)
-  - **Typing Effect**: **Sequential** character-by-character display (2 chars every 20ms)
-    - Thinking types out first (if present), then content types out
-    - Both thinking and content are part of the same turn/message
-    - Cursor appears in thinking section while thinking is typing, then moves to content section
+  - **Instant Display**: Content appears immediately as chunks arrive from backend (no typing animation delay)
+    - Uses `requestAnimationFrame` batching to coalesce rapid updates efficiently
   - **Multi-Agent Support**: Handles any role name from backend, not limited to predefined roles
 - **Message Rendering**:
   - ReactMarkdown for content rendering
@@ -159,8 +162,7 @@ KurisuAssistant-Client-Windows/
   - Expanded thinking shown in monospace font with light gray background
   - Max height 400px with scroll for long thinking blocks
   - Smooth expand/collapse animation with Framer Motion
-  - **Sequential Typing**: Thinking types out FIRST, then content types out (both part of same message)
-  - Blinking cursor appears in thinking section while it's typing
+  - Thinking and content displayed instantly as received from backend
   - Displayed above main message content with separator
   - State tracked via `expandedThinking` Set (by message index)
   - Display logic: Shows if saved `message.thinking` exists OR (streaming AND `streamingThinking` has content)
@@ -173,7 +175,7 @@ KurisuAssistant-Client-Windows/
   - `isLast`: Whether this is the last message
   - `isStreaming`: Global streaming state
   - `streamingThinking`, `streamingContent`: Full streamed data from backend
-  - `displayedThinking`, `displayedContent`: Currently displayed subset (for typing effect)
+  - `displayedThinking`, `displayedContent`: Same as streaming values (displayed immediately, no typing delay)
   - `justFinishedStreaming`: Whether streaming just finished (for "Done" indicator)
   - `expandedThinking`: Set of indices with expanded thinking panels
   - `onToggleThinking`: Callback to toggle thinking panel expansion
@@ -185,7 +187,7 @@ KurisuAssistant-Client-Windows/
   - Shows typing indicators and blinking cursors
   - Displays images from user or markdown
   - Shows "Done" indicator when streaming completes
-  - Sequential typing effect (thinking first, then content)
+  - Instant content display (no typing animation delay)
   - **TTS Playback**: Speaker button for non-user messages to play/stop audio
 - **TTS Integration**:
   - Uses `useTTS()` hook for audio synthesis and playback
@@ -209,6 +211,7 @@ KurisuAssistant-Client-Windows/
   - **Agent Avatar Upload**: Upload and preview agent/assistant avatar image
   - **Preferred Name**: Set how the agent should address the user
   - **System Prompt**: Custom instructions for agent behavior (multiline text area)
+  - **Ollama Server URL**: Custom Ollama server URL (leave empty to use default)
   - **Save Button**: "Save Account Settings" - Updates backend via `PATCH /users/me`
   - Data stored in backend database (persists across devices)
 
@@ -298,8 +301,8 @@ KurisuAssistant-Client-Windows/
   createNewConversation(): void,              // Clears messages, resets pagination state
   loadModels(): Promise<void>,
   setSelectedModel(model): void,
-  addMessage(message): void,
-  updateLastMessage(content, thinking?, role?): void,  // For streaming updates
+  addMessage(message): void,                 // Legacy - not used during streaming (streaming uses local state)
+  updateLastMessage(content, thinking?, role?): void,  // Legacy - not used during streaming
   setCurrentConversationId(id): Promise<void>  // After backend creates conversation, auto-refreshes list if new
 }
 ```
@@ -311,7 +314,8 @@ KurisuAssistant-Client-Windows/
 - `isLoadingMessages` prevents duplicate loading requests
 - Messages array rebuilt on conversation selection
 - `currentConversation=null` indicates new, unsaved conversation
-- After first message sent, backend returns `conversation_id` and `chunk_id` in all chunks
+- **Streaming**: Store `messages` are NEVER mutated during streaming. ChatWidget uses local `streamingMessages` state instead. After streaming completes, `loadConversation()` refreshes the store with DB records.
+- After first message sent, backend returns `conversation_id` via WebSocket events
 
 ### API Client (`src/api/client.ts`)
 
@@ -594,28 +598,18 @@ for await (const chunk of apiClient.chatStream(...)) {
 - Fade in + slide up on new message
 - Smooth exit animation
 
-### Streaming Display with Sequential Typing Effect
-- **Sequential Typing Animation**: Character-by-character display (2 chars every 20ms)
-  - **Thinking types first**, then **content types second** (both part of same turn/message)
-  - Single interval controls both, sequentially
+### Streaming Display
+- **Instant Display**: Content appears immediately as chunks arrive from backend (no typing animation delay)
+  - Uses `requestAnimationFrame` batching via `scheduleStreamUpdate()` to coalesce rapid state updates
 - **Visual Indicators**:
   - Bouncing dots "{Role} is typing..." shown inside message bubble before any content appears
-  - Blinking cursor appears in **thinking section** while thinking is typing
-  - Once thinking is fully displayed, cursor moves to **content section** during content typing
-  - Cursor only shows in the section actively being typed
-- **Real-time**: Backend streams sentence-by-sentence, client displays with sequential typing animation
+  - "Done" indicator with checkmark shown after streaming completes
+- **Real-time**: Backend streams sentence-by-sentence, client displays each chunk immediately
 - **State Management**:
-  - `streamingThinking`: Full thinking received from backend
-  - `streamingContent`: Full content received from backend
-  - `displayedThinking`: Subset of thinking currently displayed (grows first during typing)
-  - `displayedContent`: Subset of content currently displayed (grows after thinking is done)
-  - Single interval (`typingIntervalRef`) controls sequential typing of both
+  - `streamingThinking`: Full thinking received from backend (displayed immediately)
+  - `streamingContent`: Full content received from backend (displayed immediately)
 - CSS animations:
   ```css
-  /* Blinking cursor */
-  animation: blink 1s infinite
-  @keyframes blink: 0%, 49% { opacity: 1 } | 50%, 100% { opacity: 0 }
-
   /* Bouncing dots */
   animation: bounce 1.4s infinite ease-in-out
   @keyframes bounce: 0%, 80%, 100% { scale(0), opacity: 0.5 } | 40% { scale(1), opacity: 1 }

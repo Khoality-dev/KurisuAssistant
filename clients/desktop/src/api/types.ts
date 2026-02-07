@@ -3,20 +3,37 @@ export interface LoginResponse {
   token_type: string;
 }
 
+// Embedded agent info in messages (subset of Agent)
+export interface MessageAgent {
+  id: number;
+  name: string;
+  avatar_uuid: string | null;
+}
+
 export interface Message {
   id?: number;
   role: string; // Can be 'user', 'assistant', 'tool', or any custom agent role
   content: string;
   thinking?: string; // Optional thinking content (for assistant messages)
   images?: string[];
-  chunk_id?: number;
+  frame_id?: number;
   created_at?: string;
+  agent_id?: number; // Which agent sent this message
+  agent_name?: string; // Agent name (from streaming chunks)
+  agent?: MessageAgent; // Embedded agent info (name, avatar)
+  has_raw_data?: boolean; // Whether raw LLM input/output is available
+}
+
+export interface MessageRawData {
+  id: number;
+  raw_input: Record<string, any>[] | null; // Messages array sent to LLM
+  raw_output: string | null; // Full concatenated LLM response
 }
 
 export interface Conversation {
   id: number;
   title: string;
-  chunk_count: number;
+  frame_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -32,13 +49,6 @@ export interface ConversationDetail {
   has_more: boolean;
 }
 
-export interface StreamChunk {
-  message?: Message;
-  conversation_id?: number;
-  chunk_id?: number;
-  done?: boolean;
-}
-
 export interface UserProfile {
   username: string;
   email?: string;
@@ -47,6 +57,7 @@ export interface UserProfile {
   user_avatar_uuid?: string;
   agent_avatar_uuid?: string;
   assistant_avatar_uuid?: string; // Alias for agent_avatar_uuid
+  ollama_url?: string; // Custom Ollama server URL (null/undefined = use default)
 }
 
 export interface VoicesResponse {
@@ -66,4 +77,61 @@ export interface TTSRequest {
   emo_audio?: string;
   emo_alpha?: number;
   use_emo_text?: boolean;
+}
+
+export interface Agent {
+  id: number;
+  name: string;
+  system_prompt: string;
+  voice_reference: string | null;
+  avatar_uuid: string | null;
+  model_name: string | null;
+  tools: string[] | null;
+  think: boolean;
+}
+
+export interface AgentCreate {
+  name: string;
+  system_prompt?: string;
+  model_name: string;  // Required - LLM model for this agent
+  tools?: string[];
+  think?: boolean;
+}
+
+export interface AgentUpdate {
+  name?: string;
+  system_prompt?: string;
+  voice_reference?: string;
+  model_name?: string;
+  tools?: string[];
+  think?: boolean;
+}
+
+// MCP Server types
+export interface MCPServer {
+  name: string;
+  command: string;
+  args: string[];
+  status: 'configured' | 'available' | 'unavailable';
+}
+
+export interface MCPServersResponse {
+  servers: MCPServer[];
+}
+
+// Tool types
+export interface ToolFunction {
+  name: string;
+  description: string;
+  parameters: Record<string, any>;
+}
+
+export interface Tool {
+  type: string;
+  function: ToolFunction;
+}
+
+export interface ToolsResponse {
+  mcp_tools: Tool[];
+  builtin_tools: Tool[];
 }

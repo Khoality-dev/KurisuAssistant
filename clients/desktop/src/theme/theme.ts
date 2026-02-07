@@ -4,22 +4,22 @@ export const theme = createTheme({
   palette: {
     mode: 'light',
     primary: {
-      main: '#10A37F', // ChatGPT teal
-      light: '#1ABC9C',
-      dark: '#0D8C6C',
+      main: '#2563EB',
+      light: '#3B82F6',
+      dark: '#1D4ED8',
     },
     secondary: {
-      main: '#565869',
+      main: '#64748B',
     },
     background: {
-      default: '#F7F7F8',
+      default: '#F8FAFC',
       paper: '#FFFFFF',
     },
     text: {
-      primary: '#0D0D0D',
-      secondary: '#565869',
+      primary: '#0F172A',
+      secondary: '#64748B',
     },
-    divider: '#E5E5E5',
+    divider: '#E2E8F0',
     error: {
       main: '#EF4444',
     },
@@ -79,13 +79,13 @@ export const theme = createTheme({
             borderRadius: 8,
             backgroundColor: '#FFFFFF',
             '& fieldset': {
-              borderColor: '#E5E5E5',
+              borderColor: '#E2E8F0',
             },
             '&:hover fieldset': {
-              borderColor: '#C4C4C4',
+              borderColor: '#CBD5E1',
             },
             '&.Mui-focused fieldset': {
-              borderColor: '#10A37F',
+              borderColor: '#2563EB',
             },
           },
         },
@@ -107,10 +107,10 @@ export const theme = createTheme({
           borderRadius: 8,
           marginBottom: 4,
           '&.Mui-selected': {
-            backgroundColor: '#F0FDF9',
-            borderLeft: '3px solid #10A37F',
+            backgroundColor: '#EFF6FF',
+            borderLeft: '3px solid #2563EB',
             '&:hover': {
-              backgroundColor: '#E6FCF5',
+              backgroundColor: '#DBEAFE',
             },
           },
         },

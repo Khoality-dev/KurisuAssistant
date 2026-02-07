@@ -6,8 +6,6 @@ interface ConversationState {
   conversations: Conversation[];
   currentConversation: Conversation | null;
   messages: Message[];
-  models: string[];
-  selectedModel: string;
 
   // Pagination state
   totalMessages: number;
@@ -20,10 +18,8 @@ interface ConversationState {
   loadMoreMessages: () => Promise<void>;
   deleteConversation: (id: number) => Promise<void>;
   createNewConversation: () => void;
-  loadModels: () => Promise<void>;
-  setSelectedModel: (model: string) => void;
   addMessage: (message: Message) => void;
-  updateLastMessage: (content: string, thinking?: string, role?: string) => void;
+  updateLastMessage: (content: string, thinking?: string, role?: string, agent_name?: string) => void;
   setCurrentConversationId: (id: number) => Promise<void>;
 }
 
@@ -31,8 +27,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   conversations: [],
   currentConversation: null,
   messages: [],
-  models: [],
-  selectedModel: '',
 
   // Pagination state initialization
   totalMessages: 0,
@@ -47,7 +41,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   loadConversation: async (id: number) => {
     // Load the most recent page of messages (offset=0)
-    const data = await apiClient.getConversation(id, 50, 0);
+    const data = await apiClient.getConversation(id, 20, 0);
     const conversation = get().conversations.find((c) => c.id === id) || null;
 
     set({
@@ -73,7 +67,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     try {
       const data = await apiClient.getConversation(
         currentConversation.id,
-        50,
+        20,
         messagesOffset
       );
 
@@ -107,20 +101,11 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     });
   },
 
-  loadModels: async () => {
-    const models = await apiClient.getModels();
-    set({ models, selectedModel: models[0] || '' });
-  },
-
-  setSelectedModel: (model: string) => {
-    set({ selectedModel: model });
-  },
-
   addMessage: (message: Message) => {
     set((state) => ({ messages: [...state.messages, message] }));
   },
 
-  updateLastMessage: (content: string, thinking?: string, role?: string) => {
+  updateLastMessage: (content: string, thinking?: string, role?: string, agent_name?: string) => {
     set((state) => {
       const messages = [...state.messages];
       if (messages.length > 0) {
@@ -130,6 +115,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           content,
           ...(thinking !== undefined ? { thinking } : {}),
           ...(role !== undefined ? { role } : {}),
+          ...(agent_name !== undefined ? { agent_name } : {}),
         };
       }
       return { messages };

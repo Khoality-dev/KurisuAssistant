@@ -1,18 +1,23 @@
-import React from 'react';
-import { Box, Paper, Typography, Button, IconButton, Tooltip } from '@mui/material';
+import React, { useState } from 'react';
+import { Box, Paper, Typography, Button, IconButton, Tooltip, Avatar, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress } from '@mui/material';
 import {
   CheckCircle as CheckCircleIcon,
   Psychology as PsychologyIcon,
   ExpandMore as ExpandMoreIcon,
   VolumeUp as VolumeUpIcon,
   Stop as StopIcon,
+  SmartToy as SmartToyIcon,
+  DataObject as DataObjectIcon,
+  Refresh as RefreshIcon,
+  ContentCopy as ContentCopyIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import { apiClient } from '../api/client';
+import { config } from '../config';
 import { useTTS } from '../hooks/useTTS';
 import { storage } from '../utils/storage';
-import type { Message } from '../api/types';
+import type { Message, MessageRawData } from '../api/types';
 
 const MotionBox = motion(Box);
 
@@ -28,6 +33,7 @@ interface MessageBubbleProps {
   justFinishedStreaming: boolean;
   expandedThinking: Set<number>;
   onToggleThinking: (index: number) => void;
+  onRegenerate?: (messageIndex: number) => void;
   ttsVoice?: string;
   ttsLanguage?: string;
   ttsBackend?: string;
@@ -45,6 +51,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   justFinishedStreaming,
   expandedThinking,
   onToggleThinking,
+  onRegenerate,
   ttsVoice,
   ttsLanguage,
   ttsBackend,
@@ -53,12 +60,33 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const showFinishedIndicator = isLast && message.role !== 'user' && justFinishedStreaming && !isStreaming;
   const { speak, stop, isPlaying } = useTTS();
 
+  // Raw data dialog state
+  const [rawDialogOpen, setRawDialogOpen] = useState(false);
+  const [rawData, setRawData] = useState<MessageRawData | null>(null);
+  const [rawLoading, setRawLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleShowRaw = async () => {
+    if (!message.id) return;
+    setRawDialogOpen(true);
+    if (!rawData) {
+      setRawLoading(true);
+      try {
+        const data = await apiClient.getMessageRaw(message.id);
+        setRawData(data);
+      } catch (error) {
+        console.error('Failed to fetch raw data:', error);
+      } finally {
+        setRawLoading(false);
+      }
+    }
+  };
+
   const handleTTS = async () => {
     if (isPlaying) {
       stop();
     } else {
       try {
-        // Load emotion parameters from storage (for INDEX-TTS)
         const emotionParams =
           ttsBackend === 'index-tts'
             ? {
@@ -68,11 +96,20 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               }
             : undefined;
 
-        // Use the message content (not thinking) for TTS
         await speak(message.content, ttsVoice, ttsLanguage, ttsBackend, emotionParams);
       } catch (error) {
         console.error('Failed to play TTS:', error);
       }
+    }
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error('Failed to copy:', error);
     }
   };
 
@@ -83,10 +120,16 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   // Determine message styling based on role
   const isUser = message.role === 'user';
 
-  // Use role name for label (capitalize first letter)
+  // Use agent name if available, otherwise capitalize role name
+  const agentName = message.agent_name || message.agent?.name;
   const label = isUser
     ? 'You'
-    : message.role.charAt(0).toUpperCase() + message.role.slice(1);
+    : agentName || message.role.charAt(0).toUpperCase() + message.role.slice(1);
+
+  // Get avatar URL for agent
+  const agentAvatarUrl = message.agent?.avatar_uuid
+    ? `${config.apiBaseUrl}/images/${message.agent.avatar_uuid}`
+    : undefined;
 
   // Color scheme for different roles
   const getColorScheme = () => {
@@ -97,7 +140,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         label: 'text.primary'
       };
     }
-    // For all non-user roles (assistant, tool, agents, etc.)
     switch (message.role) {
       case 'tool':
         return {
@@ -108,14 +150,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       case 'assistant':
       default:
         return {
-          bg: '#F0FDF9',
-          border: '#10A37F33',
+          bg: '#EFF6FF',
+          border: '#2563EB33',
           label: 'primary.main'
         };
     }
   };
 
   const colorScheme = getColorScheme();
+
+  // Don't show hover toolbar while streaming
+  const showToolbar = !isStreamingThisMessage && message.content;
 
   return (
     <MotionBox
@@ -128,142 +173,141 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         mb: 2,
         display: 'flex',
         justifyContent: isUser ? 'flex-end' : 'flex-start',
+        alignItems: 'flex-start',
+        gap: 1.5,
+        // Hover group: show toolbar on hover
+        '&:hover .message-toolbar': {
+          opacity: 1,
+        },
       }}
     >
-      <Paper
-        elevation={0}
-        sx={{
-          maxWidth: '80%',
-          p: 2,
-          backgroundColor: colorScheme.bg,
-          border: '1px solid',
-          borderColor: colorScheme.border,
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+      {/* Agent avatar for non-user messages */}
+      {!isUser && (
+        <Avatar
+          src={agentAvatarUrl}
+          alt={label}
+          sx={{
+            width: 36,
+            height: 36,
+            bgcolor: 'primary.main',
+            flexShrink: 0,
+          }}
+        >
+          {!agentAvatarUrl && <SmartToyIcon sx={{ fontSize: 20 }} />}
+        </Avatar>
+      )}
+      <Box sx={{ maxWidth: '80%' }}>
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2,
+            backgroundColor: colorScheme.bg,
+            border: '1px solid',
+            borderColor: colorScheme.border,
+          }}
+        >
+          {/* Header: just the label */}
           <Typography
             variant="caption"
             sx={{
               fontWeight: 600,
               color: colorScheme.label,
+              mb: 1,
+              display: 'block',
             }}
           >
             {label}
           </Typography>
-          {/* TTS button for non-user messages */}
-          {!isUser && message.content && (
-            <Tooltip title={isPlaying ? 'Stop' : 'Play'}>
-              <IconButton
-                size="small"
-                onClick={handleTTS}
-                sx={{
-                  p: 0.5,
-                  color: isPlaying ? 'error.main' : 'text.secondary',
-                  '&:hover': {
-                    backgroundColor: isPlaying ? 'error.light' : 'action.hover',
-                  },
-                }}
-              >
-                {isPlaying ? <StopIcon sx={{ fontSize: 18 }} /> : <VolumeUpIcon sx={{ fontSize: 18 }} />}
-              </IconButton>
-            </Tooltip>
-          )}
-        </Box>
-        <Box
-          sx={{
-            '& p': { margin: 0, marginBottom: 1 },
-            '& p:last-child': { marginBottom: 0 },
-            '& code': {
-              backgroundColor: '#F3F4F6',
-              padding: '2px 6px',
-              borderRadius: 1,
-              fontFamily: 'Consolas, Monaco, monospace',
-              fontSize: '0.875em',
-            },
-            '& pre': {
-              backgroundColor: '#F3F4F6',
-              padding: 2,
-              borderRadius: 1,
-              overflow: 'auto',
-            },
-          }}
-        >
-          {/* Thinking Section - Show FIRST */}
-          {(message.thinking || (isStreamingThisMessage && streamingThinking)) && (
-            <Box sx={{ mb: displayContent || message.images ? 1 : 0, pb: displayContent || message.images ? 1 : 0, borderBottom: displayContent || message.images ? '1px solid' : 'none', borderColor: 'divider' }}>
-              <Button
-                size="small"
-                startIcon={<PsychologyIcon />}
-                endIcon={
-                  <ExpandMoreIcon
-                    sx={{
-                      transform: expandedThinking.has(index) ? 'rotate(180deg)' : 'rotate(0deg)',
-                      transition: 'transform 0.2s',
-                    }}
-                  />
-                }
-                onClick={() => onToggleThinking(index)}
-                sx={{
-                  textTransform: 'none',
-                  color: 'text.secondary',
-                  fontSize: '0.75rem',
-                  minWidth: 'auto',
-                  px: 1,
-                  py: 0.5,
-                }}
-              >
-                Thinking
-              </Button>
-              {expandedThinking.has(index) && (
-                <Box
-                  component={motion.div}
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.2 }}
-                  sx={{
-                    mt: 1,
-                    p: 1.5,
-                    backgroundColor: 'rgba(0, 0, 0, 0.02)',
-                    borderRadius: 1,
-                    fontSize: '0.875rem',
-                    color: 'text.secondary',
-                    fontFamily: 'monospace',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    maxHeight: '400px',
-                    overflow: 'auto',
-                  }}
-                >
-                  {displayThinking}
-                  {/* Show cursor while thinking is being typed */}
-                  {isStreamingThisMessage && displayThinking && displayThinking.length < streamingThinking.length && (
-                    <Box
-                      component="span"
+          <Box
+            sx={{
+              '& p': { margin: 0, marginBottom: 1 },
+              '& p:last-child': { marginBottom: 0 },
+              '& code': {
+                backgroundColor: '#F3F4F6',
+                padding: '2px 6px',
+                borderRadius: 1,
+                fontFamily: 'Consolas, Monaco, monospace',
+                fontSize: '0.875em',
+              },
+              '& pre': {
+                backgroundColor: '#F3F4F6',
+                padding: 2,
+                borderRadius: 1,
+                overflow: 'auto',
+              },
+            }}
+          >
+            {/* Thinking Section - Show FIRST */}
+            {(message.thinking || (isStreamingThisMessage && streamingThinking)) && (
+              <Box sx={{ mb: displayContent || message.images ? 1 : 0, pb: displayContent || message.images ? 1 : 0, borderBottom: displayContent || message.images ? '1px solid' : 'none', borderColor: 'divider' }}>
+                <Button
+                  size="small"
+                  startIcon={<PsychologyIcon />}
+                  endIcon={
+                    <ExpandMoreIcon
                       sx={{
-                        display: 'inline-block',
-                        width: '8px',
-                        height: '16px',
-                        backgroundColor: 'primary.main',
-                        marginLeft: '2px',
-                        animation: 'blink 1s infinite',
-                        '@keyframes blink': {
-                          '0%, 49%': { opacity: 1 },
-                          '50%, 100%': { opacity: 0 },
-                        },
+                        transform: expandedThinking.has(index) ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.2s',
                       }}
                     />
-                  )}
-                </Box>
-              )}
-            </Box>
-          )}
-          {/* Show typing indicator if streaming but no thinking or content yet */}
-          {isStreamingThisMessage && !displayThinking && !displayContent && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="body2" color="text.secondary">
-                {label} is typing
-              </Typography>
+                  }
+                  onClick={() => onToggleThinking(index)}
+                  sx={{
+                    textTransform: 'none',
+                    color: 'text.secondary',
+                    fontSize: '0.75rem',
+                    minWidth: 'auto',
+                    px: 1,
+                    py: 0.5,
+                  }}
+                >
+                  Thinking
+                </Button>
+                {expandedThinking.has(index) && (
+                  <Box
+                    component={motion.div}
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    sx={{
+                      mt: 1,
+                      p: 1.5,
+                      backgroundColor: 'rgba(0, 0, 0, 0.02)',
+                      borderRadius: 1,
+                      fontSize: '0.875rem',
+                      color: 'text.secondary',
+                      fontFamily: 'monospace',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      maxHeight: '400px',
+                      overflow: 'auto',
+                    }}
+                  >
+                    {displayThinking}
+                    {isStreamingThisMessage && displayThinking && displayThinking.length < streamingThinking.length && (
+                      <Box
+                        component="span"
+                        sx={{
+                          display: 'inline-block',
+                          width: '8px',
+                          height: '16px',
+                          backgroundColor: 'primary.main',
+                          marginLeft: '2px',
+                          animation: 'blink 1s infinite',
+                          '@keyframes blink': {
+                            '0%, 49%': { opacity: 1 },
+                            '50%, 100%': { opacity: 0 },
+                          },
+                        }}
+                      />
+                    )}
+                  </Box>
+                )}
+              </Box>
+            )}
+            {/* Show typing indicator if streaming but no thinking or content yet */}
+            {isStreamingThisMessage && !displayThinking && !displayContent && (
               <Box sx={{ display: 'flex', gap: 0.5 }}>
                 {[0, 1, 2].map((i) => (
                   <Box
@@ -289,99 +333,247 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   />
                 ))}
               </Box>
-            </Box>
-          )}
-          {/* Show images if present */}
-          {message.images && message.images.length > 0 && (
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: displayContent ? 1 : 0 }}>
-              {message.images.map((imageUuid, idx) => (
-                <Box
-                  key={idx}
-                  component="img"
-                  src={apiClient.getImageUrl(imageUuid)}
-                  alt={`Image ${idx + 1}`}
-                  sx={{
-                    maxWidth: '100%',
-                    maxHeight: 300,
-                    borderRadius: 1,
-                    cursor: 'pointer',
+            )}
+            {/* Show images if present */}
+            {message.images && message.images.length > 0 && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: displayContent ? 1 : 0 }}>
+                {message.images.map((imageUuid, idx) => (
+                  <Box
+                    key={idx}
+                    component="img"
+                    src={apiClient.getImageUrl(imageUuid)}
+                    alt={`Image ${idx + 1}`}
+                    sx={{
+                      maxWidth: '100%',
+                      maxHeight: 300,
+                      borderRadius: 1,
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => window.open(apiClient.getImageUrl(imageUuid), '_blank')}
+                  />
+                ))}
+              </Box>
+            )}
+            {/* Show content with typing effect */}
+            {displayContent && (
+              <>
+                <ReactMarkdown
+                  components={{
+                    img: ({ node, ...props }) => (
+                      <Box
+                        component="img"
+                        {...props}
+                        sx={{
+                          maxWidth: '100%',
+                          maxHeight: 400,
+                          borderRadius: 1,
+                          cursor: 'pointer',
+                          my: 1,
+                        }}
+                        onClick={() => window.open(props.src, '_blank')}
+                      />
+                    ),
                   }}
-                  onClick={() => window.open(apiClient.getImageUrl(imageUuid), '_blank')}
-                />
-              ))}
-            </Box>
-          )}
-          {/* Show content with typing effect */}
-          {displayContent && (
-            <>
-              <ReactMarkdown
-                components={{
-                  img: ({ node, ...props }) => (
-                    <Box
-                      component="img"
-                      {...props}
-                      sx={{
-                        maxWidth: '100%',
-                        maxHeight: 400,
-                        borderRadius: 1,
-                        cursor: 'pointer',
-                        my: 1,
-                      }}
-                      onClick={() => window.open(props.src, '_blank')}
-                    />
-                  ),
+                >
+                  {displayContent}
+                </ReactMarkdown>
+                {isStreamingThisMessage &&
+                 displayedThinking.length >= streamingThinking.length &&
+                 displayedContent.length < streamingContent.length && (
+                  <Box
+                    component="span"
+                    sx={{
+                      display: 'inline-block',
+                      width: '8px',
+                      height: '16px',
+                      backgroundColor: 'primary.main',
+                      marginLeft: '2px',
+                      animation: 'blink 1s infinite',
+                      '@keyframes blink': {
+                        '0%, 49%': { opacity: 1 },
+                        '50%, 100%': { opacity: 0 },
+                      },
+                    }}
+                  />
+                )}
+              </>
+            )}
+            {showFinishedIndicator && (
+              <Box
+                component={motion.div}
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  mt: 1,
+                  pt: 1,
+                  borderTop: '1px solid',
+                  borderColor: 'divider',
+                  color: 'success.main',
                 }}
               >
-                {displayContent}
-              </ReactMarkdown>
-              {/* Show cursor when content is being typed (thinking is done, content still typing) */}
-              {isStreamingThisMessage &&
-               displayedThinking.length >= streamingThinking.length &&
-               displayedContent.length < streamingContent.length && (
-                <Box
-                  component="span"
+                <CheckCircleIcon sx={{ fontSize: 16 }} />
+                <Typography variant="caption" color="success.main">
+                  Done
+                </Typography>
+              </Box>
+            )}
+          </Box>
+        </Paper>
+
+        {/* Hover toolbar - appears below the bubble */}
+        {showToolbar && (
+          <Box
+            className="message-toolbar"
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.5,
+              mt: 0.5,
+              opacity: 0,
+              transition: 'opacity 0.15s ease-in-out',
+              justifyContent: isUser ? 'flex-end' : 'flex-start',
+            }}
+          >
+            {/* Copy */}
+            <Tooltip title={copied ? 'Copied!' : 'Copy'}>
+              <IconButton
+                size="small"
+                onClick={handleCopy}
+                sx={{
+                  p: 0.5,
+                  color: copied ? 'success.main' : 'text.disabled',
+                  '&:hover': { color: 'text.secondary', backgroundColor: 'action.hover' },
+                }}
+              >
+                {copied ? <CheckCircleIcon sx={{ fontSize: 16 }} /> : <ContentCopyIcon sx={{ fontSize: 16 }} />}
+              </IconButton>
+            </Tooltip>
+            {/* TTS - non-user messages only */}
+            {!isUser && (
+              <Tooltip title={isPlaying ? 'Stop' : 'Read aloud'}>
+                <IconButton
+                  size="small"
+                  onClick={handleTTS}
                   sx={{
-                    display: 'inline-block',
-                    width: '8px',
-                    height: '16px',
-                    backgroundColor: 'primary.main',
-                    marginLeft: '2px',
-                    animation: 'blink 1s infinite',
-                    '@keyframes blink': {
-                      '0%, 49%': { opacity: 1 },
-                      '50%, 100%': { opacity: 0 },
-                    },
+                    p: 0.5,
+                    color: isPlaying ? 'error.main' : 'text.disabled',
+                    '&:hover': { color: isPlaying ? 'error.main' : 'text.secondary', backgroundColor: 'action.hover' },
                   }}
-                />
-              )}
-            </>
-          )}
-          {showFinishedIndicator && (
-            <Box
-              component={motion.div}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.3 }}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0.5,
-                mt: 1,
-                pt: 1,
-                borderTop: '1px solid',
-                borderColor: 'divider',
-                color: 'success.main',
-              }}
-            >
-              <CheckCircleIcon sx={{ fontSize: 16 }} />
-              <Typography variant="caption" color="success.main">
-                Done
-              </Typography>
+                >
+                  {isPlaying ? <StopIcon sx={{ fontSize: 16 }} /> : <VolumeUpIcon sx={{ fontSize: 16 }} />}
+                </IconButton>
+              </Tooltip>
+            )}
+            {/* Show raw data */}
+            {!isUser && message.id && (
+              <Tooltip title="Show raw LLM data">
+                <IconButton
+                  size="small"
+                  onClick={handleShowRaw}
+                  sx={{
+                    p: 0.5,
+                    color: 'text.disabled',
+                    '&:hover': { color: 'text.secondary', backgroundColor: 'action.hover' },
+                  }}
+                >
+                  <DataObjectIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+            )}
+            {/* Regenerate - non-user messages only */}
+            {!isUser && onRegenerate && (
+              <Tooltip title="Regenerate">
+                <IconButton
+                  size="small"
+                  onClick={() => onRegenerate(index)}
+                  sx={{
+                    p: 0.5,
+                    color: 'text.disabled',
+                    '&:hover': { color: 'text.secondary', backgroundColor: 'action.hover' },
+                  }}
+                >
+                  <RefreshIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
+        )}
+      </Box>
+
+      {/* Raw Data Dialog */}
+      <Dialog
+        open={rawDialogOpen}
+        onClose={() => setRawDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <DataObjectIcon />
+          Raw LLM Data
+        </DialogTitle>
+        <DialogContent dividers>
+          {rawLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress />
             </Box>
+          ) : rawData ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                  Raw Input (messages sent to LLM)
+                </Typography>
+                <Box
+                  sx={{
+                    backgroundColor: '#F3F4F6',
+                    p: 2,
+                    borderRadius: 1,
+                    overflow: 'auto',
+                    maxHeight: 400,
+                    fontFamily: 'Consolas, Monaco, monospace',
+                    fontSize: '0.8rem',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {rawData.raw_input
+                    ? JSON.stringify(rawData.raw_input, null, 2)
+                    : 'No raw input data available'}
+                </Box>
+              </Box>
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                  Raw Output (full LLM response)
+                </Typography>
+                <Box
+                  sx={{
+                    backgroundColor: '#F3F4F6',
+                    p: 2,
+                    borderRadius: 1,
+                    overflow: 'auto',
+                    maxHeight: 400,
+                    fontFamily: 'Consolas, Monaco, monospace',
+                    fontSize: '0.8rem',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {rawData.raw_output || 'No raw output data available'}
+                </Box>
+              </Box>
+            </Box>
+          ) : (
+            <Typography color="text.secondary">Failed to load raw data.</Typography>
           )}
-        </Box>
-      </Paper>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRawDialogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </MotionBox>
   );
 };

@@ -1,15 +1,21 @@
 import axios, { AxiosInstance } from 'axios';
 import { config } from '../config';
+import { wsManager } from './websocket';
 import type {
   LoginResponse,
   Conversation,
   ConversationDetail,
   Message,
-  StreamChunk,
+  MessageRawData,
   UserProfile,
   VoicesResponse,
   BackendsResponse,
   TTSRequest,
+  Agent,
+  AgentCreate,
+  AgentUpdate,
+  ToolsResponse,
+  MCPServersResponse,
 } from './types';
 
 class APIClient {
@@ -25,10 +31,13 @@ class APIClient {
 
   setToken(token: string) {
     this.token = token;
+    wsManager.setToken(token);
   }
 
   clearToken() {
     this.token = null;
+    wsManager.clearToken();
+    wsManager.disconnect();
   }
 
   private getHeaders() {
@@ -95,98 +104,11 @@ class APIClient {
     );
   }
 
-  async *chatStream(
-    text: string,
-    modelName: string,
-    conversationId: number | null = null,
-    images: File[] = []
-  ): AsyncGenerator<StreamChunk> {
-    const formData = new FormData();
-    formData.append('text', text);
-    formData.append('model_name', modelName);
-    if (conversationId !== null) {
-      formData.append('conversation_id', conversationId.toString());
-    }
-    images.forEach((image) => {
-      formData.append('images', image);
+  async getMessageRaw(messageId: number): Promise<MessageRawData> {
+    const response = await this.client.get<MessageRawData>(`/messages/${messageId}/raw`, {
+      headers: this.getHeaders(),
     });
-
-    console.log('[APIClient] Starting chat stream...');
-    console.log('[APIClient] Request params:', { text, modelName, conversationId, imageCount: images.length });
-
-    // Use native fetch for streaming (works better in browser than Axios)
-    const headers: Record<string, string> = {};
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
-    }
-
-    const response = await fetch(`${config.apiBaseUrl}/chat`, {
-      method: 'POST',
-      headers,
-      body: formData,
-    });
-
-    console.log('[APIClient] Response status:', response.status);
-    console.log('[APIClient] Response headers:', Object.fromEntries(response.headers.entries()));
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('Response body is not readable');
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let chunkCount = 0;
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-
-        if (done) {
-          console.log('[APIClient] Stream ended, total chunks received:', chunkCount);
-          break;
-        }
-
-        const decodedText = decoder.decode(value, { stream: true });
-        console.log('[APIClient] Raw received data:', decodedText);
-
-        buffer += decodedText;
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.trim()) {
-            try {
-              const chunk: StreamChunk = JSON.parse(line);
-              chunkCount++;
-              console.log(`[APIClient] Parsed chunk #${chunkCount}:`, JSON.stringify(chunk));
-              yield chunk;
-            } catch (e) {
-              console.error('[APIClient] Failed to parse chunk:', line, e);
-            }
-          }
-        }
-      }
-
-      // Process any remaining buffer
-      if (buffer.trim()) {
-        try {
-          const chunk: StreamChunk = JSON.parse(buffer);
-          chunkCount++;
-          console.log(`[APIClient] Parsed final chunk #${chunkCount}:`, JSON.stringify(chunk));
-          yield chunk;
-        } catch (e) {
-          console.error('[APIClient] Failed to parse final chunk:', buffer, e);
-        }
-      }
-    } finally {
-      reader.releaseLock();
-      console.log('[APIClient] Reader released');
-    }
+    return response.data;
   }
 
   async getModels(): Promise<string[]> {
@@ -296,6 +218,105 @@ class APIClient {
       headers: this.getHeaders(),
     });
     return response.data.backends;
+  }
+
+  // Agent Methods
+
+  /**
+   * List all agents for the current user
+   */
+  async listAgents(): Promise<Agent[]> {
+    const response = await this.client.get<Agent[]>('/agents', {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Get a specific agent by ID
+   */
+  async getAgent(id: number): Promise<Agent> {
+    const response = await this.client.get<Agent>(`/agents/${id}`, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Create a new agent
+   */
+  async createAgent(data: AgentCreate): Promise<Agent> {
+    const response = await this.client.post<Agent>('/agents', data, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Update an existing agent
+   */
+  async updateAgent(id: number, data: AgentUpdate): Promise<Agent> {
+    const response = await this.client.patch<Agent>(`/agents/${id}`, data, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Update agent avatar
+   */
+  async updateAgentAvatar(id: number, avatar: File): Promise<Agent> {
+    const formData = new FormData();
+    formData.append('avatar', avatar);
+
+    const response = await this.client.patch<Agent>(`/agents/${id}/avatar`, formData, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Update agent voice reference
+   */
+  async updateAgentVoice(id: number, voice: File): Promise<Agent> {
+    const formData = new FormData();
+    formData.append('voice', voice);
+
+    const response = await this.client.patch<Agent>(`/agents/${id}/voice`, formData, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Delete an agent
+   */
+  async deleteAgent(id: number): Promise<void> {
+    await this.client.delete(`/agents/${id}`, {
+      headers: this.getHeaders(),
+    });
+  }
+
+  // Tools Methods
+
+  /**
+   * List all available tools (MCP + built-in)
+   */
+  async listTools(): Promise<ToolsResponse> {
+    const response = await this.client.get<ToolsResponse>('/tools', {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * List MCP servers and their status
+   */
+  async listMCPServers(): Promise<MCPServersResponse> {
+    const response = await this.client.get<MCPServersResponse>('/mcp-servers', {
+      headers: this.getHeaders(),
+    });
+    return response.data;
   }
 }
 

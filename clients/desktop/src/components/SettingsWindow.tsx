@@ -46,6 +46,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
 
   const [systemPrompt, setSystemPrompt] = useState('');
   const [preferredName, setPreferredName] = useState('');
+  const [ollamaUrl, setOllamaUrl] = useState('');
   const [userAvatarFile, setUserAvatarFile] = useState<File | null>(null);
   const [agentAvatarFile, setAgentAvatarFile] = useState<File | null>(null);
   const [userAvatarPreview, setUserAvatarPreview] = useState<string | null>(null);
@@ -72,6 +73,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
     if (user) {
       setSystemPrompt(user.system_prompt || '');
       setPreferredName(user.preferred_name || '');
+      setOllamaUrl(user.ollama_url || '');
 
       if (user.user_avatar_uuid) {
         setUserAvatarPreview(apiClient.getImageUrl(user.user_avatar_uuid));
@@ -127,6 +129,8 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
       if (preferredName !== undefined && preferredName !== '') {
         profileUpdates.preferred_name = preferredName;
       }
+      // Always include ollama_url (empty string will clear it on backend)
+      profileUpdates.ollama_url = ollamaUrl || '';
 
       if (Object.keys(profileUpdates).length > 0) {
         await apiClient.updateUserProfile(profileUpdates);
@@ -304,6 +308,18 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
               rows={8}
               fullWidth
               helperText="Custom instructions for the agent's behavior"
+            />
+          </Box>
+
+          {/* Ollama Server URL */}
+          <Box sx={{ mb: 4 }}>
+            <TextField
+              label="Ollama Server URL"
+              value={ollamaUrl}
+              onChange={(e) => setOllamaUrl(e.target.value)}
+              fullWidth
+              placeholder="http://localhost:11434"
+              helperText="Leave empty to use the default server"
             />
           </Box>
 

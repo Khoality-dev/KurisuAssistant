@@ -11,6 +11,7 @@ const STORAGE_KEYS = {
   TTS_LANGUAGE: 'kurisu_tts_language',
   TTS_AUTO_PLAY: 'kurisu_tts_auto_play',
   TTS_BACKEND: 'kurisu_tts_backend',
+  SHOW_ADMINISTRATOR: 'kurisu_show_administrator',
 } as const;
 
 export const storage = {
@@ -238,6 +239,29 @@ export const storage = {
     } catch (error) {
       console.error('Failed to get TTS use emotion text:', error);
       return false;
+    }
+  },
+
+  /**
+   * Save show Administrator messages preference (default: false/hidden)
+   */
+  setShowAdministrator(show: boolean): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.SHOW_ADMINISTRATOR, show.toString());
+    } catch (error) {
+      console.error('Failed to save show Administrator preference:', error);
+    }
+  },
+
+  /**
+   * Get show Administrator messages preference (default: false/hidden)
+   */
+  getShowAdministrator(): boolean {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.SHOW_ADMINISTRATOR) === 'true';
+    } catch (error) {
+      console.error('Failed to get show Administrator preference:', error);
+      return false; // Default: hide Administrator messages
     }
   },
 };
