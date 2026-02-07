@@ -19,9 +19,9 @@ services:
       - is_half=False
       - is_share=False
     volumes:
-      - ./output:/workspace/output
-      - ./logs:/workspace/logs
-      - ./SoVITS_weights:/workspace/SoVITS_weights
+      - ./data/sovits/output:/workspace/output
+      - ./data/sovits/logs:/workspace/logs
+      - ./data/sovits/weights:/workspace/SoVITS_weights
       - ./data/voice_storage:/workspace/data/voice_storage
     working_dir: /workspace
     ports:
