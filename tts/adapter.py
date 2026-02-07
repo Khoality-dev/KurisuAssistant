@@ -46,6 +46,7 @@ def synthesize(
     voice: Optional[str] = None,
     language: Optional[str] = None,
     provider: Optional[str] = None,
+    api_url: Optional[str] = None,
     **kwargs
 ) -> bytes:
     """Synthesize speech from text.
@@ -68,6 +69,8 @@ def synthesize(
     """
     try:
         tts_provider = _get_provider(provider)
+        if api_url:
+            kwargs["api_url"] = api_url
         return tts_provider.synthesize(
             text=text,
             voice=voice,

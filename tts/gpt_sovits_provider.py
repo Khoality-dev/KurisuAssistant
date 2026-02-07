@@ -176,6 +176,8 @@ class GPTSoVITSProvider(BaseTTSProvider):
         text_lang = language or "ja"
         prompt_lang = language or "ja"
         max_chunk_length = kwargs.get("max_chunk_length", 200)
+        # Allow per-request URL override
+        api_url = kwargs.get("api_url") or self.api_url
 
         # Split text into chunks
         text_chunks = self._split_text(text, max_length=max_chunk_length)
@@ -198,7 +200,7 @@ class GPTSoVITSProvider(BaseTTSProvider):
             }
 
             try:
-                response = requests.get(self.api_url, params=params, timeout=60)
+                response = requests.get(api_url, params=params, timeout=60)
                 response.raise_for_status()
                 audio_chunks.append(response.content)
             except requests.exceptions.RequestException as e:

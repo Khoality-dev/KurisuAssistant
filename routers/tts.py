@@ -20,6 +20,7 @@ async def synthesize_speech(
     voice: str = Body(None, embed=True),
     language: str = Body(None, embed=True),
     provider: str = Body(None, embed=True),
+    api_url: str = Body(None, embed=True),
     username: str = Depends(get_authenticated_user),
     db: Session = Depends(get_db)
 ):
@@ -30,6 +31,7 @@ async def synthesize_speech(
         voice: Voice identifier (optional, provider-specific)
         language: Language code (optional, e.g., "en", "ja")
         provider: TTS provider to use (optional, defaults to TTS_PROVIDER env var or "gpt-sovits")
+        api_url: Custom TTS server URL (optional, overrides default)
 
     Returns:
         Audio data as WAV file
@@ -39,7 +41,8 @@ async def synthesize_speech(
             text=text,
             voice=voice,
             language=language,
-            provider=provider
+            provider=provider,
+            api_url=api_url,
         )
         # Save audio_data to disk for debugging
         with open("speech.wav", "wb") as f:
