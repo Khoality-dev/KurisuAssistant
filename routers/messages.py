@@ -68,6 +68,33 @@ async def get_message(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/{message_id}")
+async def delete_message(
+    message_id: int,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a message and all subsequent messages in the conversation."""
+    try:
+        with get_session() as session:
+            msg_repo = MessageRepository(session)
+            conv_repo = ConversationRepository(session)
+
+            message = _verify_message_ownership(msg_repo, conv_repo, message_id, user.id)
+            conversation_id = message.frame.conversation_id
+
+            count = msg_repo.delete_from_message(message_id, conversation_id)
+            session.commit()
+
+            return {"deleted": count}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting message {message_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{message_id}/raw")
 async def get_message_raw(
     message_id: int,

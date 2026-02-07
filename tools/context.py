@@ -102,7 +102,7 @@ class SearchMessagesTool(BaseTool):
                     results.append({
                         "role": msg.role,
                         "content": msg.message,
-                        "agent_name": agent_name,
+                        "name": agent_name,
                         "created_at": msg.created_at.isoformat() if msg.created_at else None,
                     })
 

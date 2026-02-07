@@ -78,7 +78,7 @@ class StreamChunkEvent(BaseEvent):
     thinking: Optional[str] = None
     role: str = "assistant"
     agent_id: Optional[int] = None
-    agent_name: Optional[str] = None
+    name: Optional[str] = None  # Speaker identity (agent name, tool name, etc.)
     voice_reference: Optional[str] = None
     conversation_id: int = 0
     frame_id: int = 0
@@ -92,7 +92,7 @@ class ToolApprovalRequestEvent(BaseEvent):
     tool_name: str = ""
     tool_args: Dict[str, Any] = field(default_factory=dict)
     agent_id: Optional[int] = None
-    agent_name: Optional[str] = None
+    name: Optional[str] = None  # Which agent is requesting approval
     description: str = ""  # Human-readable description
     risk_level: str = "low"  # low, medium, high
 

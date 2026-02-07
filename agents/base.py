@@ -118,7 +118,7 @@ class BaseAgent(ABC):
                 tool_name=tool_name,
                 tool_args=tool_args,
                 agent_id=self.config.id,
-                agent_name=self.config.name,
+                name=self.config.name,
                 description=tool.describe_call(tool_args),
                 risk_level=tool.risk_level,
             )
@@ -290,22 +290,36 @@ class SimpleAgent(BaseAgent):
         system_parts.append(f"Current time: {datetime.datetime.utcnow().isoformat()}")
         if agent_descriptions:
             system_parts.append(
-                "Other agents in this conversation:\n" + "\n".join(agent_descriptions)
+                "Other agents in this conversation:\n"
+                + "\n".join(agent_descriptions)
+                + "\n\nYou can talk to or reference other agents directly. "
+                "Not every message needs to involve the user — "
+                "feel free to discuss, collaborate, or delegate among yourselves."
             )
 
         prepared = []
         prepared.append({"role": "system", "content": "\n\n".join(system_parts)})
 
+        # Track last assistant speaker to determine tool result ownership.
+        # Tool results always follow the assistant message that triggered them.
+        last_assistant = None
+
         for msg in messages:
             role = msg.get("role", "user")
-            agent_name = msg.get("agent_name", "")
+            speaker = msg.get("name", "")
 
             # Skip system messages — already incorporated into agent's system prompt
             if role == "system":
                 continue
 
-            # Filter out Administrator messages (routing decisions)
-            if agent_name == ADMINISTRATOR_NAME:
+            # Track which agent last spoke
+            if role == "assistant":
+                last_assistant = speaker
+
+            # Filter Administrator: assistant msgs by name, tool msgs by ownership
+            if role == "assistant" and speaker == ADMINISTRATOR_NAME:
+                continue
+            if role == "tool" and last_assistant == ADMINISTRATOR_NAME:
                 continue
 
             content = msg.get("content", "")
@@ -314,18 +328,16 @@ class SimpleAgent(BaseAgent):
             #   "assistant" = this agent's own messages
             #   "tool"      = tool results from this agent's tool calls
             #   "user"      = everyone else (user, other agents, their tool results)
-            is_self = agent_name and agent_name == self.config.name
-
-            if is_self and role == "tool":
-                chat_role = "tool"
-            elif is_self:
+            if role == "assistant" and speaker == self.config.name:
                 chat_role = "assistant"
+            elif role == "tool" and last_assistant == self.config.name:
+                chat_role = "tool"
             else:
                 chat_role = "user"
                 if role == "user":
                     content = f"[User]: {content}"
-                elif agent_name:
-                    content = f"[{agent_name}]: {content}"
+                elif speaker:
+                    content = f"[{speaker}]: {content}"
 
             prepared.append({"role": chat_role, "content": content})
 
@@ -374,7 +386,7 @@ class SimpleAgent(BaseAgent):
                         thinking=thinking,
                         role="assistant",
                         agent_id=self.config.id,
-                        agent_name=self.config.name,
+                        name=self.config.name,
                         conversation_id=context.conversation_id,
                         frame_id=context.frame_id,
                     )
@@ -385,7 +397,7 @@ class SimpleAgent(BaseAgent):
                         content=msg.content,
                         role="assistant",
                         agent_id=self.config.id,
-                        agent_name=self.config.name,
+                        name=self.config.name,
                         conversation_id=context.conversation_id,
                         frame_id=context.frame_id,
                     )
@@ -400,12 +412,12 @@ class SimpleAgent(BaseAgent):
                         # Execute tool with approval
                         result = await self.execute_tool(tool_name, tool_args, context)
 
-                        # Yield tool result
+                        # Yield tool result (name=tool, no agent_id — tools aren't agents)
                         yield StreamChunkEvent(
                             content=result,
                             role="tool",
-                            agent_id=self.config.id,
-                            agent_name=self.config.name,
+                            agent_id=None,
+                            name=tool_name,
                             conversation_id=context.conversation_id,
                             frame_id=context.frame_id,
                         )
@@ -416,7 +428,7 @@ class SimpleAgent(BaseAgent):
                 content=f"Error: {e}",
                 role="assistant",
                 agent_id=self.config.id,
-                agent_name=self.config.name,
+                name=self.config.name,
                 conversation_id=context.conversation_id,
                 frame_id=context.frame_id,
             )

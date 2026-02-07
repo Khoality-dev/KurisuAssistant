@@ -201,7 +201,7 @@ class ChatSessionHandler:
                     content=admin_selection_content,
                     role="assistant",
                     agent_id=admin_id,
-                    agent_name=ADMINISTRATOR_NAME,
+                    name=ADMINISTRATOR_NAME,
                     conversation_id=conversation_id,
                     frame_id=frame_id,
                 ))
@@ -211,7 +211,7 @@ class ChatSessionHandler:
                     "content": admin_selection_content,
                     "thinking": None,
                     "agent_id": admin_id,
-                    "agent_name": ADMINISTRATOR_NAME,
+                    "name": ADMINISTRATOR_NAME,
                 }
                 messages_to_save.append(admin_sel_msg)
                 self._accumulated_messages.append(admin_sel_msg)
@@ -220,7 +220,7 @@ class ChatSessionHandler:
             else:
                 # Administrator selects agent(s) using routing tools - stream the process
                 admin_role = "assistant"
-                admin_agent_name = ADMINISTRATOR_NAME
+                admin_name = ADMINISTRATOR_NAME
                 admin_content = ""
                 admin_thinking = ""
 
@@ -239,15 +239,15 @@ class ChatSessionHandler:
                                 "role": admin_role,
                                 "content": admin_content,
                                 "thinking": admin_thinking if admin_thinking else None,
-                                "agent_id": admin_id,
-                                "agent_name": admin_agent_name,
+                                "agent_id": admin_id if admin_role == "assistant" else None,
+                                "name": admin_name,
                                 "raw_input": session.last_raw_input if admin_role == "assistant" else None,
                                 "raw_output": session.last_raw_output if admin_role == "assistant" else None,
                             }
                             messages_to_save.append(msg)
                             self._accumulated_messages.append(msg)
                         admin_role = chunk.role
-                        admin_agent_name = chunk.agent_name or ADMINISTRATOR_NAME
+                        admin_name = chunk.name or ADMINISTRATOR_NAME
                         admin_content = chunk.content
                         admin_thinking = chunk.thinking or ""
                     else:
@@ -261,8 +261,8 @@ class ChatSessionHandler:
                         "role": admin_role,
                         "content": admin_content,
                         "thinking": admin_thinking if admin_thinking else None,
-                        "agent_id": admin_id,
-                        "agent_name": admin_agent_name,
+                        "agent_id": admin_id if admin_role == "assistant" else None,
+                        "name": admin_name,
                         "raw_input": session.last_raw_input if admin_role == "assistant" else None,
                         "raw_output": session.last_raw_output if admin_role == "assistant" else None,
                     }
@@ -300,11 +300,11 @@ class ChatSessionHandler:
                         "role": "assistant",
                         "content": conversation_messages[-1].get("content", "") if conversation_messages else "",
                         "agent_id": session.current_agent_id,
-                        "agent_name": session.current_agent_name,
+                        "name": session.current_agent_name,
                     }
 
                     admin_role = "assistant"
-                    admin_agent_name = ADMINISTRATOR_NAME
+                    admin_name = ADMINISTRATOR_NAME
                     routing_content = ""
                     routing_thinking = ""
                     async for chunk in self.administrator.stream_routing_decision(
@@ -322,15 +322,15 @@ class ChatSessionHandler:
                                     "role": admin_role,
                                     "content": routing_content,
                                     "thinking": routing_thinking if routing_thinking else None,
-                                    "agent_id": admin_id,
-                                    "agent_name": admin_agent_name,
+                                    "agent_id": admin_id if admin_role == "assistant" else None,
+                                    "name": admin_name,
                                     "raw_input": session.last_raw_input if admin_role == "assistant" else None,
                                     "raw_output": session.last_raw_output if admin_role == "assistant" else None,
                                 }
                                 messages_to_save.append(msg)
                                 self._accumulated_messages.append(msg)
                             admin_role = chunk.role
-                            admin_agent_name = chunk.agent_name or ADMINISTRATOR_NAME
+                            admin_name = chunk.name or ADMINISTRATOR_NAME
                             routing_content = chunk.content
                             routing_thinking = chunk.thinking or ""
                         else:
@@ -344,8 +344,8 @@ class ChatSessionHandler:
                             "role": admin_role,
                             "content": routing_content,
                             "thinking": routing_thinking if routing_thinking else None,
-                            "agent_id": admin_id,
-                            "agent_name": admin_agent_name,
+                            "agent_id": admin_id if admin_role == "assistant" else None,
+                            "name": admin_name,
                             "raw_input": session.last_raw_input if admin_role == "assistant" else None,
                             "raw_output": session.last_raw_output if admin_role == "assistant" else None,
                         }
@@ -392,6 +392,7 @@ class ChatSessionHandler:
                 agent_response = ""
                 agent_thinking = ""
                 current_role = "assistant"
+                current_name = current_agent.name  # Track name per group (agent name or tool name)
                 chunk_content = ""
                 chunk_thinking = ""
                 raw_input_json = None  # Captured from agent's prepared messages on first chunk
@@ -418,8 +419,9 @@ class ChatSessionHandler:
                                 "role": current_role,
                                 "content": chunk_content,
                                 "thinking": chunk_thinking if chunk_thinking else None,
-                                "agent_id": current_agent.id,
-                                "agent_name": current_agent.name,
+                                # agent_id only for assistant messages (for avatar/voice)
+                                "agent_id": current_agent.id if current_role == "assistant" else None,
+                                "name": current_name,
                                 "raw_input": raw_input_json if current_role == "assistant" else None,
                                 "raw_output": chunk_content if current_role == "assistant" else None,
                             }
@@ -428,10 +430,11 @@ class ChatSessionHandler:
                             conversation_messages.append({
                                 "role": current_role,
                                 "content": chunk_content,
-                                "agent_id": current_agent.id,
-                                "agent_name": current_agent.name,
+                                "agent_id": current_agent.id if current_role == "assistant" else None,
+                                "name": current_name,
                             })
                         current_role = chunk.role
+                        current_name = chunk.name or current_agent.name
                         chunk_content = chunk.content
                         chunk_thinking = chunk.thinking or ""
                     else:
@@ -444,8 +447,8 @@ class ChatSessionHandler:
                         "role": current_role,
                         "content": chunk_content,
                         "thinking": chunk_thinking if chunk_thinking else None,
-                        "agent_id": current_agent.id,
-                        "agent_name": current_agent.name,
+                        "agent_id": current_agent.id if current_role == "assistant" else None,
+                        "name": current_name,
                     }
 
                     # Track full response for routing
@@ -460,8 +463,8 @@ class ChatSessionHandler:
                         "role": current_role,
                         "content": chunk_content,
                         "thinking": chunk_thinking if chunk_thinking else None,
-                        "agent_id": current_agent.id,
-                        "agent_name": current_agent.name,
+                        "agent_id": current_agent.id if current_role == "assistant" else None,
+                        "name": current_name,
                         "raw_input": raw_input_json if current_role == "assistant" else None,
                         "raw_output": chunk_content if current_role == "assistant" else None,
                     }
@@ -470,8 +473,8 @@ class ChatSessionHandler:
                     conversation_messages.append({
                         "role": current_role,
                         "content": chunk_content,
-                        "agent_id": current_agent.id,
-                        "agent_name": current_agent.name,
+                        "agent_id": current_agent.id if current_role == "assistant" else None,
+                        "name": current_name,
                     })
 
                 # Agent turn finished, clear in-progress chunk
@@ -629,7 +632,7 @@ class ChatSessionHandler:
                 thinking=msg.get("thinking"),
                 role=msg["role"],
                 agent_id=msg.get("agent_id"),
-                agent_name=msg.get("agent_name"),
+                name=msg.get("name"),
                 conversation_id=conv_id,
                 frame_id=frame_id,
             )
@@ -645,7 +648,7 @@ class ChatSessionHandler:
                 thinking=self._current_chunk.get("thinking"),
                 role=self._current_chunk["role"],
                 agent_id=self._current_chunk.get("agent_id"),
-                agent_name=self._current_chunk.get("agent_name"),
+                name=self._current_chunk.get("name"),
                 conversation_id=conv_id,
                 frame_id=frame_id,
             )
@@ -695,18 +698,27 @@ class ChatSessionHandler:
                 del self.pending_approvals[request.approval_id]
 
     def _load_context_messages(self, conversation_id: int, frame_id: int) -> list:
-        """Load context messages from database."""
+        """Load context messages from database.
+
+        Includes speaker name so _prepare_messages() can correctly map
+        roles (assistant=self, user=others) and add speaker prefixes.
+        """
         with get_session() as session:
             msg_repo = MessageRepository(session)
             messages = msg_repo.get_by_frame(frame_id, limit=1000)
 
-            return [
-                {
+            result = []
+            for msg in messages:
+                entry = {
                     "role": msg.role,
                     "content": msg.message,
                 }
-                for msg in messages
-            ]
+                if msg.name:
+                    entry["name"] = msg.name
+                if msg.agent_id:
+                    entry["agent_id"] = msg.agent_id
+                result.append(entry)
+            return result
 
     def _load_agent(self, agent_id: int) -> BaseAgent:
         """Load agent from database."""
@@ -742,7 +754,7 @@ class ChatSessionHandler:
                     frame_id=frame_id,
                     thinking=msg.get("thinking"),
                     agent_id=msg.get("agent_id"),
-                    name=msg.get("agent_name"),
+                    name=msg.get("name"),
                     raw_input=msg.get("raw_input"),
                     raw_output=msg.get("raw_output"),
                 )

@@ -56,17 +56,17 @@ def _build_chat_messages(
         for msg in conversation_history:
             role = msg.get("role", "user")
             content = msg.get("content", "")
-            agent_name = msg.get("agent_name", "")
+            speaker = msg.get("name", "")
 
             if role == "system":
                 chat_role = "system"
-            elif agent_name == ADMINISTRATOR_NAME:
+            elif speaker == ADMINISTRATOR_NAME:
                 chat_role = "assistant"
             else:
                 chat_role = "user"
 
-            if agent_name and agent_name != ADMINISTRATOR_NAME:
-                content = f"[{agent_name}]: {content}"
+            if speaker and speaker != ADMINISTRATOR_NAME:
+                content = f"[{speaker}]: {content}"
             elif role == "user":
                 content = f"[User]: {content}"
 
@@ -81,6 +81,8 @@ class AdministratorAgent:
     """LLM-based conversation orchestrator using routing tools.
 
     Streams its thinking and decisions like regular agents.
+    All chunks (including tool results) use name=ADMINISTRATOR_NAME
+    so _prepare_messages can filter them from sub-agent context.
     """
 
     def __init__(
@@ -90,14 +92,6 @@ class AdministratorAgent:
         api_url: Optional[str] = None,
         think: bool = False,
     ):
-        """Initialize the Administrator.
-
-        Args:
-            agent_id: Database ID of Administrator agent
-            model_name: LLM model to use for routing decisions
-            api_url: Optional custom LLM API URL
-            think: Enable extended thinking for routing decisions
-        """
         self.agent_id = agent_id
         self.model_name = model_name
         self.api_url = api_url
@@ -111,6 +105,25 @@ class AdministratorAgent:
             self._llm = create_llm_provider("ollama", api_url=self.api_url)
         return self._llm
 
+    def _chunk(self, content: str, role: str, session: OrchestrationSession,
+               thinking: Optional[str] = None, name: Optional[str] = None) -> StreamChunkEvent:
+        """Create a StreamChunkEvent for the Administrator.
+
+        Args:
+            name: Override speaker name. Defaults to ADMINISTRATOR_NAME.
+                  For tool results, pass the tool name.
+        """
+        return StreamChunkEvent(
+            content=content,
+            thinking=thinking,
+            role=role,
+            # agent_id only for assistant messages (for avatar/voice lookup)
+            agent_id=self.agent_id if role == "assistant" else None,
+            name=name or ADMINISTRATOR_NAME,
+            conversation_id=session.conversation_id,
+            frame_id=session.frame_id,
+        )
+
     async def stream_routing_decision(
         self,
         latest_message: Dict[str, Any],
@@ -118,50 +131,30 @@ class AdministratorAgent:
         session: OrchestrationSession,
         conversation_history: Optional[List[Dict]] = None,
     ) -> AsyncGenerator[StreamChunkEvent, None]:
-        """Stream the routing decision process, yielding chunks like regular agents.
-
-        Args:
-            latest_message: The message to analyze
-            available_agents: List of agents that can receive messages
-            session: Current orchestration session
-            conversation_history: Recent conversation context
-
-        Yields:
-            StreamChunkEvent for thinking and content
-        """
-        # Build agent name list and lookup
+        """Stream the routing decision process, yielding chunks like regular agents."""
         agent_names = [agent.name for agent in available_agents]
-        agent_by_name = {agent.name.lower(): agent for agent in available_agents}
 
-        # Create routing tools with available agents
         routing_tools = create_routing_tools(agent_names)
         tool_schemas = [tool.get_schema() for tool in routing_tools]
 
-        # Build the routing instruction
         latest_content = latest_message.get("content", "")
-        latest_agent = latest_message.get("agent_name", "User")
+        latest_speaker = latest_message.get("name", "User")
 
         instruction = f"""People in this chat: {', '.join(agent_names)}, User
 
-{latest_agent} just said:
+{latest_speaker} just said:
 {latest_content}
 
 Who speaks next? Use a routing tool."""
 
         messages = _build_chat_messages(
-            ADMINISTRATOR_SYSTEM_PROMPT,
-            conversation_history,
-            instruction,
+            ADMINISTRATOR_SYSTEM_PROMPT, conversation_history, instruction,
         )
-
-        # Store raw input on session
         session.last_raw_input = json.dumps(messages, ensure_ascii=False, default=str)
 
         try:
-            # Log input
             logger.info(f"[Administrator] Routing decision - Model: {self.model_name}")
 
-            # Call LLM with routing tools - stream the response
             stream = self.llm.chat(
                 model=self.model_name,
                 messages=messages,
@@ -175,46 +168,25 @@ Who speaks next? Use a routing tool."""
             async for chunk in async_iterate(stream):
                 msg = chunk.message
 
-                # Stream thinking
                 thinking = getattr(msg, 'thinking', None)
                 if thinking:
-                    yield StreamChunkEvent(
-                        content="",
-                        thinking=thinking,
-                        role="assistant",
-                        agent_id=self.agent_id,
-                        agent_name=ADMINISTRATOR_NAME,
-                        conversation_id=session.conversation_id,
-                        frame_id=session.frame_id,
-                    )
+                    yield self._chunk("", "assistant", session, thinking=thinking)
 
-                # Stream content (if any)
                 if msg.content:
                     full_content += msg.content
-                    yield StreamChunkEvent(
-                        content=msg.content,
-                        role="assistant",
-                        agent_id=self.agent_id,
-                        agent_name=ADMINISTRATOR_NAME,
-                        conversation_id=session.conversation_id,
-                        frame_id=session.frame_id,
-                    )
+                    yield self._chunk(msg.content, "assistant", session)
 
-                # Collect tool calls
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     tool_calls.extend(msg.tool_calls)
 
-            # Store raw output on session
             session.last_raw_output = full_content
 
-            # Log output
             if full_content:
                 logger.info(f"[Administrator] Content: {full_content}")
             if tool_calls:
                 for tc in tool_calls:
                     logger.info(f"[Administrator] Tool call: {tc.function.name}({tc.function.arguments})")
 
-            # Process all tool calls — LLM may route to multiple agents sequentially
             if tool_calls:
                 decisions = []
                 for tool_call in tool_calls:
@@ -233,38 +205,16 @@ Who speaks next? Use a routing tool."""
                             else:
                                 decision_text = f"→ Returning to user: {routing['reason']}"
 
-                            yield StreamChunkEvent(
-                                content=decision_text + "\n",
-                                role="tool",
-                                agent_id=self.agent_id,
-                                agent_name=tool_name,
-                                conversation_id=session.conversation_id,
-                                frame_id=session.frame_id,
-                            )
+                            yield self._chunk(decision_text + "\n", "tool", session, name=tool_name)
 
-                # Store decisions on session for the orchestration loop to consume
                 session.pending_routes = decisions
             else:
-                yield StreamChunkEvent(
-                    content="→ No routing decision made, returning to user",
-                    role="tool",
-                    agent_id=self.agent_id,
-                    agent_name="route_to_user",
-                    conversation_id=session.conversation_id,
-                    frame_id=session.frame_id,
-                )
+                yield self._chunk("→ No routing decision made, returning to user", "tool", session, name="route_to_user")
                 session.pending_routes = [{"action": "route_to_user", "agent_name": None, "reason": "No routing decision"}]
 
         except Exception as e:
             logger.error(f"Administrator routing failed: {e}", exc_info=True)
-            yield StreamChunkEvent(
-                content=f"→ Error: {e}",
-                role="assistant",
-                agent_id=self.agent_id,
-                agent_name=ADMINISTRATOR_NAME,
-                conversation_id=session.conversation_id,
-                frame_id=session.frame_id,
-            )
+            yield self._chunk(f"→ Error: {e}", "assistant", session)
 
     async def decide_routing(
         self,
@@ -273,47 +223,30 @@ Who speaks next? Use a routing tool."""
         session: OrchestrationSession,
         conversation_history: Optional[List[Dict]] = None,
     ) -> AdministratorDecision:
-        """Analyze a message and decide where to route it (non-streaming version).
-
-        Args:
-            latest_message: The message to analyze
-            available_agents: List of agents that can receive messages
-            session: Current orchestration session
-            conversation_history: Recent conversation context
-
-        Returns:
-            AdministratorDecision
-        """
-        # Build agent name list and lookup
+        """Analyze a message and decide where to route it (non-streaming version)."""
         agent_names = [agent.name for agent in available_agents]
         agent_by_name = {agent.name.lower(): agent for agent in available_agents}
 
-        # Create routing tools with available agents
         routing_tools = create_routing_tools(agent_names)
         tool_schemas = [tool.get_schema() for tool in routing_tools]
 
-        # Build the routing instruction
         latest_content = latest_message.get("content", "")
-        latest_agent = latest_message.get("agent_name", "User")
+        latest_speaker = latest_message.get("name", "User")
 
         instruction = f"""People in this chat: {', '.join(agent_names)}, User
 
-{latest_agent} just said:
+{latest_speaker} just said:
 {latest_content}
 
 Who speaks next? Use a routing tool."""
 
         messages = _build_chat_messages(
-            ADMINISTRATOR_SYSTEM_PROMPT,
-            conversation_history,
-            instruction,
+            ADMINISTRATOR_SYSTEM_PROMPT, conversation_history, instruction,
         )
 
         try:
-            # Log input
             logger.info(f"[Administrator] Routing decision (non-streaming) - Model: {self.model_name}")
 
-            # Call LLM with routing tools
             stream = self.llm.chat(
                 model=self.model_name,
                 messages=messages,
@@ -328,26 +261,22 @@ Who speaks next? Use a routing tool."""
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     tool_calls.extend(msg.tool_calls)
 
-            # Log tool calls
             if tool_calls:
                 for tc in tool_calls:
                     logger.info(f"[Administrator] Tool call: {tc.function.name}({tc.function.arguments})")
 
-            # Process tool calls
-            if tool_calls:
                 for tool_call in tool_calls:
                     tool_name = tool_call.function.name
                     tool_args = (tool_call.function.arguments if isinstance(tool_call.function.arguments, dict) else json.loads(tool_call.function.arguments))
 
-                    # Find and execute the routing tool
                     for tool in routing_tools:
                         if tool.name == tool_name:
                             result = await tool.execute(tool_args)
                             routing = parse_routing_result(result)
 
                             if routing["action"] == "route_to_agent":
-                                agent_name = routing["agent_name"]
-                                agent = agent_by_name.get(agent_name.lower())
+                                target = routing["agent_name"]
+                                agent = agent_by_name.get(target.lower())
                                 if agent:
                                     logger.info(f"[Administrator] Routing to agent: {agent.name}")
                                     return AdministratorDecision.to_agent(
@@ -356,17 +285,14 @@ Who speaks next? Use a routing tool."""
                                         reason=routing["reason"],
                                     )
                                 else:
-                                    logger.warning(f"[Administrator] Agent not found: {agent_name}")
+                                    logger.warning(f"[Administrator] Agent not found: {target}")
                                     return AdministratorDecision.to_user(
-                                        reason=f"Agent '{agent_name}' not found"
+                                        reason=f"Agent '{target}' not found"
                                     )
                             else:
                                 logger.info(f"[Administrator] Routing to user: {routing['reason']}")
-                                return AdministratorDecision.to_user(
-                                    reason=routing["reason"]
-                                )
+                                return AdministratorDecision.to_user(reason=routing["reason"])
 
-            # No tool calls - default to user
             logger.warning("[Administrator] Did not call routing tools, returning to user")
             return AdministratorDecision.to_user(reason="No routing decision made")
 
@@ -381,48 +307,22 @@ Who speaks next? Use a routing tool."""
         session: OrchestrationSession,
         conversation_history: Optional[List[Dict]] = None,
     ) -> AsyncGenerator[StreamChunkEvent, None]:
-        """Stream the initial agent selection process.
-
-        Args:
-            user_message: The user's message
-            available_agents: List of available agents
-            session: Current orchestration session
-            conversation_history: Full conversation context
-
-        Yields:
-            StreamChunkEvent for thinking and content
-        """
+        """Stream the initial agent selection process."""
         if not available_agents:
-            yield StreamChunkEvent(
-                content="→ No agents available",
-                role="assistant",
-                agent_id=self.agent_id,
-                agent_name=ADMINISTRATOR_NAME,
-                conversation_id=session.conversation_id,
-                frame_id=session.frame_id,
-            )
+            yield self._chunk("→ No agents available", "assistant", session)
             return
 
-        # If only one agent, use it directly
         if len(available_agents) == 1:
-            yield StreamChunkEvent(
-                content=f"→ Selected {available_agents[0].name} (only available agent)",
-                role="assistant",
-                agent_id=self.agent_id,
-                agent_name=ADMINISTRATOR_NAME,
-                conversation_id=session.conversation_id,
-                frame_id=session.frame_id,
+            yield self._chunk(
+                f"→ Selected {available_agents[0].name} (only available agent)",
+                "assistant", session,
             )
             return
 
-        # Build agent name list
         agent_names = [agent.name for agent in available_agents]
-
-        # Create routing tools
         routing_tools = create_routing_tools(agent_names)
         tool_schemas = [tool.get_schema() for tool in routing_tools]
 
-        # Build agent descriptions
         agent_descriptions = []
         for agent in available_agents:
             desc = f"- {agent.name}: {agent.system_prompt[:100]}..." if agent.system_prompt else f"- {agent.name}: General assistant"
@@ -438,16 +338,11 @@ User said: {user_message[:500]}
 Use route_to_agent to pick who responds. You can pick multiple people."""
 
         messages = _build_chat_messages(
-            ADMINISTRATOR_SYSTEM_PROMPT,
-            conversation_history,
-            instruction,
+            ADMINISTRATOR_SYSTEM_PROMPT, conversation_history, instruction,
         )
-
-        # Store raw input on session
         session.last_raw_input = json.dumps(messages, ensure_ascii=False, default=str)
 
         try:
-            # Log input
             logger.info(f"[Administrator] Initial selection - Model: {self.model_name}")
 
             stream = self.llm.chat(
@@ -463,89 +358,49 @@ Use route_to_agent to pick who responds. You can pick multiple people."""
             async for chunk in async_iterate(stream):
                 msg = chunk.message
 
-                # Stream thinking
                 thinking = getattr(msg, 'thinking', None)
                 if thinking:
-                    yield StreamChunkEvent(
-                        content="",
-                        thinking=thinking,
-                        role="assistant",
-                        agent_id=self.agent_id,
-                        agent_name=ADMINISTRATOR_NAME,
-                        conversation_id=session.conversation_id,
-                        frame_id=session.frame_id,
-                    )
+                    yield self._chunk("", "assistant", session, thinking=thinking)
 
-                # Stream content
                 if msg.content:
                     full_content += msg.content
-                    yield StreamChunkEvent(
-                        content=msg.content,
-                        role="assistant",
-                        agent_id=self.agent_id,
-                        agent_name=ADMINISTRATOR_NAME,
-                        conversation_id=session.conversation_id,
-                        frame_id=session.frame_id,
-                    )
+                    yield self._chunk(msg.content, "assistant", session)
 
-                # Collect tool calls
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     tool_calls.extend(msg.tool_calls)
 
-            # Store raw output on session
             session.last_raw_output = full_content
 
-            # Log output
             if full_content:
                 logger.info(f"[Administrator] Content: {full_content}")
             if tool_calls:
                 for tc in tool_calls:
                     logger.info(f"[Administrator] Tool call: {tc.function.name}({tc.function.arguments})")
 
-            # Process all tool calls — LLM may select multiple agents sequentially
             if tool_calls:
                 decisions = []
                 for tool_call in tool_calls:
                     if tool_call.function.name == "route_to_agent":
                         tool_args = (tool_call.function.arguments if isinstance(tool_call.function.arguments, dict) else json.loads(tool_call.function.arguments))
-                        agent_name = tool_args.get("agent_name", "")
+                        target = tool_args.get("agent_name", "")
                         reason = tool_args.get("reason", "")
-                        decisions.append({"action": "route_to_agent", "agent_name": agent_name, "reason": reason})
+                        decisions.append({"action": "route_to_agent", "agent_name": target, "reason": reason})
 
-                        yield StreamChunkEvent(
-                            content=f"→ Selected {agent_name}: {reason}\n",
-                            role="tool",
-                            agent_id=self.agent_id,
-                            agent_name="route_to_agent",
-                            conversation_id=session.conversation_id,
-                            frame_id=session.frame_id,
-                        )
+                        yield self._chunk(f"→ Selected {target}: {reason}\n", "tool", session, name="route_to_agent")
 
                 if decisions:
                     session.pending_routes = decisions
                     return
 
-            # Default
             logger.info(f"[Administrator] No agent selected via tool, using default: {available_agents[0].name}")
             session.pending_routes = [{"action": "route_to_agent", "agent_name": available_agents[0].name, "reason": "default"}]
-            yield StreamChunkEvent(
-                content=f"→ Selected {available_agents[0].name} (default)",
-                role="tool",
-                agent_id=self.agent_id,
-                agent_name="route_to_agent",
-                conversation_id=session.conversation_id,
-                frame_id=session.frame_id,
-            )
+            yield self._chunk(f"→ Selected {available_agents[0].name} (default)", "tool", session, name="route_to_agent")
 
         except Exception as e:
             logger.error(f"Agent selection failed: {e}", exc_info=True)
-            yield StreamChunkEvent(
-                content=f"→ Error selecting agent: {e}, using {available_agents[0].name}",
-                role="assistant",
-                agent_id=self.agent_id,
-                agent_name=ADMINISTRATOR_NAME,
-                conversation_id=session.conversation_id,
-                frame_id=session.frame_id,
+            yield self._chunk(
+                f"→ Error selecting agent: {e}, using {available_agents[0].name}",
+                "assistant", session,
             )
 
     async def select_initial_agent(
@@ -555,33 +410,19 @@ Use route_to_agent to pick who responds. You can pick multiple people."""
         session: OrchestrationSession,
         conversation_history: Optional[List[Dict]] = None,
     ) -> Optional[AgentConfig]:
-        """Select which agent should handle an initial user message (non-streaming).
-
-        Args:
-            user_message: The user's message
-            available_agents: List of available agents
-            session: Current orchestration session
-            conversation_history: Full conversation context
-
-        Returns:
-            Selected agent config or None
-        """
+        """Select which agent should handle an initial user message (non-streaming)."""
         if not available_agents:
             return None
 
-        # If only one agent, use it directly
         if len(available_agents) == 1:
             return available_agents[0]
 
-        # Build agent name list and lookup
         agent_names = [agent.name for agent in available_agents]
         agent_by_name = {agent.name.lower(): agent for agent in available_agents}
 
-        # Create routing tools
         routing_tools = create_routing_tools(agent_names)
         tool_schemas = [tool.get_schema() for tool in routing_tools]
 
-        # Build agent descriptions
         agent_descriptions = []
         for agent in available_agents:
             desc = f"- {agent.name}: {agent.system_prompt[:100]}..." if agent.system_prompt else f"- {agent.name}: General assistant"
@@ -597,13 +438,10 @@ User said: {user_message[:500]}
 Use route_to_agent to pick who responds. You can pick multiple people."""
 
         messages = _build_chat_messages(
-            ADMINISTRATOR_SYSTEM_PROMPT,
-            conversation_history,
-            instruction,
+            ADMINISTRATOR_SYSTEM_PROMPT, conversation_history, instruction,
         )
 
         try:
-            # Log input
             logger.info(f"[Administrator] Initial selection (non-streaming) - Model: {self.model_name}")
 
             stream = self.llm.chat(
@@ -620,7 +458,6 @@ Use route_to_agent to pick who responds. You can pick multiple people."""
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     tool_calls.extend(msg.tool_calls)
 
-            # Log tool calls
             if tool_calls:
                 for tc in tool_calls:
                     logger.info(f"[Administrator] Tool call: {tc.function.name}({tc.function.arguments})")
@@ -628,13 +465,12 @@ Use route_to_agent to pick who responds. You can pick multiple people."""
                 for tool_call in tool_calls:
                     if tool_call.function.name == "route_to_agent":
                         tool_args = (tool_call.function.arguments if isinstance(tool_call.function.arguments, dict) else json.loads(tool_call.function.arguments))
-                        agent_name = tool_args.get("agent_name", "")
-                        agent = agent_by_name.get(agent_name.lower())
+                        target = tool_args.get("agent_name", "")
+                        agent = agent_by_name.get(target.lower())
                         if agent:
                             logger.info(f"[Administrator] Selected agent: {agent.name}")
                             return agent
 
-            # Default to first agent
             logger.warning(f"[Administrator] No agent selected, using first available: {available_agents[0].name}")
             return available_agents[0]
 

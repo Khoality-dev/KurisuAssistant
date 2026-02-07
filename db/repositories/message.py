@@ -174,6 +174,36 @@ class MessageRepository(BaseRepository[Message]):
         """
         return self.count(frame_id=frame_id)
 
+    def delete_from_message(self, message_id: int, conversation_id: int) -> int:
+        """Delete a message and all subsequent messages in the conversation.
+
+        Args:
+            message_id: ID of the message to start deleting from
+            conversation_id: Conversation ID for scoping
+
+        Returns:
+            Number of deleted messages
+        """
+        from ..models import Frame
+
+        # Message IDs are auto-incrementing, so id >= target_id captures all later messages
+        subquery = (
+            self.session.query(Message.id)
+            .join(Frame, Message.frame_id == Frame.id)
+            .filter(
+                Frame.conversation_id == conversation_id,
+                Message.id >= message_id,
+            )
+            .subquery()
+        )
+
+        count = (
+            self.session.query(Message)
+            .filter(Message.id.in_(subquery.select()))
+            .delete(synchronize_session="fetch")
+        )
+        return count
+
     def count_by_conversation(self, conversation_id: int) -> int:
         """Count messages in a conversation (across all frames).
 

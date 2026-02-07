@@ -138,7 +138,7 @@ class RouterAgent(BaseAgent):
                         thinking=thinking,
                         role="assistant",
                         agent_id=self.config.id,
-                        agent_name=self.config.name or "router",
+                        name=self.config.name or "router",
                         conversation_id=context.conversation_id,
                         frame_id=context.frame_id,
                     )
@@ -149,7 +149,7 @@ class RouterAgent(BaseAgent):
                         content=msg.content,
                         role="assistant",
                         agent_id=self.config.id,
-                        agent_name=self.config.name or "router",
+                        name=self.config.name or "router",
                         conversation_id=context.conversation_id,
                         frame_id=context.frame_id,
                     )
@@ -177,8 +177,8 @@ class RouterAgent(BaseAgent):
                             yield StreamChunkEvent(
                                 content=result,
                                 role="tool",
-                                agent_id=self.config.id,
-                                agent_name=self.config.name or "router",
+                                agent_id=None,
+                                name=tool_name,
                                 conversation_id=context.conversation_id,
                                 frame_id=context.frame_id,
                             )
@@ -189,7 +189,7 @@ class RouterAgent(BaseAgent):
                 content=f"Error: {e}",
                 role="assistant",
                 agent_id=self.config.id,
-                agent_name=self.config.name or "router",
+                name=self.config.name or "router",
                 conversation_id=context.conversation_id,
                 frame_id=context.frame_id,
             )
@@ -222,7 +222,7 @@ class RouterAgent(BaseAgent):
                     content=f"Agent not found: {agent_id}",
                     role="assistant",
                     agent_id=self.config.id,
-                    agent_name=self.config.name or "router",
+                    name=self.config.name or "router",
                     conversation_id=context.conversation_id,
                     frame_id=context.frame_id,
                 )
