@@ -213,6 +213,18 @@ class APIClient {
   }
 
   /**
+   * Check if a TTS server is reachable
+   */
+  async checkTTSConnection(provider?: string, apiUrl?: string): Promise<{ ok: boolean; message: string }> {
+    const response = await this.client.post<{ ok: boolean; message: string }>(
+      '/tts/check',
+      { provider, api_url: apiUrl || undefined },
+      { headers: this.getHeaders(), timeout: 10000 }
+    );
+    return response.data;
+  }
+
+  /**
    * List available TTS backends
    */
   async listBackends(): Promise<string[]> {

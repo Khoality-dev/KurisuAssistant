@@ -8,6 +8,7 @@ export interface MessageAgent {
   id: number;
   name: string;
   avatar_uuid: string | null;
+  voice_reference: string | null;
 }
 
 export interface Message {
@@ -21,6 +22,7 @@ export interface Message {
   agent_id?: number; // Which agent sent this message
   agent_name?: string; // Agent name (from streaming chunks)
   agent?: MessageAgent; // Embedded agent info (name, avatar)
+  voice_reference?: string; // Voice reference for TTS (from streaming chunks)
   has_raw_data?: boolean; // Whether raw LLM input/output is available
 }
 

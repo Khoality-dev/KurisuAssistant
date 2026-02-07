@@ -45,6 +45,7 @@ export interface StreamChunkEvent extends BaseEvent {
   role: string;
   agent_id: number | null;
   agent_name: string | null;
+  voice_reference: string | null;
   conversation_id: number;
   frame_id: number;
 }

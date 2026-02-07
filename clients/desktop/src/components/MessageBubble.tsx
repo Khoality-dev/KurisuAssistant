@@ -34,8 +34,6 @@ interface MessageBubbleProps {
   expandedThinking: Set<number>;
   onToggleThinking: (index: number) => void;
   onRegenerate?: (messageIndex: number) => void;
-  ttsBackend?: string;
-  ttsApiUrl?: string;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -51,8 +49,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   expandedThinking,
   onToggleThinking,
   onRegenerate,
-  ttsBackend,
-  ttsApiUrl,
 }) => {
   const isStreamingThisMessage = isLast && message.role !== 'user' && isStreaming;
   const showFinishedIndicator = isLast && message.role !== 'user' && justFinishedStreaming && !isStreaming;
@@ -85,8 +81,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       stop();
     } else {
       try {
+        // Read fresh from storage each time (settings may have changed)
+        const currentBackend = storage.getTTSBackend() || 'gpt-sovits';
+        const currentApiUrl = storage.getGPTSoVITSUrl() || undefined;
         const emotionParams =
-          ttsBackend === 'index-tts'
+          currentBackend === 'index-tts'
             ? {
                 emo_audio: storage.getTTSEmotionAudio() || undefined,
                 emo_alpha: storage.getTTSEmotionAlpha(),
@@ -94,7 +93,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               }
             : undefined;
 
-        await speak(message.content, undefined, undefined, ttsBackend, emotionParams, ttsApiUrl);
+        const voice = message.voice_reference || message.agent?.voice_reference || undefined;
+        await speak(message.content, voice, undefined, currentBackend, emotionParams, currentApiUrl);
       } catch (error) {
         console.error('Failed to play TTS:', error);
       }

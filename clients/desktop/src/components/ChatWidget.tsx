@@ -46,8 +46,7 @@ export const ChatWidget: React.FC = () => {
   const [activeConversationId, setActiveConversationId] = useState<number | null>(
     currentConversation?.id || null
   );
-  const [ttsBackend] = useState<string>(storage.getTTSBackend() || '');
-  const [ttsApiUrl] = useState<string>(storage.getGPTSoVITSUrl() || '');
+  // TTS settings are read fresh from storage in MessageBubble.handleTTS()
   const [showAdministrator, setShowAdministrator] = useState<boolean>(storage.getShowAdministrator());
 
   // Ref to track streaming state without stale closures
@@ -208,6 +207,7 @@ export const ChatWidget: React.FC = () => {
           content: '',
           agent_name: agentName,
           agent_id: agentId,
+          voice_reference: event.voice_reference || undefined,
         });
         return updated;
       });
@@ -238,6 +238,7 @@ export const ChatWidget: React.FC = () => {
               role: messageRole,
               agent_name: agentName,
               agent_id: agentId,
+              voice_reference: event.voice_reference || undefined,
             };
           }
           return updated;
@@ -249,6 +250,7 @@ export const ChatWidget: React.FC = () => {
           content: '',
           agent_name: agentName,
           agent_id: agentId,
+          voice_reference: event.voice_reference || undefined,
         }]);
       }
 
@@ -553,8 +555,6 @@ export const ChatWidget: React.FC = () => {
                   justFinishedStreaming={index === arr.length - 1 && justFinishedStreaming}
                   expandedThinking={expandedThinking}
                   onToggleThinking={toggleThinking}
-                  ttsBackend={ttsBackend}
-                  ttsApiUrl={ttsApiUrl}
                 />
               );
             });
