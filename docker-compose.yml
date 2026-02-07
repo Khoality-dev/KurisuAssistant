@@ -1,4 +1,17 @@
 services:
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-container
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+
   gpt-sovits:
     image: legwork7623/gpt-sovits:latest 
     container_name: gpt-sovits-container
@@ -9,7 +22,7 @@ services:
       - ./output:/workspace/output
       - ./logs:/workspace/logs
       - ./SoVITS_weights:/workspace/SoVITS_weights
-      - ./reference:/workspace/reference
+      - ./data/voice_storage:/workspace/data/voice_storage
     working_dir: /workspace
     ports:
       - "9880:9880"
@@ -24,15 +37,15 @@ services:
     stdin_open: true
     tty: true
     restart: unless-stopped
-  llm-hub:
+  api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: llm-hub-container
+    container_name: kurisu-api
     depends_on:
       - postgres
-    ports:
-      - "15597:15597"
+    expose:
+      - "15597"
     deploy:
       resources:
         reservations:
