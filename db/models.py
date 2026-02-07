@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, JSON, UniqueConstraint, Boolean
+from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .base import Base
@@ -13,6 +13,7 @@ class User(Base):
     preferred_name = Column(Text, default='')
     user_avatar_uuid = Column(String, nullable=True)
     agent_avatar_uuid = Column(String, nullable=True)
+    ollama_url = Column(String, nullable=True)  # Custom Ollama server URL (None = use default env var)
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     agents = relationship("Agent", back_populates="user", cascade="all, delete-orphan")
@@ -48,10 +49,14 @@ class Message(Base):
     role = Column(Text, nullable=False)
     message = Column(Text, nullable=False)
     thinking = Column(Text, nullable=True)
+    raw_input = Column(Text, nullable=True)   # JSON: messages array sent to LLM
+    raw_output = Column(Text, nullable=True)  # Full concatenated LLM response
     frame_id = Column(Integer, ForeignKey('frames.id', ondelete='CASCADE'))
+    agent_id = Column(Integer, ForeignKey('agents.id', ondelete='SET NULL'), nullable=True)  # Which agent sent this message
     created_at = Column(DateTime, default=datetime.utcnow)
 
     frame = relationship("Frame", back_populates="messages")
+    agent = relationship("Agent")
 
 
 class Agent(Base):
@@ -66,7 +71,7 @@ class Agent(Base):
     avatar_uuid = Column(String, nullable=True)  # Avatar image UUID
     model_name = Column(String, nullable=True)  # LLM model override
     tools = Column(JSON, nullable=True)  # List of tool names
-    is_main = Column(Boolean, default=False, nullable=False)  # Main router agent
+    think = Column(Boolean, default=False, nullable=False)  # Enable extended reasoning
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Unique name per user

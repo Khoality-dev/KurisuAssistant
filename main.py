@@ -23,14 +23,21 @@ from routers import (
     mcp_router,
     ws_router,
     agents_router,
+    models_router,
+    tools_router,
     set_asr_model,
     set_mcp_client,
 )
 from mcp_tools.config import load_mcp_configs
 from mcp_tools.orchestrator import init_orchestrator
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging with explicit console handler
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    force=True,  # Override any existing configuration
+)
 logger = logging.getLogger(__name__)
 
 dotenv.load_dotenv()
@@ -76,6 +83,7 @@ app = FastAPI(
         {"name": "messages", "description": "Message operations"},
         {"name": "users", "description": "User profile management"},
         {"name": "agents", "description": "Agent management"},
+        {"name": "tools", "description": "Tools management"},
         {"name": "mcp", "description": "MCP server management"},
         {"name": "images", "description": "Image upload and retrieval"},
         {"name": "tts", "description": "Text-to-speech synthesis"},
@@ -118,6 +126,8 @@ app.include_router(conversations_router)
 app.include_router(messages_router)
 app.include_router(users_router)
 app.include_router(agents_router)
+app.include_router(models_router)
+app.include_router(tools_router)
 app.include_router(images_router)
 app.include_router(tts_router)
 app.include_router(mcp_router)

@@ -1,18 +1,23 @@
 """WebSocket connection manager."""
 
 import logging
-from typing import Dict, Set
+from typing import Dict, Optional, Set, TYPE_CHECKING
 from fastapi import WebSocket
+
+if TYPE_CHECKING:
+    from websocket.handlers import ChatSessionHandler
 
 logger = logging.getLogger(__name__)
 
 
 class ConnectionManager:
-    """Manages WebSocket connections per user."""
+    """Manages WebSocket connections and chat handlers per user."""
 
     def __init__(self):
         # username -> set of active WebSocket connections
         self._connections: Dict[str, Set[WebSocket]] = {}
+        # user_id -> persistent ChatSessionHandler (survives reconnects)
+        self._handlers: Dict[int, "ChatSessionHandler"] = {}
 
     async def connect(self, websocket: WebSocket, username: str) -> None:
         """Accept and register a new WebSocket connection."""
@@ -31,6 +36,18 @@ class ConnectionManager:
             if not self._connections[username]:
                 del self._connections[username]
         logger.info(f"WebSocket disconnected for user: {username}")
+
+    def get_handler(self, user_id: int) -> Optional["ChatSessionHandler"]:
+        """Get existing handler for a user."""
+        return self._handlers.get(user_id)
+
+    def set_handler(self, user_id: int, handler: "ChatSessionHandler") -> None:
+        """Register a handler for a user."""
+        self._handlers[user_id] = handler
+
+    def remove_handler(self, user_id: int) -> None:
+        """Remove handler for a user."""
+        self._handlers.pop(user_id, None)
 
     async def send_to_user(self, username: str, data: dict) -> None:
         """Send data to all connections for a user."""

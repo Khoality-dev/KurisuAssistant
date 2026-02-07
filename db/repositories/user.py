@@ -51,6 +51,7 @@ class UserRepository(BaseRepository[User]):
         user: User,
         system_prompt: Optional[str] = None,
         preferred_name: Optional[str] = None,
+        ollama_url: Optional[str] = None,
     ) -> User:
         """Update user preferences.
 
@@ -58,6 +59,7 @@ class UserRepository(BaseRepository[User]):
             user: User instance to update
             system_prompt: New system prompt (optional)
             preferred_name: New preferred name (optional)
+            ollama_url: Custom Ollama server URL (optional, empty string clears it)
 
         Returns:
             Updated User instance
@@ -67,6 +69,9 @@ class UserRepository(BaseRepository[User]):
             update_data["system_prompt"] = system_prompt
         if preferred_name is not None:
             update_data["preferred_name"] = preferred_name
+        if ollama_url is not None:
+            # Empty string means clear the custom URL (use default)
+            update_data["ollama_url"] = ollama_url if ollama_url else None
 
         if update_data:
             return self.update(user, **update_data)

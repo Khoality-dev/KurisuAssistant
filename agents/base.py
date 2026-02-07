@@ -20,6 +20,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_SENTINEL = object()
+
+
+async def async_iterate(sync_iterator):
+    """Convert a synchronous iterator to an async one using threads.
+
+    This allows asyncio.CancelledError to be raised between iterations,
+    making synchronous streams (like Ollama) cancellable.
+    """
+    it = iter(sync_iterator)
+    while True:
+        chunk = await asyncio.to_thread(next, it, _SENTINEL)
+        if chunk is _SENTINEL:
+            break
+        yield chunk
+
+
 @dataclass
 class AgentConfig:
     """Configuration for an agent."""
@@ -30,6 +47,7 @@ class AgentConfig:
     avatar_uuid: Optional[str] = None
     model_name: Optional[str] = None
     tools: List[str] = field(default_factory=list)
+    think: bool = False
 
 
 @dataclass
@@ -253,9 +271,10 @@ class SimpleAgent(BaseAgent):
                 messages=messages,
                 tools=tool_schemas if tool_schemas else [],
                 stream=True,
+                think=self.config.think,
             )
 
-            for chunk in stream:
+            async for chunk in async_iterate(stream):
                 msg = chunk.message
 
                 # Handle thinking

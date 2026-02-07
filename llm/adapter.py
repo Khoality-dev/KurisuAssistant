@@ -17,15 +17,13 @@ from mcp_tools.orchestrator import get_orchestrator
 logger = logging.getLogger(__name__)
 
 
-# Module-level provider instance (initialized once)
-_llm_provider = create_llm_provider("ollama")
-
-
 def chat(
     model_name: str,
     messages: List[Dict],
     tools: Optional[List[Dict]] = None,
     images: Optional[List] = None,
+    api_url: Optional[str] = None,
+    think: bool = False,
 ):
     """Get LLM chat stream with sentence chunking.
 
@@ -38,10 +36,14 @@ def chat(
         messages: Full conversation history (system + context + user message)
         tools: Available MCP tools
         images: Optional image attachments (added to last user message)
+        api_url: Optional custom Ollama API URL (None = use default from env)
 
     Returns:
         Generator that yields sentence-chunked messages
     """
+    # Create provider instance with optional custom URL
+    llm_provider = create_llm_provider("ollama", api_url=api_url)
+
     # Add images to the last message if provided
     if images and messages:
         # Find the last user message and add images to it
@@ -52,11 +54,12 @@ def chat(
 
     # Call LLM provider
     try:
-        stream = _llm_provider.chat(
+        stream = llm_provider.chat(
             model=model_name,
             messages=messages,
             tools=tools or [],
             stream=True,
+            think=think,
         )
     except Exception as e:
         logger.error(f"Error calling LLM provider (model={model_name}): {e}", exc_info=True)
@@ -133,16 +136,24 @@ def chat(
     return sentence_chunked_generator()
 
 
-def list_models() -> List[str]:
-    """Return a list of available model names."""
+def list_models(api_url: Optional[str] = None) -> List[str]:
+    """Return a list of available model names.
+
+    Args:
+        api_url: Optional custom Ollama API URL (None = use default from env)
+
+    Returns:
+        List of available model names
+    """
+    llm_provider = create_llm_provider("ollama", api_url=api_url)
     try:
-        return _llm_provider.list_models()
+        return llm_provider.list_models()
     except Exception as e:
         logger.error(f"Error listing models from LLM provider: {e}", exc_info=True)
         raise
 
 
-def generate(payload: Dict, user_system_prompts: Optional[List[Dict]] = None) -> str:
+def generate(payload: Dict, user_system_prompts: Optional[List[Dict]] = None, api_url: Optional[str] = None) -> str:
     """Generate text using the LLM's generate API.
 
     Unlike chat, this doesn't maintain conversation history and is suitable
@@ -151,10 +162,13 @@ def generate(payload: Dict, user_system_prompts: Optional[List[Dict]] = None) ->
     Args:
         payload: Payload with model, message, and options
         user_system_prompts: Optional user-specific system prompts
+        api_url: Optional custom Ollama API URL (None = use default from env)
 
     Returns:
         Generated text
     """
+    llm_provider = create_llm_provider("ollama", api_url=api_url)
+
     # Use user-specific system prompts if provided
     system_prompts = user_system_prompts if user_system_prompts is not None else []
 
@@ -173,7 +187,7 @@ def generate(payload: Dict, user_system_prompts: Optional[List[Dict]] = None) ->
     options = payload.get("options", {})
 
     try:
-        return _llm_provider.generate(
+        return llm_provider.generate(
             model=model,
             prompt=full_prompt,
             options=options,
@@ -184,10 +198,16 @@ def generate(payload: Dict, user_system_prompts: Optional[List[Dict]] = None) ->
         raise
 
 
-def pull_model(model_name: str) -> None:
-    """Pull a model from the LLM provider's registry."""
+def pull_model(model_name: str, api_url: Optional[str] = None) -> None:
+    """Pull a model from the LLM provider's registry.
+
+    Args:
+        model_name: Name of the model to pull
+        api_url: Optional custom Ollama API URL (None = use default from env)
+    """
+    llm_provider = create_llm_provider("ollama", api_url=api_url)
     try:
-        _llm_provider.pull_model(model_name)
+        llm_provider.pull_model(model_name)
     except Exception as e:
         logger.error(f"Error pulling model '{model_name}' from LLM provider: {e}", exc_info=True)
         raise

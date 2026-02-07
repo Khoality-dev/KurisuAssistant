@@ -53,40 +53,6 @@ class AgentRepository(BaseRepository[Agent]):
             .all()
         )
 
-    def get_main_agent(self, user_id: int) -> Optional[Agent]:
-        """Get the main (router) agent for a user.
-
-        Args:
-            user_id: User ID
-
-        Returns:
-            Main Agent instance or None if not set
-        """
-        return self.get_by_filter(user_id=user_id, is_main=True)
-
-    def set_main_agent(self, user_id: int, agent_id: int) -> Optional[Agent]:
-        """Set an agent as the main (router) agent.
-
-        This will unset any existing main agent for the user.
-
-        Args:
-            user_id: User ID who owns the agent
-            agent_id: Agent ID to set as main
-
-        Returns:
-            Updated Agent instance or None if not found
-        """
-        # First, unset any existing main agent
-        current_main = self.get_main_agent(user_id)
-        if current_main:
-            self.update(current_main, is_main=False)
-
-        # Set the new main agent
-        agent = self.get_by_user_and_id(user_id, agent_id)
-        if agent:
-            return self.update(agent, is_main=True)
-        return None
-
     def create_agent(
         self,
         user_id: int,
@@ -96,7 +62,7 @@ class AgentRepository(BaseRepository[Agent]):
         avatar_uuid: Optional[str] = None,
         model_name: Optional[str] = None,
         tools: Optional[List[str]] = None,
-        is_main: bool = False,
+        think: bool = False,
     ) -> Agent:
         """Create a new agent.
 
@@ -108,7 +74,6 @@ class AgentRepository(BaseRepository[Agent]):
             avatar_uuid: Avatar image UUID
             model_name: LLM model override
             tools: List of tool names
-            is_main: Whether this is the main router agent
 
         Returns:
             Created Agent instance
@@ -120,12 +85,6 @@ class AgentRepository(BaseRepository[Agent]):
         if existing:
             raise ValueError(f"Agent '{name}' already exists")
 
-        # If setting as main, unset any existing main agent
-        if is_main:
-            current_main = self.get_main_agent(user_id)
-            if current_main:
-                self.update(current_main, is_main=False)
-
         return self.create(
             user_id=user_id,
             name=name,
@@ -134,7 +93,7 @@ class AgentRepository(BaseRepository[Agent]):
             avatar_uuid=avatar_uuid,
             model_name=model_name,
             tools=tools,
-            is_main=is_main,
+            think=think,
         )
 
     def update_agent(
@@ -146,7 +105,7 @@ class AgentRepository(BaseRepository[Agent]):
         avatar_uuid: Optional[str] = None,
         model_name: Optional[str] = None,
         tools: Optional[List[str]] = None,
-        is_main: Optional[bool] = None,
+        think: Optional[bool] = None,
     ) -> Agent:
         """Update an agent.
 
@@ -158,17 +117,10 @@ class AgentRepository(BaseRepository[Agent]):
             avatar_uuid: New avatar UUID (optional)
             model_name: New model name (optional)
             tools: New tools list (optional)
-            is_main: Set as main agent (optional)
 
         Returns:
             Updated Agent instance
         """
-        # If setting as main, unset any existing main agent first
-        if is_main is True:
-            current_main = self.get_main_agent(agent.user_id)
-            if current_main and current_main.id != agent.id:
-                self.update(current_main, is_main=False)
-
         update_data = {}
         if name is not None:
             update_data["name"] = name
@@ -182,8 +134,8 @@ class AgentRepository(BaseRepository[Agent]):
             update_data["model_name"] = model_name
         if tools is not None:
             update_data["tools"] = tools
-        if is_main is not None:
-            update_data["is_main"] = is_main
+        if think is not None:
+            update_data["think"] = think
 
         if update_data:
             return self.update(agent, **update_data)

@@ -60,8 +60,9 @@ routers/chat.py (business logic - users, conversations, frames, DB)
 2. **`llm/providers/`** - LLM provider abstraction
    - `base.py`: Abstract `BaseLLMProvider` interface
    - `ollama_provider.py`: Ollama implementation
-   - `__init__.py`: Factory function `create_llm_provider()`
+   - `__init__.py`: Factory function `create_llm_provider(api_url)`
    - Supports multiple LLM backends (Ollama, OpenAI, etc.)
+   - Per-request URL customization via `api_url` parameter (for user-specific Ollama servers)
 
 3. **`utils/prompts.py`** - System prompt building
    - `build_system_messages()`: Combine global + user prompts + timestamp + preferred name
@@ -91,6 +92,74 @@ mcp_tools/custom-tool/
 ├── main.py          # Tool server implementation
 ├── config.json      # Server configuration
 └── requirements.txt # Python dependencies
+```
+
+### Multi-Agent Orchestration Architecture
+
+The system uses **turn-based orchestration** where an Administrator agent manages conversation flow and routes messages between agents.
+
+```
+agents/
+├── base.py           # BaseAgent, SimpleAgent, AgentConfig, AgentContext
+├── router.py         # RouterAgent (legacy delegation via tools)
+├── orchestration.py  # OrchestrationSession, OrchestrationLog, AdministratorDecision
+└── administrator.py  # AdministratorAgent (LLM-based router)
+```
+
+**Key Components**:
+
+1. **AdministratorAgent** (`agents/administrator.py`)
+   - System-level LLM-based router (NOT a user agent)
+   - Receives ALL messages (from user and agents)
+   - Decides which agent should respond next
+   - Detects when conversation topic is complete
+   - NOT displayed in main chat (only in logs)
+
+2. **OrchestrationSession** (`agents/orchestration.py`)
+   - Tracks turn-based conversation state
+   - `turn_count`: Current turn number
+   - `max_turns`: Maximum turns before forcing end (default: 10)
+   - `current_agent_id/name`: Active agent
+
+3. **SimpleAgent** (`agents/base.py`)
+   - Equal-tier responders (all user-created agents)
+   - Processes messages with LLM and tools
+   - No special routing logic
+
+**Turn-Based Flow**:
+```
+[User Turn]
+User sends message via WebSocket
+    ↓
+Administrator selects initial agent
+    ↓
+[Agent Turn 1]
+Selected Agent processes message
+Agent responds with content
+    ↓
+Administrator analyzes response → determines target
+    ↓
+[If target is another agent]
+Route to that agent → Agent Turn 2
+    ↓
+[If target is user]
+End orchestration loop, system idle
+```
+
+**WebSocket Events for Orchestration**:
+- `TurnUpdateEvent`: Turn counter updates (turn_count, max_turns, current_agent)
+- `LLMLogEvent`: Full LLM call logs for debugging panel
+- `AgentSwitchEvent`: Agent change notifications
+
+**Message Routing Patterns**:
+1. **User → Agent**: User sends message, Administrator selects agent
+2. **Agent → User**: Agent responds, Administrator detects user-targeted response
+3. **Agent → Agent**: Agent's response mentions/requests another agent
+
+**Configuration**:
+```python
+DEFAULT_MAX_TURNS = 10        # Maximum agent turns per user message
+DEFAULT_ADMIN_MODEL = "gemma3:4b"  # Fast model for routing decisions
 ```
 
 ### TTS Integration Architecture
@@ -508,7 +577,8 @@ User (PK: id)
 ├── system_prompt: Text
 ├── preferred_name: Text
 ├── user_avatar_uuid: String
-└── agent_avatar_uuid: String
+├── agent_avatar_uuid: String
+└── ollama_url: String (nullable, custom Ollama server URL)
 
 Conversation (PK: id)
 ├── id: Integer
@@ -528,7 +598,10 @@ Message (PK: id)
 ├── role: Text (user/assistant/tool)
 ├── message: Text
 ├── thinking: Text (nullable, for assistant messages)
+├── raw_input: Text (nullable, JSON of messages array sent to LLM)
+├── raw_output: Text (nullable, full concatenated LLM response)
 ├── frame_id: FK → frames.id
+├── agent_id: FK → agents.id (nullable, SET NULL on delete)
 └── created_at: DateTime
 
 Agent (PK: id)
@@ -540,7 +613,7 @@ Agent (PK: id)
 ├── avatar_uuid: String
 ├── model_name: String
 ├── tools: JSON
-├── is_main: Boolean
+├── think: Boolean (default: False, enable extended reasoning)
 └── created_at: DateTime
 ```
 
@@ -710,7 +783,8 @@ Get conversation details with messages.
       "role": "user",
       "content": "Hello",
       "frame_id": 1,
-      "created_at": "2025-01-15T10:30:00"
+      "created_at": "2025-01-15T10:30:00",
+      "has_raw_data": false
     },
     ...
   ],
@@ -789,9 +863,29 @@ Get specific message by ID.
   "role": "user",
   "content": "Message content",
   "conversation_id": 1,
-  "created_at": "2025-01-15T10:30:00"
+  "created_at": "2025-01-15T10:30:00",
+  "has_raw_data": false
 }
 ```
+
+**Error (404)**: Message not found
+
+#### `GET /messages/{message_id}/raw` (Protected)
+Get raw LLM input/output for a specific message. Used by frontend to show raw data in a debug panel.
+
+**Response**:
+```json
+{
+  "id": 1,
+  "raw_input": [
+    {"role": "system", "content": "You are..."},
+    {"role": "user", "content": "Hello"}
+  ],
+  "raw_output": "Full concatenated LLM response text"
+}
+```
+
+**Note**: `raw_input` is the messages array sent to the LLM API. `raw_output` is the complete concatenated response text (for streaming, all chunks joined). Both fields are null for user messages and messages created before this feature was added.
 
 **Error (404)**: Message not found
 
@@ -807,22 +901,26 @@ Get current user profile.
   "system_prompt": "You are a helpful assistant...",
   "preferred_name": "John",
   "user_avatar_uuid": "550e8400-e29b-41d4-a716-446655440000",
-  "agent_avatar_uuid": "660e8400-e29b-41d4-a716-446655440000"
+  "agent_avatar_uuid": "660e8400-e29b-41d4-a716-446655440000",
+  "ollama_url": "http://custom-ollama:11434"
 }
 ```
 
-**Note**: Avatar UUIDs are null if not set.
+**Note**: Avatar UUIDs and ollama_url are null if not set.
 
 #### `PATCH /users/me` (Protected)
-Update user profile text fields (system prompt, preferred name).
+Update user profile text fields (system prompt, preferred name, ollama_url).
 
 **Request** (JSON):
 ```json
 {
   "system_prompt": "Custom instructions...",
-  "preferred_name": "John"
+  "preferred_name": "John",
+  "ollama_url": "http://custom-ollama:11434"
 }
 ```
+
+**Note**: Set `ollama_url` to empty string to clear it (use default server).
 
 **Response**:
 ```json
@@ -875,6 +973,46 @@ Retrieve uploaded image.
 - `Cache-Control`: "public, max-age=31536000, immutable"
 
 **Error (404)**: Image not found
+
+### Tools
+
+#### `GET /tools` (Protected)
+List all available tools (MCP + built-in).
+
+**Response**:
+```json
+{
+  "mcp_tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "description": "Read the contents of a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File path to read"
+            }
+          },
+          "required": ["path"]
+        }
+      }
+    }
+  ],
+  "builtin_tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_current_time",
+        "description": "Get the current date and time",
+        "parameters": {}
+      }
+    }
+  ]
+}
+```
 
 ### MCP Servers
 

@@ -1,4 +1,4 @@
-# Kurisu Assistant
+run   # Kurisu Assistant
 
 An intelligent AI assistant that helps with everything from simple daily tasks to complex workflows using state-of-the-art speech and language models.
 

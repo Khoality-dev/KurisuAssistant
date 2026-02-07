@@ -10,6 +10,8 @@ from .tts import router as tts_router
 from .mcp import router as mcp_router, set_mcp_client
 from .ws import router as ws_router
 from .agents import router as agents_router
+from .models import router as models_router
+from .tools import router as tools_router
 
 __all__ = [
     "auth_router",
@@ -22,6 +24,8 @@ __all__ = [
     "mcp_router",
     "ws_router",
     "agents_router",
+    "models_router",
+    "tools_router",
     "set_asr_model",
     "set_mcp_client",
 ]

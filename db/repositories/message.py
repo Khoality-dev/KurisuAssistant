@@ -25,6 +25,9 @@ class MessageRepository(BaseRepository[Message]):
         frame_id: int,
         created_at: Optional[datetime] = None,
         thinking: Optional[str] = None,
+        agent_id: Optional[int] = None,
+        raw_input: Optional[str] = None,
+        raw_output: Optional[str] = None,
     ) -> Message:
         """Create a new message.
 
@@ -34,6 +37,9 @@ class MessageRepository(BaseRepository[Message]):
             frame_id: Frame ID this message belongs to
             created_at: Creation timestamp (optional)
             thinking: Thinking content (optional, for assistant messages)
+            agent_id: Agent ID that sent this message (optional)
+            raw_input: JSON string of messages array sent to LLM (optional)
+            raw_output: Full concatenated LLM response text (optional)
 
         Returns:
             Created Message instance
@@ -47,6 +53,12 @@ class MessageRepository(BaseRepository[Message]):
             data["created_at"] = created_at
         if thinking is not None:
             data["thinking"] = thinking
+        if agent_id is not None:
+            data["agent_id"] = agent_id
+        if raw_input is not None:
+            data["raw_input"] = raw_input
+        if raw_output is not None:
+            data["raw_output"] = raw_output
 
         return self.create(**data)
 

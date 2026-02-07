@@ -4,7 +4,7 @@ import json
 import logging
 from typing import AsyncGenerator, Dict, List, Optional
 
-from .base import BaseAgent, AgentConfig, AgentContext, SimpleAgent
+from .base import BaseAgent, AgentConfig, AgentContext, SimpleAgent, async_iterate
 from websocket.events import StreamChunkEvent
 from tools import ToolRegistry
 from db.session import get_session
@@ -53,6 +53,7 @@ class RouterAgent(BaseAgent):
                     avatar_uuid=agent.avatar_uuid,
                     model_name=agent.model_name,
                     tools=agent.tools or [],
+                    think=agent.think,
                 )
                 for agent in agents
             ]
@@ -123,9 +124,10 @@ class RouterAgent(BaseAgent):
                 messages=messages,
                 tools=all_tools if all_tools else [],
                 stream=True,
+                think=self.config.think,
             )
 
-            for chunk in stream:
+            async for chunk in async_iterate(stream):
                 msg = chunk.message
 
                 # Handle thinking
@@ -234,6 +236,7 @@ class RouterAgent(BaseAgent):
                 avatar_uuid=agent.avatar_uuid,
                 model_name=agent.model_name,
                 tools=agent.tools or [],
+                think=agent.think,
             )
 
         # Add delegation context to messages

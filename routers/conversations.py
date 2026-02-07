@@ -60,9 +60,19 @@ async def get_conversation(
                     "content": msg.message,
                     "frame_id": msg.frame_id,
                     "created_at": msg.created_at.isoformat(),
+                    "has_raw_data": bool(msg.raw_input or msg.raw_output),
                 }
                 if msg.thinking:
                     message_dict["thinking"] = msg.thinking
+                if msg.agent_id:
+                    message_dict["agent_id"] = msg.agent_id
+                    # Include agent info if available (eager loaded)
+                    if msg.agent:
+                        message_dict["agent"] = {
+                            "id": msg.agent.id,
+                            "name": msg.agent.name,
+                            "avatar_uuid": msg.agent.avatar_uuid,
+                        }
                 messages_array.append(message_dict)
 
             return {

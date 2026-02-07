@@ -13,7 +13,7 @@ if not exist "%VENV_PYTHON%" (
 )
 
 REM Environment variables for local development
-set LLM_API_URL=https://10.0.0.122:11434
+set LLM_API_URL=http://localhost:11434
 set POSTGRES_USER=kurisu
 set POSTGRES_PASSWORD=kurisu
 set POSTGRES_HOST=localhost
@@ -33,4 +33,4 @@ if %errorlevel% neq 0 (
 
 REM Start the application
 echo Starting llm-hub application...
-%VENV_PYTHON% -m uvicorn main:app --host 0.0.0.0 --port 15597 --reload
+%VENV_PYTHON% -m uvicorn main:app --host 0.0.0.0 --port 15597 --reload --log-level info
