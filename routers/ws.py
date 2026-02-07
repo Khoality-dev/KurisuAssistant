@@ -41,11 +41,15 @@ async def websocket_chat(
     # Connect
     await manager.connect(websocket, username)
 
-    # Reuse existing handler if one exists (reconnect scenario)
+    # Reuse existing handler if it has state to replay (reconnect scenario)
     handler = manager.get_handler(user_id)
-    if handler and handler.current_task and not handler.current_task.done():
-        # Reconnect: swap socket on existing handler, flush buffered events
-        logger.info(f"Reconnecting user {username} to existing handler with running task")
+    if handler and (
+        (handler.current_task and not handler.current_task.done())
+        or handler._accumulated_messages
+        or handler._current_chunk
+    ):
+        # Reconnect: swap socket on existing handler, replay accumulated state
+        logger.info(f"Reconnecting user {username} to existing handler with accumulated state")
         await handler.replace_websocket(websocket)
     else:
         # Fresh connection: create new handler

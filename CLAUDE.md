@@ -162,6 +162,19 @@ DEFAULT_MAX_TURNS = 10        # Maximum agent turns per user message
 DEFAULT_ADMIN_MODEL = "gemma3:4b"  # Fast model for routing decisions
 ```
 
+**WebSocket Reconnection & State Recovery**:
+
+The handler stores accumulated messages (not individual chunk events) for efficient state recovery when the same user reconnects during or after streaming:
+
+- `_accumulated_messages`: Complete messages grouped by role/agent (same structure as `messages_to_save`)
+- `_current_chunk`: In-progress content while an agent is still generating
+- `_task_conversation_id` / `_task_frame_id`: Metadata for replay events
+- `_task_done`: Whether the orchestration has completed
+
+On reconnect, `replace_websocket()` replays each accumulated message as a complete `StreamChunkEvent`, then sends the in-progress chunk (if still generating) or `DoneEvent` (if already done). The client-side conversation ID guard filters replayed events so they only display for the active conversation.
+
+Memory efficiency: Stores ~5-15 complete messages per task instead of hundreds of individual chunk events.
+
 ### TTS Integration Architecture
 
 The TTS integration follows a **provider pattern** similar to the LLM integration:

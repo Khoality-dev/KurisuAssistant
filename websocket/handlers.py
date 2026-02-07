@@ -65,9 +65,14 @@ class ChatSessionHandler:
         # Administrator for routing decisions
         self.administrator: Optional[AdministratorAgent] = None
 
-        # Event buffer for missed events during disconnect
-        self._event_buffer: List[BaseEvent] = []
-        self._max_buffer_size = 500
+        # Accumulated complete messages for replay on reconnect
+        self._accumulated_messages: List[dict] = []
+        # In-progress chunk (agent still generating)
+        self._current_chunk: Optional[dict] = None
+        # Task metadata for replay events
+        self._task_conversation_id: Optional[int] = None
+        self._task_frame_id: Optional[int] = None
+        self._task_done: bool = False
 
     async def run(self):
         """Main handler loop - receives and processes events."""
@@ -123,6 +128,13 @@ class ChatSessionHandler:
             # Setup conversation/frame
             conversation_id, frame_id, system_messages = await self._setup_conversation(event)
 
+            # Reset accumulated state for new task
+            self._accumulated_messages = []
+            self._current_chunk = None
+            self._task_conversation_id = conversation_id
+            self._task_frame_id = frame_id
+            self._task_done = False
+
             # Create orchestration session
             session = OrchestrationSession(
                 conversation_id=conversation_id,
@@ -146,10 +158,12 @@ class ChatSessionHandler:
             # Initialize or update Administrator with model from database
             admin_model = admin_agent.model_name if admin_agent and admin_agent.model_name else DEFAULT_ADMIN_MODEL
             admin_id = admin_agent.id if admin_agent else None
-            if self.administrator is None or self.administrator.model_name != admin_model:
+            admin_think = admin_agent.think if admin_agent else False
+            if self.administrator is None or self.administrator.model_name != admin_model or self.administrator.think != admin_think:
                 self.administrator = AdministratorAgent(
                     agent_id=admin_id,
                     model_name=admin_model,
+                    think=admin_think,
                 )
 
             if not available_agents:
@@ -192,13 +206,15 @@ class ChatSessionHandler:
                     frame_id=frame_id,
                 ))
                 # Save Administrator selection message
-                messages_to_save.append({
+                admin_sel_msg = {
                     "role": "assistant",
                     "content": admin_selection_content,
                     "thinking": None,
                     "agent_id": admin_id,
                     "agent_name": ADMINISTRATOR_NAME,
-                })
+                }
+                messages_to_save.append(admin_sel_msg)
+                self._accumulated_messages.append(admin_sel_msg)
                 # Queue the selected agent
                 session.pending_routes = [{"action": "route_to_agent", "agent_name": selected_agent.name, "reason": "User selected"}]
             else:
@@ -219,13 +235,17 @@ class ChatSessionHandler:
                         admin_thinking += chunk.thinking
 
                 # Save Administrator selection message
-                messages_to_save.append({
+                admin_sel_msg = {
                     "role": "assistant",
                     "content": admin_content,
                     "thinking": admin_thinking if admin_thinking else None,
                     "agent_id": admin_id,
                     "agent_name": ADMINISTRATOR_NAME,
-                })
+                    "raw_input": session.last_raw_input,
+                    "raw_output": session.last_raw_output,
+                }
+                messages_to_save.append(admin_sel_msg)
+                self._accumulated_messages.append(admin_sel_msg)
 
             # Create agent context
             agent_context = AgentContext(
@@ -234,6 +254,7 @@ class ChatSessionHandler:
                 frame_id=frame_id,
                 model_name=event.model_name or DEFAULT_ADMIN_MODEL,
                 handler=self,
+                available_agents=available_agents,
             )
 
             # Build agent lookup
@@ -259,6 +280,7 @@ class ChatSessionHandler:
                     }
 
                     routing_content = ""
+                    routing_thinking = ""
                     async for chunk in self.administrator.stream_routing_decision(
                         latest_message=latest_message,
                         available_agents=available_agents,
@@ -267,15 +289,21 @@ class ChatSessionHandler:
                     ):
                         await self.send_event(chunk)
                         routing_content += chunk.content
+                        if chunk.thinking:
+                            routing_thinking += chunk.thinking
 
                     # Save Administrator routing decision
-                    messages_to_save.append({
+                    admin_route_msg = {
                         "role": "assistant",
                         "content": routing_content,
-                        "thinking": None,
+                        "thinking": routing_thinking if routing_thinking else None,
                         "agent_id": admin_id,
                         "agent_name": ADMINISTRATOR_NAME,
-                    })
+                        "raw_input": session.last_raw_input,
+                        "raw_output": session.last_raw_output,
+                    }
+                    messages_to_save.append(admin_route_msg)
+                    self._accumulated_messages.append(admin_route_msg)
 
                     # If still no routes after asking, break
                     if not session.pending_routes:
@@ -332,7 +360,7 @@ class ChatSessionHandler:
                     if chunk.role != current_role:
                         # Role changed, save accumulated content
                         if chunk_content or chunk_thinking:
-                            messages_to_save.append({
+                            completed_msg = {
                                 "role": current_role,
                                 "content": chunk_content,
                                 "thinking": chunk_thinking if chunk_thinking else None,
@@ -340,7 +368,9 @@ class ChatSessionHandler:
                                 "agent_name": current_agent.name,
                                 "raw_input": raw_input_json if current_role == "assistant" else None,
                                 "raw_output": chunk_content if current_role == "assistant" else None,
-                            })
+                            }
+                            messages_to_save.append(completed_msg)
+                            self._accumulated_messages.append(completed_msg)
                             conversation_messages.append({
                                 "role": current_role,
                                 "content": chunk_content,
@@ -355,6 +385,15 @@ class ChatSessionHandler:
                         if chunk.thinking:
                             chunk_thinking += chunk.thinking
 
+                    # Update in-progress chunk for reconnect replay
+                    self._current_chunk = {
+                        "role": current_role,
+                        "content": chunk_content,
+                        "thinking": chunk_thinking if chunk_thinking else None,
+                        "agent_id": current_agent.id,
+                        "agent_name": current_agent.name,
+                    }
+
                     # Track full response for routing
                     if chunk.role == "assistant":
                         agent_response += chunk.content
@@ -363,7 +402,7 @@ class ChatSessionHandler:
 
                 # Save final accumulated content
                 if chunk_content or chunk_thinking:
-                    messages_to_save.append({
+                    completed_msg = {
                         "role": current_role,
                         "content": chunk_content,
                         "thinking": chunk_thinking if chunk_thinking else None,
@@ -371,13 +410,18 @@ class ChatSessionHandler:
                         "agent_name": current_agent.name,
                         "raw_input": raw_input_json if current_role == "assistant" else None,
                         "raw_output": chunk_content if current_role == "assistant" else None,
-                    })
+                    }
+                    messages_to_save.append(completed_msg)
+                    self._accumulated_messages.append(completed_msg)
                     conversation_messages.append({
                         "role": current_role,
                         "content": chunk_content,
                         "agent_id": current_agent.id,
                         "agent_name": current_agent.name,
                     })
+
+                # Agent turn finished, clear in-progress chunk
+                self._current_chunk = None
 
             # ========================================
             # CLEANUP AND PERSISTENCE
@@ -389,7 +433,9 @@ class ChatSessionHandler:
             # Update timestamps
             self._update_timestamps(frame_id, conversation_id)
 
-            # Send done event
+            # Mark task as done and send done event
+            self._current_chunk = None
+            self._task_done = True
             await self.send_event(DoneEvent(
                 conversation_id=conversation_id,
                 frame_id=frame_id,
@@ -424,7 +470,9 @@ class ChatSessionHandler:
 
             # Create or get conversation
             if event.conversation_id is None:
-                conversation = conv_repo.create_conversation(self.user_id)
+                # Use first message as title (truncated)
+                title = (event.text[:80] + "...") if len(event.text) > 80 else event.text
+                conversation = conv_repo.create_conversation(self.user_id, title=title)
                 conversation_id = conversation.id
             else:
                 conversation_id = event.conversation_id
@@ -501,32 +549,64 @@ class ChatSessionHandler:
             self.current_task.cancel()
 
     async def send_event(self, event: BaseEvent):
-        """Send event to client. Buffers if socket is disconnected."""
+        """Send event to client (silently fails if disconnected)."""
         try:
             if self.websocket.client_state.name == "CONNECTED":
                 await self.websocket.send_json(event.to_dict())
-                return
         except Exception as e:
-            logger.debug(f"Failed to send WebSocket event, buffering: {e}")
-
-        # Socket dead — buffer the event for replay on reconnect
-        if len(self._event_buffer) < self._max_buffer_size:
-            self._event_buffer.append(event)
+            logger.debug(f"Failed to send WebSocket event: {e}")
 
     async def replace_websocket(self, websocket: WebSocket):
-        """Replace the WebSocket connection and flush buffered events."""
+        """Replace WebSocket and replay accumulated state."""
         self.websocket = websocket
 
-        # Flush buffered events
-        if self._event_buffer:
-            logger.info(f"Flushing {len(self._event_buffer)} buffered events")
-            for event in self._event_buffer:
-                try:
-                    await self.websocket.send_json(event.to_dict())
-                except Exception as e:
-                    logger.error(f"Failed to flush buffered event: {e}")
-                    break
-            self._event_buffer.clear()
+        if not self._accumulated_messages and not self._current_chunk:
+            return
+
+        conv_id = self._task_conversation_id or 0
+        frame_id = self._task_frame_id or 0
+
+        logger.info(f"Replaying {len(self._accumulated_messages)} accumulated messages on reconnect")
+
+        # Replay each accumulated message as a complete StreamChunkEvent
+        for msg in self._accumulated_messages:
+            event = StreamChunkEvent(
+                content=msg["content"],
+                thinking=msg.get("thinking"),
+                role=msg["role"],
+                agent_id=msg.get("agent_id"),
+                agent_name=msg.get("agent_name"),
+                conversation_id=conv_id,
+                frame_id=frame_id,
+            )
+            try:
+                await self.websocket.send_json(event.to_dict())
+            except Exception:
+                return
+
+        # Send in-progress chunk if agent is still generating
+        if self._current_chunk:
+            event = StreamChunkEvent(
+                content=self._current_chunk["content"],
+                thinking=self._current_chunk.get("thinking"),
+                role=self._current_chunk["role"],
+                agent_id=self._current_chunk.get("agent_id"),
+                agent_name=self._current_chunk.get("agent_name"),
+                conversation_id=conv_id,
+                frame_id=frame_id,
+            )
+            try:
+                await self.websocket.send_json(event.to_dict())
+            except Exception:
+                return
+
+        # If task already done, send DoneEvent
+        if self._task_done:
+            done = DoneEvent(conversation_id=conv_id, frame_id=frame_id)
+            try:
+                await self.websocket.send_json(done.to_dict())
+            except Exception:
+                pass
 
     async def request_tool_approval(
         self,
