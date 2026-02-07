@@ -200,6 +200,18 @@ KurisuAssistant-Client-Windows/
   - Easier to maintain and test
   - Reusable message rendering logic
 
+#### `src/components/AgentsWindow.tsx`
+- Agent management page with full CRUD operations
+- Card-based grid layout displaying all agents
+- Create and Edit dialogs for agent configuration
+- **Tool Assignment**: Agents can be assigned tools via multi-select Autocomplete
+  - Available tools loaded from `/tools` endpoint (both MCP and built-in)
+  - Internal routing tools (`route_to_agent`, `route_to_user`) are filtered out
+  - Tools shown as chips with Extension icon on agent cards (max 3 visible, "+N more" overflow)
+  - Dropdown shows tool name and truncated description with checkboxes
+  - Tools included in `AgentCreate`/`AgentUpdate` API payloads
+- Agent cards display: avatar, name, system prompt preview, model, voice, and assigned tools
+
 #### `src/components/SettingsWindow.tsx`
 - Settings page for user preferences and customization
 - Accessible via Settings icon in MainWindow sidebar

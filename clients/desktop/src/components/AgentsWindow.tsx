@@ -24,6 +24,8 @@ import {
   Select,
   Switch,
   MenuItem,
+  Autocomplete,
+  Checkbox,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -33,23 +35,29 @@ import {
   Save as SaveIcon,
   Refresh as RefreshIcon,
   Settings as SettingsIcon,
+  Extension as ExtensionIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiClient } from '../api/client';
-import type { Agent, AgentCreate, AgentUpdate } from '../api/types';
+import type { Agent, AgentCreate, AgentUpdate, Tool } from '../api/types';
 
 const MotionCard = motion(Card);
+
+// Internal tools that shouldn't be assignable to user agents
+const INTERNAL_TOOLS = ['route_to_agent', 'route_to_user'];
 
 interface AgentFormData {
   name: string;
   system_prompt: string;
   model_name: string;
   think: boolean;
+  tools: string[];
 }
 
 export const AgentsWindow: React.FC = () => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [models, setModels] = useState<string[]>([]);
+  const [availableTools, setAvailableTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -67,6 +75,7 @@ export const AgentsWindow: React.FC = () => {
     system_prompt: '',
     model_name: '',
     think: false,
+    tools: [],
   });
 
   // File upload refs
@@ -79,6 +88,7 @@ export const AgentsWindow: React.FC = () => {
   useEffect(() => {
     loadAgents();
     loadModels();
+    loadTools();
   }, []);
 
   const loadModels = async () => {
@@ -91,6 +101,17 @@ export const AgentsWindow: React.FC = () => {
       setError('Failed to load models from Ollama');
     } finally {
       setModelsLoading(false);
+    }
+  };
+
+  const loadTools = async () => {
+    try {
+      const data = await apiClient.listTools();
+      const allTools = [...data.mcp_tools, ...data.builtin_tools]
+        .filter(t => !INTERNAL_TOOLS.includes(t.function.name));
+      setAvailableTools(allTools);
+    } catch (err: any) {
+      console.error('Failed to load tools:', err);
     }
   };
 
@@ -113,6 +134,7 @@ export const AgentsWindow: React.FC = () => {
         system_prompt: formData.system_prompt || undefined,
         model_name: formData.model_name,
         think: formData.think,
+        tools: formData.tools.length > 0 ? formData.tools : undefined,
       };
 
       const newAgent = await apiClient.createAgent(createData);
@@ -141,11 +163,13 @@ export const AgentsWindow: React.FC = () => {
     if (!selectedAgent) return;
 
     try {
+      const toolsChanged = JSON.stringify(formData.tools) !== JSON.stringify(selectedAgent.tools || []);
       const updateData: AgentUpdate = {
         name: formData.name !== selectedAgent.name ? formData.name : undefined,
         system_prompt: formData.system_prompt !== selectedAgent.system_prompt ? formData.system_prompt : undefined,
         model_name: formData.model_name !== selectedAgent.model_name ? formData.model_name : undefined,
         think: formData.think !== selectedAgent.think ? formData.think : undefined,
+        tools: toolsChanged ? formData.tools : undefined,
       };
 
       // Only send fields that changed
@@ -195,6 +219,7 @@ export const AgentsWindow: React.FC = () => {
       system_prompt: '',
       model_name: '',
       think: false,
+      tools: [],
     });
     setAvatarFile(null);
     setVoiceFile(null);
@@ -209,6 +234,7 @@ export const AgentsWindow: React.FC = () => {
       system_prompt: agent.system_prompt || '',
       model_name: agent.model_name || '',
       think: agent.think,
+      tools: agent.tools || [],
     });
     if (agent.avatar_uuid) {
       setAvatarPreview(apiClient.getImageUrl(agent.avatar_uuid));
@@ -385,6 +411,27 @@ export const AgentsWindow: React.FC = () => {
                           <Chip label={agent.model_name} size="small" variant="outlined" />
                         )}
                       </Box>
+                      {agent.tools && agent.tools.length > 0 && (
+                        <Box sx={{ mt: 1, display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
+                          {agent.tools.slice(0, 3).map(tool => (
+                            <Chip
+                              key={tool}
+                              icon={<ExtensionIcon />}
+                              label={tool}
+                              size="small"
+                              variant="outlined"
+                              color="primary"
+                            />
+                          ))}
+                          {agent.tools.length > 3 && (
+                            <Chip
+                              label={`+${agent.tools.length - 3} more`}
+                              size="small"
+                              variant="outlined"
+                            />
+                          )}
+                        </Box>
+                      )}
                     </CardContent>
                     <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
                       {agent.name !== 'Administrator' && (
@@ -495,6 +542,41 @@ export const AgentsWindow: React.FC = () => {
                 />
               }
               label="Enable extended thinking"
+            />
+
+            {/* Tools */}
+            <Autocomplete
+              multiple
+              options={availableTools.map(t => t.function.name)}
+              value={formData.tools}
+              onChange={(_, newValue) => setFormData({ ...formData, tools: newValue })}
+              disableCloseOnSelect
+              renderOption={(props, option, { selected }) => {
+                const tool = availableTools.find(t => t.function.name === option);
+                return (
+                  <li {...props}>
+                    <Checkbox checked={selected} size="small" sx={{ mr: 1 }} />
+                    <Box>
+                      <Typography variant="body2">{option}</Typography>
+                      {tool?.function.description && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                          {tool.function.description.length > 80
+                            ? tool.function.description.slice(0, 80) + '...'
+                            : tool.function.description}
+                        </Typography>
+                      )}
+                    </Box>
+                  </li>
+                );
+              }}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => (
+                  <Chip {...getTagProps({ index })} key={option} label={option} size="small" icon={<ExtensionIcon />} />
+                ))
+              }
+              renderInput={(params) => (
+                <TextField {...params} label="Tools" placeholder="Select tools..." helperText="Tools this agent can use" />
+              )}
             />
 
             {/* Voice Reference */}
@@ -622,6 +704,41 @@ export const AgentsWindow: React.FC = () => {
                 />
               }
               label="Enable extended thinking"
+            />
+
+            {/* Tools */}
+            <Autocomplete
+              multiple
+              options={availableTools.map(t => t.function.name)}
+              value={formData.tools}
+              onChange={(_, newValue) => setFormData({ ...formData, tools: newValue })}
+              disableCloseOnSelect
+              renderOption={(props, option, { selected }) => {
+                const tool = availableTools.find(t => t.function.name === option);
+                return (
+                  <li {...props}>
+                    <Checkbox checked={selected} size="small" sx={{ mr: 1 }} />
+                    <Box>
+                      <Typography variant="body2">{option}</Typography>
+                      {tool?.function.description && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                          {tool.function.description.length > 80
+                            ? tool.function.description.slice(0, 80) + '...'
+                            : tool.function.description}
+                        </Typography>
+                      )}
+                    </Box>
+                  </li>
+                );
+              }}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => (
+                  <Chip {...getTagProps({ index })} key={option} label={option} size="small" icon={<ExtensionIcon />} />
+                ))
+              }
+              renderInput={(params) => (
+                <TextField {...params} label="Tools" placeholder="Select tools..." helperText="Tools this agent can use" />
+              )}
             />
 
             {/* Voice Reference */}
