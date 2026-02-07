@@ -225,11 +225,11 @@ main.py (business logic)
 - `gpt-sovits`: GPT-SoVITS backend with automatic text splitting for long prompts
 - `index-tts`: INDEX-TTS backend with emotion control (audio-based, vector-based, or text-based)
 
-**Voice Discovery**: Both providers scan the `reference/` directory for audio files and expose them via the `/tts/voices` endpoint. Simply add new reference audio files to the `reference/` folder to make them available.
+**Voice Discovery**: Both providers scan the `data/voice_storage/` directory for audio files and expose them via the `/tts/voices` endpoint. Simply add new reference audio files to the `data/voice_storage/` folder to make them available.
 
 **Security**: Frontend MUST only send voice names (e.g., "ayaka_ref") returned from `/tts/voices`, never paths. Backend enforces this by:
 - Only accepting voice names without extensions
-- Always searching in `reference/` directory only
+- Always searching in `data/voice_storage/` directory only
 - Using `_find_voice_file()` to locate files with proper extensions
 - Preventing path traversal attacks
 
@@ -273,7 +273,7 @@ mkdir reference
 ./run_dev.bat  # Windows
 ```
 
-**Note**: Place reference audio files for TTS voices in the `reference/` directory. Supported formats: `.wav`, `.mp3`, `.flac`, `.ogg`.
+**Note**: Place reference audio files for TTS voices in the `data/voice_storage/` directory. Supported formats: `.wav`, `.mp3`, `.flac`, `.ogg`.
 
 ### Docker Development
 
@@ -1105,7 +1105,7 @@ For INDEX-TTS:
 **Error (500)**: TTS synthesis failed
 
 #### `GET /tts/voices` (Protected)
-List available TTS voices by scanning the `reference/` directory.
+List available TTS voices by scanning the `data/voice_storage/` directory.
 
 **Query Parameters**:
 - `provider`: TTS provider to use (optional, defaults to TTS_PROVIDER env var or "gpt-sovits")
@@ -1117,7 +1117,7 @@ List available TTS voices by scanning the `reference/` directory.
 }
 ```
 
-**Note**: Returns audio filenames without extension from the `reference/` folder
+**Note**: Returns audio filenames without extension from the `data/voice_storage/` folder
 
 #### `GET /tts/backends` (Protected)
 List available TTS backends.

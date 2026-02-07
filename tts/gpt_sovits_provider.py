@@ -43,7 +43,7 @@ class GPTSoVITSProvider(BaseTTSProvider):
         Raises:
             FileNotFoundError: If voice file not found
         """
-        reference_dir = Path("reference")
+        reference_dir = Path("data") / "voice_storage"
         audio_extensions = {'.wav', '.mp3', '.flac', '.ogg'}
 
         # Try to find the file with any supported extension
@@ -225,7 +225,7 @@ class GPTSoVITSProvider(BaseTTSProvider):
         Returns:
             List of voice names (audio filenames without extension)
         """
-        reference_dir = Path("reference")
+        reference_dir = Path("data") / "voice_storage"
 
         if not reference_dir.exists():
             logger.warning(f"Reference directory not found: {reference_dir}")

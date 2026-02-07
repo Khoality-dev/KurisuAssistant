@@ -263,9 +263,9 @@ async def update_agent_voice(
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
 
-        # Save voice file to reference directory
-        reference_dir = Path("reference")
-        reference_dir.mkdir(exist_ok=True)
+        # Save voice file to voice storage directory
+        voice_dir = Path("data") / "voice_storage"
+        voice_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate unique filename using agent name
         safe_name = "".join(c for c in agent.name if c.isalnum() or c in "._-")
@@ -276,7 +276,7 @@ async def update_agent_voice(
         if ext not in {".wav", ".mp3", ".flac", ".ogg"}:
             ext = ".wav"
 
-        voice_path = reference_dir / f"{voice_filename}{ext}"
+        voice_path = voice_dir / f"{voice_filename}{ext}"
 
         # Save file
         contents = await voice.read()
