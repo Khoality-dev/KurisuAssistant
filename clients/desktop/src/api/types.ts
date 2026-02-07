@@ -20,7 +20,8 @@ export interface Message {
   frame_id?: number;
   created_at?: string;
   agent_id?: number; // Which agent sent this message
-  agent_name?: string; // Agent name (from streaming chunks)
+  agent_name?: string; // Agent name (from streaming chunks, ephemeral)
+  name?: string; // Persisted display name (agent name or tool name, from DB)
   agent?: MessageAgent; // Embedded agent info (name, avatar)
   voice_reference?: string; // Voice reference for TTS (from streaming chunks)
   has_raw_data?: boolean; // Whether raw LLM input/output is available

@@ -118,8 +118,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   // Determine message styling based on role
   const isUser = message.role === 'user';
 
-  // Use agent name if available, otherwise capitalize role name
-  const agentName = message.agent_name || message.agent?.name;
+  // Resolve display name: streaming agent_name → persisted name → agent relationship → role
+  // For tool messages, skip agent?.name (it would show the calling agent, e.g. "Administrator")
+  const agentName = message.role === 'tool'
+    ? (message.agent_name || message.name)
+    : (message.agent_name || message.name || message.agent?.name);
   const label = isUser
     ? 'You'
     : agentName || message.role.charAt(0).toUpperCase() + message.role.slice(1);

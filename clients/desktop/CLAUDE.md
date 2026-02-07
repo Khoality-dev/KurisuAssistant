@@ -153,6 +153,16 @@ KurisuAssistant-Client-Windows/
   - Loading indicator shown at top while fetching
   - `hasMoreMessages` prevents unnecessary loading attempts
 - **Auto-scroll**: Scrolls to bottom on new messages (but not when loading older messages)
+- **Streaming TTS Auto-Play**:
+  - When "Auto-play assistant messages" is enabled in Settings > TTS, audio plays while agent is still streaming
+  - Uses `useTTS().queueText()` to submit text batches for parallel synthesis, sequential playback
+  - `ttsBufferRef` accumulates incoming content; on sentence boundary (`.!?。！？\n`), complete sentences are batched and queued
+  - On agent/role change, remaining buffer is flushed before switching voice reference
+  - On `DoneEvent`, remaining buffer is flushed as final TTS item
+  - On cancel or new message send, `clearQueue()` stops all pending synthesis and playback
+  - Tool messages are excluded from auto-play (only assistant/agent messages)
+  - Voice reference (`ttsVoiceRef`) tracked per-agent from `event.voice_reference`
+  - Manual speaker button in MessageBubble still works independently for replay after streaming
 - **Model Selection Persistence**: Selected model saved to localStorage and restored on app restart
 - **Thinking Display**:
   - Messages with thinking content show a collapsible "Thinking" button with Psychology icon
@@ -250,24 +260,35 @@ KurisuAssistant-Client-Windows/
 #### `src/hooks/useTTS.ts`
 - Custom React hook for TTS (Text-to-Speech) functionality
 - **State**:
-  - `isPlaying`: Boolean indicating if audio is currently playing
+  - `isPlaying`: Boolean indicating if audio is currently playing (manual speak)
+  - `isQueueActive`: Boolean indicating if the streaming TTS queue has items being synthesized/played
   - `voices`: Array of available voice names (strings) from backend
   - `backends`: Array of available TTS backend names (e.g., ["gpt-sovits", "index-tts"])
 - **Methods**:
-  - `speak(text, voice?, language?, backend?)`: Synthesize and play text as speech
+  - `speak(text, voice?, language?, backend?)`: Synthesize and play text as speech (manual, one-shot)
     - Calls `apiClient.synthesize()` to get audio Blob
     - Supports backend selection (gpt-sovits, index-tts, etc.)
     - Creates Audio element and plays it
     - Manages object URL lifecycle (creation and revocation)
     - Stops previous audio if playing
-  - `stop()`: Stop current audio playback
+  - `stop()`: Stop current manual speech playback
+  - `queueText(text, voice?)`: Queue text for streaming TTS auto-play
+    - Starts synthesis immediately (parallel with previous items)
+    - Reads TTS settings (backend, emotion params) fresh from `storage`
+    - Adds to FIFO playback queue; starts playback loop if not running
+  - `clearQueue()`: Cancel all pending synthesis, stop current queue audio, empty queue
   - `loadVoices()`: Fetch available voices from backend (`GET /tts/voices`)
   - `loadBackends()`: Fetch available TTS backends from backend (`GET /tts/backends`)
+- **Queue-Based Streaming TTS**:
+  - `ttsQueueRef`: FIFO array of `{ audioPromise }` items — synthesis starts on enqueue
+  - `playQueue()`: Sequential playback loop — shifts items from queue, awaits blob, plays via `playBlobAsync()`
+  - `playBlobAsync()`: Creates Audio element from blob, resolves on `onended`
+  - Separate audio refs for manual (`currentAudioRef`) and queue (`currentQueueAudioRef`) playback
 - **Audio Management**:
   - Uses `useRef` for current audio element and audio URL
   - Cleanup effect on unmount to prevent memory leaks
   - Event handlers for audio end and error events
-- **Usage**: Import and call `useTTS()` to get `{speak, stop, isPlaying, voices, loadVoices, backends, loadBackends}`
+- **Usage**: Import and call `useTTS()` to get `{speak, stop, isPlaying, queueText, clearQueue, isQueueActive, voices, loadVoices, backends, loadBackends}`
 
 ### State Management (Zustand)
 

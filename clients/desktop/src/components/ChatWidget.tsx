@@ -21,6 +21,7 @@ import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '../store/conversationStore';
 import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, BaseEvent } from '../api/websocket';
 import { storage } from '../utils/storage';
+import { useTTS } from '../hooks/useTTS';
 import { MessageBubble } from './MessageBubble';
 import type { Message } from '../api/types';
 
@@ -48,6 +49,11 @@ export const ChatWidget: React.FC = () => {
   );
   // TTS settings are read fresh from storage in MessageBubble.handleTTS()
   const [showAdministrator, setShowAdministrator] = useState<boolean>(storage.getShowAdministrator());
+
+  // Streaming TTS auto-play
+  const { queueText, clearQueue } = useTTS();
+  const ttsBufferRef = useRef('');
+  const ttsVoiceRef = useRef<string | undefined>(undefined);
 
   // Ref to track streaming state without stale closures
   const isStreamingRef = useRef(false);
@@ -110,6 +116,10 @@ export const ChatWidget: React.FC = () => {
     setIsStreaming(false);
     isStreamingRef.current = false;
     cancelStreamUpdate();
+    // Clear TTS queue on conversation switch
+    clearQueue();
+    ttsBufferRef.current = '';
+    ttsVoiceRef.current = undefined;
     streamingStateRef.current = {
       currentRole: null,
       currentAgentId: undefined,
@@ -192,14 +202,25 @@ export const ChatWidget: React.FC = () => {
     const needsNewBubble = roleChanged || agentChanged;
 
     if (needsNewBubble) {
+      // Flush TTS buffer from previous agent before switching
+      if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
+        queueText(ttsBufferRef.current.trim(), ttsVoiceRef.current);
+        ttsBufferRef.current = '';
+      }
+
+      // Capture ref values BEFORE mutating — React defers updater execution,
+      // so reading the ref inside the updater would see the new (wrong) value.
+      const previousContent = state.accumulatedContent;
+      const previousThinking = state.accumulatedThinking;
+
       // Finalize previous message content and add new bubble
       setStreamingMessages(prev => {
         const updated = [...prev];
         if (updated.length > 0) {
           updated[updated.length - 1] = {
             ...updated[updated.length - 1],
-            content: state.accumulatedContent,
-            thinking: state.accumulatedThinking || undefined,
+            content: previousContent,
+            thinking: previousThinking || undefined,
           };
         }
         updated.push({
@@ -217,6 +238,9 @@ export const ChatWidget: React.FC = () => {
       state.currentAgentName = agentName;
       state.accumulatedContent = event.content || '';
       state.accumulatedThinking = '';
+
+      // Update TTS voice for new agent
+      ttsVoiceRef.current = event.voice_reference || undefined;
 
       scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
     } else if (!state.hasStarted) {
@@ -268,7 +292,23 @@ export const ChatWidget: React.FC = () => {
       state.accumulatedThinking += event.thinking;
       scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
     }
-  }, [setCurrentConversationId, scheduleStreamUpdate]);
+
+    // Streaming TTS auto-play: feed complete sentences to TTS queue
+    if (storage.getTTSAutoPlay() && event.content && event.role !== 'tool') {
+      ttsVoiceRef.current = event.voice_reference || ttsVoiceRef.current;
+      ttsBufferRef.current += event.content;
+
+      // Split on sentence-ending punctuation — all but last segment are complete
+      const parts = ttsBufferRef.current.split(/(?<=[.!?。！？\n])\s*/);
+      if (parts.length > 1) {
+        const batch = parts.slice(0, -1).join(' ');
+        ttsBufferRef.current = parts[parts.length - 1];
+        if (batch.trim()) {
+          queueText(batch, ttsVoiceRef.current);
+        }
+      }
+    }
+  }, [setCurrentConversationId, scheduleStreamUpdate, queueText]);
 
   const handleDone = useCallback((event: DoneEvent) => {
     const state = streamingStateRef.current;
@@ -277,6 +317,13 @@ export const ChatWidget: React.FC = () => {
     if (event.conversation_id && state.conversationId && event.conversation_id !== state.conversationId) {
       return;
     }
+
+    // Flush remaining TTS buffer
+    if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
+      queueText(ttsBufferRef.current.trim(), ttsVoiceRef.current);
+    }
+    ttsBufferRef.current = '';
+    ttsVoiceRef.current = undefined;
 
     // Finalize last streaming message with accumulated content
     setStreamingMessages(prev => {
@@ -309,7 +356,7 @@ export const ChatWidget: React.FC = () => {
       // Clear streaming messages after store is updated with DB records
       setStreamingMessages([]);
     }, 300);
-  }, [loadConversation]);
+  }, [loadConversation, queueText]);
 
   const handleError = useCallback((event: ErrorEvent) => {
     console.error('WebSocket error:', event.error);
@@ -374,6 +421,11 @@ export const ChatWidget: React.FC = () => {
     if (!input.trim() || isStreaming) return;
 
     setIsStreaming(true);
+
+    // Clear any previous TTS queue
+    clearQueue();
+    ttsBufferRef.current = '';
+    ttsVoiceRef.current = undefined;
 
     try {
       // Upload images first and get UUIDs
@@ -440,6 +492,11 @@ export const ChatWidget: React.FC = () => {
 
   const handleCancel = () => {
     wsManager.sendCancel();
+
+    // Stop TTS auto-play
+    clearQueue();
+    ttsBufferRef.current = '';
+    ttsVoiceRef.current = undefined;
 
     // Finalize streaming messages with partial content
     const state = streamingStateRef.current;
