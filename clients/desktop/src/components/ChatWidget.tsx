@@ -8,7 +8,12 @@ import {
   Typography,
   Chip,
   Tooltip,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
+import CheckIcon from '@mui/icons-material/Check';
 import {
   Send as SendIcon,
   AttachFile as AttachFileIcon,
@@ -16,13 +21,17 @@ import {
   Visibility as VisibilityIcon,
   VisibilityOff as VisibilityOffIcon,
   Stop as StopIcon,
+  Mic as MicIcon,
+  MicOff as MicOffIcon,
 } from '@mui/icons-material';
+import CircularProgress from '@mui/material/CircularProgress';
 import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '../store/conversationStore';
 import { apiClient } from '../api/client';
 import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, BaseEvent } from '../api/websocket';
 import { storage } from '../utils/storage';
 import { useTTS } from '../hooks/useTTS';
+import { useASR } from '../hooks/useASR';
 import { MessageBubble } from './MessageBubble';
 import type { Message } from '../api/types';
 
@@ -56,6 +65,13 @@ export const ChatWidget: React.FC = () => {
   const ttsBufferRef = useRef('');
   const ttsVoiceRef = useRef<string | undefined>(undefined);
 
+  // ASR (voice input)
+  const {
+    startListening, stopListening, status: asrStatus, transcript: asrTranscript,
+    devices: asrDevices, loadDevices: loadAsrDevices, selectedDeviceId: asrDeviceId, selectDevice: selectAsrDevice,
+  } = useASR();
+  const [micMenuAnchor, setMicMenuAnchor] = useState<HTMLElement | null>(null);
+
   // Ref to track streaming state without stale closures
   const isStreamingRef = useRef(false);
 
@@ -74,6 +90,13 @@ export const ChatWidget: React.FC = () => {
   useEffect(() => {
     isStreamingRef.current = isStreaming;
   }, [isStreaming]);
+
+  // Insert ASR transcript into input field
+  useEffect(() => {
+    if (asrTranscript) {
+      setInput(prev => (prev ? prev + ' ' + asrTranscript : asrTranscript));
+    }
+  }, [asrTranscript]);
 
   const toggleShowAdministrator = () => {
     const newValue = !showAdministrator;
@@ -535,6 +558,22 @@ export const ChatWidget: React.FC = () => {
     }
   };
 
+  const handleMicToggle = () => {
+    if (asrStatus === 'idle') {
+      startListening();
+    } else {
+      stopListening();
+    }
+  };
+
+  const handleMicContext = (e: React.MouseEvent<HTMLElement>) => {
+    e.preventDefault();
+    const anchor = e.currentTarget;
+    loadAsrDevices().then(() => {
+      setMicMenuAnchor(anchor);
+    });
+  };
+
   const toggleThinking = (index: number) => {
     setExpandedThinking(prev => {
       const newSet = new Set(prev);
@@ -727,6 +766,57 @@ export const ChatWidget: React.FC = () => {
           >
             <AttachFileIcon />
           </IconButton>
+
+          <Tooltip title={asrStatus === 'idle' ? 'Start voice input (right-click: select mic)' : 'Stop voice input'}>
+            <IconButton
+              onClick={handleMicToggle}
+              onContextMenu={handleMicContext}
+              disabled={isStreaming}
+              sx={{
+                color: asrStatus === 'listening' ? 'error.main' : 'inherit',
+                animation: asrStatus === 'listening' ? 'pulse 1.5s infinite' : 'none',
+                '@keyframes pulse': {
+                  '0%': { opacity: 1 },
+                  '50%': { opacity: 0.5 },
+                  '100%': { opacity: 1 },
+                },
+              }}
+            >
+              {asrStatus === 'processing' ? (
+                <CircularProgress size={24} />
+              ) : asrStatus === 'listening' ? (
+                <MicIcon />
+              ) : (
+                <MicOffIcon />
+              )}
+            </IconButton>
+          </Tooltip>
+          <Menu
+            anchorEl={micMenuAnchor}
+            open={Boolean(micMenuAnchor)}
+            onClose={() => setMicMenuAnchor(null)}
+          >
+            {asrDevices.map((device) => (
+              <MenuItem
+                key={device.deviceId}
+                onClick={() => {
+                  selectAsrDevice(device.deviceId);
+                  setMicMenuAnchor(null);
+                }}
+                selected={device.deviceId === asrDeviceId}
+              >
+                {device.deviceId === asrDeviceId && (
+                  <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
+                )}
+                <ListItemText inset={device.deviceId !== asrDeviceId}>
+                  {device.label}
+                </ListItemText>
+              </MenuItem>
+            ))}
+            {asrDevices.length === 0 && (
+              <MenuItem disabled>No microphones found</MenuItem>
+            )}
+          </Menu>
 
           <TextField
             fullWidth

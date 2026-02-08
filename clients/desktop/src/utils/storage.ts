@@ -13,6 +13,7 @@ const STORAGE_KEYS = {
   TTS_BACKEND: 'kurisu_tts_backend',
   GPT_SOVITS_URL: 'kurisu_gpt_sovits_url',
   SHOW_ADMINISTRATOR: 'kurisu_show_administrator',
+  ASR_DEVICE_ID: 'kurisu_asr_device_id',
 } as const;
 
 export const storage = {
@@ -280,6 +281,23 @@ export const storage = {
     } catch (error) {
       console.error('Failed to get show Administrator preference:', error);
       return false; // Default: hide Administrator messages
+    }
+  },
+
+  setASRDeviceId(deviceId: string): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ASR_DEVICE_ID, deviceId);
+    } catch (error) {
+      console.error('Failed to save ASR device ID:', error);
+    }
+  },
+
+  getASRDeviceId(): string | null {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.ASR_DEVICE_ID);
+    } catch (error) {
+      console.error('Failed to get ASR device ID:', error);
+      return null;
     }
   },
 };

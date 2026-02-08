@@ -241,6 +241,19 @@ class APIClient {
     return response.data.backends;
   }
 
+  // ASR Methods
+
+  /**
+   * Transcribe raw Int16 PCM audio (16kHz mono) to text
+   */
+  async transcribe(audio: ArrayBuffer): Promise<string> {
+    const response = await this.client.post<{ text: string }>('/asr', audio, {
+      headers: { ...this.getHeaders(), 'Content-Type': 'application/octet-stream' },
+      timeout: 30000,
+    });
+    return response.data.text;
+  }
+
   // Agent Methods
 
   /**
