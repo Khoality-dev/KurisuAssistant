@@ -3,7 +3,8 @@ __pycache__/
 .env
 whisper-finetuned/
 configs/default.json
-configs/nginx
-ollama
-openwebui
-clients/KurisuAssistant/.idea/deploymentTargetSelector.xml
+nginx/certs/
+nul
+data/asr/
+data/voice_storage/
+data/image_storage/

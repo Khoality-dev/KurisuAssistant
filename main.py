@@ -1,204 +1,125 @@
-import wave
-import torch
-import sounddevice as sd
-import numpy as np
-import time
-from helpers.utils import pretty_print
-from helpers.agent import Agent
-from threading import Condition, Thread
+"""Main FastAPI application setup."""
 
-print("Initializing...")
-vad_model, utils = torch.hub.load(
-    repo_or_dir="snakers4/silero-vad", model="silero_vad", force_reload=False
+import logging
+from contextlib import asynccontextmanager
+
+import dotenv
+import uvicorn
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastmcp.client import Client as FastMCPClient
+
+from routers import (
+    auth_router,
+    asr_router,
+    conversations_router,
+    messages_router,
+    users_router,
+    images_router,
+    tts_router,
+    mcp_router,
+    ws_router,
+    agents_router,
+    models_router,
+    tools_router,
+    set_mcp_client,
 )
-(get_speech_timestamps, save_audio, read_audio, VADIterator, collect_chunks) = utils
-vad_iterator = VADIterator(vad_model)
+from mcp_tools.config import load_mcp_configs
+from mcp_tools.orchestrator import init_orchestrator
 
-# Settings
-sample_rate = 16000  # Whisper and VAD both use 16 kHz
-block_duration = 0.03  # 30 ms (must be 10, 20, or 30 ms)
-block_size = int(sample_rate * block_duration)  # Samples per block
-input_device, output_device = sd.default.device
-devices = sd.query_devices()
-VAD_FIXED_WINDOW_SIZE = 512  # e.g., 1024-sample window (~64ms)
-RECORD_WINDOW_SIZE = (16000) * 2  # e.g., 16000-sample window (1 second) * 2
-min_speech_silence_s = 1  # 1s of silence to end utterance
-min_speech_silence_after_interaction_s = 10
-text_output_queue = []
-text_output_condition = Condition()
-input_message = None
-audio_output_queue = []
-audio_output_condition = Condition()
+# Configure logging with explicit console handler
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    force=True,  # Override any existing configuration
+)
+logger = logging.getLogger(__name__)
 
+dotenv.load_dotenv()
 
-feedback_volume = 0.5
-start_feedback_effect = wave.open("assets/start_effect.wav")
-start_feedback_effect = (
-    np.frombuffer(start_feedback_effect.readframes(-1), dtype=np.int16).reshape((-1, 2))
-    * feedback_volume
-).astype(np.int16)
-stop_feedback_effect = wave.open("assets/stop_effect.wav")
-stop_feedback_effect = (
-    np.frombuffer(stop_feedback_effect.readframes(-1), dtype=np.int16).reshape((-1, 2))
-    * feedback_volume
-).astype(np.int16)
-last_voice_time = time.time()
-last_interaction_time = 0
-is_interacting = False
-kurisu_agent = Agent()
+# Load MCP configs
+mcp_configs = load_mcp_configs()
+mcp_client = FastMCPClient(mcp_configs) if mcp_configs.get("mcpServers") else None
 
-print("Current input device:")
-print(f"  Index: {input_device}")
-print(f"  Name: {devices[input_device]['name']}")
-print()
-print("Current output device:")
-print(f"  Index: {output_device}")
-print(f"  Name: {devices[output_device]['name']}")
-
-audio_buffer = np.array([], dtype=np.float32)
+# Set MCP client for the mcp router
+set_mcp_client(mcp_client, mcp_configs)
 
 
-def record_and_detect():
-    """Continuously listen and collect speech when VAD detects voice."""
-    speaking = False
-    global last_voice_time, last_interaction_time, is_interacting
-    with sd.InputStream(
-        channels=1, samplerate=sample_rate, blocksize=block_size, dtype="float32"
-    ) as stream:
-        audio_data = np.zeros((0, 1), dtype=np.float32)
-        recording = np.zeros((0, 1), dtype=np.float32)
-        last_voice_time = -1
-        while True:
-            block, overflowed = stream.read(block_size)
-            if overflowed:
-                print("Warning: input overflow")
-            audio_data = np.concatenate((audio_data, block.copy()))
-            recording = np.concatenate((recording, block.copy()))
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan events - runs on startup and shutdown."""
+    # Startup
+    logger.info("Application starting up...")
 
-            if len(audio_data) >= VAD_FIXED_WINDOW_SIZE:
-                input_data = audio_data[:VAD_FIXED_WINDOW_SIZE]
-                audio_data = audio_data[VAD_FIXED_WINDOW_SIZE:]
-                speech = vad_iterator(input_data.flatten(), return_seconds=False)
+    # Initialize MCP orchestrator globally
+    init_orchestrator(mcp_client)
+    logger.info("MCP orchestrator initialized")
 
-                if speech is not None:
-                    if "start" in speech:
-                        speaking = True
+    yield
 
-                        if last_voice_time == -1:
-                            if time.time() - last_interaction_time > min_speech_silence_after_interaction_s:
-                                is_interacting = False
-                                min_speech_silence_s = 1
-                            if is_interacting:
-                                sd.play(start_feedback_effect.flatten())
-
-                    if "end" in speech:
-                        last_voice_time = time.time()
-                        speaking = False
-
-            if (
-                not speaking
-                and last_voice_time != -1
-                and (time.time() - last_voice_time) > min_speech_silence_s
-            ):
-                segment = recording.copy()
-                recording = np.zeros((0, 1), dtype=np.float32)
-                if is_interacting:
-                    sd.play(stop_feedback_effect.flatten(), blocking=True)
-                    last_interaction_time = time.time()
-                transcribe_audio(segment)
-                last_voice_time = -1
-
-            if not speaking and last_voice_time == -1:
-                if len(recording) > RECORD_WINDOW_SIZE:
-                    recording = recording[-RECORD_WINDOW_SIZE:]
+    # Shutdown: Cleanup resources
+    logger.info("Shutting down application...")
+    from db.session import engine
+    engine.dispose()
+    logger.info("Database connections closed")
 
 
-def logging(data):
-    """Add log data to the agent conversation."""
-    with text_output_condition:
-        text_output_queue.append(data)
-        text_output_condition.notify()
+app = FastAPI(
+    lifespan=lifespan,
+    title="Kurisu LLM Hub API",
+    description="REST API for Kurisu Assistant LLM hub",
+    version="0.1.0",
+    openapi_tags=[
+        {"name": "health", "description": "Health check and status endpoints"},
+        {"name": "auth", "description": "Authentication operations"},
+        {"name": "asr", "description": "Automatic speech recognition"},
+        {"name": "chat", "description": "Chat and LLM operations"},
+        {"name": "conversations", "description": "Conversation management"},
+        {"name": "messages", "description": "Message operations"},
+        {"name": "users", "description": "User profile management"},
+        {"name": "agents", "description": "Agent management"},
+        {"name": "tools", "description": "Tools management"},
+        {"name": "mcp", "description": "MCP server management"},
+        {"name": "images", "description": "Image upload and retrieval"},
+        {"name": "tts", "description": "Text-to-speech synthesis"},
+    ]
+)
+
+# Configure CORS to allow Electron/React frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",  # Vite dev server
+        "http://localhost:5174",  # Vite dev server (fallback port)
+        "http://localhost:3000",  # Alternative React dev port
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Health check endpoint (kept in main.py since it's simple)
+@app.get("/health", tags=["health"])
+async def health():
+    """Health check endpoint."""
+    return {"status": "ok", "service": "llm-hub"}
 
 
-def transcribe_audio(audio):
-    """Transcribe the captured audio"""
-    if len(audio) == 0:
-        return
-    ## debug: playback the recording
-    # audio = nr.reduce_noise(y=audio, sr=sample_rate)
-    # play the audio to the speaker
-    # sd.play((audio.flatten() * 32768).astype(np.int16), samplerate=sample_rate)
-    # sd.wait()
-    global last_interaction_time, is_interacting, min_speech_silence_s
-    transcript = kurisu_agent.transcribe((audio.flatten() * 32768).astype(np.int16))
-    if transcript is None or ('kurisu' not in transcript.lower() and not is_interacting):
-        return
-    
-    if not is_interacting:
-        sd.play(start_feedback_effect.flatten(), blocking=True)
-        is_interacting = True
-        min_speech_silence_s = 2
-    logging({"message": transcript, "delay": 0.05})
-    i = 0
-    #\033[32mUser:\033[0m print in red
-    logging({"message": "\033[31mKurisu:\033[0m Thinking...", "delay": 0.05, "end": "\n"})
-
-    full_response = ""
-    i = 0
-    for message, voice_data in kurisu_agent.process_and_say(message=transcript):
-        if i == 0:
-            logging({"message": "\033[31mKurisu: \033[0m ", "end": "", "overwrite": True})
-        
-        logging({"message": message, "delay": 0.05, "end": ""})
-        full_response += message
-        if voice_data is not None:
-            with audio_output_condition:
-                audio_output_queue.append(voice_data)
-                audio_output_condition.notify()
-        i += 1
-        
-    logging({})
-    # print in green color 
-    logging({"message":"\033[32mUser:\033[0m ", "end": ""})
-    last_interaction_time = time.time()
-    
-
-
-def output_text_consumer():
-    """Consume text output from the agent and play it to the speaker."""
-    # make a conditional variable to check if the queue is empty
-    while True:
-        with text_output_condition:
-            while len(text_output_queue) == 0:
-                text_output_condition.wait()
-            params = text_output_queue.pop(0)
-            pretty_print(**params)
-
-
-def output_audio_consumer():
-    """Consume audio output from the agent and play it to the speaker."""
-    # make a conditional variable to check if the queue is empty
-    while True:
-        with audio_output_condition:
-            while len(audio_output_queue) == 0:
-                audio_output_condition.wait()
-            audio_output = audio_output_queue.pop(0)
-
-            audio_output = audio_output[50:] # mask out the first 50 samples as it causes a pop sound
-            sd.play(audio_output, samplerate=32000)
-            sd.wait()
-
+# Include routers
+app.include_router(auth_router)
+app.include_router(asr_router)
+app.include_router(conversations_router)
+app.include_router(messages_router)
+app.include_router(users_router)
+app.include_router(agents_router)
+app.include_router(models_router)
+app.include_router(tools_router)
+app.include_router(images_router)
+app.include_router(tts_router)
+app.include_router(mcp_router)
+app.include_router(ws_router)
 
 
 if __name__ == "__main__":
-    try:
-        output_text_consumer_thread = Thread(target=output_text_consumer)
-        output_text_consumer_thread.daemon = True
-        output_text_consumer_thread.start()
-        output_audio_consumer_thread = Thread(target=output_audio_consumer)
-        output_audio_consumer_thread.daemon = True
-        output_audio_consumer_thread.start()
-        logging({"message": "\033[32mUser:\033[0m ", "end": ""})
-        record_and_detect()
-    except KeyboardInterrupt:
-        print("\nStopped.")
+    uvicorn.run(app, host="0.0.0.0", port=15597)
