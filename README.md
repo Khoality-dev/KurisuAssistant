@@ -1,157 +1,132 @@
-run   # Kurisu Assistant
+# Kurisu Assistant
 
-An intelligent AI assistant that helps with everything from simple daily tasks to complex workflows using state-of-the-art speech and language models.
-
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Architecture](#architecture)
-3. [Features](#features)
-4. [Installation](#installation)
-
-   * [Client](#client)
-   * [Server](#server)
-5. [Usage](#usage)
-6. [Configuration](#configuration)
-7. [Contributing](#contributing)
-8. [License](#license)
-9. [Acknowledgments](#acknowledgments)
-
----
+A voice-based AI assistant platform combining STT, TTS, and LLM with a microservices architecture.
 
 ## Overview
 
-Kuri Assistant combines:
+Kurisu Assistant combines:
 
-* **Speech-to-Text** powered by OpenAI Whisper for high-accuracy transcription
-* **Text-to-Speech** via GPT-SoVITS for natural voice output
-* **Large Language Model** (Gemma3-12B) to drive intelligent, context-aware conversations
-
-This fusion enables seamless voice interactions and automated task execution across diverse domains.
-
----
+* **Speech-to-Text** via faster-whisper (CTranslate2) for fast, accurate transcription
+* **Text-to-Speech** via GPT-SoVITS and INDEX-TTS for natural voice output
+* **Large Language Models** via Ollama for intelligent, context-aware conversations
+* **Multi-Agent Orchestration** with an Administrator routing between specialized agents
 
 ## Architecture
 
-The system is composed of two main components:
+| Service | Port | Description |
+|---------|------|-------------|
+| **nginx** | 80/443 | HTTPS reverse proxy (self-signed certs) |
+| **api** | 15597 (internal) | FastAPI backend — chat, auth, ASR, TTS, agents |
+| **postgres** | 5432 (internal) | PostgreSQL 16 |
+| **gpt-sovits** | 9880 | Voice synthesis backend |
 
-1. **Client**
+### Key Modules
 
-   * Captures audio, streams to the server, and plays back TTS responses
-2. **Server**
-
-   * Hosts Whisper for STT, Gemma3-12B for dialogue, and GPT-SoVITS for TTS
-  * Exposes a REST API for chat, ASR, and TTS
-
----
+```
+asr/            # ASR provider pattern (faster-whisper)
+llm/            # LLM provider pattern (Ollama)
+tts_providers/  # TTS provider pattern (GPT-SoVITS, INDEX-TTS)
+agents/         # Multi-agent orchestration (Administrator + SimpleAgents)
+tools/          # Built-in tools (context search, routing)
+mcp_tools/      # Custom MCP tool servers
+routers/        # FastAPI route handlers
+db/             # SQLAlchemy models + repository pattern
+```
 
 ## Features
 
-* 🎤 **Real-time transcription** of spoken input
-* 🤖 **Contextual dialogue** powered by a 12-billion-parameter LLM
-* 🔊 **High-quality speech synthesis** for responses
-* 🔌 **Tool-calling interface** for basic home automation tasks
-
----
+* **Voice Input**: Browser-based Silero VAD auto-detects speech, transcribes via server-side faster-whisper
+* **Multi-Agent Chat**: Administrator agent routes between user-created agents with tool access control
+* **Streaming Responses**: WebSocket-based real-time streaming with reconnection support
+* **TTS Auto-Play**: Streaming TTS plays audio as the agent is still responding
+* **Image Support**: Upload and embed images in conversations
+* **MCP Tools**: Extensible tool system via Model Context Protocol
 
 ## Installation
 
-### Client
+### Server (Docker)
 
 ```bash
-python -m venv venv
-source venv/bin/activate      # On Windows: venv\Scripts\activate
+docker-compose up -d
+```
+
+### Server (Local Development)
+
+```bash
+python -m venv venv && venv\Scripts\activate
 pip install -r requirements.txt
-cp .env_template .env         # Create configuration
-python main.py                # Launch the client UI/CLI
+python migrate.py          # Run database migrations
+./run_dev.bat              # Start server (Windows)
 ```
 
-The Android app located in `clients/KurisuAssistant` also uses this REST API.
-When you run it for the first time it opens a **Getting Started** page where
-you supply the LLM and optional TTS hub URLs. The app checks the URLs and then
-lets you register an admin account. If the account already exists the request
-succeeds silently, so you can simply log in with the default credentials.
-Afterwards subsequent launches go straight to a login screen. A "Remember me"
-checkbox lets your token persist so you don't have to log in again. The settings
-screen fetches the available models from the LLM hub's `/models` endpoint so you
-can choose which one to use and edit the hub URLs.
+### ASR Model Setup
 
-### Server
+The server ships with a base Whisper model. To use a finetuned model:
 
 ```bash
-docker-compose up -d          # Start STT, LLM, and TTS services in containers
+# Requires transformers + torch + ctranslate2 for conversion
+pip install transformers torch ctranslate2
+python scripts/convert_whisper.py --model whisper-finetuned --output data/asr/whisper-ct2
 ```
 
-Ensure you have Docker Engine and Docker Compose installed.
-The `llm-hub-container` automatically connects to the bundled PostgreSQL
-service using the hostname `postgres`. Override `DATABASE_URL` if you need a
-different connection string.
+### Client (Electron + React)
 
-**Database Migrations**: The llm-hub container automatically runs database
-migrations on startup via `migrate.py`. For local development without Docker:
+See the [KurisuAssistant-Client-Windows](https://github.com/Khoality-dev/KurisuAssistant-Client-Windows) repo.
 
 ```bash
-python migrate.py             # Run migrations manually
+npm install
+npm run electron:dev
 ```
-
-The database is seeded with a default **admin/admin** account during the
-first migration.
-
----
-
-## Usage
-
-1. **Start the server** (`docker-compose up -d`).
-2. **Run the client** (`python main.py`).
-3. **Speak** into your microphone and watch KurisuAssistant transcribe and respond.
-4. **Edit** `.env` if the API URL differs from the default.
-
----
 
 ## Configuration
 
-Configure your environment by editing the `.env` file:
+Key environment variables (see `.env_template`):
 
-* **LLM_HUB_URL** – URL of the LLM hub REST service
-* **TTS_HUB_URL** – URL of the TTS hub REST service
-* **DATABASE_URL** – Connection string for the PostgreSQL database
-* **JWT_SECRET_KEY** – Secret key used to sign authentication tokens
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_API_URL` | `http://localhost:11434` | Ollama server URL |
+| `POSTGRES_*` | `kurisu` | Database credentials |
+| `JWT_SECRET_KEY` | - | Secret for JWT tokens |
+| `TTS_PROVIDER` | `gpt-sovits` | Default TTS backend |
+| `ASR_MODEL` | `data/asr/whisper-ct2` | Whisper model path or size |
+| `ASR_DEVICE` | `cpu` | ASR device (`cpu`/`cuda`) |
 
-LLM and TTS URLs for the core can be adjusted in `docker-compose.yml`.
+## Database
 
-### Database schema
+Managed with Alembic. Migrations auto-run on Docker startup.
 
-The database uses **Alembic** for migrations. Schema is managed via migration
-files in `db/alembic/versions/`. The main tables are:
+```bash
+cd db && alembic revision --autogenerate -m "description"  # Create migration
+python migrate.py                                           # Apply migrations
+```
 
-* **users** – User accounts with authentication and preferences
-* **conversations** – Conversation metadata (title, timestamps)
-* **messages** – Individual messages linked to conversations
+Default seed: `admin:admin` account.
 
-Migrations are run automatically in Docker or manually via `python migrate.py`.
+## API Endpoints
 
-The `/models` endpoint returns the list of available LLMs for client selection.
-New accounts can be created by sending credentials to the `/register` endpoint.
-The `/conversations` endpoint provides access to conversation history.
+All protected unless noted. Auth: `Authorization: Bearer <token>`.
 
-## Contributing
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/login` | Auth (unprotected) |
+| POST | `/register` | Create account (unprotected) |
+| POST | `/asr` | Audio transcription (raw PCM) |
+| POST | `/tts` | Speech synthesis |
+| GET | `/models` | List LLM models |
+| GET/DELETE | `/conversations` | Conversation management |
+| GET/DELETE | `/messages/{id}` | Message operations |
+| PATCH | `/users/me` | Update profile |
+| GET | `/tools` | List available tools |
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
-
-* Code style and linting rules
-* Branching and pull-request guidelines
-* How to run tests and CI pipelines
-
----
+Chat is handled via WebSocket at `/ws`.
 
 ## License
 
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
-
----
+MIT License. See [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-* Inspired by **Make a README** template
-* Guided by GitHub’s community health files and best practices
-* Thanks to the maintainers of Whisper, Gemma3, and GPT-SoVITS for open-sourcing their models.
+* [faster-whisper](https://github.com/SYSTRAN/faster-whisper) for CTranslate2-based Whisper
+* [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) for voice synthesis
+* [Ollama](https://ollama.ai) for local LLM serving
+* [Silero VAD](https://github.com/snakers4/silero-vad) for voice activity detection
