@@ -64,7 +64,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker:ro
       - ./mcp_tools:/app/mcp_tools
-      - ./whisper-finetuned:/app/whisper-finetuned
       - ./data:/app/data
     tty: true
     restart: unless-stopped

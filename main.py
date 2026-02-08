@@ -1,20 +1,17 @@
 """Main FastAPI application setup."""
 
 import logging
-import os
 from contextlib import asynccontextmanager
 
 import dotenv
-import torch
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastmcp.client import Client as FastMCPClient
-from transformers import pipeline
 
 from routers import (
     auth_router,
-    chat_router,
+    asr_router,
     conversations_router,
     messages_router,
     users_router,
@@ -25,7 +22,6 @@ from routers import (
     agents_router,
     models_router,
     tools_router,
-    set_asr_model,
     set_mcp_client,
 )
 from mcp_tools.config import load_mcp_configs
@@ -95,22 +91,13 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",  # Vite dev server
+        "http://localhost:5174",  # Vite dev server (fallback port)
         "http://localhost:3000",  # Alternative React dev port
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Initialize ASR model
-whisper_model_name = 'whisper-finetuned' if os.path.exists('whisper-finetuned') else 'openai/whisper-base'
-asr_model = pipeline(
-    model=whisper_model_name,
-    task='automatic-speech-recognition',
-    device='cuda' if torch.cuda.is_available() else 'cpu',
-)
-set_asr_model(asr_model)
-
 
 # Health check endpoint (kept in main.py since it's simple)
 @app.get("/health", tags=["health"])
@@ -121,7 +108,7 @@ async def health():
 
 # Include routers
 app.include_router(auth_router)
-app.include_router(chat_router)
+app.include_router(asr_router)
 app.include_router(conversations_router)
 app.include_router(messages_router)
 app.include_router(users_router)

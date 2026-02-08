@@ -4,3 +4,7 @@ __pycache__/
 whisper-finetuned/
 configs/default.json
 nginx/certs/
+nul
+data/asr/
+data/voice_storage/
+data/image_storage/

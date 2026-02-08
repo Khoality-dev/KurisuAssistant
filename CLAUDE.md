@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-KurisuAssistant is a voice-based AI assistant platform combining STT (Whisper), TTS (GPT-SoVITS/INDEX-TTS), and LLM (Ollama). Microservices architecture with Docker Compose.
+KurisuAssistant is a voice-based AI assistant platform combining STT (faster-whisper), TTS (GPT-SoVITS/INDEX-TTS), and LLM (Ollama). Microservices architecture with Docker Compose.
 
 ## Architecture
 
@@ -21,6 +21,12 @@ db/
 ├── session.py               # Session management (pool: 10+20 overflow, 1hr recycle, pre-ping)
 └── repositories/            # Repository pattern with BaseRepository[T] generic CRUD
     ├── base.py, user.py, conversation.py, frame.py, message.py, agent.py
+
+asr/                         # Pure ASR interface (NO business logic/DB knowledge)
+├── base.py                  # Abstract BaseASRProvider
+├── faster_whisper_provider.py  # faster-whisper (CTranslate2) implementation
+├── adapter.py               # Pure transcription adapter
+└── __init__.py              # Factory: get_provider(), re-exports transcribe()
 
 llm/                         # Pure LLM interface (NO business logic/DB knowledge)
 ├── providers/
@@ -59,7 +65,7 @@ utils/prompts.py             # build_system_messages() from SYSTEM_PROMPT.md + u
 
 - **Separation of concerns**: Business logic (DB, users, prompts) in routers → pure adapters (`llm/`, `tts_adapter.py`) → provider implementations. Adapters never touch DB.
 - **Repository pattern**: Repos use `with get_session()` for transactions. Use `user.id` (not username) for all DB operations.
-- **Provider pattern**: Both LLM and TTS use abstract base → concrete provider → factory. Supports runtime provider selection.
+- **Provider pattern**: LLM, TTS, and ASR all use abstract base → concrete provider → factory. Supports runtime provider selection.
 
 ### Multi-Agent Orchestration
 
@@ -81,6 +87,16 @@ Turn-based orchestration where **AdministratorAgent** (system-level, not a user 
 - **Text splitting**: Both providers split long text (default 200 chars) by paragraphs → sentences, merge WAV chunks.
 - **Providers**: Configured via `TTS_PROVIDER` env var (default: "gpt-sovits"), overridable per-request.
 - **INDEX-TTS emotion**: `emo_audio`, `emo_vector` [8 emotions], `emo_text`, `emo_alpha` (0-1).
+
+### ASR Details
+
+- **Provider**: faster-whisper (CTranslate2-based, much faster than HuggingFace transformers pipeline)
+- **Model**: Configured via `ASR_MODEL` env var. Defaults to `data/asr/whisper-ct2` (local) or `base` (downloaded)
+- **Device**: CPU by default. Override via `ASR_DEVICE` env var (`cuda`/`cpu`)
+- **Lazy loading**: Model loaded on first transcription request, not at startup
+- **API**: `POST /asr` accepts raw Int16 PCM bytes (`application/octet-stream`), optional `?language=` query param
+- **Model conversion**: `python scripts/convert_whisper.py` (requires `transformers` + `torch` + `ctranslate2`)
+- **Frontend**: Silero VAD (`@ricky0123/vad-web`) auto-detects speech end → sends PCM to `/asr` → inserts text into input field
 
 ### MCP Tools
 
@@ -155,7 +171,7 @@ All protected unless noted. Auth: `Authorization: Bearer <token>`.
 | GET | `/health` | Health check (unprotected) |
 | POST | `/login` | Auth → JWT token (unprotected) |
 | POST | `/register` | Create account (unprotected) |
-| POST | `/asr` | Audio → text (Whisper) |
+| POST | `/asr` | Audio → text (faster-whisper, raw PCM, ?language=) |
 | POST | `/chat` | Stream chat (multipart: text, model_name, conversation_id?, images?) → NDJSON |
 | GET | `/models` | List LLM models |
 | GET | `/conversations` | List conversations (?limit=50) |
@@ -179,7 +195,7 @@ All protected unless noted. Auth: `Authorization: Bearer <token>`.
 
 ## Environment Variables
 
-See `.env_template`. Key vars: `POSTGRES_*`, `LLM_API_URL`, `JWT_SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_DAYS=30`, `TTS_PROVIDER=gpt-sovits`, `TTS_API_URL`, `INDEX_TTS_API_URL`.
+See `.env_template`. Key vars: `POSTGRES_*`, `LLM_API_URL`, `JWT_SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_DAYS=30`, `TTS_PROVIDER=gpt-sovits`, `TTS_API_URL`, `INDEX_TTS_API_URL`, `ASR_MODEL=data/asr/whisper-ct2`, `ASR_DEVICE=auto`.
 
 ## Docker Volumes
 

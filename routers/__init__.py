@@ -1,7 +1,7 @@
 """API route handlers."""
 
 from .auth import router as auth_router
-from .chat import router as chat_router, set_asr_model
+from .asr import router as asr_router
 from .conversations import router as conversations_router
 from .messages import router as messages_router
 from .users import router as users_router
@@ -15,7 +15,7 @@ from .tools import router as tools_router
 
 __all__ = [
     "auth_router",
-    "chat_router",
+    "asr_router",
     "conversations_router",
     "messages_router",
     "users_router",
@@ -26,6 +26,5 @@ __all__ = [
     "agents_router",
     "models_router",
     "tools_router",
-    "set_asr_model",
     "set_mcp_client",
 ]
