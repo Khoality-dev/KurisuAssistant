@@ -1,0 +1,134 @@
+import { create } from 'zustand';
+import { apiClient } from '../api/client';
+import type { Conversation, Message } from '../api/types';
+
+interface ConversationState {
+  conversations: Conversation[];
+  currentConversation: Conversation | null;
+  messages: Message[];
+
+  // Pagination state
+  totalMessages: number;
+  hasMoreMessages: boolean;
+  messagesOffset: number;
+  isLoadingMessages: boolean;
+
+  loadConversations: () => Promise<void>;
+  loadConversation: (id: number) => Promise<void>;
+  loadMoreMessages: () => Promise<void>;
+  deleteConversation: (id: number) => Promise<void>;
+  createNewConversation: () => void;
+  addMessage: (message: Message) => void;
+  updateLastMessage: (content: string, thinking?: string, role?: string, name?: string) => void;
+  setCurrentConversationId: (id: number) => Promise<void>;
+}
+
+export const useConversationStore = create<ConversationState>((set, get) => ({
+  conversations: [],
+  currentConversation: null,
+  messages: [],
+
+  // Pagination state initialization
+  totalMessages: 0,
+  hasMoreMessages: false,
+  messagesOffset: 0,
+  isLoadingMessages: false,
+
+  loadConversations: async () => {
+    const conversations = await apiClient.getConversations();
+    set({ conversations });
+  },
+
+  loadConversation: async (id: number) => {
+    // Load the most recent page of messages (offset=0)
+    const data = await apiClient.getConversation(id, 20, 0);
+    const conversation = get().conversations.find((c) => c.id === id) || null;
+
+    set({
+      currentConversation: conversation,
+      messages: data.messages,
+      totalMessages: data.total_messages,
+      hasMoreMessages: data.has_more,
+      messagesOffset: data.limit, // Next offset for loading more
+      isLoadingMessages: false,
+    });
+  },
+
+  loadMoreMessages: async () => {
+    const { currentConversation, messagesOffset, isLoadingMessages, hasMoreMessages } = get();
+
+    // Don't load if already loading or no more messages
+    if (isLoadingMessages || !hasMoreMessages || !currentConversation) {
+      return;
+    }
+
+    set({ isLoadingMessages: true });
+
+    try {
+      const data = await apiClient.getConversation(
+        currentConversation.id,
+        20,
+        messagesOffset
+      );
+
+      // Prepend older messages to the beginning
+      set((state) => ({
+        messages: [...data.messages, ...state.messages],
+        hasMoreMessages: data.has_more,
+        messagesOffset: state.messagesOffset + data.messages.length,
+        isLoadingMessages: false,
+      }));
+    } catch (error) {
+      console.error('Error loading more messages:', error);
+      set({ isLoadingMessages: false });
+    }
+  },
+
+  deleteConversation: async (id: number) => {
+    await apiClient.deleteConversation(id);
+    const conversations = get().conversations.filter((c) => c.id !== id);
+    set({ conversations, currentConversation: null, messages: [] });
+  },
+
+  createNewConversation: () => {
+    set({
+      currentConversation: null,
+      messages: [],
+      totalMessages: 0,
+      hasMoreMessages: false,
+      messagesOffset: 0,
+      isLoadingMessages: false,
+    });
+  },
+
+  addMessage: (message: Message) => {
+    set((state) => ({ messages: [...state.messages, message] }));
+  },
+
+  updateLastMessage: (content: string, thinking?: string, role?: string, name?: string) => {
+    set((state) => {
+      const messages = [...state.messages];
+      if (messages.length > 0) {
+        const lastMessage = messages[messages.length - 1];
+        messages[messages.length - 1] = {
+          ...lastMessage,
+          content,
+          ...(thinking !== undefined ? { thinking } : {}),
+          ...(role !== undefined ? { role } : {}),
+          ...(name !== undefined ? { name } : {}),
+        };
+      }
+      return { messages };
+    });
+  },
+
+  setCurrentConversationId: async (id: number) => {
+    const conversation = get().conversations.find((c) => c.id === id) || null;
+    set({ currentConversation: conversation });
+
+    // If conversation not found in current list, it's new - refresh the list
+    if (!conversation) {
+      await get().loadConversations();
+    }
+  },
+}));
