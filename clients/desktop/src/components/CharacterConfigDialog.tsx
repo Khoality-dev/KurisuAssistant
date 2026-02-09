@@ -59,6 +59,8 @@ const LOOP_RADIUS = 30; // radius of self-loop circle
 
 const OffsetEdge: React.FC<EdgeProps> = ({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -69,18 +71,26 @@ const OffsetEdge: React.FC<EdgeProps> = ({
   data,
 }) => {
   const offset = (data?.offset as number) || 0;
-  const isSelfLoop = sourceX === targetX && sourceY === targetY;
+  const isSelfLoop = source === target;
 
   let path: string;
   let midX: number;
   let midY: number;
 
   if (isSelfLoop) {
-    // Draw a loop above the node using cubic bezier
+    // Draw a loop above the node — always use fixed width so it's visible
+    // even when both handles resolve to the same point
     const r = LOOP_RADIUS;
-    path = `M ${sourceX - r} ${sourceY} C ${sourceX - r} ${sourceY - r * 2.5}, ${sourceX + r} ${sourceY - r * 2.5}, ${sourceX + r} ${sourceY}`;
-    midX = sourceX;
-    midY = sourceY - r * 2;
+    const cx = (sourceX + targetX) / 2;
+    const baseY = Math.min(sourceY, targetY);
+    // Spread the start/end apart so the loop is always visible
+    const halfW = Math.max(Math.abs(targetX - sourceX) / 2, r);
+    const sx = cx - halfW;
+    const tx = cx + halfW;
+    const topY = baseY - r * 2.5;
+    path = `M ${sx} ${baseY} C ${sx - r * 0.5} ${topY}, ${tx + r * 0.5} ${topY}, ${tx} ${baseY}`;
+    midX = cx;
+    midY = topY + r * 0.5;
   } else {
     // Perpendicular offset for straight line
     const dx = targetX - sourceX;
@@ -182,8 +192,8 @@ function getBestHandles(
   tgtPos: { x: number; y: number },
   isSelfLoop = false,
 ): { sourceHandle: string; targetHandle: string } {
-  // Self-loop: use left source → right target so the loop arcs above
-  if (isSelfLoop) return { sourceHandle: 's-left', targetHandle: 't-right' };
+  // Self-loop: both handles at top so the loop arcs above the node
+  if (isSelfLoop) return { sourceHandle: 's-top', targetHandle: 't-top' };
 
   const dx = tgtPos.x - srcPos.x;
   const dy = tgtPos.y - srcPos.y;
@@ -531,7 +541,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
 
       // Self-loop: override handles so the loop arcs above the node
       const conn = isSelfLoop
-        ? { ...connection, sourceHandle: 's-left', targetHandle: 't-right' }
+        ? { ...connection, sourceHandle: 's-top', targetHandle: 't-top' }
         : connection;
 
       return addEdge({
