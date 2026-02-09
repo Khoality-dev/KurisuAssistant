@@ -62,7 +62,29 @@ export const MainWindow: React.FC = () => {
   } = useConversationStore();
   const { agents, selectedAgentId, loadAgents, selectAgent } = useAgentStore();
 
-  const [showCharacterPanel, setShowCharacterPanel] = useState(false);
+  const [characterWindowOpen, setCharacterWindowOpen] = useState(false);
+
+  // Listen for character window being closed externally (via X button)
+  useEffect(() => {
+    const api = window.electron?.characterWindow;
+    if (!api) return;
+    const cleanup = api.onWindowClosed(() => {
+      setCharacterWindowOpen(false);
+    });
+    return cleanup;
+  }, []);
+
+  const toggleCharacterWindow = async () => {
+    const api = window.electron?.characterWindow;
+    if (!api) return;
+    if (characterWindowOpen) {
+      await api.close();
+      setCharacterWindowOpen(false);
+    } else {
+      await api.open();
+      setCharacterWindowOpen(true);
+    }
+  };
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [error, setError] = useState('');
@@ -138,10 +160,10 @@ export const MainWindow: React.FC = () => {
           {user?.username}
         </Typography>
         <IconButton
-          onClick={() => setShowCharacterPanel((v) => !v)}
+          onClick={toggleCharacterWindow}
           size="small"
-          color={showCharacterPanel ? 'primary' : 'default'}
-          title="Character Panel"
+          color={characterWindowOpen ? 'primary' : 'default'}
+          title="Character Window"
         >
           <FaceIcon fontSize="small" />
         </IconButton>
@@ -287,7 +309,7 @@ export const MainWindow: React.FC = () => {
             </Alert>
           )}
           <Box sx={{ flex: 1, display: currentPage === 'chat' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden' }}>
-            <ChatWidget showCharacterPanel={showCharacterPanel} agentId={selectedAgentId} />
+            <ChatWidget characterWindowOpen={characterWindowOpen} agentId={selectedAgentId} />
           </Box>
           <Box sx={{ flex: 1, display: currentPage === 'agents' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden' }}>
             <AgentsWindow />

@@ -16,14 +16,14 @@ React 18, Electron 28, MUI v5, Framer Motion, Zustand, Axios, Vite, react-markdo
 ## Architecture
 
 ```
-electron/main.ts          — Single-window Electron entry
-electron/preload.ts       — contextBridge API (platform)
+electron/main.ts          — Multi-window Electron entry (main + character window)
+electron/preload.ts       — contextBridge API (platform + characterWindow IPC bridge)
 src/api/client.ts         — Axios + WebSocket singleton; streaming via wsManager
 src/api/types.ts          — TypeScript interfaces for API
 src/components/
   LoginWindow.tsx          — Login/Register tabs, Remember Me, purple gradient
   MainWindow.tsx           — Permanent sidebar (280px) + ChatWidget, conversation CRUD
-  ChatWidget.tsx           — Chat UI with streaming, TTS auto-play, image attach, pagination
+  ChatWidget.tsx           — Chat UI with streaming, TTS auto-play, image attach, pagination, IPC bridge to character window
   MessageBubble.tsx        — Individual bubble: role styling, thinking collapse, TTS, resend/delete
   AgentsWindow.tsx         — Agent CRUD with tool assignment + character config button
   CharacterConfigDialog.tsx — 3-step stepper: upload base portrait, keyframe patches, preview & save
@@ -35,7 +35,8 @@ src/store/
   authStore.ts            — Auth state, login/register/logout, token persistence
   conversationStore.ts    — Conversations, messages (paginated 50/page), models
   agentStore.ts           — Agent list (filtered, no Administrator), selected agent ID (persisted)
-src/videocall/            — Character animation engine (rendered inline in ChatWidget)
+src/CharacterWindowApp.tsx — Minimal IPC-driven renderer for separate character window (no auth/stores)
+src/videocall/            — Character animation engine (rendered in separate Electron window via IPC)
   types.ts                — PoseConfig, PatchInfo, PoseTree, CharacterConfig
   CharacterRenderer.tsx   — React wrapper around CanvasCompositor (amplitude via ref, no re-renders)
   engine/
@@ -101,20 +102,26 @@ src/config.ts             — API URL config
 - `POST /tts`, `GET /tts/voices`, `GET /tts/backends` — TTS synthesis and voice listing
 - `GET /agents`, `POST /agents`, `PATCH /agents/{id}`, `DELETE /agents/{id}` — Agent CRUD
 - `GET /tools` — Available tools for agent assignment
-- `POST /character-assets/upload-base` — Upload base portrait
-- `POST /character-assets/compute-patch?base_asset_id=...` — Upload keyframe, backend diffs
-- `GET /character-assets/{asset_id}` — Serve asset image
-- `PATCH /character-assets/{agent_id}/character-config` — Update pose tree config
+- `POST /character-assets/upload-base?agent_id=...` — Upload base portrait (deterministic ID: `{agent_id}_base`)
+- `POST /character-assets/compute-patch?base_asset_id=...&agent_id=...&part=...&index=...` — Upload keyframe, backend diffs (deterministic ID: `{agent_id}_{part}_{index}`)
+- `GET /character-assets/{asset_id}` — Serve asset image (no-cache, revalidates on re-upload)
+- `PATCH /character-assets/{agent_id}/character-config` — Update pose tree config (cleans up orphaned assets)
 
 ## Character Animation
 
-Inline character panel in ChatWidget (toggleable via Face icon in top bar). No separate window — renders directly in the main window alongside the chat.
+Separate Electron window (toggleable via Face icon in top bar). Opens as independent, resizable BrowserWindow — same Vite bundle routed via `?window=character` query param → `CharacterWindowApp` (no auth, no stores, purely IPC-driven).
+
+**IPC channels** (main renderer → main process → character renderer):
+- `character:amplitude` — `{ amplitude, isPlaying }` at ~30fps via setInterval
+- `character:agents-update` — `{ agents: [...], activeAgentId }` on agent map or active agent change
+- `character:window-closed` — main process → main renderer when user closes character window
+- `character:open-window` / `character:close-window` — renderer invokes main process to create/destroy window
 
 **Canvas compositing**: Base image + diff patches (eyes, mouth) at stored positions. Blink: random 2-6s interval state machine. Breathing: sine wave vertical offset (3.5s period). Lip sync: audio amplitude → mouth patch index. Per-agent character configs stored in backend DB as JSON.
 
-**Asset pipeline**: AI-generated base → inpainted variants → backend OpenCV diff → cropped patch PNGs served to frontend.
+**Asset pipeline**: AI-generated base → inpainted variants → backend OpenCV diff → cropped patch PNGs. Asset IDs are deterministic (`{agent_id}_base`, `{agent_id}_{part}_{index}`) so re-uploading overwrites without changing URLs. Orphaned assets cleaned up on config save.
 
-**Data flow**: ChatWidget fetches agent character_config on agent switch during streaming → extracts PoseConfig → passes to CharacterRenderer. TTS amplitude updates a ref (no re-renders) that CharacterRenderer syncs to CanvasCompositor at 60fps.
+**Data flow**: ChatWidget fetches agent character_config on agent switch during streaming → builds agentMap + activeAgentId → sends via IPC to character window. TTS amplitude ref read by setInterval(33ms) and sent via IPC. CharacterWindowApp receives IPC data and renders CharacterRenderer components. CanvasCompositor reads amplitude at 60fps from local ref.
 
 ## Storage Keys (localStorage)
 

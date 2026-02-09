@@ -261,6 +261,11 @@ export class CanvasCompositor {
     };
   }
 
+  /** Get the current processed pose (for reading base image dimensions etc.) */
+  getPose(): ProcessedPose | null {
+    return this.pose;
+  }
+
   /** Clear the current pose */
   clearPose(): void {
     this.pose = null;

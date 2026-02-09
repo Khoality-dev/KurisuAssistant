@@ -361,14 +361,17 @@ class APIClient {
   /**
    * Upload a base portrait image for character animation
    */
-  async uploadCharacterBase(file: File): Promise<UploadBaseResponseDTO> {
+  async uploadCharacterBase(agentId: number, file: File): Promise<UploadBaseResponseDTO> {
     const formData = new FormData();
     formData.append('file', file);
 
     const response = await this.client.post<UploadBaseResponseDTO>(
       '/character-assets/upload-base',
       formData,
-      { headers: this.getHeaders() }
+      {
+        headers: this.getHeaders(),
+        params: { agent_id: agentId },
+      }
     );
     return response.data;
   }
@@ -376,7 +379,13 @@ class APIClient {
   /**
    * Upload a keyframe image and compute diff patch against a base image
    */
-  async computeCharacterPatch(baseAssetId: string, keyframeFile: File): Promise<ComputePatchResponseDTO> {
+  async computeCharacterPatch(
+    baseAssetId: string,
+    keyframeFile: File,
+    agentId: number,
+    part: string,
+    index: number,
+  ): Promise<ComputePatchResponseDTO> {
     const formData = new FormData();
     formData.append('keyframe', keyframeFile);
 
@@ -385,7 +394,7 @@ class APIClient {
       formData,
       {
         headers: this.getHeaders(),
-        params: { base_asset_id: baseAssetId },
+        params: { base_asset_id: baseAssetId, agent_id: agentId, part, index },
       }
     );
     return response.data;

@@ -32,18 +32,17 @@ import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, BaseEvent } from '.
 import { storage } from '../utils/storage';
 import { useTTS } from '../hooks/useTTS';
 import { useASR } from '../hooks/useASR';
-import { CharacterRenderer } from '../videocall/CharacterRenderer';
 import type { AmplitudeState } from '../videocall/CharacterRenderer';
 import type { PoseConfig } from '../videocall/types';
 import { MessageBubble } from './MessageBubble';
 import type { Message } from '../api/types';
 
 interface ChatWidgetProps {
-  showCharacterPanel?: boolean;
+  characterWindowOpen?: boolean;
   agentId?: number | null;
 }
 
-export const ChatWidget: React.FC<ChatWidgetProps> = ({ showCharacterPanel = false, agentId = null }) => {
+export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = false, agentId = null }) => {
   const {
     messages,
     currentConversation,
@@ -68,9 +67,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ showCharacterPanel = fal
   // TTS settings are read fresh from storage in MessageBubble.handleTTS()
   const [showAdministrator, setShowAdministrator] = useState<boolean>(storage.getShowAdministrator());
 
-  // Amplitude state for inline character panel (updated via ref to avoid re-renders)
+  // Amplitude state (updated via ref to avoid re-renders, sent to character window via IPC)
   const amplitudeRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false });
-  const silentRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false });
   const onAmplitudeUpdate = useCallback((amplitude: number, isPlaying: boolean) => {
     amplitudeRef.current = { amplitude, isPlaying };
   }, []);
@@ -126,11 +124,13 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ showCharacterPanel = fal
     agentCacheRef.current.add(agentId);
     apiClient.getAgent(agentId).then((agent) => {
       const cc = agent.character_config;
+      console.log('[fetchAgentForPanel] character_config:', JSON.stringify(cc, null, 2));
       let poseConfig: PoseConfig | null = null;
       if (cc?.pose_tree?.nodes) {
         const poseNode = cc.pose_tree.nodes.find(
           (n: any) => n.id === cc.pose_tree.default_pose_id && n.type === 'pose',
         );
+        console.log('[fetchAgentForPanel] poseNode:', JSON.stringify(poseNode, null, 2));
         poseConfig = poseNode?.pose_config ?? null;
       }
       setAgentMap((prev) => {
@@ -172,14 +172,63 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ showCharacterPanel = fal
 
   // Scan messages for agents to populate the character panel (skip Administrator)
   useEffect(() => {
-    if (!showCharacterPanel) return;
+    if (!characterWindowOpen) return;
     for (const msg of messages) {
       const name = msg.agent?.name || msg.name;
       if (msg.agent_id && name !== 'Administrator' && !agentCacheRef.current.has(msg.agent_id)) {
         fetchAgentForPanel(msg.agent_id, name);
       }
     }
-  }, [messages, showCharacterPanel, fetchAgentForPanel]);
+  }, [messages, characterWindowOpen, fetchAgentForPanel]);
+
+  // IPC bridge: send amplitude to character window at ~30fps
+  useEffect(() => {
+    if (!characterWindowOpen) return;
+    const api = window.electron?.characterWindow;
+    if (!api) return;
+    const interval = setInterval(() => {
+      api.sendAmplitude(amplitudeRef.current);
+    }, 33);
+    return () => clearInterval(interval);
+  }, [characterWindowOpen]);
+
+  // IPC bridge: send agent map + active agent to character window
+  const agentStateRef = useRef({ agentMap, activeAgentId });
+  agentStateRef.current = { agentMap, activeAgentId };
+
+  const sendAgentState = useCallback(() => {
+    const api = window.electron?.characterWindow;
+    if (!api) return;
+    const { agentMap: map, activeAgentId: id } = agentStateRef.current;
+    const agents = Array.from(map.entries()).map(([agentId, entry]) => ({
+      id: agentId,
+      name: entry.name,
+      poseConfig: entry.poseConfig,
+    }));
+    console.log('[ChatWidget] sendAgentState:', agents.map(a => ({
+      id: a.id, name: a.name,
+      left_eye: a.poseConfig?.left_eye?.patches?.length,
+      right_eye: a.poseConfig?.right_eye?.patches?.length,
+      mouth: a.poseConfig?.mouth?.patches?.length,
+    })));
+    api.sendAgentsUpdate({ agents, activeAgentId: id });
+  }, []);
+
+  useEffect(() => {
+    if (!characterWindowOpen) return;
+    sendAgentState();
+  }, [characterWindowOpen, agentMap, activeAgentId, sendAgentState]);
+
+  // Re-send state when character window signals it's ready (after loading)
+  useEffect(() => {
+    if (!characterWindowOpen) return;
+    const api = window.electron?.characterWindow;
+    if (!api) return;
+    const cleanup = api.onCharacterReady(() => {
+      sendAgentState();
+    });
+    return cleanup;
+  }, [characterWindowOpen, sendAgentState]);
 
   // Insert ASR transcript into input field
   useEffect(() => {
@@ -754,9 +803,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ showCharacterPanel = fal
   };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%' }}>
-      {/* Chat column */}
-      <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%' }}>
 
       {/* Messages area */}
       <Box
@@ -958,83 +1005,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ showCharacterPanel = fal
           )}
         </Box>
       </Paper>
-      </Box>
-
-      {/* Character panel — all agents in conversation */}
-      {showCharacterPanel && (
-        <Box
-          sx={{
-            width: 420,
-            flexShrink: 0,
-            borderLeft: '1px solid',
-            borderColor: 'divider',
-            bgcolor: '#1a1a2e',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'auto',
-          }}
-        >
-          {agentMap.size === 0 ? (
-            <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Typography
-                variant="body2"
-                sx={{ color: 'rgba(255,255,255,0.5)', textAlign: 'center', px: 2 }}
-              >
-                Send a message to see agents here
-              </Typography>
-            </Box>
-          ) : (
-            Array.from(agentMap.entries()).map(([agentId, entry]) => (
-              <Box
-                key={agentId}
-                sx={{
-                  flex: 1,
-                  minHeight: 300,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  position: 'relative',
-                  borderBottom: '1px solid rgba(255,255,255,0.1)',
-                  // Highlight active speaker
-                  ...(activeAgentId === agentId && {
-                    boxShadow: 'inset 0 0 20px rgba(37, 99, 235, 0.3)',
-                  }),
-                }}
-              >
-                {entry.poseConfig ? (
-                  <CharacterRenderer
-                    poseConfig={entry.poseConfig}
-                    amplitudeRef={activeAgentId === agentId ? amplitudeRef : silentRef}
-                  />
-                ) : (
-                  <Typography
-                    variant="body2"
-                    sx={{ color: 'rgba(255,255,255,0.3)' }}
-                  >
-                    No avatar
-                  </Typography>
-                )}
-                <Typography
-                  variant="caption"
-                  sx={{
-                    position: 'absolute',
-                    bottom: 4,
-                    left: 0,
-                    right: 0,
-                    textAlign: 'center',
-                    color: activeAgentId === agentId ? '#93c5fd' : 'rgba(255,255,255,0.5)',
-                    fontWeight: activeAgentId === agentId ? 600 : 400,
-                    textShadow: '0 1px 4px rgba(0,0,0,0.5)',
-                  }}
-                >
-                  {entry.name}
-                </Typography>
-              </Box>
-            ))
-          )}
-        </Box>
-      )}
     </Box>
   );
 };

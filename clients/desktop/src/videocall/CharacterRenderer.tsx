@@ -11,15 +11,11 @@ export interface AmplitudeState {
 interface CharacterRendererProps {
   poseConfig: PoseConfig | null;
   amplitudeRef: React.RefObject<AmplitudeState>;
-  width?: number;
-  height?: number;
 }
 
 export const CharacterRenderer: React.FC<CharacterRendererProps> = ({
   poseConfig,
   amplitudeRef,
-  width = 400,
-  height = 600,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const compositorRef = useRef<CanvasCompositor | null>(null);
@@ -37,8 +33,25 @@ export const CharacterRenderer: React.FC<CharacterRendererProps> = ({
   useEffect(() => {
     if (!compositorRef.current) return;
     if (poseConfig) {
-      compositorRef.current.loadPose(poseConfig, config.apiBaseUrl).catch((err) => {
-        console.error('Failed to load pose:', err);
+      console.log('[CharacterRenderer] loadPose called with:', {
+        name: poseConfig.name,
+        base_image_url: poseConfig.base_image_url,
+        left_eye_patches: poseConfig.left_eye?.patches?.length ?? 'MISSING',
+        right_eye_patches: poseConfig.right_eye?.patches?.length ?? 'MISSING',
+        mouth_patches: poseConfig.mouth?.patches?.length ?? 'MISSING',
+      });
+      compositorRef.current.loadPose(poseConfig, config.apiBaseUrl).then(() => {
+        const pose = compositorRef.current?.getPose();
+        if (pose) {
+          console.log('[CharacterRenderer] Pose loaded OK:', {
+            leftEyePatches: pose.leftEyePatches.length,
+            rightEyePatches: pose.rightEyePatches.length,
+            mouthPatches: pose.mouthPatches.length,
+            baseImageSize: `${pose.baseImage.naturalWidth}x${pose.baseImage.naturalHeight}`,
+          });
+        }
+      }).catch((err) => {
+        console.error('[CharacterRenderer] Failed to load pose:', err);
       });
     } else {
       compositorRef.current.clearPose();
@@ -62,8 +75,8 @@ export const CharacterRenderer: React.FC<CharacterRendererProps> = ({
   return (
     <canvas
       ref={canvasRef}
-      width={width}
-      height={height}
+      width={400}
+      height={600}
       style={{
         display: 'block',
         maxWidth: '100%',

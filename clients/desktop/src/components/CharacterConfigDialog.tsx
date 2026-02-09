@@ -361,7 +361,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
     setUploading(true);
     setError('');
     try {
-      const result = await apiClient.uploadCharacterBase(file);
+      const result = await apiClient.uploadCharacterBase(agent.id, file);
       setBaseAssetId(result.asset_id);
       setBaseImageUrl(
         result.image_url.startsWith('http')
@@ -386,7 +386,10 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
     setUploading(true);
     setError('');
     try {
-      const result = await apiClient.computeCharacterPatch(baseAssetId, file);
+      const categoryCount = patches.filter((p) => p.category === selectedCategory).length;
+      const result = await apiClient.computeCharacterPatch(
+        baseAssetId, file, agent.id, selectedCategory, categoryCount,
+      );
       const newPatch: CategoryPatch = {
         ...result.patch,
         image_url: result.patch.image_url,
