@@ -252,7 +252,7 @@ class ChatSessionHandler:
             ))
 
         except asyncio.CancelledError:
-            logger.info("Single agent task cancelled by user")
+            logger.debug("Single agent task cancelled by user")
         except WebSocketDisconnect:
             raise
         except Exception as e:
@@ -646,7 +646,7 @@ class ChatSessionHandler:
             ))
 
         except asyncio.CancelledError:
-            logger.info("Orchestration cancelled by user")
+            logger.debug("Orchestration cancelled by user")
         except WebSocketDisconnect:
             raise
         except Exception as e:
@@ -770,7 +770,7 @@ class ChatSessionHandler:
         conv_id = self._task_conversation_id or 0
         frame_id = self._task_frame_id or 0
 
-        logger.info(f"Replaying {len(self._accumulated_messages)} accumulated messages on reconnect")
+        logger.debug(f"Replaying {len(self._accumulated_messages)} accumulated messages on reconnect")
 
         # Replay each accumulated message as a complete StreamChunkEvent
         for msg in self._accumulated_messages:

@@ -2,6 +2,9 @@ from fastmcp import Client
 from .error import ErrorResult
 import sys
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 async def list_tools(client):
     try:
         # Always use context manager to ensure proper connection
@@ -20,7 +23,7 @@ async def list_tools(client):
             ]
             return ollama_tools
     except Exception as e:
-        print(f"Error listing MCP tools: {e}")
+        logger.error(f"Error listing MCP tools: {e}")
         return []
     
 async def call_tool(client, name, arguments, conversation_id=None):
@@ -40,12 +43,12 @@ async def call_tool(client, name, arguments, conversation_id=None):
                     args_dict["conversation_id"] = conversation_id
                     arguments = json.dumps(args_dict)
                 except json.JSONDecodeError:
-                    print(f"Warning: Could not parse arguments for tool {name}")
+                    logger.warning(f"Could not parse arguments for tool {name}")
         
         async with client:
             return await client.call_tool(name, arguments)
     except Exception as e:
-        print(f"Error calling MCP tool {name}: {e}")
+        logger.error(f"Error calling MCP tool {name}: {e}")
         # Return in the same format as successful calls for consistency
         class ErrorResult:
             def __init__(self, error_msg):

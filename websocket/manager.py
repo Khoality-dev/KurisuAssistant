@@ -27,7 +27,7 @@ class ConnectionManager:
             self._connections[username] = set()
 
         self._connections[username].add(websocket)
-        logger.info(f"WebSocket connected for user: {username}")
+        logger.debug(f"WebSocket connected for user: {username}")
 
     def disconnect(self, websocket: WebSocket, username: str) -> None:
         """Remove a WebSocket connection."""
@@ -35,7 +35,7 @@ class ConnectionManager:
             self._connections[username].discard(websocket)
             if not self._connections[username]:
                 del self._connections[username]
-        logger.info(f"WebSocket disconnected for user: {username}")
+        logger.debug(f"WebSocket disconnected for user: {username}")
 
     def get_handler(self, user_id: int) -> Optional["ChatSessionHandler"]:
         """Get existing handler for a user."""

@@ -204,7 +204,7 @@ class GPTSoVITSProvider(BaseTTSProvider):
 
         # Split text into chunks
         text_chunks = self._split_text(text, max_length=max_chunk_length)
-        logger.info(f"Split text into {len(text_chunks)} chunks for synthesis")
+        logger.debug(f"Split text into {len(text_chunks)} chunks for synthesis")
 
         # Synthesize each chunk
         audio_chunks = []
@@ -233,7 +233,7 @@ class GPTSoVITSProvider(BaseTTSProvider):
         # Merge all audio chunks into single WAV
         try:
             merged_audio = self._merge_wav_files(audio_chunks)
-            logger.info(f"Successfully merged {len(audio_chunks)} audio chunks")
+            logger.debug(f"Successfully merged {len(audio_chunks)} audio chunks")
             return merged_audio
         except Exception as e:
             logger.error(f"Failed to merge audio chunks: {e}", exc_info=True)

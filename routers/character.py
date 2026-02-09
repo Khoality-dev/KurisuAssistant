@@ -3,9 +3,15 @@
 Handles keyframe image uploads, diff patch computation, and character asset serving.
 User uploads full keyframe images; backend diffs them against the base to extract
 patch regions (bounding box + cropped image).
+
+Folder structure:
+  data/character_assets/{agent_id}/{pose_id}/base.png
+  data/character_assets/{agent_id}/{pose_id}/{part}_{index}.png
+  data/character_assets/{agent_id}/edges/{edge_id}.mp4|.webm
 """
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -25,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/character-assets", tags=["character"])
 
-# Storage directory for character assets (base images + patches)
+# Storage directory for character assets
 CHAR_ASSETS_DIR = Path(__file__).parent.parent / "data" / "character_assets"
 CHAR_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -50,18 +56,26 @@ class ComputePatchResponse(BaseModel):
     patch: PatchResult
 
 
-def _save_image(image: np.ndarray, asset_id: str, ext: str = ".png") -> None:
-    """Save an image array to disk with the given asset ID (overwrites if exists)."""
-    path = CHAR_ASSETS_DIR / f"{asset_id}{ext}"
+def _pose_dir(agent_id: int, pose_id: str) -> Path:
+    """Return the directory for a specific pose's assets."""
+    return CHAR_ASSETS_DIR / str(agent_id) / pose_id
+
+
+def _edges_dir(agent_id: int) -> Path:
+    """Return the directory for an agent's edge transition videos."""
+    return CHAR_ASSETS_DIR / str(agent_id) / "edges"
+
+
+def _save_image(image: np.ndarray, path: Path) -> None:
+    """Save an image array to disk (creates parent dirs, overwrites if exists)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(path), image)
 
 
-def _load_image(asset_id: str) -> Optional[np.ndarray]:
-    """Load an image from disk by asset ID."""
-    for ext in [".png", ".jpg"]:
-        path = CHAR_ASSETS_DIR / f"{asset_id}{ext}"
-        if path.exists():
-            return cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+def _load_image(path: Path) -> Optional[np.ndarray]:
+    """Load an image from a specific path."""
+    if path.exists():
+        return cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
     return None
 
 
@@ -110,14 +124,14 @@ def _compute_diff_patch(base: np.ndarray, variant: np.ndarray) -> Optional[dict]
 @router.post("/upload-base")
 async def upload_base_image(
     agent_id: int,
+    pose_id: str,
     file: UploadFile = File(...),
     user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db),
 ) -> UploadBaseResponse:
     """Upload a base portrait image for a character pose.
 
-    Asset ID is deterministic: ``{agent_id}_base``.  Re-uploading overwrites
-    the existing file so the URL stays stable.
+    Saved to ``{agent_id}/{pose_id}/base.png``.  Re-uploading overwrites.
     """
     with get_session() as session:
         agent_repo = AgentRepository(session)
@@ -134,9 +148,10 @@ async def upload_base_image(
     if image is None:
         raise HTTPException(status_code=400, detail="Invalid image format")
 
-    asset_id = f"{agent_id}_base"
-    _save_image(image, asset_id, ".png")
+    path = _pose_dir(agent_id, pose_id) / "base.png"
+    _save_image(image, path)
 
+    asset_id = f"{agent_id}/{pose_id}/base"
     return UploadBaseResponse(
         asset_id=asset_id,
         image_url=f"/character-assets/{asset_id}",
@@ -148,21 +163,21 @@ VALID_PARTS = {"left_eye", "right_eye", "mouth"}
 
 @router.post("/compute-patch")
 async def compute_patch(
-    base_asset_id: str,
     agent_id: int,
+    pose_id: str,
     part: str,
     index: int,
     keyframe: UploadFile = File(...),
     user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db),
 ) -> ComputePatchResponse:
-    """Upload a keyframe image and compute the diff patch against a base image.
+    """Upload a keyframe image and compute the diff patch against the pose's base image.
 
     The keyframe should be the same image as the base but with one region
     modified (e.g., eyes half-closed, mouth open). The backend computes
     the difference, extracts the changed region, and stores it as a patch.
 
-    Asset ID is deterministic: ``{agent_id}_{part}_{index}``.
+    Saved to ``{agent_id}/{pose_id}/{part}_{index}.png``.
     """
     if part not in VALID_PARTS:
         raise HTTPException(
@@ -174,10 +189,11 @@ async def compute_patch(
         if not agent_repo.get_by_user_and_id(user.id, agent_id):
             raise HTTPException(status_code=404, detail="Agent not found")
 
-    # Load base image
-    base = _load_image(base_asset_id)
+    # Load base image from the pose directory
+    base_path = _pose_dir(agent_id, pose_id) / "base.png"
+    base = _load_image(base_path)
     if base is None:
-        raise HTTPException(status_code=404, detail="Base image not found")
+        raise HTTPException(status_code=404, detail="Base image not found for this pose")
 
     # Decode keyframe
     if not keyframe.content_type or not keyframe.content_type.startswith("image/"):
@@ -202,13 +218,14 @@ async def compute_patch(
             detail="Keyframe is identical to base — no differences found",
         )
 
-    # Save the patch image with deterministic ID
-    patch_asset_id = f"{agent_id}_{part}_{index}"
-    _save_image(result["patch_image"], patch_asset_id, ".png")
+    # Save the patch image
+    patch_path = _pose_dir(agent_id, pose_id) / f"{part}_{index}.png"
+    _save_image(result["patch_image"], patch_path)
 
+    patch_url_path = f"{agent_id}/{pose_id}/{part}_{index}"
     return ComputePatchResponse(
         patch=PatchResult(
-            image_url=f"/character-assets/{patch_asset_id}",
+            image_url=f"/character-assets/{patch_url_path}",
             x=result["x"],
             y=result["y"],
             width=result["width"],
@@ -217,50 +234,146 @@ async def compute_patch(
     )
 
 
-@router.get("/{asset_id}")
-async def get_character_asset(asset_id: str):
-    """Serve a character asset image (base or patch)."""
-    for ext in [".png", ".jpg"]:
-        path = CHAR_ASSETS_DIR / f"{asset_id}{ext}"
+VALID_VIDEO_TYPES = {"video/mp4", "video/webm"}
+
+
+@router.post("/upload-video")
+async def upload_video(
+    agent_id: int,
+    edge_id: str,
+    file: UploadFile = File(...),
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    """Upload a transition video for an animation edge.
+
+    Saved to ``{agent_id}/edges/{edge_id}.mp4|.webm``.  Re-uploading overwrites.
+    """
+    with get_session() as session:
+        agent_repo = AgentRepository(session)
+        if not agent_repo.get_by_user_and_id(user.id, agent_id):
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+    if not file.content_type or file.content_type not in VALID_VIDEO_TYPES:
+        raise HTTPException(status_code=400, detail="File must be video/mp4 or video/webm")
+
+    ext = ".mp4" if file.content_type == "video/mp4" else ".webm"
+    edges = _edges_dir(agent_id)
+    edges.mkdir(parents=True, exist_ok=True)
+
+    # Clean up old file with other extension before saving
+    for old_ext in (".mp4", ".webm"):
+        if old_ext != ext:
+            old_path = edges / f"{edge_id}{old_ext}"
+            if old_path.exists():
+                old_path.unlink()
+
+    contents = await file.read()
+    path = edges / f"{edge_id}{ext}"
+    path.write_bytes(contents)
+
+    asset_url = f"{agent_id}/edges/{edge_id}"
+    return {
+        "asset_id": asset_url,
+        "video_url": f"/character-assets/{asset_url}",
+    }
+
+
+# ─── Serving endpoints ───
+# Order matters: edges route must come before the generic pose asset route
+# so that "edges" is not matched as a pose_id.
+
+@router.get("/{agent_id}/edges/{edge_id}")
+async def get_edge_video(agent_id: int, edge_id: str):
+    """Serve a transition video for an animation edge."""
+    edges = _edges_dir(agent_id)
+    for ext, media_type in [(".mp4", "video/mp4"), (".webm", "video/webm")]:
+        path = edges / f"{edge_id}{ext}"
         if path.exists():
-            media_type = "image/png" if ext == ".png" else "image/jpeg"
             return FileResponse(
                 path=path,
                 media_type=media_type,
                 headers={"Cache-Control": "no-cache"},
             )
+    raise HTTPException(status_code=404, detail="Edge video not found")
 
-    raise HTTPException(status_code=404, detail="Asset not found")
+
+@router.get("/{agent_id}/{pose_id}/{filename}")
+async def get_pose_asset(agent_id: int, pose_id: str, filename: str):
+    """Serve a pose asset (base image or patch)."""
+    pose = _pose_dir(agent_id, pose_id)
+    for ext, media_type in [(".png", "image/png"), (".jpg", "image/jpeg")]:
+        path = pose / f"{filename}{ext}"
+        if path.exists():
+            return FileResponse(
+                path=path,
+                media_type=media_type,
+                headers={"Cache-Control": "no-cache"},
+            )
+    raise HTTPException(status_code=404, detail="Pose asset not found")
 
 
-def _extract_asset_ids(config: Optional[dict]) -> set[str]:
-    """Extract all character asset IDs referenced in a config."""
-    ids = set()
+# ─── Cleanup helpers ───
+
+def _extract_referenced_paths(config: Optional[dict]) -> set[str]:
+    """Extract all referenced asset paths from a character config.
+
+    Returns paths relative to the /character-assets/ URL prefix, without extensions.
+    E.g. {"1/pose-default/base", "1/pose-default/left_eye_0", "1/edges/edge-abc"}
+    """
+    paths = set()
     if not config or "pose_tree" not in config:
-        return ids
-    for node in config.get("pose_tree", {}).get("nodes", []):
+        return paths
+    pose_tree = config.get("pose_tree", {})
+    for node in pose_tree.get("nodes", []):
         pc = node.get("pose_config")
         if not pc:
             continue
         url = pc.get("base_image_url", "")
         if url.startswith("/character-assets/"):
-            ids.add(url.split("/")[-1])
-        for part in ("left_eye", "right_eye", "mouth"):
-            for patch in pc.get(part, {}).get("patches", []):
+            paths.add(url[len("/character-assets/"):])
+        for part_key in ("left_eye", "right_eye", "mouth"):
+            for patch in pc.get(part_key, {}).get("patches", []):
                 purl = patch.get("image_url", "")
                 if purl.startswith("/character-assets/"):
-                    ids.add(purl.split("/")[-1])
-    return ids
+                    paths.add(purl[len("/character-assets/"):])
+    for edge in pose_tree.get("edges", []):
+        vurl = edge.get("video_url", "")
+        if vurl.startswith("/character-assets/"):
+            paths.add(vurl[len("/character-assets/"):])
+    return paths
 
 
-def _delete_assets(asset_ids: set[str]) -> None:
-    """Delete asset files from disk."""
-    for asset_id in asset_ids:
-        for ext in (".png", ".jpg"):
-            path = CHAR_ASSETS_DIR / f"{asset_id}{ext}"
-            if path.exists():
-                path.unlink()
-                logger.info("Deleted orphaned character asset: %s", path.name)
+def _file_to_ref_path(file_path: Path, agent_id: int) -> str:
+    """Convert a disk file path to the reference path (relative, no extension).
+
+    E.g. data/character_assets/1/pose-default/base.png → "1/pose-default/base"
+    Uses forward slashes (POSIX) to match URL paths regardless of OS.
+    """
+    agent_dir = CHAR_ASSETS_DIR / str(agent_id)
+    rel = file_path.relative_to(agent_dir).with_suffix('')
+    return f"{agent_id}/{rel.as_posix()}"
+
+
+def _cleanup_agent_assets(agent_id: int, referenced_paths: set[str]) -> None:
+    """Delete unreferenced files under an agent's asset directory and clean up empty dirs."""
+    agent_dir = CHAR_ASSETS_DIR / str(agent_id)
+    if not agent_dir.exists():
+        return
+
+    for file_path in agent_dir.rglob("*"):
+        if not file_path.is_file():
+            continue
+        ref_path = _file_to_ref_path(file_path, agent_id)
+        if ref_path not in referenced_paths:
+            file_path.unlink()
+            logger.debug("Deleted orphaned character asset: %s", file_path)
+
+    # Clean up empty directories (bottom-up)
+    for dir_path in sorted(agent_dir.rglob("*"), reverse=True):
+        if dir_path.is_dir() and not any(dir_path.iterdir()):
+            dir_path.rmdir()
+            logger.debug("Removed empty directory: %s", dir_path)
 
 
 @router.patch("/{agent_id}/character-config")
@@ -282,12 +395,8 @@ async def update_character_config(
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
 
-        old_ids = _extract_asset_ids(agent.character_config)
         agent = agent_repo.update_agent(agent, character_config=config)
-        new_ids = _extract_asset_ids(config)
-
-        orphaned = old_ids - new_ids
-        if orphaned:
-            _delete_assets(orphaned)
+        new_refs = _extract_referenced_paths(config)
+        _cleanup_agent_assets(agent_id, new_refs)
 
         return {"message": "Character config updated", "character_config": agent.character_config}

@@ -153,7 +153,7 @@ Who speaks next? Use a routing tool."""
         session.last_raw_input = json.dumps(messages, ensure_ascii=False, default=str)
 
         try:
-            logger.info(f"[Administrator] Routing decision - Model: {self.model_name}")
+            logger.debug(f"[Administrator] Routing decision - Model: {self.model_name}")
 
             stream = self.llm.chat(
                 model=self.model_name,
@@ -182,10 +182,10 @@ Who speaks next? Use a routing tool."""
             session.last_raw_output = full_content
 
             if full_content:
-                logger.info(f"[Administrator] Content: {full_content}")
+                logger.debug(f"[Administrator] Content: {full_content}")
             if tool_calls:
                 for tc in tool_calls:
-                    logger.info(f"[Administrator] Tool call: {tc.function.name}({tc.function.arguments})")
+                    logger.debug(f"[Administrator] Tool call: {tc.function.name}({tc.function.arguments})")
 
             if tool_calls:
                 decisions = []
@@ -245,7 +245,7 @@ Who speaks next? Use a routing tool."""
         )
 
         try:
-            logger.info(f"[Administrator] Routing decision (non-streaming) - Model: {self.model_name}")
+            logger.debug(f"[Administrator] Routing decision (non-streaming) - Model: {self.model_name}")
 
             stream = self.llm.chat(
                 model=self.model_name,
@@ -263,7 +263,7 @@ Who speaks next? Use a routing tool."""
 
             if tool_calls:
                 for tc in tool_calls:
-                    logger.info(f"[Administrator] Tool call: {tc.function.name}({tc.function.arguments})")
+                    logger.debug(f"[Administrator] Tool call: {tc.function.name}({tc.function.arguments})")
 
                 for tool_call in tool_calls:
                     tool_name = tool_call.function.name
@@ -278,7 +278,7 @@ Who speaks next? Use a routing tool."""
                                 target = routing["agent_name"]
                                 agent = agent_by_name.get(target.lower())
                                 if agent:
-                                    logger.info(f"[Administrator] Routing to agent: {agent.name}")
+                                    logger.debug(f"[Administrator] Routing to agent: {agent.name}")
                                     return AdministratorDecision.to_agent(
                                         agent_id=agent.id,
                                         agent_name=agent.name,
@@ -290,7 +290,7 @@ Who speaks next? Use a routing tool."""
                                         reason=f"Agent '{target}' not found"
                                     )
                             else:
-                                logger.info(f"[Administrator] Routing to user: {routing['reason']}")
+                                logger.debug(f"[Administrator] Routing to user: {routing['reason']}")
                                 return AdministratorDecision.to_user(reason=routing["reason"])
 
             logger.warning("[Administrator] Did not call routing tools, returning to user")
@@ -343,7 +343,7 @@ Use route_to_agent to pick who responds. You can pick multiple people."""
         session.last_raw_input = json.dumps(messages, ensure_ascii=False, default=str)
 
         try:
-            logger.info(f"[Administrator] Initial selection - Model: {self.model_name}")
+            logger.debug(f"[Administrator] Initial selection - Model: {self.model_name}")
 
             stream = self.llm.chat(
                 model=self.model_name,
@@ -372,10 +372,10 @@ Use route_to_agent to pick who responds. You can pick multiple people."""
             session.last_raw_output = full_content
 
             if full_content:
-                logger.info(f"[Administrator] Content: {full_content}")
+                logger.debug(f"[Administrator] Content: {full_content}")
             if tool_calls:
                 for tc in tool_calls:
-                    logger.info(f"[Administrator] Tool call: {tc.function.name}({tc.function.arguments})")
+                    logger.debug(f"[Administrator] Tool call: {tc.function.name}({tc.function.arguments})")
 
             if tool_calls:
                 decisions = []
@@ -392,7 +392,7 @@ Use route_to_agent to pick who responds. You can pick multiple people."""
                     session.pending_routes = decisions
                     return
 
-            logger.info(f"[Administrator] No agent selected via tool, using default: {available_agents[0].name}")
+            logger.debug(f"[Administrator] No agent selected via tool, using default: {available_agents[0].name}")
             session.pending_routes = [{"action": "route_to_agent", "agent_name": available_agents[0].name, "reason": "default"}]
             yield self._chunk(f"→ Selected {available_agents[0].name} (default)", "tool", session, name="route_to_agent")
 
@@ -442,7 +442,7 @@ Use route_to_agent to pick who responds. You can pick multiple people."""
         )
 
         try:
-            logger.info(f"[Administrator] Initial selection (non-streaming) - Model: {self.model_name}")
+            logger.debug(f"[Administrator] Initial selection (non-streaming) - Model: {self.model_name}")
 
             stream = self.llm.chat(
                 model=self.model_name,
@@ -460,7 +460,7 @@ Use route_to_agent to pick who responds. You can pick multiple people."""
 
             if tool_calls:
                 for tc in tool_calls:
-                    logger.info(f"[Administrator] Tool call: {tc.function.name}({tc.function.arguments})")
+                    logger.debug(f"[Administrator] Tool call: {tc.function.name}({tc.function.arguments})")
 
                 for tool_call in tool_calls:
                     if tool_call.function.name == "route_to_agent":
@@ -468,7 +468,7 @@ Use route_to_agent to pick who responds. You can pick multiple people."""
                         target = tool_args.get("agent_name", "")
                         agent = agent_by_name.get(target.lower())
                         if agent:
-                            logger.info(f"[Administrator] Selected agent: {agent.name}")
+                            logger.debug(f"[Administrator] Selected agent: {agent.name}")
                             return agent
 
             logger.warning(f"[Administrator] No agent selected, using first available: {available_agents[0].name}")
