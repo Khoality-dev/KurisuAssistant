@@ -55,6 +55,8 @@ import { EdgeEditor } from './EdgeEditor';
 
 const OFFSET_PX = 8; // perpendicular offset for each direction
 
+const LOOP_RADIUS = 30; // radius of self-loop circle
+
 const OffsetEdge: React.FC<EdgeProps> = ({
   id,
   sourceX,
@@ -67,22 +69,35 @@ const OffsetEdge: React.FC<EdgeProps> = ({
   data,
 }) => {
   const offset = (data?.offset as number) || 0;
+  const isSelfLoop = sourceX === targetX && sourceY === targetY;
 
-  // Perpendicular offset
-  const dx = targetX - sourceX;
-  const dy = targetY - sourceY;
-  const len = Math.sqrt(dx * dx + dy * dy) || 1;
-  const nx = -dy / len; // perpendicular normal
-  const ny = dx / len;
+  let path: string;
+  let midX: number;
+  let midY: number;
 
-  const sx = sourceX + nx * offset;
-  const sy = sourceY + ny * offset;
-  const tx = targetX + nx * offset;
-  const ty = targetY + ny * offset;
+  if (isSelfLoop) {
+    // Draw a loop above the node using cubic bezier
+    const r = LOOP_RADIUS;
+    path = `M ${sourceX - r} ${sourceY} C ${sourceX - r} ${sourceY - r * 2.5}, ${sourceX + r} ${sourceY - r * 2.5}, ${sourceX + r} ${sourceY}`;
+    midX = sourceX;
+    midY = sourceY - r * 2;
+  } else {
+    // Perpendicular offset for straight line
+    const dx = targetX - sourceX;
+    const dy = targetY - sourceY;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
 
-  const path = `M ${sx} ${sy} L ${tx} ${ty}`;
-  const midX = (sx + tx) / 2;
-  const midY = (sy + ty) / 2;
+    const sx = sourceX + nx * offset;
+    const sy = sourceY + ny * offset;
+    const tx = targetX + nx * offset;
+    const ty = targetY + ny * offset;
+
+    path = `M ${sx} ${sy} L ${tx} ${ty}`;
+    midX = (sx + tx) / 2;
+    midY = (sy + ty) / 2;
+  }
 
   const labelStyle = data?.labelStyle as React.CSSProperties | undefined;
   const labelBgStyle = data?.labelBgStyle as React.CSSProperties | undefined;
@@ -132,7 +147,7 @@ function getEdgeVisuals(animEdge?: AnimationEdge): {
 } {
   const condType = animEdge?.condition?.type;
   const color = (condType && CONDITION_COLORS[condType]) || CONDITION_COLORS._default;
-  const hasVideo = !!animEdge?.video_url;
+  const hasVideo = !!(animEdge?.video_urls?.length);
 
   let label = '';
   if (condType === 'random' && animEdge?.condition?.type === 'random') {
@@ -165,7 +180,11 @@ function buildEdgePairSet(edges: { from_node_id: string; to_node_id: string }[])
 function getBestHandles(
   srcPos: { x: number; y: number },
   tgtPos: { x: number; y: number },
+  isSelfLoop = false,
 ): { sourceHandle: string; targetHandle: string } {
+  // Self-loop: use left source → right target so the loop arcs above
+  if (isSelfLoop) return { sourceHandle: 's-left', targetHandle: 't-right' };
+
   const dx = tgtPos.x - srcPos.x;
   const dy = tgtPos.y - srcPos.y;
 
@@ -210,11 +229,12 @@ function poseTreeToReactFlow(
   const pairSet = buildEdgePairSet(poseTree.edges);
 
   const edges: RFEdge[] = poseTree.edges.map((e) => {
+    const isSelfLoop = e.from_node_id === e.to_node_id;
     const srcPos = posMap.get(e.from_node_id) || { x: 0, y: 0 };
     const tgtPos = posMap.get(e.to_node_id) || { x: 0, y: 0 };
-    const handles = getBestHandles(srcPos, tgtPos);
+    const handles = getBestHandles(srcPos, tgtPos, isSelfLoop);
     const visuals = getEdgeVisuals(e);
-    const hasReverse = pairSet.has(`${e.to_node_id}->${e.from_node_id}`);
+    const hasReverse = !isSelfLoop && pairSet.has(`${e.to_node_id}->${e.from_node_id}`);
     const offset = hasReverse ? OFFSET_PX : 0;
     return {
       id: e.id,
@@ -261,7 +281,7 @@ function reactFlowToPoseTree(
       id: rfEdge.id,
       from_node_id: rfEdge.source,
       to_node_id: rfEdge.target,
-      video_url: existing?.video_url,
+      video_urls: existing?.video_urls,
       condition: existing?.condition,
     };
   });
@@ -359,6 +379,12 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
           nodesMap.set(n.id, n);
         }
         for (const e of poseTree.edges) {
+          // Migrate legacy video_url (string) → video_urls (array)
+          const raw = e as AnimationEdge & { video_url?: string };
+          if (raw.video_url && !raw.video_urls?.length) {
+            e.video_urls = [raw.video_url];
+            delete raw.video_url;
+          }
           edgesMap.set(e.id, e);
         }
 
@@ -459,7 +485,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
             eds.map((e) => {
               const srcPos = posMap.get(e.source) || { x: 0, y: 0 };
               const tgtPos = posMap.get(e.target) || { x: 0, y: 0 };
-              const handles = getBestHandles(srcPos, tgtPos);
+              const handles = getBestHandles(srcPos, tgtPos, e.source === e.target);
               return { ...e, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle };
             }),
           );
@@ -473,7 +499,10 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
   // ─── Edge connection ───
   const onConnect = useCallback((connection: Connection) => {
     if (!connection.source || !connection.target) return;
-    const edgeId = `edge-${connection.source}-${connection.target}`;
+    const isSelfLoop = connection.source === connection.target;
+    const edgeId = isSelfLoop
+      ? `edge-${connection.source}-self`
+      : `edge-${connection.source}-${connection.target}`;
 
     // Create animation edge data
     const animEdge: AnimationEdge = {
@@ -486,8 +515,8 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
 
     const visuals = getEdgeVisuals(animEdge);
     setRfEdges((eds) => {
-      // Check if reverse edge exists → both need offset
-      const hasReverse = eds.some(
+      // Check if reverse edge exists → both need offset (skip for self-loops)
+      const hasReverse = !isSelfLoop && eds.some(
         (e) => e.source === connection.target && e.target === connection.source,
       );
       let updated = eds;
@@ -499,8 +528,14 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
             : e,
         );
       }
+
+      // Self-loop: override handles so the loop arcs above the node
+      const conn = isSelfLoop
+        ? { ...connection, sourceHandle: 's-left', targetHandle: 't-right' }
+        : connection;
+
       return addEdge({
-        ...connection,
+        ...conn,
         id: edgeId,
         type: 'offsetEdge',
         style: visuals.style,
@@ -796,6 +831,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
               onNodeContextMenu={onNodeContextMenu}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
+              isValidConnection={(connection) => !!(connection.source && connection.target)}
               fitView
               fitViewOptions={{ padding: 0.3 }}
               deleteKeyCode="Delete"
