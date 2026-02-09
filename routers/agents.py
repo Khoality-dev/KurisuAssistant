@@ -86,6 +86,7 @@ class AgentResponse(BaseModel):
     model_name: Optional[str]
     tools: Optional[List[str]]
     think: bool
+    character_config: Optional[dict] = None
 
 
 def _agent_to_response(agent) -> AgentResponse:
@@ -99,6 +100,7 @@ def _agent_to_response(agent) -> AgentResponse:
         model_name=agent.model_name,
         tools=agent.tools,
         think=agent.think,
+        character_config=getattr(agent, 'character_config', None),
     )
 
 

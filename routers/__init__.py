@@ -12,6 +12,7 @@ from .ws import router as ws_router
 from .agents import router as agents_router
 from .models import router as models_router
 from .tools import router as tools_router
+from .character import router as character_router
 
 __all__ = [
     "auth_router",
@@ -26,5 +27,6 @@ __all__ = [
     "agents_router",
     "models_router",
     "tools_router",
+    "character_router",
     "set_mcp_client",
 ]

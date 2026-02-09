@@ -73,6 +73,7 @@ class Agent(Base):
     model_name = Column(String, nullable=True)  # LLM model override
     tools = Column(JSON, nullable=True)  # List of tool names
     think = Column(Boolean, default=False, nullable=False)  # Enable extended reasoning
+    character_config = Column(JSON, nullable=True)  # Animation tree config for video call mode
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Unique name per user

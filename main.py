@@ -22,6 +22,7 @@ from routers import (
     agents_router,
     models_router,
     tools_router,
+    character_router,
     set_mcp_client,
 )
 from mcp_tools.config import load_mcp_configs
@@ -83,6 +84,7 @@ app = FastAPI(
         {"name": "mcp", "description": "MCP server management"},
         {"name": "images", "description": "Image upload and retrieval"},
         {"name": "tts", "description": "Text-to-speech synthesis"},
+        {"name": "character", "description": "Character animation assets for video call"},
     ]
 )
 
@@ -117,6 +119,7 @@ app.include_router(models_router)
 app.include_router(tools_router)
 app.include_router(images_router)
 app.include_router(tts_router)
+app.include_router(character_router)
 app.include_router(mcp_router)
 app.include_router(ws_router)
 
