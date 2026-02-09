@@ -125,6 +125,16 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     apiClient.getAgent(agentId).then((agent) => {
       const cc = agent.character_config;
       const poseTree = cc?.pose_tree ?? null;
+      // Migrate legacy video_url → video_urls on edges
+      if (poseTree?.edges) {
+        for (const e of poseTree.edges) {
+          const raw = e as any;
+          if (raw.video_url && !raw.video_urls?.length) {
+            e.video_urls = [raw.video_url];
+            delete raw.video_url;
+          }
+        }
+      }
       setAgentMap((prev) => {
         const next = new Map(prev);
         next.set(agentId, { name: agent.name, poseTree });
@@ -215,6 +225,18 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     });
     return cleanup;
   }, [characterWindowOpen, sendAgentState]);
+
+  // Re-fetch character configs when saved in the editor dialog
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const agentId = (e as CustomEvent).detail?.agentId as number | undefined;
+      if (agentId && agentMap.has(agentId)) {
+        fetchAgentForPanel(agentId, undefined, true);
+      }
+    };
+    window.addEventListener('character-config-saved', handler);
+    return () => window.removeEventListener('character-config-saved', handler);
+  }, [agentMap, fetchAgentForPanel]);
 
   // Insert ASR transcript into input field
   useEffect(() => {

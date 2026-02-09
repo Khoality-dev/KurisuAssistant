@@ -460,6 +460,8 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
         await apiClient.updateCharacterConfig(agent.id, { pose_tree: poseTree });
         setSaveStatus('saved');
         onSaved();
+        // Notify ChatWidget to refresh character panel data
+        window.dispatchEvent(new CustomEvent('character-config-saved', { detail: { agentId: agent.id } }));
       } catch (err: any) {
         setError(err.response?.data?.detail || err.message || 'Auto-save failed');
         setSaveStatus('idle');

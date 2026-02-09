@@ -138,31 +138,54 @@ export class CanvasCompositor {
   }
 
   private startTransition(edge: AnimationEdge): void {
-    if (edge.video_url) {
+    // Pick a random video from the list (if any)
+    const urls = edge.video_urls;
+    const videoUrl = urls?.length
+      ? urls[Math.floor(Math.random() * urls.length)]
+      : undefined;
+
+    if (videoUrl) {
       // Play transition video
       const resolveUrl = (url: string) =>
         url.startsWith('http') ? url : `${this.apiBaseUrl}${url}`;
 
+      this.state = 'transitioning';
+
       const video = document.createElement('video');
-      video.src = resolveUrl(edge.video_url);
       video.muted = true; // Transition videos are silent
       video.playsInline = true;
-
-      this.state = 'transitioning';
       this.transitionVideo = video;
 
-      video.onended = () => {
-        this.switchToPose(edge.to_node_id);
-      };
-      video.onerror = () => {
-        console.error('[CanvasCompositor] Transition video failed to load:', edge.video_url);
+      // Guard against double-firing (onerror + play().catch() race)
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
         this.switchToPose(edge.to_node_id);
       };
 
-      video.play().catch(() => {
-        // Autoplay might be blocked — instant switch
-        this.switchToPose(edge.to_node_id);
-      });
+      video.onended = finish;
+      video.onerror = () => {
+        console.error('[CanvasCompositor] Transition video failed to load:', videoUrl);
+        finish();
+      };
+
+      // Wait for enough data before playing
+      let playStarted = false;
+      const tryPlay = () => {
+        if (playStarted) return;
+        playStarted = true;
+        video.play().catch((err) => {
+          console.error('[CanvasCompositor] Transition video play() rejected:', err);
+          finish();
+        });
+      };
+      video.oncanplay = tryPlay;
+      video.onloadeddata = tryPlay;
+
+      // Set src and start loading
+      video.src = resolveUrl(videoUrl);
+      video.load();
     } else {
       // No video — instant switch
       this.switchToPose(edge.to_node_id);
@@ -276,13 +299,14 @@ export class CanvasCompositor {
     const { ctx, canvas } = this;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // During transition, draw the video frame
+    // During transition, draw the video frame (or keep showing current pose while loading)
     if (this.state === 'transitioning' && this.transitionVideo) {
       const video = this.transitionVideo;
       if (video.readyState >= 2) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        return;
       }
-      return;
+      // Video not ready yet — fall through to draw current pose
     }
 
     const pose = this.pose;
