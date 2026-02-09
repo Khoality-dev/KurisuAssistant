@@ -196,9 +196,11 @@ All protected unless noted. Auth: `Authorization: Bearer <token>`.
 | POST | `/tts` | Synthesize speech → WAV |
 | GET | `/tts/voices` | List voices (?provider=) |
 | GET | `/tts/backends` | List TTS backends |
-| POST | `/character-assets/upload-base?agent_id=` | Upload base portrait (deterministic ID: `{agent_id}_base`) |
-| POST | `/character-assets/compute-patch?base_asset_id=&agent_id=&part=&index=` | Upload keyframe, compute diff patch (ID: `{agent_id}_{part}_{index}`) |
-| GET | `/character-assets/{asset_id}` | Serve character asset image (no-cache) |
+| POST | `/character-assets/upload-base?agent_id=&pose_id=` | Upload base portrait → `{agent_id}/{pose_id}/base.png` |
+| POST | `/character-assets/compute-patch?agent_id=&pose_id=&part=&index=` | Upload keyframe, compute diff → `{agent_id}/{pose_id}/{part}_{index}.png` |
+| POST | `/character-assets/upload-video?agent_id=&edge_id=` | Upload transition video → `{agent_id}/edges/{edge_id}.mp4\|.webm` |
+| GET | `/character-assets/{agent_id}/{pose_id}/{filename}` | Serve pose asset (base/patch image, no-cache) |
+| GET | `/character-assets/{agent_id}/edges/{edge_id}` | Serve transition video (no-cache) |
 | PATCH | `/character-assets/{agent_id}/character-config` | Update pose tree config, cleans up orphaned assets |
 
 ## Environment Variables
