@@ -34,6 +34,8 @@ function createWindow() {
   });
 }
 
+// --- App Lifecycle ---
+
 app.whenReady().then(() => {
   createWindow();
 

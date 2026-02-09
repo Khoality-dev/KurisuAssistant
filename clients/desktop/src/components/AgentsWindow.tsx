@@ -36,10 +36,13 @@ import {
   Refresh as RefreshIcon,
   Settings as SettingsIcon,
   Extension as ExtensionIcon,
+  Face as FaceIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiClient } from '../api/client';
+import { useAgentStore } from '../store/agentStore';
 import type { Agent, AgentCreate, AgentUpdate, Tool } from '../api/types';
+import { CharacterConfigDialog } from './CharacterConfigDialog';
 
 const MotionCard = motion(Card);
 
@@ -55,6 +58,7 @@ interface AgentFormData {
 }
 
 export const AgentsWindow: React.FC = () => {
+  const { loadAgents: refreshAgentStore } = useAgentStore();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [models, setModels] = useState<string[]>([]);
   const [availableTools, setAvailableTools] = useState<Tool[]>([]);
@@ -67,6 +71,8 @@ export const AgentsWindow: React.FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [characterConfigOpen, setCharacterConfigOpen] = useState(false);
+  const [characterConfigAgent, setCharacterConfigAgent] = useState<Agent | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
 
   // Form data
@@ -120,6 +126,8 @@ export const AgentsWindow: React.FC = () => {
       setLoading(true);
       const data = await apiClient.listAgents();
       setAgents(data);
+      // Also refresh the shared agent store (sidebar selector)
+      refreshAgentStore();
     } catch (err: any) {
       setError(err.message || 'Failed to load agents');
     } finally {
@@ -432,8 +440,30 @@ export const AgentsWindow: React.FC = () => {
                           )}
                         </Box>
                       )}
+                      {agent.character_config && (
+                        <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
+                          <Chip
+                            icon={<FaceIcon />}
+                            label="Character"
+                            size="small"
+                            variant="outlined"
+                            color="success"
+                          />
+                        </Box>
+                      )}
                     </CardContent>
                     <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
+                      <Tooltip title="Configure Character">
+                        <IconButton
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCharacterConfigAgent(agent);
+                            setCharacterConfigOpen(true);
+                          }}
+                        >
+                          <FaceIcon />
+                        </IconButton>
+                      </Tooltip>
                       {agent.name !== 'Administrator' && (
                         <Tooltip title="Delete">
                           <IconButton
@@ -770,6 +800,21 @@ export const AgentsWindow: React.FC = () => {
                 </Typography>
               )}
             </Box>
+
+            {/* Character Animation */}
+            <Button
+              variant="outlined"
+              startIcon={<FaceIcon />}
+              onClick={() => {
+                if (selectedAgent) {
+                  setCharacterConfigAgent(selectedAgent);
+                  setCharacterConfigOpen(true);
+                }
+              }}
+            >
+              Configure Character Animation
+              {selectedAgent?.character_config ? ' (Configured)' : ''}
+            </Button>
           </Box>
         </DialogContent>
         <DialogActions>
@@ -800,6 +845,19 @@ export const AgentsWindow: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Character Config Dialog */}
+      {characterConfigAgent && (
+        <CharacterConfigDialog
+          open={characterConfigOpen}
+          agent={characterConfigAgent}
+          onClose={() => {
+            setCharacterConfigOpen(false);
+            setCharacterConfigAgent(null);
+          }}
+          onSaved={loadAgents}
+        />
+      )}
     </Box>
   );
 };

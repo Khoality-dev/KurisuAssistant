@@ -41,6 +41,9 @@ export default defineConfig({
     electron([
       {
         entry: 'electron/main.ts',
+        onstart(options) {
+          options.startup();
+        },
       },
       {
         entry: 'electron/preload.ts',

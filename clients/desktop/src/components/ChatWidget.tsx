@@ -32,10 +32,18 @@ import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, BaseEvent } from '.
 import { storage } from '../utils/storage';
 import { useTTS } from '../hooks/useTTS';
 import { useASR } from '../hooks/useASR';
+import { CharacterRenderer } from '../videocall/CharacterRenderer';
+import type { AmplitudeState } from '../videocall/CharacterRenderer';
+import type { PoseConfig } from '../videocall/types';
 import { MessageBubble } from './MessageBubble';
 import type { Message } from '../api/types';
 
-export const ChatWidget: React.FC = () => {
+interface ChatWidgetProps {
+  showCharacterPanel?: boolean;
+  agentId?: number | null;
+}
+
+export const ChatWidget: React.FC<ChatWidgetProps> = ({ showCharacterPanel = false, agentId = null }) => {
   const {
     messages,
     currentConversation,
@@ -60,8 +68,28 @@ export const ChatWidget: React.FC = () => {
   // TTS settings are read fresh from storage in MessageBubble.handleTTS()
   const [showAdministrator, setShowAdministrator] = useState<boolean>(storage.getShowAdministrator());
 
-  // Streaming TTS auto-play
-  const { queueText, clearQueue } = useTTS();
+  // Amplitude state for inline character panel (updated via ref to avoid re-renders)
+  const amplitudeRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false });
+  const silentRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false });
+  const onAmplitudeUpdate = useCallback((amplitude: number, isPlaying: boolean) => {
+    amplitudeRef.current = { amplitude, isPlaying };
+  }, []);
+
+  // Character panel state — all agents in conversation
+  interface AgentEntry { name: string; poseConfig: PoseConfig | null }
+  const [agentMap, setAgentMap] = useState<Map<number, AgentEntry>>(new Map());
+  const [activeAgentId, setActiveAgentId] = useState<number | null>(null);
+  const agentCacheRef = useRef<Set<number>>(new Set()); // IDs already fetched
+
+  // Streaming TTS auto-play (with amplitude callback for character lip sync)
+  const { speak, stop: stopTTS, isPlaying: isTTSPlaying, queueText, clearQueue, isQueueActive } = useTTS(onAmplitudeUpdate);
+  // Expose TTS functions via ref so MessageBubble can use the amplitude-aware instance
+  // without causing re-renders on every isTTSPlaying change
+  const setActiveAgentForTTS = useCallback((agentId: number | null) => {
+    setActiveAgentId(agentId);
+  }, []);
+  const ttsRef = useRef({ speak, stopTTS, isTTSPlaying, setActiveAgentForTTS });
+  ttsRef.current = { speak, stopTTS, isTTSPlaying, setActiveAgentForTTS };
   const ttsBufferRef = useRef('');
   const ttsVoiceRef = useRef<string | undefined>(undefined);
 
@@ -90,6 +118,68 @@ export const ChatWidget: React.FC = () => {
   useEffect(() => {
     isStreamingRef.current = isStreaming;
   }, [isStreaming]);
+
+  // Fetch agent and add/update the character panel map
+  // forceRefresh=true bypasses cache (used when agent becomes active, to pick up config changes)
+  const fetchAgentForPanel = useCallback((agentId: number, agentName?: string, forceRefresh = false) => {
+    if (!forceRefresh && agentCacheRef.current.has(agentId)) return;
+    agentCacheRef.current.add(agentId);
+    apiClient.getAgent(agentId).then((agent) => {
+      const cc = agent.character_config;
+      let poseConfig: PoseConfig | null = null;
+      if (cc?.pose_tree?.nodes) {
+        const poseNode = cc.pose_tree.nodes.find(
+          (n: any) => n.id === cc.pose_tree.default_pose_id && n.type === 'pose',
+        );
+        poseConfig = poseNode?.pose_config ?? null;
+      }
+      setAgentMap((prev) => {
+        const next = new Map(prev);
+        next.set(agentId, { name: agent.name, poseConfig });
+        return next;
+      });
+    }).catch(() => {
+      // Still add to map with null config so we show the name
+      setAgentMap((prev) => {
+        const next = new Map(prev);
+        next.set(agentId, { name: agentName || `Agent ${agentId}`, poseConfig: null });
+        return next;
+      });
+    });
+  }, []);
+
+  // Set active agent during streaming (for lip sync); skip Administrator
+  const pushAgentCharacterConfig = useCallback((agentId: number | undefined, agentName?: string) => {
+    if (!agentId || agentName === 'Administrator') return;
+    setActiveAgentId(agentId);
+    fetchAgentForPanel(agentId, agentName, true);
+  }, [fetchAgentForPanel]);
+
+  // Clear active speaker when TTS queue finishes playing
+  useEffect(() => {
+    if (!isQueueActive && !isStreaming) {
+      setActiveAgentId(null);
+      amplitudeRef.current = { amplitude: 0, isPlaying: false };
+    }
+  }, [isQueueActive, isStreaming]);
+
+  // Reset agent map when conversation changes
+  useEffect(() => {
+    setAgentMap(new Map());
+    agentCacheRef.current.clear();
+    setActiveAgentId(null);
+  }, [currentConversation?.id]);
+
+  // Scan messages for agents to populate the character panel (skip Administrator)
+  useEffect(() => {
+    if (!showCharacterPanel) return;
+    for (const msg of messages) {
+      const name = msg.agent?.name || msg.name;
+      if (msg.agent_id && name !== 'Administrator' && !agentCacheRef.current.has(msg.agent_id)) {
+        fetchAgentForPanel(msg.agent_id, name);
+      }
+    }
+  }, [messages, showCharacterPanel, fetchAgentForPanel]);
 
   // Insert ASR transcript into input field
   useEffect(() => {
@@ -228,7 +318,8 @@ export const ChatWidget: React.FC = () => {
     if (needsNewBubble) {
       // Flush TTS buffer from previous agent before switching
       if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
-        queueText(ttsBufferRef.current.trim(), ttsVoiceRef.current);
+        const cleaned = stripNarration(ttsBufferRef.current);
+        if (cleaned) queueText(cleaned, ttsVoiceRef.current);
         ttsBufferRef.current = '';
       }
 
@@ -266,6 +357,9 @@ export const ChatWidget: React.FC = () => {
       // Update TTS voice for new agent
       ttsVoiceRef.current = event.voice_reference || undefined;
 
+      // Update character panel with active agent
+      pushAgentCharacterConfig(agentId, agentName);
+
       scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
     } else if (!state.hasStarted) {
       // First message chunk - update placeholder bubble
@@ -275,6 +369,9 @@ export const ChatWidget: React.FC = () => {
       state.currentAgentName = agentName;
       state.accumulatedContent = event.content || '';
       state.accumulatedThinking = '';
+
+      // Update character panel with active agent
+      pushAgentCharacterConfig(agentId, agentName);
 
       if (state.hasPlaceholder) {
         // Update placeholder with actual role/agent info
@@ -328,11 +425,12 @@ export const ChatWidget: React.FC = () => {
         const batch = parts.slice(0, -1).join(' ');
         ttsBufferRef.current = parts[parts.length - 1];
         if (batch.trim()) {
-          queueText(batch, ttsVoiceRef.current);
+          const cleaned = stripNarration(batch);
+          if (cleaned) queueText(cleaned, ttsVoiceRef.current);
         }
       }
     }
-  }, [setCurrentConversationId, scheduleStreamUpdate, queueText]);
+  }, [setCurrentConversationId, scheduleStreamUpdate, queueText, pushAgentCharacterConfig]);
 
   const handleDone = useCallback((event: DoneEvent) => {
     const state = streamingStateRef.current;
@@ -344,10 +442,13 @@ export const ChatWidget: React.FC = () => {
 
     // Flush remaining TTS buffer
     if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
-      queueText(ttsBufferRef.current.trim(), ttsVoiceRef.current);
+      const cleaned = stripNarration(ttsBufferRef.current);
+      if (cleaned) queueText(cleaned, ttsVoiceRef.current);
     }
     ttsBufferRef.current = '';
     ttsVoiceRef.current = undefined;
+    // Note: don't clear activeAgentId here — TTS queue still plays after streaming ends.
+    // activeAgentId is cleared when isQueueActive becomes false (see effect below).
 
     // Finalize last streaming message with accumulated content
     setStreamingMessages(prev => {
@@ -493,7 +594,7 @@ export const ChatWidget: React.FC = () => {
         userMessage.content,
         '', // Model determined by backend
         activeConversationId,
-        null, // agent_id - let Administrator route
+        agentId, // Single agent mode or null for Administrator routing
         imageBase64
       );
     } catch (err: any) {
@@ -645,7 +746,7 @@ export const ChatWidget: React.FC = () => {
       setStreamingThinking('');
       setJustFinishedStreaming(false);
 
-      await wsManager.sendChatRequest(text, '', activeConversationId, null, []);
+      await wsManager.sendChatRequest(text, '', activeConversationId, agentId, []);
     } catch (e) {
       console.error('Failed to resend message:', e);
       setIsStreaming(false);
@@ -653,7 +754,9 @@ export const ChatWidget: React.FC = () => {
   };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%' }}>
+      {/* Chat column */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%' }}>
 
       {/* Messages area */}
       <Box
@@ -666,18 +769,20 @@ export const ChatWidget: React.FC = () => {
           backgroundColor: '#F8FAFC',
         }}
       >
-        {/* Administrator visibility toggle */}
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
-          <Tooltip title={showAdministrator ? 'Hide Administrator messages' : 'Show Administrator messages'}>
-            <IconButton
-              size="small"
-              onClick={toggleShowAdministrator}
-              sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
-            >
-              {showAdministrator ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
-            </IconButton>
-          </Tooltip>
-        </Box>
+        {/* Administrator visibility toggle — hidden in single agent mode */}
+        {!agentId && (
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+            <Tooltip title={showAdministrator ? 'Hide Administrator messages' : 'Show Administrator messages'}>
+              <IconButton
+                size="small"
+                onClick={toggleShowAdministrator}
+                sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
+              >
+                {showAdministrator ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+          </Box>
+        )}
 
         {isLoadingMessages && (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
@@ -720,6 +825,7 @@ export const ChatWidget: React.FC = () => {
                   onToggleThinking={toggleThinking}
                   onResend={handleResend}
                   onDelete={handleDelete}
+                  ttsRef={ttsRef}
                 />
               );
             });
@@ -852,9 +958,91 @@ export const ChatWidget: React.FC = () => {
           )}
         </Box>
       </Paper>
+      </Box>
+
+      {/* Character panel — all agents in conversation */}
+      {showCharacterPanel && (
+        <Box
+          sx={{
+            width: 420,
+            flexShrink: 0,
+            borderLeft: '1px solid',
+            borderColor: 'divider',
+            bgcolor: '#1a1a2e',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'auto',
+          }}
+        >
+          {agentMap.size === 0 ? (
+            <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Typography
+                variant="body2"
+                sx={{ color: 'rgba(255,255,255,0.5)', textAlign: 'center', px: 2 }}
+              >
+                Send a message to see agents here
+              </Typography>
+            </Box>
+          ) : (
+            Array.from(agentMap.entries()).map(([agentId, entry]) => (
+              <Box
+                key={agentId}
+                sx={{
+                  flex: 1,
+                  minHeight: 300,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  position: 'relative',
+                  borderBottom: '1px solid rgba(255,255,255,0.1)',
+                  // Highlight active speaker
+                  ...(activeAgentId === agentId && {
+                    boxShadow: 'inset 0 0 20px rgba(37, 99, 235, 0.3)',
+                  }),
+                }}
+              >
+                {entry.poseConfig ? (
+                  <CharacterRenderer
+                    poseConfig={entry.poseConfig}
+                    amplitudeRef={activeAgentId === agentId ? amplitudeRef : silentRef}
+                  />
+                ) : (
+                  <Typography
+                    variant="body2"
+                    sx={{ color: 'rgba(255,255,255,0.3)' }}
+                  >
+                    No avatar
+                  </Typography>
+                )}
+                <Typography
+                  variant="caption"
+                  sx={{
+                    position: 'absolute',
+                    bottom: 4,
+                    left: 0,
+                    right: 0,
+                    textAlign: 'center',
+                    color: activeAgentId === agentId ? '#93c5fd' : 'rgba(255,255,255,0.5)',
+                    fontWeight: activeAgentId === agentId ? 600 : 400,
+                    textShadow: '0 1px 4px rgba(0,0,0,0.5)',
+                  }}
+                >
+                  {entry.name}
+                </Typography>
+              </Box>
+            ))
+          )}
+        </Box>
+      )}
     </Box>
   );
 };
+
+// Strip action narration (*action text*) from TTS input, preserving **bold**
+function stripNarration(text: string): string {
+  return text.replace(/(?<!\*)\*(?!\*)([^*]+)\*(?!\*)/g, '').replace(/\s{2,}/g, ' ').trim();
+}
 
 // Helper function to convert File to base64
 async function fileToBase64(file: File): Promise<string> {

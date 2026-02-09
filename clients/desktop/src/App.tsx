@@ -6,7 +6,7 @@ import { useAuthStore } from './store/authStore';
 import { LoginWindow } from './components/LoginWindow';
 import { MainWindow } from './components/MainWindow';
 
-export const App: React.FC = () => {
+const MainApp: React.FC = () => {
   const [initializing, setInitializing] = useState(true);
   const { isAuthenticated, initializeAuth } = useAuthStore();
 
@@ -20,27 +20,28 @@ export const App: React.FC = () => {
 
   if (initializing) {
     return (
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <Box
-          sx={{
-            minHeight: '100vh',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'linear-gradient(135deg, #2563EB 0%, #1E40AF 100%)',
-          }}
-        >
-          <CircularProgress size={60} sx={{ color: 'white' }} />
-        </Box>
-      </ThemeProvider>
+      <Box
+        sx={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'linear-gradient(135deg, #2563EB 0%, #1E40AF 100%)',
+        }}
+      >
+        <CircularProgress size={60} sx={{ color: 'white' }} />
+      </Box>
     );
   }
 
+  return isAuthenticated ? <MainWindow /> : <LoginWindow />;
+};
+
+export const App: React.FC = () => {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      {isAuthenticated ? <MainWindow /> : <LoginWindow />}
+      <MainApp />
     </ThemeProvider>
   );
 };

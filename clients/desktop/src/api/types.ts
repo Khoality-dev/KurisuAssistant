@@ -91,6 +91,30 @@ export interface Agent {
   model_name: string | null;
   tools: string[] | null;
   think: boolean;
+  character_config: CharacterConfigDTO | null;
+}
+
+// Character asset types (backend responses)
+
+export interface PatchResultDTO {
+  image_url: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface UploadBaseResponseDTO {
+  asset_id: string;
+  image_url: string;
+}
+
+export interface ComputePatchResponseDTO {
+  patch: PatchResultDTO;
+}
+
+export interface CharacterConfigDTO {
+  [key: string]: any;
 }
 
 export interface AgentCreate {

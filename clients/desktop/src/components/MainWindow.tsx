@@ -12,6 +12,13 @@ import {
   Alert,
   Tabs,
   Tab,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Tooltip,
+  ToggleButtonGroup,
+  ToggleButton,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -21,10 +28,14 @@ import {
   SmartToy as AgentsIcon,
   Extension as ToolsIcon,
   Chat as ChatIcon,
+  Face as FaceIcon,
+  Person as PersonIcon,
+  Groups as GroupsIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '../store/authStore';
 import { useConversationStore } from '../store/conversationStore';
+import { useAgentStore } from '../store/agentStore';
 import { ChatWidget } from './ChatWidget';
 import { SettingsWindow } from './SettingsWindow';
 import { AgentsWindow } from './AgentsWindow';
@@ -49,6 +60,9 @@ export const MainWindow: React.FC = () => {
     deleteConversation,
     createNewConversation,
   } = useConversationStore();
+  const { agents, selectedAgentId, loadAgents, selectAgent } = useAgentStore();
+
+  const [showCharacterPanel, setShowCharacterPanel] = useState(false);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [error, setError] = useState('');
@@ -59,7 +73,8 @@ export const MainWindow: React.FC = () => {
       setError('Failed to load conversations');
       console.error(err);
     });
-  }, [loadConversations]);
+    loadAgents();
+  }, [loadConversations, loadAgents]);
 
   const handleSelectConversation = async (id: number) => {
     try {
@@ -123,6 +138,14 @@ export const MainWindow: React.FC = () => {
           {user?.username}
         </Typography>
         <IconButton
+          onClick={() => setShowCharacterPanel((v) => !v)}
+          size="small"
+          color={showCharacterPanel ? 'primary' : 'default'}
+          title="Character Panel"
+        >
+          <FaceIcon fontSize="small" />
+        </IconButton>
+        <IconButton
           onClick={() => setCurrentPage(currentPage === 'settings' ? 'chat' : 'settings')}
           size="small"
           color={currentPage === 'settings' ? 'primary' : 'default'}
@@ -173,6 +196,53 @@ export const MainWindow: React.FC = () => {
                   <DeleteIcon />
                 </IconButton>
               </Box>
+
+              {/* Mode selector */}
+              <ToggleButtonGroup
+                value="single"
+                exclusive
+                fullWidth
+                size="small"
+                sx={{ mt: 1.5 }}
+              >
+                <ToggleButton
+                  value="single"
+                  sx={{ textTransform: 'none', fontSize: '0.75rem', py: 0.5 }}
+                >
+                  <PersonIcon sx={{ fontSize: 16, mr: 0.5 }} />
+                  Single Agent
+                </ToggleButton>
+                <Tooltip title="Group discussion mode coming soon">
+                  <span style={{ flex: 1, display: 'flex' }}>
+                    <ToggleButton
+                      value="group"
+                      disabled
+                      sx={{ textTransform: 'none', fontSize: '0.75rem', py: 0.5, flex: 1 }}
+                    >
+                      <GroupsIcon sx={{ fontSize: 16, mr: 0.5 }} />
+                      Group
+                    </ToggleButton>
+                  </span>
+                </Tooltip>
+              </ToggleButtonGroup>
+
+              {/* Agent selector */}
+              {agents.length > 0 && (
+                <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
+                  <InputLabel>Agent</InputLabel>
+                  <Select
+                    value={selectedAgentId ?? ''}
+                    label="Agent"
+                    onChange={(e) => selectAgent(e.target.value as number)}
+                  >
+                    {agents.map((agent) => (
+                      <MenuItem key={agent.id} value={agent.id}>
+                        {agent.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              )}
             </Box>
 
             <Divider />
@@ -217,7 +287,7 @@ export const MainWindow: React.FC = () => {
             </Alert>
           )}
           <Box sx={{ flex: 1, display: currentPage === 'chat' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden' }}>
-            <ChatWidget />
+            <ChatWidget showCharacterPanel={showCharacterPanel} agentId={selectedAgentId} />
           </Box>
           <Box sx={{ flex: 1, display: currentPage === 'agents' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden' }}>
             <AgentsWindow />

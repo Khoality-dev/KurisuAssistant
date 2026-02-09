@@ -164,7 +164,9 @@ class WebSocketManager {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data) as ServerEvent;
-          console.log('[WebSocket] Received:', data.type, data);
+          if (data.type !== 'stream_chunk') {
+            console.log('[WebSocket] Received:', data.type, data);
+          }
           this.dispatchEvent(data);
         } catch (e) {
           console.error('[WebSocket] Failed to parse message:', e);

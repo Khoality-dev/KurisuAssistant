@@ -44,44 +44,43 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
 
   const [currentTab, setCurrentTab] = useState(0);
 
-  const [systemPrompt, setSystemPrompt] = useState('');
   const [preferredName, setPreferredName] = useState('');
   const [ollamaUrl, setOllamaUrl] = useState('');
   const [userAvatarFile, setUserAvatarFile] = useState<File | null>(null);
-  const [agentAvatarFile, setAgentAvatarFile] = useState<File | null>(null);
   const [userAvatarPreview, setUserAvatarPreview] = useState<string | null>(null);
-  const [agentAvatarPreview, setAgentAvatarPreview] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
-  // TTS settings
-  const [ttsBackend, setTtsBackend] = useState(storage.getTTSBackend() || 'gpt-sovits');
-  const [gptSovitsUrl, setGptSovitsUrl] = useState(storage.getGPTSoVITSUrl() || '');
-  const [ttsAutoPlay, setTtsAutoPlay] = useState(storage.getTTSAutoPlay());
+  // TTS settings — auto-saved to localStorage on change
+  const [ttsBackend, setTtsBackendState] = useState(storage.getTTSBackend() || 'gpt-sovits');
+  const [gptSovitsUrl, setGptSovitsUrlState] = useState(storage.getGPTSoVITSUrl() || '');
+  const [ttsAutoPlay, setTtsAutoPlayState] = useState(storage.getTTSAutoPlay());
   const [ttsConnecting, setTtsConnecting] = useState(false);
   const [ttsConnectionStatus, setTtsConnectionStatus] = useState<{ ok: boolean; message: string } | null>(null);
 
   // INDEX-TTS emotion settings
-  const [ttsEmotionAudio, setTtsEmotionAudio] = useState(storage.getTTSEmotionAudio() || '');
-  const [ttsEmotionAlpha, setTtsEmotionAlpha] = useState(storage.getTTSEmotionAlpha());
-  const [ttsUseEmotionText, setTtsUseEmotionText] = useState(storage.getTTSUseEmotionText());
+  const [ttsEmotionAudio, setTtsEmotionAudioState] = useState(storage.getTTSEmotionAudio() || '');
+  const [ttsEmotionAlpha, setTtsEmotionAlphaState] = useState(storage.getTTSEmotionAlpha());
+  const [ttsUseEmotionText, setTtsUseEmotionTextState] = useState(storage.getTTSUseEmotionText());
+
+  // Auto-save wrappers
+  const setTtsBackend = (v: string) => { setTtsBackendState(v); storage.setTTSBackend(v); };
+  const setGptSovitsUrl = (v: string) => { setGptSovitsUrlState(v); storage.setGPTSoVITSUrl(v); };
+  const setTtsAutoPlay = (v: boolean) => { setTtsAutoPlayState(v); storage.setTTSAutoPlay(v); };
+  const setTtsEmotionAudio = (v: string) => { setTtsEmotionAudioState(v); storage.setTTSEmotionAudio(v); };
+  const setTtsEmotionAlpha = (v: number) => { setTtsEmotionAlphaState(v); storage.setTTSEmotionAlpha(v); };
+  const setTtsUseEmotionText = (v: boolean) => { setTtsUseEmotionTextState(v); storage.setTTSUseEmotionText(v); };
 
   const userAvatarInputRef = useRef<HTMLInputElement>(null);
-  const agentAvatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (user) {
-      setSystemPrompt(user.system_prompt || '');
       setPreferredName(user.preferred_name || '');
       setOllamaUrl(user.ollama_url || '');
 
       if (user.user_avatar_uuid) {
         setUserAvatarPreview(apiClient.getImageUrl(user.user_avatar_uuid));
-      }
-      if (user.agent_avatar_uuid || user.assistant_avatar_uuid) {
-        const avatarUuid = user.agent_avatar_uuid || user.assistant_avatar_uuid;
-        setAgentAvatarPreview(apiClient.getImageUrl(avatarUuid!));
       }
     }
   }, [user]);
@@ -104,18 +103,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
     }
   };
 
-  const handleAgentAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setAgentAvatarFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAgentAvatarPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
   const handleSaveAccountSettings = async () => {
     setIsSaving(true);
     setSuccessMessage('');
@@ -124,9 +111,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
     try {
       // Update text fields (JSON request - PATCH /users/me)
       const profileUpdates: Partial<UserProfile> = {};
-      if (systemPrompt !== undefined && systemPrompt !== '') {
-        profileUpdates.system_prompt = systemPrompt;
-      }
       if (preferredName !== undefined && preferredName !== '') {
         profileUpdates.preferred_name = preferredName;
       }
@@ -137,16 +121,15 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
         await apiClient.updateUserProfile(profileUpdates);
       }
 
-      // Update avatars (multipart request - PATCH /users/me/avatars)
-      if (userAvatarFile || agentAvatarFile) {
-        await apiClient.updateUserAvatars(userAvatarFile || undefined, agentAvatarFile || undefined);
+      // Update avatar (multipart request - PATCH /users/me/avatars)
+      if (userAvatarFile) {
+        await apiClient.updateUserAvatars(userAvatarFile, undefined);
       }
 
       await loadUserProfile(); // Reload user profile to get updated data
 
-      setSuccessMessage('Account settings saved successfully!');
+      setSuccessMessage('Settings saved successfully!');
       setUserAvatarFile(null);
-      setAgentAvatarFile(null);
 
       // Clear success message after 3 seconds
       setTimeout(() => setSuccessMessage(''), 3000);
@@ -171,25 +154,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
     }
   };
 
-  const handleSaveTTSSettings = () => {
-    try {
-      // Save TTS settings to localStorage only
-      storage.setTTSBackend(ttsBackend);
-      storage.setGPTSoVITSUrl(gptSovitsUrl);
-      storage.setTTSAutoPlay(ttsAutoPlay);
-
-      // Save INDEX-TTS emotion settings
-      storage.setTTSEmotionAudio(ttsEmotionAudio);
-      storage.setTTSEmotionAlpha(ttsEmotionAlpha);
-      storage.setTTSUseEmotionText(ttsUseEmotionText);
-
-      setSuccessMessage('TTS settings saved successfully!');
-      setTimeout(() => setSuccessMessage(''), 3000);
-    } catch (error: any) {
-      console.error('Failed to save TTS settings:', error);
-      setErrorMessage(error.message || 'Failed to save TTS settings');
-    }
-  };
+  // TTS settings are now auto-saved on change — no manual save needed
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -271,35 +236,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
             </Box>
           </Box>
 
-          {/* Agent Avatar */}
-          <Box sx={{ mb: 4 }}>
-            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
-              Agent Avatar
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Avatar
-                src={agentAvatarPreview || undefined}
-                sx={{ width: 80, height: 80, bgcolor: 'primary.main' }}
-              >
-                {!agentAvatarPreview && 'A'}
-              </Avatar>
-              <input
-                ref={agentAvatarInputRef}
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={handleAgentAvatarSelect}
-              />
-              <Button
-                variant="outlined"
-                startIcon={<PhotoCameraIcon />}
-                onClick={() => agentAvatarInputRef.current?.click()}
-              >
-                Upload Avatar
-              </Button>
-            </Box>
-          </Box>
-
           {/* Preferred Name */}
           <Box sx={{ mb: 4 }}>
             <TextField
@@ -308,19 +244,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
               onChange={(e) => setPreferredName(e.target.value)}
               fullWidth
               helperText="How the agent should address you"
-            />
-          </Box>
-
-          {/* System Prompt */}
-          <Box sx={{ mb: 4 }}>
-            <TextField
-              label="System Prompt"
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-              multiline
-              rows={8}
-              fullWidth
-              helperText="Custom instructions for the agent's behavior"
             />
           </Box>
 
@@ -492,16 +415,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
             </>
           )}
 
-          {/* Save TTS Settings Button */}
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button
-              variant="contained"
-              startIcon={<SaveIcon />}
-              onClick={handleSaveTTSSettings}
-            >
-              Save TTS Settings
-            </Button>
-          </Box>
+          {/* TTS settings are auto-saved on change */}
         </MotionPaper>
         )}
       </Box>

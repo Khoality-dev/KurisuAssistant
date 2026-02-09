@@ -16,6 +16,9 @@ import type {
   AgentUpdate,
   ToolsResponse,
   MCPServersResponse,
+  UploadBaseResponseDTO,
+  ComputePatchResponseDTO,
+  CharacterConfigDTO,
 } from './types';
 
 class APIClient {
@@ -350,6 +353,60 @@ class APIClient {
     const response = await this.client.get<MCPServersResponse>('/mcp-servers', {
       headers: this.getHeaders(),
     });
+    return response.data;
+  }
+
+  // Character Asset Methods
+
+  /**
+   * Upload a base portrait image for character animation
+   */
+  async uploadCharacterBase(file: File): Promise<UploadBaseResponseDTO> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await this.client.post<UploadBaseResponseDTO>(
+      '/character-assets/upload-base',
+      formData,
+      { headers: this.getHeaders() }
+    );
+    return response.data;
+  }
+
+  /**
+   * Upload a keyframe image and compute diff patch against a base image
+   */
+  async computeCharacterPatch(baseAssetId: string, keyframeFile: File): Promise<ComputePatchResponseDTO> {
+    const formData = new FormData();
+    formData.append('keyframe', keyframeFile);
+
+    const response = await this.client.post<ComputePatchResponseDTO>(
+      '/character-assets/compute-patch',
+      formData,
+      {
+        headers: this.getHeaders(),
+        params: { base_asset_id: baseAssetId },
+      }
+    );
+    return response.data;
+  }
+
+  /**
+   * Get full URL for a character asset image
+   */
+  getCharacterAssetUrl(assetId: string): string {
+    return `${config.apiBaseUrl}/character-assets/${assetId}`;
+  }
+
+  /**
+   * Update an agent's character animation config (pose tree)
+   */
+  async updateCharacterConfig(agentId: number, characterConfig: CharacterConfigDTO): Promise<any> {
+    const response = await this.client.patch(
+      `/character-assets/${agentId}/character-config`,
+      characterConfig,
+      { headers: this.getHeaders() }
+    );
     return response.data;
   }
 }

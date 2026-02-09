@@ -16,7 +16,6 @@ import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import { apiClient } from '../api/client';
 import { config } from '../config';
-import { useTTS } from '../hooks/useTTS';
 import { storage } from '../utils/storage';
 import type { Message, MessageRawData } from '../api/types';
 
@@ -37,6 +36,7 @@ interface MessageBubbleProps {
   onRegenerate?: (messageIndex: number) => void;
   onResend?: (messageIndex: number) => void;
   onDelete?: (messageIndex: number) => void;
+  ttsRef: React.RefObject<{ speak: (text: string, voice?: string, language?: string, backend?: string, emotionParams?: { emo_audio?: string; emo_alpha?: number; use_emo_text?: boolean }, apiUrl?: string) => Promise<void>; stopTTS: () => void; isTTSPlaying: boolean; setActiveAgentForTTS: (agentId: number | null) => void }>;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -54,10 +54,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   onRegenerate,
   onResend,
   onDelete,
+  ttsRef,
 }) => {
   const isStreamingThisMessage = isLast && message.role !== 'user' && isStreaming;
   const showFinishedIndicator = isLast && message.role !== 'user' && justFinishedStreaming && !isStreaming;
-  const { speak, stop, isPlaying } = useTTS();
+  const [localPlaying, setLocalPlaying] = useState(false);
 
   // Raw data dialog state
   const [rawDialogOpen, setRawDialogOpen] = useState(false);
@@ -82,11 +83,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   };
 
   const handleTTS = async () => {
-    if (isPlaying) {
-      stop();
+    if (localPlaying) {
+      ttsRef.current.stopTTS();
+      ttsRef.current.setActiveAgentForTTS(null);
+      setLocalPlaying(false);
     } else {
       try {
-        // Read fresh from storage each time (settings may have changed)
+        setLocalPlaying(true);
+        // Activate this agent's character panel for lip sync
+        if (message.agent?.id) {
+          ttsRef.current.setActiveAgentForTTS(message.agent.id);
+        }
         const currentBackend = storage.getTTSBackend() || 'gpt-sovits';
         const currentApiUrl = storage.getGPTSoVITSUrl() || undefined;
         const emotionParams =
@@ -99,9 +106,12 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             : undefined;
 
         const voice = message.voice_reference || message.agent?.voice_reference || undefined;
-        await speak(message.content, voice, undefined, currentBackend, emotionParams, currentApiUrl);
+        await ttsRef.current.speak(message.content, voice, undefined, currentBackend, emotionParams, currentApiUrl);
       } catch (error) {
         console.error('Failed to play TTS:', error);
+      } finally {
+        setLocalPlaying(false);
+        ttsRef.current.setActiveAgentForTTS(null);
       }
     }
   };
@@ -461,17 +471,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             </Tooltip>
             {/* TTS - non-user messages only */}
             {!isUser && (
-              <Tooltip title={isPlaying ? 'Stop' : 'Read aloud'}>
+              <Tooltip title={localPlaying ? 'Stop' : 'Read aloud'}>
                 <IconButton
                   size="small"
                   onClick={handleTTS}
                   sx={{
                     p: 0.5,
-                    color: isPlaying ? 'error.main' : 'text.disabled',
-                    '&:hover': { color: isPlaying ? 'error.main' : 'text.secondary', backgroundColor: 'action.hover' },
+                    color: localPlaying ? 'error.main' : 'text.disabled',
+                    '&:hover': { color: localPlaying ? 'error.main' : 'text.secondary', backgroundColor: 'action.hover' },
                   }}
                 >
-                  {isPlaying ? <StopIcon sx={{ fontSize: 16 }} /> : <VolumeUpIcon sx={{ fontSize: 16 }} />}
+                  {localPlaying ? <StopIcon sx={{ fontSize: 16 }} /> : <VolumeUpIcon sx={{ fontSize: 16 }} />}
                 </IconButton>
               </Tooltip>
             )}
