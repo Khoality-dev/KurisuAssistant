@@ -24,10 +24,4 @@ build/
 # OS
 .DS_Store
 Thumbs.db
-
-# Python (legacy)
-__pycache__/
-*.py[cod]
-*$py.class
-venv/
-.Python
+nul
