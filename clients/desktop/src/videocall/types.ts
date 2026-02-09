@@ -40,24 +40,42 @@ export interface ProcessedPose {
   mouthPatches: LoadedPatch[];
 }
 
+// ─── Transition Conditions ───
+
+/** Random timer condition — fires after a random interval */
+export interface RandomCondition {
+  type: 'random';
+  min_interval_ms: number;
+  max_interval_ms: number;
+}
+
+/** Thinking condition — fires when the agent starts or stops thinking */
+export interface ThinkingCondition {
+  type: 'thinking';
+  trigger: 'start' | 'end';  // 'start' = fires on false→true, 'end' = fires on true→false
+}
+
+// Extensible union — add KeywordCondition, TimeCondition, CameraCondition later
+export type TransitionCondition = RandomCondition | ThinkingCondition;
+
+// ─── Animation Graph ───
+
 /** A node in the animation tree */
 export interface AnimationNode {
   id: string;
   name: string;
-  type: 'pose' | 'leaf';
-  // For pose nodes: has PoseConfig (lip sync + blink)
-  // For leaf nodes: just a state marker (no lip sync)
+  type: 'pose';
   pose_config?: PoseConfig;
+  position: { x: number; y: number };  // Canvas position for React Flow persistence
 }
 
-/** A directed edge = a video/sprite transition between two nodes */
+/** A directed edge = a video transition between two nodes */
 export interface AnimationEdge {
   id: string;
   from_node_id: string;
   to_node_id: string;
   video_url?: string;             // Video clip for this transition
-  frame_urls?: string[];          // OR sprite sequence frames
-  fps: number;                    // Playback speed (default 24)
+  condition?: TransitionCondition;
 }
 
 /** The full animation tree for a character */

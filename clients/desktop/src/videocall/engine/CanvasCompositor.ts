@@ -1,15 +1,30 @@
-import type { PoseConfig, ProcessedPose, LoadedPatch } from '../types';
+import type { PoseConfig, PoseTree, ProcessedPose, LoadedPatch, AnimationEdge } from '../types';
 import { getCachedImage } from './ImageCache';
 
 type BlinkState = 'open' | 'closing' | 'closed' | 'opening';
+type CompositorState = 'idle' | 'transitioning';
+
+interface EdgeTimer {
+  elapsed: number;
+  target: number;
+}
 
 export class CanvasCompositor {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private animFrameId: number | null = null;
 
-  // Current loaded pose
+  // Current loaded pose (single-pose backward compat)
   private pose: ProcessedPose | null = null;
+
+  // Pose tree state machine
+  private poseTree: PoseTree | null = null;
+  private allPoses: Map<string, ProcessedPose> = new Map();
+  private currentNodeId: string | null = null;
+  private state: CompositorState = 'idle';
+  private transitionVideo: HTMLVideoElement | null = null;
+  private edgeTimers: Map<string, EdgeTimer> = new Map();
+  private apiBaseUrl: string = '';
 
   // Blink state machine
   private blinkState: BlinkState = 'open';
@@ -27,6 +42,8 @@ export class CanvasCompositor {
   // External inputs (set by React component via setters)
   public mouthAmplitude = 0;
   public isAudioPlaying = false;
+  public isThinking = false;
+  private prevIsThinking = false;  // For edge detection (false→true / true→false)
 
   // Manual eye overrides (-1 = auto blink, 0+ = forced patch index)
   public leftEyeOverride = -1;
@@ -66,9 +83,131 @@ export class CanvasCompositor {
   }
 
   private update(dt: number): void {
-    this.updateBlink(dt);
-    if (this.breathingEnabled) {
-      this.breathingTimer += dt;
+    if (this.state === 'idle') {
+      this.updateBlink(dt);
+      if (this.breathingEnabled) {
+        this.breathingTimer += dt;
+      }
+      this.updateEdgeTimers(dt);
+      this.checkThinkingEdges();
+    }
+    // During transitioning, skip blink/breathing/edge timer updates
+  }
+
+  private updateEdgeTimers(dt: number): void {
+    if (!this.poseTree || !this.currentNodeId) return;
+
+    // Tick all edge timers for outgoing edges from current node
+    for (const [edgeId, timer] of this.edgeTimers) {
+      timer.elapsed += dt;
+      if (timer.elapsed >= timer.target) {
+        // Find the edge
+        const edge = this.poseTree.edges.find((e) => e.id === edgeId);
+        if (edge) {
+          this.startTransition(edge);
+          return; // Only fire one transition at a time
+        }
+      }
+    }
+  }
+
+  private checkThinkingEdges(): void {
+    if (!this.poseTree || !this.currentNodeId) {
+      this.prevIsThinking = this.isThinking;
+      return;
+    }
+
+    const risingEdge = !this.prevIsThinking && this.isThinking;   // false→true
+    const fallingEdge = this.prevIsThinking && !this.isThinking;  // true→false
+    this.prevIsThinking = this.isThinking;
+
+    if (!risingEdge && !fallingEdge) return;
+
+    for (const edge of this.poseTree.edges) {
+      if (edge.from_node_id !== this.currentNodeId) continue;
+      if (edge.condition?.type !== 'thinking') continue;
+
+      if (
+        (edge.condition.trigger === 'start' && risingEdge) ||
+        (edge.condition.trigger === 'end' && fallingEdge)
+      ) {
+        this.startTransition(edge);
+        return;
+      }
+    }
+  }
+
+  private startTransition(edge: AnimationEdge): void {
+    if (edge.video_url) {
+      // Play transition video
+      const resolveUrl = (url: string) =>
+        url.startsWith('http') ? url : `${this.apiBaseUrl}${url}`;
+
+      const video = document.createElement('video');
+      video.src = resolveUrl(edge.video_url);
+      video.muted = true; // Transition videos are silent
+      video.playsInline = true;
+
+      this.state = 'transitioning';
+      this.transitionVideo = video;
+
+      video.onended = () => {
+        this.switchToPose(edge.to_node_id);
+      };
+      video.onerror = () => {
+        console.error('[CanvasCompositor] Transition video failed to load:', edge.video_url);
+        this.switchToPose(edge.to_node_id);
+      };
+
+      video.play().catch(() => {
+        // Autoplay might be blocked — instant switch
+        this.switchToPose(edge.to_node_id);
+      });
+    } else {
+      // No video — instant switch
+      this.switchToPose(edge.to_node_id);
+    }
+  }
+
+  private switchToPose(nodeId: string): void {
+    const newPose = this.allPoses.get(nodeId);
+    if (newPose) {
+      this.pose = newPose;
+      this.currentNodeId = nodeId;
+    }
+
+    // Clean up video
+    if (this.transitionVideo) {
+      this.transitionVideo.pause();
+      this.transitionVideo.src = '';
+      this.transitionVideo = null;
+    }
+
+    // Reset blink
+    this.blinkState = 'open';
+    this.leftEyeIndex = 0;
+    this.rightEyeIndex = 0;
+    this.scheduleNextBlink();
+
+    // Reset edge timers for new node's outgoing edges
+    this.initEdgeTimers();
+
+    this.state = 'idle';
+  }
+
+  private initEdgeTimers(): void {
+    this.edgeTimers.clear();
+    if (!this.poseTree || !this.currentNodeId) return;
+
+    for (const edge of this.poseTree.edges) {
+      if (edge.from_node_id !== this.currentNodeId) continue;
+      if (!edge.condition) continue;
+
+      if (edge.condition.type === 'random') {
+        const { min_interval_ms, max_interval_ms } = edge.condition;
+        const target = min_interval_ms + Math.random() * (max_interval_ms - min_interval_ms);
+        this.edgeTimers.set(edge.id, { elapsed: 0, target });
+      }
     }
   }
 
@@ -94,10 +233,8 @@ export class CanvasCompositor {
         break;
 
       case 'closing': {
-        // Transition through eye patches from open→closed over ~100ms
         const closingDuration = 100;
         const progress = Math.min(this.blinkTimer / closingDuration, 1.0);
-        // Map progress 0→1 to patch indices 1→numEyePatches (0 is default/open)
         const idx = Math.min(Math.round(progress * numEyePatches), numEyePatches);
         this.leftEyeIndex = idx;
         this.rightEyeIndex = idx;
@@ -111,7 +248,6 @@ export class CanvasCompositor {
       case 'closed':
         this.leftEyeIndex = numEyePatches;
         this.rightEyeIndex = numEyePatches;
-        // Stay closed for ~50ms
         if (this.blinkTimer >= 50) {
           this.blinkState = 'opening';
           this.blinkTimer = 0;
@@ -119,10 +255,8 @@ export class CanvasCompositor {
         break;
 
       case 'opening': {
-        // Transition from closed→open over ~100ms
         const openingDuration = 100;
         const progress = Math.min(this.blinkTimer / openingDuration, 1.0);
-        // Map progress 0→1 to patch indices numEyePatches→0
         const idx = Math.max(Math.round((1 - progress) * numEyePatches), 0);
         this.leftEyeIndex = idx;
         this.rightEyeIndex = idx;
@@ -139,9 +273,19 @@ export class CanvasCompositor {
   }
 
   private draw(): void {
-    const { ctx, canvas, pose } = this;
+    const { ctx, canvas } = this;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // During transition, draw the video frame
+    if (this.state === 'transitioning' && this.transitionVideo) {
+      const video = this.transitionVideo;
+      if (video.readyState >= 2) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      }
+      return;
+    }
+
+    const pose = this.pose;
     if (!pose) return;
 
     // Compute scale factors for patches (since we scale the base to canvas size)
@@ -204,12 +348,64 @@ export class CanvasCompositor {
     if (!this.isAudioPlaying || !this.pose) return 0;
     const numMouthPatches = this.pose.mouthPatches.length;
     if (numMouthPatches === 0) return 0;
-    // Map amplitude 0→1 to state 0→numMouthPatches
     return Math.round(this.mouthAmplitude * numMouthPatches);
   }
 
-  /** Load a pose configuration — fetches all images */
+  /** Load a single pose configuration — fetches all images (backward compat) */
   async loadPose(poseConfig: PoseConfig, apiBaseUrl: string): Promise<void> {
+    this.apiBaseUrl = apiBaseUrl;
+    const processed = await this.processPoseConfig(poseConfig, apiBaseUrl);
+    this.pose = processed;
+    // Clear tree state when loading single pose
+    this.poseTree = null;
+    this.allPoses.clear();
+    this.currentNodeId = null;
+    this.edgeTimers.clear();
+    this.state = 'idle';
+  }
+
+  /** Load a full pose tree — fetches all images for all nodes, sets up state machine */
+  async loadPoseTree(poseTree: PoseTree, apiBaseUrl: string): Promise<void> {
+    this.apiBaseUrl = apiBaseUrl;
+    this.poseTree = poseTree;
+    this.allPoses.clear();
+    this.edgeTimers.clear();
+
+    // Clean up any existing transition video
+    if (this.transitionVideo) {
+      this.transitionVideo.pause();
+      this.transitionVideo.src = '';
+      this.transitionVideo = null;
+    }
+
+    // Load all pose nodes in parallel
+    const loadPromises = poseTree.nodes
+      .filter((n) => n.pose_config)
+      .map(async (node) => {
+        const processed = await this.processPoseConfig(node.pose_config!, apiBaseUrl);
+        this.allPoses.set(node.id, processed);
+      });
+
+    await Promise.all(loadPromises);
+
+    // Set current node to default
+    this.currentNodeId = poseTree.default_pose_id;
+    this.pose = this.allPoses.get(poseTree.default_pose_id) || null;
+
+    // Reset blink state
+    this.blinkState = 'open';
+    this.leftEyeIndex = 0;
+    this.rightEyeIndex = 0;
+    this.scheduleNextBlink();
+
+    // Initialize edge timers
+    this.initEdgeTimers();
+
+    this.state = 'idle';
+  }
+
+  /** Process a PoseConfig into a ProcessedPose (load all images) */
+  private async processPoseConfig(poseConfig: PoseConfig, apiBaseUrl: string): Promise<ProcessedPose> {
     const resolveUrl = (url: string) =>
       url.startsWith('http') ? url : `${apiBaseUrl}${url}`;
 
@@ -227,7 +423,6 @@ export class CanvasCompositor {
       poseConfig.mouth.patches.map((p) => getCachedImage(resolveUrl(p.image_url))),
     );
 
-    // Build LoadedPatch arrays
     const leftEyePatches: LoadedPatch[] = poseConfig.left_eye.patches.map((p, i) => ({
       image: leftEyeImages[i],
       x: p.x,
@@ -252,7 +447,7 @@ export class CanvasCompositor {
       height: p.height,
     }));
 
-    this.pose = {
+    return {
       name: poseConfig.name,
       baseImage,
       leftEyePatches,
@@ -269,11 +464,21 @@ export class CanvasCompositor {
   /** Clear the current pose */
   clearPose(): void {
     this.pose = null;
+    this.poseTree = null;
+    this.allPoses.clear();
+    this.currentNodeId = null;
+    this.edgeTimers.clear();
+    this.state = 'idle';
+    if (this.transitionVideo) {
+      this.transitionVideo.pause();
+      this.transitionVideo.src = '';
+      this.transitionVideo = null;
+    }
   }
 
   /** Clean up resources */
   destroy(): void {
     this.stop();
-    this.pose = null;
+    this.clearPose();
   }
 }

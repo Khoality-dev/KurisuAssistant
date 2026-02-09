@@ -1,18 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CharacterRenderer } from './videocall/CharacterRenderer';
 import type { AmplitudeState } from './videocall/CharacterRenderer';
-import type { PoseConfig } from './videocall/types';
+import type { PoseTree } from './videocall/types';
 
 interface AgentEntry {
   name: string;
-  poseConfig: PoseConfig | null;
+  poseTree: PoseTree | null;
 }
 
 export const CharacterWindowApp: React.FC = () => {
   const [agentMap, setAgentMap] = useState<Map<number, AgentEntry>>(new Map());
   const [activeAgentId, setActiveAgentId] = useState<number | null>(null);
-  const amplitudeRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false });
-  const silentRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false });
+  const amplitudeRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false, isThinking: false });
+  const silentRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false, isThinking: false });
 
   useEffect(() => {
     const api = window.electron?.characterWindow;
@@ -24,14 +24,16 @@ export const CharacterWindowApp: React.FC = () => {
 
     const cleanupAgents = api.onAgentsUpdate((data) => {
       setActiveAgentId(data.activeAgentId);
-      // Only rebuild agentMap if agents actually changed (avoids re-triggering loadPose)
+      // Only rebuild agentMap if agents actually changed (avoids re-triggering loadPoseTree)
       setAgentMap((prev) => {
         if (prev.size === data.agents.length) {
           let same = true;
           for (const agent of data.agents) {
             const existing = prev.get(agent.id);
             if (!existing || existing.name !== agent.name ||
-                existing.poseConfig?.base_image_url !== agent.poseConfig?.base_image_url) {
+                existing.poseTree?.default_pose_id !== agent.poseTree?.default_pose_id ||
+                existing.poseTree?.nodes?.length !== agent.poseTree?.nodes?.length ||
+                existing.poseTree?.edges?.length !== agent.poseTree?.edges?.length) {
               same = false;
               break;
             }
@@ -40,7 +42,7 @@ export const CharacterWindowApp: React.FC = () => {
         }
         const map = new Map<number, AgentEntry>();
         for (const agent of data.agents) {
-          map.set(agent.id, { name: agent.name, poseConfig: agent.poseConfig });
+          map.set(agent.id, { name: agent.name, poseTree: agent.poseTree });
         }
         return map;
       });
@@ -103,9 +105,9 @@ export const CharacterWindowApp: React.FC = () => {
                 : {}),
             }}
           >
-            {entry.poseConfig ? (
+            {entry.poseTree ? (
               <CharacterRenderer
-                poseConfig={entry.poseConfig}
+                poseTree={entry.poseTree}
                 amplitudeRef={activeAgentId === id ? amplitudeRef : silentRef}
               />
             ) : (

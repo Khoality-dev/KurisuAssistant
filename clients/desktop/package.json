@@ -25,6 +25,7 @@
     "@mui/icons-material": "^5.15.6",
     "@mui/material": "^5.15.6",
     "@ricky0123/vad-web": "^0.0.30",
+    "@xyflow/react": "^12.10.0",
     "axios": "^1.6.5",
     "electron-store": "^11.0.2",
     "framer-motion": "^11.0.3",

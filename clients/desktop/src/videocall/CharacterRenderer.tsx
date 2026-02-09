@@ -1,20 +1,21 @@
 import React, { useRef, useEffect } from 'react';
 import { CanvasCompositor } from './engine/CanvasCompositor';
-import type { PoseConfig } from './types';
+import type { PoseTree } from './types';
 import { config } from '../config';
 
 export interface AmplitudeState {
   amplitude: number;
   isPlaying: boolean;
+  isThinking: boolean;
 }
 
 interface CharacterRendererProps {
-  poseConfig: PoseConfig | null;
+  poseTree: PoseTree | null;
   amplitudeRef: React.RefObject<AmplitudeState>;
 }
 
 export const CharacterRenderer: React.FC<CharacterRendererProps> = ({
-  poseConfig,
+  poseTree,
   amplitudeRef,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -29,34 +30,17 @@ export const CharacterRenderer: React.FC<CharacterRendererProps> = ({
     return () => compositor.destroy();
   }, []);
 
-  // Load pose config when it changes
+  // Load pose tree when it changes
   useEffect(() => {
     if (!compositorRef.current) return;
-    if (poseConfig) {
-      console.log('[CharacterRenderer] loadPose called with:', {
-        name: poseConfig.name,
-        base_image_url: poseConfig.base_image_url,
-        left_eye_patches: poseConfig.left_eye?.patches?.length ?? 'MISSING',
-        right_eye_patches: poseConfig.right_eye?.patches?.length ?? 'MISSING',
-        mouth_patches: poseConfig.mouth?.patches?.length ?? 'MISSING',
-      });
-      compositorRef.current.loadPose(poseConfig, config.apiBaseUrl).then(() => {
-        const pose = compositorRef.current?.getPose();
-        if (pose) {
-          console.log('[CharacterRenderer] Pose loaded OK:', {
-            leftEyePatches: pose.leftEyePatches.length,
-            rightEyePatches: pose.rightEyePatches.length,
-            mouthPatches: pose.mouthPatches.length,
-            baseImageSize: `${pose.baseImage.naturalWidth}x${pose.baseImage.naturalHeight}`,
-          });
-        }
-      }).catch((err) => {
-        console.error('[CharacterRenderer] Failed to load pose:', err);
+    if (poseTree) {
+      compositorRef.current.loadPoseTree(poseTree, config.apiBaseUrl).catch((err) => {
+        console.error('[CharacterRenderer] Failed to load pose tree:', err);
       });
     } else {
       compositorRef.current.clearPose();
     }
-  }, [poseConfig]);
+  }, [poseTree]);
 
   // Sync amplitude from ref to compositor at ~60fps (no React re-renders)
   useEffect(() => {
@@ -65,6 +49,7 @@ export const CharacterRenderer: React.FC<CharacterRendererProps> = ({
       if (compositorRef.current && amplitudeRef.current) {
         compositorRef.current.mouthAmplitude = amplitudeRef.current.amplitude;
         compositorRef.current.isAudioPlaying = amplitudeRef.current.isPlaying;
+        compositorRef.current.isThinking = amplitudeRef.current.isThinking;
       }
       rafId = requestAnimationFrame(sync);
     };

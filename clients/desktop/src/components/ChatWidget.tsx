@@ -33,7 +33,7 @@ import { storage } from '../utils/storage';
 import { useTTS } from '../hooks/useTTS';
 import { useASR } from '../hooks/useASR';
 import type { AmplitudeState } from '../videocall/CharacterRenderer';
-import type { PoseConfig } from '../videocall/types';
+import type { PoseTree } from '../videocall/types';
 import { MessageBubble } from './MessageBubble';
 import type { Message } from '../api/types';
 
@@ -68,13 +68,13 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   const [showAdministrator, setShowAdministrator] = useState<boolean>(storage.getShowAdministrator());
 
   // Amplitude state (updated via ref to avoid re-renders, sent to character window via IPC)
-  const amplitudeRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false });
+  const amplitudeRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false, isThinking: false });
   const onAmplitudeUpdate = useCallback((amplitude: number, isPlaying: boolean) => {
-    amplitudeRef.current = { amplitude, isPlaying };
+    amplitudeRef.current = { ...amplitudeRef.current, amplitude, isPlaying };
   }, []);
 
   // Character panel state — all agents in conversation
-  interface AgentEntry { name: string; poseConfig: PoseConfig | null }
+  interface AgentEntry { name: string; poseTree: PoseTree | null }
   const [agentMap, setAgentMap] = useState<Map<number, AgentEntry>>(new Map());
   const [activeAgentId, setActiveAgentId] = useState<number | null>(null);
   const agentCacheRef = useRef<Set<number>>(new Set()); // IDs already fetched
@@ -124,25 +124,17 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     agentCacheRef.current.add(agentId);
     apiClient.getAgent(agentId).then((agent) => {
       const cc = agent.character_config;
-      console.log('[fetchAgentForPanel] character_config:', JSON.stringify(cc, null, 2));
-      let poseConfig: PoseConfig | null = null;
-      if (cc?.pose_tree?.nodes) {
-        const poseNode = cc.pose_tree.nodes.find(
-          (n: any) => n.id === cc.pose_tree.default_pose_id && n.type === 'pose',
-        );
-        console.log('[fetchAgentForPanel] poseNode:', JSON.stringify(poseNode, null, 2));
-        poseConfig = poseNode?.pose_config ?? null;
-      }
+      const poseTree = cc?.pose_tree ?? null;
       setAgentMap((prev) => {
         const next = new Map(prev);
-        next.set(agentId, { name: agent.name, poseConfig });
+        next.set(agentId, { name: agent.name, poseTree });
         return next;
       });
     }).catch(() => {
       // Still add to map with null config so we show the name
       setAgentMap((prev) => {
         const next = new Map(prev);
-        next.set(agentId, { name: agentName || `Agent ${agentId}`, poseConfig: null });
+        next.set(agentId, { name: agentName || `Agent ${agentId}`, poseTree: null });
         return next;
       });
     });
@@ -159,7 +151,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   useEffect(() => {
     if (!isQueueActive && !isStreaming) {
       setActiveAgentId(null);
-      amplitudeRef.current = { amplitude: 0, isPlaying: false };
+      amplitudeRef.current = { amplitude: 0, isPlaying: false, isThinking: false };
     }
   }, [isQueueActive, isStreaming]);
 
@@ -203,14 +195,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     const agents = Array.from(map.entries()).map(([agentId, entry]) => ({
       id: agentId,
       name: entry.name,
-      poseConfig: entry.poseConfig,
+      poseTree: entry.poseTree,
     }));
-    console.log('[ChatWidget] sendAgentState:', agents.map(a => ({
-      id: a.id, name: a.name,
-      left_eye: a.poseConfig?.left_eye?.patches?.length,
-      right_eye: a.poseConfig?.right_eye?.patches?.length,
-      mouth: a.poseConfig?.mouth?.patches?.length,
-    })));
     api.sendAgentsUpdate({ agents, activeAgentId: id });
   }, []);
 
@@ -457,10 +443,15 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       }
     }
 
-    // Always accumulate thinking
+    // Always accumulate thinking + update isThinking for character transitions
     if (event.thinking) {
       state.accumulatedThinking += event.thinking;
+      amplitudeRef.current = { ...amplitudeRef.current, isThinking: true };
       scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
+    }
+    if (event.content) {
+      // Content arrived — thinking phase is over
+      amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
     }
 
     // Streaming TTS auto-play: feed complete sentences to TTS queue
@@ -488,6 +479,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     if (event.conversation_id && state.conversationId && event.conversation_id !== state.conversationId) {
       return;
     }
+
+    // Clear thinking state
+    amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
 
     // Flush remaining TTS buffer
     if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
@@ -550,7 +544,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   }, []);
 
   const handleReconnected = useCallback((_event: BaseEvent) => {
-    console.log('[ChatWidget] WebSocket reconnected, reloading conversation');
     const convId = activeConversationId || streamingStateRef.current.conversationId;
     if (convId) {
       // Reload immediately to show whatever is saved
@@ -565,20 +558,36 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     }
   }, [activeConversationId, loadConversation]);
 
-  // Set up WebSocket event listeners
+  // Stable refs for WebSocket handlers — avoids re-registering on every render
+  // (queueText → playQueue → amplitudeController cascading instability)
+  const handleStreamChunkRef = useRef(handleStreamChunk);
+  handleStreamChunkRef.current = handleStreamChunk;
+  const handleDoneRef = useRef(handleDone);
+  handleDoneRef.current = handleDone;
+  const handleErrorRef = useRef(handleError);
+  handleErrorRef.current = handleError;
+  const handleReconnectedRef = useRef(handleReconnected);
+  handleReconnectedRef.current = handleReconnected;
+
+  // Set up WebSocket event listeners (registered once, delegates to latest ref)
   useEffect(() => {
-    wsManager.on('stream_chunk', handleStreamChunk);
-    wsManager.on('done', handleDone);
-    wsManager.on('error', handleError);
-    wsManager.on('reconnected', handleReconnected);
+    const onChunk = (e: StreamChunkEvent) => handleStreamChunkRef.current(e);
+    const onDone = (e: DoneEvent) => handleDoneRef.current(e);
+    const onError = (e: ErrorEvent) => handleErrorRef.current(e);
+    const onReconnected = (e: BaseEvent) => handleReconnectedRef.current(e);
+
+    wsManager.on('stream_chunk', onChunk);
+    wsManager.on('done', onDone);
+    wsManager.on('error', onError);
+    wsManager.on('reconnected', onReconnected);
 
     return () => {
-      wsManager.off('stream_chunk', handleStreamChunk);
-      wsManager.off('done', handleDone);
-      wsManager.off('error', handleError);
-      wsManager.off('reconnected', handleReconnected);
+      wsManager.off('stream_chunk', onChunk);
+      wsManager.off('done', onDone);
+      wsManager.off('error', onError);
+      wsManager.off('reconnected', onReconnected);
     };
-  }, [handleStreamChunk, handleDone, handleError, handleReconnected]);
+  }, []);
 
   // Handle scroll to load more messages
   const handleScroll = () => {

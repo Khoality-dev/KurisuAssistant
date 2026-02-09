@@ -18,6 +18,7 @@ import type {
   MCPServersResponse,
   UploadBaseResponseDTO,
   ComputePatchResponseDTO,
+  UploadVideoResponseDTO,
   CharacterConfigDTO,
 } from './types';
 
@@ -361,7 +362,7 @@ class APIClient {
   /**
    * Upload a base portrait image for character animation
    */
-  async uploadCharacterBase(agentId: number, file: File): Promise<UploadBaseResponseDTO> {
+  async uploadCharacterBase(agentId: number, poseId: string, file: File): Promise<UploadBaseResponseDTO> {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -370,19 +371,19 @@ class APIClient {
       formData,
       {
         headers: this.getHeaders(),
-        params: { agent_id: agentId },
+        params: { agent_id: agentId, pose_id: poseId },
       }
     );
     return response.data;
   }
 
   /**
-   * Upload a keyframe image and compute diff patch against a base image
+   * Upload a keyframe image and compute diff patch against the pose's base image
    */
   async computeCharacterPatch(
-    baseAssetId: string,
-    keyframeFile: File,
     agentId: number,
+    poseId: string,
+    keyframeFile: File,
     part: string,
     index: number,
   ): Promise<ComputePatchResponseDTO> {
@@ -394,7 +395,26 @@ class APIClient {
       formData,
       {
         headers: this.getHeaders(),
-        params: { base_asset_id: baseAssetId, agent_id: agentId, part, index },
+        params: { agent_id: agentId, pose_id: poseId, part, index },
+      }
+    );
+    return response.data;
+  }
+
+  /**
+   * Upload a transition video for an animation edge
+   */
+  async uploadTransitionVideo(agentId: number, edgeId: string, file: File): Promise<UploadVideoResponseDTO> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await this.client.post<UploadVideoResponseDTO>(
+      '/character-assets/upload-video',
+      formData,
+      {
+        headers: this.getHeaders(),
+        params: { agent_id: agentId, edge_id: edgeId },
+        timeout: 60000,
       }
     );
     return response.data;

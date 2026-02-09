@@ -117,6 +117,11 @@ export interface CharacterConfigDTO {
   [key: string]: any;
 }
 
+export interface UploadVideoResponseDTO {
+  asset_id: string;
+  video_url: string;
+}
+
 export interface AgentCreate {
   name: string;
   system_prompt?: string;

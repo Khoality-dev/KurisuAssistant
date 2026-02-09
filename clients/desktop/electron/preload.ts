@@ -7,17 +7,17 @@ contextBridge.exposeInMainWorld('electron', {
     open: () => ipcRenderer.invoke('character:open-window'),
     close: () => ipcRenderer.invoke('character:close-window'),
 
-    sendAmplitude: (data: { amplitude: number; isPlaying: boolean }) =>
+    sendAmplitude: (data: { amplitude: number; isPlaying: boolean; isThinking: boolean }) =>
       ipcRenderer.send('character:amplitude', data),
-    sendAgentsUpdate: (data: { agents: Array<{ id: number; name: string; poseConfig: any }>; activeAgentId: number | null }) =>
+    sendAgentsUpdate: (data: { agents: Array<{ id: number; name: string; poseTree: any }>; activeAgentId: number | null }) =>
       ipcRenderer.send('character:agents-update', data),
 
-    onAmplitude: (cb: (data: { amplitude: number; isPlaying: boolean }) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: { amplitude: number; isPlaying: boolean }) => cb(data);
+    onAmplitude: (cb: (data: { amplitude: number; isPlaying: boolean; isThinking: boolean }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { amplitude: number; isPlaying: boolean; isThinking: boolean }) => cb(data);
       ipcRenderer.on('character:amplitude', handler);
       return () => { ipcRenderer.removeListener('character:amplitude', handler); };
     },
-    onAgentsUpdate: (cb: (data: { agents: Array<{ id: number; name: string; poseConfig: any }>; activeAgentId: number | null }) => void) => {
+    onAgentsUpdate: (cb: (data: { agents: Array<{ id: number; name: string; poseTree: any }>; activeAgentId: number | null }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: any) => cb(data);
       ipcRenderer.on('character:agents-update', handler);
       return () => { ipcRenderer.removeListener('character:agents-update', handler); };

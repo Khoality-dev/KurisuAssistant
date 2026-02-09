@@ -1,17 +1,17 @@
-import type { PoseConfig } from '../videocall/types';
+import type { PoseTree } from '../videocall/types';
 
 export interface AgentData {
   id: number;
   name: string;
-  poseConfig: PoseConfig | null;
+  poseTree: PoseTree | null;
 }
 
 export interface CharacterWindowAPI {
   open: () => Promise<void>;
   close: () => Promise<void>;
-  sendAmplitude: (data: { amplitude: number; isPlaying: boolean }) => void;
+  sendAmplitude: (data: { amplitude: number; isPlaying: boolean; isThinking: boolean }) => void;
   sendAgentsUpdate: (data: { agents: AgentData[]; activeAgentId: number | null }) => void;
-  onAmplitude: (cb: (data: { amplitude: number; isPlaying: boolean }) => void) => () => void;
+  onAmplitude: (cb: (data: { amplitude: number; isPlaying: boolean; isThinking: boolean }) => void) => () => void;
   onAgentsUpdate: (cb: (data: { agents: AgentData[]; activeAgentId: number | null }) => void) => () => void;
   onWindowClosed: (cb: () => void) => () => void;
   signalReady: () => void;

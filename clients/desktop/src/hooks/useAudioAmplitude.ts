@@ -122,14 +122,11 @@ export function useAudioAmplitude() {
 
       // Parse WAV for amplitude curve (no AudioContext!)
       const arrayBuffer = await blob.arrayBuffer();
-      console.log('[amplitude] blob size:', arrayBuffer.byteLength, 'type:', blob.type);
       const parsed = parseWavPcm(arrayBuffer);
-      console.log('[amplitude] WAV parse result:', parsed ? `sampleRate=${parsed.sampleRate}, samples=${parsed.samples.length}` : 'FAILED (null)');
 
       let curve: { values: Float32Array; windowDuration: number } | null = null;
       if (parsed) {
         curve = computeCurve(parsed.samples, parsed.sampleRate);
-        console.log('[amplitude] curve: windows=', curve.values.length, 'windowDuration=', curve.windowDuration, 'max=', Math.max(...curve.values));
       }
 
       // Play via plain Audio element
@@ -140,19 +137,13 @@ export function useAudioAmplitude() {
 
       return new Promise<void>((resolve, reject) => {
         // RAF loop: index into pre-computed curve using audio.currentTime
-        console.log('[amplitude] onAmplitude?', !!onAmplitude, 'curve?', !!curve);
         if (onAmplitude && curve) {
-          let tickCount = 0;
           const tick = () => {
             if (!audioRef.current) return;
             const t = audioRef.current.currentTime;
             const index = Math.floor(t / curve!.windowDuration);
             const amp = index >= 0 && index < curve!.values.length ? curve!.values[index] : 0;
             onAmplitude(amp, true);
-            tickCount++;
-            if (tickCount % 60 === 1) {
-              console.log('[amplitude] tick t=', t.toFixed(2), 'index=', index, 'amp=', amp.toFixed(3));
-            }
             rafRef.current = requestAnimationFrame(tick);
           };
           rafRef.current = requestAnimationFrame(tick);

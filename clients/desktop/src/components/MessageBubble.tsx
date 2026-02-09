@@ -262,7 +262,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   endIcon={
                     <ExpandMoreIcon
                       sx={{
-                        transform: expandedThinking.has(index) ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transform: (expandedThinking.has(index) || isStreamingThisMessage) ? 'rotate(180deg)' : 'rotate(0deg)',
                         transition: 'transform 0.2s',
                       }}
                     />
@@ -279,7 +279,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 >
                   Thinking
                 </Button>
-                {expandedThinking.has(index) && (
+                {(expandedThinking.has(index) || isStreamingThisMessage) && (
                   <Box
                     component={motion.div}
                     initial={{ opacity: 0, height: 0 }}

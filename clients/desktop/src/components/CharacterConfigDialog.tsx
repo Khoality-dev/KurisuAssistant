@@ -1,243 +1,277 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   Box,
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions,
-  Stepper,
-  Step,
-  StepLabel,
   Button,
   Typography,
   IconButton,
   Alert,
   CircularProgress,
-  ToggleButtonGroup,
-  ToggleButton,
-  Switch,
-  FormControlLabel,
-  Tooltip,
-  List,
-  ListItem,
+  Menu,
+  MenuItem,
+  ListItemIcon,
   ListItemText,
-  ListItemAvatar,
-  ListItemSecondaryAction,
+  Chip,
 } from '@mui/material';
 import {
-  CloudUpload as CloudUploadIcon,
   Close as CloseIcon,
-  ArrowUpward as ArrowUpwardIcon,
-  ArrowDownward as ArrowDownwardIcon,
+  Add as AddIcon,
+  Star as StarIcon,
+  Edit as EditIcon,
   Delete as DeleteIcon,
-  Face as FaceIcon,
+  Check as CheckIcon,
 } from '@mui/icons-material';
+import {
+  ReactFlow,
+  useNodesState,
+  useEdgesState,
+  addEdge,
+  Controls,
+  Background,
+  BackgroundVariant,
+  MarkerType,
+  BaseEdge,
+  EdgeLabelRenderer,
+  type Connection,
+  type Edge as RFEdge,
+  type Node as RFNode,
+  type NodeTypes,
+  type EdgeTypes,
+  type EdgeProps,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+
 import { apiClient } from '../api/client';
-import { config } from '../config';
 import type { Agent } from '../api/types';
-import type { PatchInfo, PoseConfig } from '../videocall/types';
-import { CanvasCompositor } from '../videocall/engine/CanvasCompositor';
+import type { AnimationNode, AnimationEdge, PoseTree, PoseConfig } from '../videocall/types';
+import PoseGraphNode from './PoseGraphNode';
+import type { PoseGraphNodeData } from './PoseGraphNode';
+import { PoseNodeEditor } from './PoseNodeEditor';
+import { EdgeEditor } from './EdgeEditor';
 
-const STEPS = ['Base Image', 'Keyframes', 'Preview & Save'];
+// ─── Custom offset edge (for bidirectional pairs drawn side-by-side) ───
 
-type PatchCategory = 'left_eye' | 'right_eye' | 'mouth';
+const OFFSET_PX = 8; // perpendicular offset for each direction
 
-interface CategoryPatch extends PatchInfo {
-  category: PatchCategory;
-}
+const OffsetEdge: React.FC<EdgeProps> = ({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  style,
+  markerEnd,
+  label,
+  data,
+}) => {
+  const offset = (data?.offset as number) || 0;
 
-// ─── Self-contained canvas preview ───
+  // Perpendicular offset
+  const dx = targetX - sourceX;
+  const dy = targetY - sourceY;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const nx = -dy / len; // perpendicular normal
+  const ny = dx / len;
 
-interface PreviewCanvasProps {
-  poseConfig: PoseConfig;
-  testMouth: boolean;
-  testLeftEye: boolean;
-  testRightEye: boolean;
-  breathing: boolean;
-}
+  const sx = sourceX + nx * offset;
+  const sy = sourceY + ny * offset;
+  const tx = targetX + nx * offset;
+  const ty = targetY + ny * offset;
 
-const PREVIEW_W = 400;
-const PREVIEW_H = 540;
+  const path = `M ${sx} ${sy} L ${tx} ${ty}`;
+  const midX = (sx + tx) / 2;
+  const midY = (sy + ty) / 2;
 
-const PreviewCanvas: React.FC<PreviewCanvasProps> = ({ poseConfig, testMouth, testLeftEye, testRightEye, breathing }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const compositorRef = useRef<CanvasCompositor | null>(null);
-  const mouthAnimRef = useRef<number | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
-
-  // Initialize compositor once on mount, load pose when config changes
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    // Scale canvas buffer for high-DPI displays
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = PREVIEW_W * dpr;
-    canvas.height = PREVIEW_H * dpr;
-
-    if (compositorRef.current) {
-      compositorRef.current.destroy();
-    }
-
-    const compositor = new CanvasCompositor(canvas);
-    compositorRef.current = compositor;
-    setLoading(true);
-    setLoadError('');
-
-    let cancelled = false;
-
-    compositor
-      .loadPose(poseConfig, config.apiBaseUrl)
-      .then(() => {
-        if (!cancelled) {
-          compositor.start();
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          console.error('Preview load failed:', err);
-          setLoadError(err.message || 'Failed to load preview');
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      compositor.destroy();
-      compositorRef.current = null;
-    };
-  }, [poseConfig]);
-
-  // Mouth test animation
-  useEffect(() => {
-    const compositor = compositorRef.current;
-    if (!compositor) return;
-
-    if (!testMouth) {
-      compositor.mouthAmplitude = 0;
-      compositor.isAudioPlaying = false;
-      if (mouthAnimRef.current) {
-        cancelAnimationFrame(mouthAnimRef.current);
-        mouthAnimRef.current = null;
-      }
-      return;
-    }
-
-    compositor.isAudioPlaying = true;
-    const startTime = performance.now();
-    const animate = () => {
-      if (compositorRef.current) {
-        const t = (performance.now() - startTime) / 1000;
-        compositorRef.current.mouthAmplitude = (Math.sin(t * 4) + 1) / 2;
-      }
-      mouthAnimRef.current = requestAnimationFrame(animate);
-    };
-    mouthAnimRef.current = requestAnimationFrame(animate);
-
-    return () => {
-      if (mouthAnimRef.current) {
-        cancelAnimationFrame(mouthAnimRef.current);
-        mouthAnimRef.current = null;
-      }
-    };
-  }, [testMouth]);
-
-  // Eye override effect
-  useEffect(() => {
-    const compositor = compositorRef.current;
-    if (!compositor) return;
-
-    if (testLeftEye) {
-      // Cycle through eye patches: hold each for 500ms
-      const numPatches = poseConfig.left_eye.patches.length;
-      if (numPatches > 0) {
-        compositor.leftEyeOverride = 1;
-        let idx = 1;
-        const interval = setInterval(() => {
-          idx = idx >= numPatches ? 0 : idx + 1;
-          if (compositorRef.current) compositorRef.current.leftEyeOverride = idx;
-        }, 500);
-        return () => {
-          clearInterval(interval);
-          if (compositorRef.current) compositorRef.current.leftEyeOverride = -1;
-        };
-      }
-    } else {
-      compositor.leftEyeOverride = -1;
-    }
-  }, [testLeftEye, poseConfig]);
-
-  useEffect(() => {
-    const compositor = compositorRef.current;
-    if (!compositor) return;
-
-    if (testRightEye) {
-      const numPatches = poseConfig.right_eye.patches.length;
-      if (numPatches > 0) {
-        compositor.rightEyeOverride = 1;
-        let idx = 1;
-        const interval = setInterval(() => {
-          idx = idx >= numPatches ? 0 : idx + 1;
-          if (compositorRef.current) compositorRef.current.rightEyeOverride = idx;
-        }, 500);
-        return () => {
-          clearInterval(interval);
-          if (compositorRef.current) compositorRef.current.rightEyeOverride = -1;
-        };
-      }
-    } else {
-      compositor.rightEyeOverride = -1;
-    }
-  }, [testRightEye, poseConfig]);
-
-  // Breathing toggle
-  useEffect(() => {
-    const compositor = compositorRef.current;
-    if (!compositor) return;
-    compositor.breathingEnabled = breathing;
-  }, [breathing]);
+  const labelStyle = data?.labelStyle as React.CSSProperties | undefined;
+  const labelBgStyle = data?.labelBgStyle as React.CSSProperties | undefined;
 
   return (
-    <Box
-      sx={{
-        width: PREVIEW_W,
-        height: PREVIEW_H,
-        flexShrink: 0,
-        border: '2px solid',
-        borderColor: 'primary.main',
-        borderRadius: 2,
-        overflow: 'hidden',
-        bgcolor: 'grey.100',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        position: 'relative',
-      }}
-    >
-      <canvas
-        ref={canvasRef}
-        style={{ width: PREVIEW_W, height: PREVIEW_H }}
-      />
-      {loading && (
-        <CircularProgress
-          size={40}
-          sx={{ position: 'absolute', color: 'primary.main' }}
-        />
+    <>
+      <BaseEdge id={id} path={path} style={style} markerEnd={markerEnd as string} />
+      {label && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${midX}px, ${midY}px)`,
+              pointerEvents: 'all',
+              fontSize: 11,
+              padding: '2px 4px',
+              borderRadius: 3,
+              background: labelBgStyle?.fill || '#fff',
+              opacity: labelBgStyle?.fillOpacity ?? 0.85,
+              color: labelStyle?.fill || labelStyle?.color || '#555',
+              whiteSpace: 'nowrap',
+            }}
+            className="nodrag nopan"
+          >
+            {label as string}
+          </div>
+        </EdgeLabelRenderer>
       )}
-      {loadError && (
-        <Typography
-          variant="caption"
-          color="error"
-          sx={{ position: 'absolute', textAlign: 'center', px: 2 }}
-        >
-          {loadError}
-        </Typography>
-      )}
-    </Box>
+    </>
   );
 };
+
+// ─── Helpers ───
+
+// ─── Per-condition edge styling ───
+
+const CONDITION_COLORS: Record<string, string> = {
+  random: '#2196F3',
+  thinking: '#9C27B0',
+  _default: '#888',
+};
+
+function getEdgeVisuals(animEdge?: AnimationEdge): {
+  style: Record<string, unknown>;
+  markerEnd: { type: MarkerType; width: number; height: number; color: string };
+  label: string;
+} {
+  const condType = animEdge?.condition?.type;
+  const color = (condType && CONDITION_COLORS[condType]) || CONDITION_COLORS._default;
+  const hasVideo = !!animEdge?.video_url;
+
+  let label = '';
+  if (condType === 'random' && animEdge?.condition?.type === 'random') {
+    const c = animEdge.condition as import('../videocall/types').RandomCondition;
+    label = `Random ${(c.min_interval_ms / 1000).toFixed(0)}–${(c.max_interval_ms / 1000).toFixed(0)}s`;
+  } else if (condType === 'thinking' && animEdge?.condition?.type === 'thinking') {
+    const c = animEdge.condition as import('../videocall/types').ThinkingCondition;
+    label = `Thinking ${c.trigger}`;
+  } else if (!condType) {
+    label = 'No condition';
+  }
+
+  return {
+    style: {
+      stroke: color,
+      strokeWidth: 2,
+      strokeDasharray: hasVideo ? undefined : '6 3',
+    },
+    markerEnd: { type: MarkerType.ArrowClosed, width: 20, height: 20, color },
+    label,
+  };
+}
+
+/** Build a set of "src->tgt" keys for quick reverse-edge lookup. */
+function buildEdgePairSet(edges: { from_node_id: string; to_node_id: string }[]): Set<string> {
+  return new Set(edges.map((e) => `${e.from_node_id}->${e.to_node_id}`));
+}
+
+/** Pick the best source/target handle IDs based on relative node positions. */
+function getBestHandles(
+  srcPos: { x: number; y: number },
+  tgtPos: { x: number; y: number },
+): { sourceHandle: string; targetHandle: string } {
+  const dx = tgtPos.x - srcPos.x;
+  const dy = tgtPos.y - srcPos.y;
+
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    // Horizontal dominant
+    return dx >= 0
+      ? { sourceHandle: 's-right', targetHandle: 't-left' }
+      : { sourceHandle: 's-left', targetHandle: 't-right' };
+  } else {
+    // Vertical dominant
+    return dy >= 0
+      ? { sourceHandle: 's-bottom', targetHandle: 't-top' }
+      : { sourceHandle: 's-top', targetHandle: 't-bottom' };
+  }
+}
+
+// ─── Conversion helpers ───
+
+function poseTreeToReactFlow(
+  poseTree: PoseTree,
+  defaultPoseId: string,
+  onDoubleClick: (nodeId: string) => void,
+): { nodes: RFNode[]; edges: RFEdge[] } {
+  const nodes: RFNode[] = poseTree.nodes.map((n) => ({
+    id: n.id,
+    type: 'poseNode',
+    position: n.position || { x: 0, y: 0 },
+    data: {
+      label: n.name,
+      baseImageUrl: n.pose_config?.base_image_url,
+      isDefault: n.id === defaultPoseId,
+      onDoubleClick,
+    } satisfies PoseGraphNodeData,
+  }));
+
+  // Build position lookup for handle selection
+  const posMap = new Map<string, { x: number; y: number }>();
+  for (const n of poseTree.nodes) {
+    posMap.set(n.id, n.position || { x: 0, y: 0 });
+  }
+
+  const pairSet = buildEdgePairSet(poseTree.edges);
+
+  const edges: RFEdge[] = poseTree.edges.map((e) => {
+    const srcPos = posMap.get(e.from_node_id) || { x: 0, y: 0 };
+    const tgtPos = posMap.get(e.to_node_id) || { x: 0, y: 0 };
+    const handles = getBestHandles(srcPos, tgtPos);
+    const visuals = getEdgeVisuals(e);
+    const hasReverse = pairSet.has(`${e.to_node_id}->${e.from_node_id}`);
+    const offset = hasReverse ? OFFSET_PX : 0;
+    return {
+      id: e.id,
+      source: e.from_node_id,
+      target: e.to_node_id,
+      sourceHandle: handles.sourceHandle,
+      targetHandle: handles.targetHandle,
+      type: 'offsetEdge',
+      style: visuals.style,
+      markerEnd: visuals.markerEnd,
+      label: visuals.label,
+      data: {
+        offset,
+        labelStyle: { fill: visuals.style.stroke as string },
+        labelBgStyle: { fill: '#fff', fillOpacity: 0.85 },
+      },
+    };
+  });
+
+  return { nodes, edges };
+}
+
+function reactFlowToPoseTree(
+  rfNodes: RFNode[],
+  rfEdges: RFEdge[],
+  defaultPoseId: string,
+  animationNodesMap: Map<string, AnimationNode>,
+  animationEdgesMap: Map<string, AnimationEdge>,
+): PoseTree {
+  const nodes: AnimationNode[] = rfNodes.map((rfNode) => {
+    const existing = animationNodesMap.get(rfNode.id);
+    return {
+      id: rfNode.id,
+      name: (rfNode.data as PoseGraphNodeData).label,
+      type: 'pose' as const,
+      pose_config: existing?.pose_config,
+      position: rfNode.position,
+    };
+  });
+
+  const edges: AnimationEdge[] = rfEdges.map((rfEdge) => {
+    const existing = animationEdgesMap.get(rfEdge.id);
+    return {
+      id: rfEdge.id,
+      from_node_id: rfEdge.source,
+      to_node_id: rfEdge.target,
+      video_url: existing?.video_url,
+      condition: existing?.condition,
+    };
+  });
+
+  return {
+    default_pose_id: defaultPoseId,
+    nodes,
+    edges,
+  };
+}
 
 // ─── Main dialog ───
 
@@ -248,573 +282,588 @@ interface CharacterConfigDialogProps {
   onSaved: () => void;
 }
 
+const nodeTypes: NodeTypes = {
+  poseNode: PoseGraphNode,
+};
+
+const edgeTypes: EdgeTypes = {
+  offsetEdge: OffsetEdge,
+};
+
+let nodeIdCounter = 0;
+function nextNodeId(): string {
+  return `pose-${Date.now()}-${nodeIdCounter++}`;
+}
+
 export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
   open,
   agent,
   onClose,
   onSaved,
 }) => {
-  const [activeStep, setActiveStep] = useState(0);
   const [error, setError] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
-  // Step 1: Base image
-  const [baseAssetId, setBaseAssetId] = useState<string | null>(null);
-  const [baseImageUrl, setBaseImageUrl] = useState<string | null>(null);
-  const baseInputRef = useRef<HTMLInputElement>(null);
+  // React Flow state
+  const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode>([] as RFNode[]);
+  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([] as RFEdge[]);
+  const [defaultPoseId, setDefaultPoseId] = useState('pose-default');
 
-  // Step 2: Keyframes
-  const [selectedCategory, setSelectedCategory] = useState<PatchCategory>('left_eye');
-  const [patches, setPatches] = useState<CategoryPatch[]>([]);
-  const keyframeInputRef = useRef<HTMLInputElement>(null);
+  // Animation data maps (preserved across React Flow operations)
+  const animationNodesRef = useRef(new Map<string, AnimationNode>());
+  const animationEdgesRef = useRef(new Map<string, AnimationEdge>());
 
-  // Step 3: Preview
-  const [testMouth, setTestMouth] = useState(false);
-  const [testLeftEye, setTestLeftEye] = useState(false);
-  const [testRightEye, setTestRightEye] = useState(false);
-  const [breathing, setBreathing] = useState(true);
+  // Auto-save: bump version on any mutation, debounced effect saves
+  const [saveVersion, setSaveVersion] = useState(0);
+  const initialLoadRef = useRef(true);  // Skip auto-save on initial load
+  const savingRef = useRef(false);
+  const triggerAutoSave = useCallback(() => {
+    setSaveVersion((v) => v + 1);
+  }, []);
 
-  // Load existing config when dialog opens
+  // Sub-dialog state
+  const [poseEditorOpen, setPoseEditorOpen] = useState(false);
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [edgeEditorOpen, setEdgeEditorOpen] = useState(false);
+  const [editingEdgeId, setEditingEdgeId] = useState<string | null>(null);
+
+  // Context menu
+  const [contextMenu, setContextMenu] = useState<{
+    mouseX: number;
+    mouseY: number;
+    nodeId: string;
+  } | null>(null);
+
+  // ─── Double-click handler (stable ref) ───
+  const handleNodeDoubleClick = useCallback((nodeId: string) => {
+    setEditingNodeId(nodeId);
+    setPoseEditorOpen(true);
+  }, []);
+
+  // ─── Load existing config (fetch fresh from API) ───
   useEffect(() => {
-    if (open && agent.character_config) {
-      loadExistingConfig();
-    } else if (open) {
-      setActiveStep(0);
-      setBaseAssetId(null);
-      setBaseImageUrl(null);
-      setPatches([]);
-      setSelectedCategory('left_eye');
-      setError('');
-      setTestMouth(false);
-      setTestLeftEye(false);
-      setTestRightEye(false);
-      setBreathing(true);
-    }
+    if (!open) return;
+    setError('');
+
+    const loadConfig = (cc: Agent['character_config']) => {
+      const nodesMap = new Map<string, AnimationNode>();
+      const edgesMap = new Map<string, AnimationEdge>();
+
+      if (cc?.pose_tree?.nodes?.length) {
+        const poseTree = cc.pose_tree as PoseTree;
+        const dpId = poseTree.default_pose_id || 'pose-default';
+        setDefaultPoseId(dpId);
+
+        for (const n of poseTree.nodes) {
+          if (!n.position) n.position = { x: 0, y: 0 };
+          nodesMap.set(n.id, n);
+        }
+        for (const e of poseTree.edges) {
+          edgesMap.set(e.id, e);
+        }
+
+        animationNodesRef.current = nodesMap;
+        animationEdgesRef.current = edgesMap;
+
+        const { nodes, edges } = poseTreeToReactFlow(poseTree, dpId, handleNodeDoubleClick);
+        setRfNodes(nodes);
+        setRfEdges(edges);
+      } else {
+        const defaultNode: AnimationNode = {
+          id: 'pose-default',
+          name: 'Default',
+          type: 'pose',
+          position: { x: 100, y: 100 },
+        };
+        nodesMap.set(defaultNode.id, defaultNode);
+        animationNodesRef.current = nodesMap;
+        animationEdgesRef.current = edgesMap;
+        setDefaultPoseId('pose-default');
+        setRfNodes([{
+          id: 'pose-default',
+          type: 'poseNode',
+          position: { x: 100, y: 100 },
+          data: {
+            label: 'Default',
+            baseImageUrl: undefined,
+            isDefault: true,
+            onDoubleClick: handleNodeDoubleClick,
+          } satisfies PoseGraphNodeData,
+        }]);
+        setRfEdges([]);
+      }
+      setTimeout(() => { initialLoadRef.current = false; }, 100);
+    };
+
+    // Fetch fresh agent data from API to avoid stale cache
+    apiClient.getAgent(agent.id).then((freshAgent) => {
+      loadConfig(freshAgent.character_config);
+    }).catch(() => {
+      // Fallback to prop data if fetch fails
+      loadConfig(agent.character_config);
+    });
   }, [open, agent.id]);
 
-  const loadExistingConfig = () => {
-    try {
-      const cc = agent.character_config;
-      if (!cc?.pose_tree?.nodes?.length) return;
+  // ─── Auto-save (debounced) ───
+  useEffect(() => {
+    if (!open || initialLoadRef.current) return;
+    if (savingRef.current) return;
 
-      const poseNode = cc.pose_tree.nodes.find((n: any) => n.type === 'pose' && n.pose_config);
-      if (!poseNode?.pose_config) return;
-
-      const pc = poseNode.pose_config as PoseConfig;
-
-      const baseUrl = pc.base_image_url;
-      const segments = baseUrl.replace(/\/$/, '').split('/');
-      const assetId = segments[segments.length - 1];
-      setBaseAssetId(assetId);
-      setBaseImageUrl(baseUrl.startsWith('http') ? baseUrl : `${config.apiBaseUrl}${baseUrl}`);
-
-      const existingPatches: CategoryPatch[] = [];
-      for (const p of pc.left_eye.patches) {
-        existingPatches.push({ ...p, category: 'left_eye' });
-      }
-      for (const p of pc.right_eye.patches) {
-        existingPatches.push({ ...p, category: 'right_eye' });
-      }
-      for (const p of pc.mouth.patches) {
-        existingPatches.push({ ...p, category: 'mouth' });
-      }
-      setPatches(existingPatches);
-      setActiveStep(0);
+    const timer = setTimeout(async () => {
+      savingRef.current = true;
+      setSaveStatus('saving');
       setError('');
-      setTestMouth(false);
-      setTestLeftEye(false);
-      setTestRightEye(false);
-      setBreathing(true);
-    } catch (err) {
-      console.error('Failed to load existing config:', err);
+      try {
+        const poseTree = reactFlowToPoseTree(
+          rfNodes,
+          rfEdges,
+          defaultPoseId,
+          animationNodesRef.current,
+          animationEdgesRef.current,
+        );
+        await apiClient.updateCharacterConfig(agent.id, { pose_tree: poseTree });
+        setSaveStatus('saved');
+        onSaved();
+      } catch (err: any) {
+        setError(err.response?.data?.detail || err.message || 'Auto-save failed');
+        setSaveStatus('idle');
+      } finally {
+        savingRef.current = false;
+      }
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [saveVersion]);
+
+  // Clear "saved" chip after 2s
+  useEffect(() => {
+    if (saveStatus !== 'saved') return;
+    const timer = setTimeout(() => setSaveStatus('idle'), 2000);
+    return () => clearTimeout(timer);
+  }, [saveStatus]);
+
+  // Wrap onNodesChange to trigger auto-save and recompute edge handles on drag end
+  const handleNodesChange = useCallback((...args: Parameters<typeof onNodesChange>) => {
+    onNodesChange(...args);
+    const hasPositionChange = args[0]?.some(
+      (c: any) => c.type === 'position' && c.dragging === false,
+    );
+    if (hasPositionChange) {
+      // Recompute edge handles after node positions changed
+      // Use setTimeout to ensure rfNodes state is updated first
+      setTimeout(() => {
+        setRfNodes((currentNodes) => {
+          const posMap = new Map<string, { x: number; y: number }>();
+          for (const n of currentNodes) posMap.set(n.id, n.position);
+          setRfEdges((eds) =>
+            eds.map((e) => {
+              const srcPos = posMap.get(e.source) || { x: 0, y: 0 };
+              const tgtPos = posMap.get(e.target) || { x: 0, y: 0 };
+              const handles = getBestHandles(srcPos, tgtPos);
+              return { ...e, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle };
+            }),
+          );
+          return currentNodes; // Don't modify nodes
+        });
+      }, 0);
+      triggerAutoSave();
     }
-  };
+  }, [onNodesChange, triggerAutoSave, setRfNodes, setRfEdges]);
 
-  const buildPoseConfig = (): PoseConfig | null => {
-    if (!baseAssetId) return null;
+  // ─── Edge connection ───
+  const onConnect = useCallback((connection: Connection) => {
+    if (!connection.source || !connection.target) return;
+    const edgeId = `edge-${connection.source}-${connection.target}`;
 
-    const leftEyePatches = patches
-      .filter((p) => p.category === 'left_eye')
-      .map(({ category, ...rest }) => rest);
-    const rightEyePatches = patches
-      .filter((p) => p.category === 'right_eye')
-      .map(({ category, ...rest }) => rest);
-    const mouthPatches = patches
-      .filter((p) => p.category === 'mouth')
-      .map(({ category, ...rest }) => rest);
-
-    return {
-      name: 'Default',
-      base_image_url: `/character-assets/${baseAssetId}`,
-      left_eye: { patches: leftEyePatches },
-      right_eye: { patches: rightEyePatches },
-      mouth: { patches: mouthPatches },
+    // Create animation edge data
+    const animEdge: AnimationEdge = {
+      id: edgeId,
+      from_node_id: connection.source,
+      to_node_id: connection.target,
+      condition: { type: 'random', min_interval_ms: 5000, max_interval_ms: 15000 },
     };
-  };
+    animationEdgesRef.current.set(edgeId, animEdge);
 
-  const handleUploadBase = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = '';
-
-    setUploading(true);
-    setError('');
-    try {
-      const result = await apiClient.uploadCharacterBase(agent.id, file);
-      setBaseAssetId(result.asset_id);
-      setBaseImageUrl(
-        result.image_url.startsWith('http')
-          ? result.image_url
-          : `${config.apiBaseUrl}${result.image_url}`
+    const visuals = getEdgeVisuals(animEdge);
+    setRfEdges((eds) => {
+      // Check if reverse edge exists → both need offset
+      const hasReverse = eds.some(
+        (e) => e.source === connection.target && e.target === connection.source,
       );
-      if (patches.length > 0) {
-        setPatches([]);
+      let updated = eds;
+      if (hasReverse) {
+        // Apply offset to the existing reverse edge too
+        updated = eds.map((e) =>
+          e.source === connection.target && e.target === connection.source
+            ? { ...e, data: { ...e.data, offset: OFFSET_PX } }
+            : e,
+        );
       }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to upload base image');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleUploadKeyframe = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !baseAssetId) return;
-    e.target.value = '';
-
-    setUploading(true);
-    setError('');
-    try {
-      const categoryCount = patches.filter((p) => p.category === selectedCategory).length;
-      const result = await apiClient.computeCharacterPatch(
-        baseAssetId, file, agent.id, selectedCategory, categoryCount,
-      );
-      const newPatch: CategoryPatch = {
-        ...result.patch,
-        image_url: result.patch.image_url,
-        category: selectedCategory,
-      };
-      setPatches((prev) => [...prev, newPatch]);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to compute patch');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleDeletePatch = (index: number) => {
-    setPatches((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleMovePatch = (index: number, direction: 'up' | 'down') => {
-    setPatches((prev) => {
-      const arr = [...prev];
-      const category = arr[index].category;
-      const categoryIndices = arr
-        .map((p, i) => ({ p, i }))
-        .filter(({ p }) => p.category === category)
-        .map(({ i }) => i);
-
-      const posInCategory = categoryIndices.indexOf(index);
-      const swapPosInCategory = direction === 'up' ? posInCategory - 1 : posInCategory + 1;
-      if (swapPosInCategory < 0 || swapPosInCategory >= categoryIndices.length) return prev;
-
-      const swapIndex = categoryIndices[swapPosInCategory];
-      [arr[index], arr[swapIndex]] = [arr[swapIndex], arr[index]];
-      return arr;
-    });
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    setError('');
-    try {
-      const poseConfig = buildPoseConfig();
-      if (!poseConfig) {
-        setError('No base image configured');
-        return;
-      }
-
-      const characterConfig = {
-        pose_tree: {
-          default_pose_id: 'pose-default',
-          nodes: [
-            {
-              id: 'pose-default',
-              name: 'Default',
-              type: 'pose',
-              pose_config: poseConfig,
-            },
-          ],
-          edges: [],
+      return addEdge({
+        ...connection,
+        id: edgeId,
+        type: 'offsetEdge',
+        style: visuals.style,
+        markerEnd: visuals.markerEnd,
+        label: visuals.label,
+        data: {
+          offset: hasReverse ? OFFSET_PX : 0,
+          labelStyle: { fill: visuals.style.stroke as string },
+          labelBgStyle: { fill: '#fff', fillOpacity: 0.85 },
         },
-      };
+      }, updated);
+    });
+    triggerAutoSave();
+  }, [setRfEdges, triggerAutoSave]);
 
-      await apiClient.updateCharacterConfig(agent.id, characterConfig);
-      onSaved();
-      onClose();
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to save character config');
-    } finally {
-      setSaving(false);
-    }
+  // ─── Edge click → open editor ───
+  const onEdgeClick = useCallback((_event: React.MouseEvent, edge: RFEdge) => {
+    setEditingEdgeId(edge.id);
+    setEdgeEditorOpen(true);
+  }, []);
+
+  // ─── Node context menu ───
+  const onNodeContextMenu = useCallback((event: React.MouseEvent, node: RFNode) => {
+    event.preventDefault();
+    setContextMenu({
+      mouseX: event.clientX,
+      mouseY: event.clientY,
+      nodeId: node.id,
+    });
+  }, []);
+
+  const closeContextMenu = () => setContextMenu(null);
+
+  const handleSetDefault = () => {
+    if (!contextMenu) return;
+    const nodeId = contextMenu.nodeId;
+    setDefaultPoseId(nodeId);
+    // Update isDefault in all nodes
+    setRfNodes((nds) =>
+      nds.map((n) => ({
+        ...n,
+        data: { ...n.data, isDefault: n.id === nodeId },
+      }))
+    );
+    triggerAutoSave();
+    closeContextMenu();
   };
 
-  const getPatchesForCategory = (category: PatchCategory) =>
-    patches
-      .map((p, i) => ({ patch: p, globalIndex: i }))
-      .filter(({ patch }) => patch.category === category);
-
-  const resolvePatchUrl = (url: string) =>
-    url.startsWith('http') ? url : `${config.apiBaseUrl}${url}`;
-
-  const categoryLabel = (cat: PatchCategory) => {
-    switch (cat) {
-      case 'left_eye': return 'Left Eye';
-      case 'right_eye': return 'Right Eye';
-      case 'mouth': return 'Mouth';
-    }
+  const handleEditPose = () => {
+    if (!contextMenu) return;
+    setEditingNodeId(contextMenu.nodeId);
+    setPoseEditorOpen(true);
+    closeContextMenu();
   };
 
-  const poseConfig = buildPoseConfig();
-  const mouthCount = getPatchesForCategory('mouth').length;
+  const handleDeleteNode = () => {
+    if (!contextMenu) return;
+    const nodeId = contextMenu.nodeId;
+
+    // Don't delete if it's the last node
+    if (rfNodes.length <= 1) {
+      setError('Cannot delete the last node');
+      closeContextMenu();
+      return;
+    }
+
+    // Remove from maps
+    animationNodesRef.current.delete(nodeId);
+
+    // Remove connected edges from map
+    setRfEdges((eds) => {
+      const remaining = eds.filter((e) => e.source !== nodeId && e.target !== nodeId);
+      // Clean up edge map
+      for (const e of eds) {
+        if (e.source === nodeId || e.target === nodeId) {
+          animationEdgesRef.current.delete(e.id);
+        }
+      }
+      return remaining;
+    });
+
+    // Remove node
+    setRfNodes((nds) => nds.filter((n) => n.id !== nodeId));
+
+    // If deleted the default, assign new default
+    if (defaultPoseId === nodeId) {
+      const remaining = rfNodes.filter((n) => n.id !== nodeId);
+      if (remaining.length > 0) {
+        const newDefault = remaining[0].id;
+        setDefaultPoseId(newDefault);
+        setRfNodes((nds) =>
+          nds.map((n) => ({
+            ...n,
+            data: { ...n.data, isDefault: n.id === newDefault },
+          }))
+        );
+      }
+    }
+
+    triggerAutoSave();
+    closeContextMenu();
+  };
+
+  // ─── Add pose ───
+  const handleAddPose = () => {
+    const id = nextNodeId();
+    const position = { x: 100 + rfNodes.length * 200, y: 100 };
+    const node: AnimationNode = {
+      id,
+      name: `Pose ${rfNodes.length + 1}`,
+      type: 'pose',
+      position,
+    };
+    animationNodesRef.current.set(id, node);
+
+    setRfNodes((nds) => [
+      ...nds,
+      {
+        id,
+        type: 'poseNode',
+        position,
+        data: {
+          label: node.name,
+          baseImageUrl: undefined,
+          isDefault: false,
+          onDoubleClick: handleNodeDoubleClick,
+        } satisfies PoseGraphNodeData,
+      },
+    ]);
+    triggerAutoSave();
+  };
+
+  // ─── Pose editor save ───
+  const handlePoseEditorSave = (poseConfig: PoseConfig, name: string) => {
+    if (!editingNodeId) return;
+
+    // Update animation node map
+    const existing = animationNodesRef.current.get(editingNodeId);
+    if (existing) {
+      existing.pose_config = poseConfig;
+      existing.name = name;
+    }
+
+    // Update React Flow node data
+    setRfNodes((nds) =>
+      nds.map((n) =>
+        n.id === editingNodeId
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                label: name,
+                baseImageUrl: poseConfig.base_image_url,
+              },
+            }
+          : n
+      )
+    );
+
+    setPoseEditorOpen(false);
+    setEditingNodeId(null);
+    triggerAutoSave();
+  };
+
+  // ─── Edge editor save ───
+  const handleEdgeEditorSave = (updatedEdge: AnimationEdge) => {
+    animationEdgesRef.current.set(updatedEdge.id, updatedEdge);
+
+    // Refresh edge visuals (color, label, dash) to reflect new condition/video
+    const visuals = getEdgeVisuals(updatedEdge);
+    setRfEdges((eds) =>
+      eds.map((e) =>
+        e.id === updatedEdge.id
+          ? {
+              ...e,
+              style: visuals.style,
+              markerEnd: visuals.markerEnd,
+              label: visuals.label,
+              data: {
+                ...e.data,
+                labelStyle: { fill: visuals.style.stroke as string },
+                labelBgStyle: { fill: '#fff', fillOpacity: 0.85 },
+              },
+            }
+          : e
+      )
+    );
+
+    setEdgeEditorOpen(false);
+    setEditingEdgeId(null);
+    triggerAutoSave();
+  };
+
+  const handleEdgeEditorDelete = () => {
+    if (!editingEdgeId) return;
+    animationEdgesRef.current.delete(editingEdgeId);
+    setRfEdges((eds) => {
+      const deleted = eds.find((e) => e.id === editingEdgeId);
+      let remaining = eds.filter((e) => e.id !== editingEdgeId);
+      // If the deleted edge had a reverse partner, remove the partner's offset
+      if (deleted) {
+        remaining = remaining.map((e) =>
+          e.source === deleted.target && e.target === deleted.source
+            ? { ...e, data: { ...e.data, offset: 0 } }
+            : e,
+        );
+      }
+      return remaining;
+    });
+    setEdgeEditorOpen(false);
+    setEditingEdgeId(null);
+    triggerAutoSave();
+  };
+
+  // ─── Close handler ───
+  const handleClose = () => {
+    initialLoadRef.current = true;
+    onClose();
+  };
+
+  // ─── Get editing node/edge for sub-dialogs ───
+  const editingNode = editingNodeId ? animationNodesRef.current.get(editingNodeId) : null;
+  const editingEdge = editingEdgeId ? animationEdgesRef.current.get(editingEdgeId) : null;
+
+  const editingEdgeFromName = useMemo(() => {
+    if (!editingEdge) return '';
+    return animationNodesRef.current.get(editingEdge.from_node_id)?.name || 'Unknown';
+  }, [editingEdge]);
+
+  const editingEdgeToName = useMemo(() => {
+    if (!editingEdge) return '';
+    return animationNodesRef.current.get(editingEdge.to_node_id)?.name || 'Unknown';
+  }, [editingEdge]);
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="h6">Configure Character — {agent.name}</Typography>
-        <IconButton onClick={onClose} size="small">
-          <CloseIcon />
-        </IconButton>
-      </DialogTitle>
-
-      <DialogContent dividers>
-        <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
-          {STEPS.map((label) => (
-            <Step key={label}>
-              <StepLabel>{label}</StepLabel>
-            </Step>
-          ))}
-        </Stepper>
-
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-            {error}
-          </Alert>
-        )}
-
-        {/* Step 1: Base Image */}
-        {activeStep === 0 && (
-          <Box sx={{ display: 'flex', gap: 4, alignItems: 'flex-start', minHeight: 300 }}>
-            <Box
-              sx={{
-                width: PREVIEW_W,
-                height: PREVIEW_H,
-                flexShrink: 0,
-                border: '2px dashed',
-                borderColor: baseImageUrl ? 'primary.main' : 'divider',
-                borderRadius: 2,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                overflow: 'hidden',
-                bgcolor: 'grey.50',
-              }}
+    <>
+      <Dialog open={open} onClose={handleClose} fullScreen>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Typography variant="h6">Character Graph — {agent.name}</Typography>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={handleAddPose}
             >
-              {baseImageUrl ? (
-                <Box
-                  component="img"
-                  src={baseImageUrl}
-                  sx={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                />
-              ) : (
-                <FaceIcon sx={{ fontSize: 80, color: 'grey.300' }} />
-              )}
-            </Box>
-
-            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Typography variant="h6">Base Portrait</Typography>
-              <Typography variant="body2" color="text.secondary">
-                Upload the character's default expression — eyes open, mouth closed. This is the base
-                layer that all animation patches overlay on top of.
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Recommended: PNG with transparent background, 512x768 or similar portrait aspect ratio.
-              </Typography>
-
-              <input
-                ref={baseInputRef}
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={handleUploadBase}
-              />
-              <Button
-                variant="contained"
-                startIcon={uploading ? <CircularProgress size={18} /> : <CloudUploadIcon />}
-                onClick={() => baseInputRef.current?.click()}
-                disabled={uploading}
-              >
-                {baseImageUrl ? 'Replace Base Image' : 'Upload Base Image'}
-              </Button>
-
-              {baseAssetId && (
-                <Alert severity="success" sx={{ mt: 1 }}>
-                  Base image uploaded (ID: {baseAssetId.slice(0, 8)}...)
-                </Alert>
-              )}
-            </Box>
+              Add Pose
+            </Button>
           </Box>
-        )}
-
-        {/* Step 2: Keyframes */}
-        {activeStep === 1 && (
-          <Box sx={{ minHeight: 300 }}>
-            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 3 }}>
-              <ToggleButtonGroup
-                value={selectedCategory}
-                exclusive
-                onChange={(_, val) => val && setSelectedCategory(val as PatchCategory)}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {saveStatus === 'saving' && (
+              <Chip
+                icon={<CircularProgress size={14} />}
+                label="Saving..."
                 size="small"
-              >
-                <ToggleButton value="left_eye">
-                  Left Eye ({getPatchesForCategory('left_eye').length})
-                </ToggleButton>
-                <ToggleButton value="right_eye">
-                  Right Eye ({getPatchesForCategory('right_eye').length})
-                </ToggleButton>
-                <ToggleButton value="mouth">
-                  Mouth ({getPatchesForCategory('mouth').length})
-                </ToggleButton>
-              </ToggleButtonGroup>
-
-              <input
-                ref={keyframeInputRef}
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={handleUploadKeyframe}
+                variant="outlined"
               />
-              <Button
-                variant="contained"
+            )}
+            {saveStatus === 'saved' && (
+              <Chip
+                icon={<CheckIcon sx={{ fontSize: 16 }} />}
+                label="Saved"
                 size="small"
-                startIcon={uploading ? <CircularProgress size={16} /> : <CloudUploadIcon />}
-                onClick={() => keyframeInputRef.current?.click()}
-                disabled={uploading || !baseAssetId}
-              >
-                Upload Keyframe
-              </Button>
-            </Box>
-
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Upload variants of the base image with different {categoryLabel(selectedCategory).toLowerCase()} expressions.
-              The backend will compute the diff automatically. Order matters — patches are played sequentially during animation.
-            </Typography>
-
-            {getPatchesForCategory(selectedCategory).length === 0 ? (
-              <Box sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
-                <Typography>No {categoryLabel(selectedCategory).toLowerCase()} patches yet.</Typography>
-                <Typography variant="caption">
-                  Upload a keyframe variant to add one.
-                </Typography>
-              </Box>
-            ) : (
-              <List dense>
-                {getPatchesForCategory(selectedCategory).map(({ patch, globalIndex }, posInCategory) => (
-                  <ListItem
-                    key={globalIndex}
-                    sx={{
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      borderRadius: 1,
-                      mb: 1,
-                    }}
-                  >
-                    <ListItemAvatar>
-                      <Box
-                        component="img"
-                        src={resolvePatchUrl(patch.image_url)}
-                        sx={{
-                          width: 48,
-                          height: 48,
-                          objectFit: 'contain',
-                          borderRadius: 1,
-                          bgcolor: 'grey.100',
-                        }}
-                      />
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary={`Frame ${posInCategory + 1}`}
-                      secondary={`Position: (${patch.x}, ${patch.y}) — Size: ${patch.width}x${patch.height}`}
-                    />
-                    <ListItemSecondaryAction>
-                      <Tooltip title="Move up">
-                        <span>
-                          <IconButton
-                            size="small"
-                            onClick={() => handleMovePatch(globalIndex, 'up')}
-                            disabled={posInCategory === 0}
-                          >
-                            <ArrowUpwardIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                      <Tooltip title="Move down">
-                        <span>
-                          <IconButton
-                            size="small"
-                            onClick={() => handleMovePatch(globalIndex, 'down')}
-                            disabled={posInCategory === getPatchesForCategory(selectedCategory).length - 1}
-                          >
-                            <ArrowDownwardIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                      <Tooltip title="Delete">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleDeletePatch(globalIndex)}
-                          color="error"
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </ListItemSecondaryAction>
-                  </ListItem>
-                ))}
-              </List>
+                color="success"
+                variant="outlined"
+              />
             )}
+            <IconButton onClick={handleClose} size="small">
+              <CloseIcon />
+            </IconButton>
           </Box>
-        )}
+        </DialogTitle>
 
-        {/* Step 3: Preview & Save */}
-        {activeStep === 2 && (
-          <Box sx={{ display: 'flex', gap: 4, alignItems: 'flex-start', minHeight: 300 }}>
-            {poseConfig ? (
-              <PreviewCanvas
-                poseConfig={poseConfig}
-                testMouth={testMouth}
-                testLeftEye={testLeftEye}
-                testRightEye={testRightEye}
-                breathing={breathing}
-              />
-            ) : (
-              <Box
-                sx={{
-                  width: PREVIEW_W,
-                  height: PREVIEW_H,
-                  flexShrink: 0,
-                  border: '2px dashed',
-                  borderColor: 'divider',
-                  borderRadius: 2,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  bgcolor: 'grey.50',
-                }}
-              >
-                <FaceIcon sx={{ fontSize: 80, color: 'grey.300' }} />
-              </Box>
-            )}
+        <DialogContent sx={{ p: 0, position: 'relative' }}>
+          {error && (
+            <Alert
+              severity="error"
+              sx={{ position: 'absolute', top: 8, left: 8, right: 8, zIndex: 10 }}
+              onClose={() => setError('')}
+            >
+              {error}
+            </Alert>
+          )}
 
-            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Typography variant="h6">Preview & Save</Typography>
-
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Typography variant="body2">
-                  Left Eye: {getPatchesForCategory('left_eye').length} patch{getPatchesForCategory('left_eye').length !== 1 ? 'es' : ''}
-                </Typography>
-                <Typography variant="body2">
-                  Right Eye: {getPatchesForCategory('right_eye').length} patch{getPatchesForCategory('right_eye').length !== 1 ? 'es' : ''}
-                </Typography>
-                <Typography variant="body2">
-                  Mouth: {mouthCount} patch{mouthCount !== 1 ? 'es' : ''}
-                </Typography>
-              </Box>
-
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={testMouth}
-                    onChange={(e) => setTestMouth(e.target.checked)}
-                    disabled={mouthCount === 0}
-                  />
-                }
-                label="Test mouth animation"
-              />
-
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={testLeftEye}
-                    onChange={(e) => setTestLeftEye(e.target.checked)}
-                    disabled={getPatchesForCategory('left_eye').length === 0}
-                  />
-                }
-                label="Test left eye (cycle patches)"
-              />
-
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={testRightEye}
-                    onChange={(e) => setTestRightEye(e.target.checked)}
-                    disabled={getPatchesForCategory('right_eye').length === 0}
-                  />
-                }
-                label="Test right eye (cycle patches)"
-              />
-
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={breathing}
-                    onChange={(e) => setBreathing(e.target.checked)}
-                  />
-                }
-                label="Breathing animation"
-              />
-
-              {(getPatchesForCategory('left_eye').length > 0 || getPatchesForCategory('right_eye').length > 0) && !testLeftEye && !testRightEye && (
-                <Typography variant="caption" color="text.secondary">
-                  Blink animation runs automatically every 2-6 seconds.
-                </Typography>
-              )}
-
-              <Typography variant="caption" color="text.secondary">
-                Save the configuration, then open the video call window for live lip sync during TTS.
-              </Typography>
-            </Box>
+          <Box sx={{ width: '100%', height: '100%' }}>
+            <ReactFlow
+              nodes={rfNodes}
+              edges={rfEdges}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onEdgeClick={onEdgeClick}
+              onNodeContextMenu={onNodeContextMenu}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              fitView
+              fitViewOptions={{ padding: 0.3 }}
+              deleteKeyCode="Delete"
+            >
+              <Controls />
+              <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+            </ReactFlow>
           </Box>
-        )}
-      </DialogContent>
+        </DialogContent>
+      </Dialog>
 
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Box sx={{ flex: 1 }} />
-        {activeStep > 0 && (
-          <Button onClick={() => setActiveStep((s) => s - 1)}>Back</Button>
-        )}
-        {activeStep < 2 ? (
-          <Button
-            variant="contained"
-            onClick={() => setActiveStep((s) => s + 1)}
-            disabled={activeStep === 0 && !baseAssetId}
-          >
-            Next
-          </Button>
-        ) : (
-          <Button
-            variant="contained"
-            onClick={handleSave}
-            disabled={saving || !baseAssetId}
-            startIcon={saving ? <CircularProgress size={18} /> : undefined}
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </Button>
-        )}
-      </DialogActions>
-    </Dialog>
+      {/* Context menu */}
+      <Menu
+        open={contextMenu !== null}
+        onClose={closeContextMenu}
+        anchorReference="anchorPosition"
+        anchorPosition={
+          contextMenu
+            ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
+            : undefined
+        }
+      >
+        <MenuItem onClick={handleSetDefault}>
+          <ListItemIcon><StarIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Set as Default</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={handleEditPose}>
+          <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Edit Pose</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={handleDeleteNode}>
+          <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
+          <ListItemText>Delete Node</ListItemText>
+        </MenuItem>
+      </Menu>
+
+      {/* Pose editor sub-dialog */}
+      {editingNodeId && (
+        <PoseNodeEditor
+          open={poseEditorOpen}
+          agentId={agent.id}
+          poseId={editingNodeId}
+          initialPoseConfig={editingNode?.pose_config || null}
+          nodeName={editingNode?.name || 'Untitled'}
+          onSave={handlePoseEditorSave}
+          onClose={() => {
+            setPoseEditorOpen(false);
+            setEditingNodeId(null);
+          }}
+        />
+      )}
+
+      {/* Edge editor sub-dialog */}
+      {editingEdge && (
+        <EdgeEditor
+          open={edgeEditorOpen}
+          agentId={agent.id}
+          edge={editingEdge}
+          fromNodeName={editingEdgeFromName}
+          toNodeName={editingEdgeToName}
+          onSave={handleEdgeEditorSave}
+          onDelete={handleEdgeEditorDelete}
+          onClose={() => {
+            setEdgeEditorOpen(false);
+            setEditingEdgeId(null);
+          }}
+        />
+      )}
+    </>
   );
 };
