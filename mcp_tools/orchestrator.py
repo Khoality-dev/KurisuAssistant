@@ -7,9 +7,12 @@ This module provides a singleton orchestrator for managing MCP tools:
 
 import time
 import datetime
+import logging
 from typing import Optional, List, Dict, Any
 
 from .client import list_tools, call_tool
+
+logger = logging.getLogger(__name__)
 
 
 class MCPOrchestrator:
@@ -41,7 +44,7 @@ class MCPOrchestrator:
                     self._cached_tools = await list_tools(self.mcp_client)
                     self._tools_cache_time = current_time
                 except Exception as e:
-                    print(f"Error getting MCP tools: {e}")
+                    logger.error(f"Error getting MCP tools: {e}")
                     self._cached_tools = []
             else:
                 self._cached_tools = []

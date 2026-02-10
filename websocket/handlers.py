@@ -110,10 +110,157 @@ class ChatSessionHandler:
             except asyncio.CancelledError:
                 pass
 
-        # Start new chat task with orchestration
-        self.current_task = asyncio.create_task(
-            self._run_orchestration(event)
-        )
+        # Branch: single agent mode (direct) vs orchestration (Administrator routing)
+        if event.agent_id is not None:
+            self.current_task = asyncio.create_task(
+                self._run_single_agent(event)
+            )
+        else:
+            self.current_task = asyncio.create_task(
+                self._run_orchestration(event)
+            )
+
+    async def _run_single_agent(self, event: ChatRequestEvent):
+        """Run a single agent directly, bypassing Administrator routing.
+
+        This is a simplified path for single-agent conversations:
+        setup → agent.process() → save → DoneEvent.
+        No OrchestrationSession, no Administrator, no routing loop.
+        """
+        from fastapi import WebSocketDisconnect
+        try:
+            # Setup conversation/frame
+            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name = await self._setup_conversation(event)
+
+            # Reset accumulated state for new task
+            self._accumulated_messages = []
+            self._current_chunk = None
+            self._task_conversation_id = conversation_id
+            self._task_frame_id = frame_id
+            self._task_done = False
+
+            # Load agents and find the target
+            all_agents = self._load_user_agents()
+            available_agents = [a for a in all_agents if a.name != ADMINISTRATOR_NAME]
+            target_agent = self._get_agent_config(event.agent_id, available_agents)
+
+            if not target_agent:
+                await self.send_event(ErrorEvent(
+                    error=f"Agent not found: {event.agent_id}",
+                    code="AGENT_NOT_FOUND",
+                ))
+                return
+
+            # Load context messages
+            context_messages = self._load_context_messages(conversation_id, frame_id)
+
+            # Build messages
+            user_message = {"role": "user", "content": event.text}
+            messages = system_messages + context_messages + [user_message]
+            messages_to_save = [user_message]
+
+            # Create agent context
+            agent_context = AgentContext(
+                user_id=self.user_id,
+                conversation_id=conversation_id,
+                frame_id=frame_id,
+                model_name=target_agent.model_name or event.model_name or DEFAULT_ADMIN_MODEL,
+                handler=self,
+                available_agents=available_agents,
+                user_system_prompt=user_system_prompt,
+                preferred_name=preferred_name,
+            )
+
+            # Create and run the agent
+            agent = self._create_agent(target_agent)
+
+            # Collect agent's response
+            current_role = "assistant"
+            current_name = target_agent.name
+            chunk_content = ""
+            chunk_thinking = ""
+            raw_input_json = None
+
+            async for chunk in agent.process(messages, agent_context):
+                # Capture raw input on first chunk
+                if raw_input_json is None:
+                    raw_input_json = json.dumps(
+                        getattr(agent, 'last_prepared_messages', messages),
+                        ensure_ascii=False, default=str,
+                    )
+
+                # Attach agent voice reference for TTS
+                chunk.voice_reference = target_agent.voice_reference
+                await self.send_event(chunk)
+
+                # Accumulate for saving
+                if chunk.role != current_role:
+                    if chunk_content or chunk_thinking:
+                        completed_msg = {
+                            "role": current_role,
+                            "content": chunk_content,
+                            "thinking": chunk_thinking if chunk_thinking else None,
+                            "agent_id": target_agent.id if current_role == "assistant" else None,
+                            "name": current_name,
+                            "raw_input": raw_input_json if current_role == "assistant" else None,
+                            "raw_output": chunk_content if current_role == "assistant" else None,
+                        }
+                        messages_to_save.append(completed_msg)
+                        self._accumulated_messages.append(completed_msg)
+                    current_role = chunk.role
+                    current_name = chunk.name or target_agent.name
+                    chunk_content = chunk.content
+                    chunk_thinking = chunk.thinking or ""
+                else:
+                    chunk_content += chunk.content
+                    if chunk.thinking:
+                        chunk_thinking += chunk.thinking
+
+                # Update in-progress chunk for reconnect replay
+                self._current_chunk = {
+                    "role": current_role,
+                    "content": chunk_content,
+                    "thinking": chunk_thinking if chunk_thinking else None,
+                    "agent_id": target_agent.id if current_role == "assistant" else None,
+                    "name": current_name,
+                }
+
+            # Save final accumulated content
+            if chunk_content or chunk_thinking:
+                completed_msg = {
+                    "role": current_role,
+                    "content": chunk_content,
+                    "thinking": chunk_thinking if chunk_thinking else None,
+                    "agent_id": target_agent.id if current_role == "assistant" else None,
+                    "name": current_name,
+                    "raw_input": raw_input_json if current_role == "assistant" else None,
+                    "raw_output": chunk_content if current_role == "assistant" else None,
+                }
+                messages_to_save.append(completed_msg)
+                self._accumulated_messages.append(completed_msg)
+
+            # Persist messages to DB
+            await self._save_messages(messages_to_save, frame_id)
+            self._update_timestamps(frame_id, conversation_id)
+
+            # Mark task as done
+            self._current_chunk = None
+            self._task_done = True
+            await self.send_event(DoneEvent(
+                conversation_id=conversation_id,
+                frame_id=frame_id,
+            ))
+
+        except asyncio.CancelledError:
+            logger.debug("Single agent task cancelled by user")
+        except WebSocketDisconnect:
+            raise
+        except Exception as e:
+            logger.error(f"Single agent task failed: {e}", exc_info=True)
+            await self.send_event(ErrorEvent(
+                error=str(e),
+                code="INTERNAL_ERROR",
+            ))
 
     async def _run_orchestration(self, event: ChatRequestEvent):
         """Run the turn-based orchestration loop.
@@ -499,7 +646,7 @@ class ChatSessionHandler:
             ))
 
         except asyncio.CancelledError:
-            logger.info("Orchestration cancelled by user")
+            logger.debug("Orchestration cancelled by user")
         except WebSocketDisconnect:
             raise
         except Exception as e:
@@ -623,7 +770,7 @@ class ChatSessionHandler:
         conv_id = self._task_conversation_id or 0
         frame_id = self._task_frame_id or 0
 
-        logger.info(f"Replaying {len(self._accumulated_messages)} accumulated messages on reconnect")
+        logger.debug(f"Replaying {len(self._accumulated_messages)} accumulated messages on reconnect")
 
         # Replay each accumulated message as a complete StreamChunkEvent
         for msg in self._accumulated_messages:

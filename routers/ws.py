@@ -49,7 +49,7 @@ async def websocket_chat(
         or handler._current_chunk
     ):
         # Reconnect: swap socket on existing handler, replay accumulated state
-        logger.info(f"Reconnecting user {username} to existing handler with accumulated state")
+        logger.debug(f"Reconnecting user {username} to existing handler with accumulated state")
         await handler.replace_websocket(websocket)
     else:
         # Fresh connection: create new handler
@@ -59,7 +59,7 @@ async def websocket_chat(
     try:
         await handler.run()
     except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected for user: {username}")
+        logger.debug(f"WebSocket disconnected for user: {username}")
     except Exception as e:
         logger.error(f"WebSocket error for user {username}: {e}", exc_info=True)
     finally:

@@ -22,7 +22,7 @@ class ToolRegistry:
             tool: Tool instance to register
         """
         self._tools[tool.name] = tool
-        logger.info(f"Registered tool: {tool.name}")
+        logger.debug(f"Registered tool: {tool.name}")
 
     def unregister(self, name: str) -> None:
         """Unregister a tool.
@@ -32,7 +32,7 @@ class ToolRegistry:
         """
         if name in self._tools:
             del self._tools[name]
-            logger.info(f"Unregistered tool: {name}")
+            logger.debug(f"Unregistered tool: {name}")
 
     def get(self, name: str) -> Optional[BaseTool]:
         """Get a tool by name.
@@ -55,7 +55,7 @@ class ToolRegistry:
             name = tool.get("function", {}).get("name", "")
             if name:
                 self._mcp_tools[name] = tool
-                logger.info(f"Registered MCP tool: {name}")
+                logger.debug(f"Registered MCP tool: {name}")
 
     def get_schemas(self, tool_names: Optional[List[str]] = None) -> List[Dict]:
         """Get Ollama-compatible schemas for tools.

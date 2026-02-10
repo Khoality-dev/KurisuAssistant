@@ -1,6 +1,9 @@
 import json
 import os
 import glob
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def load_mcp_configs():
@@ -19,6 +22,6 @@ def load_mcp_configs():
                 # Merge tool-specific servers into main configuration
                 mcp_servers.update(tool_mcp_servers)
         except (json.JSONDecodeError, FileNotFoundError) as e:
-            print(f"Warning: Could not load MCP config from {config_file}: {e}")
+            logger.warning(f"Could not load MCP config from {config_file}: {e}")
     
     return {"mcpServers": mcp_servers}

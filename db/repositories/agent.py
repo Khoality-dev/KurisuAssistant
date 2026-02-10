@@ -63,6 +63,7 @@ class AgentRepository(BaseRepository[Agent]):
         model_name: Optional[str] = None,
         tools: Optional[List[str]] = None,
         think: bool = False,
+        character_config: Optional[dict] = None,
     ) -> Agent:
         """Create a new agent.
 
@@ -94,6 +95,7 @@ class AgentRepository(BaseRepository[Agent]):
             model_name=model_name,
             tools=tools,
             think=think,
+            character_config=character_config,
         )
 
     def update_agent(
@@ -106,6 +108,7 @@ class AgentRepository(BaseRepository[Agent]):
         model_name: Optional[str] = None,
         tools: Optional[List[str]] = None,
         think: Optional[bool] = None,
+        character_config: Optional[dict] = None,
     ) -> Agent:
         """Update an agent.
 
@@ -136,6 +139,8 @@ class AgentRepository(BaseRepository[Agent]):
             update_data["tools"] = tools
         if think is not None:
             update_data["think"] = think
+        if character_config is not None:
+            update_data["character_config"] = character_config
 
         if update_data:
             return self.update(agent, **update_data)

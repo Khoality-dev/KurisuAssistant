@@ -69,9 +69,13 @@ utils/prompts.py             # build_system_messages() from SYSTEM_PROMPT.md + u
 
 ### Multi-Agent Orchestration
 
-Turn-based orchestration where **AdministratorAgent** (system-level, not a user agent) routes messages between **SimpleAgents** (user-created, equal-tier).
+Two modes controlled by `event.agent_id` in `ChatRequestEvent`:
 
-**Flow**: User message → Administrator selects agent → Agent responds → Administrator routes to next agent or back to user. Max 10 turns per user message. Admin model: `gemma3:4b`.
+**Single Agent Mode** (`agent_id` set): Direct path — `_run_single_agent()` skips all Administrator logic. Message goes straight to the specified agent. No OrchestrationSession, no routing loop. Frontend selects agent via sidebar dropdown (persisted in localStorage).
+
+**Group Discussion Mode** (`agent_id` null): Turn-based orchestration where **AdministratorAgent** (system-level, not a user agent) routes messages between **SimpleAgents** (user-created, equal-tier). Currently disabled in UI.
+
+**Group Flow**: User message → Administrator selects agent → Agent responds → Administrator routes to next agent or back to user. Max 10 turns per user message. Admin model: `gemma3:4b`.
 
 **WebSocket Events**: `TurnUpdateEvent`, `LLMLogEvent`, `AgentSwitchEvent`
 
@@ -192,6 +196,12 @@ All protected unless noted. Auth: `Authorization: Bearer <token>`.
 | POST | `/tts` | Synthesize speech → WAV |
 | GET | `/tts/voices` | List voices (?provider=) |
 | GET | `/tts/backends` | List TTS backends |
+| POST | `/character-assets/upload-base?agent_id=&pose_id=` | Upload base portrait → `{agent_id}/{pose_id}/base.png` |
+| POST | `/character-assets/compute-patch?agent_id=&pose_id=&part=&index=` | Upload keyframe, compute diff → `{agent_id}/{pose_id}/{part}_{index}.png` |
+| POST | `/character-assets/upload-video?agent_id=&edge_id=` | Upload transition video → `{agent_id}/edges/{edge_id}.mp4\|.webm` |
+| GET | `/character-assets/{agent_id}/{pose_id}/{filename}` | Serve pose asset (base/patch image, no-cache) |
+| GET | `/character-assets/{agent_id}/edges/{edge_id}` | Serve transition video (no-cache) |
+| PATCH | `/character-assets/{agent_id}/character-config` | Update pose tree config, cleans up orphaned assets |
 
 ## Environment Variables
 
