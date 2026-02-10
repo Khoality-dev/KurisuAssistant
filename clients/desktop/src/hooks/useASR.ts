@@ -41,7 +41,6 @@ export function useASR() {
           deviceId: d.deviceId,
           label: d.label || `Microphone ${d.deviceId.slice(0, 8)}`,
         }));
-      console.log('[useASR] Audio input devices:', audioInputs);
       setDevices(audioInputs);
       return audioInputs;
     } catch (err) {

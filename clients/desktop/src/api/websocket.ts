@@ -140,12 +140,9 @@ class WebSocketManager {
         .replace(/^https:/, 'wss:');
 
       const url = `${wsUrl}/ws/chat?token=${encodeURIComponent(this.token!)}`;
-      console.log('[WebSocket] Connecting to:', url.replace(this.token!, '***'));
-
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
-        console.log('[WebSocket] Connected');
         this.lastConnectedAt = Date.now();
         // Only reset reconnect counter if connection was stable (>10s)
         // This prevents infinite reconnect loops when server accepts then drops
@@ -164,7 +161,6 @@ class WebSocketManager {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data) as ServerEvent;
-          console.log('[WebSocket] Received:', data.type, data);
           this.dispatchEvent(data);
         } catch (e) {
           console.error('[WebSocket] Failed to parse message:', e);
@@ -178,7 +174,6 @@ class WebSocketManager {
       };
 
       this.ws.onclose = (event) => {
-        console.log('[WebSocket] Closed:', event.code, event.reason);
         this.isConnecting = false;
         this.ws = null;
         this.connectionPromise = null;
@@ -229,7 +224,6 @@ class WebSocketManager {
       ...event,
     };
 
-    console.log('[WebSocket] Sending:', fullEvent.type, fullEvent);
     this.ws.send(JSON.stringify(fullEvent));
   }
 
@@ -311,7 +305,6 @@ class WebSocketManager {
 
   private attemptReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log('[WebSocket] Max reconnect attempts reached, giving up');
       this.dispatchEvent({
         type: 'error',
         error: 'Connection lost. Please refresh the page.',
@@ -324,13 +317,10 @@ class WebSocketManager {
 
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-    console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-
     setTimeout(() => {
       if (this.token && !this.isConnected()) {
         this.connect()
           .then(() => {
-            console.log('[WebSocket] Reconnected successfully');
             this.dispatchEvent({
               type: 'reconnected',
               event_id: '',

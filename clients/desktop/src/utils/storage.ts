@@ -14,6 +14,7 @@ const STORAGE_KEYS = {
   GPT_SOVITS_URL: 'kurisu_gpt_sovits_url',
   SHOW_ADMINISTRATOR: 'kurisu_show_administrator',
   ASR_DEVICE_ID: 'kurisu_asr_device_id',
+  SELECTED_AGENT_ID: 'kurisu_selected_agent_id',
 } as const;
 
 export const storage = {
@@ -298,6 +299,32 @@ export const storage = {
     } catch (error) {
       console.error('Failed to get ASR device ID:', error);
       return null;
+    }
+  },
+
+  setSelectedAgentId(id: number): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.SELECTED_AGENT_ID, id.toString());
+    } catch (error) {
+      console.error('Failed to save selected agent ID:', error);
+    }
+  },
+
+  getSelectedAgentId(): number | null {
+    try {
+      const value = localStorage.getItem(STORAGE_KEYS.SELECTED_AGENT_ID);
+      return value ? parseInt(value, 10) : null;
+    } catch (error) {
+      console.error('Failed to get selected agent ID:', error);
+      return null;
+    }
+  },
+
+  clearSelectedAgentId(): void {
+    try {
+      localStorage.removeItem(STORAGE_KEYS.SELECTED_AGENT_ID);
+    } catch (error) {
+      console.error('Failed to clear selected agent ID:', error);
     }
   },
 };

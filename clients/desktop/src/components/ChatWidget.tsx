@@ -32,10 +32,17 @@ import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, BaseEvent } from '.
 import { storage } from '../utils/storage';
 import { useTTS } from '../hooks/useTTS';
 import { useASR } from '../hooks/useASR';
+import type { AmplitudeState } from '../videocall/CharacterRenderer';
+import type { PoseTree } from '../videocall/types';
 import { MessageBubble } from './MessageBubble';
 import type { Message } from '../api/types';
 
-export const ChatWidget: React.FC = () => {
+interface ChatWidgetProps {
+  characterWindowOpen?: boolean;
+  agentId?: number | null;
+}
+
+export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = false, agentId = null }) => {
   const {
     messages,
     currentConversation,
@@ -60,8 +67,27 @@ export const ChatWidget: React.FC = () => {
   // TTS settings are read fresh from storage in MessageBubble.handleTTS()
   const [showAdministrator, setShowAdministrator] = useState<boolean>(storage.getShowAdministrator());
 
-  // Streaming TTS auto-play
-  const { queueText, clearQueue } = useTTS();
+  // Amplitude state (updated via ref to avoid re-renders, sent to character window via IPC)
+  const amplitudeRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false, isThinking: false });
+  const onAmplitudeUpdate = useCallback((amplitude: number, isPlaying: boolean) => {
+    amplitudeRef.current = { ...amplitudeRef.current, amplitude, isPlaying };
+  }, []);
+
+  // Character panel state — all agents in conversation
+  interface AgentEntry { name: string; poseTree: PoseTree | null }
+  const [agentMap, setAgentMap] = useState<Map<number, AgentEntry>>(new Map());
+  const [activeAgentId, setActiveAgentId] = useState<number | null>(null);
+  const agentCacheRef = useRef<Set<number>>(new Set()); // IDs already fetched
+
+  // Streaming TTS auto-play (with amplitude callback for character lip sync)
+  const { speak, stop: stopTTS, isPlaying: isTTSPlaying, queueText, clearQueue, isQueueActive } = useTTS(onAmplitudeUpdate);
+  // Expose TTS functions via ref so MessageBubble can use the amplitude-aware instance
+  // without causing re-renders on every isTTSPlaying change
+  const setActiveAgentForTTS = useCallback((agentId: number | null) => {
+    setActiveAgentId(agentId);
+  }, []);
+  const ttsRef = useRef({ speak, stopTTS, isTTSPlaying, setActiveAgentForTTS });
+  ttsRef.current = { speak, stopTTS, isTTSPlaying, setActiveAgentForTTS };
   const ttsBufferRef = useRef('');
   const ttsVoiceRef = useRef<string | undefined>(undefined);
 
@@ -90,6 +116,127 @@ export const ChatWidget: React.FC = () => {
   useEffect(() => {
     isStreamingRef.current = isStreaming;
   }, [isStreaming]);
+
+  // Fetch agent and add/update the character panel map
+  // forceRefresh=true bypasses cache (used when agent becomes active, to pick up config changes)
+  const fetchAgentForPanel = useCallback((agentId: number, agentName?: string, forceRefresh = false) => {
+    if (!forceRefresh && agentCacheRef.current.has(agentId)) return;
+    agentCacheRef.current.add(agentId);
+    apiClient.getAgent(agentId).then((agent) => {
+      const cc = agent.character_config;
+      const poseTree = cc?.pose_tree ?? null;
+      // Migrate legacy video_url → video_urls on edges
+      if (poseTree?.edges) {
+        for (const e of poseTree.edges) {
+          const raw = e as any;
+          if (raw.video_url && !raw.video_urls?.length) {
+            e.video_urls = [raw.video_url];
+            delete raw.video_url;
+          }
+        }
+      }
+      setAgentMap((prev) => {
+        const next = new Map(prev);
+        next.set(agentId, { name: agent.name, poseTree });
+        return next;
+      });
+    }).catch(() => {
+      // Still add to map with null config so we show the name
+      setAgentMap((prev) => {
+        const next = new Map(prev);
+        next.set(agentId, { name: agentName || `Agent ${agentId}`, poseTree: null });
+        return next;
+      });
+    });
+  }, []);
+
+  // Set active agent during streaming (for lip sync); skip Administrator
+  const pushAgentCharacterConfig = useCallback((agentId: number | undefined, agentName?: string) => {
+    if (!agentId || agentName === 'Administrator') return;
+    setActiveAgentId(agentId);
+    fetchAgentForPanel(agentId, agentName, true);
+  }, [fetchAgentForPanel]);
+
+  // Clear active speaker when TTS queue finishes playing
+  useEffect(() => {
+    if (!isQueueActive && !isStreaming) {
+      setActiveAgentId(null);
+      amplitudeRef.current = { amplitude: 0, isPlaying: false, isThinking: false };
+    }
+  }, [isQueueActive, isStreaming]);
+
+  // Reset agent map when conversation changes
+  useEffect(() => {
+    setAgentMap(new Map());
+    agentCacheRef.current.clear();
+    setActiveAgentId(null);
+  }, [currentConversation?.id]);
+
+  // Scan messages for agents to populate the character panel (skip Administrator)
+  useEffect(() => {
+    if (!characterWindowOpen) return;
+    for (const msg of messages) {
+      const name = msg.agent?.name || msg.name;
+      if (msg.agent_id && name !== 'Administrator' && !agentCacheRef.current.has(msg.agent_id)) {
+        fetchAgentForPanel(msg.agent_id, name);
+      }
+    }
+  }, [messages, characterWindowOpen, fetchAgentForPanel]);
+
+  // IPC bridge: send amplitude to character window at ~30fps
+  useEffect(() => {
+    if (!characterWindowOpen) return;
+    const api = window.electron?.characterWindow;
+    if (!api) return;
+    const interval = setInterval(() => {
+      api.sendAmplitude(amplitudeRef.current);
+    }, 33);
+    return () => clearInterval(interval);
+  }, [characterWindowOpen]);
+
+  // IPC bridge: send agent map + active agent to character window
+  const agentStateRef = useRef({ agentMap, activeAgentId });
+  agentStateRef.current = { agentMap, activeAgentId };
+
+  const sendAgentState = useCallback(() => {
+    const api = window.electron?.characterWindow;
+    if (!api) return;
+    const { agentMap: map, activeAgentId: id } = agentStateRef.current;
+    const agents = Array.from(map.entries()).map(([agentId, entry]) => ({
+      id: agentId,
+      name: entry.name,
+      poseTree: entry.poseTree,
+    }));
+    api.sendAgentsUpdate({ agents, activeAgentId: id });
+  }, []);
+
+  useEffect(() => {
+    if (!characterWindowOpen) return;
+    sendAgentState();
+  }, [characterWindowOpen, agentMap, activeAgentId, sendAgentState]);
+
+  // Re-send state when character window signals it's ready (after loading)
+  useEffect(() => {
+    if (!characterWindowOpen) return;
+    const api = window.electron?.characterWindow;
+    if (!api) return;
+    const cleanup = api.onCharacterReady(() => {
+      sendAgentState();
+    });
+    return cleanup;
+  }, [characterWindowOpen, sendAgentState]);
+
+  // Re-fetch character configs when saved in the editor dialog
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const agentId = (e as CustomEvent).detail?.agentId as number | undefined;
+      if (agentId && agentMap.has(agentId)) {
+        fetchAgentForPanel(agentId, undefined, true);
+      }
+    };
+    window.addEventListener('character-config-saved', handler);
+    return () => window.removeEventListener('character-config-saved', handler);
+  }, [agentMap, fetchAgentForPanel]);
 
   // Insert ASR transcript into input field
   useEffect(() => {
@@ -228,7 +375,8 @@ export const ChatWidget: React.FC = () => {
     if (needsNewBubble) {
       // Flush TTS buffer from previous agent before switching
       if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
-        queueText(ttsBufferRef.current.trim(), ttsVoiceRef.current);
+        const cleaned = stripNarration(ttsBufferRef.current);
+        if (cleaned) queueText(cleaned, ttsVoiceRef.current);
         ttsBufferRef.current = '';
       }
 
@@ -266,6 +414,9 @@ export const ChatWidget: React.FC = () => {
       // Update TTS voice for new agent
       ttsVoiceRef.current = event.voice_reference || undefined;
 
+      // Update character panel with active agent
+      pushAgentCharacterConfig(agentId, agentName);
+
       scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
     } else if (!state.hasStarted) {
       // First message chunk - update placeholder bubble
@@ -275,6 +426,9 @@ export const ChatWidget: React.FC = () => {
       state.currentAgentName = agentName;
       state.accumulatedContent = event.content || '';
       state.accumulatedThinking = '';
+
+      // Update character panel with active agent
+      pushAgentCharacterConfig(agentId, agentName);
 
       if (state.hasPlaceholder) {
         // Update placeholder with actual role/agent info
@@ -311,10 +465,15 @@ export const ChatWidget: React.FC = () => {
       }
     }
 
-    // Always accumulate thinking
+    // Always accumulate thinking + update isThinking for character transitions
     if (event.thinking) {
       state.accumulatedThinking += event.thinking;
+      amplitudeRef.current = { ...amplitudeRef.current, isThinking: true };
       scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
+    }
+    if (event.content) {
+      // Content arrived — thinking phase is over
+      amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
     }
 
     // Streaming TTS auto-play: feed complete sentences to TTS queue
@@ -328,11 +487,12 @@ export const ChatWidget: React.FC = () => {
         const batch = parts.slice(0, -1).join(' ');
         ttsBufferRef.current = parts[parts.length - 1];
         if (batch.trim()) {
-          queueText(batch, ttsVoiceRef.current);
+          const cleaned = stripNarration(batch);
+          if (cleaned) queueText(cleaned, ttsVoiceRef.current);
         }
       }
     }
-  }, [setCurrentConversationId, scheduleStreamUpdate, queueText]);
+  }, [setCurrentConversationId, scheduleStreamUpdate, queueText, pushAgentCharacterConfig]);
 
   const handleDone = useCallback((event: DoneEvent) => {
     const state = streamingStateRef.current;
@@ -342,12 +502,18 @@ export const ChatWidget: React.FC = () => {
       return;
     }
 
+    // Clear thinking state
+    amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
+
     // Flush remaining TTS buffer
     if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
-      queueText(ttsBufferRef.current.trim(), ttsVoiceRef.current);
+      const cleaned = stripNarration(ttsBufferRef.current);
+      if (cleaned) queueText(cleaned, ttsVoiceRef.current);
     }
     ttsBufferRef.current = '';
     ttsVoiceRef.current = undefined;
+    // Note: don't clear activeAgentId here — TTS queue still plays after streaming ends.
+    // activeAgentId is cleared when isQueueActive becomes false (see effect below).
 
     // Finalize last streaming message with accumulated content
     setStreamingMessages(prev => {
@@ -400,7 +566,6 @@ export const ChatWidget: React.FC = () => {
   }, []);
 
   const handleReconnected = useCallback((_event: BaseEvent) => {
-    console.log('[ChatWidget] WebSocket reconnected, reloading conversation');
     const convId = activeConversationId || streamingStateRef.current.conversationId;
     if (convId) {
       // Reload immediately to show whatever is saved
@@ -415,20 +580,36 @@ export const ChatWidget: React.FC = () => {
     }
   }, [activeConversationId, loadConversation]);
 
-  // Set up WebSocket event listeners
+  // Stable refs for WebSocket handlers — avoids re-registering on every render
+  // (queueText → playQueue → amplitudeController cascading instability)
+  const handleStreamChunkRef = useRef(handleStreamChunk);
+  handleStreamChunkRef.current = handleStreamChunk;
+  const handleDoneRef = useRef(handleDone);
+  handleDoneRef.current = handleDone;
+  const handleErrorRef = useRef(handleError);
+  handleErrorRef.current = handleError;
+  const handleReconnectedRef = useRef(handleReconnected);
+  handleReconnectedRef.current = handleReconnected;
+
+  // Set up WebSocket event listeners (registered once, delegates to latest ref)
   useEffect(() => {
-    wsManager.on('stream_chunk', handleStreamChunk);
-    wsManager.on('done', handleDone);
-    wsManager.on('error', handleError);
-    wsManager.on('reconnected', handleReconnected);
+    const onChunk = (e: StreamChunkEvent) => handleStreamChunkRef.current(e);
+    const onDone = (e: DoneEvent) => handleDoneRef.current(e);
+    const onError = (e: ErrorEvent) => handleErrorRef.current(e);
+    const onReconnected = (e: BaseEvent) => handleReconnectedRef.current(e);
+
+    wsManager.on('stream_chunk', onChunk);
+    wsManager.on('done', onDone);
+    wsManager.on('error', onError);
+    wsManager.on('reconnected', onReconnected);
 
     return () => {
-      wsManager.off('stream_chunk', handleStreamChunk);
-      wsManager.off('done', handleDone);
-      wsManager.off('error', handleError);
-      wsManager.off('reconnected', handleReconnected);
+      wsManager.off('stream_chunk', onChunk);
+      wsManager.off('done', onDone);
+      wsManager.off('error', onError);
+      wsManager.off('reconnected', onReconnected);
     };
-  }, [handleStreamChunk, handleDone, handleError, handleReconnected]);
+  }, []);
 
   // Handle scroll to load more messages
   const handleScroll = () => {
@@ -493,7 +674,7 @@ export const ChatWidget: React.FC = () => {
         userMessage.content,
         '', // Model determined by backend
         activeConversationId,
-        null, // agent_id - let Administrator route
+        agentId, // Single agent mode or null for Administrator routing
         imageBase64
       );
     } catch (err: any) {
@@ -645,7 +826,7 @@ export const ChatWidget: React.FC = () => {
       setStreamingThinking('');
       setJustFinishedStreaming(false);
 
-      await wsManager.sendChatRequest(text, '', activeConversationId, null, []);
+      await wsManager.sendChatRequest(text, '', activeConversationId, agentId, []);
     } catch (e) {
       console.error('Failed to resend message:', e);
       setIsStreaming(false);
@@ -653,7 +834,7 @@ export const ChatWidget: React.FC = () => {
   };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%' }}>
 
       {/* Messages area */}
       <Box
@@ -666,18 +847,20 @@ export const ChatWidget: React.FC = () => {
           backgroundColor: '#F8FAFC',
         }}
       >
-        {/* Administrator visibility toggle */}
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
-          <Tooltip title={showAdministrator ? 'Hide Administrator messages' : 'Show Administrator messages'}>
-            <IconButton
-              size="small"
-              onClick={toggleShowAdministrator}
-              sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
-            >
-              {showAdministrator ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
-            </IconButton>
-          </Tooltip>
-        </Box>
+        {/* Administrator visibility toggle — hidden in single agent mode */}
+        {!agentId && (
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+            <Tooltip title={showAdministrator ? 'Hide Administrator messages' : 'Show Administrator messages'}>
+              <IconButton
+                size="small"
+                onClick={toggleShowAdministrator}
+                sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
+              >
+                {showAdministrator ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+          </Box>
+        )}
 
         {isLoadingMessages && (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
@@ -720,6 +903,7 @@ export const ChatWidget: React.FC = () => {
                   onToggleThinking={toggleThinking}
                   onResend={handleResend}
                   onDelete={handleDelete}
+                  ttsRef={ttsRef}
                 />
               );
             });
@@ -855,6 +1039,11 @@ export const ChatWidget: React.FC = () => {
     </Box>
   );
 };
+
+// Strip action narration (*action text*) from TTS input, preserving **bold**
+function stripNarration(text: string): string {
+  return text.replace(/(?<!\*)\*(?!\*)([^*]+)\*(?!\*)/g, '').replace(/\s{2,}/g, ' ').trim();
+}
 
 // Helper function to convert File to base64
 async function fileToBase64(file: File): Promise<string> {

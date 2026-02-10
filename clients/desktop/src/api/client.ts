@@ -16,6 +16,10 @@ import type {
   AgentUpdate,
   ToolsResponse,
   MCPServersResponse,
+  UploadBaseResponseDTO,
+  ComputePatchResponseDTO,
+  UploadVideoResponseDTO,
+  CharacterConfigDTO,
 } from './types';
 
 class APIClient {
@@ -350,6 +354,88 @@ class APIClient {
     const response = await this.client.get<MCPServersResponse>('/mcp-servers', {
       headers: this.getHeaders(),
     });
+    return response.data;
+  }
+
+  // Character Asset Methods
+
+  /**
+   * Upload a base portrait image for character animation
+   */
+  async uploadCharacterBase(agentId: number, poseId: string, file: File): Promise<UploadBaseResponseDTO> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await this.client.post<UploadBaseResponseDTO>(
+      '/character-assets/upload-base',
+      formData,
+      {
+        headers: this.getHeaders(),
+        params: { agent_id: agentId, pose_id: poseId },
+      }
+    );
+    return response.data;
+  }
+
+  /**
+   * Upload a keyframe image and compute diff patch against the pose's base image
+   */
+  async computeCharacterPatch(
+    agentId: number,
+    poseId: string,
+    keyframeFile: File,
+    part: string,
+    index: number,
+  ): Promise<ComputePatchResponseDTO> {
+    const formData = new FormData();
+    formData.append('keyframe', keyframeFile);
+
+    const response = await this.client.post<ComputePatchResponseDTO>(
+      '/character-assets/compute-patch',
+      formData,
+      {
+        headers: this.getHeaders(),
+        params: { agent_id: agentId, pose_id: poseId, part, index },
+      }
+    );
+    return response.data;
+  }
+
+  /**
+   * Upload a transition video for an animation edge
+   */
+  async uploadTransitionVideo(agentId: number, edgeId: string, file: File): Promise<UploadVideoResponseDTO> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await this.client.post<UploadVideoResponseDTO>(
+      '/character-assets/upload-video',
+      formData,
+      {
+        headers: this.getHeaders(),
+        params: { agent_id: agentId, edge_id: edgeId },
+        timeout: 60000,
+      }
+    );
+    return response.data;
+  }
+
+  /**
+   * Get full URL for a character asset image
+   */
+  getCharacterAssetUrl(assetId: string): string {
+    return `${config.apiBaseUrl}/character-assets/${assetId}`;
+  }
+
+  /**
+   * Update an agent's character animation config (pose tree)
+   */
+  async updateCharacterConfig(agentId: number, characterConfig: CharacterConfigDTO): Promise<any> {
+    const response = await this.client.patch(
+      `/character-assets/${agentId}/character-config`,
+      characterConfig,
+      { headers: this.getHeaders() }
+    );
     return response.data;
   }
 }
