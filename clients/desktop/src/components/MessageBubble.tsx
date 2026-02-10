@@ -36,7 +36,7 @@ interface MessageBubbleProps {
   onRegenerate?: (messageIndex: number) => void;
   onResend?: (messageIndex: number) => void;
   onDelete?: (messageIndex: number) => void;
-  ttsRef: React.RefObject<{ speak: (text: string, voice?: string, language?: string, backend?: string, emotionParams?: { emo_audio?: string; emo_alpha?: number; use_emo_text?: boolean }, apiUrl?: string) => Promise<void>; stopTTS: () => void; isTTSPlaying: boolean; setActiveAgentForTTS: (agentId: number | null) => void }>;
+  ttsRef: React.RefObject<{ speak: (text: string, voice?: string, language?: string, backend?: string, emotionParams?: { emo_audio?: string; emo_alpha?: number; use_emo_text?: boolean }) => Promise<void>; stopTTS: () => void; isTTSPlaying: boolean; setActiveAgentForTTS: (agentId: number | null) => void }>;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -95,7 +95,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           ttsRef.current.setActiveAgentForTTS(message.agent.id);
         }
         const currentBackend = storage.getTTSBackend() || 'gpt-sovits';
-        const currentApiUrl = storage.getGPTSoVITSUrl() || undefined;
         const emotionParams =
           currentBackend === 'index-tts'
             ? {
@@ -106,7 +105,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             : undefined;
 
         const voice = message.voice_reference || message.agent?.voice_reference || undefined;
-        await ttsRef.current.speak(message.content, voice, undefined, currentBackend, emotionParams, currentApiUrl);
+        await ttsRef.current.speak(message.content, voice, undefined, currentBackend, emotionParams);
       } catch (error) {
         console.error('Failed to play TTS:', error);
       } finally {

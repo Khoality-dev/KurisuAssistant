@@ -28,9 +28,9 @@ import {
 import { motion } from 'framer-motion';
 import { useAuthStore } from '../store/authStore';
 import { apiClient } from '../api/client';
-import { config } from '../config';
 import { useTTS } from '../hooks/useTTS';
 import { storage } from '../utils/storage';
+import type { UserProfile } from '../api/types';
 
 const MotionPaper = motion(Paper);
 
@@ -54,10 +54,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
 
   // TTS settings — auto-saved to localStorage on change
   const [ttsBackend, setTtsBackendState] = useState(storage.getTTSBackend() || 'gpt-sovits');
-  const [gptSovitsUrl, setGptSovitsUrlState] = useState(storage.getGPTSoVITSUrl() || '');
   const [ttsAutoPlay, setTtsAutoPlayState] = useState(storage.getTTSAutoPlay());
-  const [ttsConnecting, setTtsConnecting] = useState(false);
-  const [ttsConnectionStatus, setTtsConnectionStatus] = useState<{ ok: boolean; message: string } | null>(null);
 
   // INDEX-TTS emotion settings
   const [ttsEmotionAudio, setTtsEmotionAudioState] = useState(storage.getTTSEmotionAudio() || '');
@@ -66,7 +63,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
 
   // Auto-save wrappers
   const setTtsBackend = (v: string) => { setTtsBackendState(v); storage.setTTSBackend(v); };
-  const setGptSovitsUrl = (v: string) => { setGptSovitsUrlState(v); storage.setGPTSoVITSUrl(v); };
   const setTtsAutoPlay = (v: boolean) => { setTtsAutoPlayState(v); storage.setTTSAutoPlay(v); };
   const setTtsEmotionAudio = (v: string) => { setTtsEmotionAudioState(v); storage.setTTSEmotionAudio(v); };
   const setTtsEmotionAlpha = (v: number) => { setTtsEmotionAlphaState(v); storage.setTTSEmotionAlpha(v); };
@@ -138,19 +134,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
       setErrorMessage(error.message || 'Failed to save account settings');
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const handleCheckTTSConnection = async () => {
-    setTtsConnecting(true);
-    setTtsConnectionStatus(null);
-    try {
-      const result = await apiClient.checkTTSConnection(ttsBackend, gptSovitsUrl || undefined);
-      setTtsConnectionStatus(result);
-    } catch (error: any) {
-      setTtsConnectionStatus({ ok: false, message: error.message || 'Connection check failed' });
-    } finally {
-      setTtsConnecting(false);
     }
   };
 
@@ -299,36 +282,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
                 ))}
               </Select>
             </FormControl>
-          </Box>
-
-          {/* TTS Server URL */}
-          <Box sx={{ mb: 3 }}>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-              <TextField
-                label="TTS Server URL"
-                value={gptSovitsUrl}
-                onChange={(e) => {
-                  setGptSovitsUrl(e.target.value);
-                  setTtsConnectionStatus(null);
-                }}
-                fullWidth
-                placeholder="http://localhost:9880"
-                helperText="Leave empty to use the default server"
-              />
-              <Button
-                variant="outlined"
-                onClick={handleCheckTTSConnection}
-                disabled={ttsConnecting}
-                sx={{ mt: '8px', minWidth: 100, whiteSpace: 'nowrap' }}
-              >
-                {ttsConnecting ? 'Checking...' : 'Connect'}
-              </Button>
-            </Box>
-            {ttsConnectionStatus && (
-              <Alert severity={ttsConnectionStatus.ok ? 'success' : 'error'} sx={{ mt: 1 }}>
-                {ttsConnectionStatus.message}
-              </Alert>
-            )}
           </Box>
 
           {/* TTS Auto-Play */}

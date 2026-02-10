@@ -75,7 +75,6 @@ export interface TTSRequest {
   voice?: string;
   language?: string;
   provider?: string;
-  api_url?: string;
   // INDEX-TTS emotion parameters
   emo_audio?: string;
   emo_alpha?: number;

@@ -25,7 +25,7 @@ electron/preload.ts       — contextBridge API (platform + characterWindow IPC 
 src/api/client.ts         — Axios + WebSocket singleton; streaming via wsManager
 src/api/types.ts          — TypeScript interfaces for API
 src/components/
-  LoginWindow.tsx          — Login/Register tabs, Remember Me, purple gradient
+  LoginWindow.tsx          — Login/Register tabs, Remember Me, Server URL field, purple gradient
   MainWindow.tsx           — Permanent sidebar (280px) + ChatWidget, conversation CRUD
   ChatWidget.tsx           — Chat UI with streaming, TTS auto-play, image attach, pagination, IPC bridge to character window
   MessageBubble.tsx        — Individual bubble: role styling, thinking collapse, TTS, resend/delete
@@ -51,7 +51,7 @@ src/videocall/            — Character animation engine (rendered in separate E
     ImageCache.ts         — URL→HTMLImageElement cache
 src/utils/storage.ts      — localStorage wrapper (auth token, model, TTS settings)
 src/theme/theme.ts        — MUI theme: primary #10A37F, 8px/12px border-radius
-src/config.ts             — API URL config
+src/config.ts             — API URL config (reads dynamically from storage)
 ```
 
 ## Code Style
@@ -135,7 +135,7 @@ Separate Electron window (toggleable via Face icon in top bar). Opens as indepen
 
 ## Storage Keys (localStorage)
 
-`kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_tts_auto_play`, `kurisu_tts_emo_audio`, `kurisu_tts_emo_alpha`, `kurisu_tts_use_emo_text`, `kurisu_selected_agent_id`
+`kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_tts_auto_play`, `kurisu_tts_emo_audio`, `kurisu_tts_emo_alpha`, `kurisu_tts_use_emo_text`, `kurisu_selected_agent_id`
 
 ## Security
 

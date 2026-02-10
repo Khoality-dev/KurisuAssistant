@@ -11,7 +11,7 @@ const STORAGE_KEYS = {
   TTS_LANGUAGE: 'kurisu_tts_language',
   TTS_AUTO_PLAY: 'kurisu_tts_auto_play',
   TTS_BACKEND: 'kurisu_tts_backend',
-  GPT_SOVITS_URL: 'kurisu_gpt_sovits_url',
+  BACKEND_URL: 'kurisu_backend_url',
   SHOW_ADMINISTRATOR: 'kurisu_show_administrator',
   ASR_DEVICE_ID: 'kurisu_asr_device_id',
   SELECTED_AGENT_ID: 'kurisu_selected_agent_id',
@@ -245,20 +245,20 @@ export const storage = {
     }
   },
 
-  setGPTSoVITSUrl(url: string): void {
+  setBackendUrl(url: string): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.GPT_SOVITS_URL, url);
+      localStorage.setItem(STORAGE_KEYS.BACKEND_URL, url);
     } catch (error) {
-      console.error('Failed to save GPT-SoVITS URL:', error);
+      console.error('Failed to save backend URL:', error);
     }
   },
 
-  getGPTSoVITSUrl(): string | null {
+  getBackendUrl(): string {
     try {
-      return localStorage.getItem(STORAGE_KEYS.GPT_SOVITS_URL);
+      return localStorage.getItem(STORAGE_KEYS.BACKEND_URL) || 'http://localhost:15597';
     } catch (error) {
-      console.error('Failed to get GPT-SoVITS URL:', error);
-      return null;
+      console.error('Failed to get backend URL:', error);
+      return 'http://localhost:15597';
     }
   },
 

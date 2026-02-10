@@ -1,6 +1,6 @@
 {
   "name": "kurisu-assistant-client",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "KurisuAssistant Desktop Client with React + Electron",
   "main": "dist-electron/main.js",
   "scripts": {

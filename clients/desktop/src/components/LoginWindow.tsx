@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 import { motion } from 'framer-motion';
 import { useAuthStore } from '../store/authStore';
+import { storage } from '../utils/storage';
 
 const MotionPaper = motion(Paper);
 
@@ -21,9 +22,15 @@ export const LoginWindow: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [email, setEmail] = useState('');
+  const [serverUrl, setServerUrlState] = useState(storage.getBackendUrl());
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const setServerUrl = (url: string) => {
+    setServerUrlState(url);
+    storage.setBackendUrl(url);
+  };
 
   const { login, register } = useAuthStore();
 
@@ -71,6 +78,17 @@ export const LoginWindow: React.FC = () => {
         <Typography variant="body2" align="center" color="text.secondary" sx={{ mb: 3 }}>
           Your AI-powered chat assistant
         </Typography>
+
+        <TextField
+          fullWidth
+          label="Server URL"
+          value={serverUrl}
+          onChange={(e) => setServerUrl(e.target.value)}
+          margin="normal"
+          size="small"
+          placeholder="http://localhost:15597"
+          sx={{ mb: 2 }}
+        />
 
         <Tabs value={tab} onChange={(_, v) => setTab(v)} centered sx={{ mb: 3 }}>
           <Tab label="Login" />

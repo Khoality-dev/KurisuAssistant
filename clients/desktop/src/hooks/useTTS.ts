@@ -60,7 +60,6 @@ export function useTTS(onAmplitudeUpdate?: (amplitude: number, isPlaying: boolea
         emo_alpha?: number;
         use_emo_text?: boolean;
       },
-      apiUrl?: string,
     ) => {
       try {
         // Stop current audio if playing
@@ -75,7 +74,7 @@ export function useTTS(onAmplitudeUpdate?: (amplitude: number, isPlaying: boolea
 
         setIsPlaying(true);
 
-        const audioBlob = await apiClient.synthesize(text, voice, language, backend, emotionParams, apiUrl);
+        const audioBlob = await apiClient.synthesize(text, voice, language, backend, emotionParams);
 
         // Use amplitude path for lip sync if callback is set
         if (amplitudeCallbackRef.current) {
@@ -182,7 +181,6 @@ export function useTTS(onAmplitudeUpdate?: (amplitude: number, isPlaying: boolea
     if (!text.trim()) return;
 
     const backend = storage.getTTSBackend() || 'gpt-sovits';
-    const apiUrl = storage.getGPTSoVITSUrl() || undefined;
     const emotionParams = backend === 'index-tts'
       ? {
           emo_audio: storage.getTTSEmotionAudio() || undefined,
@@ -191,7 +189,7 @@ export function useTTS(onAmplitudeUpdate?: (amplitude: number, isPlaying: boolea
         }
       : undefined;
 
-    const audioPromise = apiClient.synthesize(text.trim(), voice, undefined, backend, emotionParams, apiUrl);
+    const audioPromise = apiClient.synthesize(text.trim(), voice, undefined, backend, emotionParams);
     ttsQueueRef.current.push({ audioPromise });
     setIsQueueActive(true);
 

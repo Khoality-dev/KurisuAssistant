@@ -28,8 +28,13 @@ class APIClient {
 
   constructor() {
     this.client = axios.create({
-      baseURL: config.apiBaseUrl,
       timeout: 30000,
+    });
+
+    // Read baseURL dynamically so it picks up changes from storage
+    this.client.interceptors.request.use((reqConfig) => {
+      reqConfig.baseURL = config.apiBaseUrl;
+      return reqConfig;
     });
   }
 
@@ -188,14 +193,12 @@ class APIClient {
       emo_alpha?: number;
       use_emo_text?: boolean;
     },
-    apiUrl?: string,
   ): Promise<Blob> {
     const requestData: TTSRequest = {
       text,
       voice,
       language,
       provider: backend, // Map 'backend' to 'provider' for API
-      api_url: apiUrl || undefined,
       ...emotionParams, // Spread emotion parameters if provided
     };
 
@@ -226,10 +229,10 @@ class APIClient {
   /**
    * Check if a TTS server is reachable
    */
-  async checkTTSConnection(provider?: string, apiUrl?: string): Promise<{ ok: boolean; message: string }> {
+  async checkTTSConnection(provider?: string): Promise<{ ok: boolean; message: string }> {
     const response = await this.client.post<{ ok: boolean; message: string }>(
       '/tts/check',
-      { provider, api_url: apiUrl || undefined },
+      { provider },
       { headers: this.getHeaders(), timeout: 10000 }
     );
     return response.data;
