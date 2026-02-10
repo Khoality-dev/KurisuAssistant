@@ -338,9 +338,13 @@ def _extract_referenced_paths(config: Optional[dict]) -> set[str]:
                 if purl.startswith("/character-assets/"):
                     paths.add(purl[len("/character-assets/"):])
     for edge in pose_tree.get("edges", []):
+        # Support both video_urls (array) and legacy video_url (string)
         vurl = edge.get("video_url", "")
-        if vurl.startswith("/character-assets/"):
+        if vurl and vurl.startswith("/character-assets/"):
             paths.add(vurl[len("/character-assets/"):])
+        for vurl in edge.get("video_urls", []):
+            if vurl and vurl.startswith("/character-assets/"):
+                paths.add(vurl[len("/character-assets/"):])
     return paths
 
 
