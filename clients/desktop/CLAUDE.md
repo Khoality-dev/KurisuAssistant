@@ -40,10 +40,10 @@ src/store/
   agentStore.ts           — Agent list (filtered, no Administrator), selected agent ID (persisted)
 src/CharacterWindowApp.tsx — Minimal IPC-driven renderer for separate character window (no auth/stores)
 src/videocall/            — Character animation engine (rendered in separate Electron window via IPC)
-  types.ts                — PoseConfig, PatchInfo, PoseTree, AnimationNode/Edge, TransitionCondition, CharacterConfig
+  types.ts                — PoseConfig, PatchInfo, PoseTree, AnimationNode/Edge, TransitionCondition, AnimationSettings, CharacterConfig
   CharacterRenderer.tsx   — React wrapper around CanvasCompositor (accepts PoseTree, amplitude via ref)
   engine/
-    CanvasCompositor.ts   — 60fps render: blink + breathing + mouth + pose tree state machine (idle→transitioning→idle), edge timers, video transitions
+    CanvasCompositor.ts   — 60fps render: blink + breathing + mouth + pose tree state machine (idle→transitioning→idle), edge timers, video transitions, configurable AnimationSettings
     ImageCache.ts         — URL→HTMLImageElement cache
 src/utils/storage.ts      — localStorage wrapper (auth token, model, TTS settings)
 src/theme/theme.ts        — MUI theme: primary #10A37F, 8px/12px border-radius
@@ -121,7 +121,7 @@ Separate Electron window (toggleable via Face icon in top bar). Opens as indepen
 - `character:window-closed` — main process → main renderer when user closes character window
 - `character:open-window` / `character:close-window` — renderer invokes main process to create/destroy window
 
-**Canvas compositing**: Base image + diff patches (eyes, mouth) at stored positions. Blink: random 2-6s interval state machine. Breathing: sine wave vertical offset (3.5s period). Lip sync: audio amplitude → mouth patch index. Per-agent character configs stored in backend DB as JSON. **State machine**: IDLE (blink/breathing/mouth) → TRANSITIONING (playing edge video on canvas) → IDLE (switch to target pose, reset timers). Edge conditions: `random` (timer-based), `thinking` (fires on thinking start/end edge detection via `isThinking` from IPC). `isThinking` piggybacked on amplitude IPC channel at ~30fps.
+**Canvas compositing**: Base image + diff patches (eyes, mouth) at stored positions. Blink: configurable random interval state machine (default 2-6s). Breathing: sine wave vertical offset (configurable amplitude/period). Lip sync: audio amplitude → mouth patch index. Per-agent character configs stored in backend DB as JSON. **State machine**: IDLE (blink/breathing/mouth + event listening) → TRANSITIONING (playing edge video on canvas, all events ignored) → IDLE (switch to target pose, apply node settings, reset timers). During transitions no events are processed; random timers start fresh when arriving at a node. Edge conditions: `random` (timer-based), `thinking` (fires when `isThinking` matches `condition.value`). `isThinking` is a live variable observed each frame while idle — no edge detection. If multiple edges satisfy simultaneously, one is chosen at random. `isThinking` piggybacked on amplitude IPC channel at ~30fps. **Per-node animation settings**: `AnimationNode.animation_settings` (optional) configures breathing (enabled/amplitude/period) and blink timing (min/max interval, close/hold/open duration). Applied via `applySettings()` on each pose switch. UI: sliders in PoseNodeEditor Preview step. **Per-edge playback rate**: `AnimationEdge.playback_rate` (optional, default 1.0) controls transition video speed. UI: slider in EdgeEditor.
 
 **Asset pipeline**: AI-generated base → inpainted variants → backend OpenCV diff → cropped patch PNGs. Assets stored in folder structure: `data/character_assets/{agent_id}/{pose_id}/base.png`, `{part}_{index}.png`; videos in `{agent_id}/edges/{edge_id}.mp4|.webm`. Re-uploading overwrites without changing URLs. Orphaned assets cleaned up on config save.
 

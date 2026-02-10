@@ -33,12 +33,24 @@ import {
   Delete as DeleteIcon,
   Face as FaceIcon,
 } from '@mui/icons-material';
+import { Slider, Divider } from '@mui/material';
 import { apiClient } from '../api/client';
 import { config } from '../config';
-import type { PatchInfo, PoseConfig } from '../videocall/types';
+import type { PatchInfo, PoseConfig, AnimationSettings } from '../videocall/types';
 import { CanvasCompositor } from '../videocall/engine/CanvasCompositor';
 
 const STEPS = ['Base Image', 'Keyframes', 'Preview'];
+
+const DEFAULT_ANIMATION_SETTINGS: AnimationSettings = {
+  breathing_enabled: true,
+  breathing_amplitude: 3,
+  breathing_period: 3500,
+  blink_min_interval: 2000,
+  blink_max_interval: 6000,
+  blink_close_duration: 100,
+  blink_hold_duration: 50,
+  blink_open_duration: 100,
+};
 
 type PatchCategory = 'left_eye' | 'right_eye' | 'mouth';
 
@@ -240,8 +252,9 @@ export interface PoseNodeEditorProps {
   agentId: number;
   poseId: string;
   initialPoseConfig: PoseConfig | null;
+  initialAnimationSettings?: AnimationSettings;
   nodeName: string;
-  onSave: (poseConfig: PoseConfig, name: string) => void;
+  onSave: (poseConfig: PoseConfig, name: string, animationSettings: AnimationSettings) => void;
   onClose: () => void;
 }
 
@@ -250,6 +263,7 @@ export const PoseNodeEditor: React.FC<PoseNodeEditorProps> = ({
   agentId,
   poseId,
   initialPoseConfig,
+  initialAnimationSettings,
   nodeName,
   onSave,
   onClose,
@@ -275,6 +289,9 @@ export const PoseNodeEditor: React.FC<PoseNodeEditorProps> = ({
   const [testRightEye, setTestRightEye] = useState(false);
   const [breathing, setBreathing] = useState(true);
 
+  // Animation settings
+  const [animSettings, setAnimSettings] = useState<AnimationSettings>({ ...DEFAULT_ANIMATION_SETTINGS });
+
   // Load initial config when dialog opens
   useEffect(() => {
     if (!open) return;
@@ -285,6 +302,8 @@ export const PoseNodeEditor: React.FC<PoseNodeEditorProps> = ({
     setTestLeftEye(false);
     setTestRightEye(false);
     setBreathing(true);
+
+    setAnimSettings({ ...DEFAULT_ANIMATION_SETTINGS, ...initialAnimationSettings });
 
     if (initialPoseConfig) {
       loadFromPoseConfig(initialPoseConfig);
@@ -315,16 +334,7 @@ export const PoseNodeEditor: React.FC<PoseNodeEditorProps> = ({
       for (const p of pc.mouth.patches) {
         existingPatches.push({ ...p, category: 'mouth' });
       }
-      // Normalize patch URLs to new format
-      const normalized = existingPatches.map((p, _i) => {
-        const catPatches = existingPatches.filter((pp) => pp.category === p.category);
-        const idx = catPatches.indexOf(p);
-        return {
-          ...p,
-          image_url: `/character-assets/${agentId}/${poseId}/${p.category}_${idx}`,
-        };
-      });
-      setPatches(normalized);
+      setPatches(existingPatches);
     } catch (err) {
       console.error('Failed to load pose config:', err);
     }
@@ -336,10 +346,7 @@ export const PoseNodeEditor: React.FC<PoseNodeEditorProps> = ({
     const buildPatches = (category: PatchCategory) =>
       patches
         .filter((p) => p.category === category)
-        .map(({ category: _cat, ...rest }, idx) => ({
-          ...rest,
-          image_url: `/character-assets/${agentId}/${poseId}/${category}_${idx}`,
-        }));
+        .map(({ category: _cat, ...rest }) => rest);
 
     return {
       name: name || 'Untitled',
@@ -426,7 +433,7 @@ export const PoseNodeEditor: React.FC<PoseNodeEditorProps> = ({
       setError('No base image configured');
       return;
     }
-    onSave(poseConfig, name || 'Untitled');
+    onSave(poseConfig, name || 'Untitled', animSettings);
   };
 
   const getPatchesForCategory = (category: PatchCategory) =>
@@ -755,9 +762,60 @@ export const PoseNodeEditor: React.FC<PoseNodeEditorProps> = ({
 
               {(getPatchesForCategory('left_eye').length > 0 || getPatchesForCategory('right_eye').length > 0) && !testLeftEye && !testRightEye && (
                 <Typography variant="caption" color="text.secondary">
-                  Blink animation runs automatically every 2-6 seconds.
+                  Blink animation runs automatically.
                 </Typography>
               )}
+
+              <Divider sx={{ my: 1 }} />
+
+              {/* Breathing settings */}
+              <Typography variant="subtitle2" color="text.secondary">Breathing</Typography>
+              <Typography variant="body2">Amplitude: {animSettings.breathing_amplitude} px</Typography>
+              <Slider
+                value={animSettings.breathing_amplitude}
+                onChange={(_, v) => setAnimSettings((s) => ({ ...s, breathing_amplitude: v as number }))}
+                min={0.5} max={10} step={0.5} size="small"
+                disabled={!animSettings.breathing_enabled}
+              />
+              <Typography variant="body2">Period: {(animSettings.breathing_period / 1000).toFixed(1)} s</Typography>
+              <Slider
+                value={animSettings.breathing_period}
+                onChange={(_, v) => setAnimSettings((s) => ({ ...s, breathing_period: v as number }))}
+                min={1000} max={10000} step={100} size="small"
+                disabled={!animSettings.breathing_enabled}
+              />
+
+              {/* Blink settings */}
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 1 }}>Blinking</Typography>
+              <Typography variant="body2">
+                Interval: {(animSettings.blink_min_interval / 1000).toFixed(1)}–{(animSettings.blink_max_interval / 1000).toFixed(1)} s
+              </Typography>
+              <Slider
+                value={[animSettings.blink_min_interval, animSettings.blink_max_interval]}
+                onChange={(_, v) => {
+                  const [min, max] = v as number[];
+                  setAnimSettings((s) => ({ ...s, blink_min_interval: min, blink_max_interval: max }));
+                }}
+                min={500} max={15000} step={100} size="small" disableSwap
+              />
+              <Typography variant="body2">Close: {animSettings.blink_close_duration} ms</Typography>
+              <Slider
+                value={animSettings.blink_close_duration}
+                onChange={(_, v) => setAnimSettings((s) => ({ ...s, blink_close_duration: v as number }))}
+                min={20} max={500} step={10} size="small"
+              />
+              <Typography variant="body2">Hold: {animSettings.blink_hold_duration} ms</Typography>
+              <Slider
+                value={animSettings.blink_hold_duration}
+                onChange={(_, v) => setAnimSettings((s) => ({ ...s, blink_hold_duration: v as number }))}
+                min={10} max={300} step={5} size="small"
+              />
+              <Typography variant="body2">Open: {animSettings.blink_open_duration} ms</Typography>
+              <Slider
+                value={animSettings.blink_open_duration}
+                onChange={(_, v) => setAnimSettings((s) => ({ ...s, blink_open_duration: v as number }))}
+                min={20} max={500} step={10} size="small"
+              />
             </Box>
           </Box>
         )}

@@ -15,11 +15,13 @@ import {
   Select,
   FormControl,
   InputLabel,
+  Slider,
 } from '@mui/material';
 import {
   CloudUpload as CloudUploadIcon,
   Close as CloseIcon,
   Delete as DeleteIcon,
+  Add as AddIcon,
 } from '@mui/icons-material';
 import { apiClient } from '../api/client';
 import { config } from '../config';
@@ -36,6 +38,12 @@ export interface EdgeEditorProps {
   onClose: () => void;
 }
 
+interface VideoEntry {
+  url: string;         // Server URL (empty string if not uploaded yet)
+  pendingFile?: File;  // Local file awaiting upload
+  previewSrc: string;  // Display URL (blob: for local, resolved server URL for existing)
+}
+
 export const EdgeEditor: React.FC<EdgeEditorProps> = ({
   open,
   agentId,
@@ -48,8 +56,7 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
 }) => {
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
-  const [videoUrl, setVideoUrl] = useState<string | undefined>(edge.video_url);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [videos, setVideos] = useState<VideoEntry[]>([]);
   const [conditionType, setConditionType] = useState<string>(edge.condition?.type || 'random');
   const [minInterval, setMinInterval] = useState<number>(
     edge.condition?.type === 'random' ? edge.condition.min_interval_ms / 1000 : 5
@@ -57,61 +64,67 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
   const [maxInterval, setMaxInterval] = useState<number>(
     edge.condition?.type === 'random' ? edge.condition.max_interval_ms / 1000 : 15
   );
-  const [thinkingTrigger, setThinkingTrigger] = useState<'start' | 'end'>(
-    edge.condition?.type === 'thinking' ? edge.condition.trigger : 'start'
+  const [thinkingValue, setThinkingValue] = useState<boolean>(
+    edge.condition?.type === 'thinking' ? edge.condition.value : true
   );
+  const [playbackRate, setPlaybackRate] = useState<number>(edge.playback_rate ?? 1.0);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+
+  const resolveUrl = (url: string) =>
+    url.startsWith('http') ? url : `${config.apiBaseUrl}${url}`;
 
   // Reset state when edge changes
   useEffect(() => {
     if (!open) return;
-    setVideoUrl(edge.video_url);
-    setPendingFile(null);
+
+    const entries: VideoEntry[] = (edge.video_urls || []).map((url) => ({
+      url,
+      previewSrc: resolveUrl(url),
+    }));
+    setVideos(entries);
+
     setConditionType(edge.condition?.type || 'random');
     setMinInterval(edge.condition?.type === 'random' ? edge.condition.min_interval_ms / 1000 : 5);
     setMaxInterval(edge.condition?.type === 'random' ? edge.condition.max_interval_ms / 1000 : 15);
-    setThinkingTrigger(edge.condition?.type === 'thinking' ? edge.condition.trigger : 'start');
+    setThinkingValue(edge.condition?.type === 'thinking' ? edge.condition.value : true);
+    setPlaybackRate(edge.playback_rate ?? 1.0);
     setError('');
-
-    // Set preview source
-    if (edge.video_url) {
-      const url = edge.video_url.startsWith('http')
-        ? edge.video_url
-        : `${config.apiBaseUrl}${edge.video_url}`;
-      setPreviewSrc(url);
-    } else {
-      setPreviewSrc(null);
-    }
   }, [open, edge]);
 
-  // Clean up object URL on unmount
+  // Clean up blob URLs on unmount or when videos change
   useEffect(() => {
     return () => {
-      if (previewSrc && previewSrc.startsWith('blob:')) {
-        URL.revokeObjectURL(previewSrc);
+      for (const v of videos) {
+        if (v.previewSrc.startsWith('blob:')) {
+          URL.revokeObjectURL(v.previewSrc);
+        }
       }
     };
-  }, [previewSrc]);
+  }, [videos]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
 
-    // Validate type
     if (!file.type.startsWith('video/')) {
       setError('File must be a video (mp4 or webm)');
       return;
     }
 
-    setPendingFile(file);
-    // Show local preview
-    if (previewSrc && previewSrc.startsWith('blob:')) {
-      URL.revokeObjectURL(previewSrc);
-    }
-    setPreviewSrc(URL.createObjectURL(file));
+    const previewSrc = URL.createObjectURL(file);
+    setVideos((prev) => [...prev, { url: '', pendingFile: file, previewSrc }]);
     setError('');
+  };
+
+  const handleRemoveVideo = (index: number) => {
+    setVideos((prev) => {
+      const entry = prev[index];
+      if (entry.previewSrc.startsWith('blob:')) {
+        URL.revokeObjectURL(entry.previewSrc);
+      }
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const handleSave = async () => {
@@ -119,12 +132,17 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
     setUploading(true);
 
     try {
-      let finalVideoUrl = videoUrl;
-
-      // Upload video if a new file was selected
-      if (pendingFile) {
-        const result = await apiClient.uploadTransitionVideo(agentId, edge.id, pendingFile);
-        finalVideoUrl = result.video_url;
+      // Upload any pending files, assign indexed edge IDs
+      const finalUrls: string[] = [];
+      for (let i = 0; i < videos.length; i++) {
+        const entry = videos[i];
+        if (entry.pendingFile) {
+          const storageId = `${edge.id}_${i}`;
+          const result = await apiClient.uploadTransitionVideo(agentId, storageId, entry.pendingFile);
+          finalUrls.push(result.video_url);
+        } else if (entry.url) {
+          finalUrls.push(entry.url);
+        }
       }
 
       // Build condition
@@ -140,14 +158,15 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
       } else if (conditionType === 'thinking') {
         condition = {
           type: 'thinking',
-          trigger: thinkingTrigger,
+          value: thinkingValue,
         };
       }
 
       onSave({
         ...edge,
-        video_url: finalVideoUrl,
+        video_urls: finalUrls.length > 0 ? finalUrls : undefined,
         condition,
+        playback_rate: playbackRate !== 1.0 ? playbackRate : undefined,
       });
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to save edge');
@@ -174,21 +193,46 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
           </Alert>
         )}
 
-        {/* Video upload */}
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Transition Video</Typography>
+        {/* Video list */}
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>Transition Videos</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Upload a video (mp4/webm) that plays during this transition. If no video is set, the transition is instant.
+          Upload one or more videos (mp4/webm). A random one plays each time the transition fires. No videos = instant switch.
         </Typography>
 
-        {previewSrc && (
-          <Box sx={{ mb: 2 }}>
+        {videos.map((entry, index) => (
+          <Box
+            key={index}
+            sx={{
+              mb: 1.5,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              p: 1,
+              borderRadius: 1,
+              border: '1px solid',
+              borderColor: 'divider',
+            }}
+          >
             <video
-              src={previewSrc}
+              src={entry.previewSrc}
               controls
-              style={{ width: '100%', maxHeight: 300, borderRadius: 8, background: '#000' }}
+              style={{ width: 200, maxHeight: 120, borderRadius: 4, background: '#000', flexShrink: 0 }}
             />
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="caption" color="text.secondary" noWrap>
+                {entry.pendingFile ? entry.pendingFile.name : `Video ${index + 1}`}
+              </Typography>
+              {entry.pendingFile && (
+                <Typography variant="caption" display="block" color="warning.main">
+                  Not yet uploaded
+                </Typography>
+              )}
+            </Box>
+            <IconButton size="small" onClick={() => handleRemoveVideo(index)} color="error">
+              <DeleteIcon fontSize="small" />
+            </IconButton>
           </Box>
-        )}
+        ))}
 
         <input
           ref={fileInputRef}
@@ -199,11 +243,12 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
         />
         <Button
           variant="outlined"
-          startIcon={<CloudUploadIcon />}
+          size="small"
+          startIcon={<AddIcon />}
           onClick={() => fileInputRef.current?.click()}
           sx={{ mb: 3 }}
         >
-          {previewSrc ? 'Replace Video' : 'Upload Video'}
+          Add Video
         </Button>
 
         {/* Condition */}
@@ -222,14 +267,14 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
 
         {conditionType === 'thinking' && (
           <FormControl size="small" sx={{ mb: 2, minWidth: 200 }}>
-            <InputLabel>Trigger</InputLabel>
+            <InputLabel>When</InputLabel>
             <Select
-              value={thinkingTrigger}
-              label="Trigger"
-              onChange={(e) => setThinkingTrigger(e.target.value as 'start' | 'end')}
+              value={thinkingValue ? 'true' : 'false'}
+              label="When"
+              onChange={(e) => setThinkingValue(e.target.value === 'true')}
             >
-              <MenuItem value="start">Thinking starts</MenuItem>
-              <MenuItem value="end">Thinking ends</MenuItem>
+              <MenuItem value="true">True</MenuItem>
+              <MenuItem value="false">False</MenuItem>
             </Select>
           </FormControl>
         )}
@@ -256,6 +301,19 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
             />
           </Box>
         )}
+
+        {/* Playback rate */}
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>Video Playback Rate</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{playbackRate.toFixed(2)}x</Typography>
+        <Slider
+          value={playbackRate}
+          onChange={(_, v) => setPlaybackRate(v as number)}
+          min={0.25}
+          max={4}
+          step={0.25}
+          size="small"
+          sx={{ mb: 2 }}
+        />
       </DialogContent>
 
       <DialogActions>
@@ -274,7 +332,7 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
           disabled={uploading}
           startIcon={uploading ? <CircularProgress size={18} /> : undefined}
         >
-          {uploading ? 'Saving...' : 'Save'}
+          {uploading ? 'Uploading...' : 'Save'}
         </Button>
       </DialogActions>
     </Dialog>

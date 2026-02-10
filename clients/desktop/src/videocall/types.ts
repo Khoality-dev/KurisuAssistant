@@ -49,10 +49,10 @@ export interface RandomCondition {
   max_interval_ms: number;
 }
 
-/** Thinking condition — fires when the agent starts or stops thinking */
+/** Thinking condition — fires when isThinking matches the given value */
 export interface ThinkingCondition {
   type: 'thinking';
-  trigger: 'start' | 'end';  // 'start' = fires on false→true, 'end' = fires on true→false
+  value: boolean;  // true = fires when thinking, false = fires when not thinking
 }
 
 // Extensible union — add KeywordCondition, TimeCondition, CameraCondition later
@@ -66,6 +66,7 @@ export interface AnimationNode {
   name: string;
   type: 'pose';
   pose_config?: PoseConfig;
+  animation_settings?: AnimationSettings;
   position: { x: number; y: number };  // Canvas position for React Flow persistence
 }
 
@@ -74,8 +75,21 @@ export interface AnimationEdge {
   id: string;
   from_node_id: string;
   to_node_id: string;
-  video_url?: string;             // Video clip for this transition
+  video_urls?: string[];          // Multiple video clips — one chosen at random during playback
   condition?: TransitionCondition;
+  playback_rate?: number;         // 0.25-4x, default 1.0
+}
+
+/** Configurable animation timing for a pose node */
+export interface AnimationSettings {
+  breathing_enabled: boolean;      // default true
+  breathing_amplitude: number;     // pixels, default 3
+  breathing_period: number;        // ms, default 3500
+  blink_min_interval: number;      // ms, default 2000
+  blink_max_interval: number;      // ms, default 6000
+  blink_close_duration: number;    // ms, default 100
+  blink_hold_duration: number;     // ms, default 50
+  blink_open_duration: number;     // ms, default 100
 }
 
 /** The full animation tree for a character */

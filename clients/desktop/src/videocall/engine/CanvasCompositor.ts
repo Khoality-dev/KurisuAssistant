@@ -1,4 +1,4 @@
-import type { PoseConfig, PoseTree, ProcessedPose, LoadedPatch, AnimationEdge } from '../types';
+import type { PoseConfig, PoseTree, ProcessedPose, LoadedPatch, AnimationEdge, AnimationSettings } from '../types';
 import { getCachedImage } from './ImageCache';
 
 type BlinkState = 'open' | 'closing' | 'closed' | 'opening';
@@ -25,6 +25,7 @@ export class CanvasCompositor {
   private transitionVideo: HTMLVideoElement | null = null;
   private edgeTimers: Map<string, EdgeTimer> = new Map();
   private apiBaseUrl: string = '';
+  private videoBlobCache: Map<string, { hash: string; blobUrl: string }> = new Map();
 
   // Blink state machine
   private blinkState: BlinkState = 'open';
@@ -39,15 +40,27 @@ export class CanvasCompositor {
   public breathingAmplitude = 3;   // pixels of vertical sway on the original image
   public breathingPeriod = 3500;   // ms for one full cycle
 
+  // Blink timing (configurable per-node)
+  public blinkMinInterval = 2000;    // ms
+  public blinkMaxInterval = 6000;    // ms
+  public blinkCloseDuration = 100;   // ms
+  public blinkHoldDuration = 50;     // ms
+  public blinkOpenDuration = 100;    // ms
+
   // External inputs (set by React component via setters)
   public mouthAmplitude = 0;
   public isAudioPlaying = false;
   public isThinking = false;
-  private prevIsThinking = false;  // For edge detection (false→true / true→false)
 
   // Manual eye overrides (-1 = auto blink, 0+ = forced patch index)
   public leftEyeOverride = -1;
   public rightEyeOverride = -1;
+
+  // Crossfade blending
+  private crossfadeCanvas: OffscreenCanvas | null = null;
+  private crossfadeCtx: OffscreenCanvasRenderingContext2D | null = null;
+  private crossfadeProgress = 1;  // 1 = no crossfade active
+  private crossfadeDuration = 150; // ms
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -56,8 +69,7 @@ export class CanvasCompositor {
   }
 
   private scheduleNextBlink(): void {
-    // Random interval: 2–6 seconds
-    this.nextBlinkIn = 2000 + Math.random() * 4000;
+    this.nextBlinkIn = this.blinkMinInterval + Math.random() * (this.blinkMaxInterval - this.blinkMinInterval);
     this.blinkTimer = 0;
   }
 
@@ -83,6 +95,11 @@ export class CanvasCompositor {
   }
 
   private update(dt: number): void {
+    // Always tick crossfade
+    if (this.crossfadeProgress < 1) {
+      this.crossfadeProgress = Math.min(this.crossfadeProgress + dt / this.crossfadeDuration, 1);
+    }
+
     if (this.state === 'idle') {
       this.updateBlink(dt);
       if (this.breathingEnabled) {
@@ -94,50 +111,54 @@ export class CanvasCompositor {
     // During transitioning, skip blink/breathing/edge timer updates
   }
 
+  /** Snapshot the current canvas content for crossfade blending */
+  private captureForCrossfade(): void {
+    if (!this.crossfadeCanvas) {
+      this.crossfadeCanvas = new OffscreenCanvas(this.canvas.width, this.canvas.height);
+      this.crossfadeCtx = this.crossfadeCanvas.getContext('2d')!;
+    }
+    this.crossfadeCanvas.width = this.canvas.width;
+    this.crossfadeCanvas.height = this.canvas.height;
+    this.crossfadeCtx!.drawImage(this.canvas, 0, 0);
+    this.crossfadeProgress = 0;
+  }
+
   private updateEdgeTimers(dt: number): void {
     if (!this.poseTree || !this.currentNodeId) return;
 
-    // Tick all edge timers for outgoing edges from current node
+    // Tick all timers and collect ready edges
+    const ready: AnimationEdge[] = [];
     for (const [edgeId, timer] of this.edgeTimers) {
       timer.elapsed += dt;
       if (timer.elapsed >= timer.target) {
-        // Find the edge
         const edge = this.poseTree.edges.find((e) => e.id === edgeId);
-        if (edge) {
-          this.startTransition(edge);
-          return; // Only fire one transition at a time
-        }
+        if (edge) ready.push(edge);
       }
+    }
+
+    if (ready.length > 0) {
+      this.startTransition(ready[Math.floor(Math.random() * ready.length)]);
     }
   }
 
   private checkThinkingEdges(): void {
-    if (!this.poseTree || !this.currentNodeId) {
-      this.prevIsThinking = this.isThinking;
-      return;
-    }
+    if (!this.poseTree || !this.currentNodeId) return;
 
-    const risingEdge = !this.prevIsThinking && this.isThinking;   // false→true
-    const fallingEdge = this.prevIsThinking && !this.isThinking;  // true→false
-    this.prevIsThinking = this.isThinking;
-
-    if (!risingEdge && !fallingEdge) return;
-
+    const matched: AnimationEdge[] = [];
     for (const edge of this.poseTree.edges) {
       if (edge.from_node_id !== this.currentNodeId) continue;
       if (edge.condition?.type !== 'thinking') continue;
+      if (edge.condition.value === this.isThinking) matched.push(edge);
+    }
 
-      if (
-        (edge.condition.trigger === 'start' && risingEdge) ||
-        (edge.condition.trigger === 'end' && fallingEdge)
-      ) {
-        this.startTransition(edge);
-        return;
-      }
+    if (matched.length > 0) {
+      this.startTransition(matched[Math.floor(Math.random() * matched.length)]);
     }
   }
 
   private startTransition(edge: AnimationEdge): void {
+    this.captureForCrossfade();
+
     // Pick a random video from the list (if any)
     const urls = edge.video_urls;
     const videoUrl = urls?.length
@@ -145,18 +166,23 @@ export class CanvasCompositor {
       : undefined;
 
     if (videoUrl) {
-      // Play transition video
-      const resolveUrl = (url: string) =>
-        url.startsWith('http') ? url : `${this.apiBaseUrl}${url}`;
+      const resolvedUrl = videoUrl.startsWith('http') ? videoUrl : `${this.apiBaseUrl}${videoUrl}`;
+      const blobUrl = this.videoBlobCache.get(resolvedUrl)?.blobUrl;
+
+      if (!blobUrl) {
+        // Not cached — skip video, instant switch
+        this.switchToPose(edge.to_node_id);
+        return;
+      }
 
       this.state = 'transitioning';
 
       const video = document.createElement('video');
-      video.muted = true; // Transition videos are silent
+      video.muted = true;
       video.playsInline = true;
+      video.playbackRate = edge.playback_rate ?? 1.0;
       this.transitionVideo = video;
 
-      // Guard against double-firing (onerror + play().catch() race)
       let settled = false;
       const finish = () => {
         if (settled) return;
@@ -166,26 +192,15 @@ export class CanvasCompositor {
 
       video.onended = finish;
       video.onerror = () => {
-        console.error('[CanvasCompositor] Transition video failed to load:', videoUrl);
+        console.error('[CanvasCompositor] Transition video playback failed:', videoUrl);
         finish();
       };
 
-      // Wait for enough data before playing
-      let playStarted = false;
-      const tryPlay = () => {
-        if (playStarted) return;
-        playStarted = true;
-        video.play().catch((err) => {
-          console.error('[CanvasCompositor] Transition video play() rejected:', err);
-          finish();
-        });
-      };
-      video.oncanplay = tryPlay;
-      video.onloadeddata = tryPlay;
-
-      // Set src and start loading
-      video.src = resolveUrl(videoUrl);
-      video.load();
+      video.src = blobUrl;
+      video.play().catch((err) => {
+        console.error('[CanvasCompositor] Transition video play() rejected:', err);
+        finish();
+      });
     } else {
       // No video — instant switch
       this.switchToPose(edge.to_node_id);
@@ -193,6 +208,8 @@ export class CanvasCompositor {
   }
 
   private switchToPose(nodeId: string): void {
+    this.captureForCrossfade();
+
     const newPose = this.allPoses.get(nodeId);
     if (newPose) {
       this.pose = newPose;
@@ -204,6 +221,12 @@ export class CanvasCompositor {
       this.transitionVideo.pause();
       this.transitionVideo.src = '';
       this.transitionVideo = null;
+    }
+
+    // Apply per-node animation settings
+    const node = this.poseTree?.nodes.find((n) => n.id === nodeId);
+    if (node?.animation_settings) {
+      this.applySettings(node.animation_settings);
     }
 
     // Reset blink
@@ -256,12 +279,11 @@ export class CanvasCompositor {
         break;
 
       case 'closing': {
-        const closingDuration = 100;
-        const progress = Math.min(this.blinkTimer / closingDuration, 1.0);
+        const progress = Math.min(this.blinkTimer / this.blinkCloseDuration, 1.0);
         const idx = Math.min(Math.round(progress * numEyePatches), numEyePatches);
         this.leftEyeIndex = idx;
         this.rightEyeIndex = idx;
-        if (this.blinkTimer >= closingDuration) {
+        if (this.blinkTimer >= this.blinkCloseDuration) {
           this.blinkState = 'closed';
           this.blinkTimer = 0;
         }
@@ -271,19 +293,18 @@ export class CanvasCompositor {
       case 'closed':
         this.leftEyeIndex = numEyePatches;
         this.rightEyeIndex = numEyePatches;
-        if (this.blinkTimer >= 50) {
+        if (this.blinkTimer >= this.blinkHoldDuration) {
           this.blinkState = 'opening';
           this.blinkTimer = 0;
         }
         break;
 
       case 'opening': {
-        const openingDuration = 100;
-        const progress = Math.min(this.blinkTimer / openingDuration, 1.0);
+        const progress = Math.min(this.blinkTimer / this.blinkOpenDuration, 1.0);
         const idx = Math.max(Math.round((1 - progress) * numEyePatches), 0);
         this.leftEyeIndex = idx;
         this.rightEyeIndex = idx;
-        if (this.blinkTimer >= openingDuration) {
+        if (this.blinkTimer >= this.blinkOpenDuration) {
           this.leftEyeIndex = 0;
           this.rightEyeIndex = 0;
           this.blinkState = 'open';
@@ -304,6 +325,7 @@ export class CanvasCompositor {
       const video = this.transitionVideo;
       if (video.readyState >= 2) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        this.drawCrossfade(ctx, canvas);
         return;
       }
       // Video not ready yet — fall through to draw current pose
@@ -350,6 +372,17 @@ export class CanvasCompositor {
       this.drawPatch(ctx, patch, scaleX, scaleY);
     }
 
+    ctx.restore();
+
+    this.drawCrossfade(ctx, canvas);
+  }
+
+  /** Overlay fading snapshot of previous state for smooth blending */
+  private drawCrossfade(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
+    if (this.crossfadeProgress >= 1 || !this.crossfadeCanvas) return;
+    ctx.save();
+    ctx.globalAlpha = 1 - this.crossfadeProgress;
+    ctx.drawImage(this.crossfadeCanvas, 0, 0, canvas.width, canvas.height);
     ctx.restore();
   }
 
@@ -402,19 +435,62 @@ export class CanvasCompositor {
       this.transitionVideo = null;
     }
 
-    // Load all pose nodes in parallel
-    const loadPromises = poseTree.nodes
+    // Migrate legacy thinking trigger → value
+    for (const edge of poseTree.edges) {
+      if (edge.condition?.type === 'thinking' && !('value' in edge.condition)) {
+        const legacy = edge.condition as any;
+        edge.condition = { type: 'thinking', value: legacy.trigger === 'start' };
+      }
+    }
+
+    // Collect all unique video URLs from edges
+    const resolveUrl = (url: string) =>
+      url.startsWith('http') ? url : `${apiBaseUrl}${url}`;
+    const videoUrls = new Set<string>();
+    for (const edge of poseTree.edges) {
+      for (const url of edge.video_urls || []) {
+        videoUrls.add(resolveUrl(url));
+      }
+    }
+
+    // Load all pose images + pre-fetch uncached videos in parallel
+    const imagePromises = poseTree.nodes
       .filter((n) => n.pose_config)
       .map(async (node) => {
         const processed = await this.processPoseConfig(node.pose_config!, apiBaseUrl);
         this.allPoses.set(node.id, processed);
       });
 
-    await Promise.all(loadPromises);
+    const videoPromises = [...videoUrls].map(async (url) => {
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) return;
+        const blob = await resp.blob();
+        const hashBuffer = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+        const hash = Array.from(new Uint8Array(hashBuffer)).map((b) => b.toString(16).padStart(2, '0')).join('');
+
+        const cached = this.videoBlobCache.get(url);
+        if (cached && cached.hash === hash) return; // Same content, keep existing blob
+
+        // New or changed — revoke old and store new
+        if (cached) URL.revokeObjectURL(cached.blobUrl);
+        this.videoBlobCache.set(url, { hash, blobUrl: URL.createObjectURL(blob) });
+      } catch {
+        // Video will be skipped during playback if not cached
+      }
+    });
+
+    await Promise.all([...imagePromises, ...videoPromises]);
 
     // Set current node to default
     this.currentNodeId = poseTree.default_pose_id;
     this.pose = this.allPoses.get(poseTree.default_pose_id) || null;
+
+    // Apply default node's animation settings
+    const defaultNode = poseTree.nodes.find((n) => n.id === poseTree.default_pose_id);
+    if (defaultNode?.animation_settings) {
+      this.applySettings(defaultNode.animation_settings);
+    }
 
     // Reset blink state
     this.blinkState = 'open';
@@ -480,6 +556,18 @@ export class CanvasCompositor {
     };
   }
 
+  /** Apply per-node animation settings */
+  applySettings(settings: Partial<AnimationSettings>): void {
+    if (settings.breathing_enabled !== undefined) this.breathingEnabled = settings.breathing_enabled;
+    if (settings.breathing_amplitude !== undefined) this.breathingAmplitude = settings.breathing_amplitude;
+    if (settings.breathing_period !== undefined) this.breathingPeriod = settings.breathing_period;
+    if (settings.blink_min_interval !== undefined) this.blinkMinInterval = settings.blink_min_interval;
+    if (settings.blink_max_interval !== undefined) this.blinkMaxInterval = settings.blink_max_interval;
+    if (settings.blink_close_duration !== undefined) this.blinkCloseDuration = settings.blink_close_duration;
+    if (settings.blink_hold_duration !== undefined) this.blinkHoldDuration = settings.blink_hold_duration;
+    if (settings.blink_open_duration !== undefined) this.blinkOpenDuration = settings.blink_open_duration;
+  }
+
   /** Get the current processed pose (for reading base image dimensions etc.) */
   getPose(): ProcessedPose | null {
     return this.pose;
@@ -498,11 +586,16 @@ export class CanvasCompositor {
       this.transitionVideo.src = '';
       this.transitionVideo = null;
     }
+    // Keep video blob cache — videos are expensive to re-fetch
   }
 
   /** Clean up resources */
   destroy(): void {
     this.stop();
     this.clearPose();
+    for (const { blobUrl } of this.videoBlobCache.values()) {
+      URL.revokeObjectURL(blobUrl);
+    }
+    this.videoBlobCache.clear();
   }
 }

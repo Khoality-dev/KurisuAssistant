@@ -165,7 +165,7 @@ function getEdgeVisuals(animEdge?: AnimationEdge): {
     label = `Random ${(c.min_interval_ms / 1000).toFixed(0)}–${(c.max_interval_ms / 1000).toFixed(0)}s`;
   } else if (condType === 'thinking' && animEdge?.condition?.type === 'thinking') {
     const c = animEdge.condition as import('../videocall/types').ThinkingCondition;
-    label = `Thinking ${c.trigger}`;
+    label = `Thinking: ${c.value}`;
   } else if (!condType) {
     label = 'No condition';
   }
@@ -281,6 +281,7 @@ function reactFlowToPoseTree(
       name: (rfNode.data as PoseGraphNodeData).label,
       type: 'pose' as const,
       pose_config: existing?.pose_config,
+      animation_settings: existing?.animation_settings,
       position: rfNode.position,
     };
   });
@@ -293,6 +294,7 @@ function reactFlowToPoseTree(
       to_node_id: rfEdge.target,
       video_urls: existing?.video_urls,
       condition: existing?.condition,
+      playback_rate: existing?.playback_rate,
     };
   });
 
@@ -342,7 +344,6 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
   // Animation data maps (preserved across React Flow operations)
   const animationNodesRef = useRef(new Map<string, AnimationNode>());
   const animationEdgesRef = useRef(new Map<string, AnimationEdge>());
-
   // Auto-save: bump version on any mutation, debounced effect saves
   const [saveVersion, setSaveVersion] = useState(0);
   const initialLoadRef = useRef(true);  // Skip auto-save on initial load
@@ -394,6 +395,12 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
           if (raw.video_url && !raw.video_urls?.length) {
             e.video_urls = [raw.video_url];
             delete raw.video_url;
+          }
+          // Migrate legacy thinking trigger → value
+          if (e.condition?.type === 'thinking' && !('value' in e.condition)) {
+            const legacy = e.condition as any;
+            e.condition = { type: 'thinking', value: legacy.trigger === 'start' };
+            delete legacy.trigger;
           }
           edgesMap.set(e.id, e);
         }
@@ -681,7 +688,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
   };
 
   // ─── Pose editor save ───
-  const handlePoseEditorSave = (poseConfig: PoseConfig, name: string) => {
+  const handlePoseEditorSave = (poseConfig: PoseConfig, name: string, animationSettings: import('../videocall/types').AnimationSettings) => {
     if (!editingNodeId) return;
 
     // Update animation node map
@@ -689,6 +696,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
     if (existing) {
       existing.pose_config = poseConfig;
       existing.name = name;
+      existing.animation_settings = animationSettings;
     }
 
     // Update React Flow node data
@@ -887,6 +895,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
           agentId={agent.id}
           poseId={editingNodeId}
           initialPoseConfig={editingNode?.pose_config || null}
+          initialAnimationSettings={editingNode?.animation_settings}
           nodeName={editingNode?.name || 'Untitled'}
           onSave={handlePoseEditorSave}
           onClose={() => {
