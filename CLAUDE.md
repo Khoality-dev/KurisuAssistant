@@ -205,7 +205,7 @@ All protected unless noted. Auth: `Authorization: Bearer <token>`.
 
 ## Environment Variables
 
-See `.env_template`. Key vars: `POSTGRES_*`, `LLM_API_URL`, `JWT_SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_DAYS=30`, `TTS_PROVIDER=gpt-sovits`, `TTS_API_URL`, `INDEX_TTS_API_URL`, `ASR_MODEL=data/asr/whisper-ct2`, `ASR_DEVICE=auto`.
+See `.env_template`. Key vars: `POSTGRES_*`, `LLM_API_URL`, `JWT_SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_DAYS=30`, `TTS_PROVIDER=gpt-sovits`, `TTS_API_URL` (hardcoded in docker-compose as `http://gpt-sovits-container:9880`), `INDEX_TTS_API_URL`, `ASR_MODEL=data/asr/whisper-ct2`, `ASR_DEVICE=auto`.
 
 ## Docker Volumes
 
