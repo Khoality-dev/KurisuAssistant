@@ -13,6 +13,10 @@ React 18, Electron 28, MUI v5, Framer Motion, Zustand, Axios, Vite, react-markdo
 - Dev: `npm run electron:dev` (Vite on localhost:5173 + Electron)
 - Build: `npm run electron:build` (tsc + Vite + electron-builder → `release/`)
 
+## CI/CD
+
+GitHub Actions workflow (`.github/workflows/build.yml`): triggers on release creation, builds NSIS installer on `windows-latest`, uploads `.exe` to the release via `softprops/action-gh-release@v2`.
+
 ## Architecture
 
 ```
