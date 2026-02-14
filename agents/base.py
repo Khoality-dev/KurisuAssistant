@@ -349,7 +349,12 @@ class SimpleAgent(BaseAgent):
         messages: List[Dict],
         context: AgentContext,
     ) -> AsyncGenerator[StreamChunkEvent, None]:
-        """Process messages with LLM."""
+        """Process messages with LLM, looping on tool calls.
+
+        Flow: LLM call → stream response → if tool_calls, execute tools,
+        append results to messages, and call LLM again (up to 10 rounds).
+        """
+        import json
         from llm import create_llm_provider
 
         llm = create_llm_provider("ollama")
@@ -366,62 +371,94 @@ class SimpleAgent(BaseAgent):
         # Determine model
         model = self.config.model_name or context.model_name
 
-        # Stream from LLM
+        MAX_TOOL_ROUNDS = 10
+
         try:
-            stream = llm.chat(
-                model=model,
-                messages=messages,
-                tools=tool_schemas if tool_schemas else [],
-                stream=True,
-                think=self.config.think,
-            )
+            for _round in range(MAX_TOOL_ROUNDS):
+                stream = llm.chat(
+                    model=model,
+                    messages=messages,
+                    tools=tool_schemas if tool_schemas else [],
+                    stream=True,
+                    think=self.config.think,
+                )
 
-            async for chunk in async_iterate(stream):
-                msg = chunk.message
+                # Accumulate full response to detect tool calls and build follow-up messages
+                full_content = ""
+                full_thinking = ""
+                all_tool_calls = []
 
-                # Handle thinking
-                thinking = getattr(msg, 'thinking', None)
-                if thinking:
-                    yield StreamChunkEvent(
-                        content="",
-                        thinking=thinking,
-                        role="assistant",
-                        agent_id=self.config.id,
-                        name=self.config.name,
-                        conversation_id=context.conversation_id,
-                        frame_id=context.frame_id,
-                    )
+                async for chunk in async_iterate(stream):
+                    msg = chunk.message
 
-                # Handle content
-                if msg.content:
-                    yield StreamChunkEvent(
-                        content=msg.content,
-                        role="assistant",
-                        agent_id=self.config.id,
-                        name=self.config.name,
-                        conversation_id=context.conversation_id,
-                        frame_id=context.frame_id,
-                    )
-
-                # Handle tool calls
-                if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                    for tool_call in msg.tool_calls:
-                        import json
-                        tool_name = tool_call.function.name
-                        tool_args = json.loads(tool_call.function.arguments)
-
-                        # Execute tool with approval
-                        result = await self.execute_tool(tool_name, tool_args, context)
-
-                        # Yield tool result (name=tool, no agent_id — tools aren't agents)
+                    # Handle thinking
+                    thinking = getattr(msg, 'thinking', None)
+                    if thinking:
+                        full_thinking += thinking
                         yield StreamChunkEvent(
-                            content=result,
-                            role="tool",
-                            agent_id=None,
-                            name=tool_name,
+                            content="",
+                            thinking=thinking,
+                            role="assistant",
+                            agent_id=self.config.id,
+                            name=self.config.name,
                             conversation_id=context.conversation_id,
                             frame_id=context.frame_id,
                         )
+
+                    # Handle content
+                    if msg.content:
+                        full_content += msg.content
+                        yield StreamChunkEvent(
+                            content=msg.content,
+                            role="assistant",
+                            agent_id=self.config.id,
+                            name=self.config.name,
+                            conversation_id=context.conversation_id,
+                            frame_id=context.frame_id,
+                        )
+
+                    # Collect tool calls (typically arrive in final chunk(s))
+                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                        all_tool_calls.extend(msg.tool_calls)
+
+                # No tool calls — LLM gave a final answer, done
+                if not all_tool_calls:
+                    break
+
+                # Append assistant message (with tool_calls) so Ollama sees the call context
+                assistant_msg = {"role": "assistant", "content": full_content}
+                tc_list = []
+                for tc in all_tool_calls:
+                    args = tc.function.arguments
+                    if isinstance(args, str):
+                        args = json.loads(args)
+                    tc_list.append({"function": {"name": tc.function.name, "arguments": args}})
+                assistant_msg["tool_calls"] = tc_list
+                messages.append(assistant_msg)
+
+                # Execute each tool and feed results back
+                for tc in all_tool_calls:
+                    tool_name = tc.function.name
+                    tool_args = tc.function.arguments
+                    if isinstance(tool_args, str):
+                        tool_args = json.loads(tool_args)
+
+                    result = await self.execute_tool(tool_name, tool_args, context)
+
+                    # Yield tool result (name=tool, no agent_id — tools aren't agents)
+                    yield StreamChunkEvent(
+                        content=result,
+                        role="tool",
+                        agent_id=None,
+                        name=tool_name,
+                        conversation_id=context.conversation_id,
+                        frame_id=context.frame_id,
+                    )
+
+                    # Append tool result for next LLM round
+                    messages.append({"role": "tool", "content": result})
+
+                # Loop continues — LLM will see tool results and can call more tools or answer
 
         except Exception as e:
             logger.error(f"Agent processing failed: {e}", exc_info=True)
