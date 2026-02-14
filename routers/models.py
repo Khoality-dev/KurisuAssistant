@@ -11,7 +11,7 @@ from core.deps import get_db, get_authenticated_user
 from db.session import get_session
 from db.models import User
 from db.repositories import UserRepository
-from llm import list_models as llm_list_models, pull_model as llm_pull_model, create_llm_provider
+from models.llm import list_models as llm_list_models, pull_model as llm_pull_model, create_llm_provider
 
 logger = logging.getLogger(__name__)
 

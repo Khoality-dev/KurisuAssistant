@@ -11,7 +11,7 @@ from core.deps import get_authenticated_user
 from db.models import User
 from db.session import get_session
 from db.repositories import FaceIdentityRepository, FacePhotoRepository
-from face_recognition import get_provider as get_face_provider
+from models.face_recognition import get_provider as get_face_provider
 from utils.images import upload_image, get_image_path, delete_image
 
 logger = logging.getLogger(__name__)

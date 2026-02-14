@@ -102,7 +102,7 @@ class RouterAgent(BaseAgent):
         context: AgentContext,
     ) -> AsyncGenerator[StreamChunkEvent, None]:
         """Process messages, potentially delegating to sub-agents."""
-        from llm import create_llm_provider
+        from models.llm import create_llm_provider
 
         llm = create_llm_provider("ollama")
 

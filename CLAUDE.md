@@ -23,24 +23,33 @@ db/
 └── repositories/            # Repository pattern with BaseRepository[T] generic CRUD
     ├── base.py, user.py, conversation.py, frame.py, message.py, agent.py, face.py
 
-asr/                         # Pure ASR interface (NO business logic/DB knowledge)
-├── base.py                  # Abstract BaseASRProvider
-├── faster_whisper_provider.py  # faster-whisper (CTranslate2) implementation
-├── adapter.py               # Pure transcription adapter
-└── __init__.py              # Factory: get_provider(), re-exports transcribe()
-
-llm/                         # Pure LLM interface (NO business logic/DB knowledge)
-├── providers/
+models/                      # ML/inference modules (NO business logic/DB knowledge)
+├── asr/                     # Pure ASR interface
+│   ├── base.py              # Abstract BaseASRProvider
+│   ├── faster_whisper_provider.py  # faster-whisper (CTranslate2) implementation
+│   ├── adapter.py           # Pure transcription adapter
+│   └── __init__.py          # Factory: get_provider(), re-exports transcribe()
+├── face_recognition/        # Face detection + embedding
+│   ├── base.py              # Abstract BaseFaceRecognitionProvider
+│   ├── insightface_provider.py  # InsightFace (ArcFace, buffalo_l, 512-dim embeddings)
+│   └── __init__.py          # Singleton factory: get_provider()
+├── gesture_detection/       # Gesture detection from webcam frames
+│   ├── base.py              # Abstract BaseGestureDetector
+│   ├── mediapipe_provider.py  # YOLOv8-Pose (CUDA) + MediaPipe Hands (CPU)
+│   ├── classifier.py        # Rule-based gesture classification (hand per-frame, pose trajectory-based)
+│   └── __init__.py          # Singleton factory: get_provider()
+├── llm/                     # Pure LLM interface
 │   ├── base.py              # Abstract BaseLLMProvider
 │   ├── ollama_provider.py   # Ollama implementation
+│   ├── adapter.py           # Streaming chat, generate, list/pull models
 │   └── __init__.py          # Factory: create_llm_provider(api_url)
-
-tts_adapter.py               # Pure TTS interface (NO business logic)
-tts_providers/
-├── base.py                  # Abstract BaseTTSProvider
-├── gpt_sovits_provider.py   # GPT-SoVITS (path as query param, POSIX format)
-├── index_tts_provider.py    # INDEX-TTS (file via multipart/form-data)
-└── __init__.py              # Factory: create_tts_provider()
+├── tts/                     # Pure TTS interface
+│   ├── base.py              # Abstract BaseTTSProvider
+│   ├── gpt_sovits_provider.py  # GPT-SoVITS (path as query param, POSIX format)
+│   ├── index_tts_provider.py   # INDEX-TTS (file via multipart/form-data)
+│   ├── adapter.py           # synthesize, list_voices, list_backends, check_health
+│   └── __init__.py          # Factory: create_tts_provider()
+└── __init__.py
 
 tools/
 ├── base.py                  # BaseTool abstract class
@@ -59,22 +68,11 @@ mcp_tools/
 ├── client.py                # Async list_tools()/call_tool() wrappers
 └── orchestrator.py          # Singleton orchestrator with caching
 
-face_recognition/            # Face detection + embedding (NO business logic/DB knowledge)
-├── base.py                  # Abstract BaseFaceRecognitionProvider
-├── insightface_provider.py  # InsightFace (ArcFace, buffalo_l, 512-dim embeddings)
-└── __init__.py              # Singleton factory: get_provider()
-
-gesture_detection/           # Gesture detection from webcam frames
-├── base.py                  # Abstract BaseGestureDetector
-├── mediapipe_provider.py    # YOLOv8-Pose (CUDA) + MediaPipe Hands (CPU)
-├── classifier.py            # Rule-based gesture classification (hand per-frame, pose trajectory-based)
-└── __init__.py              # Singleton factory: get_provider()
-
 vision/                      # Vision frame processing pipeline
 ├── processor.py             # VisionProcessor: processes base64 JPEG frames for face/gesture detection
 └── __init__.py
 
-utils/prompts.py             # build_system_messages() from SYSTEM_PROMPT.md + user prefs
+utils/prompts.py             # build_system_messages() from DEFAULT_SYSTEM_PROMPT + user prefs
 ```
 
 ### Key Design Principles

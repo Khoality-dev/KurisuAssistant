@@ -10,7 +10,7 @@ import os
 import logging
 from typing import Optional, Dict
 
-from tts import create_tts_provider, list_available_backends
+from models.tts import create_tts_provider, list_available_backends
 
 logger = logging.getLogger(__name__)
 

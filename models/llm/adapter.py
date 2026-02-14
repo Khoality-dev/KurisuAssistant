@@ -11,7 +11,7 @@ import datetime
 import logging
 from typing import Optional, AsyncGenerator, Dict, List
 
-from llm import create_llm_provider
+from models.llm import create_llm_provider
 from mcp_tools.orchestrator import get_orchestrator
 
 logger = logging.getLogger(__name__)

@@ -355,7 +355,7 @@ class SimpleAgent(BaseAgent):
         append results to messages, and call LLM again (up to 10 rounds).
         """
         import json
-        from llm import create_llm_provider
+        from models.llm import create_llm_provider
 
         llm = create_llm_provider("ollama")
 

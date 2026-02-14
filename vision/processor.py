@@ -14,10 +14,10 @@ from typing import Optional
 import cv2
 import numpy as np
 
-import face_recognition as face_rec_module
-import gesture_detection as gesture_module
+import models.face_recognition as face_rec_module
+import models.gesture_detection as gesture_module
 from db.session import get_session
-from gesture_detection.classifier import classify_hand_gestures, classify_pose_trajectory
+from models.gesture_detection.classifier import classify_hand_gestures, classify_pose_trajectory
 
 logger = logging.getLogger(__name__)
 

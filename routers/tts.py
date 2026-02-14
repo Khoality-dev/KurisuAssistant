@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.deps import get_db, get_authenticated_user
 from db.models import User
-from tts import synthesize, list_voices, list_backends, check_health
+from models.tts import synthesize, list_voices, list_backends, check_health
 
 logger = logging.getLogger(__name__)
 

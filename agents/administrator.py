@@ -12,7 +12,7 @@ from typing import List, Dict, Optional, Any, AsyncGenerator
 
 from .base import AgentConfig, async_iterate
 from .orchestration import AdministratorDecision, OrchestrationSession
-from llm import create_llm_provider
+from models.llm import create_llm_provider
 from tools.routing import create_routing_tools, parse_routing_result
 from websocket.events import StreamChunkEvent
 

@@ -5,7 +5,7 @@ import logging
 import numpy as np
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
-from asr import transcribe
+from models.asr import transcribe
 from core.deps import get_authenticated_user
 
 logger = logging.getLogger(__name__)
