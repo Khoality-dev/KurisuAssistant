@@ -87,7 +87,7 @@ utils/prompts.py             # build_system_messages() from SYSTEM_PROMPT.md + u
 
 Two modes controlled by `event.agent_id` in `ChatRequestEvent`:
 
-**Single Agent Mode** (`agent_id` set): Direct path — `_run_single_agent()` skips all Administrator logic. Message goes straight to the specified agent. No OrchestrationSession, no routing loop. Frontend selects agent via sidebar dropdown (persisted in localStorage).
+**Single Agent Mode** (`agent_id` set): Direct path — `_run_single_agent()` skips all Administrator logic. Message goes straight to the specified agent. No OrchestrationSession, no routing loop. Frontend selects agent via sidebar dropdown (persisted in localStorage). **Tool loop**: `SimpleAgent.process()` loops up to 10 rounds — after each LLM call, if tool_calls exist, executes tools, appends assistant+tool messages to context, and calls LLM again so it can reason about results or chain further tool calls.
 
 **Group Discussion Mode** (`agent_id` null): Turn-based orchestration where **AdministratorAgent** (system-level, not a user agent) routes messages between **SimpleAgents** (user-created, equal-tier). Currently disabled in UI.
 
