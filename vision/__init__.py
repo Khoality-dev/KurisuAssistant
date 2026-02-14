@@ -1,4 +1,4 @@
-"""Vision processing module — RTSP frame processor for face recognition + gesture detection."""
+"""Vision processing module — frame processor for face recognition + gesture detection."""
 
 from .processor import VisionProcessor
 

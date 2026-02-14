@@ -19,6 +19,7 @@ from .events import (
     CancelEvent,
     AgentSwitchEvent,
     VisionStartEvent,
+    VisionFrameEvent,
     VisionStopEvent,
     VisionResultEvent,
     parse_event,
@@ -80,7 +81,6 @@ class ChatSessionHandler:
 
         # Vision processing
         self._vision_processor: Optional[VisionProcessor] = None
-        self._vision_task: Optional[asyncio.Task] = None
 
     async def run(self):
         """Main handler loop - receives and processes events."""
@@ -109,6 +109,8 @@ class ChatSessionHandler:
             await self._handle_cancel()
         elif isinstance(event, VisionStartEvent):
             await self._handle_vision_start(event)
+        elif isinstance(event, VisionFrameEvent):
+            await self._handle_vision_frame(event)
         elif isinstance(event, VisionStopEvent):
             await self._handle_vision_stop()
 
@@ -765,48 +767,36 @@ class ChatSessionHandler:
             self.current_task.cancel()
 
     async def _handle_vision_start(self, event: VisionStartEvent):
-        """Start vision processing from RTSP stream."""
+        """Initialize vision processor for frame-by-frame processing."""
         await self._handle_vision_stop()
 
-        rtsp_url = event.rtsp_url
-        if not rtsp_url:
-            await self.send_event(ErrorEvent(
-                error="rtsp_url is required for vision_start",
-                code="INVALID_REQUEST",
-            ))
-            return
-
         self._vision_processor = VisionProcessor(
-            rtsp_url, self.user_id,
+            self.user_id,
             enable_face=event.enable_face,
             enable_pose=event.enable_pose,
             enable_hands=event.enable_hands,
         )
+        logger.info("Vision processing started for user %d", self.user_id)
 
-        async def on_vision_result(result: dict):
+    async def _handle_vision_frame(self, event: VisionFrameEvent):
+        """Process a single webcam frame from the frontend."""
+        if not self._vision_processor:
+            return
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, self._vision_processor.process_frame, event.frame
+        )
+
+        if result:
             await self.send_event(VisionResultEvent(
                 faces=result.get("faces", []),
                 gestures=result.get("gestures", []),
-                debug_frame=result.get("debug_frame"),
             ))
-
-        self._vision_task = asyncio.create_task(
-            self._vision_processor.start(on_vision_result)
-        )
-        logger.info("Vision processing started for user %d", self.user_id)
 
     async def _handle_vision_stop(self):
         """Stop vision processing."""
-        if self._vision_processor:
-            self._vision_processor.stop()
-            self._vision_processor = None
-        if self._vision_task and not self._vision_task.done():
-            self._vision_task.cancel()
-            try:
-                await self._vision_task
-            except asyncio.CancelledError:
-                pass
-            self._vision_task = None
+        self._vision_processor = None
         logger.debug("Vision processing stopped for user %d", self.user_id)
 
     async def send_event(self, event: BaseEvent):

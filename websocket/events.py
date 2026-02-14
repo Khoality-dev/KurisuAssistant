@@ -14,6 +14,7 @@ class EventType(str, Enum):
     TOOL_APPROVAL_RESPONSE = "tool_approval_response"
     CANCEL = "cancel"
     VISION_START = "vision_start"
+    VISION_FRAME = "vision_frame"
     VISION_STOP = "vision_stop"
 
     # Server -> Client
@@ -73,10 +74,16 @@ class CancelEvent(BaseEvent):
 class VisionStartEvent(BaseEvent):
     """Client requests to start vision processing."""
     type: EventType = field(default=EventType.VISION_START)
-    rtsp_url: str = ""
     enable_face: bool = True
     enable_pose: bool = True
     enable_hands: bool = True
+
+
+@dataclass
+class VisionFrameEvent(BaseEvent):
+    """Client sends a webcam frame for inference."""
+    type: EventType = field(default=EventType.VISION_FRAME)
+    frame: str = ""  # Base64 JPEG
 
 
 @dataclass
@@ -149,7 +156,6 @@ class VisionResultEvent(BaseEvent):
     type: EventType = field(default=EventType.VISION_RESULT)
     faces: List[Dict[str, Any]] = field(default_factory=list)
     gestures: List[Dict[str, Any]] = field(default_factory=list)
-    debug_frame: Optional[str] = None  # Base64 JPEG with annotations
 
 
 # =============================================================================
@@ -190,7 +196,16 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
         return VisionStartEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
             timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
-            rtsp_url=data.get("rtsp_url", ""),
+            enable_face=data.get("enable_face", True),
+            enable_pose=data.get("enable_pose", True),
+            enable_hands=data.get("enable_hands", True),
+        )
+
+    elif event_type == EventType.VISION_FRAME.value:
+        return VisionFrameEvent(
+            event_id=data.get("event_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            frame=data.get("frame", ""),
         )
 
     elif event_type == EventType.VISION_STOP.value:

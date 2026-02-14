@@ -12,7 +12,7 @@ KurisuAssistant is a voice-based AI assistant platform combining STT (faster-whi
 - **api** (internal 15597): Main FastAPI app (`main.py`) — chat, auth, conversations, TTS, vision
 - **postgres** (internal 5432): pgvector/pgvector:pg16 (PostgreSQL 16 + vector extension, not host-exposed)
 - **gpt-sovits** (9880): Voice synthesis backend
-- **mediamtx** (8554/8890): RTSP server for webcam stream transport (vision pipeline)
+- **mediamtx** (8554): RTSP server (available for IP camera streams, not used by default webcam pipeline)
 
 ### Directory Structure
 
@@ -70,8 +70,8 @@ gesture_detection/           # Gesture detection from webcam frames
 ├── classifier.py            # Rule-based gesture classification from keypoints
 └── __init__.py              # Singleton factory: get_provider()
 
-vision/                      # RTSP vision processing pipeline
-├── processor.py             # VisionProcessor: background RTSP frame reader + face/gesture processing
+vision/                      # Vision frame processing pipeline
+├── processor.py             # VisionProcessor: processes base64 JPEG frames for face/gesture detection
 └── __init__.py
 
 utils/prompts.py             # build_system_messages() from SYSTEM_PROMPT.md + user prefs
@@ -128,13 +128,13 @@ Custom MCP tools go in `mcp_tools/<tool-name>/` with `main.py`, `config.json`, `
 
 ### Vision Pipeline (Face Recognition + Gesture Detection)
 
-**Architecture**: Electron (ffmpeg webcam capture) → MediaMTX (RTSP server) → Backend (VisionProcessor reads RTSP frames) → WebSocket (results to frontend).
+**Architecture**: Frontend (getUserMedia webcam capture) → WebSocket (base64 JPEG frames at 3 FPS) → Backend (VisionProcessor runs face + gesture detection) → WebSocket (metadata results to frontend). Frontend renders webcam preview locally at native FPS via `<video>` element; backend never returns image data.
 
 - **Face Recognition**: InsightFace (ArcFace, buffalo_l model, 512-dim embeddings). Lazy-loaded on first use. Models cached in `data/face_recognition/models/`. Embeddings stored in `face_photos.embedding` (pgvector `vector(512)`) with HNSW index for cosine similarity search.
 - **Gesture Detection**: YOLOv8n-Pose on CUDA (17 COCO keypoints) for body pose + MediaPipe Hands on CPU (21 landmarks/hand). Rule-based classifier detects: `wave`, `thumbs_up`, `peace_sign`, `pointing`, `open_palm`. Pose-only wave detection from YOLO wrist/shoulder keypoints (no hand landmarks required). Models lazy-loaded/offloaded on demand via enable flags.
-- **Processing**: VisionProcessor uses FrameGrabber thread for low-latency RTSP reading. Detection at 3 FPS (batched GPU calls: face + gesture sequential to avoid CUDA conflicts). Render at 15 FPS with linear interpolation of bounding boxes and landmarks. In-memory face embedding cache (numpy dot product) for ~0ms matching.
+- **Processing**: VisionProcessor.process_frame() decodes base64 JPEG, runs face + gesture detection sequentially in thread executor. Frame dropping via `_processing` flag (skips frame if previous inference still running). In-memory face embedding cache (numpy dot product) for ~0ms matching.
 - **Face Identity CRUD**: REST endpoints (`/faces`, `/faces/{id}`, `/faces/{id}/photos`). Photo uploaded → face detected → embedding stored. Photos reuse existing image storage (`data/image_storage/data/`).
-- **WebSocket Events**: `VisionStartEvent` (client→server, includes RTSP URL + enable_face/enable_pose/enable_hands flags), `VisionStopEvent`, `VisionResultEvent` (server→client, faces + gestures).
+- **WebSocket Events**: `VisionStartEvent` (client→server, enable_face/enable_pose/enable_hands flags), `VisionFrameEvent` (client→server, base64 JPEG), `VisionStopEvent`, `VisionResultEvent` (server→client, faces + gestures metadata only).
 - **Character Animation Integration**: Gestures forwarded via IPC to character window. `CanvasCompositor` evaluates `gesture` condition type on edge transitions — matching gesture triggers pose transition. One edge per directed node pair, each containing multiple `EdgeTransition` entries (condition + videos + playback rate).
 
 ## Development

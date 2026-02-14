@@ -83,13 +83,6 @@ services:
       - postgres-data:/var/lib/postgresql/data
     restart: unless-stopped
 
-  mediamtx:
-    image: bluenviron/mediamtx:latest
-    container_name: mediamtx-container
-    ports:
-      - "8554:8554"
-    restart: unless-stopped
-
 networks:
   default:
 
