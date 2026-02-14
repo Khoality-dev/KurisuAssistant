@@ -207,5 +207,4 @@ export interface VisionGesture {
 export interface VisionResult {
   faces: VisionFace[];
   gestures: VisionGesture[];
-  debug_frame?: string;
 }

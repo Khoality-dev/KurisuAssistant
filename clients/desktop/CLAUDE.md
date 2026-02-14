@@ -21,7 +21,7 @@ GitHub Actions workflow (`.github/workflows/build.yml`): triggers on release cre
 
 ```
 electron/main.ts          — Multi-window Electron entry (main + character window)
-electron/preload.ts       — contextBridge API (platform + vision + characterWindow IPC bridge)
+electron/preload.ts       — contextBridge API (platform + characterWindow IPC bridge)
 src/api/client.ts         — Axios + WebSocket singleton; streaming via wsManager
 src/api/types.ts          — TypeScript interfaces for API
 src/components/
@@ -43,7 +43,7 @@ src/store/
   authStore.ts            — Auth state, login/register/logout, token persistence
   conversationStore.ts    — Conversations, messages (paginated 50/page), models
   agentStore.ts           — Agent list (filtered, no Administrator), selected agent ID (persisted)
-  visionStore.ts          — Zustand singleton: vision pipeline control (webcam selection, ffmpeg→RTSP, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Used by both FacesWindow and ChatWidget camera toggle.
+  visionStore.ts          — Zustand singleton: vision pipeline control (getUserMedia webcam capture, frame upload at 3 FPS via WebSocket, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Used by both FacesWindow and ChatWidget camera toggle.
 src/CharacterWindowApp.tsx — Minimal IPC-driven renderer for separate character window (no auth/stores)
 src/videocall/            — Character animation engine (rendered in separate Electron window via IPC)
   types.ts                — PoseConfig, PatchInfo, PoseTree, AnimationNode/Edge/EdgeTransition, TransitionCondition (random/thinking/gesture), AnimationSettings, CharacterConfig, migrateEdgeToTransitions()
@@ -130,7 +130,6 @@ Separate Electron window (toggleable via Face icon in top bar). Opens as indepen
 - `character:gesture-update` — `{ gestures: string[] }` forwarded from vision pipeline to trigger pose transitions
 - `character:window-closed` — main process → main renderer when user closes character window
 - `character:open-window` / `character:close-window` — renderer invokes main process to create/destroy window
-- `vision:start` / `vision:stop` / `vision:list-webcams` — renderer invokes main process to spawn/kill ffmpeg webcam→RTSP capture
 
 **Canvas compositing**: Base image + diff patches (eyes, mouth) at stored positions. Blink: configurable random interval state machine (default 2-6s). Breathing: sine wave vertical offset (configurable amplitude/period). Lip sync: audio amplitude → mouth patch index. Per-agent character configs stored in backend DB as JSON. **State machine**: IDLE (blink/breathing/mouth + event listening) → TRANSITIONING (playing edge video on canvas, all events ignored) → IDLE (switch to target pose, apply node settings, reset timers). During transitions no events are processed; random timers start fresh when arriving at a node. **Multi-transition edges**: Each directed edge (`AnimationEdge`) contains `transitions: EdgeTransition[]` — multiple transitions per edge, each with its own condition, video list, and playback rate. One edge per directed node pair (deterministic ID: `edge-{source}-{target}`). Timer keys use `${edge.id}:${transitionIndex}`. Legacy edges (single condition/video_urls/playback_rate) auto-migrated on load via `migrateEdgeToTransitions()`. Transition conditions: `random` (timer-based), `thinking` (fires when `isThinking` matches `condition.value`), `gesture` (fires when detected gesture matches `condition.value`, e.g. "wave", "thumbs_up", "peace_sign"). `isThinking` is a live variable observed each frame while idle — no edge detection. If multiple transitions satisfy simultaneously, one is chosen at random. `isThinking` piggybacked on amplitude IPC channel at ~30fps. **Per-node animation settings**: `AnimationNode.animation_settings` (optional) configures breathing (enabled/amplitude/period) and blink timing (min/max interval, close/hold/open duration). Applied via `applySettings()` on each pose switch. UI: sliders in PoseNodeEditor Preview step.
 

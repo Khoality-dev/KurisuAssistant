@@ -42,7 +42,6 @@ export interface CancelEvent extends BaseEvent {
 
 export interface VisionStartEvent extends BaseEvent {
   type: 'vision_start';
-  rtsp_url: string;
 }
 
 export interface VisionStopEvent extends BaseEvent {
@@ -106,7 +105,6 @@ export interface VisionResultEvent extends BaseEvent {
     gesture: string;
     confidence: number;
   }>;
-  debug_frame?: string; // Base64 JPEG with annotations
 }
 
 export type ServerEvent =
@@ -241,7 +239,7 @@ class WebSocketManager {
   /**
    * Send an event to the server.
    */
-  send(event: Partial<ChatRequestEvent> | Partial<CancelEvent> | Partial<VisionStartEvent> | Partial<VisionStopEvent>) {
+  send(event: Partial<ChatRequestEvent> | Partial<CancelEvent> | Partial<VisionStartEvent> | Partial<VisionStopEvent> | Record<string, unknown>) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
@@ -281,7 +279,7 @@ class WebSocketManager {
   /**
    * Send a vision start request.
    */
-  async sendVisionStart(rtspUrl: string, options?: {
+  async sendVisionStart(options?: {
     enable_face?: boolean;
     enable_pose?: boolean;
     enable_hands?: boolean;
@@ -289,11 +287,19 @@ class WebSocketManager {
     await this.connect();
     this.send({
       type: 'vision_start',
-      rtsp_url: rtspUrl,
       enable_face: options?.enable_face ?? true,
       enable_pose: options?.enable_pose ?? true,
       enable_hands: options?.enable_hands ?? true,
     });
+  }
+
+  /**
+   * Send a webcam frame for inference.
+   */
+  sendVisionFrame(frameBase64: string) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.send({ type: 'vision_frame', frame: frameBase64 });
+    }
   }
 
   /**

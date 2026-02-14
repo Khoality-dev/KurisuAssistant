@@ -3,12 +3,6 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
 
-  vision: {
-    start: (webcamName: string, rtspUrl: string) => ipcRenderer.invoke('vision:start', webcamName, rtspUrl),
-    stop: () => ipcRenderer.invoke('vision:stop'),
-    listWebcams: () => ipcRenderer.invoke('vision:list-webcams'),
-  },
-
   characterWindow: {
     open: () => ipcRenderer.invoke('character:open-window'),
     close: () => ipcRenderer.invoke('character:close-window'),

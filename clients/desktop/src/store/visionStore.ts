@@ -2,10 +2,12 @@ import { create } from 'zustand';
 import { wsManager, VisionResultEvent } from '../api/websocket';
 import type { VisionResult } from '../api/types';
 
-const DEFAULT_RTSP_URL = 'rtsp://localhost:8554/webcam';
+const DETECT_FPS = 5;
+const DETECT_INTERVAL = 1000 / DETECT_FPS;
 
 interface VisionState {
   isActive: boolean;
+  stream: MediaStream | null;
   latestResult: VisionResult | null;
   webcams: string[];
   selectedWebcam: string;
@@ -16,17 +18,63 @@ interface VisionState {
 
   loadWebcams: () => Promise<void>;
   startVision: () => Promise<void>;
-  stopVision: () => Promise<void>;
+  stopVision: () => void;
   setSelectedWebcam: (webcam: string) => void;
   setEnableFace: (enabled: boolean) => void;
   setEnablePose: (enabled: boolean) => void;
   setEnableHands: (enabled: boolean) => void;
 }
 
-let _active = false;
+// Module-level state for frame capture (not in Zustand to avoid re-renders)
+let _captureInterval: ReturnType<typeof setInterval> | null = null;
+let _hiddenVideo: HTMLVideoElement | null = null;
+let _hiddenCanvas: HTMLCanvasElement | null = null;
+
+function _stopCapture() {
+  if (_captureInterval) {
+    clearInterval(_captureInterval);
+    _captureInterval = null;
+  }
+  if (_hiddenVideo) {
+    _hiddenVideo.srcObject = null;
+    _hiddenVideo.remove();
+    _hiddenVideo = null;
+  }
+  if (_hiddenCanvas) {
+    _hiddenCanvas.remove();
+    _hiddenCanvas = null;
+  }
+}
+
+function _startCapture(stream: MediaStream) {
+  _stopCapture();
+
+  _hiddenVideo = document.createElement('video');
+  _hiddenVideo.srcObject = stream;
+  _hiddenVideo.muted = true;
+  _hiddenVideo.playsInline = true;
+  _hiddenVideo.play();
+
+  _hiddenCanvas = document.createElement('canvas');
+
+  _captureInterval = setInterval(() => {
+    if (!_hiddenVideo || !_hiddenCanvas || _hiddenVideo.readyState < 2) return;
+
+    _hiddenCanvas.width = _hiddenVideo.videoWidth;
+    _hiddenCanvas.height = _hiddenVideo.videoHeight;
+    const ctx = _hiddenCanvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.drawImage(_hiddenVideo, 0, 0);
+    const dataUrl = _hiddenCanvas.toDataURL('image/jpeg', 0.7);
+    const base64 = dataUrl.split(',')[1];
+    wsManager.sendVisionFrame(base64);
+  }, DETECT_INTERVAL);
+}
 
 export const useVisionStore = create<VisionState>((set, get) => ({
   isActive: false,
+  stream: null,
   latestResult: null,
   webcams: [],
   selectedWebcam: '',
@@ -50,16 +98,10 @@ export const useVisionStore = create<VisionState>((set, get) => ({
   },
 
   startVision: async () => {
-    if (_active) return;
+    if (get().isActive) return;
     set({ error: '' });
 
     const { selectedWebcam, enableFace, enablePose, enableHands } = get();
-
-    const api = window.electron?.vision;
-    if (!api) {
-      set({ error: 'Vision API not available (requires Electron)' });
-      return;
-    }
 
     if (!selectedWebcam) {
       set({ error: 'No webcam selected' });
@@ -67,35 +109,49 @@ export const useVisionStore = create<VisionState>((set, get) => ({
     }
 
     try {
-      const rtspUrl = DEFAULT_RTSP_URL;
-      await api.start(selectedWebcam, rtspUrl);
-      await wsManager.sendVisionStart(rtspUrl, {
+      // Find deviceId matching the selected webcam label
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const match = devices.find(
+        (d) => d.kind === 'videoinput' && (d.label === selectedWebcam || d.label.startsWith(selectedWebcam))
+      );
+
+      const constraints: MediaStreamConstraints = {
+        video: {
+          width: 640,
+          height: 480,
+          ...(match?.deviceId ? { deviceId: { exact: match.deviceId } } : {}),
+        },
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+      // Tell backend to start processing
+      await wsManager.sendVisionStart({
         enable_face: enableFace,
         enable_pose: enablePose,
         enable_hands: enableHands,
       });
-      _active = true;
-      set({ isActive: true });
+
+      // Start frame capture interval
+      _startCapture(stream);
+
+      set({ isActive: true, stream });
     } catch (err: any) {
       set({ error: `Failed to start vision: ${err.message}` });
     }
   },
 
-  stopVision: async () => {
-    if (!_active) return;
+  stopVision: () => {
+    const { stream } = get();
 
-    try {
-      wsManager.sendVisionStop();
-      const api = window.electron?.vision;
-      if (api) {
-        await api.stop();
-      }
-    } catch (err: any) {
-      console.error('Failed to stop vision:', err);
-    } finally {
-      _active = false;
-      set({ isActive: false, latestResult: null });
+    _stopCapture();
+    wsManager.sendVisionStop();
+
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop());
     }
+
+    set({ isActive: false, stream: null, latestResult: null });
   },
 
   setSelectedWebcam: (webcam: string) => set({ selectedWebcam: webcam }),
@@ -117,7 +173,6 @@ wsManager.on('vision_result', (event: VisionResultEvent) => {
     latestResult: {
       faces: event.faces,
       gestures: event.gestures,
-      debug_frame: event.debug_frame,
     },
   });
 

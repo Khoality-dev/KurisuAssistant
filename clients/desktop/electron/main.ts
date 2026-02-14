@@ -1,5 +1,4 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
-import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 
 // Set custom cache path to avoid permission issues on Windows
@@ -7,7 +6,6 @@ app.setPath('userData', path.join(app.getPath('appData'), 'kurisu-assistant'));
 
 let mainWindow: BrowserWindow | null = null;
 let characterWindow: BrowserWindow | null = null;
-let ffmpegProcess: ChildProcess | null = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -118,97 +116,6 @@ ipcMain.on('character:gesture-update', (_event, data) => {
   if (characterWindow && !characterWindow.isDestroyed()) {
     characterWindow.webContents.send('character:gesture-update', data);
   }
-});
-
-// --- Vision (ffmpeg webcam → RTSP) ---
-
-ipcMain.handle('vision:start', (_event, webcamName: string, rtspUrl: string) => {
-  // Kill existing ffmpeg process
-  if (ffmpegProcess) {
-    ffmpegProcess.kill('SIGTERM');
-    ffmpegProcess = null;
-  }
-
-  // Strip browser-style suffixes like " (046d:0825)" from webcam label
-  const dshowName = webcamName.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, '');
-
-  // Spawn ffmpeg to capture webcam and push to RTSP server via TCP
-  const args = [
-    '-f', 'dshow',
-    '-rtbufsize', '100M',
-    '-i', `video=${dshowName}`,
-    '-c:v', 'libx264',
-    '-preset', 'ultrafast',
-    '-tune', 'zerolatency',
-    '-pix_fmt', 'yuv420p',
-    '-rtsp_transport', 'tcp',
-    '-f', 'rtsp',
-    rtspUrl,
-  ];
-
-  ffmpegProcess = spawn('ffmpeg', args);
-
-  ffmpegProcess.stderr?.on('data', (data: Buffer) => {
-    console.log('[Vision] ffmpeg:', data.toString().trim());
-  });
-
-  ffmpegProcess.on('error', (error) => {
-    console.error('[Vision] ffmpeg process error:', error);
-    ffmpegProcess = null;
-  });
-
-  ffmpegProcess.on('close', () => {
-    ffmpegProcess = null;
-  });
-
-  return { status: 'started' };
-});
-
-ipcMain.handle('vision:stop', () => {
-  if (ffmpegProcess) {
-    ffmpegProcess.kill('SIGTERM');
-    ffmpegProcess = null;
-  }
-  return { status: 'stopped' };
-});
-
-ipcMain.handle('vision:list-webcams', async () => {
-  // Use ffmpeg to list DirectShow devices on Windows
-  return new Promise<string[]>((resolve) => {
-    const proc = spawn('ffmpeg', ['-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']);
-
-    let stderr = '';
-    proc.stderr?.on('data', (data: Buffer) => {
-      stderr += data.toString();
-    });
-
-    proc.on('close', () => {
-      const webcams: string[] = [];
-      const lines = stderr.split('\n');
-      let inVideoSection = false;
-      for (const line of lines) {
-        if (line.includes('DirectShow video devices')) {
-          inVideoSection = true;
-          continue;
-        }
-        if (line.includes('DirectShow audio devices')) {
-          inVideoSection = false;
-          continue;
-        }
-        if (inVideoSection) {
-          const match = line.match(/"([^"]+)"/);
-          if (match && !line.includes('Alternative name')) {
-            webcams.push(match[1]);
-          }
-        }
-      }
-      resolve(webcams);
-    });
-
-    proc.on('error', () => {
-      resolve([]);
-    });
-  });
 });
 
 // --- App Lifecycle ---

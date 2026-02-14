@@ -62,10 +62,14 @@ export const FacesWindow: React.FC = () => {
   const [scanning, setScanning] = useState(false);
   const [creating, setCreating] = useState(false);
 
-  // Webcam
+  // Webcam (face registration scanning)
   const [webcamStream, setWebcamStream] = useState<MediaStream | null>(null);
   const webcamVideoRef = useRef<HTMLVideoElement>(null);
   const webcamCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Vision preview (detection overlay on store's stream)
+  const visionVideoRef = useRef<HTMLVideoElement>(null);
+  const visionCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Detail dialog
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
@@ -79,6 +83,7 @@ export const FacesWindow: React.FC = () => {
   // Vision
   const {
     isActive: visionActive,
+    stream: visionStream,
     latestResult,
     webcams,
     selectedWebcam,
@@ -118,6 +123,61 @@ export const FacesWindow: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [successMessage]);
+
+  // Attach store's vision stream to video element for preview
+  useEffect(() => {
+    if (visionVideoRef.current) {
+      visionVideoRef.current.srcObject = visionStream;
+    }
+  }, [visionStream]);
+
+  // Draw detection overlay on vision canvas
+  useEffect(() => {
+    const canvas = visionCanvasRef.current;
+    const video = visionVideoRef.current;
+    if (!canvas || !video || !visionActive || !latestResult) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Match canvas size to video
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Draw face bounding boxes
+    for (const face of latestResult.faces) {
+      const [x1, y1, x2, y2] = face.bbox;
+      const color = face.identity_id ? '#00c853' : '#ff9100';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+      // Label
+      const label = `${face.name} (${Math.round(face.confidence * 100)}%)`;
+      ctx.font = '14px sans-serif';
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = color;
+      ctx.fillRect(x1, y1 - 20, tw + 8, 20);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, x1 + 4, y1 - 5);
+    }
+
+    // Draw gesture labels
+    for (let i = 0; i < latestResult.gestures.length; i++) {
+      const g = latestResult.gestures[i];
+      const label = `${g.gesture} (${Math.round(g.confidence * 100)}%)`;
+      ctx.font = 'bold 16px sans-serif';
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(w - tw - 16, 10 + i * 30, tw + 12, 24);
+      ctx.fillStyle = '#00e5ff';
+      ctx.fillText(label, w - tw - 10, 28 + i * 30);
+    }
+  }, [latestResult, visionActive]);
 
   const startWebcam = useCallback(async () => {
     try {
@@ -376,86 +436,91 @@ export const FacesWindow: React.FC = () => {
             </Button>
           </Box>
 
-          {visionActive && !latestResult && (
-            <Box sx={{ mt: 2 }}>
-              <Divider sx={{ mb: 1 }} />
-              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
-                Connecting to vision pipeline... Waiting for first frame.
-              </Typography>
-            </Box>
-          )}
-
-          {visionActive && latestResult && (
+          {visionActive && (
             <Box sx={{ mt: 2 }}>
               <Divider sx={{ mb: 1 }} />
 
-              {/* Debug frame visualization */}
-              {latestResult.debug_frame && (
-                <Box
-                  sx={{
-                    mb: 2,
-                    display: 'flex',
-                    justifyContent: 'center',
-                    bgcolor: 'black',
-                    borderRadius: 2,
-                    overflow: 'hidden',
+              {/* Live webcam preview with detection overlay */}
+              <Box
+                sx={{
+                  mb: 2,
+                  display: 'flex',
+                  justifyContent: 'center',
+                  bgcolor: 'black',
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                  position: 'relative',
+                }}
+              >
+                <video
+                  ref={visionVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  style={{ maxWidth: '100%', maxHeight: 400, objectFit: 'contain' }}
+                />
+                <canvas
+                  ref={visionCanvasRef}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    pointerEvents: 'none',
                   }}
-                >
-                  <img
-                    src={`data:image/jpeg;base64,${latestResult.debug_frame}`}
-                    alt="Vision debug"
-                    style={{ maxWidth: '100%', maxHeight: 400, objectFit: 'contain' }}
-                  />
+                />
+              </Box>
+
+              {latestResult && (
+                <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Detected Faces
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                      {latestResult.faces.length === 0 ? (
+                        <Typography variant="body2" color="text.secondary">
+                          None
+                        </Typography>
+                      ) : (
+                        latestResult.faces.map((face, i) => (
+                          <Chip
+                            key={i}
+                            icon={<PersonIcon />}
+                            label={`${face.name} (${Math.round(face.confidence * 100)}%)`}
+                            size="small"
+                            color={face.identity_id ? 'success' : 'default'}
+                            variant="outlined"
+                          />
+                        ))
+                      )}
+                    </Box>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Detected Gestures
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                      {latestResult.gestures.length === 0 ? (
+                        <Typography variant="body2" color="text.secondary">
+                          None
+                        </Typography>
+                      ) : (
+                        latestResult.gestures.map((g, i) => (
+                          <Chip
+                            key={i}
+                            label={`${g.gesture} (${Math.round(g.confidence * 100)}%)`}
+                            size="small"
+                            color="primary"
+                            variant="outlined"
+                          />
+                        ))
+                      )}
+                    </Box>
+                  </Box>
                 </Box>
               )}
-
-              <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Detected Faces
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
-                    {latestResult.faces.length === 0 ? (
-                      <Typography variant="body2" color="text.secondary">
-                        None
-                      </Typography>
-                    ) : (
-                      latestResult.faces.map((face, i) => (
-                        <Chip
-                          key={i}
-                          icon={<PersonIcon />}
-                          label={`${face.name} (${Math.round(face.confidence * 100)}%)`}
-                          size="small"
-                          color={face.identity_id ? 'success' : 'default'}
-                          variant="outlined"
-                        />
-                      ))
-                    )}
-                  </Box>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Detected Gestures
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
-                    {latestResult.gestures.length === 0 ? (
-                      <Typography variant="body2" color="text.secondary">
-                        None
-                      </Typography>
-                    ) : (
-                      latestResult.gestures.map((g, i) => (
-                        <Chip
-                          key={i}
-                          label={`${g.gesture} (${Math.round(g.confidence * 100)}%)`}
-                          size="small"
-                          color="primary"
-                          variant="outlined"
-                        />
-                      ))
-                    )}
-                  </Box>
-                </Box>
-              </Box>
             </Box>
           )}
         </Paper>

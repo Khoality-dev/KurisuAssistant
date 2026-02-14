@@ -6,12 +6,6 @@ export interface AgentData {
   poseTree: PoseTree | null;
 }
 
-export interface VisionAPI {
-  start: (webcamName: string, rtspUrl: string) => Promise<{ status: string }>;
-  stop: () => Promise<{ status: string }>;
-  listWebcams: () => Promise<string[]>;
-}
-
 export interface CharacterWindowAPI {
   open: () => Promise<void>;
   close: () => Promise<void>;
@@ -28,7 +22,6 @@ export interface CharacterWindowAPI {
 
 export interface ElectronAPI {
   platform: string;
-  vision: VisionAPI;
   characterWindow: CharacterWindowAPI;
 }
 
