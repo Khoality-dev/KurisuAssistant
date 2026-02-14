@@ -18,12 +18,17 @@ from .events import (
     ErrorEvent,
     CancelEvent,
     AgentSwitchEvent,
+    VisionStartEvent,
+    VisionFrameEvent,
+    VisionStopEvent,
+    VisionResultEvent,
     parse_event,
 )
 from agents.base import AgentConfig, AgentContext, BaseAgent, SimpleAgent
 from agents.orchestration import OrchestrationSession
 from agents.administrator import AdministratorAgent
 from tools import tool_registry
+from vision import VisionProcessor
 from db.session import get_session
 from db.repositories import (
     ConversationRepository,
@@ -74,6 +79,9 @@ class ChatSessionHandler:
         self._task_frame_id: Optional[int] = None
         self._task_done: bool = False
 
+        # Vision processing
+        self._vision_processor: Optional[VisionProcessor] = None
+
     async def run(self):
         """Main handler loop - receives and processes events."""
         from fastapi import WebSocketDisconnect
@@ -99,6 +107,12 @@ class ChatSessionHandler:
             await self._handle_approval_response(event)
         elif isinstance(event, CancelEvent):
             await self._handle_cancel()
+        elif isinstance(event, VisionStartEvent):
+            await self._handle_vision_start(event)
+        elif isinstance(event, VisionFrameEvent):
+            await self._handle_vision_frame(event)
+        elif isinstance(event, VisionStopEvent):
+            await self._handle_vision_stop()
 
     async def _handle_chat_request(self, event: ChatRequestEvent):
         """Handle incoming chat request."""
@@ -751,6 +765,39 @@ class ChatSessionHandler:
         """Handle cancel request."""
         if self.current_task and not self.current_task.done():
             self.current_task.cancel()
+
+    async def _handle_vision_start(self, event: VisionStartEvent):
+        """Initialize vision processor for frame-by-frame processing."""
+        await self._handle_vision_stop()
+
+        self._vision_processor = VisionProcessor(
+            self.user_id,
+            enable_face=event.enable_face,
+            enable_pose=event.enable_pose,
+            enable_hands=event.enable_hands,
+        )
+        logger.info("Vision processing started for user %d", self.user_id)
+
+    async def _handle_vision_frame(self, event: VisionFrameEvent):
+        """Process a single webcam frame from the frontend."""
+        if not self._vision_processor:
+            return
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, self._vision_processor.process_frame, event.frame
+        )
+
+        if result:
+            await self.send_event(VisionResultEvent(
+                faces=result.get("faces", []),
+                gestures=result.get("gestures", []),
+            ))
+
+    async def _handle_vision_stop(self):
+        """Stop vision processing."""
+        self._vision_processor = None
+        logger.debug("Vision processing stopped for user %d", self.user_id)
 
     async def send_event(self, event: BaseEvent):
         """Send event to client (silently fails if disconnected)."""

@@ -71,10 +71,10 @@ services:
 
 
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     container_name: postgres-container
-    expose:
-      - "5432"
+    ports:
+      - "5432:5432"
     environment:
       - POSTGRES_USER=kurisu
       - POSTGRES_PASSWORD=kurisu

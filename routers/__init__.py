@@ -13,6 +13,7 @@ from .agents import router as agents_router
 from .models import router as models_router
 from .tools import router as tools_router
 from .character import router as character_router
+from .vision import router as vision_router
 
 __all__ = [
     "auth_router",
@@ -28,5 +29,6 @@ __all__ = [
     "models_router",
     "tools_router",
     "character_router",
+    "vision_router",
     "set_mcp_client",
 ]

@@ -1,6 +1,7 @@
 from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
+from pgvector.sqlalchemy import Vector
 from .base import Base
 
 class User(Base):
@@ -80,3 +81,29 @@ class Agent(Base):
     __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_agent_user_id_name'),)
 
     user = relationship("User", back_populates="agents")
+
+
+class FaceIdentity(Base):
+    __tablename__ = 'face_identities'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    name = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_face_identity_user_id_name'),)
+
+    user = relationship("User")
+    photos = relationship("FacePhoto", back_populates="identity", cascade="all, delete-orphan")
+
+
+class FacePhoto(Base):
+    __tablename__ = 'face_photos'
+
+    id = Column(Integer, primary_key=True)
+    identity_id = Column(Integer, ForeignKey('face_identities.id', ondelete='CASCADE'), nullable=False)
+    embedding = Column(Vector(512), nullable=False)
+    photo_uuid = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    identity = relationship("FaceIdentity", back_populates="photos")

@@ -9,9 +9,10 @@ KurisuAssistant is a voice-based AI assistant platform combining STT (faster-whi
 ### Services
 
 - **nginx** (80/443): HTTPS reverse proxy (self-signed certs)
-- **api** (internal 15597): Main FastAPI app (`main.py`) — chat, auth, conversations, TTS
-- **postgres** (internal 5432): PostgreSQL 16 (not host-exposed)
+- **api** (internal 15597): Main FastAPI app (`main.py`) — chat, auth, conversations, TTS, vision
+- **postgres** (internal 5432): pgvector/pgvector:pg16 (PostgreSQL 16 + vector extension, not host-exposed)
 - **gpt-sovits** (9880): Voice synthesis backend
+- **mediamtx** (8554): RTSP server (available for IP camera streams, not used by default webcam pipeline)
 
 ### Directory Structure
 
@@ -20,7 +21,7 @@ db/
 ├── models.py                # SQLAlchemy ORM models
 ├── session.py               # Session management (pool: 10+20 overflow, 1hr recycle, pre-ping)
 └── repositories/            # Repository pattern with BaseRepository[T] generic CRUD
-    ├── base.py, user.py, conversation.py, frame.py, message.py, agent.py
+    ├── base.py, user.py, conversation.py, frame.py, message.py, agent.py, face.py
 
 asr/                         # Pure ASR interface (NO business logic/DB knowledge)
 ├── base.py                  # Abstract BaseASRProvider
@@ -57,6 +58,21 @@ mcp_tools/
 ├── config.py                # Tool config scanning/merging
 ├── client.py                # Async list_tools()/call_tool() wrappers
 └── orchestrator.py          # Singleton orchestrator with caching
+
+face_recognition/            # Face detection + embedding (NO business logic/DB knowledge)
+├── base.py                  # Abstract BaseFaceRecognitionProvider
+├── insightface_provider.py  # InsightFace (ArcFace, buffalo_l, 512-dim embeddings)
+└── __init__.py              # Singleton factory: get_provider()
+
+gesture_detection/           # Gesture detection from webcam frames
+├── base.py                  # Abstract BaseGestureDetector
+├── mediapipe_provider.py    # YOLOv8-Pose (CUDA) + MediaPipe Hands (CPU)
+├── classifier.py            # Rule-based gesture classification (hand per-frame, pose trajectory-based)
+└── __init__.py              # Singleton factory: get_provider()
+
+vision/                      # Vision frame processing pipeline
+├── processor.py             # VisionProcessor: processes base64 JPEG frames for face/gesture detection
+└── __init__.py
 
 utils/prompts.py             # build_system_messages() from SYSTEM_PROMPT.md + user prefs
 ```
@@ -109,6 +125,17 @@ Built-in context tools (`tools/context.py`) receive `conversation_id` auto-injec
 - `get_conversation_info`: Conversation metadata
 
 Custom MCP tools go in `mcp_tools/<tool-name>/` with `main.py`, `config.json`, `requirements.txt`.
+
+### Vision Pipeline (Face Recognition + Gesture Detection)
+
+**Architecture**: Frontend (getUserMedia webcam capture) → WebSocket (base64 JPEG frames at 3 FPS) → Backend (VisionProcessor runs face + gesture detection) → WebSocket (metadata results to frontend). Frontend renders webcam preview locally at native FPS via `<video>` element; backend never returns image data.
+
+- **Face Recognition**: InsightFace (ArcFace, buffalo_l model, 512-dim embeddings). Lazy-loaded on first use. Models cached in `data/face_recognition/models/`. Embeddings stored in `face_photos.embedding` (pgvector `vector(512)`) with HNSW index for cosine similarity search.
+- **Gesture Detection**: Provider (`mediapipe_provider.py`) only extracts raw landmarks — YOLOv8n-Pose on CUDA (17 COCO keypoints) for body pose, MediaPipe Hands on CPU (21 landmarks/hand + handedness). Returns `{pose_landmarks, hands: [{landmarks, handedness}]}`. All gesture classification lives in `VisionProcessor`: hand gestures (`thumbs_up`, `peace_sign`, `pointing`, `open_palm`) classified per-frame via `classify_hand_gestures()`, `wave` classified from **pose trajectory** via `classify_pose_trajectory()` (wrist X oscillation across 15-frame sliding window, requiring wrist-above-shoulder + ≥2 direction reversals + minimum amplitude). Models lazy-loaded/offloaded on demand via enable flags.
+- **Processing**: VisionProcessor.process_frame() decodes base64 JPEG, runs face + gesture detection sequentially in thread executor. Frame dropping via `_processing` flag (skips frame if previous inference still running). In-memory face embedding cache (numpy dot product) for ~0ms matching.
+- **Face Identity CRUD**: REST endpoints (`/faces`, `/faces/{id}`, `/faces/{id}/photos`). Photo uploaded → face detected → embedding stored. Photos reuse existing image storage (`data/image_storage/data/`).
+- **WebSocket Events**: `VisionStartEvent` (client→server, enable_face/enable_pose/enable_hands flags), `VisionFrameEvent` (client→server, base64 JPEG), `VisionStopEvent`, `VisionResultEvent` (server→client, faces + gestures metadata only).
+- **Character Animation Integration**: Gestures forwarded via IPC to character window. `CanvasCompositor` evaluates `gesture` condition type on edge transitions — matching gesture triggers pose transition. One edge per directed node pair, each containing multiple `EdgeTransition` entries (condition + videos + playback rate).
 
 ## Development
 
@@ -164,6 +191,8 @@ Conversation: id, user_id→User, title, created_at, updated_at
 Frame: id, conversation_id→Conversation, created_at, updated_at
 Message: id, role, message, thinking?, raw_input?, raw_output?, name?, frame_id→Frame, agent_id→Agent(SET NULL), created_at
 Agent: id, user_id→User, name, system_prompt, voice_reference, avatar_uuid, model_name, tools(JSON), think(bool), created_at
+FaceIdentity: id, user_id→User, name(unique per user), created_at
+FacePhoto: id, identity_id→FaceIdentity(CASCADE), embedding(vector(512)), photo_uuid, created_at
 ```
 
 ## API Endpoints
@@ -202,6 +231,13 @@ All protected unless noted. Auth: `Authorization: Bearer <token>`.
 | GET | `/character-assets/{agent_id}/{pose_id}/{filename}` | Serve pose asset (base/patch image, no-cache) |
 | GET | `/character-assets/{agent_id}/edges/{edge_id}` | Serve transition video (no-cache) |
 | PATCH | `/character-assets/{agent_id}/character-config` | Update pose tree config, cleans up orphaned assets |
+| GET | `/faces` | List registered face identities (with photo count) |
+| POST | `/faces` | Register new face (name + photo) → detect, embed, store |
+| GET | `/faces/{id}` | Get identity details + photos |
+| DELETE | `/faces/{id}` | Delete identity + all photos + disk images |
+| POST | `/faces/{id}/photos` | Add additional photo to existing identity |
+| DELETE | `/faces/{id}/photos/{photo_id}` | Remove a specific photo |
+| GET | `/faces/{id}/photos/{photo_id}/image` | Serve photo image file |
 
 ## Environment Variables
 

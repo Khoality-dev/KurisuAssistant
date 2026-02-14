@@ -4,6 +4,7 @@ from .conversation import ConversationRepository
 from .message import MessageRepository
 from .frame import FrameRepository
 from .agent import AgentRepository
+from .face import FaceIdentityRepository, FacePhotoRepository
 
 __all__ = [
     "BaseRepository",
@@ -12,4 +13,6 @@ __all__ = [
     "MessageRepository",
     "FrameRepository",
     "AgentRepository",
+    "FaceIdentityRepository",
+    "FacePhotoRepository",
 ]
