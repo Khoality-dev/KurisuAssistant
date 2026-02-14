@@ -123,9 +123,9 @@ def classify_pose_trajectory(landmark_buffer: list) -> List[dict]:
         return []
 
     MIN_VIS = 0.2
-    MIN_REVERSALS = 3      # >= 3 direction changes = 1.5 back-and-forth cycles
-    MIN_AMPLITUDE = 0.08   # Minimum wrist X range (8% of frame width)
-    MIN_MOTION = 0.015     # Minimum per-frame movement to count (filters jitter)
+    MIN_REVERSALS = 2      # >= 2 direction changes = one back-and-forth
+    MIN_AMPLITUDE = 0.06   # Minimum wrist X range (6% of frame width)
+    MIN_MOTION = 0.01      # Minimum per-frame movement to count (filters jitter)
 
     gestures = []
 
