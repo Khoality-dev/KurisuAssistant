@@ -13,6 +13,7 @@ export const CharacterWindowApp: React.FC = () => {
   const [activeAgentId, setActiveAgentId] = useState<number | null>(null);
   const amplitudeRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false, isThinking: false });
   const silentRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false, isThinking: false });
+  const gesturesRef = useRef<string[]>([]);
 
   useEffect(() => {
     const api = window.electron?.characterWindow;
@@ -48,12 +49,17 @@ export const CharacterWindowApp: React.FC = () => {
       });
     });
 
+    const cleanupGestures = api.onGestureUpdate((data) => {
+      gesturesRef.current = data.gestures;
+    });
+
     // Signal to main renderer that listeners are ready — triggers initial data push
     api.signalReady();
 
     return () => {
       cleanupAmplitude();
       cleanupAgents();
+      cleanupGestures();
     };
   }, []);
 
@@ -109,6 +115,7 @@ export const CharacterWindowApp: React.FC = () => {
               <CharacterRenderer
                 poseTree={entry.poseTree}
                 amplitudeRef={activeAgentId === id ? amplitudeRef : silentRef}
+                gesturesRef={activeAgentId === id || activeAgentId === null ? gesturesRef : undefined}
               />
             ) : (
               <span style={{ color: 'rgba(0,0,0,0.3)', fontSize: 14 }}>

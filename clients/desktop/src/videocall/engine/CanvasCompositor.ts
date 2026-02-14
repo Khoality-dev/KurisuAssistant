@@ -1,4 +1,5 @@
-import type { PoseConfig, PoseTree, ProcessedPose, LoadedPatch, AnimationEdge, AnimationSettings } from '../types';
+import type { PoseConfig, PoseTree, ProcessedPose, LoadedPatch, AnimationEdge, EdgeTransition, AnimationSettings } from '../types';
+import { migrateEdgeToTransitions } from '../types';
 import { getCachedImage } from './ImageCache';
 
 type BlinkState = 'open' | 'closing' | 'closed' | 'opening';
@@ -51,6 +52,9 @@ export class CanvasCompositor {
   public mouthAmplitude = 0;
   public isAudioPlaying = false;
   public isThinking = false;
+
+  // Active gestures (set externally, cleared after each check cycle)
+  private activeGestures: Set<string> = new Set();
 
   // Manual eye overrides (-1 = auto blink, 0+ = forced patch index)
   public leftEyeOverride = -1;
@@ -107,6 +111,7 @@ export class CanvasCompositor {
       }
       this.updateEdgeTimers(dt);
       this.checkThinkingEdges();
+      this.checkGestureEdges();
     }
     // During transitioning, skip blink/breathing/edge timer updates
   }
@@ -126,41 +131,79 @@ export class CanvasCompositor {
   private updateEdgeTimers(dt: number): void {
     if (!this.poseTree || !this.currentNodeId) return;
 
-    // Tick all timers and collect ready edges
-    const ready: AnimationEdge[] = [];
-    for (const [edgeId, timer] of this.edgeTimers) {
+    // Tick all timers and collect ready (edge, transition) pairs
+    const ready: { edge: AnimationEdge; transition: EdgeTransition }[] = [];
+    for (const [timerKey, timer] of this.edgeTimers) {
       timer.elapsed += dt;
       if (timer.elapsed >= timer.target) {
+        const [edgeId, tiStr] = timerKey.split(':');
         const edge = this.poseTree.edges.find((e) => e.id === edgeId);
-        if (edge) ready.push(edge);
+        if (edge) {
+          const transition = edge.transitions[Number(tiStr)];
+          if (transition) ready.push({ edge, transition });
+        }
       }
     }
 
     if (ready.length > 0) {
-      this.startTransition(ready[Math.floor(Math.random() * ready.length)]);
+      const pick = ready[Math.floor(Math.random() * ready.length)];
+      this.startTransitionFromEdge(pick.edge, pick.transition);
     }
   }
 
   private checkThinkingEdges(): void {
     if (!this.poseTree || !this.currentNodeId) return;
 
-    const matched: AnimationEdge[] = [];
+    const matched: { edge: AnimationEdge; transition: EdgeTransition }[] = [];
     for (const edge of this.poseTree.edges) {
       if (edge.from_node_id !== this.currentNodeId) continue;
-      if (edge.condition?.type !== 'thinking') continue;
-      if (edge.condition.value === this.isThinking) matched.push(edge);
+      for (const transition of edge.transitions) {
+        if (transition.condition.type !== 'thinking') continue;
+        if (transition.condition.value === this.isThinking) {
+          matched.push({ edge, transition });
+        }
+      }
     }
 
     if (matched.length > 0) {
-      this.startTransition(matched[Math.floor(Math.random() * matched.length)]);
+      const pick = matched[Math.floor(Math.random() * matched.length)];
+      this.startTransitionFromEdge(pick.edge, pick.transition);
     }
   }
 
-  private startTransition(edge: AnimationEdge): void {
+  /** Update the set of currently detected gestures (called externally from IPC) */
+  setGestures(gestures: string[]): void {
+    this.activeGestures = new Set(gestures);
+  }
+
+  private checkGestureEdges(): void {
+    if (!this.poseTree || !this.currentNodeId || this.activeGestures.size === 0) return;
+
+    const matched: { edge: AnimationEdge; transition: EdgeTransition }[] = [];
+    for (const edge of this.poseTree.edges) {
+      if (edge.from_node_id !== this.currentNodeId) continue;
+      for (const transition of edge.transitions) {
+        if (transition.condition.type !== 'gesture') continue;
+        if (this.activeGestures.has(transition.condition.value)) {
+          matched.push({ edge, transition });
+        }
+      }
+    }
+
+    // Clear gestures after checking (gestures are instantaneous events)
+    this.activeGestures.clear();
+
+    if (matched.length > 0) {
+      const pick = matched[Math.floor(Math.random() * matched.length)];
+      this.startTransitionFromEdge(pick.edge, pick.transition);
+    }
+  }
+
+  private startTransitionFromEdge(edge: AnimationEdge, transition: EdgeTransition): void {
     this.captureForCrossfade();
 
-    // Pick a random video from the list (if any)
-    const urls = edge.video_urls;
+    // Pick a random video from the transition's list (if any)
+    const urls = transition.video_urls;
     const videoUrl = urls?.length
       ? urls[Math.floor(Math.random() * urls.length)]
       : undefined;
@@ -180,7 +223,7 @@ export class CanvasCompositor {
       const video = document.createElement('video');
       video.muted = true;
       video.playsInline = true;
-      video.playbackRate = edge.playback_rate ?? 1.0;
+      video.playbackRate = transition.playback_rate ?? 1.0;
       this.transitionVideo = video;
 
       let settled = false;
@@ -247,12 +290,14 @@ export class CanvasCompositor {
 
     for (const edge of this.poseTree.edges) {
       if (edge.from_node_id !== this.currentNodeId) continue;
-      if (!edge.condition) continue;
 
-      if (edge.condition.type === 'random') {
-        const { min_interval_ms, max_interval_ms } = edge.condition;
-        const target = min_interval_ms + Math.random() * (max_interval_ms - min_interval_ms);
-        this.edgeTimers.set(edge.id, { elapsed: 0, target });
+      for (let ti = 0; ti < edge.transitions.length; ti++) {
+        const transition = edge.transitions[ti];
+        if (transition.condition.type === 'random') {
+          const { min_interval_ms, max_interval_ms } = transition.condition;
+          const target = min_interval_ms + Math.random() * (max_interval_ms - min_interval_ms);
+          this.edgeTimers.set(`${edge.id}:${ti}`, { elapsed: 0, target });
+        }
       }
     }
   }
@@ -435,21 +480,18 @@ export class CanvasCompositor {
       this.transitionVideo = null;
     }
 
-    // Migrate legacy thinking trigger → value
-    for (const edge of poseTree.edges) {
-      if (edge.condition?.type === 'thinking' && !('value' in edge.condition)) {
-        const legacy = edge.condition as any;
-        edge.condition = { type: 'thinking', value: legacy.trigger === 'start' };
-      }
-    }
+    // Migrate legacy edges to transitions[] format
+    poseTree.edges = poseTree.edges.map((e) => migrateEdgeToTransitions(e));
 
-    // Collect all unique video URLs from edges
+    // Collect all unique video URLs from edge transitions
     const resolveUrl = (url: string) =>
       url.startsWith('http') ? url : `${apiBaseUrl}${url}`;
     const videoUrls = new Set<string>();
     for (const edge of poseTree.edges) {
-      for (const url of edge.video_urls || []) {
-        videoUrls.add(resolveUrl(url));
+      for (const transition of edge.transitions) {
+        for (const url of transition.video_urls || []) {
+          videoUrls.add(resolveUrl(url));
+        }
       }
     }
 

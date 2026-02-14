@@ -23,6 +23,8 @@ import {
   Stop as StopIcon,
   Mic as MicIcon,
   MicOff as MicOffIcon,
+  Videocam as VideocamIcon,
+  VideocamOff as VideocamOffIcon,
 } from '@mui/icons-material';
 import CircularProgress from '@mui/material/CircularProgress';
 import { AnimatePresence } from 'framer-motion';
@@ -32,6 +34,7 @@ import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, BaseEvent } from '.
 import { storage } from '../utils/storage';
 import { useTTS } from '../hooks/useTTS';
 import { useASR } from '../hooks/useASR';
+import { useVisionStore } from '../store/visionStore';
 import type { AmplitudeState } from '../videocall/CharacterRenderer';
 import type { PoseTree } from '../videocall/types';
 import { MessageBubble } from './MessageBubble';
@@ -97,6 +100,18 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     devices: asrDevices, loadDevices: loadAsrDevices, selectedDeviceId: asrDeviceId, selectDevice: selectAsrDevice,
   } = useASR();
   const [micMenuAnchor, setMicMenuAnchor] = useState<HTMLElement | null>(null);
+
+  // Vision (camera toggle)
+  const {
+    isActive: cameraActive,
+    webcams: cameraWebcams,
+    selectedWebcam: cameraSelectedWebcam,
+    loadWebcams: loadCameraWebcams,
+    startVision,
+    stopVision,
+    setSelectedWebcam: setCameraSelectedWebcam,
+  } = useVisionStore();
+  const [cameraMenuAnchor, setCameraMenuAnchor] = useState<HTMLElement | null>(null);
 
   // Ref to track streaming state without stale closures
   const isStreamingRef = useRef(false);
@@ -755,6 +770,23 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     });
   };
 
+  const handleCameraToggle = async () => {
+    if (cameraActive) {
+      stopVision();
+    } else {
+      if (cameraWebcams.length === 0) await loadCameraWebcams();
+      startVision();
+    }
+  };
+
+  const handleCameraContext = (e: React.MouseEvent<HTMLElement>) => {
+    e.preventDefault();
+    const anchor = e.currentTarget;
+    loadCameraWebcams().then(() => {
+      setCameraMenuAnchor(anchor);
+    });
+  };
+
   const toggleThinking = (index: number) => {
     setExpandedThinking(prev => {
       const newSet = new Set(prev);
@@ -999,6 +1031,46 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
             ))}
             {asrDevices.length === 0 && (
               <MenuItem disabled>No microphones found</MenuItem>
+            )}
+          </Menu>
+
+          <Tooltip title={cameraActive ? 'Stop camera (right-click: select webcam)' : 'Start camera (right-click: select webcam)'}>
+            <IconButton
+              onClick={handleCameraToggle}
+              onContextMenu={handleCameraContext}
+              disabled={isStreaming}
+              sx={{
+                color: cameraActive ? 'success.main' : 'inherit',
+                animation: cameraActive ? 'pulse 1.5s infinite' : 'none',
+              }}
+            >
+              {cameraActive ? <VideocamIcon /> : <VideocamOffIcon />}
+            </IconButton>
+          </Tooltip>
+          <Menu
+            anchorEl={cameraMenuAnchor}
+            open={Boolean(cameraMenuAnchor)}
+            onClose={() => setCameraMenuAnchor(null)}
+          >
+            {cameraWebcams.map((cam) => (
+              <MenuItem
+                key={cam}
+                onClick={() => {
+                  setCameraSelectedWebcam(cam);
+                  setCameraMenuAnchor(null);
+                }}
+                selected={cam === cameraSelectedWebcam}
+              >
+                {cam === cameraSelectedWebcam && (
+                  <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
+                )}
+                <ListItemText inset={cam !== cameraSelectedWebcam}>
+                  {cam}
+                </ListItemText>
+              </MenuItem>
+            ))}
+            {cameraWebcams.length === 0 && (
+              <MenuItem disabled>No webcams found</MenuItem>
             )}
           </Menu>
 

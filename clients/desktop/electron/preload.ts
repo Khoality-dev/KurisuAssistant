@@ -3,6 +3,12 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
 
+  vision: {
+    start: (webcamName: string, rtspUrl: string) => ipcRenderer.invoke('vision:start', webcamName, rtspUrl),
+    stop: () => ipcRenderer.invoke('vision:stop'),
+    listWebcams: () => ipcRenderer.invoke('vision:list-webcams'),
+  },
+
   characterWindow: {
     open: () => ipcRenderer.invoke('character:open-window'),
     close: () => ipcRenderer.invoke('character:close-window'),
@@ -26,6 +32,14 @@ contextBridge.exposeInMainWorld('electron', {
       const handler = () => cb();
       ipcRenderer.on('character:window-closed', handler);
       return () => { ipcRenderer.removeListener('character:window-closed', handler); };
+    },
+
+    sendGestureUpdate: (data: { gestures: string[] }) =>
+      ipcRenderer.send('character:gesture-update', data),
+    onGestureUpdate: (cb: (data: { gestures: string[] }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { gestures: string[] }) => cb(data);
+      ipcRenderer.on('character:gesture-update', handler);
+      return () => { ipcRenderer.removeListener('character:gesture-update', handler); };
     },
 
     signalReady: () => ipcRenderer.send('character:ready'),

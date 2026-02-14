@@ -55,8 +55,14 @@ export interface ThinkingCondition {
   value: boolean;  // true = fires when thinking, false = fires when not thinking
 }
 
-// Extensible union — add KeywordCondition, TimeCondition, CameraCondition later
-export type TransitionCondition = RandomCondition | ThinkingCondition;
+/** Gesture condition — fires when a specific gesture is detected via camera */
+export interface GestureCondition {
+  type: 'gesture';
+  value: string;  // gesture name: "wave", "thumbs_up", "peace_sign", "pointing", "open_palm"
+}
+
+// Extensible union
+export type TransitionCondition = RandomCondition | ThinkingCondition | GestureCondition;
 
 // ─── Animation Graph ───
 
@@ -70,14 +76,19 @@ export interface AnimationNode {
   position: { x: number; y: number };  // Canvas position for React Flow persistence
 }
 
-/** A directed edge = a video transition between two nodes */
+/** A single transition within an edge — each has its own condition, videos, and playback rate */
+export interface EdgeTransition {
+  condition: TransitionCondition;
+  video_urls?: string[];
+  playback_rate?: number;         // 0.25-4x, default 1.0
+}
+
+/** A directed edge between two nodes, containing one or more transitions */
 export interface AnimationEdge {
   id: string;
   from_node_id: string;
   to_node_id: string;
-  video_urls?: string[];          // Multiple video clips — one chosen at random during playback
-  condition?: TransitionCondition;
-  playback_rate?: number;         // 0.25-4x, default 1.0
+  transitions: EdgeTransition[];
 }
 
 /** Configurable animation timing for a pose node */
@@ -103,4 +114,41 @@ export interface PoseTree {
 export interface CharacterConfig {
   agent_id: number;
   pose_tree: PoseTree;
+}
+
+// ─── Migration ───
+
+/** Migrate a legacy edge (single condition/video_urls/playback_rate) to transitions[] format */
+export function migrateEdgeToTransitions(edge: any): AnimationEdge {
+  // Already migrated
+  if (Array.isArray(edge.transitions) && edge.transitions.length > 0) {
+    return edge as AnimationEdge;
+  }
+
+  // Migrate legacy video_url (string) → video_urls (array)
+  let videoUrls: string[] | undefined = edge.video_urls;
+  if (!videoUrls?.length && edge.video_url) {
+    videoUrls = [edge.video_url];
+  }
+
+  // Migrate legacy thinking trigger → value
+  let condition: TransitionCondition = edge.condition;
+  if (condition?.type === 'thinking' && !('value' in condition)) {
+    const legacy = condition as any;
+    condition = { type: 'thinking', value: legacy.trigger === 'start' };
+  }
+
+  // Build single transition from legacy fields
+  const transition: EdgeTransition = {
+    condition: condition || { type: 'random', min_interval_ms: 5000, max_interval_ms: 15000 },
+    video_urls: videoUrls,
+    playback_rate: edge.playback_rate,
+  };
+
+  return {
+    id: edge.id,
+    from_node_id: edge.from_node_id,
+    to_node_id: edge.to_node_id,
+    transitions: [transition],
+  };
 }

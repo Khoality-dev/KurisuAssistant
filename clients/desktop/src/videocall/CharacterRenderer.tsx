@@ -12,11 +12,13 @@ export interface AmplitudeState {
 interface CharacterRendererProps {
   poseTree: PoseTree | null;
   amplitudeRef: React.RefObject<AmplitudeState>;
+  gesturesRef?: React.RefObject<string[]>;
 }
 
 export const CharacterRenderer: React.FC<CharacterRendererProps> = ({
   poseTree,
   amplitudeRef,
+  gesturesRef,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const compositorRef = useRef<CanvasCompositor | null>(null);
@@ -42,7 +44,7 @@ export const CharacterRenderer: React.FC<CharacterRendererProps> = ({
     }
   }, [poseTree]);
 
-  // Sync amplitude from ref to compositor at ~60fps (no React re-renders)
+  // Sync amplitude + gestures from refs to compositor at ~60fps (no React re-renders)
   useEffect(() => {
     let rafId: number;
     const sync = () => {
@@ -51,11 +53,16 @@ export const CharacterRenderer: React.FC<CharacterRendererProps> = ({
         compositorRef.current.isAudioPlaying = amplitudeRef.current.isPlaying;
         compositorRef.current.isThinking = amplitudeRef.current.isThinking;
       }
+      // Forward gestures (consumed once by compositor)
+      if (compositorRef.current && gesturesRef?.current && gesturesRef.current.length > 0) {
+        compositorRef.current.setGestures(gesturesRef.current);
+        gesturesRef.current = [];
+      }
       rafId = requestAnimationFrame(sync);
     };
     rafId = requestAnimationFrame(sync);
     return () => cancelAnimationFrame(rafId);
-  }, [amplitudeRef]);
+  }, [amplitudeRef, gesturesRef]);
 
   return (
     <canvas

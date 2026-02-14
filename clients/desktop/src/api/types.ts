@@ -166,3 +166,46 @@ export interface ToolsResponse {
   mcp_tools: Tool[];
   builtin_tools: Tool[];
 }
+
+// Face recognition types
+
+export interface FaceIdentity {
+  id: number;
+  name: string;
+  photo_count: number;
+  created_at: string;
+}
+
+export interface FaceIdentityDetail {
+  id: number;
+  name: string;
+  created_at: string;
+  photos: FacePhoto[];
+}
+
+export interface FacePhoto {
+  id: number;
+  photo_uuid: string;
+  url: string;
+  created_at?: string;
+}
+
+// Vision result types (from WebSocket)
+
+export interface VisionFace {
+  identity_id: number | null;
+  name: string;
+  confidence: number;
+  bbox: number[];
+}
+
+export interface VisionGesture {
+  gesture: string;
+  confidence: number;
+}
+
+export interface VisionResult {
+  faces: VisionFace[];
+  gestures: VisionGesture[];
+  debug_frame?: string;
+}
