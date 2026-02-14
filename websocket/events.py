@@ -13,6 +13,8 @@ class EventType(str, Enum):
     CHAT_REQUEST = "chat_request"
     TOOL_APPROVAL_RESPONSE = "tool_approval_response"
     CANCEL = "cancel"
+    VISION_START = "vision_start"
+    VISION_STOP = "vision_stop"
 
     # Server -> Client
     STREAM_CHUNK = "stream_chunk"
@@ -20,6 +22,7 @@ class EventType(str, Enum):
     AGENT_SWITCH = "agent_switch"
     DONE = "done"
     ERROR = "error"
+    VISION_RESULT = "vision_result"
 
 
 @dataclass
@@ -64,6 +67,22 @@ class ToolApprovalResponseEvent(BaseEvent):
 class CancelEvent(BaseEvent):
     """Client cancels current request."""
     type: EventType = field(default=EventType.CANCEL)
+
+
+@dataclass
+class VisionStartEvent(BaseEvent):
+    """Client requests to start vision processing."""
+    type: EventType = field(default=EventType.VISION_START)
+    rtsp_url: str = ""
+    enable_face: bool = True
+    enable_pose: bool = True
+    enable_hands: bool = True
+
+
+@dataclass
+class VisionStopEvent(BaseEvent):
+    """Client requests to stop vision processing."""
+    type: EventType = field(default=EventType.VISION_STOP)
 
 
 # =============================================================================
@@ -124,6 +143,15 @@ class ErrorEvent(BaseEvent):
     code: str = "INTERNAL_ERROR"  # INTERNAL_ERROR, CANCELLED, TIMEOUT, UNAUTHORIZED
 
 
+@dataclass
+class VisionResultEvent(BaseEvent):
+    """Server sends vision processing results."""
+    type: EventType = field(default=EventType.VISION_RESULT)
+    faces: List[Dict[str, Any]] = field(default_factory=list)
+    gestures: List[Dict[str, Any]] = field(default_factory=list)
+    debug_frame: Optional[str] = None  # Base64 JPEG with annotations
+
+
 # =============================================================================
 # Event Parsing
 # =============================================================================
@@ -154,6 +182,19 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
 
     elif event_type == EventType.CANCEL.value:
         return CancelEvent(
+            event_id=data.get("event_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+        )
+
+    elif event_type == EventType.VISION_START.value:
+        return VisionStartEvent(
+            event_id=data.get("event_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            rtsp_url=data.get("rtsp_url", ""),
+        )
+
+    elif event_type == EventType.VISION_STOP.value:
+        return VisionStopEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
             timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
         )

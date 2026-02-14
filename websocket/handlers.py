@@ -18,12 +18,16 @@ from .events import (
     ErrorEvent,
     CancelEvent,
     AgentSwitchEvent,
+    VisionStartEvent,
+    VisionStopEvent,
+    VisionResultEvent,
     parse_event,
 )
 from agents.base import AgentConfig, AgentContext, BaseAgent, SimpleAgent
 from agents.orchestration import OrchestrationSession
 from agents.administrator import AdministratorAgent
 from tools import tool_registry
+from vision import VisionProcessor
 from db.session import get_session
 from db.repositories import (
     ConversationRepository,
@@ -74,6 +78,10 @@ class ChatSessionHandler:
         self._task_frame_id: Optional[int] = None
         self._task_done: bool = False
 
+        # Vision processing
+        self._vision_processor: Optional[VisionProcessor] = None
+        self._vision_task: Optional[asyncio.Task] = None
+
     async def run(self):
         """Main handler loop - receives and processes events."""
         from fastapi import WebSocketDisconnect
@@ -99,6 +107,10 @@ class ChatSessionHandler:
             await self._handle_approval_response(event)
         elif isinstance(event, CancelEvent):
             await self._handle_cancel()
+        elif isinstance(event, VisionStartEvent):
+            await self._handle_vision_start(event)
+        elif isinstance(event, VisionStopEvent):
+            await self._handle_vision_stop()
 
     async def _handle_chat_request(self, event: ChatRequestEvent):
         """Handle incoming chat request."""
@@ -751,6 +763,51 @@ class ChatSessionHandler:
         """Handle cancel request."""
         if self.current_task and not self.current_task.done():
             self.current_task.cancel()
+
+    async def _handle_vision_start(self, event: VisionStartEvent):
+        """Start vision processing from RTSP stream."""
+        await self._handle_vision_stop()
+
+        rtsp_url = event.rtsp_url
+        if not rtsp_url:
+            await self.send_event(ErrorEvent(
+                error="rtsp_url is required for vision_start",
+                code="INVALID_REQUEST",
+            ))
+            return
+
+        self._vision_processor = VisionProcessor(
+            rtsp_url, self.user_id,
+            enable_face=event.enable_face,
+            enable_pose=event.enable_pose,
+            enable_hands=event.enable_hands,
+        )
+
+        async def on_vision_result(result: dict):
+            await self.send_event(VisionResultEvent(
+                faces=result.get("faces", []),
+                gestures=result.get("gestures", []),
+                debug_frame=result.get("debug_frame"),
+            ))
+
+        self._vision_task = asyncio.create_task(
+            self._vision_processor.start(on_vision_result)
+        )
+        logger.info("Vision processing started for user %d", self.user_id)
+
+    async def _handle_vision_stop(self):
+        """Stop vision processing."""
+        if self._vision_processor:
+            self._vision_processor.stop()
+            self._vision_processor = None
+        if self._vision_task and not self._vision_task.done():
+            self._vision_task.cancel()
+            try:
+                await self._vision_task
+            except asyncio.CancelledError:
+                pass
+            self._vision_task = None
+        logger.debug("Vision processing stopped for user %d", self.user_id)
 
     async def send_event(self, event: BaseEvent):
         """Send event to client (silently fails if disconnected)."""

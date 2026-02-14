@@ -34,3 +34,8 @@ fastmcp==2.9.2
 alembic==1.16.4
 opencv-python-headless==4.12.0.88
 faster-whisper
+pgvector
+insightface
+onnxruntime-gpu
+mediapipe
+ultralytics

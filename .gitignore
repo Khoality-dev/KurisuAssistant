@@ -14,6 +14,9 @@ data/voice_storage/
 data/image_storage/
 data/character_assets/
 data/sovits/
+data/face_recognition/models/
+data/gesture_detection/models/
+userdata/
 
 # Secrets & certs
 nginx/certs/

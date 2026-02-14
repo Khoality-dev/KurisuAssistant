@@ -71,16 +71,23 @@ services:
 
 
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     container_name: postgres-container
-    expose:
-      - "5432"
+    ports:
+      - "5432:5432"
     environment:
       - POSTGRES_USER=kurisu
       - POSTGRES_PASSWORD=kurisu
       - POSTGRES_DB=kurisu
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: mediamtx-container
+    ports:
+      - "8554:8554"
     restart: unless-stopped
 
 networks:
