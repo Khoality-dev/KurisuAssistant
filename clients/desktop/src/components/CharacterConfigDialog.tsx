@@ -27,7 +27,6 @@ import {
   ReactFlow,
   useNodesState,
   useEdgesState,
-  addEdge,
   Controls,
   Background,
   BackgroundVariant,
@@ -46,14 +45,13 @@ import '@xyflow/react/dist/style.css';
 import { apiClient } from '../api/client';
 import type { Agent } from '../api/types';
 import type { AnimationNode, AnimationEdge, PoseTree, PoseConfig } from '../videocall/types';
+import { migrateEdgeToTransitions } from '../videocall/types';
 import PoseGraphNode from './PoseGraphNode';
 import type { PoseGraphNodeData } from './PoseGraphNode';
 import { PoseNodeEditor } from './PoseNodeEditor';
 import { EdgeEditor } from './EdgeEditor';
 
-// ─── Custom offset edge (for bidirectional pairs drawn side-by-side) ───
-
-const OFFSET_PX = 8; // perpendicular offset for each direction
+// ─── Custom edge (with self-loop support) ───
 
 const LOOP_RADIUS = 30; // radius of self-loop circle
 
@@ -70,7 +68,6 @@ const OffsetEdge: React.FC<EdgeProps> = ({
   label,
   data,
 }) => {
-  const offset = (data?.offset as number) || 0;
   const isSelfLoop = source === target;
 
   let path: string;
@@ -78,12 +75,9 @@ const OffsetEdge: React.FC<EdgeProps> = ({
   let midY: number;
 
   if (isSelfLoop) {
-    // Draw a loop above the node — always use fixed width so it's visible
-    // even when both handles resolve to the same point
     const r = LOOP_RADIUS;
     const cx = (sourceX + targetX) / 2;
     const baseY = Math.min(sourceY, targetY);
-    // Spread the start/end apart so the loop is always visible
     const halfW = Math.max(Math.abs(targetX - sourceX) / 2, r);
     const sx = cx - halfW;
     const tx = cx + halfW;
@@ -92,21 +86,9 @@ const OffsetEdge: React.FC<EdgeProps> = ({
     midX = cx;
     midY = topY + r * 0.5;
   } else {
-    // Perpendicular offset for straight line
-    const dx = targetX - sourceX;
-    const dy = targetY - sourceY;
-    const len = Math.sqrt(dx * dx + dy * dy) || 1;
-    const nx = -dy / len;
-    const ny = dx / len;
-
-    const sx = sourceX + nx * offset;
-    const sy = sourceY + ny * offset;
-    const tx = targetX + nx * offset;
-    const ty = targetY + ny * offset;
-
-    path = `M ${sx} ${sy} L ${tx} ${ty}`;
-    midX = (sx + tx) / 2;
-    midY = (sy + ty) / 2;
+    path = `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`;
+    midX = (sourceX + targetX) / 2;
+    midY = (sourceY + targetY) / 2;
   }
 
   const labelStyle = data?.labelStyle as React.CSSProperties | undefined;
@@ -147,6 +129,8 @@ const OffsetEdge: React.FC<EdgeProps> = ({
 const CONDITION_COLORS: Record<string, string> = {
   random: '#2196F3',
   thinking: '#9C27B0',
+  gesture: '#FF9800',
+  mixed: '#FF9800',
   _default: '#888',
 };
 
@@ -155,19 +139,35 @@ function getEdgeVisuals(animEdge?: AnimationEdge): {
   markerEnd: { type: MarkerType; width: number; height: number; color: string };
   label: string;
 } {
-  const condType = animEdge?.condition?.type;
-  const color = (condType && CONDITION_COLORS[condType]) || CONDITION_COLORS._default;
-  const hasVideo = !!(animEdge?.video_urls?.length);
+  const transitions = animEdge?.transitions || [];
+  const hasVideo = transitions.some((t) => t.video_urls?.length);
 
   let label = '';
-  if (condType === 'random' && animEdge?.condition?.type === 'random') {
-    const c = animEdge.condition as import('../videocall/types').RandomCondition;
-    label = `Random ${(c.min_interval_ms / 1000).toFixed(0)}–${(c.max_interval_ms / 1000).toFixed(0)}s`;
-  } else if (condType === 'thinking' && animEdge?.condition?.type === 'thinking') {
-    const c = animEdge.condition as import('../videocall/types').ThinkingCondition;
-    label = `Thinking: ${c.value}`;
-  } else if (!condType) {
+  let color = CONDITION_COLORS._default;
+
+  if (transitions.length === 0) {
     label = 'No condition';
+  } else if (transitions.length === 1) {
+    const cond = transitions[0].condition;
+    color = CONDITION_COLORS[cond.type] || CONDITION_COLORS._default;
+    if (cond.type === 'random') {
+      label = `Random ${(cond.min_interval_ms / 1000).toFixed(0)}\u2013${(cond.max_interval_ms / 1000).toFixed(0)}s`;
+    } else if (cond.type === 'thinking') {
+      label = `Thinking: ${cond.value}`;
+    } else if (cond.type === 'gesture') {
+      label = `Gesture: ${cond.value}`;
+    }
+  } else {
+    // Multiple transitions — check if all same type
+    const types = new Set(transitions.map((t) => t.condition.type));
+    if (types.size === 1) {
+      const singleType = transitions[0].condition.type;
+      color = CONDITION_COLORS[singleType] || CONDITION_COLORS._default;
+      label = `${transitions.length} ${singleType} transitions`;
+    } else {
+      color = CONDITION_COLORS.mixed;
+      label = `${transitions.length} transitions`;
+    }
   }
 
   return {
@@ -179,11 +179,6 @@ function getEdgeVisuals(animEdge?: AnimationEdge): {
     markerEnd: { type: MarkerType.ArrowClosed, width: 20, height: 20, color },
     label,
   };
-}
-
-/** Build a set of "src->tgt" keys for quick reverse-edge lookup. */
-function buildEdgePairSet(edges: { from_node_id: string; to_node_id: string }[]): Set<string> {
-  return new Set(edges.map((e) => `${e.from_node_id}->${e.to_node_id}`));
 }
 
 /** Pick the best source/target handle IDs based on relative node positions. */
@@ -236,16 +231,13 @@ function poseTreeToReactFlow(
     posMap.set(n.id, n.position || { x: 0, y: 0 });
   }
 
-  const pairSet = buildEdgePairSet(poseTree.edges);
-
   const edges: RFEdge[] = poseTree.edges.map((e) => {
     const isSelfLoop = e.from_node_id === e.to_node_id;
     const srcPos = posMap.get(e.from_node_id) || { x: 0, y: 0 };
     const tgtPos = posMap.get(e.to_node_id) || { x: 0, y: 0 };
     const handles = getBestHandles(srcPos, tgtPos, isSelfLoop);
     const visuals = getEdgeVisuals(e);
-    const hasReverse = !isSelfLoop && pairSet.has(`${e.to_node_id}->${e.from_node_id}`);
-    const offset = hasReverse ? OFFSET_PX : 0;
+
     return {
       id: e.id,
       source: e.from_node_id,
@@ -257,7 +249,6 @@ function poseTreeToReactFlow(
       markerEnd: visuals.markerEnd,
       label: visuals.label,
       data: {
-        offset,
         labelStyle: { fill: visuals.style.stroke as string },
         labelBgStyle: { fill: '#fff', fillOpacity: 0.85 },
       },
@@ -292,9 +283,7 @@ function reactFlowToPoseTree(
       id: rfEdge.id,
       from_node_id: rfEdge.source,
       to_node_id: rfEdge.target,
-      video_urls: existing?.video_urls,
-      condition: existing?.condition,
-      playback_rate: existing?.playback_rate,
+      transitions: existing?.transitions || [],
     };
   });
 
@@ -389,19 +378,23 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
           if (!n.position) n.position = { x: 0, y: 0 };
           nodesMap.set(n.id, n);
         }
+        // Migrate edges to transitions[] format and merge into one edge per directed pair
+        const pairEdgeMap = new Map<string, AnimationEdge>();
+        for (const rawEdge of poseTree.edges) {
+          const migrated = migrateEdgeToTransitions(rawEdge);
+          const pairKey = `${migrated.from_node_id}->${migrated.to_node_id}`;
+          const deterministicId = `edge-${migrated.from_node_id}-${migrated.to_node_id}`;
+          const existing = pairEdgeMap.get(pairKey);
+          if (existing) {
+            // Merge transitions from legacy parallel edges into one
+            existing.transitions.push(...migrated.transitions);
+          } else {
+            migrated.id = deterministicId;
+            pairEdgeMap.set(pairKey, migrated);
+          }
+        }
+        poseTree.edges = [...pairEdgeMap.values()];
         for (const e of poseTree.edges) {
-          // Migrate legacy video_url (string) → video_urls (array)
-          const raw = e as AnimationEdge & { video_url?: string };
-          if (raw.video_url && !raw.video_urls?.length) {
-            e.video_urls = [raw.video_url];
-            delete raw.video_url;
-          }
-          // Migrate legacy thinking trigger → value
-          if (e.condition?.type === 'thinking' && !('value' in e.condition)) {
-            const legacy = e.condition as any;
-            e.condition = { type: 'thinking', value: legacy.trigger === 'start' };
-            delete legacy.trigger;
-          }
           edgesMap.set(e.id, e);
         }
 
@@ -518,55 +511,47 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
   // ─── Edge connection ───
   const onConnect = useCallback((connection: Connection) => {
     if (!connection.source || !connection.target) return;
+    const edgeId = `edge-${connection.source}-${connection.target}`;
     const isSelfLoop = connection.source === connection.target;
-    const edgeId = isSelfLoop
-      ? `edge-${connection.source}-self`
-      : `edge-${connection.source}-${connection.target}`;
 
-    // Create animation edge data
+    // If an edge already exists for this directed pair, open editor instead
+    if (animationEdgesRef.current.has(edgeId)) {
+      setEditingEdgeId(edgeId);
+      setEdgeEditorOpen(true);
+      return;
+    }
+
+    // Create animation edge with default transition
     const animEdge: AnimationEdge = {
       id: edgeId,
       from_node_id: connection.source,
       to_node_id: connection.target,
-      condition: { type: 'random', min_interval_ms: 5000, max_interval_ms: 15000 },
+      transitions: [{ condition: { type: 'random', min_interval_ms: 5000, max_interval_ms: 15000 } }],
     };
     animationEdgesRef.current.set(edgeId, animEdge);
 
     const visuals = getEdgeVisuals(animEdge);
-    setRfEdges((eds) => {
-      // Check if reverse edge exists → both need offset (skip for self-loops)
-      const hasReverse = !isSelfLoop && eds.some(
-        (e) => e.source === connection.target && e.target === connection.source,
-      );
-      let updated = eds;
-      if (hasReverse) {
-        // Apply offset to the existing reverse edge too
-        updated = eds.map((e) =>
-          e.source === connection.target && e.target === connection.source
-            ? { ...e, data: { ...e.data, offset: OFFSET_PX } }
-            : e,
-        );
-      }
 
-      // Self-loop: override handles so the loop arcs above the node
-      const conn = isSelfLoop
-        ? { ...connection, sourceHandle: 's-top', targetHandle: 't-top' }
-        : connection;
+    // Self-loop: override handles so the loop arcs above the node
+    const handles = isSelfLoop
+      ? { sourceHandle: 's-top', targetHandle: 't-top' }
+      : { sourceHandle: connection.sourceHandle, targetHandle: connection.targetHandle };
 
-      return addEdge({
-        ...conn,
-        id: edgeId,
-        type: 'offsetEdge',
-        style: visuals.style,
-        markerEnd: visuals.markerEnd,
-        label: visuals.label,
-        data: {
-          offset: hasReverse ? OFFSET_PX : 0,
-          labelStyle: { fill: visuals.style.stroke as string },
-          labelBgStyle: { fill: '#fff', fillOpacity: 0.85 },
-        },
-      }, updated);
-    });
+    const newEdge: RFEdge = {
+      id: edgeId,
+      source: connection.source!,
+      target: connection.target!,
+      ...handles,
+      type: 'offsetEdge',
+      style: visuals.style,
+      markerEnd: visuals.markerEnd,
+      label: visuals.label,
+      data: {
+        labelStyle: { fill: visuals.style.stroke as string },
+        labelBgStyle: { fill: '#fff', fillOpacity: 0.85 },
+      },
+    };
+    setRfEdges((eds) => [...eds, newEdge]);
     triggerAutoSave();
   }, [setRfEdges, triggerAutoSave]);
 
@@ -752,19 +737,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
   const handleEdgeEditorDelete = () => {
     if (!editingEdgeId) return;
     animationEdgesRef.current.delete(editingEdgeId);
-    setRfEdges((eds) => {
-      const deleted = eds.find((e) => e.id === editingEdgeId);
-      let remaining = eds.filter((e) => e.id !== editingEdgeId);
-      // If the deleted edge had a reverse partner, remove the partner's offset
-      if (deleted) {
-        remaining = remaining.map((e) =>
-          e.source === deleted.target && e.target === deleted.source
-            ? { ...e, data: { ...e.data, offset: 0 } }
-            : e,
-        );
-      }
-      return remaining;
-    });
+    setRfEdges((eds) => eds.filter((e) => e.id !== editingEdgeId));
     setEdgeEditorOpen(false);
     setEditingEdgeId(null);
     triggerAutoSave();

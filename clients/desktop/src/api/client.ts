@@ -20,6 +20,8 @@ import type {
   ComputePatchResponseDTO,
   UploadVideoResponseDTO,
   CharacterConfigDTO,
+  FaceIdentity,
+  FaceIdentityDetail,
 } from './types';
 
 class APIClient {
@@ -440,6 +442,58 @@ class APIClient {
       { headers: this.getHeaders() }
     );
     return response.data;
+  }
+  // Face Recognition Methods
+
+  async listFaces(): Promise<FaceIdentity[]> {
+    const response = await this.client.get<FaceIdentity[]>('/faces', {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async createFace(name: string, photo: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('photo', photo);
+
+    const response = await this.client.post('/faces', formData, {
+      headers: this.getHeaders(),
+      params: { name },
+    });
+    return response.data;
+  }
+
+  async getFace(id: number): Promise<FaceIdentityDetail> {
+    const response = await this.client.get<FaceIdentityDetail>(`/faces/${id}`, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async deleteFace(id: number): Promise<void> {
+    await this.client.delete(`/faces/${id}`, {
+      headers: this.getHeaders(),
+    });
+  }
+
+  async addFacePhoto(id: number, photo: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('photo', photo);
+
+    const response = await this.client.post(`/faces/${id}/photos`, formData, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async deleteFacePhoto(identityId: number, photoId: number): Promise<void> {
+    await this.client.delete(`/faces/${identityId}/photos/${photoId}`, {
+      headers: this.getHeaders(),
+    });
+  }
+
+  getFacePhotoUrl(identityId: number, photoId: number): string {
+    return `${config.apiBaseUrl}/faces/${identityId}/photos/${photoId}/image`;
   }
 }
 

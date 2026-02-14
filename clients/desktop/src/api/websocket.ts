@@ -9,11 +9,14 @@ export type EventType =
   | 'chat_request'
   | 'tool_approval_response'
   | 'cancel'
+  | 'vision_start'
+  | 'vision_stop'
   | 'stream_chunk'
   | 'tool_approval_request'
   | 'agent_switch'
   | 'done'
   | 'error'
+  | 'vision_result'
   | 'reconnected';
 
 // Base event interface
@@ -35,6 +38,14 @@ export interface ChatRequestEvent extends BaseEvent {
 
 export interface CancelEvent extends BaseEvent {
   type: 'cancel';
+}
+
+export interface VisionStartEvent extends BaseEvent {
+  type: 'vision_start';
+}
+
+export interface VisionStopEvent extends BaseEvent {
+  type: 'vision_stop';
 }
 
 // Server -> Client events
@@ -82,12 +93,27 @@ export interface ToolApprovalRequestEvent extends BaseEvent {
   risk_level: string;
 }
 
+export interface VisionResultEvent extends BaseEvent {
+  type: 'vision_result';
+  faces: Array<{
+    identity_id: number | null;
+    name: string;
+    confidence: number;
+    bbox: number[];
+  }>;
+  gestures: Array<{
+    gesture: string;
+    confidence: number;
+  }>;
+}
+
 export type ServerEvent =
   | StreamChunkEvent
   | AgentSwitchEvent
   | DoneEvent
   | ErrorEvent
-  | ToolApprovalRequestEvent;
+  | ToolApprovalRequestEvent
+  | VisionResultEvent;
 
 type EventHandler<T = ServerEvent> = (event: T) => void;
 
@@ -213,7 +239,7 @@ class WebSocketManager {
   /**
    * Send an event to the server.
    */
-  send(event: Partial<ChatRequestEvent> | Partial<CancelEvent>) {
+  send(event: Partial<ChatRequestEvent> | Partial<CancelEvent> | Partial<VisionStartEvent> | Partial<VisionStopEvent> | Record<string, unknown>) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
@@ -248,6 +274,41 @@ class WebSocketManager {
       agent_id: agentId,
       images,
     });
+  }
+
+  /**
+   * Send a vision start request.
+   */
+  async sendVisionStart(options?: {
+    enable_face?: boolean;
+    enable_pose?: boolean;
+    enable_hands?: boolean;
+  }): Promise<void> {
+    await this.connect();
+    this.send({
+      type: 'vision_start',
+      enable_face: options?.enable_face ?? true,
+      enable_pose: options?.enable_pose ?? true,
+      enable_hands: options?.enable_hands ?? true,
+    });
+  }
+
+  /**
+   * Send a webcam frame for inference.
+   */
+  sendVisionFrame(frameBase64: string) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.send({ type: 'vision_frame', frame: frameBase64 });
+    }
+  }
+
+  /**
+   * Send a vision stop request.
+   */
+  sendVisionStop() {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.send({ type: 'vision_stop' });
+    }
   }
 
   /**

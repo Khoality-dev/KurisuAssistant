@@ -30,6 +30,7 @@ src/components/
   ChatWidget.tsx           — Chat UI with streaming, TTS auto-play, image attach, pagination, IPC bridge to character window
   MessageBubble.tsx        — Individual bubble: role styling, thinking collapse, TTS, resend/delete
   AgentsWindow.tsx         — Agent CRUD with tool assignment + character config button
+  FacesWindow.tsx          — Face identity CRUD, webcam vision controls, live recognition display
   CharacterConfigDialog.tsx — React Flow graph editor: multi-pose nodes, edges with transition videos, conditions
   PoseNodeEditor.tsx        — Extracted 3-step stepper sub-dialog for editing individual pose nodes
   EdgeEditor.tsx            — Transition edge editor: video upload, condition config (random timer)
@@ -42,9 +43,10 @@ src/store/
   authStore.ts            — Auth state, login/register/logout, token persistence
   conversationStore.ts    — Conversations, messages (paginated 50/page), models
   agentStore.ts           — Agent list (filtered, no Administrator), selected agent ID (persisted)
+  visionStore.ts          — Zustand singleton: vision pipeline control (getUserMedia webcam capture, frame upload at 3 FPS via WebSocket, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Used by both FacesWindow and ChatWidget camera toggle.
 src/CharacterWindowApp.tsx — Minimal IPC-driven renderer for separate character window (no auth/stores)
 src/videocall/            — Character animation engine (rendered in separate Electron window via IPC)
-  types.ts                — PoseConfig, PatchInfo, PoseTree, AnimationNode/Edge, TransitionCondition, AnimationSettings, CharacterConfig
+  types.ts                — PoseConfig, PatchInfo, PoseTree, AnimationNode/Edge/EdgeTransition, TransitionCondition (random/thinking/gesture), AnimationSettings, CharacterConfig, migrateEdgeToTransitions()
   CharacterRenderer.tsx   — React wrapper around CanvasCompositor (accepts PoseTree, amplitude via ref)
   engine/
     CanvasCompositor.ts   — 60fps render: blink + breathing + mouth + pose tree state machine (idle→transitioning→idle), edge timers, video transitions, configurable AnimationSettings
@@ -114,24 +116,28 @@ src/config.ts             — API URL config (reads dynamically from storage)
 - `GET /character-assets/{agent_id}/{pose_id}/{filename}` — Serve pose asset (base/patch image, no-cache)
 - `GET /character-assets/{agent_id}/edges/{edge_id}` — Serve transition video (no-cache)
 - `PATCH /character-assets/{agent_id}/character-config` — Update pose tree config (cleans up orphaned assets incl. videos)
+- `GET /faces`, `POST /faces`, `GET /faces/{id}`, `DELETE /faces/{id}` — Face identity CRUD
+- `POST /faces/{id}/photos`, `DELETE /faces/{id}/photos/{photo_id}` — Face photo management
+- `GET /faces/{id}/photos/{photo_id}/image` — Serve face photo image
 
 ## Character Animation
 
 Separate Electron window (toggleable via Face icon in top bar). Opens as independent, resizable BrowserWindow — same Vite bundle routed via `?window=character` query param → `CharacterWindowApp` (no auth, no stores, purely IPC-driven).
 
 **IPC channels** (main renderer → main process → character renderer):
-- `character:amplitude` — `{ amplitude, isPlaying }` at ~30fps via setInterval
+- `character:amplitude` — `{ amplitude, isPlaying, isThinking }` at ~30fps via setInterval
 - `character:agents-update` — `{ agents: [{id, name, poseTree}], activeAgentId }` on agent map or active agent change
+- `character:gesture-update` — `{ gestures: string[] }` forwarded from vision pipeline to trigger pose transitions
 - `character:window-closed` — main process → main renderer when user closes character window
 - `character:open-window` / `character:close-window` — renderer invokes main process to create/destroy window
 
-**Canvas compositing**: Base image + diff patches (eyes, mouth) at stored positions. Blink: configurable random interval state machine (default 2-6s). Breathing: sine wave vertical offset (configurable amplitude/period). Lip sync: audio amplitude → mouth patch index. Per-agent character configs stored in backend DB as JSON. **State machine**: IDLE (blink/breathing/mouth + event listening) → TRANSITIONING (playing edge video on canvas, all events ignored) → IDLE (switch to target pose, apply node settings, reset timers). During transitions no events are processed; random timers start fresh when arriving at a node. Edge conditions: `random` (timer-based), `thinking` (fires when `isThinking` matches `condition.value`). `isThinking` is a live variable observed each frame while idle — no edge detection. If multiple edges satisfy simultaneously, one is chosen at random. `isThinking` piggybacked on amplitude IPC channel at ~30fps. **Per-node animation settings**: `AnimationNode.animation_settings` (optional) configures breathing (enabled/amplitude/period) and blink timing (min/max interval, close/hold/open duration). Applied via `applySettings()` on each pose switch. UI: sliders in PoseNodeEditor Preview step. **Per-edge playback rate**: `AnimationEdge.playback_rate` (optional, default 1.0) controls transition video speed. UI: slider in EdgeEditor.
+**Canvas compositing**: Base image + diff patches (eyes, mouth) at stored positions. Blink: configurable random interval state machine (default 2-6s). Breathing: sine wave vertical offset (configurable amplitude/period). Lip sync: audio amplitude → mouth patch index. Per-agent character configs stored in backend DB as JSON. **State machine**: IDLE (blink/breathing/mouth + event listening) → TRANSITIONING (playing edge video on canvas, all events ignored) → IDLE (switch to target pose, apply node settings, reset timers). During transitions no events are processed; random timers start fresh when arriving at a node. **Multi-transition edges**: Each directed edge (`AnimationEdge`) contains `transitions: EdgeTransition[]` — multiple transitions per edge, each with its own condition, video list, and playback rate. One edge per directed node pair (deterministic ID: `edge-{source}-{target}`). Timer keys use `${edge.id}:${transitionIndex}`. Legacy edges (single condition/video_urls/playback_rate) auto-migrated on load via `migrateEdgeToTransitions()`. Transition conditions: `random` (timer-based), `thinking` (fires when `isThinking` matches `condition.value`), `gesture` (fires when detected gesture matches `condition.value`, e.g. "wave", "thumbs_up", "peace_sign"). `isThinking` is a live variable observed each frame while idle — no edge detection. If multiple transitions satisfy simultaneously, one is chosen at random. `isThinking` piggybacked on amplitude IPC channel at ~30fps. **Per-node animation settings**: `AnimationNode.animation_settings` (optional) configures breathing (enabled/amplitude/period) and blink timing (min/max interval, close/hold/open duration). Applied via `applySettings()` on each pose switch. UI: sliders in PoseNodeEditor Preview step.
 
 **Asset pipeline**: AI-generated base → inpainted variants → backend OpenCV diff → cropped patch PNGs. Assets stored in folder structure: `data/character_assets/{agent_id}/{pose_id}/base.png`, `{part}_{index}.png`; videos in `{agent_id}/edges/{edge_id}.mp4|.webm`. Re-uploading overwrites without changing URLs. Orphaned assets cleaned up on config save.
 
 **Data flow**: ChatWidget fetches agent character_config on agent switch during streaming → builds agentMap (with poseTree, not poseConfig) + activeAgentId → sends via IPC to character window. TTS amplitude ref read by setInterval(33ms) and sent via IPC. CharacterWindowApp receives IPC data and renders CharacterRenderer components. CharacterRenderer calls `compositor.loadPoseTree()` to load all poses + initialize edge timers. CanvasCompositor reads amplitude at 60fps from local ref.
 
-**Graph editor (CharacterConfigDialog)**: React Flow (@xyflow/react) canvas with custom `poseNode` nodes. Nodes represent poses; edges represent transitions with optional video clips and conditions. Sub-dialogs: PoseNodeEditor (3-step stepper for base/patches/preview), EdgeEditor (video upload + condition config). Right-click node for context menu (Set as Default, Edit, Delete). Conversion: poseTreeToReactFlow/reactFlowToPoseTree.
+**Graph editor (CharacterConfigDialog)**: React Flow (@xyflow/react) canvas with custom `poseNode` nodes. Nodes represent poses; one edge per directed node pair containing multiple transitions. Connecting an existing pair opens the edge editor instead of creating a duplicate. Sub-dialogs: PoseNodeEditor (3-step stepper for base/patches/preview), EdgeEditor (multi-transition cards with per-transition condition/video/playback rate). Right-click node for context menu (Set as Default, Edit, Delete). Conversion: poseTreeToReactFlow/reactFlowToPoseTree. Video upload naming: `${edge.id}_t${transitionIdx}_${videoIdx}`.
 
 ## Storage Keys (localStorage)
 

@@ -28,6 +28,14 @@ contextBridge.exposeInMainWorld('electron', {
       return () => { ipcRenderer.removeListener('character:window-closed', handler); };
     },
 
+    sendGestureUpdate: (data: { gestures: string[] }) =>
+      ipcRenderer.send('character:gesture-update', data),
+    onGestureUpdate: (cb: (data: { gestures: string[] }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { gestures: string[] }) => cb(data);
+      ipcRenderer.on('character:gesture-update', handler);
+      return () => { ipcRenderer.removeListener('character:gesture-update', handler); };
+    },
+
     signalReady: () => ipcRenderer.send('character:ready'),
     onCharacterReady: (cb: () => void) => {
       const handler = () => cb();

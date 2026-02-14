@@ -111,6 +111,13 @@ ipcMain.on('character:ready', () => {
   }
 });
 
+// IPC relay: gesture updates from main renderer → character renderer
+ipcMain.on('character:gesture-update', (_event, data) => {
+  if (characterWindow && !characterWindow.isDestroyed()) {
+    characterWindow.webContents.send('character:gesture-update', data);
+  }
+});
+
 // --- App Lifecycle ---
 
 app.whenReady().then(() => {

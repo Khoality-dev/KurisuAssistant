@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Box,
   Dialog,
@@ -18,14 +18,13 @@ import {
   Slider,
 } from '@mui/material';
 import {
-  CloudUpload as CloudUploadIcon,
   Close as CloseIcon,
   Delete as DeleteIcon,
   Add as AddIcon,
 } from '@mui/icons-material';
 import { apiClient } from '../api/client';
 import { config } from '../config';
-import type { AnimationEdge, TransitionCondition } from '../videocall/types';
+import type { AnimationEdge, EdgeTransition, TransitionCondition } from '../videocall/types';
 
 export interface EdgeEditorProps {
   open: boolean;
@@ -44,6 +43,45 @@ interface VideoEntry {
   previewSrc: string;  // Display URL (blob: for local, resolved server URL for existing)
 }
 
+interface TransitionState {
+  conditionType: string;
+  minInterval: number;
+  maxInterval: number;
+  thinkingValue: boolean;
+  gestureValue: string;
+  videos: VideoEntry[];
+  playbackRate: number;
+}
+
+const GESTURE_OPTIONS = ['wave', 'thumbs_up', 'peace_sign', 'pointing', 'open_palm'];
+
+function transitionToState(t: EdgeTransition): TransitionState {
+  return {
+    conditionType: t.condition.type,
+    minInterval: t.condition.type === 'random' ? t.condition.min_interval_ms / 1000 : 5,
+    maxInterval: t.condition.type === 'random' ? t.condition.max_interval_ms / 1000 : 15,
+    thinkingValue: t.condition.type === 'thinking' ? t.condition.value : true,
+    gestureValue: t.condition.type === 'gesture' ? t.condition.value : 'wave',
+    videos: (t.video_urls || []).map((url) => ({
+      url,
+      previewSrc: url.startsWith('http') ? url : `${config.apiBaseUrl}${url}`,
+    })),
+    playbackRate: t.playback_rate ?? 1.0,
+  };
+}
+
+function defaultTransitionState(): TransitionState {
+  return {
+    conditionType: 'random',
+    minInterval: 5,
+    maxInterval: 15,
+    thinkingValue: true,
+    gestureValue: 'wave',
+    videos: [],
+    playbackRate: 1.0,
+  };
+}
+
 export const EdgeEditor: React.FC<EdgeEditorProps> = ({
   open,
   agentId,
@@ -56,56 +94,42 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
 }) => {
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
-  const [videos, setVideos] = useState<VideoEntry[]>([]);
-  const [conditionType, setConditionType] = useState<string>(edge.condition?.type || 'random');
-  const [minInterval, setMinInterval] = useState<number>(
-    edge.condition?.type === 'random' ? edge.condition.min_interval_ms / 1000 : 5
-  );
-  const [maxInterval, setMaxInterval] = useState<number>(
-    edge.condition?.type === 'random' ? edge.condition.max_interval_ms / 1000 : 15
-  );
-  const [thinkingValue, setThinkingValue] = useState<boolean>(
-    edge.condition?.type === 'thinking' ? edge.condition.value : true
-  );
-  const [playbackRate, setPlaybackRate] = useState<number>(edge.playback_rate ?? 1.0);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const resolveUrl = (url: string) =>
-    url.startsWith('http') ? url : `${config.apiBaseUrl}${url}`;
+  const [transitions, setTransitions] = useState<TransitionState[]>([]);
+  const fileInputRefs = useRef<Map<number, HTMLInputElement>>(new Map());
+  // Track which transition index the file input belongs to
+  const activeFileInputIdx = useRef<number>(0);
 
   // Reset state when edge changes
   useEffect(() => {
     if (!open) return;
-
-    const entries: VideoEntry[] = (edge.video_urls || []).map((url) => ({
-      url,
-      previewSrc: resolveUrl(url),
-    }));
-    setVideos(entries);
-
-    setConditionType(edge.condition?.type || 'random');
-    setMinInterval(edge.condition?.type === 'random' ? edge.condition.min_interval_ms / 1000 : 5);
-    setMaxInterval(edge.condition?.type === 'random' ? edge.condition.max_interval_ms / 1000 : 15);
-    setThinkingValue(edge.condition?.type === 'thinking' ? edge.condition.value : true);
-    setPlaybackRate(edge.playback_rate ?? 1.0);
+    setTransitions(
+      edge.transitions.length > 0
+        ? edge.transitions.map(transitionToState)
+        : [defaultTransitionState()],
+    );
     setError('');
   }, [open, edge]);
 
-  // Clean up blob URLs on unmount or when videos change
+  // Clean up blob URLs on unmount
   useEffect(() => {
     return () => {
-      for (const v of videos) {
-        if (v.previewSrc.startsWith('blob:')) {
-          URL.revokeObjectURL(v.previewSrc);
+      for (const t of transitions) {
+        for (const v of t.videos) {
+          if (v.previewSrc.startsWith('blob:')) URL.revokeObjectURL(v.previewSrc);
         }
       }
     };
-  }, [videos]);
+  }, [transitions]);
+
+  const updateTransition = useCallback((idx: number, partial: Partial<TransitionState>) => {
+    setTransitions((prev) => prev.map((t, i) => (i === idx ? { ...t, ...partial } : t)));
+  }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
+    const tIdx = activeFileInputIdx.current;
 
     if (!file.type.startsWith('video/')) {
       setError('File must be a video (mp4 or webm)');
@@ -113,18 +137,31 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
     }
 
     const previewSrc = URL.createObjectURL(file);
-    setVideos((prev) => [...prev, { url: '', pendingFile: file, previewSrc }]);
+    setTransitions((prev) =>
+      prev.map((t, i) =>
+        i === tIdx ? { ...t, videos: [...t.videos, { url: '', pendingFile: file, previewSrc }] } : t,
+      ),
+    );
     setError('');
   };
 
-  const handleRemoveVideo = (index: number) => {
-    setVideos((prev) => {
-      const entry = prev[index];
-      if (entry.previewSrc.startsWith('blob:')) {
-        URL.revokeObjectURL(entry.previewSrc);
-      }
-      return prev.filter((_, i) => i !== index);
-    });
+  const handleRemoveVideo = (tIdx: number, vIdx: number) => {
+    setTransitions((prev) =>
+      prev.map((t, i) => {
+        if (i !== tIdx) return t;
+        const entry = t.videos[vIdx];
+        if (entry.previewSrc.startsWith('blob:')) URL.revokeObjectURL(entry.previewSrc);
+        return { ...t, videos: t.videos.filter((_, vi) => vi !== vIdx) };
+      }),
+    );
+  };
+
+  const handleDeleteTransition = (tIdx: number) => {
+    setTransitions((prev) => prev.filter((_, i) => i !== tIdx));
+  };
+
+  const handleAddTransition = () => {
+    setTransitions((prev) => [...prev, defaultTransitionState()]);
   };
 
   const handleSave = async () => {
@@ -132,41 +169,46 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
     setUploading(true);
 
     try {
-      // Upload any pending files, assign indexed edge IDs
-      const finalUrls: string[] = [];
-      for (let i = 0; i < videos.length; i++) {
-        const entry = videos[i];
-        if (entry.pendingFile) {
-          const storageId = `${edge.id}_${i}`;
-          const result = await apiClient.uploadTransitionVideo(agentId, storageId, entry.pendingFile);
-          finalUrls.push(result.video_url);
-        } else if (entry.url) {
-          finalUrls.push(entry.url);
-        }
-      }
+      const finalTransitions: EdgeTransition[] = [];
 
-      // Build condition
-      let condition: TransitionCondition | undefined;
-      if (conditionType === 'random') {
-        const minMs = Math.max(100, Math.round(minInterval * 1000));
-        const maxMs = Math.max(minMs + 100, Math.round(maxInterval * 1000));
-        condition = {
-          type: 'random',
-          min_interval_ms: minMs,
-          max_interval_ms: maxMs,
-        };
-      } else if (conditionType === 'thinking') {
-        condition = {
-          type: 'thinking',
-          value: thinkingValue,
-        };
+      for (let ti = 0; ti < transitions.length; ti++) {
+        const ts = transitions[ti];
+
+        // Upload pending video files
+        const finalUrls: string[] = [];
+        for (let vi = 0; vi < ts.videos.length; vi++) {
+          const entry = ts.videos[vi];
+          if (entry.pendingFile) {
+            const storageId = `${edge.id}_t${ti}_${vi}`;
+            const result = await apiClient.uploadTransitionVideo(agentId, storageId, entry.pendingFile);
+            finalUrls.push(result.video_url);
+          } else if (entry.url) {
+            finalUrls.push(entry.url);
+          }
+        }
+
+        // Build condition
+        let condition: TransitionCondition;
+        if (ts.conditionType === 'thinking') {
+          condition = { type: 'thinking', value: ts.thinkingValue };
+        } else if (ts.conditionType === 'gesture') {
+          condition = { type: 'gesture', value: ts.gestureValue };
+        } else {
+          const minMs = Math.max(100, Math.round(ts.minInterval * 1000));
+          const maxMs = Math.max(minMs + 100, Math.round(ts.maxInterval * 1000));
+          condition = { type: 'random', min_interval_ms: minMs, max_interval_ms: maxMs };
+        }
+
+        finalTransitions.push({
+          condition,
+          video_urls: finalUrls.length > 0 ? finalUrls : undefined,
+          playback_rate: ts.playbackRate !== 1.0 ? ts.playbackRate : undefined,
+        });
       }
 
       onSave({
         ...edge,
-        video_urls: finalUrls.length > 0 ? finalUrls : undefined,
-        condition,
-        playback_rate: playbackRate !== 1.0 ? playbackRate : undefined,
+        transitions: finalTransitions,
       });
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to save edge');
@@ -193,127 +235,182 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
           </Alert>
         )}
 
-        {/* Video list */}
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Transition Videos</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Upload one or more videos (mp4/webm). A random one plays each time the transition fires. No videos = instant switch.
-        </Typography>
-
-        {videos.map((entry, index) => (
+        {transitions.map((ts, tIdx) => (
           <Box
-            key={index}
+            key={tIdx}
             sx={{
-              mb: 1.5,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-              p: 1,
+              mb: 2,
+              p: 2,
               borderRadius: 1,
               border: '1px solid',
               borderColor: 'divider',
             }}
           >
-            <video
-              src={entry.previewSrc}
-              controls
-              style={{ width: 200, maxHeight: 120, borderRadius: 4, background: '#000', flexShrink: 0 }}
-            />
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography variant="caption" color="text.secondary" noWrap>
-                {entry.pendingFile ? entry.pendingFile.name : `Video ${index + 1}`}
-              </Typography>
-              {entry.pendingFile && (
-                <Typography variant="caption" display="block" color="warning.main">
-                  Not yet uploaded
-                </Typography>
-              )}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+              <Typography variant="subtitle2">Transition {tIdx + 1}</Typography>
+              <IconButton
+                size="small"
+                color="error"
+                onClick={() => handleDeleteTransition(tIdx)}
+                disabled={transitions.length <= 1}
+                title={transitions.length <= 1 ? 'At least one transition required' : 'Delete transition'}
+              >
+                <DeleteIcon fontSize="small" />
+              </IconButton>
             </Box>
-            <IconButton size="small" onClick={() => handleRemoveVideo(index)} color="error">
-              <DeleteIcon fontSize="small" />
-            </IconButton>
+
+            {/* Condition */}
+            <FormControl size="small" sx={{ mb: 1.5, minWidth: 200 }}>
+              <InputLabel>Condition</InputLabel>
+              <Select
+                value={ts.conditionType}
+                label="Condition"
+                onChange={(e) => updateTransition(tIdx, { conditionType: e.target.value })}
+              >
+                <MenuItem value="random">Random Timer</MenuItem>
+                <MenuItem value="thinking">Thinking</MenuItem>
+                <MenuItem value="gesture">Gesture</MenuItem>
+              </Select>
+            </FormControl>
+
+            {ts.conditionType === 'random' && (
+              <Box sx={{ display: 'flex', gap: 2, mb: 1.5 }}>
+                <TextField
+                  label="Min (s)"
+                  type="number"
+                  size="small"
+                  value={ts.minInterval}
+                  onChange={(e) => updateTransition(tIdx, { minInterval: Math.max(0.1, Number(e.target.value)) })}
+                  inputProps={{ min: 0.1, step: 0.5 }}
+                  sx={{ flex: 1 }}
+                />
+                <TextField
+                  label="Max (s)"
+                  type="number"
+                  size="small"
+                  value={ts.maxInterval}
+                  onChange={(e) => updateTransition(tIdx, { maxInterval: Math.max(0.1, Number(e.target.value)) })}
+                  inputProps={{ min: 0.1, step: 0.5 }}
+                  sx={{ flex: 1 }}
+                />
+              </Box>
+            )}
+
+            {ts.conditionType === 'thinking' && (
+              <FormControl size="small" sx={{ mb: 1.5, minWidth: 200 }}>
+                <InputLabel>When</InputLabel>
+                <Select
+                  value={ts.thinkingValue ? 'true' : 'false'}
+                  label="When"
+                  onChange={(e) => updateTransition(tIdx, { thinkingValue: e.target.value === 'true' })}
+                >
+                  <MenuItem value="true">Thinking starts</MenuItem>
+                  <MenuItem value="false">Thinking ends</MenuItem>
+                </Select>
+              </FormControl>
+            )}
+
+            {ts.conditionType === 'gesture' && (
+              <FormControl size="small" sx={{ mb: 1.5, minWidth: 200 }}>
+                <InputLabel>Gesture</InputLabel>
+                <Select
+                  value={ts.gestureValue}
+                  label="Gesture"
+                  onChange={(e) => updateTransition(tIdx, { gestureValue: e.target.value })}
+                >
+                  {GESTURE_OPTIONS.map((g) => (
+                    <MenuItem key={g} value={g}>{g.replace('_', ' ')}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+
+            {/* Videos */}
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Videos (random pick per fire, none = instant switch)
+            </Typography>
+
+            {ts.videos.map((entry, vIdx) => (
+              <Box
+                key={vIdx}
+                sx={{
+                  mb: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  p: 0.5,
+                  borderRadius: 1,
+                  border: '1px solid',
+                  borderColor: 'divider',
+                }}
+              >
+                <video
+                  src={entry.previewSrc}
+                  controls
+                  style={{ width: 160, maxHeight: 90, borderRadius: 4, background: '#000', flexShrink: 0 }}
+                />
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="caption" color="text.secondary" noWrap>
+                    {entry.pendingFile ? entry.pendingFile.name : `Video ${vIdx + 1}`}
+                  </Typography>
+                  {entry.pendingFile && (
+                    <Typography variant="caption" display="block" color="warning.main">
+                      Pending upload
+                    </Typography>
+                  )}
+                </Box>
+                <IconButton size="small" onClick={() => handleRemoveVideo(tIdx, vIdx)} color="error">
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Box>
+            ))}
+
+            <input
+              ref={(el) => { if (el) fileInputRefs.current.set(tIdx, el); }}
+              type="file"
+              accept="video/mp4,video/webm"
+              style={{ display: 'none' }}
+              onChange={handleFileSelect}
+            />
+            <Button
+              variant="text"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={() => {
+                activeFileInputIdx.current = tIdx;
+                fileInputRefs.current.get(tIdx)?.click();
+              }}
+              sx={{ mb: 0.5 }}
+            >
+              Add Video
+            </Button>
+
+            {/* Playback rate */}
+            <Box sx={{ mt: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                Playback rate: {ts.playbackRate.toFixed(2)}x
+              </Typography>
+              <Slider
+                value={ts.playbackRate}
+                onChange={(_, v) => updateTransition(tIdx, { playbackRate: v as number })}
+                min={0.25}
+                max={4}
+                step={0.25}
+                size="small"
+              />
+            </Box>
           </Box>
         ))}
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="video/mp4,video/webm"
-          style={{ display: 'none' }}
-          onChange={handleFileSelect}
-        />
         <Button
           variant="outlined"
           size="small"
           startIcon={<AddIcon />}
-          onClick={() => fileInputRef.current?.click()}
-          sx={{ mb: 3 }}
+          onClick={handleAddTransition}
+          fullWidth
         >
-          Add Video
+          Add Transition
         </Button>
-
-        {/* Condition */}
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Trigger Condition</Typography>
-        <FormControl size="small" sx={{ mb: 2, minWidth: 200 }}>
-          <InputLabel>Type</InputLabel>
-          <Select
-            value={conditionType}
-            label="Type"
-            onChange={(e) => setConditionType(e.target.value)}
-          >
-            <MenuItem value="random">Random Timer</MenuItem>
-            <MenuItem value="thinking">Thinking</MenuItem>
-          </Select>
-        </FormControl>
-
-        {conditionType === 'thinking' && (
-          <FormControl size="small" sx={{ mb: 2, minWidth: 200 }}>
-            <InputLabel>When</InputLabel>
-            <Select
-              value={thinkingValue ? 'true' : 'false'}
-              label="When"
-              onChange={(e) => setThinkingValue(e.target.value === 'true')}
-            >
-              <MenuItem value="true">True</MenuItem>
-              <MenuItem value="false">False</MenuItem>
-            </Select>
-          </FormControl>
-        )}
-
-        {conditionType === 'random' && (
-          <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-            <TextField
-              label="Min interval (seconds)"
-              type="number"
-              size="small"
-              value={minInterval}
-              onChange={(e) => setMinInterval(Math.max(0.1, Number(e.target.value)))}
-              inputProps={{ min: 0.1, step: 0.5 }}
-              sx={{ flex: 1 }}
-            />
-            <TextField
-              label="Max interval (seconds)"
-              type="number"
-              size="small"
-              value={maxInterval}
-              onChange={(e) => setMaxInterval(Math.max(0.1, Number(e.target.value)))}
-              inputProps={{ min: 0.1, step: 0.5 }}
-              sx={{ flex: 1 }}
-            />
-          </Box>
-        )}
-
-        {/* Playback rate */}
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Video Playback Rate</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{playbackRate.toFixed(2)}x</Typography>
-        <Slider
-          value={playbackRate}
-          onChange={(_, v) => setPlaybackRate(v as number)}
-          min={0.25}
-          max={4}
-          step={0.25}
-          size="small"
-          sx={{ mb: 2 }}
-        />
       </DialogContent>
 
       <DialogActions>

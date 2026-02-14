@@ -40,15 +40,16 @@ import { ChatWidget } from './ChatWidget';
 import { SettingsWindow } from './SettingsWindow';
 import { AgentsWindow } from './AgentsWindow';
 import { ToolsWindow } from './ToolsWindow';
+import { FacesWindow } from './FacesWindow';
 
 const DRAWER_WIDTH = 280;
 
 const MotionListItemButton = motion(ListItemButton);
 
-type Page = 'chat' | 'settings' | 'agents' | 'tools';
+type Page = 'chat' | 'settings' | 'agents' | 'tools' | 'faces';
 
-const TAB_TO_PAGE: Page[] = ['chat', 'agents', 'tools'];
-const PAGE_TO_TAB: Record<string, number> = { chat: 0, agents: 1, tools: 2 };
+const TAB_TO_PAGE: Page[] = ['chat', 'agents', 'tools', 'faces'];
+const PAGE_TO_TAB: Record<string, number> = { chat: 0, agents: 1, tools: 2, faces: 3 };
 
 export const MainWindow: React.FC = () => {
   const { user, logout } = useAuthStore();
@@ -154,6 +155,7 @@ export const MainWindow: React.FC = () => {
           <Tab icon={<ChatIcon fontSize="small" />} label="Chat" iconPosition="start" />
           <Tab icon={<AgentsIcon fontSize="small" />} label="Agents" iconPosition="start" />
           <Tab icon={<ToolsIcon fontSize="small" />} label="Tools" iconPosition="start" />
+          <Tab icon={<FaceIcon fontSize="small" />} label="Faces" iconPosition="start" />
         </Tabs>
         <Box sx={{ flex: 1 }} />
         <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
@@ -316,6 +318,9 @@ export const MainWindow: React.FC = () => {
           </Box>
           <Box sx={{ flex: 1, display: currentPage === 'tools' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden' }}>
             <ToolsWindow />
+          </Box>
+          <Box sx={{ flex: 1, display: currentPage === 'faces' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden' }}>
+            <FacesWindow />
           </Box>
           {currentPage === 'settings' && (
             <SettingsWindow onBack={() => setCurrentPage('chat')} />
