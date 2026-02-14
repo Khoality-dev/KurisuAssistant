@@ -9,7 +9,6 @@ from typing import List, Optional
 import numpy as np
 
 from .base import BaseGestureDetector
-from .classifier import classify_hand_gestures, classify_pose_gestures
 
 logger = logging.getLogger(__name__)
 
@@ -115,10 +114,10 @@ class MediaPipeGestureDetector(BaseGestureDetector):
     def detect_gestures(self, image: np.ndarray, *,
                         enable_pose: bool = True,
                         enable_hands: bool = True) -> dict:
-        """Detect gestures and return results with raw landmarks for debug visualization.
+        """Extract raw landmarks from the frame.
 
         Loads/offloads models on demand based on enable flags.
-        Returns dict with keys: gestures, pose_landmarks, hand_landmarks.
+        Returns dict with keys: pose_landmarks, hands.
         """
         # Load what's needed, offload what's not
         if enable_pose:
@@ -150,7 +149,7 @@ class MediaPipeGestureDetector(BaseGestureDetector):
                     ]
 
         # --- MediaPipe Hands (CPU) ---
-        hands_result = None
+        hands = []
         if enable_hands and self._hand_landmarker:
             import mediapipe as mp
             rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -158,37 +157,17 @@ class MediaPipeGestureDetector(BaseGestureDetector):
             self._frame_ts += 33
             hands_result = self._hand_landmarker.detect_for_video(mp_image, self._frame_ts)
 
-        gestures = []
-        hand_landmarks_list = []
-
-        if hands_result and hands_result.hand_landmarks:
-            for hand_lms, handedness_list in zip(
-                hands_result.hand_landmarks,
-                hands_result.handedness,
-            ):
-                handedness = handedness_list[0].category_name  # "Left" or "Right"
-                hand_gestures = classify_hand_gestures(
-                    hand_lms,
-                    handedness,
-                    pose_landmarks,
-                )
-                gestures.extend(hand_gestures)
-                hand_landmarks_list.append(hand_lms)
-
-        # Pose-only gestures (works without hands enabled)
-        if pose_landmarks:
-            pose_gestures = classify_pose_gestures(pose_landmarks)
-            gestures.extend(pose_gestures)
-
-        # Deduplicate: keep highest confidence per gesture type
-        best = {}
-        for g in gestures:
-            name = g["gesture"]
-            if name not in best or g["confidence"] > best[name]["confidence"]:
-                best[name] = g
+            if hands_result and hands_result.hand_landmarks:
+                for hand_lms, handedness_list in zip(
+                    hands_result.hand_landmarks,
+                    hands_result.handedness,
+                ):
+                    hands.append({
+                        "landmarks": hand_lms,
+                        "handedness": handedness_list[0].category_name,
+                    })
 
         return {
-            "gestures": list(best.values()),
             "pose_landmarks": pose_landmarks,
-            "hand_landmarks": hand_landmarks_list,
+            "hands": hands,
         }

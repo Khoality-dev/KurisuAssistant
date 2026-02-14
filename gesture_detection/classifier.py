@@ -100,67 +100,84 @@ def classify_hand_gestures(
     if all(fingers.values()):
         gestures.append({"gesture": "open_palm", "confidence": 0.9})
 
-        # Wave: open palm + hand above shoulder (if pose landmarks available)
-        if pose_landmarks is not None:
-            wrist = hand_landmarks[0]
-            # YOLO COCO keypoint indices: 5=left_shoulder, 6=right_shoulder
-            shoulder_idx = 6 if is_right else 5
-            if shoulder_idx < len(pose_landmarks):
-                shoulder = pose_landmarks[shoulder_idx]
-                if wrist.y < shoulder.y:  # Hand above shoulder
-                    gestures.append({"gesture": "wave", "confidence": 0.85})
-
     return gestures
 
 
-def classify_pose_gestures(pose_landmarks) -> List[dict]:
-    """Classify gestures from YOLO pose keypoints alone (no hand landmarks needed).
+def classify_pose_trajectory(landmark_buffer: list) -> List[dict]:
+    """Classify gestures from pose keypoint trajectory over a sliding window.
+
+    Detects wave by tracking wrist X oscillation across frames.
 
     YOLO COCO keypoints:
         5=l_shoulder, 6=r_shoulder, 7=l_elbow, 8=r_elbow,
         9=l_wrist, 10=r_wrist
 
     Args:
-        pose_landmarks: List of 17 keypoints with .x, .y, .visibility attributes.
+        landmark_buffer: List of pose_landmarks snapshots (oldest first).
+            Each entry is a list of KeyPoint objects or None.
 
     Returns:
         List of detected gestures with confidence.
     """
-    if not pose_landmarks or len(pose_landmarks) < 11:
+    if not landmark_buffer:
         return []
 
-    gestures = []
     MIN_VIS = 0.2
+    MIN_REVERSALS = 3      # >= 3 direction changes = 1.5 back-and-forth cycles
+    MIN_AMPLITUDE = 0.08   # Minimum wrist X range (8% of frame width)
+    MIN_MOTION = 0.015     # Minimum per-frame movement to count (filters jitter)
 
-    # Check both arms for wave: wrist above shoulder + elbow above shoulder
-    for side, shoulder_idx, elbow_idx, wrist_idx in [
-        ("left", 5, 7, 9),
-        ("right", 6, 8, 10),
+    gestures = []
+
+    for side, shoulder_idx, wrist_idx in [
+        ("left", 5, 9),
+        ("right", 6, 10),
     ]:
-        shoulder = pose_landmarks[shoulder_idx]
-        elbow = pose_landmarks[elbow_idx]
-        wrist = pose_landmarks[wrist_idx]
-
-        logger.debug(
-            "Pose %s — shoulder(y=%.2f vis=%.2f) elbow(y=%.2f vis=%.2f) wrist(y=%.2f vis=%.2f)",
-            side, shoulder.y, shoulder.visibility,
-            elbow.y, elbow.visibility, wrist.y, wrist.visibility,
-        )
-
-        if shoulder.visibility < MIN_VIS or wrist.visibility < MIN_VIS:
+        # Precondition: wrist above shoulder in the latest frame
+        latest = landmark_buffer[-1]
+        if not latest or len(latest) < 11:
             continue
 
-        # Wave: wrist above shoulder (y is normalized, lower value = higher)
-        if wrist.y < shoulder.y:
-            # Higher confidence if elbow is also raised
-            if elbow.visibility > MIN_VIS and elbow.y < shoulder.y:
-                gestures.append({"gesture": "wave", "confidence": 0.9})
-            else:
-                gestures.append({"gesture": "wave", "confidence": 0.75})
+        shoulder = latest[shoulder_idx]
+        wrist = latest[wrist_idx]
+        if shoulder.visibility < MIN_VIS or wrist.visibility < MIN_VIS:
+            continue
+        if wrist.y >= shoulder.y:
+            continue
 
-    # Deduplicate: keep highest confidence
+        # Collect wrist X values across the buffer (skip missing frames)
+        xs = []
+        for frame_lms in landmark_buffer:
+            if not frame_lms or len(frame_lms) < 11:
+                continue
+            w = frame_lms[wrist_idx]
+            if w.visibility >= MIN_VIS:
+                xs.append(w.x)
+
+        if len(xs) < 3:
+            continue
+
+        # Count direction reversals in wrist X (ignore sub-threshold jitter)
+        reversals = 0
+        prev_dir = 0  # -1 = moving left, +1 = moving right
+        for i in range(1, len(xs)):
+            diff = xs[i] - xs[i - 1]
+            if abs(diff) < MIN_MOTION:
+                continue
+            cur_dir = 1 if diff > 0 else -1
+            if prev_dir != 0 and cur_dir != prev_dir:
+                reversals += 1
+            prev_dir = cur_dir
+
+        amplitude = max(xs) - min(xs)
+
+        if reversals >= MIN_REVERSALS and amplitude >= MIN_AMPLITUDE:
+            # Confidence scales with reversals and amplitude
+            conf = min(0.5 + reversals * 0.15 + amplitude * 2.0, 0.95)
+            gestures.append({"gesture": "wave", "confidence": round(conf, 2)})
+
     if gestures:
         best = max(gestures, key=lambda g: g["confidence"])
         return [best]
 
-    return gestures
+    return []

@@ -67,7 +67,7 @@ face_recognition/            # Face detection + embedding (NO business logic/DB 
 gesture_detection/           # Gesture detection from webcam frames
 ├── base.py                  # Abstract BaseGestureDetector
 ├── mediapipe_provider.py    # YOLOv8-Pose (CUDA) + MediaPipe Hands (CPU)
-├── classifier.py            # Rule-based gesture classification from keypoints
+├── classifier.py            # Rule-based gesture classification (hand per-frame, pose trajectory-based)
 └── __init__.py              # Singleton factory: get_provider()
 
 vision/                      # Vision frame processing pipeline
@@ -131,7 +131,7 @@ Custom MCP tools go in `mcp_tools/<tool-name>/` with `main.py`, `config.json`, `
 **Architecture**: Frontend (getUserMedia webcam capture) → WebSocket (base64 JPEG frames at 3 FPS) → Backend (VisionProcessor runs face + gesture detection) → WebSocket (metadata results to frontend). Frontend renders webcam preview locally at native FPS via `<video>` element; backend never returns image data.
 
 - **Face Recognition**: InsightFace (ArcFace, buffalo_l model, 512-dim embeddings). Lazy-loaded on first use. Models cached in `data/face_recognition/models/`. Embeddings stored in `face_photos.embedding` (pgvector `vector(512)`) with HNSW index for cosine similarity search.
-- **Gesture Detection**: YOLOv8n-Pose on CUDA (17 COCO keypoints) for body pose + MediaPipe Hands on CPU (21 landmarks/hand). Rule-based classifier detects: `wave`, `thumbs_up`, `peace_sign`, `pointing`, `open_palm`. Pose-only wave detection from YOLO wrist/shoulder keypoints (no hand landmarks required). Models lazy-loaded/offloaded on demand via enable flags.
+- **Gesture Detection**: Provider (`mediapipe_provider.py`) only extracts raw landmarks — YOLOv8n-Pose on CUDA (17 COCO keypoints) for body pose, MediaPipe Hands on CPU (21 landmarks/hand + handedness). Returns `{pose_landmarks, hands: [{landmarks, handedness}]}`. All gesture classification lives in `VisionProcessor`: hand gestures (`thumbs_up`, `peace_sign`, `pointing`, `open_palm`) classified per-frame via `classify_hand_gestures()`, `wave` classified from **pose trajectory** via `classify_pose_trajectory()` (wrist X oscillation across 15-frame sliding window, requiring wrist-above-shoulder + ≥2 direction reversals + minimum amplitude). Models lazy-loaded/offloaded on demand via enable flags.
 - **Processing**: VisionProcessor.process_frame() decodes base64 JPEG, runs face + gesture detection sequentially in thread executor. Frame dropping via `_processing` flag (skips frame if previous inference still running). In-memory face embedding cache (numpy dot product) for ~0ms matching.
 - **Face Identity CRUD**: REST endpoints (`/faces`, `/faces/{id}`, `/faces/{id}/photos`). Photo uploaded → face detected → embedding stored. Photos reuse existing image storage (`data/image_storage/data/`).
 - **WebSocket Events**: `VisionStartEvent` (client→server, enable_face/enable_pose/enable_hands flags), `VisionFrameEvent` (client→server, base64 JPEG), `VisionStopEvent`, `VisionResultEvent` (server→client, faces + gestures metadata only).

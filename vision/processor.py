@@ -8,6 +8,7 @@ Architecture:
 
 import base64
 import logging
+from collections import deque
 from typing import Optional
 
 import cv2
@@ -16,11 +17,15 @@ import numpy as np
 import face_recognition as face_rec_module
 import gesture_detection as gesture_module
 from db.session import get_session
+from gesture_detection.classifier import classify_hand_gestures, classify_pose_trajectory
 
 logger = logging.getLogger(__name__)
 
 # Face matching threshold (cosine distance; lower = more similar)
 FACE_MATCH_THRESHOLD = 0.6
+
+# Pose trajectory buffer size (e.g. 15 frames ≈ 3s at 5 FPS)
+POSE_HISTORY_SIZE = 15
 
 
 def _batch_detect(
@@ -42,9 +47,11 @@ def _batch_detect(
         gesture_result = gesture_detector.detect_gestures(
             frame, enable_pose=enable_pose, enable_hands=enable_hands
         )
-        result["gestures"] = gesture_result.get("gestures", [])
+        result["hands"] = gesture_result.get("hands", [])
+        result["pose_landmarks"] = gesture_result.get("pose_landmarks")
     else:
-        result["gestures"] = []
+        result["hands"] = []
+        result["pose_landmarks"] = None
 
     return result
 
@@ -66,6 +73,7 @@ class VisionProcessor:
         self.enable_hands = enable_hands
         self._embedding_cache: Optional[list] = None
         self._processing = False
+        self._pose_history: deque = deque(maxlen=POSE_HISTORY_SIZE)
 
         # Eagerly load providers
         self._face_provider = face_rec_module.get_provider() if enable_face else None
@@ -102,9 +110,32 @@ class VisionProcessor:
             else:
                 recognized = []
 
+            # Accumulate pose landmarks for trajectory analysis
+            pose_landmarks = detect_result["pose_landmarks"]
+            self._pose_history.append(pose_landmarks)
+
+            # Classify hand gestures per-frame from current landmarks
+            hand_gestures = []
+            for hand in detect_result["hands"]:
+                hand_gestures.extend(classify_hand_gestures(
+                    hand["landmarks"], hand["handedness"], pose_landmarks,
+                ))
+
+            # Pose gestures come from trajectory (wrist oscillation over time)
+            pose_gestures = classify_pose_trajectory(list(self._pose_history))
+
+            # Merge: deduplicate keeping highest confidence per gesture type
+            all_gestures = hand_gestures + pose_gestures
+            best = {}
+            for g in all_gestures:
+                name = g["gesture"]
+                if name not in best or g["confidence"] > best[name]["confidence"]:
+                    best[name] = g
+            gestures = list(best.values())
+
             return {
                 "faces": recognized,
-                "gestures": detect_result["gestures"],
+                "gestures": gestures,
             }
         except Exception as e:
             logger.error("Frame processing error: %s", e, exc_info=True)
