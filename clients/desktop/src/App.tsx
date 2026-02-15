@@ -5,6 +5,7 @@ import { theme } from './theme/theme';
 import { useAuthStore } from './store/authStore';
 import { LoginWindow } from './components/LoginWindow';
 import { MainWindow } from './components/MainWindow';
+import { UpdateDialog } from './components/UpdateDialog';
 
 const MainApp: React.FC = () => {
   const [initializing, setInitializing] = useState(true);
@@ -42,6 +43,7 @@ export const App: React.FC = () => {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <MainApp />
+      <UpdateDialog />
     </ThemeProvider>
   );
 };

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
+import { autoUpdater } from 'electron-updater';
 
 // Set custom cache path to avoid permission issues on Windows
 app.setPath('userData', path.join(app.getPath('appData'), 'kurisu-assistant'));
@@ -111,6 +112,11 @@ ipcMain.on('character:ready', () => {
   }
 });
 
+// IPC: install update and restart
+ipcMain.on('updater:install', () => {
+  autoUpdater.quitAndInstall();
+});
+
 // IPC relay: gesture updates from main renderer → character renderer
 ipcMain.on('character:gesture-update', (_event, data) => {
   if (characterWindow && !characterWindow.isDestroyed()) {
@@ -122,6 +128,30 @@ ipcMain.on('character:gesture-update', (_event, data) => {
 
 app.whenReady().then(() => {
   createWindow();
+
+  // Auto-updater (no-op in dev mode — no update server configured)
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-available', (info) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('updater:update-available', { version: info.version });
+    }
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('updater:download-progress', { percent: progress.percent });
+    }
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('updater:update-downloaded', { version: info.version });
+    }
+  });
+
+  autoUpdater.checkForUpdatesAndNotify();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

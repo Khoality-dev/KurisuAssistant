@@ -6,7 +6,7 @@ KurisuAssistant-Client-Windows — desktop client for the KurisuAssistant AI pla
 
 ## Tech Stack
 
-React 18, Electron 28, MUI v5, Framer Motion, Zustand, Axios, Vite, react-markdown, TypeScript (strict mode)
+React 18, Electron 28, MUI v5, Framer Motion, Zustand, Axios, Vite, react-markdown, electron-updater, TypeScript (strict mode)
 
 ## Commands
 
@@ -15,13 +15,13 @@ React 18, Electron 28, MUI v5, Framer Motion, Zustand, Axios, Vite, react-markdo
 
 ## CI/CD
 
-GitHub Actions workflow (`.github/workflows/build.yml`): triggers on release creation, builds NSIS installer on `windows-latest`, uploads `.exe` to the release via `softprops/action-gh-release@v2`.
+GitHub Actions workflow (`.github/workflows/build.yml`): triggers on release creation, sets `package.json` version from release tag (strips `v` prefix), builds NSIS installer on `windows-latest`, publishes `.exe` + `latest.yml` to the release via `electron-builder --publish always` (uses `GH_TOKEN`). Auto-update: `electron-updater` checks GitHub Releases on app startup, downloads updates in background, prompts user to restart via `UpdateDialog`.
 
 ## Architecture
 
 ```
-electron/main.ts          — Multi-window Electron entry (main + character window)
-electron/preload.ts       — contextBridge API (platform + characterWindow IPC bridge)
+electron/main.ts          — Multi-window Electron entry (main + character window) + auto-updater setup
+electron/preload.ts       — contextBridge API (platform + updater + characterWindow IPC bridge)
 src/api/client.ts         — Axios + WebSocket singleton; streaming + media via wsManager
 src/api/types.ts          — TypeScript interfaces for API
 src/components/
@@ -37,6 +37,7 @@ src/components/
   PoseNodeEditor.tsx        — Extracted 3-step stepper sub-dialog for editing individual pose nodes
   EdgeEditor.tsx            — Transition edge editor: video upload, condition config (random timer)
   PoseGraphNode.tsx         — Custom React Flow node component (thumbnail + label + default chip)
+  UpdateDialog.tsx          — Auto-update notification: shows download progress, "Restart Now" / "Later" on completion
   SettingsWindow.tsx       — Account (backend) + TTS (localStorage) settings tabs
 src/hooks/
   useTTS.ts               — TTS synthesis/playback: speak(), queueText(), clearQueue()
