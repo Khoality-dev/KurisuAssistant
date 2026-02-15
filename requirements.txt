@@ -24,11 +24,12 @@ tqdm==4.67.1
 typing-inspection==0.4.0
 typing_extensions==4.13.2
 urllib3==2.4.0
-uvicorn==0.34.2
+uvicorn[standard]==0.34.2
 dotenv==0.9.9
 ollama==0.6.1
 python-jose==3.3.0
 passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 psycopg2-binary==2.9.9
 fastmcp==2.9.2
 alembic==1.16.4

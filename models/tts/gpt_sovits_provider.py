@@ -26,7 +26,7 @@ class GPTSoVITSProvider(BaseTTSProvider):
         """
         self.api_url = api_url or os.getenv(
             "TTS_API_URL",
-            "http://10.0.0.122:9880"
+            "http://gpt-sovits-container:9880"
         )
         # Strip trailing /tts for consistency — path is appended in synthesize()
         self.api_url = self.api_url.rstrip("/").removesuffix("/tts")

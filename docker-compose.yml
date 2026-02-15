@@ -1,4 +1,17 @@
 services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - default
+      - ollama-net
+    depends_on:
+      - api
+    restart: unless-stopped
+
   nginx:
     image: nginx:alpine
     container_name: nginx-container
@@ -46,6 +59,9 @@ services:
       - postgres
     expose:
       - "15597"
+    networks:
+      - default
+      - ollama-net
     deploy:
       resources:
         reservations:
@@ -85,6 +101,9 @@ services:
 
 networks:
   default:
+  ollama-net:
+    external: true
+    name: ollama-openwebui_default
 
 volumes:
   postgres-data:
