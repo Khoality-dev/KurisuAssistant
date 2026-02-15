@@ -22,6 +22,7 @@ import type {
   CharacterConfigDTO,
   FaceIdentity,
   FaceIdentityDetail,
+  AvatarCandidate,
 } from './types';
 
 class APIClient {
@@ -338,6 +339,27 @@ class APIClient {
     await this.client.delete(`/agents/${id}`, {
       headers: this.getHeaders(),
     });
+  }
+
+  /**
+   * Get avatar candidates detected from character pose base images
+   */
+  async getAvatarCandidates(agentId: number): Promise<AvatarCandidate[]> {
+    const response = await this.client.get<AvatarCandidate[]>(`/agents/${agentId}/avatar-candidates`, {
+      headers: this.getHeaders(),
+      timeout: 60000,
+    });
+    return response.data;
+  }
+
+  /**
+   * Set agent avatar from an existing image UUID
+   */
+  async setAgentAvatarFromUuid(agentId: number, uuid: string): Promise<Agent> {
+    const response = await this.client.post<Agent>(`/agents/${agentId}/avatar-from-uuid`, { avatar_uuid: uuid }, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
   }
 
   // Tools Methods

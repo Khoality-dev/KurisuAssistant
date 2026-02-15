@@ -37,11 +37,13 @@ import {
   Settings as SettingsIcon,
   Extension as ExtensionIcon,
   Face as FaceIcon,
+  AutoAwesome as AutoAwesomeIcon,
 } from '@mui/icons-material';
+import { CircularProgress } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiClient } from '../api/client';
 import { useAgentStore } from '../store/agentStore';
-import type { Agent, AgentCreate, AgentUpdate, Tool } from '../api/types';
+import type { Agent, AgentCreate, AgentUpdate, Tool, AvatarCandidate } from '../api/types';
 import { CharacterConfigDialog } from './CharacterConfigDialog';
 
 const MotionCard = motion(Card);
@@ -90,6 +92,8 @@ export const AgentsWindow: React.FC = () => {
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [voiceFile, setVoiceFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarCandidates, setAvatarCandidates] = useState<AvatarCandidate[]>([]);
+  const [isDetecting, setIsDetecting] = useState(false);
 
   useEffect(() => {
     loadAgents();
@@ -232,6 +236,7 @@ export const AgentsWindow: React.FC = () => {
     setAvatarFile(null);
     setVoiceFile(null);
     setAvatarPreview(null);
+    setAvatarCandidates([]);
     setSelectedAgent(null);
   };
 
@@ -652,27 +657,90 @@ export const AgentsWindow: React.FC = () => {
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
             {/* Avatar */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Avatar
-                src={avatarPreview || undefined}
-                sx={{ width: 80, height: 80, bgcolor: 'primary.main', fontSize: '2rem' }}
-              >
-                {formData.name?.[0]?.toUpperCase() || 'A'}
-              </Avatar>
-              <input
-                ref={avatarInputRef}
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={handleAvatarSelect}
-              />
-              <Button
-                variant="outlined"
-                startIcon={<PhotoCameraIcon />}
-                onClick={() => avatarInputRef.current?.click()}
-              >
-                Change Avatar
-              </Button>
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Avatar
+                  src={avatarPreview || undefined}
+                  sx={{ width: 80, height: 80, bgcolor: 'primary.main', fontSize: '2rem' }}
+                >
+                  {formData.name?.[0]?.toUpperCase() || 'A'}
+                </Avatar>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={handleAvatarSelect}
+                />
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <Button
+                    variant="outlined"
+                    startIcon={<PhotoCameraIcon />}
+                    onClick={() => avatarInputRef.current?.click()}
+                    size="small"
+                  >
+                    Change Avatar
+                  </Button>
+                  {selectedAgent?.character_config && (
+                    <Button
+                      variant="outlined"
+                      startIcon={isDetecting ? <CircularProgress size={16} /> : <AutoAwesomeIcon />}
+                      onClick={async () => {
+                        if (!selectedAgent) return;
+                        setIsDetecting(true);
+                        setAvatarCandidates([]);
+                        try {
+                          const candidates = await apiClient.getAvatarCandidates(selectedAgent.id);
+                          setAvatarCandidates(candidates);
+                          if (candidates.length === 0) {
+                            setError('No faces detected in pose images');
+                          }
+                        } catch (err: any) {
+                          setError(err.response?.data?.detail || 'Failed to detect faces');
+                        } finally {
+                          setIsDetecting(false);
+                        }
+                      }}
+                      disabled={isDetecting}
+                      size="small"
+                    >
+                      {isDetecting ? 'Detecting...' : 'Detect from Poses'}
+                    </Button>
+                  )}
+                </Box>
+              </Box>
+              {avatarCandidates.length > 0 && (
+                <Box sx={{ mt: 2, display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                  {avatarCandidates.map((candidate) => (
+                    <Tooltip key={candidate.uuid} title={`Pose: ${candidate.pose_id} (${(candidate.score * 100).toFixed(0)}%)`}>
+                      <Avatar
+                        src={apiClient.getImageUrl(candidate.uuid)}
+                        sx={{
+                          width: 64,
+                          height: 64,
+                          cursor: 'pointer',
+                          border: '2px solid transparent',
+                          '&:hover': { borderColor: 'primary.main', boxShadow: 2 },
+                          transition: 'border-color 0.2s, box-shadow 0.2s',
+                        }}
+                        onClick={async () => {
+                          if (!selectedAgent) return;
+                          try {
+                            await apiClient.setAgentAvatarFromUuid(selectedAgent.id, candidate.uuid);
+                            setAvatarPreview(apiClient.getImageUrl(candidate.uuid));
+                            setAvatarCandidates([]);
+                            setSuccessMessage('Avatar updated!');
+                            setTimeout(() => setSuccessMessage(''), 3000);
+                            loadAgents();
+                          } catch (err: any) {
+                            setError(err.response?.data?.detail || 'Failed to set avatar');
+                          }
+                        }}
+                      />
+                    </Tooltip>
+                  ))}
+                </Box>
+              )}
             </Box>
 
             {/* Name */}

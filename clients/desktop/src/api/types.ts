@@ -40,11 +40,19 @@ export interface Conversation {
   updated_at: string;
 }
 
+export interface FrameInfo {
+  id: number;
+  summary: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export interface ConversationDetail {
   id: number;
   title: string;
   created_at: string;
   messages: Message[];
+  frames: Record<number, FrameInfo>;
   total_messages: number;
   offset: number;
   limit: number;
@@ -165,6 +173,14 @@ export interface Tool {
 export interface ToolsResponse {
   mcp_tools: Tool[];
   builtin_tools: Tool[];
+}
+
+// Avatar candidate types
+
+export interface AvatarCandidate {
+  uuid: string;
+  pose_id: string;
+  score: number;
 }
 
 // Face recognition types
