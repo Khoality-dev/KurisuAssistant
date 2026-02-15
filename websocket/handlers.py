@@ -3,6 +3,8 @@
 import asyncio
 import json
 import logging
+import os
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from fastapi import WebSocket
@@ -45,6 +47,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_TURNS = 10
 DEFAULT_ADMIN_MODEL = "gemma3:4b"  # Fallback if Administrator agent not found
 ADMINISTRATOR_NAME = "Administrator"  # Reserved agent name for routing
+FRAME_IDLE_THRESHOLD_MINUTES = int(os.getenv("FRAME_IDLE_THRESHOLD_MINUTES", "30"))
 
 
 class ChatSessionHandler:
@@ -144,7 +147,13 @@ class ChatSessionHandler:
         from fastapi import WebSocketDisconnect
         try:
             # Setup conversation/frame
-            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name = await self._setup_conversation(event)
+            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids = await self._setup_conversation(event)
+
+            # Fire-and-forget summarization of old frame + backfill
+            from utils.frame_summary import summarize_frame
+            model = summary_model or event.model_name or DEFAULT_ADMIN_MODEL
+            for fid in ([old_frame_id] if old_frame_id else []) + unsummarized_ids:
+                asyncio.create_task(summarize_frame(fid, model_name=model, api_url=ollama_url))
 
             # Reset accumulated state for new task
             self._accumulated_messages = []
@@ -287,7 +296,13 @@ class ChatSessionHandler:
         """
         try:
             # Setup conversation/frame
-            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name = await self._setup_conversation(event)
+            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids = await self._setup_conversation(event)
+
+            # Fire-and-forget summarization of old frame + backfill
+            from utils.frame_summary import summarize_frame
+            model = summary_model or event.model_name or DEFAULT_ADMIN_MODEL
+            for fid in ([old_frame_id] if old_frame_id else []) + unsummarized_ids:
+                asyncio.create_task(summarize_frame(fid, model_name=model, api_url=ollama_url))
 
             # Reset accumulated state for new task
             self._accumulated_messages = []
@@ -670,21 +685,32 @@ class ChatSessionHandler:
                 code="INTERNAL_ERROR",
             ))
 
-    async def _setup_conversation(self, event: ChatRequestEvent) -> tuple[int, int, list, str, str]:
+    async def _setup_conversation(self, event: ChatRequestEvent) -> tuple[int, int, list, str, str, int | None, str | None, str | None, list[int]]:
         """Setup conversation, frame, and system messages.
 
+        If the latest frame has been idle longer than FRAME_IDLE_THRESHOLD_MINUTES,
+        a new frame is created and the old frame ID is returned for summarization.
+        Also finds older frames missing summaries for backfill.
+
         Returns:
-            Tuple of (conversation_id, frame_id, system_messages, user_system_prompt, preferred_name)
+            Tuple of (conversation_id, frame_id, system_messages, user_system_prompt,
+                       preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids)
         """
+        old_frame_id = None
+
         with get_session() as session:
             conv_repo = ConversationRepository(session)
             frame_repo = FrameRepository(session)
+            msg_repo = MessageRepository(session)
             user_repo = UserRepository(session)
 
             # Get user for preferences
             user = user_repo.get_by_id(self.user_id)
             if not user:
                 raise ValueError("User not found")
+
+            ollama_url = user.ollama_url
+            summary_model = user.summary_model
 
             # Create or get conversation
             if event.conversation_id is None:
@@ -695,11 +721,36 @@ class ChatSessionHandler:
             else:
                 conversation_id = event.conversation_id
 
-            # Get or create frame
+            # Get or create frame with idle detection
             frame = frame_repo.get_latest_by_conversation(conversation_id)
             if not frame:
                 frame = frame_repo.create_frame(conversation_id)
+            else:
+                idle_threshold = timedelta(minutes=FRAME_IDLE_THRESHOLD_MINUTES)
+                last_activity = frame.updated_at or frame.created_at
+                if datetime.utcnow() - last_activity > idle_threshold:
+                    msg_count = msg_repo.count_by_frame(frame.id)
+                    if msg_count > 0:
+                        old_frame_id = frame.id
+                    frame = frame_repo.create_frame(conversation_id)
             frame_id = frame.id
+
+            # Find older frames missing summaries (backfill)
+            from db.models import Frame, Message
+            from sqlalchemy import func
+            unsummarized = (
+                session.query(Frame.id)
+                .outerjoin(Message, Frame.id == Message.frame_id)
+                .filter(
+                    Frame.conversation_id == conversation_id,
+                    Frame.id != frame_id,
+                    Frame.summary.is_(None),
+                )
+                .group_by(Frame.id)
+                .having(func.count(Message.id) > 0)
+                .all()
+            )
+            unsummarized_ids = [row.id for row in unsummarized]
 
             # Get user preferences
             system_prompt, preferred_name = user_repo.get_preferences(user)
@@ -707,7 +758,7 @@ class ChatSessionHandler:
         # Build system messages
         system_messages = build_system_messages(system_prompt, preferred_name)
 
-        return conversation_id, frame_id, system_messages, system_prompt, preferred_name or ""
+        return conversation_id, frame_id, system_messages, system_prompt, preferred_name or "", old_frame_id, ollama_url, summary_model, unsummarized_ids
 
     def _load_user_agents(self) -> List[AgentConfig]:
         """Load all agents for the current user."""

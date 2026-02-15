@@ -15,6 +15,7 @@ class User(Base):
     user_avatar_uuid = Column(String, nullable=True)
     agent_avatar_uuid = Column(String, nullable=True)
     ollama_url = Column(String, nullable=True)  # Custom Ollama server URL (None = use default env var)
+    summary_model = Column(String, nullable=True)  # Model for frame summarization (None = use chat model)
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     agents = relationship("Agent", back_populates="user", cascade="all, delete-orphan")
@@ -37,6 +38,7 @@ class Frame(Base):
 
     id = Column(Integer, primary_key=True)
     conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), nullable=False, index=True)
+    summary = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
 

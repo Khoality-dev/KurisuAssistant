@@ -190,7 +190,7 @@ Stored in `data/image_storage/data/` with UUID names. Converted to base64 for LL
 ## Database Schema
 
 ```
-User: id, username, password(bcrypt), system_prompt, preferred_name, user_avatar_uuid, agent_avatar_uuid, ollama_url
+User: id, username, password(bcrypt), system_prompt, preferred_name, user_avatar_uuid, agent_avatar_uuid, ollama_url, summary_model
 Conversation: id, user_id→User, title, created_at, updated_at
 Frame: id, conversation_id→Conversation, summary?, created_at, updated_at
 Message: id, role, message, thinking?, raw_input?, raw_output?, name?, frame_id→Frame, agent_id→Agent(SET NULL), created_at

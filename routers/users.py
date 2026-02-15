@@ -30,6 +30,7 @@ async def get_user_profile(
             "user_avatar_uuid": user.user_avatar_uuid,
             "agent_avatar_uuid": user.agent_avatar_uuid,
             "ollama_url": user.ollama_url,
+            "summary_model": user.summary_model,
         }
     except Exception as e:
         logger.error(f"Error fetching user profile for {user.username}: {e}", exc_info=True)
@@ -48,15 +49,16 @@ async def update_user_profile(
         system_prompt = body.get("system_prompt")
         preferred_name = body.get("preferred_name")
         ollama_url = body.get("ollama_url")
+        summary_model = body.get("summary_model")
 
-        if system_prompt is not None or preferred_name is not None or ollama_url is not None:
+        if system_prompt is not None or preferred_name is not None or ollama_url is not None or summary_model is not None:
             with get_session() as session:
                 user_repo = UserRepository(session)
                 # Re-fetch user within session context
                 db_user = user_repo.get_by_id(user.id)
                 if not db_user:
                     raise ValueError(f"User {user.username} not found")
-                user_repo.update_preferences(db_user, system_prompt, preferred_name, ollama_url)
+                user_repo.update_preferences(db_user, system_prompt, preferred_name, ollama_url, summary_model)
 
             return {"status": "ok", "message": "Profile updated successfully"}
         else:
