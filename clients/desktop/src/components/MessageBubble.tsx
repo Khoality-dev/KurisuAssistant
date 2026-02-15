@@ -374,6 +374,19 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               <>
                 <ReactMarkdown
                   components={{
+                    a: ({ node, children, href, ...props }) => (
+                      <a
+                        {...props}
+                        href={href}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (href) (window as any).electron?.openExternal(href);
+                        }}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        {children}
+                      </a>
+                    ),
                     img: ({ node, ...props }) => (
                       <Box
                         component="img"

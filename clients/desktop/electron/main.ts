@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path from 'path';
 import { autoUpdater } from 'electron-updater';
 
@@ -80,6 +80,11 @@ function createCharacterWindow() {
     }
   });
 }
+
+// Open external URLs in system browser
+ipcMain.handle('shell:open-external', (_event, url: string) => {
+  return shell.openExternal(url);
+});
 
 // IPC handlers for character window lifecycle
 ipcMain.handle('character:open-window', () => {
