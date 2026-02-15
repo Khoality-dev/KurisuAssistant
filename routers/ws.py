@@ -26,6 +26,7 @@ async def websocket_chat(
     # Authenticate user
     username = get_current_user(token)
     if not username:
+        await websocket.accept()
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
@@ -34,6 +35,7 @@ async def websocket_chat(
         user_repo = UserRepository(session)
         user = user_repo.get_by_username(username)
         if not user:
+            await websocket.accept()
             await websocket.close(code=4001, reason="User not found")
             return
         user_id = user.id
