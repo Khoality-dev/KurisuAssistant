@@ -100,6 +100,7 @@ export interface Agent {
   tools: string[] | null;
   think: boolean;
   character_config: CharacterConfigDTO | null;
+  memory: string | null;
 }
 
 // Character asset types (backend responses)
@@ -145,6 +146,7 @@ export interface AgentUpdate {
   model_name?: string;
   tools?: string[];
   think?: boolean;
+  memory?: string;
 }
 
 // MCP Server types
