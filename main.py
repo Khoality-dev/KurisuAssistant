@@ -7,7 +7,6 @@ import dotenv
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastmcp.client import Client as FastMCPClient
 
 from routers import (
     auth_router,
@@ -25,9 +24,7 @@ from routers import (
     character_router,
     vision_router,
     skills_router,
-    set_mcp_client,
 )
-from mcp_tools.config import load_mcp_configs
 from mcp_tools.orchestrator import init_orchestrator
 
 # Configure logging with explicit console handler
@@ -41,12 +38,8 @@ logger = logging.getLogger(__name__)
 
 dotenv.load_dotenv()
 
-# Load MCP configs
-mcp_configs = load_mcp_configs()
-mcp_client = FastMCPClient(mcp_configs) if mcp_configs.get("mcpServers") else None
-
-# Set MCP client for the mcp router
-set_mcp_client(mcp_client, mcp_configs)
+# Initialize MCP orchestrator (re-reads mcp_config.json on each cache refresh)
+init_orchestrator()
 
 
 @asynccontextmanager
@@ -54,10 +47,6 @@ async def lifespan(app: FastAPI):
     """Application lifespan events - runs on startup and shutdown."""
     # Startup
     logger.info("Application starting up...")
-
-    # Initialize MCP orchestrator globally
-    init_orchestrator(mcp_client)
-    logger.info("MCP orchestrator initialized")
 
     yield
 
