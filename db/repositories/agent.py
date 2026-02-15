@@ -109,6 +109,7 @@ class AgentRepository(BaseRepository[Agent]):
         tools: Optional[List[str]] = None,
         think: Optional[bool] = None,
         character_config: Optional[dict] = None,
+        memory: Optional[str] = None,
     ) -> Agent:
         """Update an agent.
 
@@ -141,6 +142,8 @@ class AgentRepository(BaseRepository[Agent]):
             update_data["think"] = think
         if character_config is not None:
             update_data["character_config"] = character_config
+        if memory is not None:
+            update_data["memory"] = memory
 
         if update_data:
             return self.update(agent, **update_data)

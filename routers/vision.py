@@ -30,7 +30,7 @@ async def list_faces(user: User = Depends(get_authenticated_user)):
                 "id": identity.id,
                 "name": identity.name,
                 "photo_count": len(identity.photos),
-                "created_at": identity.created_at.isoformat(),
+                "created_at": identity.created_at.isoformat() + "Z",
             }
             for identity in identities
         ]
@@ -103,13 +103,13 @@ async def get_face(identity_id: int, user: User = Depends(get_authenticated_user
         return {
             "id": identity.id,
             "name": identity.name,
-            "created_at": identity.created_at.isoformat(),
+            "created_at": identity.created_at.isoformat() + "Z",
             "photos": [
                 {
                     "id": p.id,
                     "photo_uuid": p.photo_uuid,
                     "url": f"/images/{p.photo_uuid}",
-                    "created_at": p.created_at.isoformat(),
+                    "created_at": p.created_at.isoformat() + "Z",
                 }
                 for p in identity.photos
             ],
