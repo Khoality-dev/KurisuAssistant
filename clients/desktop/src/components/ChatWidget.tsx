@@ -38,6 +38,7 @@ import { useVisionStore } from '../store/visionStore';
 import type { AmplitudeState } from '../videocall/CharacterRenderer';
 import type { PoseTree } from '../videocall/types';
 import { MessageBubble } from './MessageBubble';
+import { FrameSeparator } from './FrameSeparator';
 import type { Message } from '../api/types';
 
 interface ChatWidgetProps {
@@ -48,6 +49,7 @@ interface ChatWidgetProps {
 export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = false, agentId = null }) => {
   const {
     messages,
+    frames,
     currentConversation,
     hasMoreMessages,
     isLoadingMessages,
@@ -916,21 +918,36 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
               }
               return true;
             });
-            return filtered.map((message, index, arr) => {
-              // Match by object identity to find the actual streaming message
+
+            const elements: React.ReactNode[] = [];
+            let lastFrameId: number | undefined;
+
+            filtered.forEach((message, index) => {
+              const currentFrameId = message.frame_id;
+              // Insert separator when frame changes (not before first message)
+              if (currentFrameId && currentFrameId !== lastFrameId && lastFrameId !== undefined) {
+                const frameInfo = frames[currentFrameId];
+                if (frameInfo) {
+                  elements.push(
+                    <FrameSeparator key={`frame-sep-${currentFrameId}`} frame={frameInfo} />
+                  );
+                }
+              }
+              lastFrameId = currentFrameId;
+
               const isActiveStreaming = message === activeStreamingMsg;
-              return (
+              elements.push(
                 <MessageBubble
                   key={message.id ? `msg-${message.id}` : `stream-${index}`}
                   message={message}
                   index={index}
-                  isLast={index === arr.length - 1}
+                  isLast={index === filtered.length - 1}
                   isStreaming={isActiveStreaming}
                   streamingThinking={isActiveStreaming ? streamingThinking : ''}
                   streamingContent={isActiveStreaming ? streamingContent : ''}
                   displayedThinking={isActiveStreaming ? streamingThinking : ''}
                   displayedContent={isActiveStreaming ? streamingContent : ''}
-                  justFinishedStreaming={index === arr.length - 1 && justFinishedStreaming}
+                  justFinishedStreaming={index === filtered.length - 1 && justFinishedStreaming}
                   expandedThinking={expandedThinking}
                   onToggleThinking={toggleThinking}
                   onResend={handleResend}
@@ -939,6 +956,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
                 />
               );
             });
+
+            return elements;
           })()}
         </AnimatePresence>
         <div ref={messagesEndRef} />

@@ -23,6 +23,9 @@ import type {
   FaceIdentity,
   FaceIdentityDetail,
   AvatarCandidate,
+  Skill,
+  SkillCreate,
+  SkillUpdate,
 } from './types';
 
 class APIClient {
@@ -516,6 +519,35 @@ class APIClient {
 
   getFacePhotoUrl(identityId: number, photoId: number): string {
     return `${config.apiBaseUrl}/faces/${identityId}/photos/${photoId}/image`;
+  }
+
+  // Skill Methods
+
+  async listSkills(): Promise<Skill[]> {
+    const response = await this.client.get<Skill[]>('/skills', {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async createSkill(data: SkillCreate): Promise<Skill> {
+    const response = await this.client.post<Skill>('/skills', data, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async updateSkill(id: number, data: SkillUpdate): Promise<Skill> {
+    const response = await this.client.patch<Skill>(`/skills/${id}`, data, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async deleteSkill(id: number): Promise<void> {
+    await this.client.delete(`/skills/${id}`, {
+      headers: this.getHeaders(),
+    });
   }
 }
 

@@ -169,11 +169,30 @@ export interface ToolFunction {
 export interface Tool {
   type: string;
   function: ToolFunction;
+  built_in?: boolean;
 }
 
 export interface ToolsResponse {
   mcp_tools: Tool[];
   builtin_tools: Tool[];
+}
+
+// Skill types
+export interface Skill {
+  id: number;
+  name: string;
+  instructions: string;
+  created_at: string | null;
+}
+
+export interface SkillCreate {
+  name: string;
+  instructions?: string;
+}
+
+export interface SkillUpdate {
+  name?: string;
+  instructions?: string;
 }
 
 // Avatar candidate types
@@ -224,4 +243,14 @@ export interface VisionGesture {
 export interface VisionResult {
   faces: VisionFace[];
   gestures: VisionGesture[];
+}
+
+// Media player types
+
+export interface MediaTrack {
+  title: string;
+  url: string;
+  duration: number | null;
+  thumbnail: string | null;
+  artist: string | null;
 }

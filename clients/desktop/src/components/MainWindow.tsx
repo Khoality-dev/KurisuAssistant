@@ -41,6 +41,7 @@ import { SettingsWindow } from './SettingsWindow';
 import { AgentsWindow } from './AgentsWindow';
 import { ToolsWindow } from './ToolsWindow';
 import { FacesWindow } from './FacesWindow';
+import { MediaPlayerBar } from './MediaPlayerBar';
 
 const DRAWER_WIDTH = 280;
 
@@ -325,6 +326,7 @@ export const MainWindow: React.FC = () => {
           {currentPage === 'settings' && (
             <SettingsWindow onBack={() => setCurrentPage('chat')} />
           )}
+          <MediaPlayerBar />
         </Box>
       </Box>
     </Box>
