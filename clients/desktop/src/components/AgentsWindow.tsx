@@ -57,6 +57,7 @@ interface AgentFormData {
   model_name: string;
   think: boolean;
   tools: string[];
+  memory: string;
 }
 
 export const AgentsWindow: React.FC = () => {
@@ -84,6 +85,7 @@ export const AgentsWindow: React.FC = () => {
     model_name: '',
     think: false,
     tools: [],
+    memory: '',
   });
 
   // File upload refs
@@ -182,6 +184,7 @@ export const AgentsWindow: React.FC = () => {
         model_name: formData.model_name !== selectedAgent.model_name ? formData.model_name : undefined,
         think: formData.think !== selectedAgent.think ? formData.think : undefined,
         tools: toolsChanged ? formData.tools : undefined,
+        memory: formData.memory !== (selectedAgent.memory || '') ? formData.memory : undefined,
       };
 
       // Only send fields that changed
@@ -232,6 +235,7 @@ export const AgentsWindow: React.FC = () => {
       model_name: '',
       think: false,
       tools: [],
+      memory: '',
     });
     setAvatarFile(null);
     setVoiceFile(null);
@@ -248,6 +252,7 @@ export const AgentsWindow: React.FC = () => {
       model_name: agent.model_name || '',
       think: agent.think,
       tools: agent.tools || [],
+      memory: agent.memory || '',
     });
     if (agent.avatar_uuid) {
       setAvatarPreview(apiClient.getImageUrl(agent.avatar_uuid));
@@ -837,6 +842,19 @@ export const AgentsWindow: React.FC = () => {
               renderInput={(params) => (
                 <TextField {...params} label="Tools" placeholder="Select tools..." helperText="Tools this agent can use" />
               )}
+            />
+
+            {/* Agent Memory */}
+            <TextField
+              label="Memory"
+              value={formData.memory}
+              onChange={(e) => setFormData({ ...formData, memory: e.target.value })}
+              multiline
+              minRows={3}
+              maxRows={10}
+              fullWidth
+              placeholder="No memories yet. Memory is automatically built from conversations."
+              helperText="Auto-updated after conversations. You can also edit manually."
             />
 
             {/* Voice Reference */}

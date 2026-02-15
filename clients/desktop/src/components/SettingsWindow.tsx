@@ -256,9 +256,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
                 label="Summary Model"
                 onChange={(e) => setSummaryModel(e.target.value)}
               >
-                <MenuItem value="">
-                  <em>Use chat model</em>
-                </MenuItem>
                 {models.map((model) => (
                   <MenuItem key={model} value={model}>
                     {model}
@@ -267,7 +264,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
               </Select>
             </FormControl>
             <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-              Model used to generate session summaries. Leave empty to use the active chat model.
+              Model used for session summaries and agent memory consolidation. Summaries are disabled until a model is selected.
             </Typography>
           </Box>
 
