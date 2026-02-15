@@ -74,7 +74,6 @@ class MCPOrchestrator:
                         self.mcp_client,
                         tool_call.function.name,
                         tool_call.function.arguments,
-                        conversation_id=conversation_id,
                     )
                     tool_text = result[0].text
                 except Exception as e:

@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "web-search": {
+      "url": "http://web-search-container:8000/sse"
+    }
+  }
+}

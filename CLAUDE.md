@@ -57,8 +57,7 @@ tools/
 ├── routing.py               # RouteToAgentTool, RouteToUserTool (Administrator routing, opt-in)
 ├── context.py               # SearchMessagesTool, GetConversationInfoTool, GetFrameSummariesTool, GetFrameMessagesTool (built-in)
 ├── media.py                 # PlayMusicTool, MusicControlTool, GetMusicQueueTool (opt-in)
-├── skills.py                # GetSkillInstructionsTool (built-in, on-demand lookup), get_skill_names_for_user() helper
-└── web.py                   # WebSearchTool (built-in, DuckDuckGo search)
+└── skills.py                # GetSkillInstructionsTool (built-in, on-demand lookup), get_skill_names_for_user() helper
 
 agents/
 ├── base.py                  # BaseAgent, SimpleAgent, AgentConfig, AgentContext
@@ -66,8 +65,10 @@ agents/
 ├── orchestration.py         # OrchestrationSession, OrchestrationLog
 └── administrator.py         # AdministratorAgent (LLM-based router)
 
+mcp_config.json              # MCP server config (standard mcpServers format, URLs for remote servers)
+
 mcp_tools/
-├── config.py                # Tool config scanning/merging
+├── config.py                # Loads mcp_config.json
 ├── client.py                # Async list_tools()/call_tool() wrappers
 └── orchestrator.py          # Singleton orchestrator with caching
 
@@ -135,15 +136,14 @@ Two modes controlled by `event.agent_id` in `ChatRequestEvent`:
 - `get_frame_summaries`: List past session frames with summaries, timestamps, message counts
 - `get_frame_messages`: Get messages from a specific past session frame by ID
 - `get_skill_instructions`: On-demand skill lookup by name (uses `user_id`)
-- `web_search`: DuckDuckGo web search (query + optional max_results, returns title/url/body)
-
 **Opt-in tools** — must be added to agent's `tools` JSON array. `_handler` auto-injected:
 - `play_music`: Search YouTube and play/enqueue a track
 - `music_control`: Pause, resume, skip, stop playback
 - `get_music_queue`: Get current player state and queue
 - `route_to_agent`, `route_to_user`: Administrator routing tools
 
-**MCP tools** — custom tools in `mcp_tools/<tool-name>/` with `main.py`, `config.json`, `requirements.txt`. Also opt-in via agent's `tools` list.
+**MCP tools** — drop-in config stubs in `mcp_tools/<tool-name>/` with `config.json` for auto-discovery. Actual servers live in separate repos/containers. Also opt-in via agent's `tools` list.
+- `web_search` (server in separate `mcp-servers` repo, config in `mcp_tools/web_search/config.json`): SerpAPI Google search (primary) + DuckDuckGo fallback. Runs as SSE container (`web-search-container:8000`). Server re-reads `.env` on every request (no restart needed after config change).
 
 ### Media Player (yt-dlp Audio Streaming)
 
@@ -299,7 +299,7 @@ All protected unless noted. Auth: `Authorization: Bearer <token>`.
 
 ## Environment Variables
 
-See `.env_template`. Key vars: `POSTGRES_*`, `LLM_API_URL`, `JWT_SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_DAYS=30`, `TTS_PROVIDER=gpt-sovits`, `TTS_API_URL` (hardcoded in docker-compose as `http://gpt-sovits-container:9880`), `INDEX_TTS_API_URL`, `ASR_MODEL=data/asr/whisper-ct2`, `ASR_DEVICE=auto`, `FRAME_IDLE_THRESHOLD_MINUTES=30`.
+See `.env_template`. Key vars: `POSTGRES_*`, `LLM_API_URL`, `JWT_SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_DAYS=30`, `TTS_PROVIDER=gpt-sovits`, `TTS_API_URL` (hardcoded in docker-compose as `http://gpt-sovits-container:9880`), `INDEX_TTS_API_URL`, `ASR_MODEL=data/asr/whisper-ct2`, `ASR_DEVICE=auto`, `FRAME_IDLE_THRESHOLD_MINUTES=30`. MCP tool-specific env vars (e.g. `SERPAPI_KEY`) are configured in each tool's own `.env` in the separate `mcp-servers` repo.
 
 ## Docker Volumes
 

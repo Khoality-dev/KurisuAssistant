@@ -36,6 +36,7 @@ async def mcp_servers(
                 "name": name,
                 "command": config.get("command", ""),
                 "args": config.get("args", []),
+                "url": config.get("url", ""),
                 "status": "configured"
             }
             servers.append(server_info)
