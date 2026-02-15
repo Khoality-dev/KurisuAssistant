@@ -12,6 +12,7 @@ class RouteToAgentTool(BaseTool):
     description = "Route the conversation to a specific agent. Use this when the current message should be handled by another agent."
     requires_approval = False  # Administrator routing doesn't need user approval
     risk_level = "low"
+    built_in = True
 
     def __init__(self, available_agents: Optional[List[str]] = None):
         """Initialize with list of available agent names."""
@@ -59,6 +60,7 @@ class RouteToUserTool(BaseTool):
     description = "End the agent conversation loop and return control to the user. Use this when the agent's response is complete and ready for the user."
     requires_approval = False
     risk_level = "low"
+    built_in = True
 
     def get_schema(self) -> Dict[str, Any]:
         """Return Ollama-compatible tool schema."""

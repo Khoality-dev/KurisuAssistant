@@ -85,6 +85,21 @@ class Agent(Base):
     user = relationship("User", back_populates="agents")
 
 
+class Skill(Base):
+    """User-created skill — instructions injected into all agent system prompts."""
+    __tablename__ = 'skills'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    name = Column(String, nullable=False)
+    instructions = Column(Text, default='')
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_skill_user_id_name'),)
+
+    user = relationship("User")
+
+
 class FaceIdentity(Base):
     __tablename__ = 'face_identities'
 

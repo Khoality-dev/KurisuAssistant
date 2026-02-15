@@ -105,12 +105,14 @@ class BaseAgent(ABC):
         Returns:
             Tool execution result
         """
-        # Enforce tool access: agent can only use its assigned tools
-        if self.config.tools and tool_name not in self.config.tools:
-            logger.warning(f"Agent '{self.config.name}' tried to use unassigned tool: {tool_name}")
-            return f"Tool not available: {tool_name}"
-
         tool = self.tool_registry.get(tool_name)
+
+        # Enforce tool access: built-in tools always available,
+        # config.tools restricts non-built-in tools
+        if self.config.tools and tool_name not in self.config.tools:
+            if not (tool and tool.built_in):
+                logger.warning(f"Agent '{self.config.name}' tried to use unassigned tool: {tool_name}")
+                return f"Tool not available: {tool_name}"
 
         if require_approval and tool and tool.requires_approval:
             # Create approval request
@@ -134,20 +136,33 @@ class BaseAgent(ABC):
                 if response.modified_args:
                     tool_args = response.modified_args
 
+        # Copy args before injecting internal keys to avoid mutating the
+        # caller's dict (which may be referenced by tool_calls in messages
+        # sent back to the LLM).
+        exec_args = dict(tool_args)
+
         # Inject conversation_id for context-aware tools
         if context.conversation_id:
-            tool_args["conversation_id"] = context.conversation_id
+            exec_args["conversation_id"] = context.conversation_id
+
+        # Inject user_id for user-scoped tools (e.g. skill lookup)
+        if context.user_id:
+            exec_args["user_id"] = context.user_id
+
+        # Inject handler for tools that need WebSocket access (e.g. media player)
+        if context.handler:
+            exec_args["_handler"] = context.handler
 
         # Execute the tool
         if tool:
             try:
-                return await tool.execute(tool_args)
+                return await tool.execute(exec_args)
             except Exception as e:
                 logger.error(f"Tool execution failed: {e}", exc_info=True)
                 return f"Tool execution failed: {e}"
         elif self.tool_registry.is_mcp_tool(tool_name):
             # Execute MCP tool via orchestrator
-            return await self._execute_mcp_tool(tool_name, tool_args, context)
+            return await self._execute_mcp_tool(tool_name, exec_args, context)
         else:
             return f"Unknown tool: {tool_name}"
 
@@ -288,6 +303,17 @@ class SimpleAgent(BaseAgent):
         if context.preferred_name:
             system_parts.append(f"The user prefers to be called: {context.preferred_name}")
         system_parts.append(f"Current time: {datetime.datetime.utcnow().isoformat()}")
+
+        # List available skills (agents fetch full instructions on-demand via tool)
+        if context.user_id:
+            from tools.skills import get_skill_names_for_user
+            skill_names = get_skill_names_for_user(context.user_id)
+            if skill_names:
+                system_parts.append(
+                    "You have skills available: " + ", ".join(skill_names) + ".\n"
+                    "IMPORTANT: Before performing any task, check if a relevant skill is available. "
+                    "If so, call get_skill_instructions to read the skill's full instructions first, then follow them."
+                )
         if agent_descriptions:
             system_parts.append(
                 "Other agents in this conversation:\n"
@@ -453,6 +479,7 @@ class SimpleAgent(BaseAgent):
                         name=tool_name,
                         conversation_id=context.conversation_id,
                         frame_id=context.frame_id,
+                        tool_args=tool_args,
                     )
 
                     # Append tool result for next LLM round

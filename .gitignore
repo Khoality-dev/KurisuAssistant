@@ -16,6 +16,7 @@ data/character_assets/
 data/sovits/
 data/face_recognition/models/
 data/gesture_detection/models/
+data/media_cache/
 userdata/
 
 # Secrets & certs

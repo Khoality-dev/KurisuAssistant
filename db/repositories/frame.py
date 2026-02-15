@@ -74,13 +74,14 @@ class FrameRepository(BaseRepository[Frame]):
             self.session.query(
                 Frame.id,
                 Frame.conversation_id,
+                Frame.summary,
                 Frame.created_at,
                 Frame.updated_at,
                 func.count(Message.id).label("message_count"),
             )
             .outerjoin(Message, Frame.id == Message.frame_id)
             .filter(Frame.conversation_id == conversation_id)
-            .group_by(Frame.id, Frame.conversation_id, Frame.created_at, Frame.updated_at)
+            .group_by(Frame.id, Frame.conversation_id, Frame.summary, Frame.created_at, Frame.updated_at)
             .order_by(Frame.created_at)
             .all()
         )
@@ -89,12 +90,25 @@ class FrameRepository(BaseRepository[Frame]):
             {
                 "id": frame.id,
                 "conversation_id": frame.conversation_id,
+                "summary": frame.summary,
                 "created_at": frame.created_at.isoformat(),
                 "updated_at": frame.updated_at.isoformat() if frame.updated_at else frame.created_at.isoformat(),
                 "message_count": frame.message_count or 0,
             }
             for frame in frames
         ]
+
+    def update_summary(self, frame: Frame, summary: str) -> Frame:
+        """Update frame's summary text.
+
+        Args:
+            frame: Frame instance to update
+            summary: Summary text
+
+        Returns:
+            Updated Frame instance
+        """
+        return self.update(frame, summary=summary)
 
     def update_timestamp(self, frame: Frame) -> Frame:
         """Update frame's updated_at timestamp.

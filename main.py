@@ -24,6 +24,7 @@ from routers import (
     tools_router,
     character_router,
     vision_router,
+    skills_router,
     set_mcp_client,
 )
 from mcp_tools.config import load_mcp_configs
@@ -124,6 +125,7 @@ app.include_router(tts_router)
 app.include_router(character_router)
 app.include_router(vision_router)
 app.include_router(mcp_router)
+app.include_router(skills_router)
 app.include_router(ws_router)
 
 

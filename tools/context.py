@@ -24,6 +24,7 @@ class SearchMessagesTool(BaseTool):
     )
     requires_approval = False
     risk_level = "low"
+    built_in = True
 
     def get_schema(self) -> Dict[str, Any]:
         return {
@@ -103,6 +104,7 @@ class SearchMessagesTool(BaseTool):
                         "role": msg.role,
                         "content": msg.message,
                         "name": agent_name,
+                        "frame_id": msg.frame_id,
                         "created_at": msg.created_at.isoformat() if msg.created_at else None,
                     })
 
@@ -134,6 +136,7 @@ class GetConversationInfoTool(BaseTool):
     )
     requires_approval = False
     risk_level = "low"
+    built_in = True
 
     def get_schema(self) -> Dict[str, Any]:
         return {
@@ -192,6 +195,177 @@ class GetConversationInfoTool(BaseTool):
 
     def describe_call(self, args: Dict[str, Any]) -> str:
         return "Get conversation metadata"
+
+
+class GetFrameSummariesTool(BaseTool):
+    """List past conversation session frames with their summaries."""
+
+    name = "get_frame_summaries"
+    description = (
+        "List past conversation sessions (frames) with their summaries and timestamps. "
+        "Use when the user asks about previous sessions or you need context from earlier conversations."
+    )
+    requires_approval = False
+    risk_level = "low"
+    built_in = True
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of frames to return (default: 20).",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+        }
+
+    async def execute(self, args: Dict[str, Any]) -> str:
+        from db.session import get_session
+        from db.models import Frame, Message
+        from sqlalchemy import func, desc
+
+        conversation_id = args.get("conversation_id")
+        if not conversation_id:
+            return json.dumps({"error": "No conversation context available."})
+
+        limit = args.get("limit", 20)
+
+        try:
+            with get_session() as session:
+                frames = (
+                    session.query(
+                        Frame.id,
+                        Frame.summary,
+                        Frame.created_at,
+                        Frame.updated_at,
+                        func.count(Message.id).label("message_count"),
+                    )
+                    .outerjoin(Message, Frame.id == Message.frame_id)
+                    .filter(Frame.conversation_id == conversation_id)
+                    .group_by(Frame.id, Frame.summary, Frame.created_at, Frame.updated_at)
+                    .order_by(desc(Frame.created_at))
+                    .limit(limit)
+                    .all()
+                )
+
+                results = [
+                    {
+                        "frame_id": f.id,
+                        "summary": f.summary,
+                        "created_at": f.created_at.isoformat() if f.created_at else None,
+                        "updated_at": f.updated_at.isoformat() if f.updated_at else None,
+                        "message_count": f.message_count or 0,
+                    }
+                    for f in frames
+                ]
+
+                return json.dumps(results, ensure_ascii=False)
+
+        except Exception as e:
+            logger.error(f"get_frame_summaries failed: {e}", exc_info=True)
+            return json.dumps({"error": f"Failed to get frame summaries: {e}"})
+
+    def describe_call(self, args: Dict[str, Any]) -> str:
+        limit = args.get("limit", 20)
+        return f"List session frames (limit={limit})"
+
+
+class GetFrameMessagesTool(BaseTool):
+    """Get messages from a specific past session frame."""
+
+    name = "get_frame_messages"
+    description = (
+        "Get messages from a specific past session frame by its ID. "
+        "Use after get_frame_summaries to retrieve full conversation content from a particular session."
+    )
+    requires_approval = False
+    risk_level = "low"
+    built_in = True
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "frame_id": {
+                            "type": "integer",
+                            "description": "The frame ID to retrieve messages from.",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of messages to return (default: 50).",
+                        },
+                    },
+                    "required": ["frame_id"],
+                },
+            },
+        }
+
+    async def execute(self, args: Dict[str, Any]) -> str:
+        from db.session import get_session
+        from db.models import Frame, Message
+
+        conversation_id = args.get("conversation_id")
+        if not conversation_id:
+            return json.dumps({"error": "No conversation context available."})
+
+        frame_id = args.get("frame_id")
+        if not frame_id:
+            return json.dumps({"error": "frame_id is required."})
+
+        limit = args.get("limit", 50)
+
+        try:
+            with get_session() as session:
+                # Verify frame belongs to the conversation
+                frame = (
+                    session.query(Frame)
+                    .filter(Frame.id == frame_id, Frame.conversation_id == conversation_id)
+                    .first()
+                )
+                if not frame:
+                    return json.dumps({"error": f"Frame {frame_id} not found in this conversation."})
+
+                messages = (
+                    session.query(Message)
+                    .filter(Message.frame_id == frame_id)
+                    .order_by(Message.created_at)
+                    .limit(limit)
+                    .all()
+                )
+
+                results = [
+                    {
+                        "role": msg.role,
+                        "content": msg.message,
+                        "name": msg.name,
+                        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                    }
+                    for msg in messages
+                ]
+
+                return json.dumps(results, ensure_ascii=False)
+
+        except Exception as e:
+            logger.error(f"get_frame_messages failed: {e}", exc_info=True)
+            return json.dumps({"error": f"Failed to get frame messages: {e}"})
+
+    def describe_call(self, args: Dict[str, Any]) -> str:
+        frame_id = args.get("frame_id", "?")
+        return f"Get messages from frame {frame_id}"
 
 
 def _parse_date(date_str: str) -> datetime | None:

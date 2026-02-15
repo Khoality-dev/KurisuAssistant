@@ -11,6 +11,7 @@ class BaseTool(ABC):
     description: str
     requires_approval: bool = True
     risk_level: str = "low"  # low, medium, high
+    built_in: bool = False  # Built-in tools are always available to all agents
 
     @abstractmethod
     def get_schema(self) -> Dict[str, Any]:

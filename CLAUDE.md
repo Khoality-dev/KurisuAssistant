@@ -21,7 +21,7 @@ db/
 ├── models.py                # SQLAlchemy ORM models
 ├── session.py               # Session management (pool: 10+20 overflow, 1hr recycle, pre-ping)
 └── repositories/            # Repository pattern with BaseRepository[T] generic CRUD
-    ├── base.py, user.py, conversation.py, frame.py, message.py, agent.py, face.py
+    ├── base.py, user.py, conversation.py, frame.py, message.py, agent.py, face.py, skill.py
 
 models/                      # ML/inference modules (NO business logic/DB knowledge)
 ├── asr/                     # Pure ASR interface
@@ -52,10 +52,12 @@ models/                      # ML/inference modules (NO business logic/DB knowle
 └── __init__.py
 
 tools/
-├── base.py                  # BaseTool abstract class
+├── base.py                  # BaseTool abstract class (built_in flag: True = always available)
 ├── registry.py              # ToolRegistry, global tool_registry singleton
-├── routing.py               # RouteToAgentTool, RouteToUserTool (Administrator routing)
-└── context.py               # SearchMessagesTool, GetConversationInfoTool, GetFrameSummariesTool, GetFrameMessagesTool
+├── routing.py               # RouteToAgentTool, RouteToUserTool (Administrator routing, opt-in)
+├── context.py               # SearchMessagesTool, GetConversationInfoTool, GetFrameSummariesTool, GetFrameMessagesTool (built-in)
+├── media.py                 # PlayMusicTool, MusicControlTool, GetMusicQueueTool (opt-in)
+└── skills.py                # GetSkillInstructionsTool (built-in, on-demand lookup), get_skill_names_for_user() helper
 
 agents/
 ├── base.py                  # BaseAgent, SimpleAgent, AgentConfig, AgentContext
@@ -67,6 +69,11 @@ mcp_tools/
 ├── config.py                # Tool config scanning/merging
 ├── client.py                # Async list_tools()/call_tool() wrappers
 └── orchestrator.py          # Singleton orchestrator with caching
+
+media/                       # Media player module (yt-dlp audio streaming)
+├── player.py                # MediaPlayer: per-user stateful player, yt-dlp download + base64 Opus chunk streaming
+│                            # Module-level player registry: get_media_player(user_id, send_event), remove_media_player(user_id)
+└── __init__.py
 
 vision/                      # Vision frame processing pipeline
 ├── processor.py             # VisionProcessor: processes base64 JPEG frames for face/gesture detection
@@ -97,9 +104,9 @@ Two modes controlled by `event.agent_id` in `ChatRequestEvent`:
 
 **Agent message preparation** (`SimpleAgent._prepare_messages()`): Builds unified system prompt (agent identity + agent prompt + user prompt + preferred_name + timestamp + other agent descriptions). Filters out system/administrator messages from history.
 
-**Tool access control**: `Agent.tools` JSON array limits which tools each agent can use. Empty = no tools. `execute_tool()` enforces this. Administrator only gets routing tools.
+**Tool access control**: Built-in tools (`built_in = True`) are always available to all agents. `Agent.tools` JSON array controls opt-in tools (media, routing, MCP). `execute_tool()` enforces this.
 
-**WebSocket reconnection**: Handler stores `_accumulated_messages` (complete messages, not chunks) for replay. `replace_websocket()` replays accumulated + in-progress chunk or `DoneEvent`. Client filters by conversation ID.
+**WebSocket reconnection**: Chat handler stores `_accumulated_messages` (complete messages, not chunks) for replay. `replace_websocket()` replays accumulated + in-progress chunk or `DoneEvent`. Client filters by conversation ID. Media WebSocket has no replay (ephemeral state); player registry preserves player state across reconnects.
 
 ### TTS Details
 
@@ -118,15 +125,42 @@ Two modes controlled by `event.agent_id` in `ChatRequestEvent`:
 - **Model conversion**: `python scripts/convert_whisper.py` (requires `transformers` + `torch` + `ctranslate2`)
 - **Frontend**: Silero VAD (`@ricky0123/vad-web`) auto-detects speech end → sends PCM to `/asr` → inserts text into input field
 
-### MCP Tools
+### Tools
 
-Built-in context tools (`tools/context.py`) receive `conversation_id` auto-injected by `agents/base.py:execute_tool()`:
+**Built-in tools** (`built_in = True`) — always available to all agents, no opt-in needed. `conversation_id` and `user_id` auto-injected by `execute_tool()`:
 - `search_messages`: Text/regex query with date range filtering (results include `frame_id`)
 - `get_conversation_info`: Conversation metadata
 - `get_frame_summaries`: List past session frames with summaries, timestamps, message counts
 - `get_frame_messages`: Get messages from a specific past session frame by ID
+- `get_skill_instructions`: On-demand skill lookup by name (uses `user_id`)
 
-Custom MCP tools go in `mcp_tools/<tool-name>/` with `main.py`, `config.json`, `requirements.txt`.
+**Opt-in tools** — must be added to agent's `tools` JSON array. `_handler` auto-injected:
+- `play_music`: Search YouTube and play/enqueue a track
+- `music_control`: Pause, resume, skip, stop playback
+- `get_music_queue`: Get current player state and queue
+- `route_to_agent`, `route_to_user`: Administrator routing tools
+
+**MCP tools** — custom tools in `mcp_tools/<tool-name>/` with `main.py`, `config.json`, `requirements.txt`. Also opt-in via agent's `tools` list.
+
+### Media Player (yt-dlp Audio Streaming)
+
+**Architecture**: LLM tool calls and WebSocket events both access the same `MediaPlayer` instance via a per-user registry (`get_media_player(user_id, send_event)` in `media/player.py`). All media events (control + audio chunks) flow through the main `/ws/chat` WebSocket.
+
+- **Player registry**: Module-level `_players` dict keyed by `user_id`. `get_media_player()` creates or returns existing player, updating `send_event` callback on WebSocket reconnect. Shared between chat handler and LLM tools (via `tools/media.py`).
+- **Playback controls**: play, pause (asyncio.Event-based), resume, skip, stop, volume, queue management
+- **Search**: yt-dlp Python API (`ytsearch`, `skip_download=True`) returns track metadata (title, URL, duration, thumbnail, artist)
+- **Streaming**: aiohttp downloads audio directly from CDN URL (extracted via yt-dlp), streams 32KB base64 chunks via WebSocket. Auto-advances queue on track completion.
+- **WebSocket Events (client→server)**: `MEDIA_PLAY(query)`, `MEDIA_PAUSE`, `MEDIA_RESUME`, `MEDIA_SKIP`, `MEDIA_STOP`, `MEDIA_QUEUE_ADD(query)`, `MEDIA_QUEUE_REMOVE(index)`, `MEDIA_VOLUME(volume)`
+- **WebSocket Events (server→client)**: `MEDIA_STATE(state, current_track, queue, volume)`, `MEDIA_CHUNK(data, chunk_index, is_last, format, sample_rate)`, `MEDIA_ERROR(error)`
+- **Dependencies**: `yt-dlp` (pip), `aiohttp` (pip)
+
+### Skills System
+
+User-editable instruction blocks stored in DB, injected into every agent's system prompt globally. Skills teach the LLM when/how to use capabilities (e.g., music player commands). Independent of tools — a skill can reference multiple tools.
+
+- **Storage**: `Skill` DB model (per-user, unique name constraint). CRUD via `/skills` REST endpoints.
+- **Injection**: Skill **names** listed in system prompt via `get_skill_names_for_user()`. Full instructions fetched on-demand via `get_skill_instructions` tool (registered in `tools/__init__.py`, auto-injected `user_id`).
+- **Frontend**: "Skills" tab in ToolsWindow with create/edit/delete UI.
 
 ### Vision Pipeline (Face Recognition + Gesture Detection)
 
@@ -197,6 +231,7 @@ Message: id, role, message, thinking?, raw_input?, raw_output?, name?, frame_id�
 Agent: id, user_id→User, name, system_prompt, voice_reference, avatar_uuid, model_name, tools(JSON), think(bool), created_at
 FaceIdentity: id, user_id→User, name(unique per user), created_at
 FacePhoto: id, identity_id→FaceIdentity(CASCADE), embedding(vector(512)), photo_uuid, created_at
+Skill: id, user_id→User, name(unique per user), instructions(text), created_at
 ```
 
 ## API Endpoints
@@ -244,6 +279,10 @@ All protected unless noted. Auth: `Authorization: Bearer <token>`.
 | POST | `/faces/{id}/photos` | Add additional photo to existing identity |
 | DELETE | `/faces/{id}/photos/{photo_id}` | Remove a specific photo |
 | GET | `/faces/{id}/photos/{photo_id}/image` | Serve photo image file |
+| GET | `/skills` | List user's skills |
+| POST | `/skills` | Create skill (name, instructions) |
+| PATCH | `/skills/{id}` | Update skill |
+| DELETE | `/skills/{id}` | Delete skill |
 
 ## Environment Variables
 

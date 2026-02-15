@@ -68,17 +68,26 @@ class ToolRegistry:
         """
         schemas = []
 
-        # Get native tools
+        # Built-in tools are always included; other native tools filtered by tool_names
         for name, tool in self._tools.items():
-            if tool_names is None or name in tool_names:
+            if tool.built_in or tool_names is None or name in tool_names:
                 schemas.append(tool.get_schema())
 
-        # Get MCP tools
+        # MCP tools filtered by tool_names
         for name, schema in self._mcp_tools.items():
             if tool_names is None or name in tool_names:
                 schemas.append(schema)
 
         return schemas
+
+    def get_native_tool_info(self) -> List[Dict]:
+        """Get schemas for all native tools, each tagged with built_in flag."""
+        results = []
+        for tool in self._tools.values():
+            schema = tool.get_schema()
+            schema["built_in"] = tool.built_in
+            results.append(schema)
+        return results
 
     def list_all(self) -> List[str]:
         """List all registered tool names.

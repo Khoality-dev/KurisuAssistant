@@ -30,22 +30,12 @@ async def list_tools(user: User = Depends(get_authenticated_user)):
             except Exception as e:
                 logger.warning(f"Failed to get MCP tools: {e}")
 
-        # Get built-in tools (all schemas without filtering)
-        builtin_tools = tool_registry.get_schemas()
-
-        # Filter out MCP tools from builtin_tools (they're already in mcp_tools)
-        mcp_tool_names = {
-            tool.get("function", {}).get("name")
-            for tool in mcp_tools
-        }
-        builtin_tools = [
-            tool for tool in builtin_tools
-            if tool.get("function", {}).get("name") not in mcp_tool_names
-        ]
+        # Get native tools with built_in flag
+        native_tools = tool_registry.get_native_tool_info()
 
         return {
             "mcp_tools": mcp_tools,
-            "builtin_tools": builtin_tools,
+            "builtin_tools": native_tools,
         }
     except Exception as e:
         logger.error(f"Failed to list tools: {e}", exc_info=True)
