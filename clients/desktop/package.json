@@ -67,7 +67,8 @@
       {
         "provider": "github",
         "owner": "Khoality-dev",
-        "repo": "KurisuAssistant-Client-Windows"
+        "repo": "KurisuAssistant-Client-Windows",
+        "releaseType": "release"
       }
     ]
   }
