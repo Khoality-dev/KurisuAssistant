@@ -83,6 +83,14 @@ def delete_image(image_uuid: str) -> bool:
     return False
 
 
+def save_image_from_array(image: np.ndarray) -> str:
+    """Save a BGR numpy array as JPEG and return UUID."""
+    image_uuid = str(uuid.uuid4())
+    image_path = IMAGES_DIR / f"{image_uuid}.jpg"
+    cv2.imwrite(str(image_path), image, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    return image_uuid
+
+
 def get_image_url(image_uuid: str) -> str:
     """Get the URL for accessing an image."""
     return f"/images/{image_uuid}"

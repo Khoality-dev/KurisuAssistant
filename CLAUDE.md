@@ -55,7 +55,7 @@ tools/
 ├── base.py                  # BaseTool abstract class
 ├── registry.py              # ToolRegistry, global tool_registry singleton
 ├── routing.py               # RouteToAgentTool, RouteToUserTool (Administrator routing)
-└── context.py               # SearchMessagesTool, GetConversationInfoTool
+└── context.py               # SearchMessagesTool, GetConversationInfoTool, GetFrameSummariesTool, GetFrameMessagesTool
 
 agents/
 ├── base.py                  # BaseAgent, SimpleAgent, AgentConfig, AgentContext
@@ -73,6 +73,8 @@ vision/                      # Vision frame processing pipeline
 └── __init__.py
 
 utils/prompts.py             # build_system_messages() from DEFAULT_SYSTEM_PROMPT + user prefs
+utils/images.py              # Image storage: upload_image(), save_image_from_array(), check/get/delete helpers
+utils/frame_summary.py       # summarize_frame() — async fire-and-forget LLM summarization of old frames
 ```
 
 ### Key Design Principles
@@ -119,8 +121,10 @@ Two modes controlled by `event.agent_id` in `ChatRequestEvent`:
 ### MCP Tools
 
 Built-in context tools (`tools/context.py`) receive `conversation_id` auto-injected by `agents/base.py:execute_tool()`:
-- `search_messages`: Text/regex query with date range filtering
+- `search_messages`: Text/regex query with date range filtering (results include `frame_id`)
 - `get_conversation_info`: Conversation metadata
+- `get_frame_summaries`: List past session frames with summaries, timestamps, message counts
+- `get_frame_messages`: Get messages from a specific past session frame by ID
 
 Custom MCP tools go in `mcp_tools/<tool-name>/` with `main.py`, `config.json`, `requirements.txt`.
 
@@ -175,7 +179,9 @@ except Exception as e:
 
 ### Conversation & Frame Management
 - Conversations auto-created on first message with `conversation_id=None` (no explicit create endpoint)
-- Frames auto-managed internally — clients never specify `frame_id`
+- **Frames as session windows**: Each frame is a session window. When the user returns after idle time (`FRAME_IDLE_THRESHOLD_MINUTES`, default 30), a new frame is created with clean LLM context. The old frame gets summarized asynchronously via `summarize_frame()`. LLM only sees messages from the current frame. Built-in tools (`get_frame_summaries`, `get_frame_messages`) let the LLM pull past context on demand.
+- Frontend shows visual separators between frames (date chip with summary tooltip)
+- `GET /conversations/{id}` returns a `frames` map keyed by frame_id with metadata for frames referenced by returned messages
 - Message pagination: reverse chronological fetch, reversed before return (enables infinite scroll)
 
 ### Image Handling
@@ -186,7 +192,7 @@ Stored in `data/image_storage/data/` with UUID names. Converted to base64 for LL
 ```
 User: id, username, password(bcrypt), system_prompt, preferred_name, user_avatar_uuid, agent_avatar_uuid, ollama_url
 Conversation: id, user_id→User, title, created_at, updated_at
-Frame: id, conversation_id→Conversation, created_at, updated_at
+Frame: id, conversation_id→Conversation, summary?, created_at, updated_at
 Message: id, role, message, thinking?, raw_input?, raw_output?, name?, frame_id→Frame, agent_id→Agent(SET NULL), created_at
 Agent: id, user_id→User, name, system_prompt, voice_reference, avatar_uuid, model_name, tools(JSON), think(bool), created_at
 FaceIdentity: id, user_id→User, name(unique per user), created_at
@@ -229,6 +235,8 @@ All protected unless noted. Auth: `Authorization: Bearer <token>`.
 | GET | `/character-assets/{agent_id}/{pose_id}/{filename}` | Serve pose asset (base/patch image, no-cache) |
 | GET | `/character-assets/{agent_id}/edges/{edge_id}` | Serve transition video (no-cache) |
 | PATCH | `/character-assets/{agent_id}/character-config` | Update pose tree config, cleans up orphaned assets |
+| GET | `/agents/{id}/avatar-candidates` | Detect faces from pose base images → cropped candidate UUIDs |
+| POST | `/agents/{id}/avatar-from-uuid` | Set agent avatar from existing image UUID |
 | GET | `/faces` | List registered face identities (with photo count) |
 | POST | `/faces` | Register new face (name + photo) → detect, embed, store |
 | GET | `/faces/{id}` | Get identity details + photos |
@@ -239,7 +247,7 @@ All protected unless noted. Auth: `Authorization: Bearer <token>`.
 
 ## Environment Variables
 
-See `.env_template`. Key vars: `POSTGRES_*`, `LLM_API_URL`, `JWT_SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_DAYS=30`, `TTS_PROVIDER=gpt-sovits`, `TTS_API_URL` (hardcoded in docker-compose as `http://gpt-sovits-container:9880`), `INDEX_TTS_API_URL`, `ASR_MODEL=data/asr/whisper-ct2`, `ASR_DEVICE=auto`.
+See `.env_template`. Key vars: `POSTGRES_*`, `LLM_API_URL`, `JWT_SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_DAYS=30`, `TTS_PROVIDER=gpt-sovits`, `TTS_API_URL` (hardcoded in docker-compose as `http://gpt-sovits-container:9880`), `INDEX_TTS_API_URL`, `ASR_MODEL=data/asr/whisper-ct2`, `ASR_DEVICE=auto`, `FRAME_IDLE_THRESHOLD_MINUTES=30`.
 
 ## Docker Volumes
 

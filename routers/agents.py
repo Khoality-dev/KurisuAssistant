@@ -1,8 +1,10 @@
 """Agent CRUD routes."""
 
 import logging
+from pathlib import Path
 from typing import Optional, List
 
+import cv2
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -11,7 +13,7 @@ from core.deps import get_db, get_authenticated_user
 from db.session import get_session
 from db.models import User
 from db.repositories import AgentRepository
-from utils.images import upload_image
+from utils.images import upload_image, save_image_from_array, check_image_exists
 
 logger = logging.getLogger(__name__)
 
@@ -325,3 +327,103 @@ async def delete_agent(
             raise HTTPException(status_code=404, detail="Agent not found")
 
         return {"message": "Agent deleted successfully"}
+
+
+CHARACTER_ASSETS_DIR = Path(__file__).parent.parent / "data" / "character_assets"
+
+
+class AvatarCandidateResponse(BaseModel):
+    uuid: str
+    pose_id: str
+    score: float
+
+
+class AvatarFromUuidRequest(BaseModel):
+    avatar_uuid: str
+
+
+@router.get("/{agent_id}/avatar-candidates")
+async def get_avatar_candidates(
+    agent_id: int,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+) -> List[AvatarCandidateResponse]:
+    """Detect faces from character pose base images and return cropped candidates."""
+    with get_session() as session:
+        agent_repo = AgentRepository(session)
+        agent = agent_repo.get_by_user_and_id(user.id, agent_id)
+
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        config = agent.character_config
+        pose_tree = config.get("pose_tree") if config else None
+        if not pose_tree or "nodes" not in pose_tree:
+            raise HTTPException(status_code=400, detail="Agent has no character config with poses")
+
+        from models.face_recognition import get_provider
+        face_provider = get_provider()
+
+        candidates = []
+        for node in pose_tree["nodes"]:
+            pose_id = node["id"]
+            base_path = CHARACTER_ASSETS_DIR / str(agent_id) / pose_id / "base.png"
+            if not base_path.exists():
+                continue
+
+            image = cv2.imread(str(base_path))
+            if image is None:
+                continue
+
+            faces = face_provider.detect_and_embed(image)
+            for face in faces:
+                bbox = face["bbox"]  # [x1, y1, x2, y2]
+                x1, y1, x2, y2 = [int(v) for v in bbox]
+
+                # Expand bbox generously for portrait framing
+                w = x2 - x1
+                h = y2 - y1
+                cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+                new_w = w * 2.5
+                new_h = h * 3.0
+                # Shift center up to include more forehead/hair
+                cy -= h * 0.15
+                nx1 = max(0, int(cx - new_w / 2))
+                ny1 = max(0, int(cy - new_h / 2))
+                nx2 = min(image.shape[1], int(cx + new_w / 2))
+                ny2 = min(image.shape[0], int(cy + new_h / 2))
+
+                crop = image[ny1:ny2, nx1:nx2]
+                if crop.size == 0:
+                    continue
+
+                crop_uuid = save_image_from_array(crop)
+                candidates.append(AvatarCandidateResponse(
+                    uuid=crop_uuid,
+                    pose_id=pose_id,
+                    score=float(face["score"]),
+                ))
+
+        return candidates
+
+
+@router.post("/{agent_id}/avatar-from-uuid")
+async def set_avatar_from_uuid(
+    agent_id: int,
+    body: AvatarFromUuidRequest,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+) -> AgentResponse:
+    """Set agent avatar from an existing image UUID."""
+    if not check_image_exists(body.avatar_uuid):
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    with get_session() as session:
+        agent_repo = AgentRepository(session)
+        agent = agent_repo.get_by_user_and_id(user.id, agent_id)
+
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        agent = agent_repo.update_agent(agent, avatar_uuid=body.avatar_uuid)
+        return _agent_to_response(agent)
