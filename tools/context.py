@@ -105,7 +105,7 @@ class SearchMessagesTool(BaseTool):
                         "content": msg.message,
                         "name": agent_name,
                         "frame_id": msg.frame_id,
-                        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                        "created_at": msg.created_at.isoformat() + "Z" if msg.created_at else None,
                     })
 
                 return json.dumps(results, ensure_ascii=False)
@@ -181,8 +181,8 @@ class GetConversationInfoTool(BaseTool):
 
                 result = {
                     "title": conversation.title,
-                    "created_at": conversation.created_at.isoformat() if conversation.created_at else None,
-                    "updated_at": conversation.updated_at.isoformat() if conversation.updated_at else None,
+                    "created_at": conversation.created_at.isoformat() + "Z" if conversation.created_at else None,
+                    "updated_at": conversation.updated_at.isoformat() + "Z" if conversation.updated_at else None,
                     "message_count": message_count,
                     "frame_count": frame_count,
                 }
@@ -261,8 +261,8 @@ class GetFrameSummariesTool(BaseTool):
                     {
                         "frame_id": f.id,
                         "summary": f.summary,
-                        "created_at": f.created_at.isoformat() if f.created_at else None,
-                        "updated_at": f.updated_at.isoformat() if f.updated_at else None,
+                        "created_at": f.created_at.isoformat() + "Z" if f.created_at else None,
+                        "updated_at": f.updated_at.isoformat() + "Z" if f.updated_at else None,
                         "message_count": f.message_count or 0,
                     }
                     for f in frames
@@ -352,7 +352,7 @@ class GetFrameMessagesTool(BaseTool):
                         "role": msg.role,
                         "content": msg.message,
                         "name": msg.name,
-                        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                        "created_at": msg.created_at.isoformat() + "Z" if msg.created_at else None,
                     }
                     for msg in messages
                 ]

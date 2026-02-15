@@ -54,7 +54,7 @@ async def get_message(
                 "role": message.role,
                 "content": message.message,
                 "conversation_id": message.frame.conversation_id if message.frame else None,
-                "created_at": message.created_at.isoformat(),
+                "created_at": message.created_at.isoformat() + "Z",
                 "has_raw_data": bool(message.raw_input or message.raw_output),
             }
             if message.thinking:

@@ -91,8 +91,8 @@ class FrameRepository(BaseRepository[Frame]):
                 "id": frame.id,
                 "conversation_id": frame.conversation_id,
                 "summary": frame.summary,
-                "created_at": frame.created_at.isoformat(),
-                "updated_at": frame.updated_at.isoformat() if frame.updated_at else frame.created_at.isoformat(),
+                "created_at": frame.created_at.isoformat() + "Z",
+                "updated_at": frame.updated_at.isoformat() + "Z" if frame.updated_at else frame.created_at.isoformat() + "Z",
                 "message_count": frame.message_count or 0,
             }
             for frame in frames

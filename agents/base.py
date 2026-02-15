@@ -48,6 +48,7 @@ class AgentConfig:
     model_name: Optional[str] = None
     tools: List[str] = field(default_factory=list)
     think: bool = False
+    memory: Optional[str] = None
 
 
 @dataclass
@@ -314,6 +315,10 @@ class SimpleAgent(BaseAgent):
                     "IMPORTANT: Before performing any task, check if a relevant skill is available. "
                     "If so, call get_skill_instructions to read the skill's full instructions first, then follow them."
                 )
+        # Inject agent memory
+        if self.config.memory:
+            system_parts.append("Your memory:\n" + self.config.memory)
+
         if agent_descriptions:
             system_parts.append(
                 "Other agents in this conversation:\n"

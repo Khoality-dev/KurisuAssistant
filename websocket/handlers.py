@@ -164,11 +164,21 @@ class ChatSessionHandler:
             # Setup conversation/frame
             conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids = await self._setup_conversation(event)
 
-            # Fire-and-forget summarization of old frame + backfill
-            from utils.frame_summary import summarize_frame
-            model = summary_model or event.model_name or DEFAULT_ADMIN_MODEL
-            for fid in ([old_frame_id] if old_frame_id else []) + unsummarized_ids:
-                asyncio.create_task(summarize_frame(fid, model_name=model, api_url=ollama_url))
+            # Fire-and-forget summarization + memory consolidation (only if summary_model configured)
+            if summary_model:
+                from utils.frame_summary import summarize_frame
+                for fid in ([old_frame_id] if old_frame_id else []) + unsummarized_ids:
+                    asyncio.create_task(summarize_frame(fid, model_name=summary_model, api_url=ollama_url))
+
+                from utils.memory_consolidation import consolidate_agent_memory
+                consolidation_fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
+                if consolidation_fids and event.agent_id:
+                    asyncio.create_task(consolidate_agent_memory(
+                        agent_id=event.agent_id,
+                        frame_ids=consolidation_fids,
+                        model_name=summary_model,
+                        api_url=ollama_url,
+                    ))
 
             # Reset accumulated state for new task
             self._accumulated_messages = []
@@ -317,11 +327,11 @@ class ChatSessionHandler:
             # Setup conversation/frame
             conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids = await self._setup_conversation(event)
 
-            # Fire-and-forget summarization of old frame + backfill
-            from utils.frame_summary import summarize_frame
-            model = summary_model or event.model_name or DEFAULT_ADMIN_MODEL
-            for fid in ([old_frame_id] if old_frame_id else []) + unsummarized_ids:
-                asyncio.create_task(summarize_frame(fid, model_name=model, api_url=ollama_url))
+            # Fire-and-forget summarization (only if summary_model configured)
+            if summary_model:
+                from utils.frame_summary import summarize_frame
+                for fid in ([old_frame_id] if old_frame_id else []) + unsummarized_ids:
+                    asyncio.create_task(summarize_frame(fid, model_name=summary_model, api_url=ollama_url))
 
             # Reset accumulated state for new task
             self._accumulated_messages = []
@@ -799,6 +809,7 @@ class ChatSessionHandler:
                     model_name=agent.model_name,
                     tools=agent.tools or [],
                     think=agent.think,
+                    memory=agent.memory,
                 )
                 for agent in agents
             ]
@@ -1036,6 +1047,7 @@ class ChatSessionHandler:
                 model_name=agent.model_name,
                 tools=agent.tools or [],
                 think=agent.think,
+                memory=agent.memory,
             )
 
             return BaseAgent.create_from_config(config, tool_registry)

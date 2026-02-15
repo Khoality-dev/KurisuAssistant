@@ -42,7 +42,7 @@ class BaseEvent:
     """Base class for all events."""
     type: EventType
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert event to dictionary for JSON serialization."""
@@ -269,7 +269,7 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
     if event_type == EventType.CHAT_REQUEST.value:
         return ChatRequestEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
             text=data.get("text", ""),
             model_name=data.get("model_name", ""),
             conversation_id=data.get("conversation_id"),
@@ -280,7 +280,7 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
     elif event_type == EventType.TOOL_APPROVAL_RESPONSE.value:
         return ToolApprovalResponseEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
             approval_id=data.get("approval_id", ""),
             approved=data.get("approved", False),
             modified_args=data.get("modified_args"),
@@ -289,13 +289,13 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
     elif event_type == EventType.CANCEL.value:
         return CancelEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
         )
 
     elif event_type == EventType.VISION_START.value:
         return VisionStartEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
             enable_face=data.get("enable_face", True),
             enable_pose=data.get("enable_pose", True),
             enable_hands=data.get("enable_hands", True),
@@ -304,65 +304,65 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
     elif event_type == EventType.VISION_FRAME.value:
         return VisionFrameEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
             frame=data.get("frame", ""),
         )
 
     elif event_type == EventType.VISION_STOP.value:
         return VisionStopEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
         )
 
     elif event_type == EventType.MEDIA_PLAY.value:
         return MediaPlayEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
             query=data.get("query", ""),
         )
 
     elif event_type == EventType.MEDIA_PAUSE.value:
         return MediaPauseEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
         )
 
     elif event_type == EventType.MEDIA_RESUME.value:
         return MediaResumeEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
         )
 
     elif event_type == EventType.MEDIA_SKIP.value:
         return MediaSkipEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
         )
 
     elif event_type == EventType.MEDIA_STOP.value:
         return MediaStopEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
         )
 
     elif event_type == EventType.MEDIA_QUEUE_ADD.value:
         return MediaQueueAddEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
             query=data.get("query", ""),
         )
 
     elif event_type == EventType.MEDIA_QUEUE_REMOVE.value:
         return MediaQueueRemoveEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
             index=data.get("index", 0),
         )
 
     elif event_type == EventType.MEDIA_VOLUME.value:
         return MediaVolumeEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
             volume=data.get("volume", 1.0),
         )
 

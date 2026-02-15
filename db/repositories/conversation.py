@@ -97,11 +97,11 @@ class ConversationRepository(BaseRepository[Conversation]):
                 {
                     "id": conv.id,
                     "title": conv.title or "New conversation",
-                    "created_at": conv.created_at.isoformat(),
+                    "created_at": conv.created_at.isoformat() + "Z",
                     "updated_at": (
-                        conv.updated_at.isoformat()
+                        conv.updated_at.isoformat() + "Z"
                         if conv.updated_at
-                        else conv.created_at.isoformat()
+                        else conv.created_at.isoformat() + "Z"
                     ),
                     "frame_count": frame_count,
                 }

@@ -57,7 +57,8 @@ tools/
 ├── routing.py               # RouteToAgentTool, RouteToUserTool (Administrator routing, opt-in)
 ├── context.py               # SearchMessagesTool, GetConversationInfoTool, GetFrameSummariesTool, GetFrameMessagesTool (built-in)
 ├── media.py                 # PlayMusicTool, MusicControlTool, GetMusicQueueTool (opt-in)
-└── skills.py                # GetSkillInstructionsTool (built-in, on-demand lookup), get_skill_names_for_user() helper
+├── skills.py                # GetSkillInstructionsTool (built-in, on-demand lookup), get_skill_names_for_user() helper
+└── web.py                   # WebSearchTool (built-in, DuckDuckGo search)
 
 agents/
 ├── base.py                  # BaseAgent, SimpleAgent, AgentConfig, AgentContext
@@ -82,6 +83,7 @@ vision/                      # Vision frame processing pipeline
 utils/prompts.py             # build_system_messages() from DEFAULT_SYSTEM_PROMPT + user prefs
 utils/images.py              # Image storage: upload_image(), save_image_from_array(), check/get/delete helpers
 utils/frame_summary.py       # summarize_frame() — async fire-and-forget LLM summarization of old frames
+utils/memory_consolidation.py # consolidate_agent_memory() — async fire-and-forget LLM memory update from session frames
 ```
 
 ### Key Design Principles
@@ -133,6 +135,7 @@ Two modes controlled by `event.agent_id` in `ChatRequestEvent`:
 - `get_frame_summaries`: List past session frames with summaries, timestamps, message counts
 - `get_frame_messages`: Get messages from a specific past session frame by ID
 - `get_skill_instructions`: On-demand skill lookup by name (uses `user_id`)
+- `web_search`: DuckDuckGo web search (query + optional max_results, returns title/url/body)
 
 **Opt-in tools** — must be added to agent's `tools` JSON array. `_handler` auto-injected:
 - `play_music`: Search YouTube and play/enqueue a track
@@ -161,6 +164,16 @@ User-editable instruction blocks stored in DB, injected into every agent's syste
 - **Storage**: `Skill` DB model (per-user, unique name constraint). CRUD via `/skills` REST endpoints.
 - **Injection**: Skill **names** listed in system prompt via `get_skill_names_for_user()`. Full instructions fetched on-demand via `get_skill_instructions` tool (registered in `tools/__init__.py`, auto-injected `user_id`).
 - **Frontend**: "Skills" tab in ToolsWindow with create/edit/delete UI.
+
+### Agent Memory
+
+Per-agent free-form text document (markdown), automatically consolidated from conversation history and injected into the agent's system prompt every request.
+
+- **Storage**: `Agent.memory` text column (nullable). No separate table.
+- **Injection**: Appended to system prompt in `SimpleAgent._prepare_messages()` as "Your memory:\n{memory}". Loaded from `AgentConfig.memory` (no runtime DB query).
+- **Consolidation**: `utils/memory_consolidation.py` — fire-and-forget async task triggered on frame idle detection (same trigger as frame summarization). Reads agent's system prompt + current memory + new frame messages, calls LLM to produce updated memory. Hard limit ~4000 chars. Uses `User.summary_model` (same model as frame summarization).
+- **Trigger**: In `_run_single_agent()`, after frame summarization. Fires when `consolidation_fids` (old frame + unsummarized frames) is non-empty, `agent_id` is set, and `summary_model` is configured. Both summarization and consolidation are skipped if no summary model is set.
+- **Frontend**: Editable textarea in agent edit dialog (AgentsWindow.tsx). Exposed via `GET/PATCH /agents/{id}`.
 
 ### Vision Pipeline (Face Recognition + Gesture Detection)
 
@@ -213,7 +226,7 @@ except Exception as e:
 
 ### Conversation & Frame Management
 - Conversations auto-created on first message with `conversation_id=None` (no explicit create endpoint)
-- **Frames as session windows**: Each frame is a session window. When the user returns after idle time (`FRAME_IDLE_THRESHOLD_MINUTES`, default 30), a new frame is created with clean LLM context. The old frame gets summarized asynchronously via `summarize_frame()`. LLM only sees messages from the current frame. Built-in tools (`get_frame_summaries`, `get_frame_messages`) let the LLM pull past context on demand.
+- **Frames as session windows**: Each frame is a session window. When the user returns after idle time (`FRAME_IDLE_THRESHOLD_MINUTES`, default 30), a new frame is created with clean LLM context. The old frame gets summarized asynchronously via `summarize_frame()` if `User.summary_model` is configured (no default fallback). LLM only sees messages from the current frame. Built-in tools (`get_frame_summaries`, `get_frame_messages`) let the LLM pull past context on demand.
 - Frontend shows visual separators between frames (date chip with summary tooltip)
 - `GET /conversations/{id}` returns a `frames` map keyed by frame_id with metadata for frames referenced by returned messages
 - Message pagination: reverse chronological fetch, reversed before return (enables infinite scroll)
@@ -224,11 +237,11 @@ Stored in `data/image_storage/data/` with UUID names. Converted to base64 for LL
 ## Database Schema
 
 ```
-User: id, username, password(bcrypt), system_prompt, preferred_name, user_avatar_uuid, agent_avatar_uuid, ollama_url, summary_model
+User: id, username, password(bcrypt), system_prompt, preferred_name, user_avatar_uuid, agent_avatar_uuid, ollama_url, summary_model(nullable, required for summarization+memory)
 Conversation: id, user_id→User, title, created_at, updated_at
 Frame: id, conversation_id→Conversation, summary?, created_at, updated_at
 Message: id, role, message, thinking?, raw_input?, raw_output?, name?, frame_id→Frame, agent_id→Agent(SET NULL), created_at
-Agent: id, user_id→User, name, system_prompt, voice_reference, avatar_uuid, model_name, tools(JSON), think(bool), created_at
+Agent: id, user_id→User, name, system_prompt, voice_reference, avatar_uuid, model_name, tools(JSON), think(bool), memory(text?), created_at
 FaceIdentity: id, user_id→User, name(unique per user), created_at
 FacePhoto: id, identity_id→FaceIdentity(CASCADE), embedding(vector(512)), photo_uuid, created_at
 Skill: id, user_id→User, name(unique per user), instructions(text), created_at

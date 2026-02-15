@@ -61,7 +61,7 @@ async def get_conversation(
                     "role": msg.role,
                     "content": msg.message,
                     "frame_id": msg.frame_id,
-                    "created_at": msg.created_at.isoformat(),
+                    "created_at": msg.created_at.isoformat() + "Z",
                     "has_raw_data": bool(msg.raw_input or msg.raw_output),
                 }
                 if msg.name:
@@ -91,15 +91,15 @@ async def get_conversation(
                     frames_map[f.id] = {
                         "id": f.id,
                         "summary": f.summary,
-                        "created_at": f.created_at.isoformat() if f.created_at else None,
-                        "updated_at": f.updated_at.isoformat() if f.updated_at else None,
+                        "created_at": f.created_at.isoformat() + "Z" if f.created_at else None,
+                        "updated_at": f.updated_at.isoformat() + "Z" if f.updated_at else None,
                     }
 
             return {
                 "id": conversation.id,
                 "messages": messages_array,
                 "frames": frames_map,
-                "created_at": conversation.created_at.isoformat(),
+                "created_at": conversation.created_at.isoformat() + "Z",
                 "title": conversation.title or "",
                 "total_messages": total_messages,
                 "offset": offset,

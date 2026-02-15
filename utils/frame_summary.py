@@ -19,7 +19,7 @@ MAX_TRANSCRIPT_CHARS = 8000
 
 async def summarize_frame(
     frame_id: int,
-    model_name: str = "gemma3:4b",
+    model_name: str,
     api_url: Optional[str] = None,
 ) -> Optional[str]:
     """Summarize a frame's messages and store the result.

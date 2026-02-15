@@ -42,7 +42,7 @@ async def list_skills(
                     "id": s.id,
                     "name": s.name,
                     "instructions": s.instructions,
-                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                    "created_at": s.created_at.isoformat() + "Z" if s.created_at else None,
                 }
                 for s in skills
             ]
@@ -70,7 +70,7 @@ async def create_skill(
                 "id": skill.id,
                 "name": skill.name,
                 "instructions": skill.instructions,
-                "created_at": skill.created_at.isoformat() if skill.created_at else None,
+                "created_at": skill.created_at.isoformat() + "Z" if skill.created_at else None,
             }
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
@@ -99,7 +99,7 @@ async def update_skill(
                 "id": skill.id,
                 "name": skill.name,
                 "instructions": skill.instructions,
-                "created_at": skill.created_at.isoformat() if skill.created_at else None,
+                "created_at": skill.created_at.isoformat() + "Z" if skill.created_at else None,
             }
     except HTTPException:
         raise

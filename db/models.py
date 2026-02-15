@@ -77,6 +77,7 @@ class Agent(Base):
     tools = Column(JSON, nullable=True)  # List of tool names
     think = Column(Boolean, default=False, nullable=False)  # Enable extended reasoning
     character_config = Column(JSON, nullable=True)  # Animation tree config for video call mode
+    memory = Column(Text, nullable=True)  # Free-form persistent memory (markdown)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Unique name per user

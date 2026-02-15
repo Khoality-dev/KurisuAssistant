@@ -76,6 +76,7 @@ class AgentUpdate(BaseModel):
     model_name: Optional[str] = None
     tools: Optional[List[str]] = None
     think: Optional[bool] = None
+    memory: Optional[str] = None
 
 
 class AgentResponse(BaseModel):
@@ -89,6 +90,7 @@ class AgentResponse(BaseModel):
     tools: Optional[List[str]]
     think: bool
     character_config: Optional[dict] = None
+    memory: Optional[str] = None
 
 
 def _agent_to_response(agent) -> AgentResponse:
@@ -103,6 +105,7 @@ def _agent_to_response(agent) -> AgentResponse:
         tools=agent.tools,
         think=agent.think,
         character_config=getattr(agent, 'character_config', None),
+        memory=agent.memory,
     )
 
 
@@ -218,6 +221,7 @@ async def update_agent(
             model_name=body.model_name,
             tools=body.tools if agent.name != ADMINISTRATOR_NAME else None,  # Admin uses routing tools only
             think=body.think,
+            memory=body.memory,
         )
 
         return _agent_to_response(agent)
