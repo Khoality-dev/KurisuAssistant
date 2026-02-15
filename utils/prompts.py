@@ -3,7 +3,7 @@
 import datetime
 from typing import Optional, List, Dict
 
-DEFAULT_SYSTEM_PROMPT = """You are a helpful AI assistant. Be concise, accurate, and helpful in your responses."""
+DEFAULT_SYSTEM_PROMPT = """"""
 
 
 def build_system_messages(

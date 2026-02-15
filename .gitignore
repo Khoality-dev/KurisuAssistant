@@ -20,6 +20,7 @@ whisper-finetuned/
 
 # Config overrides
 configs/default.json
+mcp_config.json
 
 # IDE
 .vscode/

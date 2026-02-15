@@ -44,6 +44,7 @@ class PlayMusicTool(BaseTool):
     )
     requires_approval = False
     risk_level = "low"
+    built_in = True
 
     def get_schema(self) -> Dict[str, Any]:
         return {
@@ -98,6 +99,7 @@ class MusicControlTool(BaseTool):
     )
     requires_approval = False
     risk_level = "low"
+    built_in = True
 
     def get_schema(self) -> Dict[str, Any]:
         return {
@@ -161,6 +163,7 @@ class GetMusicQueueTool(BaseTool):
     )
     requires_approval = False
     risk_level = "low"
+    built_in = True
 
     def get_schema(self) -> Dict[str, Any]:
         return {

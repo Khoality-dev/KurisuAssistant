@@ -1,6 +1,7 @@
 """MCP tools orchestration with caching and execution.
 
 This module provides a singleton orchestrator for managing MCP tools:
+- Re-reads mcp_config.json on each cache refresh (no restart needed)
 - Caching tools with 30-second TTL
 - Executing tool calls with conversation_id injection
 """
@@ -10,24 +11,44 @@ import datetime
 import logging
 from typing import Optional, List, Dict, Any
 
+import httpx
+from fastmcp.client import Client as FastMCPClient
+
+from .config import load_mcp_configs
 from .client import list_tools, call_tool
 
 logger = logging.getLogger(__name__)
+
+_httpx_factory = lambda **kwargs: httpx.AsyncClient(verify=False, follow_redirects=True, **kwargs)
+
+
+def _create_client_from_config():
+    """Create a FastMCPClient from mcp_config.json, or None if empty."""
+    configs = load_mcp_configs()
+    if not configs.get("mcpServers"):
+        return None, configs
+
+    client = FastMCPClient(configs)
+    t = client.transport
+    for obj in [t, getattr(t, "transport", None)]:
+        if obj is not None and hasattr(obj, "httpx_client_factory"):
+            obj.httpx_client_factory = _httpx_factory
+    return client, configs
 
 
 class MCPOrchestrator:
     """Orchestrator for MCP tool management and execution."""
 
-    def __init__(self, mcp_client):
-        """Initialize the orchestrator with an MCP client.
-
-        Args:
-            mcp_client: MCP client instance
-        """
-        self.mcp_client = mcp_client
+    def __init__(self):
+        self.mcp_client = None
+        self.mcp_configs: Dict = {}
         self._cached_tools: List[Dict] = []
         self._tools_cache_time: float = 0
         self._cache_ttl: int = 30  # Cache TTL in seconds
+
+    def _refresh_client(self):
+        """Re-read config and rebuild the MCP client."""
+        self.mcp_client, self.mcp_configs = _create_client_from_config()
 
     async def get_tools(self) -> List[Dict]:
         """Get MCP tools with caching to avoid repeated connections.
@@ -39,6 +60,7 @@ class MCPOrchestrator:
 
         # Cache tools for 30 seconds to reduce MCP client connection overhead
         if current_time - self._tools_cache_time > self._cache_ttl:
+            self._refresh_client()
             if self.mcp_client is not None:
                 try:
                     self._cached_tools = await list_tools(self.mcp_client)
@@ -74,7 +96,6 @@ class MCPOrchestrator:
                         self.mcp_client,
                         tool_call.function.name,
                         tool_call.function.arguments,
-                        conversation_id=conversation_id,
                     )
                     tool_text = result[0].text
                 except Exception as e:
@@ -98,16 +119,13 @@ class MCPOrchestrator:
 _orchestrator: Optional[MCPOrchestrator] = None
 
 
-def init_orchestrator(mcp_client) -> None:
+def init_orchestrator() -> None:
     """Initialize the global MCP orchestrator.
 
     This should be called once at application startup.
-
-    Args:
-        mcp_client: MCP client instance
     """
     global _orchestrator
-    _orchestrator = MCPOrchestrator(mcp_client)
+    _orchestrator = MCPOrchestrator()
 
 
 def get_orchestrator() -> MCPOrchestrator:

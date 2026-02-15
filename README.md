@@ -1,124 +1,121 @@
 # Kurisu Assistant
 
-A voice-based AI assistant platform combining STT, TTS, and LLM with a microservices architecture.
+A voice-based AI assistant platform combining speech recognition, voice synthesis, and large language models. Built with a microservices architecture using Docker Compose.
 
-## Overview
+## Features
 
-Kurisu Assistant combines:
-
-* **Speech-to-Text** via faster-whisper (CTranslate2) for fast, accurate transcription
-* **Text-to-Speech** via GPT-SoVITS and INDEX-TTS for natural voice output
-* **Large Language Models** via Ollama for intelligent, context-aware conversations
-* **Multi-Agent Orchestration** with an Administrator routing between specialized agents
+- **Voice Conversations** — Browser-based Silero VAD detects speech, transcribes via faster-whisper, and responds with natural TTS (GPT-SoVITS or INDEX-TTS)
+- **Multi-Agent System** — Create specialized agents with custom prompts, voices, models, and tool access. Administrator agent can route between them in group discussions
+- **Agent Memory** — Agents automatically consolidate conversation history into persistent memory, injected into every request
+- **Vision Pipeline** — Real-time face recognition (InsightFace) and gesture detection (YOLOv8-Pose + MediaPipe Hands) from webcam
+- **Character Animation** — Pose-based character system with gesture-triggered transitions
+- **Session Frames** — Conversations split into session windows after idle periods, with automatic LLM summarization of past frames
+- **Skills System** — User-editable instruction blocks that teach agents how to use capabilities
+- **Tool Ecosystem** — Built-in tools (message search, web search, frame history), opt-in tools, and custom MCP tools
+- **Image Support** — Upload and embed images in conversations with vision model support
 
 ## Architecture
 
 | Service | Port | Description |
 |---------|------|-------------|
-| **nginx** | 80/443 | HTTPS reverse proxy (self-signed certs) |
-| **api** | 15597 (internal) | FastAPI backend — chat, auth, ASR, TTS, agents |
-| **postgres** | 5432 (internal) | PostgreSQL 16 |
-| **gpt-sovits** | 9880 | Voice synthesis backend |
-
-### Key Modules
+| **nginx** | 80/443 | HTTPS reverse proxy |
+| **api** | 15597 (internal) | FastAPI backend |
+| **postgres** | 5432 (internal) | PostgreSQL 16 + pgvector |
+| **gpt-sovits** | 9880 | Voice synthesis |
 
 ```
-asr/            # ASR provider pattern (faster-whisper)
-llm/            # LLM provider pattern (Ollama)
-tts_providers/  # TTS provider pattern (GPT-SoVITS, INDEX-TTS)
-agents/         # Multi-agent orchestration (Administrator + SimpleAgents)
-tools/          # Built-in tools (context search, routing)
-mcp_tools/      # Custom MCP tool servers
-routers/        # FastAPI route handlers
-db/             # SQLAlchemy models + repository pattern
+models/          ML providers (ASR, LLM, TTS, face recognition, gesture detection)
+agents/          Multi-agent orchestration
+tools/           Built-in and opt-in tool definitions
+mcp_tools/       Custom MCP tool servers
+vision/          Webcam frame processing pipeline
+routers/         FastAPI route handlers
+db/              SQLAlchemy models + repository pattern
+utils/           Prompts, images, frame summarization, memory consolidation
 ```
 
-## Features
+## Getting Started
 
-* **Voice Input**: Browser-based Silero VAD auto-detects speech, transcribes via server-side faster-whisper
-* **Multi-Agent Chat**: Administrator agent routes between user-created agents with tool access control
-* **Streaming Responses**: WebSocket-based real-time streaming with reconnection support
-* **TTS Auto-Play**: Streaming TTS plays audio as the agent is still responding
-* **Image Support**: Upload and embed images in conversations
-* **MCP Tools**: Extensible tool system via Model Context Protocol
+### Prerequisites
 
-## Installation
+- Docker and Docker Compose
+- [Ollama](https://ollama.ai) with at least one model pulled
+- (Optional) NVIDIA GPU for CUDA-accelerated ASR and vision
 
-### Server (Docker)
+### Docker
 
 ```bash
-docker-compose up -d
+cp .env_template .env    # Edit with your settings
+docker compose up -d
 ```
 
-### Server (Local Development)
+### Local Development
 
 ```bash
 python -m venv venv && venv\Scripts\activate
 pip install -r requirements.txt
-python migrate.py          # Run database migrations
-./run_dev.bat              # Start server (Windows)
+python migrate.py        # Run database migrations
+./run_dev.bat            # Start server (Windows)
 ```
 
-### ASR Model Setup
+### Client
 
-The server ships with a base Whisper model. To use a finetuned model:
+See [KurisuAssistant-Client-Windows](https://github.com/Khoality-dev/KurisuAssistant-Client-Windows) for the Electron + React desktop client.
 
-```bash
-# Requires transformers + torch + ctranslate2 for conversion
-pip install transformers torch ctranslate2
-python scripts/convert_whisper.py --model whisper-finetuned --output data/asr/whisper-ct2
-```
+### Default Account
 
-### Client (Electron + React)
-
-See the [KurisuAssistant-Client-Windows](https://github.com/Khoality-dev/KurisuAssistant-Client-Windows) repo.
-
-```bash
-npm install
-npm run electron:dev
-```
+First migration seeds an `admin:admin` account.
 
 ## Configuration
 
-Key environment variables (see `.env_template`):
+Key environment variables (see `.env_template` for all options):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LLM_API_URL` | `http://localhost:11434` | Ollama server URL |
 | `POSTGRES_*` | `kurisu` | Database credentials |
 | `JWT_SECRET_KEY` | - | Secret for JWT tokens |
-| `TTS_PROVIDER` | `gpt-sovits` | Default TTS backend |
+| `TTS_PROVIDER` | `gpt-sovits` | TTS backend (`gpt-sovits` or `index-tts`) |
 | `ASR_MODEL` | `data/asr/whisper-ct2` | Whisper model path or size |
-| `ASR_DEVICE` | `cpu` | ASR device (`cpu`/`cuda`) |
+| `ASR_DEVICE` | `auto` | ASR inference device (`cpu`/`cuda`) |
+| `FRAME_IDLE_THRESHOLD_MINUTES` | `30` | Idle time before starting a new session frame |
+
+## Backup & Restore
+
+The `userdata/` directory contains backup tooling:
+
+- `kurisu_db_backup.dump` — PostgreSQL database dump
+- `data.tar` — User data (images, voices, character assets)
+- `RESTORE.md` — Step-by-step restore instructions
 
 ## Database
 
 Managed with Alembic. Migrations auto-run on Docker startup.
 
 ```bash
-cd db && alembic revision --autogenerate -m "description"  # Create migration
-python migrate.py                                           # Apply migrations
+cd db && alembic revision --autogenerate -m "description"
+python migrate.py
 ```
 
-Default seed: `admin:admin` account.
+## API
 
-## API Endpoints
-
-All protected unless noted. Auth: `Authorization: Bearer <token>`.
+All endpoints require JWT authentication (`Authorization: Bearer <token>`) unless noted. Chat uses WebSocket at `/ws/chat`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/login` | Auth (unprotected) |
-| POST | `/register` | Create account (unprotected) |
-| POST | `/asr` | Audio transcription (raw PCM) |
-| POST | `/tts` | Speech synthesis |
+| POST | `/login` | Auth (public) |
+| POST | `/register` | Create account (public) |
+| POST | `/asr` | Speech-to-text (raw PCM) |
+| POST | `/tts` | Text-to-speech |
 | GET | `/models` | List LLM models |
-| GET/DELETE | `/conversations` | Conversation management |
-| GET/DELETE | `/messages/{id}` | Message operations |
-| PATCH | `/users/me` | Update profile |
+| - | `/conversations/*` | CRUD conversations, frames, messages |
+| - | `/agents/*` | CRUD agents, avatar generation |
+| - | `/faces/*` | Face identity management |
+| - | `/skills/*` | Skill management |
+| - | `/character-assets/*` | Pose tree assets and config |
+| - | `/users/me` | Profile and avatars |
 | GET | `/tools` | List available tools |
-
-Chat is handled via WebSocket at `/ws`.
+| GET | `/images/{uuid}` | Serve image (public) |
 
 ## License
 
@@ -126,7 +123,10 @@ MIT License. See [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-* [faster-whisper](https://github.com/SYSTRAN/faster-whisper) for CTranslate2-based Whisper
-* [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) for voice synthesis
-* [Ollama](https://ollama.ai) for local LLM serving
-* [Silero VAD](https://github.com/snakers4/silero-vad) for voice activity detection
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — CTranslate2-based Whisper
+- [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) — Voice synthesis
+- [INDEX-TTS](https://github.com/indexteam/index-tts) — Voice synthesis
+- [Ollama](https://ollama.ai) — Local LLM serving
+- [Silero VAD](https://github.com/snakers4/silero-vad) — Voice activity detection
+- [InsightFace](https://github.com/deepinsight/insightface) — Face recognition
+- [MediaPipe](https://github.com/google-ai-edge/mediapipe) — Hand tracking

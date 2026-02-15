@@ -41,4 +41,3 @@ onnxruntime-gpu
 mediapipe
 ultralytics
 yt-dlp
-duckduckgo-search
