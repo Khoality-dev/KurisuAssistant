@@ -22,15 +22,17 @@ GitHub Actions workflow (`.github/workflows/build.yml`): triggers on release cre
 ```
 electron/main.ts          — Multi-window Electron entry (main + character window)
 electron/preload.ts       — contextBridge API (platform + characterWindow IPC bridge)
-src/api/client.ts         — Axios + WebSocket singleton; streaming via wsManager
+src/api/client.ts         — Axios + WebSocket singleton; streaming + media via wsManager
 src/api/types.ts          — TypeScript interfaces for API
 src/components/
   LoginWindow.tsx          — Login/Register tabs, Remember Me, Server URL field, purple gradient
   MainWindow.tsx           — Permanent sidebar (280px) + ChatWidget, conversation CRUD
   ChatWidget.tsx           — Chat UI with streaming, TTS auto-play, image attach, pagination, IPC bridge to character window
   MessageBubble.tsx        — Individual bubble: role styling, thinking collapse, TTS, resend/delete
+  ToolsWindow.tsx          — Three tabs: MCP Tools, Built-in Tools, Skills (CRUD + import/export for user-editable instruction blocks)
   AgentsWindow.tsx         — Agent CRUD with tool assignment + character config button
   FacesWindow.tsx          — Face identity CRUD, webcam vision controls, live recognition display
+  MediaPlayerBar.tsx       — Bottom bar: track info, play/pause/skip/stop, volume slider, slide-up animation. Visible when media playing/buffering.
   CharacterConfigDialog.tsx — React Flow graph editor: multi-pose nodes, edges with transition videos, conditions
   PoseNodeEditor.tsx        — Extracted 3-step stepper sub-dialog for editing individual pose nodes
   EdgeEditor.tsx            — Transition edge editor: video upload, condition config (random timer)
@@ -44,6 +46,7 @@ src/store/
   conversationStore.ts    — Conversations, messages (paginated 50/page), models
   agentStore.ts           — Agent list (filtered, no Administrator), selected agent ID (persisted)
   visionStore.ts          — Zustand singleton: vision pipeline control (getUserMedia webcam capture, frame upload at 3 FPS via WebSocket, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Used by both FacesWindow and ChatWidget camera toggle.
+  mediaStore.ts           — Zustand singleton: media player state (playback, track, queue, volume). All media events (control + chunks) flow through wsManager on /ws/chat. Module-level listeners for media_state/media_chunk/media_error. Buffers base64 chunks → Blob → Audio playback. Volume persisted to localStorage.
 src/CharacterWindowApp.tsx — Minimal IPC-driven renderer for separate character window (no auth/stores)
 src/videocall/            — Character animation engine (rendered in separate Electron window via IPC)
   types.ts                — PoseConfig, PatchInfo, PoseTree, AnimationNode/Edge/EdgeTransition, TransitionCondition (random/thinking/gesture), AnimationSettings, CharacterConfig, migrateEdgeToTransitions()
@@ -119,6 +122,7 @@ src/config.ts             — API URL config (reads dynamically from storage)
 - `GET /faces`, `POST /faces`, `GET /faces/{id}`, `DELETE /faces/{id}` — Face identity CRUD
 - `POST /faces/{id}/photos`, `DELETE /faces/{id}/photos/{photo_id}` — Face photo management
 - `GET /faces/{id}/photos/{photo_id}/image` — Serve face photo image
+- `GET /skills`, `POST /skills`, `PATCH /skills/{id}`, `DELETE /skills/{id}` — Skill CRUD (user-editable instruction blocks)
 
 ## Character Animation
 
@@ -141,7 +145,7 @@ Separate Electron window (toggleable via Face icon in top bar). Opens as indepen
 
 ## Storage Keys (localStorage)
 
-`kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_tts_auto_play`, `kurisu_tts_emo_audio`, `kurisu_tts_emo_alpha`, `kurisu_tts_use_emo_text`, `kurisu_selected_agent_id`
+`kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_tts_auto_play`, `kurisu_tts_emo_audio`, `kurisu_tts_emo_alpha`, `kurisu_tts_use_emo_text`, `kurisu_selected_agent_id`, `kurisu_media_volume`
 
 ## Security
 

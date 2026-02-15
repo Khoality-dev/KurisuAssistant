@@ -22,6 +22,10 @@ import type {
   CharacterConfigDTO,
   FaceIdentity,
   FaceIdentityDetail,
+  AvatarCandidate,
+  Skill,
+  SkillCreate,
+  SkillUpdate,
 } from './types';
 
 class APIClient {
@@ -340,6 +344,27 @@ class APIClient {
     });
   }
 
+  /**
+   * Get avatar candidates detected from character pose base images
+   */
+  async getAvatarCandidates(agentId: number): Promise<AvatarCandidate[]> {
+    const response = await this.client.get<AvatarCandidate[]>(`/agents/${agentId}/avatar-candidates`, {
+      headers: this.getHeaders(),
+      timeout: 60000,
+    });
+    return response.data;
+  }
+
+  /**
+   * Set agent avatar from an existing image UUID
+   */
+  async setAgentAvatarFromUuid(agentId: number, uuid: string): Promise<Agent> {
+    const response = await this.client.post<Agent>(`/agents/${agentId}/avatar-from-uuid`, { avatar_uuid: uuid }, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
   // Tools Methods
 
   /**
@@ -494,6 +519,35 @@ class APIClient {
 
   getFacePhotoUrl(identityId: number, photoId: number): string {
     return `${config.apiBaseUrl}/faces/${identityId}/photos/${photoId}/image`;
+  }
+
+  // Skill Methods
+
+  async listSkills(): Promise<Skill[]> {
+    const response = await this.client.get<Skill[]>('/skills', {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async createSkill(data: SkillCreate): Promise<Skill> {
+    const response = await this.client.post<Skill>('/skills', data, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async updateSkill(id: number, data: SkillUpdate): Promise<Skill> {
+    const response = await this.client.patch<Skill>(`/skills/${id}`, data, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async deleteSkill(id: number): Promise<void> {
+    await this.client.delete(`/skills/${id}`, {
+      headers: this.getHeaders(),
+    });
   }
 }
 

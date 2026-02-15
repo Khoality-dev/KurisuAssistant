@@ -1,11 +1,12 @@
 import { create } from 'zustand';
 import { apiClient } from '../api/client';
-import type { Conversation, Message } from '../api/types';
+import type { Conversation, FrameInfo, Message } from '../api/types';
 
 interface ConversationState {
   conversations: Conversation[];
   currentConversation: Conversation | null;
   messages: Message[];
+  frames: Record<number, FrameInfo>;
 
   // Pagination state
   totalMessages: number;
@@ -27,6 +28,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   conversations: [],
   currentConversation: null,
   messages: [],
+  frames: {},
 
   // Pagination state initialization
   totalMessages: 0,
@@ -47,6 +49,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set({
       currentConversation: conversation,
       messages: data.messages,
+      frames: data.frames || {},
       totalMessages: data.total_messages,
       hasMoreMessages: data.has_more,
       messagesOffset: data.limit, // Next offset for loading more
@@ -71,9 +74,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         messagesOffset
       );
 
-      // Prepend older messages to the beginning
+      // Prepend older messages to the beginning, merge frames
       set((state) => ({
         messages: [...data.messages, ...state.messages],
+        frames: { ...state.frames, ...(data.frames || {}) },
         hasMoreMessages: data.has_more,
         messagesOffset: state.messagesOffset + data.messages.length,
         isLoadingMessages: false,
@@ -87,13 +91,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   deleteConversation: async (id: number) => {
     await apiClient.deleteConversation(id);
     const conversations = get().conversations.filter((c) => c.id !== id);
-    set({ conversations, currentConversation: null, messages: [] });
+    set({ conversations, currentConversation: null, messages: [], frames: {} });
   },
 
   createNewConversation: () => {
     set({
       currentConversation: null,
       messages: [],
+      frames: {},
       totalMessages: 0,
       hasMoreMessages: false,
       messagesOffset: 0,

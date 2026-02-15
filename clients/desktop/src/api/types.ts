@@ -40,11 +40,19 @@ export interface Conversation {
   updated_at: string;
 }
 
+export interface FrameInfo {
+  id: number;
+  summary: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export interface ConversationDetail {
   id: number;
   title: string;
   created_at: string;
   messages: Message[];
+  frames: Record<number, FrameInfo>;
   total_messages: number;
   offset: number;
   limit: number;
@@ -60,6 +68,7 @@ export interface UserProfile {
   agent_avatar_uuid?: string;
   assistant_avatar_uuid?: string; // Alias for agent_avatar_uuid
   ollama_url?: string; // Custom Ollama server URL (null/undefined = use default)
+  summary_model?: string; // Model for frame summarization (null = use chat model)
 }
 
 export interface VoicesResponse {
@@ -160,11 +169,38 @@ export interface ToolFunction {
 export interface Tool {
   type: string;
   function: ToolFunction;
+  built_in?: boolean;
 }
 
 export interface ToolsResponse {
   mcp_tools: Tool[];
   builtin_tools: Tool[];
+}
+
+// Skill types
+export interface Skill {
+  id: number;
+  name: string;
+  instructions: string;
+  created_at: string | null;
+}
+
+export interface SkillCreate {
+  name: string;
+  instructions?: string;
+}
+
+export interface SkillUpdate {
+  name?: string;
+  instructions?: string;
+}
+
+// Avatar candidate types
+
+export interface AvatarCandidate {
+  uuid: string;
+  pose_id: string;
+  score: number;
 }
 
 // Face recognition types
@@ -207,4 +243,14 @@ export interface VisionGesture {
 export interface VisionResult {
   faces: VisionFace[];
   gestures: VisionGesture[];
+}
+
+// Media player types
+
+export interface MediaTrack {
+  title: string;
+  url: string;
+  duration: number | null;
+  thumbnail: string | null;
+  artist: string | null;
 }

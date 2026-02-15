@@ -46,6 +46,8 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
 
   const [preferredName, setPreferredName] = useState('');
   const [ollamaUrl, setOllamaUrl] = useState('');
+  const [summaryModel, setSummaryModel] = useState('');
+  const [models, setModels] = useState<string[]>([]);
   const [userAvatarFile, setUserAvatarFile] = useState<File | null>(null);
   const [userAvatarPreview, setUserAvatarPreview] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -74,6 +76,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
     if (user) {
       setPreferredName(user.preferred_name || '');
       setOllamaUrl(user.ollama_url || '');
+      setSummaryModel(user.summary_model || '');
 
       if (user.user_avatar_uuid) {
         setUserAvatarPreview(apiClient.getImageUrl(user.user_avatar_uuid));
@@ -81,10 +84,11 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
     }
   }, [user]);
 
-  // Load TTS voices and backends on mount
+  // Load TTS voices, backends, and models on mount
   useEffect(() => {
     loadVoices();
     loadBackends();
+    apiClient.getModels().then(setModels).catch(() => {});
   }, [loadVoices, loadBackends]);
 
   const handleUserAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -112,6 +116,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
       }
       // Always include ollama_url (empty string will clear it on backend)
       profileUpdates.ollama_url = ollamaUrl || '';
+      profileUpdates.summary_model = summaryModel || '';
 
       if (Object.keys(profileUpdates).length > 0) {
         await apiClient.updateUserProfile(profileUpdates);
@@ -240,6 +245,30 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
               placeholder="http://localhost:11434"
               helperText="Leave empty to use the default server"
             />
+          </Box>
+
+          {/* Summary Model */}
+          <Box sx={{ mb: 4 }}>
+            <FormControl fullWidth>
+              <InputLabel>Summary Model</InputLabel>
+              <Select
+                value={summaryModel}
+                label="Summary Model"
+                onChange={(e) => setSummaryModel(e.target.value)}
+              >
+                <MenuItem value="">
+                  <em>Use chat model</em>
+                </MenuItem>
+                {models.map((model) => (
+                  <MenuItem key={model} value={model}>
+                    {model}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+              Model used to generate session summaries. Leave empty to use the active chat model.
+            </Typography>
           </Box>
 
           {/* Save Account Settings Button */}
