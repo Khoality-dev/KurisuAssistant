@@ -8,15 +8,8 @@ __pycache__/
 # Environment
 .env
 
-# Data (user-generated, not tracked)
-data/asr/
-data/voice_storage/
-data/image_storage/
-data/character_assets/
-data/sovits/
-data/face_recognition/models/
-data/gesture_detection/models/
-data/media_cache/
+# Data (auto-created at runtime)
+data/
 userdata/
 
 # Secrets & certs
