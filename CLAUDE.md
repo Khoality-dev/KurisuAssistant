@@ -65,7 +65,7 @@ agents/
 ├── orchestration.py         # OrchestrationSession, OrchestrationLog
 └── administrator.py         # AdministratorAgent (LLM-based router)
 
-mcp_config.json              # MCP server config (standard mcpServers format, URLs for remote servers)
+mcp_config.json              # MCP server config (gitignored, see docs/mcp-config.md)
 
 mcp_tools/
 ├── config.py                # Loads mcp_config.json
