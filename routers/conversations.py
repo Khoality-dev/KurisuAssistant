@@ -44,6 +44,7 @@ async def get_conversation(
         with get_session() as session:
             conv_repo = ConversationRepository(session)
             msg_repo = MessageRepository(session)
+            frame_repo = FrameRepository(session)
 
             conversation = conv_repo.get_by_user_and_id(user.id, conversation_id)
             if not conversation:
@@ -53,6 +54,7 @@ async def get_conversation(
             messages = msg_repo.get_by_conversation(conversation_id, limit, offset)
 
             messages_array = []
+            frame_ids = set()
             for msg in messages:
                 message_dict = {
                     "id": msg.id,
@@ -77,10 +79,26 @@ async def get_conversation(
                             "voice_reference": msg.agent.voice_reference,
                         }
                 messages_array.append(message_dict)
+                if msg.frame_id:
+                    frame_ids.add(msg.frame_id)
+
+            # Build frames map for frame IDs referenced by returned messages
+            from db.models import Frame
+            frames_map = {}
+            if frame_ids:
+                frames = session.query(Frame).filter(Frame.id.in_(frame_ids)).all()
+                for f in frames:
+                    frames_map[f.id] = {
+                        "id": f.id,
+                        "summary": f.summary,
+                        "created_at": f.created_at.isoformat() if f.created_at else None,
+                        "updated_at": f.updated_at.isoformat() if f.updated_at else None,
+                    }
 
             return {
                 "id": conversation.id,
                 "messages": messages_array,
+                "frames": frames_map,
                 "created_at": conversation.created_at.isoformat(),
                 "title": conversation.title or "",
                 "total_messages": total_messages,

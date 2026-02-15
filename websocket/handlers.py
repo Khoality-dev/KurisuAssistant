@@ -24,12 +24,22 @@ from .events import (
     VisionFrameEvent,
     VisionStopEvent,
     VisionResultEvent,
+    MediaPlayEvent,
+    MediaPauseEvent,
+    MediaResumeEvent,
+    MediaSkipEvent,
+    MediaStopEvent,
+    MediaQueueAddEvent,
+    MediaQueueRemoveEvent,
+    MediaVolumeEvent,
+    MediaErrorEvent,
     parse_event,
 )
 from agents.base import AgentConfig, AgentContext, BaseAgent, SimpleAgent
 from agents.orchestration import OrchestrationSession
 from agents.administrator import AdministratorAgent
 from tools import tool_registry
+from media import get_media_player
 from vision import VisionProcessor
 from db.session import get_session
 from db.repositories import (
@@ -69,6 +79,7 @@ class ChatSessionHandler:
         self.user_id = user_id
         self.pending_approvals: Dict[str, asyncio.Future] = {}
         self.current_task: Optional[asyncio.Task] = None
+        self._send_lock = asyncio.Lock()
 
         # Administrator for routing decisions
         self.administrator: Optional[AdministratorAgent] = None
@@ -116,6 +127,10 @@ class ChatSessionHandler:
             await self._handle_vision_frame(event)
         elif isinstance(event, VisionStopEvent):
             await self._handle_vision_stop()
+        elif isinstance(event, (MediaPlayEvent, MediaPauseEvent, MediaResumeEvent,
+                                MediaSkipEvent, MediaStopEvent, MediaQueueAddEvent,
+                                MediaQueueRemoveEvent, MediaVolumeEvent)):
+            await self._handle_media_event(event)
 
     async def _handle_chat_request(self, event: ChatRequestEvent):
         """Handle incoming chat request."""
@@ -203,6 +218,7 @@ class ChatSessionHandler:
             chunk_content = ""
             chunk_thinking = ""
             raw_input_json = None
+            current_tool_args_json = None
 
             async for chunk in agent.process(messages, agent_context):
                 # Capture raw input on first chunk
@@ -219,13 +235,14 @@ class ChatSessionHandler:
                 # Accumulate for saving
                 if chunk.role != current_role:
                     if chunk_content or chunk_thinking:
+                        raw_in = raw_input_json if current_role == "assistant" else current_tool_args_json
                         completed_msg = {
                             "role": current_role,
                             "content": chunk_content,
                             "thinking": chunk_thinking if chunk_thinking else None,
                             "agent_id": target_agent.id if current_role == "assistant" else None,
                             "name": current_name,
-                            "raw_input": raw_input_json if current_role == "assistant" else None,
+                            "raw_input": raw_in,
                             "raw_output": chunk_content if current_role == "assistant" else None,
                         }
                         messages_to_save.append(completed_msg)
@@ -234,6 +251,7 @@ class ChatSessionHandler:
                     current_name = chunk.name or target_agent.name
                     chunk_content = chunk.content
                     chunk_thinking = chunk.thinking or ""
+                    current_tool_args_json = json.dumps(chunk.tool_args, ensure_ascii=False) if chunk.tool_args else None
                 else:
                     chunk_content += chunk.content
                     if chunk.thinking:
@@ -250,13 +268,14 @@ class ChatSessionHandler:
 
             # Save final accumulated content
             if chunk_content or chunk_thinking:
+                raw_in = raw_input_json if current_role == "assistant" else current_tool_args_json
                 completed_msg = {
                     "role": current_role,
                     "content": chunk_content,
                     "thinking": chunk_thinking if chunk_thinking else None,
                     "agent_id": target_agent.id if current_role == "assistant" else None,
                     "name": current_name,
-                    "raw_input": raw_input_json if current_role == "assistant" else None,
+                    "raw_input": raw_in,
                     "raw_output": chunk_content if current_role == "assistant" else None,
                 }
                 messages_to_save.append(completed_msg)
@@ -572,6 +591,7 @@ class ChatSessionHandler:
                 chunk_content = ""
                 chunk_thinking = ""
                 raw_input_json = None  # Captured from agent's prepared messages on first chunk
+                current_tool_args_json = None
 
                 # Stream agent response
                 async for chunk in agent.process(conversation_messages, agent_context):
@@ -591,6 +611,7 @@ class ChatSessionHandler:
                     if chunk.role != current_role:
                         # Role changed, save accumulated content
                         if chunk_content or chunk_thinking:
+                            raw_in = raw_input_json if current_role == "assistant" else current_tool_args_json
                             completed_msg = {
                                 "role": current_role,
                                 "content": chunk_content,
@@ -598,7 +619,7 @@ class ChatSessionHandler:
                                 # agent_id only for assistant messages (for avatar/voice)
                                 "agent_id": current_agent.id if current_role == "assistant" else None,
                                 "name": current_name,
-                                "raw_input": raw_input_json if current_role == "assistant" else None,
+                                "raw_input": raw_in,
                                 "raw_output": chunk_content if current_role == "assistant" else None,
                             }
                             messages_to_save.append(completed_msg)
@@ -613,6 +634,7 @@ class ChatSessionHandler:
                         current_name = chunk.name or current_agent.name
                         chunk_content = chunk.content
                         chunk_thinking = chunk.thinking or ""
+                        current_tool_args_json = json.dumps(chunk.tool_args, ensure_ascii=False) if chunk.tool_args else None
                     else:
                         chunk_content += chunk.content
                         if chunk.thinking:
@@ -635,13 +657,14 @@ class ChatSessionHandler:
 
                 # Save final accumulated content
                 if chunk_content or chunk_thinking:
+                    raw_in = raw_input_json if current_role == "assistant" else current_tool_args_json
                     completed_msg = {
                         "role": current_role,
                         "content": chunk_content,
                         "thinking": chunk_thinking if chunk_thinking else None,
                         "agent_id": current_agent.id if current_role == "assistant" else None,
                         "name": current_name,
-                        "raw_input": raw_input_json if current_role == "assistant" else None,
+                        "raw_input": raw_in,
                         "raw_output": chunk_content if current_role == "assistant" else None,
                     }
                     messages_to_save.append(completed_msg)
@@ -850,13 +873,43 @@ class ChatSessionHandler:
         self._vision_processor = None
         logger.debug("Vision processing stopped for user %d", self.user_id)
 
+    async def _handle_media_event(self, event: BaseEvent):
+        """Handle media control events using the player registry."""
+        try:
+            player = get_media_player(self.user_id, self.send_event)
+
+            if isinstance(event, MediaPlayEvent):
+                await player.play(event.query)
+            elif isinstance(event, MediaPauseEvent):
+                await player.pause()
+            elif isinstance(event, MediaResumeEvent):
+                await player.resume()
+            elif isinstance(event, MediaSkipEvent):
+                await player.skip()
+            elif isinstance(event, MediaStopEvent):
+                await player.stop()
+            elif isinstance(event, MediaQueueAddEvent):
+                await player.add_to_queue(event.query)
+            elif isinstance(event, MediaQueueRemoveEvent):
+                player.remove_from_queue(event.index)
+            elif isinstance(event, MediaVolumeEvent):
+                player.set_volume(event.volume)
+        except Exception as e:
+            logger.error(f"Media event error: {e}", exc_info=True)
+            await self.send_event(MediaErrorEvent(error=str(e)))
+
     async def send_event(self, event: BaseEvent):
         """Send event to client (silently fails if disconnected)."""
+        event_type = event.type.value if hasattr(event.type, 'value') else event.type
         try:
-            if self.websocket.client_state.name == "CONNECTED":
-                await self.websocket.send_json(event.to_dict())
+            async with self._send_lock:
+                state = self.websocket.client_state.name
+                if state == "CONNECTED":
+                    await self.websocket.send_json(event.to_dict())
+                else:
+                    logger.warning(f"WebSocket not connected (state={state}), dropping {event_type}")
         except Exception as e:
-            logger.debug(f"Failed to send WebSocket event: {e}")
+            logger.warning(f"Failed to send WebSocket event {event_type}: {e}")
 
     async def replace_websocket(self, websocket: WebSocket):
         """Replace WebSocket and replay accumulated state."""

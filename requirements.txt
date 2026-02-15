@@ -39,3 +39,4 @@ insightface
 onnxruntime-gpu
 mediapipe
 ultralytics
+yt-dlp

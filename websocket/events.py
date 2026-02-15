@@ -16,6 +16,14 @@ class EventType(str, Enum):
     VISION_START = "vision_start"
     VISION_FRAME = "vision_frame"
     VISION_STOP = "vision_stop"
+    MEDIA_PLAY = "media_play"
+    MEDIA_PAUSE = "media_pause"
+    MEDIA_RESUME = "media_resume"
+    MEDIA_SKIP = "media_skip"
+    MEDIA_STOP = "media_stop"
+    MEDIA_QUEUE_ADD = "media_queue_add"
+    MEDIA_QUEUE_REMOVE = "media_queue_remove"
+    MEDIA_VOLUME = "media_volume"
 
     # Server -> Client
     STREAM_CHUNK = "stream_chunk"
@@ -24,6 +32,9 @@ class EventType(str, Enum):
     DONE = "done"
     ERROR = "error"
     VISION_RESULT = "vision_result"
+    MEDIA_STATE = "media_state"
+    MEDIA_CHUNK = "media_chunk"
+    MEDIA_ERROR = "media_error"
 
 
 @dataclass
@@ -108,6 +119,7 @@ class StreamChunkEvent(BaseEvent):
     voice_reference: Optional[str] = None
     conversation_id: int = 0
     frame_id: int = 0
+    tool_args: Optional[Dict[str, Any]] = None  # Tool input params (for tool role messages)
 
 
 @dataclass
@@ -156,6 +168,94 @@ class VisionResultEvent(BaseEvent):
     type: EventType = field(default=EventType.VISION_RESULT)
     faces: List[Dict[str, Any]] = field(default_factory=list)
     gestures: List[Dict[str, Any]] = field(default_factory=list)
+
+
+# =============================================================================
+# Media Client -> Server Events
+# =============================================================================
+
+@dataclass
+class MediaPlayEvent(BaseEvent):
+    """Client requests to play media."""
+    type: EventType = field(default=EventType.MEDIA_PLAY)
+    query: str = ""
+
+
+@dataclass
+class MediaPauseEvent(BaseEvent):
+    """Client requests to pause media."""
+    type: EventType = field(default=EventType.MEDIA_PAUSE)
+
+
+@dataclass
+class MediaResumeEvent(BaseEvent):
+    """Client requests to resume media."""
+    type: EventType = field(default=EventType.MEDIA_RESUME)
+
+
+@dataclass
+class MediaSkipEvent(BaseEvent):
+    """Client requests to skip current track."""
+    type: EventType = field(default=EventType.MEDIA_SKIP)
+
+
+@dataclass
+class MediaStopEvent(BaseEvent):
+    """Client requests to stop media."""
+    type: EventType = field(default=EventType.MEDIA_STOP)
+
+
+@dataclass
+class MediaQueueAddEvent(BaseEvent):
+    """Client requests to add to queue."""
+    type: EventType = field(default=EventType.MEDIA_QUEUE_ADD)
+    query: str = ""
+
+
+@dataclass
+class MediaQueueRemoveEvent(BaseEvent):
+    """Client requests to remove from queue."""
+    type: EventType = field(default=EventType.MEDIA_QUEUE_REMOVE)
+    index: int = 0
+
+
+@dataclass
+class MediaVolumeEvent(BaseEvent):
+    """Client sets volume."""
+    type: EventType = field(default=EventType.MEDIA_VOLUME)
+    volume: float = 1.0
+
+
+# =============================================================================
+# Media Server -> Client Events
+# =============================================================================
+
+@dataclass
+class MediaStateEvent(BaseEvent):
+    """Server sends media player state."""
+    type: EventType = field(default=EventType.MEDIA_STATE)
+    state: str = "stopped"
+    current_track: Optional[Dict[str, Any]] = None
+    queue: List[Dict[str, Any]] = field(default_factory=list)
+    volume: float = 1.0
+
+
+@dataclass
+class MediaChunkEvent(BaseEvent):
+    """Server sends audio data chunk."""
+    type: EventType = field(default=EventType.MEDIA_CHUNK)
+    data: str = ""  # base64 encoded audio
+    chunk_index: int = 0
+    is_last: bool = False
+    format: str = "opus"
+    sample_rate: int = 48000
+
+
+@dataclass
+class MediaErrorEvent(BaseEvent):
+    """Server sends media error."""
+    type: EventType = field(default=EventType.MEDIA_ERROR)
+    error: str = ""
 
 
 # =============================================================================
@@ -212,6 +312,58 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
         return VisionStopEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
             timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+        )
+
+    elif event_type == EventType.MEDIA_PLAY.value:
+        return MediaPlayEvent(
+            event_id=data.get("event_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            query=data.get("query", ""),
+        )
+
+    elif event_type == EventType.MEDIA_PAUSE.value:
+        return MediaPauseEvent(
+            event_id=data.get("event_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+        )
+
+    elif event_type == EventType.MEDIA_RESUME.value:
+        return MediaResumeEvent(
+            event_id=data.get("event_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+        )
+
+    elif event_type == EventType.MEDIA_SKIP.value:
+        return MediaSkipEvent(
+            event_id=data.get("event_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+        )
+
+    elif event_type == EventType.MEDIA_STOP.value:
+        return MediaStopEvent(
+            event_id=data.get("event_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+        )
+
+    elif event_type == EventType.MEDIA_QUEUE_ADD.value:
+        return MediaQueueAddEvent(
+            event_id=data.get("event_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            query=data.get("query", ""),
+        )
+
+    elif event_type == EventType.MEDIA_QUEUE_REMOVE.value:
+        return MediaQueueRemoveEvent(
+            event_id=data.get("event_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            index=data.get("index", 0),
+        )
+
+    elif event_type == EventType.MEDIA_VOLUME.value:
+        return MediaVolumeEvent(
+            event_id=data.get("event_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
+            volume=data.get("volume", 1.0),
         )
 
     else:
