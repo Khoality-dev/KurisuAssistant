@@ -5,7 +5,7 @@ import logging
 from typing import Dict, Any
 
 from .base import BaseTool
-from media.player import get_media_player, _players
+from media.player import get_media_player, _players, PlaybackState
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class PlayMusicTool(BaseTool):
     name = "play_music"
     description = (
         "Search YouTube for music and play it for the user. "
-        "Can also enqueue tracks to play after the current one finishes. "
+        "If something is already playing, the track is added to the queue. "
         "Use when the user asks to play music, a song, or audio."
     )
     requires_approval = False
@@ -58,10 +58,6 @@ class PlayMusicTool(BaseTool):
                             "type": "string",
                             "description": "Search query for the music (song name, artist, genre, etc.).",
                         },
-                        "enqueue": {
-                            "type": "boolean",
-                            "description": "If true, add to queue instead of playing immediately. Default: false.",
-                        },
                     },
                     "required": ["query"],
                 },
@@ -74,12 +70,13 @@ class PlayMusicTool(BaseTool):
             return json.dumps({"error": "Media player not connected. Open the media player first."})
 
         query = args.get("query", "")
-        enqueue = args.get("enqueue", False)
 
         if not query:
             return json.dumps({"error": "Query is required."})
 
         try:
+            # Auto-enqueue if already playing
+            enqueue = player.state == PlaybackState.PLAYING
             result = await player.play(query, enqueue=enqueue)
             return json.dumps({"result": result})
         except Exception as e:
@@ -88,9 +85,7 @@ class PlayMusicTool(BaseTool):
 
     def describe_call(self, args: Dict[str, Any]) -> str:
         query = args.get("query", "?")
-        enqueue = args.get("enqueue", False)
-        action = "Enqueue" if enqueue else "Play"
-        return f"{action}: {query}"
+        return f"Play: {query}"
 
 
 class MusicControlTool(BaseTool):
