@@ -136,6 +136,13 @@ ipcMain.on('character:face-update', (_event, data) => {
   }
 });
 
+// IPC relay: subtitle from main renderer → character renderer
+ipcMain.on('character:subtitle', (_event, data) => {
+  if (characterWindow && !characterWindow.isDestroyed()) {
+    characterWindow.webContents.send('character:subtitle', data);
+  }
+});
+
 // --- App Lifecycle ---
 
 app.whenReady().then(() => {

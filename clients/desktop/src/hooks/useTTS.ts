@@ -4,10 +4,38 @@ import { storage } from '../utils/storage';
 import { useAudioAmplitude } from './useAudioAmplitude';
 
 /**
- * @param onAmplitudeUpdate - Optional callback invoked at ~30fps with amplitude (0-1)
- *   when character panel is active. If not provided, uses plain Audio playback.
+ * Parse WAV header to get audio duration in seconds.
  */
-export function useTTS(onAmplitudeUpdate?: (amplitude: number, isPlaying: boolean) => void) {
+function getWavDuration(buffer: ArrayBuffer): number | null {
+  const view = new DataView(buffer);
+  if (view.byteLength < 44) return null;
+
+  let byteRate = 0;
+  let dataSize = 0;
+  let offset = 12;
+  while (offset + 8 <= view.byteLength) {
+    const id = String.fromCharCode(
+      view.getUint8(offset), view.getUint8(offset + 1),
+      view.getUint8(offset + 2), view.getUint8(offset + 3),
+    );
+    const size = view.getUint32(offset + 4, true);
+    if (id === 'fmt ') {
+      byteRate = view.getUint32(offset + 16, true);
+    } else if (id === 'data') {
+      dataSize = size;
+      break;
+    }
+    offset += 8 + size;
+    if (size % 2 !== 0) offset++;
+  }
+  if (byteRate === 0 || dataSize === 0) return null;
+  return dataSize / byteRate;
+}
+
+export function useTTS(
+  onAmplitudeUpdate?: (amplitude: number, isPlaying: boolean) => void,
+  onPlaybackStart?: (text: string, duration: number) => void,
+) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [voices, setVoices] = useState<string[]>([]);
   const [backends, setBackends] = useState<string[]>([]);
@@ -17,9 +45,11 @@ export function useTTS(onAmplitudeUpdate?: (amplitude: number, isPlaying: boolea
   const amplitudeController = useAudioAmplitude();
   const amplitudeCallbackRef = useRef(onAmplitudeUpdate);
   amplitudeCallbackRef.current = onAmplitudeUpdate;
+  const playbackStartCallbackRef = useRef(onPlaybackStart);
+  playbackStartCallbackRef.current = onPlaybackStart;
 
   // Queue-based streaming TTS state
-  const ttsQueueRef = useRef<Array<{ audioPromise: Promise<Blob> }>>([]);
+  const ttsQueueRef = useRef<Array<{ audioPromise: Promise<Blob>; text: string }>>([]);
   const isPlayingQueueRef = useRef(false);
   const currentQueueAudioRef = useRef<HTMLAudioElement | null>(null);
   const [isQueueActive, setIsQueueActive] = useState(false);
@@ -162,9 +192,18 @@ export function useTTS(onAmplitudeUpdate?: (amplitude: number, isPlaying: boolea
       const item = ttsQueueRef.current.shift()!;
       try {
         const blob = await item.audioPromise;
+        // Notify subtitle system with text + audio duration before playback
+        const psCb = playbackStartCallbackRef.current;
+        if (psCb) {
+          const duration = getWavDuration(await blob.arrayBuffer());
+          if (duration) psCb(item.text, duration);
+        }
         await playBlobAsync(blob, cb || undefined);
       } catch (e) {
         console.error('TTS queue playback error:', e);
+        // TTS failed — still send subtitle with 4s fallback duration
+        const psCb = playbackStartCallbackRef.current;
+        if (psCb) psCb(item.text, 4);
       }
     }
 
@@ -189,8 +228,9 @@ export function useTTS(onAmplitudeUpdate?: (amplitude: number, isPlaying: boolea
         }
       : undefined;
 
-    const audioPromise = apiClient.synthesize(text.trim(), voice, undefined, backend, emotionParams);
-    ttsQueueRef.current.push({ audioPromise });
+    const trimmed = text.trim();
+    const audioPromise = apiClient.synthesize(trimmed, voice, undefined, backend, emotionParams);
+    ttsQueueRef.current.push({ audioPromise, text: trimmed });
     setIsQueueActive(true);
 
     if (!isPlayingQueueRef.current) {

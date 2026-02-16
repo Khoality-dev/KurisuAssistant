@@ -64,6 +64,14 @@ contextBridge.exposeInMainWorld('electron', {
       return () => { ipcRenderer.removeListener('character:face-update', handler); };
     },
 
+    sendSubtitle: (data: { text: string; isUser: boolean }) =>
+      ipcRenderer.send('character:subtitle', data),
+    onSubtitle: (cb: (data: { text: string; isUser: boolean }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { text: string; isUser: boolean }) => cb(data);
+      ipcRenderer.on('character:subtitle', handler);
+      return () => { ipcRenderer.removeListener('character:subtitle', handler); };
+    },
+
     signalReady: () => ipcRenderer.send('character:ready'),
     onCharacterReady: (cb: () => void) => {
       const handler = () => cb();

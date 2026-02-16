@@ -56,7 +56,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
 
   // TTS settings — auto-saved to localStorage on change
   const [ttsBackend, setTtsBackendState] = useState(storage.getTTSBackend() || 'gpt-sovits');
-  const [ttsAutoPlay, setTtsAutoPlayState] = useState(storage.getTTSAutoPlay());
 
   // INDEX-TTS emotion settings
   const [ttsEmotionAudio, setTtsEmotionAudioState] = useState(storage.getTTSEmotionAudio() || '');
@@ -65,7 +64,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
 
   // Auto-save wrappers
   const setTtsBackend = (v: string) => { setTtsBackendState(v); storage.setTTSBackend(v); };
-  const setTtsAutoPlay = (v: boolean) => { setTtsAutoPlayState(v); storage.setTTSAutoPlay(v); };
   const setTtsEmotionAudio = (v: string) => { setTtsEmotionAudioState(v); storage.setTTSEmotionAudio(v); };
   const setTtsEmotionAlpha = (v: number) => { setTtsEmotionAlphaState(v); storage.setTTSEmotionAlpha(v); };
   const setTtsUseEmotionText = (v: boolean) => { setTtsUseEmotionTextState(v); storage.setTTSUseEmotionText(v); };
@@ -308,19 +306,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
                 ))}
               </Select>
             </FormControl>
-          </Box>
-
-          {/* TTS Auto-Play */}
-          <Box sx={{ mb: 4 }}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={ttsAutoPlay}
-                  onChange={(e) => setTtsAutoPlay(e.target.checked)}
-                />
-              }
-              label="Auto-play assistant messages"
-            />
           </Box>
 
           {/* INDEX-TTS Emotion Controls - Only show when backend is index-tts */}
