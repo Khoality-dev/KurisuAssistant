@@ -375,12 +375,19 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     if (event.conversation_id && !state.conversationId) {
       state.conversationId = event.conversation_id;
       setActiveConversationId(event.conversation_id);
-      setCurrentConversationId(event.conversation_id).catch(console.error);
+      setCurrentConversationId(event.conversation_id);
+
+      // Save agent-conversation mapping
+      if (agentId) {
+        storage.setAgentConversationId(agentId, event.conversation_id);
+      } else {
+        storage.setAgentConversationId('group', event.conversation_id);
+      }
     }
 
     const messageRole = event.role;
     const agentName = event.name || undefined;
-    const agentId = event.agent_id ?? undefined;
+    const eventAgentId = event.agent_id ?? undefined;
 
     // Check if we need to create a new bubble:
     // - Role changed (user -> assistant -> tool)
@@ -416,14 +423,14 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           role: messageRole,
           content: '',
           name: agentName,
-          agent_id: agentId,
+          agent_id: eventAgentId,
           voice_reference: event.voice_reference || undefined,
         });
         return updated;
       });
 
       state.currentRole = messageRole;
-      state.currentAgentId = agentId;
+      state.currentAgentId = eventAgentId;
       state.currentAgentName = agentName;
       state.accumulatedContent = event.content || '';
       state.accumulatedThinking = '';
@@ -432,20 +439,20 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       ttsVoiceRef.current = event.voice_reference || undefined;
 
       // Update character panel with active agent
-      pushAgentCharacterConfig(agentId, agentName);
+      pushAgentCharacterConfig(eventAgentId, agentName);
 
       scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
     } else if (!state.hasStarted) {
       // First message chunk - update placeholder bubble
       state.hasStarted = true;
       state.currentRole = messageRole;
-      state.currentAgentId = agentId;
+      state.currentAgentId = eventAgentId;
       state.currentAgentName = agentName;
       state.accumulatedContent = event.content || '';
       state.accumulatedThinking = '';
 
       // Update character panel with active agent
-      pushAgentCharacterConfig(agentId, agentName);
+      pushAgentCharacterConfig(eventAgentId, agentName);
 
       if (state.hasPlaceholder) {
         // Update placeholder with actual role/agent info
@@ -456,7 +463,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
               ...updated[updated.length - 1],
               role: messageRole,
               name: agentName,
-              agent_id: agentId,
+              agent_id: eventAgentId,
               voice_reference: event.voice_reference || undefined,
             };
           }
@@ -468,7 +475,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           role: messageRole,
           content: '',
           name: agentName,
-          agent_id: agentId,
+          agent_id: eventAgentId,
           voice_reference: event.voice_reference || undefined,
         }]);
       }

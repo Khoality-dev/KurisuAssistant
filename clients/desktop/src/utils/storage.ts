@@ -15,6 +15,7 @@ const STORAGE_KEYS = {
   SHOW_ADMINISTRATOR: 'kurisu_show_administrator',
   ASR_DEVICE_ID: 'kurisu_asr_device_id',
   SELECTED_AGENT_ID: 'kurisu_selected_agent_id',
+  AGENT_CONVERSATIONS: 'kurisu_agent_conversations',
 } as const;
 
 export const storage = {
@@ -325,6 +326,48 @@ export const storage = {
       localStorage.removeItem(STORAGE_KEYS.SELECTED_AGENT_ID);
     } catch (error) {
       console.error('Failed to clear selected agent ID:', error);
+    }
+  },
+
+  getAgentConversationMap(): Record<string, number> {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.AGENT_CONVERSATIONS);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  },
+
+  getAgentConversationId(agentId: number | 'group'): number | null {
+    const map = this.getAgentConversationMap();
+    return map[String(agentId)] ?? null;
+  },
+
+  setAgentConversationId(agentId: number | 'group', conversationId: number): void {
+    try {
+      const map = this.getAgentConversationMap();
+      map[String(agentId)] = conversationId;
+      localStorage.setItem(STORAGE_KEYS.AGENT_CONVERSATIONS, JSON.stringify(map));
+    } catch (error) {
+      console.error('Failed to save agent conversation mapping:', error);
+    }
+  },
+
+  clearAgentConversationId(agentId: number | 'group'): void {
+    try {
+      const map = this.getAgentConversationMap();
+      delete map[String(agentId)];
+      localStorage.setItem(STORAGE_KEYS.AGENT_CONVERSATIONS, JSON.stringify(map));
+    } catch (error) {
+      console.error('Failed to clear agent conversation mapping:', error);
+    }
+  },
+
+  clearAllAgentConversations(): void {
+    try {
+      localStorage.removeItem(STORAGE_KEYS.AGENT_CONVERSATIONS);
+    } catch (error) {
+      console.error('Failed to clear all agent conversations:', error);
     }
   },
 };

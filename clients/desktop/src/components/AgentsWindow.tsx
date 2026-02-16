@@ -43,6 +43,7 @@ import { CircularProgress } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiClient } from '../api/client';
 import { useAgentStore } from '../store/agentStore';
+import { storage } from '../utils/storage';
 import type { Agent, AgentCreate, AgentUpdate, Tool, AvatarCandidate } from '../api/types';
 import { CharacterConfigDialog } from './CharacterConfigDialog';
 
@@ -218,6 +219,7 @@ export const AgentsWindow: React.FC = () => {
 
     try {
       await apiClient.deleteAgent(selectedAgent.id);
+      storage.clearAgentConversationId(selectedAgent.id);
       setSuccessMessage(`Agent "${selectedAgent.name}" deleted successfully!`);
       setTimeout(() => setSuccessMessage(''), 3000);
       setDeleteDialogOpen(false);
