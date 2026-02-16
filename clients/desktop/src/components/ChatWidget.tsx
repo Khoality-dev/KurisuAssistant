@@ -289,8 +289,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         ttsPlayedForResponseRef.current = false;
         handleSendText(asrTranscript);
       } else {
-        // Normal behavior: insert into input field
-        setInput(prev => (prev ? prev + ' ' + asrTranscript : asrTranscript));
+        // No trigger word match — ignore transcript
+        return;
       }
     } else {
       // In interaction mode: auto-send
