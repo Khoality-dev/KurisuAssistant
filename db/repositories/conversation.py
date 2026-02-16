@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
-from ..models import Conversation, Frame
+from ..models import Conversation, Frame, Message
 from .base import BaseRepository
 
 
@@ -55,6 +55,25 @@ class ConversationRepository(BaseRepository[Conversation]):
             self.session.query(Conversation)
             .filter_by(user_id=user_id)
             .order_by(desc(Conversation.id))
+            .first()
+        )
+
+    def get_latest_by_agent(self, user_id: int, agent_id: int) -> Optional[Conversation]:
+        """Get the most recent conversation containing messages from a specific agent.
+
+        Args:
+            user_id: User ID who owns the conversation
+            agent_id: Agent ID to filter by
+
+        Returns:
+            Most recent matching Conversation or None
+        """
+        return (
+            self.session.query(Conversation)
+            .join(Frame, Conversation.id == Frame.conversation_id)
+            .join(Message, Frame.id == Message.frame_id)
+            .filter(Conversation.user_id == user_id, Message.agent_id == agent_id)
+            .order_by(desc(Conversation.updated_at))
             .first()
         )
 

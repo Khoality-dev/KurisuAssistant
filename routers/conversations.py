@@ -2,7 +2,9 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from core.deps import get_db, get_authenticated_user
@@ -18,13 +20,28 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 @router.get("")
 async def list_conversations(
     limit: int = 50,
+    agent_id: Optional[int] = Query(None, description="Filter by agent ID (returns latest conversation with messages from this agent)"),
     user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db)
 ):
-    """List user's conversations."""
+    """List user's conversations. If agent_id is provided, returns the latest conversation containing messages from that agent."""
     try:
         with get_session() as session:
             conv_repo = ConversationRepository(session)
+            if agent_id is not None:
+                conversation = conv_repo.get_latest_by_agent(user.id, agent_id)
+                if conversation:
+                    return [{
+                        "id": conversation.id,
+                        "title": conversation.title or "New conversation",
+                        "created_at": conversation.created_at.isoformat() + "Z",
+                        "updated_at": (
+                            conversation.updated_at.isoformat() + "Z"
+                            if conversation.updated_at
+                            else conversation.created_at.isoformat() + "Z"
+                        ),
+                    }]
+                return []
             return conv_repo.list_by_user(user.id, limit)
     except Exception as e:
         logger.error(f"Error listing conversations for user {user.username}: {e}", exc_info=True)

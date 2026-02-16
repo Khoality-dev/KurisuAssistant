@@ -66,6 +66,7 @@ class AgentCreate(BaseModel):
     model_name: str  # Required - LLM model for this agent
     tools: Optional[List[str]] = None
     think: bool = False
+    trigger_word: Optional[str] = None
 
 
 class AgentUpdate(BaseModel):
@@ -77,6 +78,7 @@ class AgentUpdate(BaseModel):
     tools: Optional[List[str]] = None
     think: Optional[bool] = None
     memory: Optional[str] = None
+    trigger_word: Optional[str] = None
 
 
 class AgentResponse(BaseModel):
@@ -91,6 +93,7 @@ class AgentResponse(BaseModel):
     think: bool
     character_config: Optional[dict] = None
     memory: Optional[str] = None
+    trigger_word: Optional[str] = None
 
 
 def _agent_to_response(agent) -> AgentResponse:
@@ -106,6 +109,7 @@ def _agent_to_response(agent) -> AgentResponse:
         think=agent.think,
         character_config=getattr(agent, 'character_config', None),
         memory=agent.memory,
+        trigger_word=agent.trigger_word,
     )
 
 
@@ -167,6 +171,7 @@ async def create_agent(
                 model_name=body.model_name,
                 tools=body.tools,
                 think=body.think,
+                trigger_word=body.trigger_word,
             )
 
             return _agent_to_response(agent)
@@ -222,6 +227,7 @@ async def update_agent(
             tools=body.tools if agent.name != ADMINISTRATOR_NAME else None,  # Admin uses routing tools only
             think=body.think,
             memory=body.memory,
+            trigger_word=body.trigger_word,
         )
 
         return _agent_to_response(agent)

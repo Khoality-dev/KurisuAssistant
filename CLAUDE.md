@@ -126,7 +126,8 @@ Two modes controlled by `event.agent_id` in `ChatRequestEvent`:
 - **Lazy loading**: Model loaded on first transcription request, not at startup
 - **API**: `POST /asr` accepts raw Int16 PCM bytes (`application/octet-stream`), optional `?language=` query param
 - **Model conversion**: `python scripts/convert_whisper.py` (requires `transformers` + `torch` + `ctranslate2`)
-- **Frontend**: Silero VAD (`@ricky0123/vad-web`) auto-detects speech end → sends PCM to `/asr` → inserts text into input field
+- **Frontend**: Silero VAD (`@ricky0123/vad-web`) auto-detects speech end → sends PCM to `/asr` → inserts text into input field (or auto-sends in voice interaction mode)
+- **Voice Interaction Mode**: Per-agent `trigger_word` enables hands-free conversation. Flow: mic on → ASR transcript contains trigger word → enter interaction mode, auto-send → agent responds with TTS → 30s idle timer after TTS finishes → exit. Subsequent ASR results auto-send without trigger word. Exits on: 30s silence, mic off, agent switch, conversation change. Visual "Voice Active" chip shown near mic button. If user speaks while streaming, transcript queued as pending and sent when response completes.
 
 ### Tools
 
@@ -241,7 +242,7 @@ User: id, username, password(bcrypt), system_prompt, preferred_name, user_avatar
 Conversation: id, user_id→User, title, created_at, updated_at
 Frame: id, conversation_id→Conversation, summary?, created_at, updated_at
 Message: id, role, message, thinking?, raw_input?, raw_output?, name?, frame_id→Frame, agent_id→Agent(SET NULL), created_at
-Agent: id, user_id→User, name, system_prompt, voice_reference, avatar_uuid, model_name, tools(JSON), think(bool), memory(text?), created_at
+Agent: id, user_id→User, name, system_prompt, voice_reference, avatar_uuid, model_name, tools(JSON), think(bool), memory(text?), trigger_word(string?), created_at
 FaceIdentity: id, user_id→User, name(unique per user), created_at
 FacePhoto: id, identity_id→FaceIdentity(CASCADE), embedding(vector(512)), photo_uuid, created_at
 Skill: id, user_id→User, name(unique per user), instructions(text), created_at
@@ -259,7 +260,7 @@ All protected unless noted. Auth: `Authorization: Bearer <token>`.
 | POST | `/asr` | Audio → text (faster-whisper, raw PCM, ?language=) |
 | POST | `/chat` | Stream chat (multipart: text, model_name, conversation_id?, images?) → NDJSON |
 | GET | `/models` | List LLM models |
-| GET | `/conversations` | List conversations (?limit=50) |
+| GET | `/conversations` | List conversations (?limit=50&agent_id= — with agent_id returns latest conversation for that agent) |
 | GET | `/conversations/{id}` | Get conversation + messages (?limit=50&offset=0) |
 | POST | `/conversations/{id}` | Update title |
 | DELETE | `/conversations/{id}` | Delete conversation |
