@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { apiClient } from '../api/client';
 import { storage } from '../utils/storage';
+import { useConversationStore } from './conversationStore';
 import type { Agent } from '../api/types';
 
 const ADMINISTRATOR_NAME = 'Administrator';
@@ -29,10 +30,27 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       // Auto-select first agent if stored selection is invalid
       const { selectedAgentId } = get();
       const stillValid = selectedAgentId !== null && agents.some((a) => a.id === selectedAgentId);
-      if (!stillValid && agents.length > 0) {
-        const firstId = agents[0].id;
-        set({ selectedAgentId: firstId });
-        storage.setSelectedAgentId(firstId);
+      const finalId = stillValid ? selectedAgentId : (agents.length > 0 ? agents[0].id : null);
+
+      if (!stillValid && finalId !== null) {
+        set({ selectedAgentId: finalId });
+        storage.setSelectedAgentId(finalId);
+      }
+
+      // Load conversation for the selected agent
+      if (finalId !== null) {
+        const convStore = useConversationStore.getState();
+        const convId = storage.getAgentConversationId(finalId);
+        if (convId) {
+          try {
+            await convStore.loadConversation(convId);
+          } catch {
+            storage.clearAgentConversationId(finalId);
+            convStore.clearCurrentConversation();
+          }
+        } else {
+          convStore.clearCurrentConversation();
+        }
       }
     } catch (err) {
       console.error('Failed to load agents:', err);
@@ -47,6 +65,22 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       storage.setSelectedAgentId(id);
     } else {
       storage.clearSelectedAgentId();
+    }
+
+    // Load the conversation for this agent
+    const convStore = useConversationStore.getState();
+    if (id !== null) {
+      const convId = storage.getAgentConversationId(id);
+      if (convId) {
+        convStore.loadConversation(convId).catch(() => {
+          storage.clearAgentConversationId(id);
+          convStore.clearCurrentConversation();
+        });
+      } else {
+        convStore.clearCurrentConversation();
+      }
+    } else {
+      convStore.clearCurrentConversation();
     }
   },
 }));

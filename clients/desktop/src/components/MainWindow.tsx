@@ -1,14 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
   Box,
-  Drawer,
-  List,
-  ListItemButton,
-  ListItemText,
-  Button,
   Typography,
   IconButton,
-  Divider,
   Alert,
   Tabs,
   Tab,
@@ -17,11 +11,8 @@ import {
   Select,
   MenuItem,
   Tooltip,
-  ToggleButtonGroup,
-  ToggleButton,
 } from '@mui/material';
 import {
-  Add as AddIcon,
   Delete as DeleteIcon,
   Logout as LogoutIcon,
   Settings as SettingsIcon,
@@ -29,23 +20,17 @@ import {
   Extension as ToolsIcon,
   Chat as ChatIcon,
   Face as FaceIcon,
-  Person as PersonIcon,
-  Groups as GroupsIcon,
 } from '@mui/icons-material';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '../store/authStore';
 import { useConversationStore } from '../store/conversationStore';
 import { useAgentStore } from '../store/agentStore';
+import { storage } from '../utils/storage';
 import { ChatWidget } from './ChatWidget';
 import { SettingsWindow } from './SettingsWindow';
 import { AgentsWindow } from './AgentsWindow';
 import { ToolsWindow } from './ToolsWindow';
 import { FacesWindow } from './FacesWindow';
 import { MediaPlayerBar } from './MediaPlayerBar';
-
-const DRAWER_WIDTH = 280;
-
-const MotionListItemButton = motion(ListItemButton);
 
 type Page = 'chat' | 'settings' | 'agents' | 'tools' | 'faces';
 
@@ -55,12 +40,8 @@ const PAGE_TO_TAB: Record<string, number> = { chat: 0, agents: 1, tools: 2, face
 export const MainWindow: React.FC = () => {
   const { user, logout } = useAuthStore();
   const {
-    conversations,
     currentConversation,
-    loadConversations,
-    loadConversation,
     deleteConversation,
-    createNewConversation,
   } = useConversationStore();
   const { agents, selectedAgentId, loadAgents, selectAgent } = useAgentStore();
 
@@ -88,42 +69,25 @@ export const MainWindow: React.FC = () => {
     }
   };
 
-  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [currentPage, setCurrentPage] = useState<Page>('chat');
 
   useEffect(() => {
-    loadConversations().catch((err) => {
-      setError('Failed to load conversations');
-      console.error(err);
-    });
     loadAgents();
-  }, [loadConversations, loadAgents]);
+  }, [loadAgents]);
 
-  const handleSelectConversation = async (id: number) => {
+  const handleClearConversation = async () => {
+    if (!currentConversation) return;
     try {
-      setSelectedId(id);
-      await loadConversation(id);
-    } catch (err: any) {
-      setError('Failed to load conversation');
-      console.error(err);
-    }
-  };
-
-  const handleNewConversation = () => {
-    setSelectedId(null);
-    createNewConversation();
-  };
-
-  const handleDelete = async () => {
-    if (selectedId !== null) {
-      try {
-        await deleteConversation(selectedId);
-        setSelectedId(null);
-      } catch (err: any) {
-        setError('Failed to delete conversation');
-        console.error(err);
+      await deleteConversation(currentConversation.id);
+      if (selectedAgentId !== null) {
+        storage.clearAgentConversationId(selectedAgentId);
+      } else {
+        storage.clearAgentConversationId('group');
       }
+    } catch (err: any) {
+      setError('Failed to delete conversation');
+      console.error(err);
     }
   };
 
@@ -158,6 +122,39 @@ export const MainWindow: React.FC = () => {
           <Tab icon={<ToolsIcon fontSize="small" />} label="Tools" iconPosition="start" />
           <Tab icon={<FaceIcon fontSize="small" />} label="Faces" iconPosition="start" />
         </Tabs>
+
+        {/* Agent selector + clear conversation */}
+        {currentPage === 'chat' && agents.length > 0 && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 2 }}>
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel>Agent</InputLabel>
+              <Select
+                value={selectedAgentId ?? ''}
+                label="Agent"
+                onChange={(e) => selectAgent(e.target.value as number)}
+              >
+                {agents.map((agent) => (
+                  <MenuItem key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Tooltip title="Clear conversation">
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={handleClearConversation}
+                  disabled={!currentConversation}
+                  color="error"
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Box>
+        )}
+
         <Box sx={{ flex: 1 }} />
         <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
           {user?.username}
@@ -185,125 +182,6 @@ export const MainWindow: React.FC = () => {
 
       {/* Content area */}
       <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Sidebar - only visible on Chat tab */}
-        {currentPage === 'chat' && (
-          <Drawer
-            variant="permanent"
-            sx={{
-              width: DRAWER_WIDTH,
-              flexShrink: 0,
-              '& .MuiDrawer-paper': {
-                width: DRAWER_WIDTH,
-                boxSizing: 'border-box',
-                backgroundColor: '#F9F9F9',
-                borderRight: '1px solid #E5E5E5',
-                position: 'relative',
-              },
-            }}
-          >
-            <Box sx={{ p: 2 }}>
-              {/* Action buttons */}
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button
-                  fullWidth
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={handleNewConversation}
-                >
-                  New
-                </Button>
-                <IconButton
-                  color="error"
-                  onClick={handleDelete}
-                  disabled={selectedId === null}
-                  sx={{ border: '1px solid', borderColor: 'divider' }}
-                >
-                  <DeleteIcon />
-                </IconButton>
-              </Box>
-
-              {/* Mode selector */}
-              <ToggleButtonGroup
-                value="single"
-                exclusive
-                fullWidth
-                size="small"
-                sx={{ mt: 1.5 }}
-              >
-                <ToggleButton
-                  value="single"
-                  sx={{ textTransform: 'none', fontSize: '0.75rem', py: 0.5 }}
-                >
-                  <PersonIcon sx={{ fontSize: 16, mr: 0.5 }} />
-                  Single Agent
-                </ToggleButton>
-                <Tooltip title="Group discussion mode coming soon">
-                  <span style={{ flex: 1, display: 'flex' }}>
-                    <ToggleButton
-                      value="group"
-                      disabled
-                      sx={{ textTransform: 'none', fontSize: '0.75rem', py: 0.5, flex: 1 }}
-                    >
-                      <GroupsIcon sx={{ fontSize: 16, mr: 0.5 }} />
-                      Group
-                    </ToggleButton>
-                  </span>
-                </Tooltip>
-              </ToggleButtonGroup>
-
-              {/* Agent selector */}
-              {agents.length > 0 && (
-                <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
-                  <InputLabel>Agent</InputLabel>
-                  <Select
-                    value={selectedAgentId ?? ''}
-                    label="Agent"
-                    onChange={(e) => selectAgent(e.target.value as number)}
-                  >
-                    {agents.map((agent) => (
-                      <MenuItem key={agent.id} value={agent.id}>
-                        {agent.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              )}
-            </Box>
-
-            <Divider />
-
-            <Typography
-              variant="caption"
-              sx={{ px: 2, py: 1, color: 'text.secondary', fontWeight: 600 }}
-            >
-              CONVERSATIONS
-            </Typography>
-
-            <List sx={{ px: 1, flex: 1, overflow: 'auto' }}>
-              <AnimatePresence>
-                {conversations.map((conv) => (
-                  <MotionListItemButton
-                    key={conv.id}
-                    selected={selectedId === conv.id}
-                    onClick={() => handleSelectConversation(conv.id)}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.2 }}
-                  >
-                    <ListItemText
-                      primary={conv.title}
-                      secondary={`${conv.frame_count} frames`}
-                      primaryTypographyProps={{ fontSize: '0.875rem' }}
-                      secondaryTypographyProps={{ fontSize: '0.75rem' }}
-                    />
-                  </MotionListItemButton>
-                ))}
-              </AnimatePresence>
-            </List>
-          </Drawer>
-        )}
-
         {/* Main content */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {error && (

@@ -26,7 +26,7 @@ src/api/client.ts         — Axios + WebSocket singleton; streaming + media via
 src/api/types.ts          — TypeScript interfaces for API
 src/components/
   LoginWindow.tsx          — Login/Register tabs, Remember Me, Server URL field, purple gradient
-  MainWindow.tsx           — Permanent sidebar (280px) + ChatWidget, conversation CRUD
+  MainWindow.tsx           — Top bar (tabs + agent selector + clear conversation) + ChatWidget, no sidebar
   ChatWidget.tsx           — Chat UI with streaming, TTS auto-play, image attach, pagination, IPC bridge to character window
   MessageBubble.tsx        — Individual bubble: role styling, thinking collapse, TTS, resend/delete
   ToolsWindow.tsx          — Three tabs: MCP Servers, Available Tools, Skills (CRUD + import/export)
@@ -44,8 +44,8 @@ src/hooks/
   useAudioAmplitude.ts    — Web Audio API amplitude for lip sync (AudioBufferSourceNode + time-domain RMS)
 src/store/
   authStore.ts            — Auth state, login/register/logout, token persistence
-  conversationStore.ts    — Conversations, messages (paginated 50/page), models
-  agentStore.ts           — Agent list (filtered, no Administrator), selected agent ID (persisted)
+  conversationStore.ts    — Current conversation + messages (paginated 20/page). No conversation list — agent selection drives conversation via localStorage mapping.
+  agentStore.ts           — Agent list (filtered, no Administrator), selected agent ID (persisted). Agent selection triggers conversation load via agent-conversation mapping.
   visionStore.ts          — Zustand singleton: vision pipeline control (getUserMedia webcam capture, frame upload at 3 FPS via WebSocket, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Used by both FacesWindow and ChatWidget camera toggle.
   mediaStore.ts           — Zustand singleton: media player state (playback, track, queue, volume). All media events (control + chunks) flow through wsManager on /ws/chat. Module-level listeners for media_state/media_chunk/media_error. Buffers base64 chunks → Blob → Audio playback. Volume persisted to localStorage.
 src/CharacterWindowApp.tsx — Minimal IPC-driven renderer for separate character window (no auth/stores)
@@ -55,7 +55,7 @@ src/videocall/            — Character animation engine (rendered in separate E
   engine/
     CanvasCompositor.ts   — 60fps render: blink + breathing + mouth + pose tree state machine (idle→transitioning→idle), edge timers, video transitions, configurable AnimationSettings
     ImageCache.ts         — URL→HTMLImageElement cache
-src/utils/storage.ts      — localStorage wrapper (auth token, model, TTS settings)
+src/utils/storage.ts      — localStorage wrapper (auth token, model, TTS settings, agent-conversation mapping)
 src/theme/theme.ts        — MUI theme: primary #10A37F, 8px/12px border-radius
 src/config.ts             — API URL config (reads dynamically from storage)
 ```
@@ -88,9 +88,12 @@ src/config.ts             — API URL config (reads dynamically from storage)
 - Tool messages excluded; voice reference tracked per-agent
 - Action narration (`*walks over*`) stripped via `stripNarration()` before TTS — preserves `**bold**`
 
-### Conversation Creation
-- NOT explicit POST. Backend auto-creates on first `chatStream()` with `conversationId=null`
-- First event returns `conversation_id`; `setCurrentConversationId()` refreshes sidebar if new
+### Conversation Management (One Per Agent)
+- No conversation sidebar — each agent has one conversation, managed via `kurisu_agent_conversations` localStorage mapping (`Record<string, number>`, agent ID → conversation ID)
+- Agent selection triggers conversation load (or empty state if no mapping exists)
+- Backend auto-creates conversation on first message with `conversationId=null`; first `StreamChunkEvent` saves the mapping
+- "Clear conversation" button deletes via API + removes mapping entry
+- Mapping cleared on logout (`clearAllAgentConversations`) and agent delete (`clearAgentConversationId`)
 
 ### Auth Flow
 - Login → POST /login → JWT token → stored in apiClient + localStorage (if rememberMe)
@@ -147,7 +150,7 @@ Separate Electron window (toggleable via Face icon in top bar). Opens as indepen
 
 ## Storage Keys (localStorage)
 
-`kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_tts_auto_play`, `kurisu_tts_emo_audio`, `kurisu_tts_emo_alpha`, `kurisu_tts_use_emo_text`, `kurisu_selected_agent_id`, `kurisu_media_volume`
+`kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_tts_auto_play`, `kurisu_tts_emo_audio`, `kurisu_tts_emo_alpha`, `kurisu_tts_use_emo_text`, `kurisu_selected_agent_id`, `kurisu_agent_conversations`, `kurisu_media_volume`
 
 ## Security
 

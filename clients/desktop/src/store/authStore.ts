@@ -56,6 +56,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     apiClient.clearToken();
     storage.clearToken();
     storage.setRememberMe(false);
+    storage.clearAllAgentConversations();
     set({ isAuthenticated: false, user: null, rememberMe: false });
   },
 

@@ -3,7 +3,6 @@ import { apiClient } from '../api/client';
 import type { Conversation, FrameInfo, Message } from '../api/types';
 
 interface ConversationState {
-  conversations: Conversation[];
   currentConversation: Conversation | null;
   messages: Message[];
   frames: Record<number, FrameInfo>;
@@ -14,18 +13,16 @@ interface ConversationState {
   messagesOffset: number;
   isLoadingMessages: boolean;
 
-  loadConversations: () => Promise<void>;
   loadConversation: (id: number) => Promise<void>;
   loadMoreMessages: () => Promise<void>;
   deleteConversation: (id: number) => Promise<void>;
-  createNewConversation: () => void;
+  clearCurrentConversation: () => void;
   addMessage: (message: Message) => void;
   updateLastMessage: (content: string, thinking?: string, role?: string, name?: string) => void;
-  setCurrentConversationId: (id: number) => Promise<void>;
+  setCurrentConversationId: (id: number) => void;
 }
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
-  conversations: [],
   currentConversation: null,
   messages: [],
   frames: {},
@@ -36,23 +33,16 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   messagesOffset: 0,
   isLoadingMessages: false,
 
-  loadConversations: async () => {
-    const conversations = await apiClient.getConversations();
-    set({ conversations });
-  },
-
   loadConversation: async (id: number) => {
-    // Load the most recent page of messages (offset=0)
     const data = await apiClient.getConversation(id, 20, 0);
-    const conversation = get().conversations.find((c) => c.id === id) || null;
 
     set({
-      currentConversation: conversation,
+      currentConversation: { id, title: data.title, frame_count: 0, created_at: data.created_at, updated_at: '' },
       messages: data.messages,
       frames: data.frames || {},
       totalMessages: data.total_messages,
       hasMoreMessages: data.has_more,
-      messagesOffset: data.limit, // Next offset for loading more
+      messagesOffset: data.limit,
       isLoadingMessages: false,
     });
   },
@@ -90,11 +80,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   deleteConversation: async (id: number) => {
     await apiClient.deleteConversation(id);
-    const conversations = get().conversations.filter((c) => c.id !== id);
-    set({ conversations, currentConversation: null, messages: [], frames: {} });
+    set({ currentConversation: null, messages: [], frames: {} });
   },
 
-  createNewConversation: () => {
+  clearCurrentConversation: () => {
     set({
       currentConversation: null,
       messages: [],
@@ -127,13 +116,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     });
   },
 
-  setCurrentConversationId: async (id: number) => {
-    const conversation = get().conversations.find((c) => c.id === id) || null;
-    set({ currentConversation: conversation });
-
-    // If conversation not found in current list, it's new - refresh the list
-    if (!conversation) {
-      await get().loadConversations();
-    }
+  setCurrentConversationId: (id: number) => {
+    set({ currentConversation: { id, title: '', frame_count: 0, created_at: '', updated_at: '' } });
   },
 }));
