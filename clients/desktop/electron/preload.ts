@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
+  openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
 
   updater: {
     onUpdateAvailable: (cb: (info: { version: string }) => void) => {

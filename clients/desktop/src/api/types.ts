@@ -154,6 +154,7 @@ export interface MCPServer {
   name: string;
   command: string;
   args: string[];
+  url: string;
   status: 'configured' | 'available' | 'unavailable';
 }
 
