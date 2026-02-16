@@ -45,7 +45,7 @@ import '@xyflow/react/dist/style.css';
 import { apiClient } from '../api/client';
 import type { Agent } from '../api/types';
 import type { AnimationNode, AnimationEdge, PoseTree, PoseConfig } from '../videocall/types';
-import { migrateEdgeToTransitions } from '../videocall/types';
+import { migrateEdgeToTransitions, migratePoseTreeIds } from '../videocall/types';
 import PoseGraphNode from './PoseGraphNode';
 import type { PoseGraphNodeData } from './PoseGraphNode';
 import { PoseNodeEditor } from './PoseNodeEditor';
@@ -85,6 +85,25 @@ const OffsetEdge: React.FC<EdgeProps> = ({
     path = `M ${sx} ${baseY} C ${sx - r * 0.5} ${topY}, ${tx + r * 0.5} ${topY}, ${tx} ${baseY}`;
     midX = cx;
     midY = topY + r * 0.5;
+  } else if (data?.hasReverse) {
+    // Bidirectional edge — offset perpendicular so both edges are visible side-by-side
+    // Compute perpendicular from a canonical direction (smaller ID → larger ID) so both
+    // edges use the same perpendicular vector. Then A→B gets + offset, B→A gets − offset.
+    const OFFSET = 6;
+    const isCanonical = source < target;
+    const sign = isCanonical ? 1 : -1;
+    const cdx = isCanonical ? (targetX - sourceX) : (sourceX - targetX);
+    const cdy = isCanonical ? (targetY - sourceY) : (sourceY - targetY);
+    const len = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
+    const perpX = (-cdy / len) * OFFSET * sign;
+    const perpY = (cdx / len) * OFFSET * sign;
+    const sx = sourceX + perpX;
+    const sy = sourceY + perpY;
+    const tx = targetX + perpX;
+    const ty = targetY + perpY;
+    path = `M ${sx} ${sy} L ${tx} ${ty}`;
+    midX = (sx + tx) / 2;
+    midY = (sy + ty) / 2;
   } else {
     path = `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`;
     midX = (sourceX + targetX) / 2;
@@ -130,9 +149,17 @@ const CONDITION_COLORS: Record<string, string> = {
   random: '#2196F3',
   thinking: '#9C27B0',
   gesture: '#FF9800',
+  face: '#4CAF50',
   mixed: '#FF9800',
   _default: '#888',
 };
+
+/** Format a single condition into a short label from its stored fields */
+function formatCondition(cond: Record<string, unknown>): string {
+  const { type, ...rest } = cond;
+  const parts = Object.values(rest).map((v) => String(v));
+  return parts.length ? `${type}: ${parts.join(', ')}` : String(type);
+}
 
 function getEdgeVisuals(animEdge?: AnimationEdge): {
   style: Record<string, unknown>;
@@ -148,22 +175,20 @@ function getEdgeVisuals(animEdge?: AnimationEdge): {
   if (transitions.length === 0) {
     label = 'No condition';
   } else if (transitions.length === 1) {
-    const cond = transitions[0].condition;
-    color = CONDITION_COLORS[cond.type] || CONDITION_COLORS._default;
-    if (cond.type === 'random') {
-      label = `Random ${(cond.min_interval_ms / 1000).toFixed(0)}\u2013${(cond.max_interval_ms / 1000).toFixed(0)}s`;
-    } else if (cond.type === 'thinking') {
-      label = `Thinking: ${cond.value}`;
-    } else if (cond.type === 'gesture') {
-      label = `Gesture: ${cond.value}`;
+    const conds = transitions[0].conditions;
+    if (conds.length === 1) {
+      color = CONDITION_COLORS[conds[0].type] || CONDITION_COLORS._default;
+      label = formatCondition(conds[0] as unknown as Record<string, unknown>);
+    } else {
+      color = CONDITION_COLORS.mixed;
+      label = conds.map((c) => formatCondition(c as unknown as Record<string, unknown>)).join(' + ');
     }
   } else {
-    // Multiple transitions — check if all same type
-    const types = new Set(transitions.map((t) => t.condition.type));
-    if (types.size === 1) {
-      const singleType = transitions[0].condition.type;
+    const allTypes = new Set(transitions.flatMap((t) => t.conditions.map((c) => c.type)));
+    if (allTypes.size === 1) {
+      const singleType = transitions[0].conditions[0].type;
       color = CONDITION_COLORS[singleType] || CONDITION_COLORS._default;
-      label = `${transitions.length} ${singleType} transitions`;
+      label = `${transitions.length} ${singleType}`;
     } else {
       color = CONDITION_COLORS.mixed;
       label = `${transitions.length} transitions`;
@@ -210,9 +235,10 @@ function getBestHandles(
 
 function poseTreeToReactFlow(
   poseTree: PoseTree,
-  defaultPoseId: string,
+  defaultPoseIds: string[],
   onDoubleClick: (nodeId: string) => void,
 ): { nodes: RFNode[]; edges: RFEdge[] } {
+  const defaultSet = new Set(defaultPoseIds);
   const nodes: RFNode[] = poseTree.nodes.map((n) => ({
     id: n.id,
     type: 'poseNode',
@@ -220,7 +246,7 @@ function poseTreeToReactFlow(
     data: {
       label: n.name,
       baseImageUrl: n.pose_config?.base_image_url,
-      isDefault: n.id === defaultPoseId,
+      isDefault: defaultSet.has(n.id),
       onDoubleClick,
     } satisfies PoseGraphNodeData,
   }));
@@ -231,8 +257,15 @@ function poseTreeToReactFlow(
     posMap.set(n.id, n.position || { x: 0, y: 0 });
   }
 
+  // Build set of directed pairs to detect bidirectional edges
+  const directedPairs = new Set<string>();
+  for (const e of poseTree.edges) {
+    directedPairs.add(`${e.from_node_id}->${e.to_node_id}`);
+  }
+
   const edges: RFEdge[] = poseTree.edges.map((e) => {
     const isSelfLoop = e.from_node_id === e.to_node_id;
+    const hasReverse = !isSelfLoop && directedPairs.has(`${e.to_node_id}->${e.from_node_id}`);
     const srcPos = posMap.get(e.from_node_id) || { x: 0, y: 0 };
     const tgtPos = posMap.get(e.to_node_id) || { x: 0, y: 0 };
     const handles = getBestHandles(srcPos, tgtPos, isSelfLoop);
@@ -249,6 +282,7 @@ function poseTreeToReactFlow(
       markerEnd: visuals.markerEnd,
       label: visuals.label,
       data: {
+        hasReverse,
         labelStyle: { fill: visuals.style.stroke as string },
         labelBgStyle: { fill: '#fff', fillOpacity: 0.85 },
       },
@@ -261,7 +295,7 @@ function poseTreeToReactFlow(
 function reactFlowToPoseTree(
   rfNodes: RFNode[],
   rfEdges: RFEdge[],
-  defaultPoseId: string,
+  defaultPoseIds: string[],
   animationNodesMap: Map<string, AnimationNode>,
   animationEdgesMap: Map<string, AnimationEdge>,
 ): PoseTree {
@@ -288,7 +322,7 @@ function reactFlowToPoseTree(
   });
 
   return {
-    default_pose_id: defaultPoseId,
+    default_pose_ids: defaultPoseIds,
     nodes,
     edges,
   };
@@ -311,9 +345,10 @@ const edgeTypes: EdgeTypes = {
   offsetEdge: OffsetEdge,
 };
 
-let nodeIdCounter = 0;
 function nextNodeId(): string {
-  return `pose-${Date.now()}-${nodeIdCounter++}`;
+  const bytes = new Uint8Array(4);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
@@ -328,7 +363,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
   // React Flow state
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode>([] as RFNode[]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([] as RFEdge[]);
-  const [defaultPoseId, setDefaultPoseId] = useState('pose-default');
+  const [defaultPoseIds, setDefaultPoseIds] = useState<string[]>([]);
 
   // Animation data maps (preserved across React Flow operations)
   const animationNodesRef = useRef(new Map<string, AnimationNode>());
@@ -370,23 +405,20 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
       const edgesMap = new Map<string, AnimationEdge>();
 
       if (cc?.pose_tree?.nodes?.length) {
-        const poseTree = cc.pose_tree as PoseTree;
-        const dpId = poseTree.default_pose_id || 'pose-default';
-        setDefaultPoseId(dpId);
+        let poseTree = cc.pose_tree as PoseTree;
 
         for (const n of poseTree.nodes) {
           if (!n.position) n.position = { x: 0, y: 0 };
-          nodesMap.set(n.id, n);
         }
+
         // Migrate edges to transitions[] format and merge into one edge per directed pair
         const pairEdgeMap = new Map<string, AnimationEdge>();
         for (const rawEdge of poseTree.edges) {
           const migrated = migrateEdgeToTransitions(rawEdge);
           const pairKey = `${migrated.from_node_id}->${migrated.to_node_id}`;
-          const deterministicId = `edge-${migrated.from_node_id}-${migrated.to_node_id}`;
+          const deterministicId = `${migrated.from_node_id}-${migrated.to_node_id}`;
           const existing = pairEdgeMap.get(pairKey);
           if (existing) {
-            // Merge transitions from legacy parallel edges into one
             existing.transitions.push(...migrated.transitions);
           } else {
             migrated.id = deterministicId;
@@ -394,19 +426,43 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
           }
         }
         poseTree.edges = [...pairEdgeMap.values()];
-        for (const e of poseTree.edges) {
-          edgesMap.set(e.id, e);
+
+        // Migrate old pose-* node IDs to short hex IDs
+        let migrated = false;
+        const migration = migratePoseTreeIds(poseTree);
+        if (Object.keys(migration.idMapping).length > 0) {
+          poseTree = migration.poseTree;
+          migrated = true;
+          // Rename files on disk via backend
+          apiClient.migrateCharacterIds(agent.id, migration.idMapping).catch((err) => {
+            console.error('Failed to migrate character asset files:', err);
+          });
         }
+
+        // Migrate legacy single default_pose_id to array
+        const dpIds: string[] = poseTree.default_pose_ids?.length
+          ? poseTree.default_pose_ids
+          : [(poseTree as any).default_pose_id || poseTree.nodes[0]?.id].filter(Boolean);
+        setDefaultPoseIds(dpIds);
+
+        for (const n of poseTree.nodes) nodesMap.set(n.id, n);
+        for (const e of poseTree.edges) edgesMap.set(e.id, e);
 
         animationNodesRef.current = nodesMap;
         animationEdgesRef.current = edgesMap;
 
-        const { nodes, edges } = poseTreeToReactFlow(poseTree, dpId, handleNodeDoubleClick);
+        const { nodes, edges } = poseTreeToReactFlow(poseTree, dpIds, handleNodeDoubleClick);
         setRfNodes(nodes);
         setRfEdges(edges);
+
+        // Auto-save migrated config after initial load completes
+        if (migrated) {
+          setTimeout(() => triggerAutoSave(), 200);
+        }
       } else {
+        const defaultId = nextNodeId();
         const defaultNode: AnimationNode = {
-          id: 'pose-default',
+          id: defaultId,
           name: 'Default',
           type: 'pose',
           position: { x: 100, y: 100 },
@@ -414,9 +470,9 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
         nodesMap.set(defaultNode.id, defaultNode);
         animationNodesRef.current = nodesMap;
         animationEdgesRef.current = edgesMap;
-        setDefaultPoseId('pose-default');
+        setDefaultPoseIds([defaultId]);
         setRfNodes([{
-          id: 'pose-default',
+          id: defaultId,
           type: 'poseNode',
           position: { x: 100, y: 100 },
           data: {
@@ -453,7 +509,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
         const poseTree = reactFlowToPoseTree(
           rfNodes,
           rfEdges,
-          defaultPoseId,
+          defaultPoseIds,
           animationNodesRef.current,
           animationEdgesRef.current,
         );
@@ -509,23 +565,34 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
   }, [onNodesChange, triggerAutoSave, setRfNodes, setRfEdges]);
 
   // ─── Edge connection ───
-  const onConnect = useCallback((connection: Connection) => {
-    if (!connection.source || !connection.target) return;
-    const edgeId = `edge-${connection.source}-${connection.target}`;
-    const isSelfLoop = connection.source === connection.target;
+  const onConnect = useCallback((params: Connection) => {
+    if (!params.source || !params.target) return;
+    let source = params.source;
+    let target = params.target;
+    let edgeId = `${source}-${target}`;
+    const isSelfLoop = source === target;
 
-    // If an edge already exists for this directed pair, open editor instead
+    // If this directed pair exists, try creating the reverse instead
+    // (handles overlap at each position, so React Flow may flip the direction)
+    const reverseId = `${target}-${source}`;
     if (animationEdgesRef.current.has(edgeId)) {
-      setEditingEdgeId(edgeId);
-      setEdgeEditorOpen(true);
-      return;
+      if (!animationEdgesRef.current.has(reverseId) && !isSelfLoop) {
+        // Swap to create the reverse edge
+        [source, target] = [target, source];
+        edgeId = reverseId;
+      } else {
+        // Both directions exist — open editor for the matched one
+        setEditingEdgeId(edgeId);
+        setEdgeEditorOpen(true);
+        return;
+      }
     }
 
     // Create animation edge with default transition
     const animEdge: AnimationEdge = {
       id: edgeId,
-      from_node_id: connection.source,
-      to_node_id: connection.target,
+      from_node_id: source,
+      to_node_id: target,
       transitions: [{ condition: { type: 'random', min_interval_ms: 5000, max_interval_ms: 15000 } }],
     };
     animationEdgesRef.current.set(edgeId, animEdge);
@@ -535,23 +602,33 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
     // Self-loop: override handles so the loop arcs above the node
     const handles = isSelfLoop
       ? { sourceHandle: 's-top', targetHandle: 't-top' }
-      : { sourceHandle: connection.sourceHandle, targetHandle: connection.targetHandle };
+      : { sourceHandle: params.sourceHandle, targetHandle: params.targetHandle };
+
+    // Check if the reverse edge exists — if so, both need hasReverse for side-by-side rendering
+    const hasReverse = !isSelfLoop && animationEdgesRef.current.has(reverseId);
 
     const newEdge: RFEdge = {
       id: edgeId,
-      source: connection.source!,
-      target: connection.target!,
+      source,
+      target,
       ...handles,
       type: 'offsetEdge',
       style: visuals.style,
       markerEnd: visuals.markerEnd,
       label: visuals.label,
       data: {
+        hasReverse,
         labelStyle: { fill: visuals.style.stroke as string },
         labelBgStyle: { fill: '#fff', fillOpacity: 0.85 },
       },
     };
-    setRfEdges((eds) => [...eds, newEdge]);
+    setRfEdges((eds) => {
+      // Also mark the existing reverse edge as hasReverse
+      const updated = hasReverse
+        ? eds.map((e) => e.id === reverseId ? { ...e, data: { ...e.data, hasReverse: true } } : e)
+        : eds;
+      return [...updated, newEdge];
+    });
     triggerAutoSave();
   }, [setRfEdges, triggerAutoSave]);
 
@@ -573,18 +650,25 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
 
   const closeContextMenu = () => setContextMenu(null);
 
-  const handleSetDefault = () => {
+  const handleToggleDefault = () => {
     if (!contextMenu) return;
     const nodeId = contextMenu.nodeId;
-    setDefaultPoseId(nodeId);
-    // Update isDefault in all nodes
-    setRfNodes((nds) =>
-      nds.map((n) => ({
-        ...n,
-        data: { ...n.data, isDefault: n.id === nodeId },
-      }))
-    );
-    triggerAutoSave();
+    setDefaultPoseIds((prev) => {
+      const isDefault = prev.includes(nodeId);
+      // Don't allow removing the last default
+      if (isDefault && prev.length <= 1) return prev;
+      const next = isDefault ? prev.filter((id) => id !== nodeId) : [...prev, nodeId];
+      // Update isDefault in all nodes
+      const defaultSet = new Set(next);
+      setRfNodes((nds) =>
+        nds.map((n) => ({
+          ...n,
+          data: { ...n.data, isDefault: defaultSet.has(n.id) },
+        }))
+      );
+      triggerAutoSave();
+      return next;
+    });
     closeContextMenu();
   };
 
@@ -624,21 +708,22 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
     // Remove node
     setRfNodes((nds) => nds.filter((n) => n.id !== nodeId));
 
-    // If deleted the default, assign new default
-    if (defaultPoseId === nodeId) {
-      const remaining = rfNodes.filter((n) => n.id !== nodeId);
-      if (remaining.length > 0) {
-        const newDefault = remaining[0].id;
-        setDefaultPoseId(newDefault);
-        setRfNodes((nds) =>
-          nds.map((n) => ({
-            ...n,
-            data: { ...n.data, isDefault: n.id === newDefault },
-          }))
-        );
+    // Remove from defaults if needed, ensure at least one default remains
+    setDefaultPoseIds((prev) => {
+      const next = prev.filter((id) => id !== nodeId);
+      if (next.length === 0) {
+        const remaining = rfNodes.filter((n) => n.id !== nodeId);
+        if (remaining.length > 0) next.push(remaining[0].id);
       }
-    }
-
+      const defaultSet = new Set(next);
+      setRfNodes((nds) =>
+        nds.map((n) => ({
+          ...n,
+          data: { ...n.data, isDefault: defaultSet.has(n.id) },
+        }))
+      );
+      return next;
+    });
     triggerAutoSave();
     closeContextMenu();
   };
@@ -847,9 +932,9 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
             : undefined
         }
       >
-        <MenuItem onClick={handleSetDefault}>
+        <MenuItem onClick={handleToggleDefault}>
           <ListItemIcon><StarIcon fontSize="small" /></ListItemIcon>
-          <ListItemText>Set as Default</ListItemText>
+          <ListItemText>Toggle Default</ListItemText>
         </MenuItem>
         <MenuItem onClick={handleEditPose}>
           <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>

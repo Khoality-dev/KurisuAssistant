@@ -166,18 +166,21 @@ class WebSocketManager {
   private ws: WebSocket | null = null;
   private token: string | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
+  private maxReconnectDelay = 30000;
   private handlers: Map<EventType, Set<EventHandler>> = new Map();
   private connectionPromise: Promise<void> | null = null;
   private isConnecting = false;
   private lastConnectedAt = 0;
+  private intentionalClose = false;
 
   /**
    * Set the authentication token.
    */
   setToken(token: string) {
     this.token = token;
+    // Eagerly connect on token set (login/restore)
+    this.connect().catch(() => {});
   }
 
   /**
@@ -204,6 +207,7 @@ class WebSocketManager {
     }
 
     this.isConnecting = true;
+    this.intentionalClose = false;
     this.connectionPromise = new Promise((resolve, reject) => {
       // Convert http(s) to ws(s)
       const wsUrl = config.apiBaseUrl
@@ -215,16 +219,7 @@ class WebSocketManager {
 
       this.ws.onopen = () => {
         this.lastConnectedAt = Date.now();
-        // Only reset reconnect counter if connection was stable (>10s)
-        // This prevents infinite reconnect loops when server accepts then drops
-        if (this.reconnectAttempts > 0) {
-          // Will be reset on next successful message or after stable period
-          setTimeout(() => {
-            if (this.ws?.readyState === WebSocket.OPEN) {
-              this.reconnectAttempts = 0;
-            }
-          }, 10000);
-        }
+        this.reconnectAttempts = 0;
         this.isConnecting = false;
         resolve();
       };
@@ -244,14 +239,12 @@ class WebSocketManager {
         reject(error);
       };
 
-      this.ws.onclose = (event) => {
+      this.ws.onclose = () => {
         this.isConnecting = false;
         this.ws = null;
         this.connectionPromise = null;
 
-        // Attempt reconnection if not intentional close
-        if (event.code !== 1000 && event.code !== 4001) {
-          // Notify handlers so streaming UI can clean up
+        if (!this.intentionalClose && this.token) {
           this.dispatchEvent({
             type: 'error',
             error: 'Connection lost. Reconnecting...',
@@ -271,7 +264,7 @@ class WebSocketManager {
    * Disconnect from the WebSocket server.
    */
   disconnect() {
-    this.reconnectAttempts = this.maxReconnectAttempts; // Prevent reconnect after intentional disconnect
+    this.intentionalClose = true;
     if (this.ws) {
       this.ws.close(1000, 'Client disconnect');
       this.ws = null;
@@ -442,21 +435,16 @@ class WebSocketManager {
   }
 
   private attemptReconnect() {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.dispatchEvent({
-        type: 'error',
-        error: 'Connection lost. Please refresh the page.',
-        code: 'MAX_RECONNECT',
-        event_id: '',
-        timestamp: new Date().toISOString(),
-      } as ErrorEvent);
-      return;
-    }
+    if (this.intentionalClose || !this.token) return;
 
     this.reconnectAttempts++;
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+    const delay = Math.min(
+      this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+      this.maxReconnectDelay,
+    );
+    console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
     setTimeout(() => {
-      if (this.token && !this.isConnected()) {
+      if (this.token && !this.isConnected() && !this.intentionalClose) {
         this.connect()
           .then(() => {
             this.dispatchEvent({
@@ -465,7 +453,9 @@ class WebSocketManager {
               timestamp: new Date().toISOString(),
             } as ReconnectedEvent);
           })
-          .catch(console.error);
+          .catch(() => {
+            this.attemptReconnect();
+          });
       }
     }, delay);
   }

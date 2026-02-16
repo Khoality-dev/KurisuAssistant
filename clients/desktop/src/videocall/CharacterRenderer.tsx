@@ -13,12 +13,14 @@ interface CharacterRendererProps {
   poseTree: PoseTree | null;
   amplitudeRef: React.RefObject<AmplitudeState>;
   gesturesRef?: React.RefObject<string[]>;
+  facesRef?: React.RefObject<string[]>;
 }
 
 export const CharacterRenderer: React.FC<CharacterRendererProps> = ({
   poseTree,
   amplitudeRef,
   gesturesRef,
+  facesRef,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const compositorRef = useRef<CanvasCompositor | null>(null);
@@ -58,11 +60,15 @@ export const CharacterRenderer: React.FC<CharacterRendererProps> = ({
         compositorRef.current.setGestures(gesturesRef.current);
         gesturesRef.current = [];
       }
+      // Forward faces (continuous state, not consumed)
+      if (compositorRef.current && facesRef?.current) {
+        compositorRef.current.setFaces(facesRef.current);
+      }
       rafId = requestAnimationFrame(sync);
     };
     rafId = requestAnimationFrame(sync);
     return () => cancelAnimationFrame(rafId);
-  }, [amplitudeRef, gesturesRef]);
+  }, [amplitudeRef, gesturesRef, facesRef]);
 
   return (
     <canvas

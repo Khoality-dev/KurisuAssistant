@@ -458,6 +458,18 @@ class APIClient {
   }
 
   /**
+   * Migrate character asset IDs (rename pose folders and edge video files on disk)
+   */
+  async migrateCharacterIds(agentId: number, idMapping: Record<string, string>): Promise<any> {
+    const response = await this.client.post(
+      `/character-assets/${agentId}/migrate-ids`,
+      { id_mapping: idMapping },
+      { headers: this.getHeaders() }
+    );
+    return response.data;
+  }
+
+  /**
    * Update an agent's character animation config (pose tree)
    */
   async updateCharacterConfig(agentId: number, characterConfig: CharacterConfigDTO): Promise<any> {

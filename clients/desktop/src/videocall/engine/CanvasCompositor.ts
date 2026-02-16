@@ -8,6 +8,7 @@ type CompositorState = 'idle' | 'transitioning';
 interface EdgeTimer {
   elapsed: number;
   target: number;
+  primed: boolean;  // true once elapsed >= target (for AND logic with other conditions)
 }
 
 export class CanvasCompositor {
@@ -55,6 +56,8 @@ export class CanvasCompositor {
 
   // Active gestures (set externally, cleared after each check cycle)
   private activeGestures: Set<string> = new Set();
+  // Active faces (set externally, continuous state — not cleared)
+  private activeFaces: Set<string> = new Set();
 
   // Manual eye overrides (-1 = auto blink, 0+ = forced patch index)
   public leftEyeOverride = -1;
@@ -131,44 +134,57 @@ export class CanvasCompositor {
   private updateEdgeTimers(dt: number): void {
     if (!this.poseTree || !this.currentNodeId) return;
 
-    // Tick all timers and collect ready (edge, transition) pairs
-    const ready: { edge: AnimationEdge; transition: EdgeTransition }[] = [];
-    for (const [timerKey, timer] of this.edgeTimers) {
+    // Tick all timers and mark primed when elapsed
+    for (const timer of this.edgeTimers.values()) {
       timer.elapsed += dt;
       if (timer.elapsed >= timer.target) {
-        const [edgeId, tiStr] = timerKey.split(':');
-        const edge = this.poseTree.edges.find((e) => e.id === edgeId);
-        if (edge) {
-          const transition = edge.transitions[Number(tiStr)];
-          if (transition) ready.push({ edge, transition });
-        }
+        timer.primed = true;
       }
     }
 
-    if (ready.length > 0) {
-      const pick = ready[Math.floor(Math.random() * ready.length)];
-      this.startTransitionFromEdge(pick.edge, pick.transition);
+    // Check all transitions with AND logic
+    this.evaluateTransitions();
+  }
+
+  /** Check if all conditions of a transition are met (AND logic) */
+  private allConditionsMet(edge: AnimationEdge, transition: EdgeTransition, ti: number): boolean {
+    return transition.conditions.every((cond) => {
+      switch (cond.type) {
+        case 'random': {
+          const timer = this.edgeTimers.get(`${edge.id}:${ti}`);
+          return timer?.primed === true;
+        }
+        case 'thinking':
+          return cond.value === this.isThinking;
+        case 'gesture':
+          return this.activeGestures.has(cond.value);
+        case 'face':
+          return cond.visible ? this.activeFaces.has(cond.value) : !this.activeFaces.has(cond.value);
+        default:
+          return false;
+      }
+    });
+  }
+
+  /** Evaluate outgoing transitions top-to-bottom — first match wins */
+  private evaluateTransitions(): void {
+    if (!this.poseTree || !this.currentNodeId) return;
+
+    for (const edge of this.poseTree.edges) {
+      if (edge.from_node_id !== this.currentNodeId) continue;
+      for (let ti = 0; ti < edge.transitions.length; ti++) {
+        const transition = edge.transitions[ti];
+        if (this.allConditionsMet(edge, transition, ti)) {
+          this.startTransitionFromEdge(edge, transition);
+          return;
+        }
+      }
     }
   }
 
   private checkThinkingEdges(): void {
     if (!this.poseTree || !this.currentNodeId) return;
-
-    const matched: { edge: AnimationEdge; transition: EdgeTransition }[] = [];
-    for (const edge of this.poseTree.edges) {
-      if (edge.from_node_id !== this.currentNodeId) continue;
-      for (const transition of edge.transitions) {
-        if (transition.condition.type !== 'thinking') continue;
-        if (transition.condition.value === this.isThinking) {
-          matched.push({ edge, transition });
-        }
-      }
-    }
-
-    if (matched.length > 0) {
-      const pick = matched[Math.floor(Math.random() * matched.length)];
-      this.startTransitionFromEdge(pick.edge, pick.transition);
-    }
+    this.evaluateTransitions();
   }
 
   /** Update the set of currently detected gestures (called externally from IPC) */
@@ -176,27 +192,16 @@ export class CanvasCompositor {
     this.activeGestures = new Set(gestures);
   }
 
+  /** Update the set of currently visible faces (called externally from IPC) */
+  setFaces(faces: string[]): void {
+    this.activeFaces = new Set(faces);
+  }
+
   private checkGestureEdges(): void {
     if (!this.poseTree || !this.currentNodeId || this.activeGestures.size === 0) return;
-
-    const matched: { edge: AnimationEdge; transition: EdgeTransition }[] = [];
-    for (const edge of this.poseTree.edges) {
-      if (edge.from_node_id !== this.currentNodeId) continue;
-      for (const transition of edge.transitions) {
-        if (transition.condition.type !== 'gesture') continue;
-        if (this.activeGestures.has(transition.condition.value)) {
-          matched.push({ edge, transition });
-        }
-      }
-    }
-
+    this.evaluateTransitions();
     // Clear gestures after checking (gestures are instantaneous events)
     this.activeGestures.clear();
-
-    if (matched.length > 0) {
-      const pick = matched[Math.floor(Math.random() * matched.length)];
-      this.startTransitionFromEdge(pick.edge, pick.transition);
-    }
   }
 
   private startTransitionFromEdge(edge: AnimationEdge, transition: EdgeTransition): void {
@@ -293,10 +298,11 @@ export class CanvasCompositor {
 
       for (let ti = 0; ti < edge.transitions.length; ti++) {
         const transition = edge.transitions[ti];
-        if (transition.condition.type === 'random') {
-          const { min_interval_ms, max_interval_ms } = transition.condition;
+        const randomCond = transition.conditions.find((c) => c.type === 'random');
+        if (randomCond && randomCond.type === 'random') {
+          const { min_interval_ms, max_interval_ms } = randomCond;
           const target = min_interval_ms + Math.random() * (max_interval_ms - min_interval_ms);
-          this.edgeTimers.set(`${edge.id}:${ti}`, { elapsed: 0, target });
+          this.edgeTimers.set(`${edge.id}:${ti}`, { elapsed: 0, target, primed: false });
         }
       }
     }
@@ -524,12 +530,16 @@ export class CanvasCompositor {
 
     await Promise.all([...imagePromises, ...videoPromises]);
 
-    // Set current node to default
-    this.currentNodeId = poseTree.default_pose_id;
-    this.pose = this.allPoses.get(poseTree.default_pose_id) || null;
+    // Set current node to a randomly chosen default
+    const defaults = poseTree.default_pose_ids || [];
+    const chosenDefault = defaults.length > 0
+      ? defaults[Math.floor(Math.random() * defaults.length)]
+      : poseTree.nodes[0]?.id;
+    this.currentNodeId = chosenDefault;
+    this.pose = this.allPoses.get(chosenDefault) || null;
 
     // Apply default node's animation settings
-    const defaultNode = poseTree.nodes.find((n) => n.id === poseTree.default_pose_id);
+    const defaultNode = poseTree.nodes.find((n) => n.id === chosenDefault);
     if (defaultNode?.animation_settings) {
       this.applySettings(defaultNode.animation_settings);
     }

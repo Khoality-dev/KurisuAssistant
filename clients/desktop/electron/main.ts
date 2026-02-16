@@ -129,6 +129,13 @@ ipcMain.on('character:gesture-update', (_event, data) => {
   }
 });
 
+// IPC relay: face updates from main renderer → character renderer
+ipcMain.on('character:face-update', (_event, data) => {
+  if (characterWindow && !characterWindow.isDestroyed()) {
+    characterWindow.webContents.send('character:face-update', data);
+  }
+});
+
 // --- App Lifecycle ---
 
 app.whenReady().then(() => {

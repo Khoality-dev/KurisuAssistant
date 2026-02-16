@@ -56,6 +56,14 @@ contextBridge.exposeInMainWorld('electron', {
       return () => { ipcRenderer.removeListener('character:gesture-update', handler); };
     },
 
+    sendFaceUpdate: (data: { faces: string[] }) =>
+      ipcRenderer.send('character:face-update', data),
+    onFaceUpdate: (cb: (data: { faces: string[] }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { faces: string[] }) => cb(data);
+      ipcRenderer.on('character:face-update', handler);
+      return () => { ipcRenderer.removeListener('character:face-update', handler); };
+    },
+
     signalReady: () => ipcRenderer.send('character:ready'),
     onCharacterReady: (cb: () => void) => {
       const handler = () => cb();

@@ -181,4 +181,8 @@ wsManager.on('vision_result', (event: VisionResultEvent) => {
     const gestureNames = event.gestures.map((g) => g.gesture);
     window.electron?.characterWindow?.sendGestureUpdate({ gestures: gestureNames });
   }
+
+  // Forward detected face names to character window via IPC
+  const faceNames = event.faces.filter((f) => f.name).map((f) => f.name);
+  window.electron?.characterWindow?.sendFaceUpdate({ faces: faceNames });
 });

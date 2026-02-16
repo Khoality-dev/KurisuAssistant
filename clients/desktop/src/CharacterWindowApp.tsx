@@ -14,6 +14,7 @@ export const CharacterWindowApp: React.FC = () => {
   const amplitudeRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false, isThinking: false });
   const silentRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false, isThinking: false });
   const gesturesRef = useRef<string[]>([]);
+  const facesRef = useRef<string[]>([]);
 
   useEffect(() => {
     const api = window.electron?.characterWindow;
@@ -32,7 +33,7 @@ export const CharacterWindowApp: React.FC = () => {
           for (const agent of data.agents) {
             const existing = prev.get(agent.id);
             if (!existing || existing.name !== agent.name ||
-                existing.poseTree?.default_pose_id !== agent.poseTree?.default_pose_id ||
+                JSON.stringify(existing.poseTree?.default_pose_ids) !== JSON.stringify(agent.poseTree?.default_pose_ids) ||
                 existing.poseTree?.nodes?.length !== agent.poseTree?.nodes?.length ||
                 existing.poseTree?.edges?.length !== agent.poseTree?.edges?.length) {
               same = false;
@@ -53,6 +54,10 @@ export const CharacterWindowApp: React.FC = () => {
       gesturesRef.current = data.gestures;
     });
 
+    const cleanupFaces = api.onFaceUpdate((data) => {
+      facesRef.current = data.faces;
+    });
+
     // Signal to main renderer that listeners are ready — triggers initial data push
     api.signalReady();
 
@@ -60,6 +65,7 @@ export const CharacterWindowApp: React.FC = () => {
       cleanupAmplitude();
       cleanupAgents();
       cleanupGestures();
+      cleanupFaces();
     };
   }, []);
 
@@ -116,6 +122,7 @@ export const CharacterWindowApp: React.FC = () => {
                 poseTree={entry.poseTree}
                 amplitudeRef={activeAgentId === id ? amplitudeRef : silentRef}
                 gesturesRef={activeAgentId === id || activeAgentId === null ? gesturesRef : undefined}
+                facesRef={activeAgentId === id || activeAgentId === null ? facesRef : undefined}
               />
             ) : (
               <span style={{ color: 'rgba(0,0,0,0.3)', fontSize: 14 }}>
