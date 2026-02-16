@@ -84,8 +84,13 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   const [activeAgentId, setActiveAgentId] = useState<number | null>(null);
   const agentCacheRef = useRef<Set<number>>(new Set()); // IDs already fetched
 
+  // Subtitle: send TTS segment text + duration to character window for word-by-word reveal
+  const onTTSPlaybackStart = useCallback((text: string, duration: number) => {
+    window.electron?.characterWindow?.sendSubtitle({ text, isUser: false, duration });
+  }, []);
+
   // Streaming TTS auto-play (with amplitude callback for character lip sync)
-  const { speak, stop: stopTTS, isPlaying: isTTSPlaying, queueText, clearQueue, isQueueActive } = useTTS(onAmplitudeUpdate);
+  const { speak, stop: stopTTS, isPlaying: isTTSPlaying, queueText, clearQueue, isQueueActive } = useTTS(onAmplitudeUpdate, onTTSPlaybackStart);
   // Expose TTS functions via ref so MessageBubble can use the amplitude-aware instance
   // without causing re-renders on every isTTSPlaying change
   const setActiveAgentForTTS = useCallback((agentId: number | null) => {
@@ -398,7 +403,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
     if (needsNewBubble) {
       // Flush TTS buffer from previous agent before switching
-      if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
+      if (ttsBufferRef.current.trim()) {
         const cleaned = stripNarration(ttsBufferRef.current);
         if (cleaned) queueText(cleaned, ttsVoiceRef.current);
         ttsBufferRef.current = '';
@@ -501,7 +506,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     }
 
     // Streaming TTS auto-play: feed complete sentences to TTS queue
-    if (storage.getTTSAutoPlay() && event.content && event.role !== 'tool') {
+    // Streaming TTS: feed complete sentences to TTS queue
+    if (event.content && event.role !== 'tool') {
       ttsVoiceRef.current = event.voice_reference || ttsVoiceRef.current;
       ttsBufferRef.current += event.content;
 
@@ -530,7 +536,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
 
     // Flush remaining TTS buffer
-    if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
+    if (ttsBufferRef.current.trim()) {
       const cleaned = stripNarration(ttsBufferRef.current);
       if (cleaned) queueText(cleaned, ttsVoiceRef.current);
     }
@@ -672,6 +678,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         images: [], // Will be handled differently
       };
 
+      // Send user text as subtitle
+      window.electron?.characterWindow?.sendSubtitle({ text: input.trim(), isUser: true });
+
       // Add user message + placeholder to local streaming state (not store)
       setStreamingMessages([userMessage, { role: 'assistant', content: '' }]);
 
@@ -726,6 +735,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     clearQueue();
     ttsBufferRef.current = '';
     ttsVoiceRef.current = undefined;
+
+    // Clear subtitle
+    window.electron?.characterWindow?.sendSubtitle({ text: '', isUser: false });
 
     // Finalize streaming messages with partial content
     const state = streamingStateRef.current;

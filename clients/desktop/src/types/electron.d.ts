@@ -13,10 +13,12 @@ export interface CharacterWindowAPI {
   sendAgentsUpdate: (data: { agents: AgentData[]; activeAgentId: number | null }) => void;
   sendGestureUpdate: (data: { gestures: string[] }) => void;
   sendFaceUpdate: (data: { faces: string[] }) => void;
+  sendSubtitle: (data: { text: string; isUser: boolean; duration?: number }) => void;
   onAmplitude: (cb: (data: { amplitude: number; isPlaying: boolean; isThinking: boolean }) => void) => () => void;
   onAgentsUpdate: (cb: (data: { agents: AgentData[]; activeAgentId: number | null }) => void) => () => void;
   onGestureUpdate: (cb: (data: { gestures: string[] }) => void) => () => void;
   onFaceUpdate: (cb: (data: { faces: string[] }) => void) => () => void;
+  onSubtitle: (cb: (data: { text: string; isUser: boolean; duration?: number }) => void) => () => void;
   onWindowClosed: (cb: () => void) => () => void;
   signalReady: () => void;
   onCharacterReady: (cb: () => void) => () => void;

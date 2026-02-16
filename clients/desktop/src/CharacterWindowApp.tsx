@@ -11,6 +11,12 @@ interface AgentEntry {
 export const CharacterWindowApp: React.FC = () => {
   const [agentMap, setAgentMap] = useState<Map<number, AgentEntry>>(new Map());
   const [activeAgentId, setActiveAgentId] = useState<number | null>(null);
+  const [subtitleText, setSubtitleText] = useState('');
+  const [subtitleVisible, setSubtitleVisible] = useState(false);
+  const [subtitleIsUser, setSubtitleIsUser] = useState(false);
+  const subtitleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const subtitleQueueRef = useRef<Array<{ text: string; durationMs: number }>>([]);
+  const subtitleDrainingRef = useRef(false);
   const amplitudeRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false, isThinking: false });
   const silentRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false, isThinking: false });
   const gesturesRef = useRef<string[]>([]);
@@ -58,6 +64,66 @@ export const CharacterWindowApp: React.FC = () => {
       facesRef.current = data.faces;
     });
 
+    // Helper: clear subtitle timer
+    const clearSubtitleTimer = () => {
+      if (subtitleTimerRef.current) { clearTimeout(subtitleTimerRef.current); subtitleTimerRef.current = null; }
+    };
+
+    // Split text into sentences on .!?。！？\n boundaries
+    const splitSentences = (text: string): string[] =>
+      text.split(/(?<=[.!?。！？\n])\s*/).map(s => s.trim()).filter(Boolean);
+
+    // Queue drain: show one sentence at a time for its duration, fade only after last
+    const drainQueue = () => {
+      if (subtitleQueueRef.current.length === 0) {
+        subtitleDrainingRef.current = false;
+        subtitleTimerRef.current = setTimeout(() => setSubtitleVisible(false), 1000);
+        return;
+      }
+      subtitleDrainingRef.current = true;
+      const item = subtitleQueueRef.current.shift()!;
+      setSubtitleText(item.text);
+      setSubtitleIsUser(false);
+      setSubtitleVisible(true);
+      subtitleTimerRef.current = setTimeout(drainQueue, item.durationMs);
+    };
+
+    const cleanupSubtitle = api.onSubtitle((data) => {
+      if (!data.text) {
+        // Cancel: clear everything and hide
+        clearSubtitleTimer();
+        subtitleQueueRef.current = [];
+        subtitleDrainingRef.current = false;
+        setSubtitleVisible(false);
+        return;
+      }
+
+      if (data.isUser) {
+        // User text: show immediately, interrupt queue
+        clearSubtitleTimer();
+        subtitleQueueRef.current = [];
+        subtitleDrainingRef.current = false;
+        setSubtitleText(data.text);
+        setSubtitleIsUser(true);
+        setSubtitleVisible(true);
+        const words = data.text.split(/\s+/).filter(Boolean);
+        const displayMs = Math.max(1500, words.length * 350);
+        subtitleTimerRef.current = setTimeout(() => setSubtitleVisible(false), displayMs);
+      } else {
+        // Agent text: split into sentences, push to queue, let drain handle timing
+        const chunkDurationMs = (data.duration || 4) * 1000;
+        const sentences = splitSentences(data.text);
+        if (!sentences.length) return;
+        const perSentenceMs = chunkDurationMs / sentences.length;
+        for (const sentence of sentences) {
+          subtitleQueueRef.current.push({ text: sentence, durationMs: perSentenceMs });
+        }
+        if (!subtitleDrainingRef.current) {
+          drainQueue();
+        }
+      }
+    });
+
     // Signal to main renderer that listeners are ready — triggers initial data push
     api.signalReady();
 
@@ -66,6 +132,9 @@ export const CharacterWindowApp: React.FC = () => {
       cleanupAgents();
       cleanupGestures();
       cleanupFaces();
+      cleanupSubtitle();
+      if (subtitleTimerRef.current) clearTimeout(subtitleTimerRef.current);
+      subtitleQueueRef.current = [];
     };
   }, []);
 
@@ -85,6 +154,41 @@ export const CharacterWindowApp: React.FC = () => {
         overflow: 'hidden',
       }}
     >
+      {/* Subtitle overlay */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 28,
+          left: 0,
+          right: 0,
+          zIndex: 10,
+          display: 'flex',
+          justifyContent: 'center',
+          pointerEvents: 'none',
+          // @ts-expect-error Electron CSS property
+          WebkitAppRegion: 'no-drag',
+        }}
+      >
+        <div
+          style={{
+            maxWidth: '90%',
+            padding: subtitleText ? '6px 16px' : 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            borderRadius: 8,
+            color: '#fff',
+            fontSize: 15,
+            lineHeight: 1.4,
+            textAlign: 'center',
+            fontStyle: subtitleIsUser ? 'italic' : 'normal',
+            opacity: subtitleVisible ? (subtitleIsUser ? 0.7 : 1) : 0,
+            transition: 'opacity 0.4s ease',
+            wordBreak: 'break-word',
+          }}
+        >
+          {subtitleText}
+        </div>
+      </div>
+
       {agentMap.size === 0 ? (
         <div
           style={{
