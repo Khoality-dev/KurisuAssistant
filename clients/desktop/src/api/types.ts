@@ -101,6 +101,7 @@ export interface Agent {
   think: boolean;
   character_config: CharacterConfigDTO | null;
   memory: string | null;
+  trigger_word: string | null;
 }
 
 // Character asset types (backend responses)
@@ -137,6 +138,7 @@ export interface AgentCreate {
   model_name: string;  // Required - LLM model for this agent
   tools?: string[];
   think?: boolean;
+  trigger_word?: string;
 }
 
 export interface AgentUpdate {
@@ -147,6 +149,7 @@ export interface AgentUpdate {
   tools?: string[];
   think?: boolean;
   memory?: string;
+  trigger_word?: string;
 }
 
 // MCP Server types
