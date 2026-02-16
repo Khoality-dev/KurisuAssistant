@@ -93,10 +93,12 @@ src/config.ts             — API URL config (reads dynamically from storage)
 - Per-agent `trigger_word` (nullable string) enables hands-free voice conversation
 - **Flow**: Mic on → ASR transcript contains trigger word (case-insensitive) → enter interaction mode → auto-send full transcript → agent responds with TTS → 30s idle timer after TTS finishes → exit mode
 - While in interaction mode, all subsequent ASR transcripts auto-send without needing trigger word
+- ASR transcripts without trigger word match are ignored (not inserted into input field)
 - If user speaks while agent is still streaming, transcript stored in `pendingAutoSendRef` and sent when streaming completes
 - **Exit conditions**: 30s silence after TTS+streaming finish, mic turned off (`asrStatus === 'idle'`), agent change, conversation change
 - **State**: `isInteractionMode` (boolean), `interactionTimerRef` (30s timeout), `pendingAutoSendRef` (queued transcript)
 - **Visual**: Green "Voice Active" chip next to mic button; mic icon turns green in interaction mode
+- **Sound effects**: `public/start_effect.wav` plays on mode enter, `public/stop_effect.wav` on mode exit
 - **Config**: `Agent.trigger_word` field in AgentsWindow edit dialog, stored in backend DB
 
 ### Conversation Management (One Per Agent)
