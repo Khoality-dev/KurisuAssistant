@@ -285,6 +285,13 @@ All protected unless noted. Auth: `Authorization: Bearer <token>`.
 | GET | `/character-assets/{agent_id}/edges/{edge_id}` | Serve transition video (no-cache) |
 | PATCH | `/character-assets/{agent_id}/character-config` | Update pose tree config, cleans up orphaned assets |
 | POST | `/character-assets/{agent_id}/migrate-ids` | Rename asset files/folders on disk to match migrated IDs |
+| GET | `/agents` | List user's agents |
+| GET | `/agents/{id}` | Get agent details |
+| POST | `/agents` | Create agent |
+| PATCH | `/agents/{id}` | Update agent |
+| PATCH | `/agents/{id}/avatar` | Update agent avatar (multipart) |
+| PATCH | `/agents/{id}/voice` | Update agent voice reference (multipart) |
+| DELETE | `/agents/{id}` | Delete agent |
 | GET | `/agents/{id}/avatar-candidates` | Detect faces from pose base images → cropped candidate UUIDs |
 | POST | `/agents/{id}/avatar-from-uuid` | Set agent avatar from existing image UUID |
 | GET | `/faces` | List registered face identities (with photo count) |
