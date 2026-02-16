@@ -59,6 +59,7 @@ interface AgentFormData {
   think: boolean;
   tools: string[];
   memory: string;
+  trigger_word: string;
 }
 
 export const AgentsWindow: React.FC = () => {
@@ -87,6 +88,7 @@ export const AgentsWindow: React.FC = () => {
     think: false,
     tools: [],
     memory: '',
+    trigger_word: '',
   });
 
   // File upload refs
@@ -150,6 +152,7 @@ export const AgentsWindow: React.FC = () => {
         model_name: formData.model_name,
         think: formData.think,
         tools: formData.tools.length > 0 ? formData.tools : undefined,
+        trigger_word: formData.trigger_word.trim() || undefined,
       };
 
       const newAgent = await apiClient.createAgent(createData);
@@ -186,6 +189,7 @@ export const AgentsWindow: React.FC = () => {
         think: formData.think !== selectedAgent.think ? formData.think : undefined,
         tools: toolsChanged ? formData.tools : undefined,
         memory: formData.memory !== (selectedAgent.memory || '') ? formData.memory : undefined,
+        trigger_word: formData.trigger_word !== (selectedAgent.trigger_word || '') ? (formData.trigger_word.trim() || '') : undefined,
       };
 
       // Only send fields that changed
@@ -238,6 +242,7 @@ export const AgentsWindow: React.FC = () => {
       think: false,
       tools: [],
       memory: '',
+      trigger_word: '',
     });
     setAvatarFile(null);
     setVoiceFile(null);
@@ -255,6 +260,7 @@ export const AgentsWindow: React.FC = () => {
       think: agent.think,
       tools: agent.tools || [],
       memory: agent.memory || '',
+      trigger_word: agent.trigger_word || '',
     });
     if (agent.avatar_uuid) {
       setAvatarPreview(apiClient.getImageUrl(agent.avatar_uuid));
@@ -621,6 +627,15 @@ export const AgentsWindow: React.FC = () => {
               )}
             />
 
+            {/* Trigger Word */}
+            <TextField
+              label="Trigger Word"
+              value={formData.trigger_word}
+              onChange={(e) => setFormData({ ...formData, trigger_word: e.target.value })}
+              fullWidth
+              helperText="Say this word to activate voice interaction mode (e.g., agent's name)"
+            />
+
             {/* Voice Reference */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <input
@@ -857,6 +872,15 @@ export const AgentsWindow: React.FC = () => {
               fullWidth
               placeholder="No memories yet. Memory is automatically built from conversations."
               helperText="Auto-updated after conversations. You can also edit manually."
+            />
+
+            {/* Trigger Word */}
+            <TextField
+              label="Trigger Word"
+              value={formData.trigger_word}
+              onChange={(e) => setFormData({ ...formData, trigger_word: e.target.value })}
+              fullWidth
+              helperText="Say this word to activate voice interaction mode (e.g., agent's name)"
             />
 
             {/* Voice Reference */}

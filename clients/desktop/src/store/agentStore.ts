@@ -49,7 +49,18 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             convStore.clearCurrentConversation();
           }
         } else {
-          convStore.clearCurrentConversation();
+          // Fallback: query backend for the latest conversation with this agent
+          try {
+            const conv = await apiClient.getLatestConversationForAgent(finalId);
+            if (conv) {
+              storage.setAgentConversationId(finalId, conv.id);
+              await convStore.loadConversation(conv.id);
+            } else {
+              convStore.clearCurrentConversation();
+            }
+          } catch {
+            convStore.clearCurrentConversation();
+          }
         }
       }
     } catch (err) {
@@ -77,7 +88,20 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           convStore.clearCurrentConversation();
         });
       } else {
-        convStore.clearCurrentConversation();
+        // Fallback: query backend for the latest conversation with this agent
+        apiClient.getLatestConversationForAgent(id).then((conv) => {
+          if (conv) {
+            storage.setAgentConversationId(id, conv.id);
+            convStore.loadConversation(conv.id).catch(() => {
+              storage.clearAgentConversationId(id);
+              convStore.clearCurrentConversation();
+            });
+          } else {
+            convStore.clearCurrentConversation();
+          }
+        }).catch(() => {
+          convStore.clearCurrentConversation();
+        });
       }
     } else {
       convStore.clearCurrentConversation();

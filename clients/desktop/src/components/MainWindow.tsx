@@ -20,6 +20,7 @@ import {
   Extension as ToolsIcon,
   Chat as ChatIcon,
   Face as FaceIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { useAuthStore } from '../store/authStore';
 import { useConversationStore } from '../store/conversationStore';
@@ -140,6 +141,18 @@ export const MainWindow: React.FC = () => {
                 ))}
               </Select>
             </FormControl>
+            <Tooltip title="Refresh messages">
+              <IconButton
+                size="small"
+                onClick={() => {
+                  if (currentConversation) {
+                    useConversationStore.getState().loadConversation(currentConversation.id);
+                  }
+                }}
+              >
+                <RefreshIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
             <Tooltip title="Clear conversation">
               <span>
                 <IconButton

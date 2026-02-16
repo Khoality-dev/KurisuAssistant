@@ -29,6 +29,7 @@ import {
 import CircularProgress from '@mui/material/CircularProgress';
 import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '../store/conversationStore';
+import { useAgentStore } from '../store/agentStore';
 import { apiClient } from '../api/client';
 import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, BaseEvent } from '../api/websocket';
 import { storage } from '../utils/storage';
@@ -107,6 +108,14 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     devices: asrDevices, loadDevices: loadAsrDevices, selectedDeviceId: asrDeviceId, selectDevice: selectAsrDevice,
   } = useASR();
   const [micMenuAnchor, setMicMenuAnchor] = useState<HTMLElement | null>(null);
+
+  // Voice interaction mode
+  const storeAgents = useAgentStore(state => state.agents);
+  const [isInteractionMode, setIsInteractionMode] = useState(false);
+  const interactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingAutoSendRef = useRef<string | null>(null);
+  const ttsPlayedForResponseRef = useRef(false);
+  const INTERACTION_IDLE_MS = 30_000;
 
   // Vision (camera toggle)
   const {
@@ -260,12 +269,122 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     return () => window.removeEventListener('character-config-saved', handler);
   }, [agentMap, fetchAgentForPanel]);
 
-  // Insert ASR transcript into input field
+  // ASR transcript handling — interaction mode or plain insertion
   useEffect(() => {
-    if (asrTranscript) {
-      setInput(prev => (prev ? prev + ' ' + asrTranscript : asrTranscript));
+    if (!asrTranscript) return;
+
+    const selectedAgent = storeAgents.find(a => a.id === agentId);
+    const triggerWord = selectedAgent?.trigger_word?.trim();
+
+    if (!isInteractionMode) {
+      // Check if transcript contains the trigger word (case-insensitive)
+      if (triggerWord && asrTranscript.toLowerCase().includes(triggerWord.toLowerCase())) {
+        // Enter interaction mode, auto-send full transcript
+        setIsInteractionMode(true);
+        // Clear any existing timer
+        if (interactionTimerRef.current) {
+          clearTimeout(interactionTimerRef.current);
+          interactionTimerRef.current = null;
+        }
+        ttsPlayedForResponseRef.current = false;
+        handleSendText(asrTranscript);
+      } else {
+        // Normal behavior: insert into input field
+        setInput(prev => (prev ? prev + ' ' + asrTranscript : asrTranscript));
+      }
+    } else {
+      // In interaction mode: auto-send
+      if (isStreamingRef.current) {
+        // Store for sending after streaming finishes
+        pendingAutoSendRef.current = asrTranscript;
+      } else {
+        // Reset timer on each send
+        if (interactionTimerRef.current) {
+          clearTimeout(interactionTimerRef.current);
+          interactionTimerRef.current = null;
+        }
+        ttsPlayedForResponseRef.current = false;
+        handleSendText(asrTranscript);
+      }
     }
-  }, [asrTranscript]);
+  }, [asrTranscript]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Exit interaction mode when mic is turned off
+  useEffect(() => {
+    if (asrStatus === 'idle' && isInteractionMode) {
+      setIsInteractionMode(false);
+      if (interactionTimerRef.current) {
+        clearTimeout(interactionTimerRef.current);
+        interactionTimerRef.current = null;
+      }
+      pendingAutoSendRef.current = null;
+    }
+  }, [asrStatus, isInteractionMode]);
+
+  // Exit interaction mode when agent or conversation changes
+  useEffect(() => {
+    if (isInteractionMode) {
+      setIsInteractionMode(false);
+      if (interactionTimerRef.current) {
+        clearTimeout(interactionTimerRef.current);
+        interactionTimerRef.current = null;
+      }
+      pendingAutoSendRef.current = null;
+    }
+  }, [agentId, currentConversation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Start 30s idle timer when TTS finishes and streaming is done
+  useEffect(() => {
+    if (!isInteractionMode) return;
+    // Timer starts when: not streaming AND TTS queue not active
+    if (!isStreaming && !isQueueActive) {
+      // Clear previous timer
+      if (interactionTimerRef.current) {
+        clearTimeout(interactionTimerRef.current);
+      }
+      interactionTimerRef.current = setTimeout(() => {
+        setIsInteractionMode(false);
+        interactionTimerRef.current = null;
+        pendingAutoSendRef.current = null;
+      }, INTERACTION_IDLE_MS);
+    } else {
+      // Still streaming or playing TTS — clear timer
+      if (interactionTimerRef.current) {
+        clearTimeout(interactionTimerRef.current);
+        interactionTimerRef.current = null;
+      }
+    }
+  }, [isInteractionMode, isStreaming, isQueueActive]);
+
+  // Handle pending auto-send when streaming finishes
+  useEffect(() => {
+    if (!isStreaming && pendingAutoSendRef.current && isInteractionMode) {
+      const text = pendingAutoSendRef.current;
+      pendingAutoSendRef.current = null;
+      ttsPlayedForResponseRef.current = false;
+      handleSendText(text);
+    }
+  }, [isStreaming]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Play sound effects on interaction mode transitions
+  const prevInteractionModeRef = useRef(false);
+  useEffect(() => {
+    if (isInteractionMode && !prevInteractionModeRef.current) {
+      new Audio('/start_effect.wav').play().catch(() => {});
+    } else if (!isInteractionMode && prevInteractionModeRef.current) {
+      new Audio('/stop_effect.wav').play().catch(() => {});
+    }
+    prevInteractionModeRef.current = isInteractionMode;
+  }, [isInteractionMode]);
+
+  // Cleanup interaction timer on unmount
+  useEffect(() => {
+    return () => {
+      if (interactionTimerRef.current) {
+        clearTimeout(interactionTimerRef.current);
+      }
+    };
+  }, []);
 
   const toggleShowAdministrator = () => {
     const newValue = !showAdministrator;
@@ -652,9 +771,21 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     }
   };
 
+  const handleSendText = async (overrideText: string) => {
+    if (!overrideText.trim() || isStreamingRef.current) return;
+    await _doSend(overrideText.trim(), []);
+  };
+
   const handleSend = async () => {
     if (!input.trim() || isStreaming) return;
+    const text = input.trim();
+    const imageFiles = [...images];
+    setInput('');
+    setImages([]);
+    await _doSend(text, imageFiles);
+  };
 
+  const _doSend = async (text: string, imageFiles: File[]) => {
     setIsStreaming(true);
 
     // Clear any previous TTS queue
@@ -663,23 +794,20 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     ttsVoiceRef.current = undefined;
 
     try {
-      // Upload images first and get UUIDs
-      const imageFiles = images;
       const imageBase64: string[] = [];
       for (const imageFile of imageFiles) {
-        // Convert to base64 for WebSocket
         const base64 = await fileToBase64(imageFile);
         imageBase64.push(base64);
       }
 
       const userMessage: Message = {
         role: 'user',
-        content: input,
-        images: [], // Will be handled differently
+        content: text,
+        images: [],
       };
 
       // Send user text as subtitle
-      window.electron?.characterWindow?.sendSubtitle({ text: input.trim(), isUser: true });
+      window.electron?.characterWindow?.sendSubtitle({ text, isUser: true });
 
       // Add user message + placeholder to local streaming state (not store)
       setStreamingMessages([userMessage, { role: 'assistant', content: '' }]);
@@ -696,8 +824,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         conversationId: activeConversationId,
       };
 
-      setInput('');
-      setImages([]);
       setStreamingContent('');
       setStreamingThinking('');
       setJustFinishedStreaming(false);
@@ -1025,9 +1151,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
             <IconButton
               onClick={handleMicToggle}
               onContextMenu={handleMicContext}
-              disabled={isStreaming}
+              disabled={isStreaming && !isInteractionMode}
               sx={{
-                color: asrStatus === 'listening' ? 'error.main' : 'inherit',
+                color: isInteractionMode ? 'success.main' : asrStatus === 'listening' ? 'error.main' : 'inherit',
                 animation: asrStatus === 'listening' ? 'pulse 1.5s infinite' : 'none',
                 '@keyframes pulse': {
                   '0%': { opacity: 1 },
@@ -1045,6 +1171,15 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
               )}
             </IconButton>
           </Tooltip>
+          {isInteractionMode && (
+            <Chip
+              label="Voice Active"
+              size="small"
+              color="success"
+              variant="outlined"
+              sx={{ height: 24, fontSize: '0.7rem' }}
+            />
+          )}
           <Menu
             anchorEl={micMenuAnchor}
             open={Boolean(micMenuAnchor)}

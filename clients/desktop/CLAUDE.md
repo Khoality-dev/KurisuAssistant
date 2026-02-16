@@ -27,7 +27,7 @@ src/api/types.ts          — TypeScript interfaces for API
 src/components/
   LoginWindow.tsx          — Login/Register tabs, Remember Me, Server URL field, purple gradient
   MainWindow.tsx           — Top bar (tabs + agent selector + clear conversation) + ChatWidget, no sidebar
-  ChatWidget.tsx           — Chat UI with streaming, TTS auto-play, image attach, pagination, IPC bridge to character window
+  ChatWidget.tsx           — Chat UI with streaming, TTS auto-play, image attach, pagination, IPC bridge to character window, voice interaction mode
   MessageBubble.tsx        — Individual bubble: role styling, thinking collapse, TTS, resend/delete
   ToolsWindow.tsx          — Three tabs: MCP Servers, Available Tools, Skills (CRUD + import/export)
   AgentsWindow.tsx         — Agent CRUD with tool assignment + character config button
@@ -89,9 +89,20 @@ src/config.ts             — API URL config (reads dynamically from storage)
 - Action narration (`*walks over*`) stripped via `stripNarration()` before TTS — preserves `**bold**`
 - **Subtitles**: `useTTS` parses WAV header for duration, calls `onPlaybackStart(text, duration)` before each queue item plays. On TTS error, falls back to 4s duration. ChatWidget forwards to character window via IPC.
 
+### Voice Interaction Mode (Trigger Word)
+- Per-agent `trigger_word` (nullable string) enables hands-free voice conversation
+- **Flow**: Mic on → ASR transcript contains trigger word (case-insensitive) → enter interaction mode → auto-send full transcript → agent responds with TTS → 30s idle timer after TTS finishes → exit mode
+- While in interaction mode, all subsequent ASR transcripts auto-send without needing trigger word
+- If user speaks while agent is still streaming, transcript stored in `pendingAutoSendRef` and sent when streaming completes
+- **Exit conditions**: 30s silence after TTS+streaming finish, mic turned off (`asrStatus === 'idle'`), agent change, conversation change
+- **State**: `isInteractionMode` (boolean), `interactionTimerRef` (30s timeout), `pendingAutoSendRef` (queued transcript)
+- **Visual**: Green "Voice Active" chip next to mic button; mic icon turns green in interaction mode
+- **Config**: `Agent.trigger_word` field in AgentsWindow edit dialog, stored in backend DB
+
 ### Conversation Management (One Per Agent)
 - No conversation sidebar — each agent has one conversation, managed via `kurisu_agent_conversations` localStorage mapping (`Record<string, number>`, agent ID → conversation ID)
 - Agent selection triggers conversation load (or empty state if no mapping exists)
+- **Fallback recovery**: When localStorage mapping is missing (cleared, new device, etc.), agent store queries `GET /conversations?agent_id=` to find the latest conversation with messages from that agent. If found, loads it and restores the localStorage mapping. If not found, shows empty state (conversation auto-created on first message).
 - Backend auto-creates conversation on first message with `conversationId=null`; first `StreamChunkEvent` saves the mapping
 - "Clear conversation" button deletes via API + removes mapping entry
 - Mapping cleared on logout (`clearAllAgentConversations`) and agent delete (`clearAgentConversationId`)
@@ -110,7 +121,7 @@ src/config.ts             — API URL config (reads dynamically from storage)
 ## Backend API Endpoints
 
 - `POST /login`, `POST /register` — Auth, returns JWT
-- `GET /conversations`, `GET /conversations/{id}`, `DELETE /conversations/{id}`, `POST /conversations/{id}` — Conversation CRUD
+- `GET /conversations` (?agent_id= for latest by agent), `GET /conversations/{id}`, `DELETE /conversations/{id}`, `POST /conversations/{id}` — Conversation CRUD
 - `POST /chat` — WebSocket-based streaming chat (FormData: text, model_name, conversation_id?, images?)
 - `GET /models` — Available LLM models (`{models: string[]}`)
 - `GET /users/me`, `PUT /users/me` — User profile

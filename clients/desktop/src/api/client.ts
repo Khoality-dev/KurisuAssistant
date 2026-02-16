@@ -93,6 +93,14 @@ class APIClient {
     return response.data;
   }
 
+  async getLatestConversationForAgent(agentId: number): Promise<Conversation | null> {
+    const response = await this.client.get<Conversation[]>('/conversations', {
+      headers: this.getHeaders(),
+      params: { agent_id: agentId },
+    });
+    return response.data.length > 0 ? response.data[0] : null;
+  }
+
   async getConversation(
     id: number,
     limit: number = 50,
