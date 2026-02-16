@@ -36,6 +36,11 @@ CHAR_ASSETS_DIR = Path(__file__).parent.parent / "data" / "character_assets"
 CHAR_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+class MigrateIdsRequest(BaseModel):
+    """Request body for migrating old node/edge IDs to new short hex IDs."""
+    id_mapping: dict[str, str]  # old_id → new_id
+
+
 class PatchResult(BaseModel):
     """Result of diffing a keyframe against the base image."""
     image_url: str
@@ -279,6 +284,67 @@ async def upload_video(
     }
 
 
+@router.post("/{agent_id}/migrate-ids")
+async def migrate_ids(
+    agent_id: int,
+    body: MigrateIdsRequest,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    """Rename pose folders and edge video files when migrating to new short hex IDs.
+
+    Accepts a mapping of old_id → new_id. Renames:
+    - Pose folders: ``{agent_id}/{old_node_id}/`` → ``{agent_id}/{new_node_id}/``
+    - Edge video files: replaces old node IDs in filenames under ``edges/``
+    """
+    with get_session() as session:
+        agent_repo = AgentRepository(session)
+        if not agent_repo.get_by_user_and_id(user.id, agent_id):
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+    id_mapping = body.id_mapping
+    if not id_mapping:
+        return {"message": "No IDs to migrate"}
+
+    agent_dir = CHAR_ASSETS_DIR / str(agent_id)
+    if not agent_dir.exists():
+        return {"message": "No assets to migrate"}
+
+    # Rename pose folders (old_node_id → new_node_id)
+    for old_id, new_id in id_mapping.items():
+        old_dir = agent_dir / old_id
+        new_dir = agent_dir / new_id
+        if old_dir.exists() and old_dir.is_dir():
+            if new_dir.exists():
+                # Merge into existing (shouldn't happen, but be safe)
+                for f in old_dir.iterdir():
+                    shutil.move(str(f), str(new_dir / f.name))
+                old_dir.rmdir()
+            else:
+                old_dir.rename(new_dir)
+            logger.info("Migrated pose folder: %s → %s", old_id, new_id)
+
+    # Rename edge video files under edges/
+    edges_dir = _edges_dir(agent_id)
+    if edges_dir.exists():
+        for video_file in list(edges_dir.iterdir()):
+            if not video_file.is_file():
+                continue
+            old_name = video_file.stem  # e.g. "edge-pose-xxx-pose-yyy_t0_0"
+            new_name = old_name
+            for old_id, new_id in id_mapping.items():
+                new_name = new_name.replace(old_id, new_id)
+            # Also strip "edge-" prefix if present
+            if new_name.startswith("edge-"):
+                new_name = new_name[5:]
+            if new_name != old_name:
+                new_path = video_file.with_name(new_name + video_file.suffix)
+                video_file.rename(new_path)
+                logger.info("Migrated edge video: %s → %s", video_file.name, new_path.name)
+
+    return {"message": f"Migrated {len(id_mapping)} IDs"}
+
+
 # ─── Serving endpoints ───
 # Order matters: edges route must come before the generic pose asset route
 # so that "edges" is not matched as a pose_id.
@@ -397,7 +463,5 @@ async def update_character_config(
             raise HTTPException(status_code=404, detail="Agent not found")
 
         agent = agent_repo.update_agent(agent, character_config=config)
-        new_refs = _extract_referenced_paths(config)
-        _cleanup_agent_assets(agent_id, new_refs)
 
         return {"message": "Character config updated", "character_config": agent.character_config}
