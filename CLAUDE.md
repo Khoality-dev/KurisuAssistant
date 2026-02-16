@@ -126,8 +126,8 @@ Two modes controlled by `event.agent_id` in `ChatRequestEvent`:
 - **Lazy loading**: Model loaded on first transcription request, not at startup
 - **API**: `POST /asr` accepts raw Int16 PCM bytes (`application/octet-stream`), optional `?language=` query param
 - **Model conversion**: `python scripts/convert_whisper.py` (requires `transformers` + `torch` + `ctranslate2`)
-- **Frontend**: Silero VAD (`@ricky0123/vad-web`) auto-detects speech end → sends PCM to `/asr` → inserts text into input field (or auto-sends in voice interaction mode)
-- **Voice Interaction Mode**: Per-agent `trigger_word` enables hands-free conversation. Flow: mic on → ASR transcript contains trigger word → enter interaction mode, auto-send → agent responds with TTS → 30s idle timer after TTS finishes → exit. Subsequent ASR results auto-send without trigger word. Exits on: 30s silence, mic off, agent switch, conversation change. Visual "Voice Active" chip shown near mic button. If user speaks while streaming, transcript queued as pending and sent when response completes.
+- **Frontend**: Silero VAD (`@ricky0123/vad-web`) auto-detects speech end → sends PCM to `/asr` → transcript used only for voice interaction mode (trigger word detection + auto-send); not inserted into input field
+- **Voice Interaction Mode**: Per-agent `trigger_word` enables hands-free conversation. Flow: mic on → ASR transcript contains trigger word → enter interaction mode, auto-send → agent responds with TTS → 30s idle timer after TTS finishes → exit. Subsequent ASR results auto-send without trigger word. Exits on: 30s silence, mic off, agent switch, conversation change. Visual "Voice Active" chip shown near mic button. Sound effects (`start_effect.wav`/`stop_effect.wav`) play on mode enter/exit. If user speaks while streaming, transcript queued as pending and sent when response completes. Transcripts without trigger word match are ignored.
 
 ### Tools
 
