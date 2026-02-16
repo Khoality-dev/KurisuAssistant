@@ -29,7 +29,7 @@ src/components/
   MainWindow.tsx           — Permanent sidebar (280px) + ChatWidget, conversation CRUD
   ChatWidget.tsx           — Chat UI with streaming, TTS auto-play, image attach, pagination, IPC bridge to character window
   MessageBubble.tsx        — Individual bubble: role styling, thinking collapse, TTS, resend/delete
-  ToolsWindow.tsx          — Three tabs: MCP Tools, Built-in Tools, Skills (CRUD + import/export for user-editable instruction blocks)
+  ToolsWindow.tsx          — Three tabs: MCP Servers, Available Tools, Skills (CRUD + import/export)
   AgentsWindow.tsx         — Agent CRUD with tool assignment + character config button
   FacesWindow.tsx          — Face identity CRUD, webcam vision controls, live recognition display
   MediaPlayerBar.tsx       — Bottom bar: track info, play/pause/skip/stop, volume slider, slide-up animation. Visible when media playing/buffering.

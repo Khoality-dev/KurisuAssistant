@@ -315,7 +315,7 @@ export const ToolsWindow: React.FC = () => {
                                 whiteSpace: 'nowrap',
                               }}
                             >
-                              {server.command} {server.args.join(' ')}
+                              {server.url || `${server.command} ${server.args.join(' ')}`}
                             </Typography>
                           </CardContent>
                         </MotionCard>
@@ -659,6 +659,7 @@ export const ToolsWindow: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
     </Box>
   );
 };
