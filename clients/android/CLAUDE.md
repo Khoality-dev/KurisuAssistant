@@ -9,7 +9,7 @@ KurisuAssistant native Android client — Kotlin/Jetpack Compose app that connec
 - **Language**: Kotlin, minSdk 26 (Android 8.0), targetSdk 35
 - **UI**: Jetpack Compose + Material 3
 - **Navigation**: Compose Navigation (NavHost)
-- **HTTP**: Retrofit + OkHttp3 + Kotlin Serialization
+- **HTTP**: Retrofit + OkHttp3 + Kotlin Serialization (trusts self-signed certs)
 - **WebSocket**: OkHttp3 WebSocket
 - **DI**: Hilt
 - **State**: ViewModel + StateFlow + Coroutines

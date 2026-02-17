@@ -82,9 +82,10 @@ class WebSocketManager @Inject constructor(
 
             val deferred = CompletableDeferred<Unit>()
 
+            Log.d(TAG, "connect() creating WebSocket...")
             val webSocket = wsClient.newWebSocket(request, object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    Log.d(TAG, "WebSocket onOpen — connected")
+                    Log.d(TAG, "WebSocket onOpen — connected, response=${response.code}")
                     reconnectAttempts = 0
                     isConnected = true
                     deferred.complete(Unit)
@@ -142,10 +143,13 @@ class WebSocketManager @Inject constructor(
             ws = webSocket
 
             try {
-                deferred.await()
+                withTimeout(15_000) {
+                    deferred.await()
+                }
                 Log.d(TAG, "connect() completed successfully")
             } catch (e: Exception) {
                 Log.e(TAG, "connect() failed: ${e.message}")
+                ws?.close(1000, "Connect failed")
                 ws = null
                 throw e
             }

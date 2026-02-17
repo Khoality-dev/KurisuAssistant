@@ -81,6 +81,14 @@ fun SettingsScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+            OutlinedTextField(
+                value = state.ollamaUrl,
+                onValueChange = viewModel::setOllamaUrl,
+                label = { Text("Ollama URL") },
+                placeholder = { Text("http://localhost:11434") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Button(
                 onClick = viewModel::saveProfile,
                 enabled = !state.isSaving,

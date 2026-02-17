@@ -18,6 +18,7 @@ data class SettingsUiState(
     val serverUrl: String = "",
     val username: String = "",
     val preferredName: String = "",
+    val ollamaUrl: String = "",
     val ttsBackend: String = "",
     val ttsVoice: String = "",
     val backends: List<String> = emptyList(),
@@ -54,6 +55,7 @@ class SettingsViewModel @Inject constructor(
                 _state.update { it.copy(
                     username = user.username,
                     preferredName = user.preferredName ?: "",
+                    ollamaUrl = user.ollamaUrl ?: "",
                 ) }
             } catch (_: Exception) {}
 
@@ -63,6 +65,7 @@ class SettingsViewModel @Inject constructor(
 
     fun setServerUrl(v: String) = _state.update { it.copy(serverUrl = v) }
     fun setPreferredName(v: String) = _state.update { it.copy(preferredName = v) }
+    fun setOllamaUrl(v: String) = _state.update { it.copy(ollamaUrl = v) }
     fun setTtsBackend(v: String) = _state.update { it.copy(ttsBackend = v) }
     fun setTtsVoice(v: String) = _state.update { it.copy(ttsVoice = v) }
     fun clearMessage() = _state.update { it.copy(message = null) }
@@ -82,7 +85,10 @@ class SettingsViewModel @Inject constructor(
             try {
                 val current = authRepository.loadUserProfile()
                 authRepository.updateUserProfile(
-                    current.copy(preferredName = _state.value.preferredName)
+                    current.copy(
+                        preferredName = _state.value.preferredName,
+                        ollamaUrl = _state.value.ollamaUrl.trim().trimEnd('/').ifBlank { null },
+                    )
                 )
                 _state.update { it.copy(message = "Profile updated") }
             } catch (e: Exception) {
