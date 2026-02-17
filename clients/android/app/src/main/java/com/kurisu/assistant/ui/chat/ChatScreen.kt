@@ -225,6 +225,7 @@ fun ChatScreen(
                 isStreaming = streaming.isStreaming,
                 isMicActive = state.isMicActive,
                 isInteractionMode = voiceState.isInteractionMode,
+                lastTranscript = voiceState.lastTranscript,
                 onMicToggle = viewModel::toggleMic,
             )
         }

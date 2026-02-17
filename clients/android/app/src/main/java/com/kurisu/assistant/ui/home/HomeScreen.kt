@@ -132,6 +132,7 @@ fun HomeScreen(
                 MicStatusBar(
                     isListening = serviceRunning,
                     isProcessing = voiceState.isProcessing,
+                    lastTranscript = voiceState.lastTranscript,
                     onClick = viewModel::toggleService,
                 )
             },
@@ -184,6 +185,7 @@ fun HomeScreen(
 private fun MicStatusBar(
     isListening: Boolean,
     isProcessing: Boolean,
+    lastTranscript: String?,
     onClick: () -> Unit,
 ) {
     val containerColor by animateColorAsState(
@@ -225,9 +227,12 @@ private fun MicStatusBar(
             Text(
                 text = when {
                     isProcessing -> "Processing..."
+                    isListening && lastTranscript != null -> lastTranscript
                     isListening -> "Listening for trigger words"
                     else -> "Microphone off"
                 },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall,
                 color = if (isListening) {
                     MaterialTheme.colorScheme.onPrimaryContainer

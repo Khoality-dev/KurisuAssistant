@@ -33,6 +33,7 @@ fun ChatInput(
     isStreaming: Boolean,
     isMicActive: Boolean,
     isInteractionMode: Boolean,
+    lastTranscript: String?,
     onMicToggle: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
@@ -110,7 +111,7 @@ fun ChatInput(
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(max = 120.dp),
-                placeholder = { Text("Type a message...") },
+                placeholder = { Text(lastTranscript ?: "Type a message...") },
                 shape = RoundedCornerShape(24.dp),
                 maxLines = 5,
                 enabled = !isStreaming,
