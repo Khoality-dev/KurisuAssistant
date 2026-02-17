@@ -2,6 +2,8 @@ package com.kurisu.assistant.data.repository
 
 import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.model.Agent
+import com.kurisu.assistant.data.model.AgentCreate
+import com.kurisu.assistant.data.model.AgentUpdate
 import com.kurisu.assistant.data.remote.api.KurisuApiService
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -50,6 +52,14 @@ class AgentRepository @Inject constructor(
     suspend fun clearConversationIdForAgent(agentId: Int) {
         prefs.clearAgentConversationId(agentId)
     }
+
+    suspend fun createAgent(data: AgentCreate): Agent = api.createAgent(data)
+
+    suspend fun updateAgent(id: Int, data: AgentUpdate): Agent = api.updateAgent(id, data)
+
+    suspend fun deleteAgent(id: Int) = api.deleteAgent(id)
+
+    suspend fun listModels(): List<String> = api.getModels().models
 
     fun getImageUrl(baseUrl: String, uuid: String): String =
         "${baseUrl.trimEnd('/')}/images/$uuid"
