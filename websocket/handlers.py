@@ -96,22 +96,38 @@ class ChatSessionHandler:
         # Vision processing
         self._vision_processor: Optional[VisionProcessor] = None
 
+    async def _ping_loop(self):
+        """Send WebSocket pings every 30s to keep the connection alive."""
+        try:
+            while True:
+                await asyncio.sleep(30)
+                await self.websocket.send_json({"type": "ping"})
+        except Exception:
+            pass  # Connection closed, let run() handle it
+
     async def run(self):
         """Main handler loop - receives and processes events."""
         from fastapi import WebSocketDisconnect
-        while True:
-            try:
-                data = await self.websocket.receive_json()
-                event = parse_event(data)
-                await self._handle_event(event)
-            except WebSocketDisconnect:
-                raise
-            except Exception as e:
-                logger.error(f"Error handling WebSocket event: {e}", exc_info=True)
-                await self.send_event(ErrorEvent(
-                    error=str(e),
-                    code="INTERNAL_ERROR",
-                ))
+        ping_task = asyncio.create_task(self._ping_loop())
+        try:
+            while True:
+                try:
+                    data = await self.websocket.receive_json()
+                    # Ignore pong responses from client
+                    if data.get("type") == "pong":
+                        continue
+                    event = parse_event(data)
+                    await self._handle_event(event)
+                except WebSocketDisconnect:
+                    raise
+                except Exception as e:
+                    logger.error(f"Error handling WebSocket event: {e}", exc_info=True)
+                    await self.send_event(ErrorEvent(
+                        error=str(e),
+                        code="INTERNAL_ERROR",
+                    ))
+        finally:
+            ping_task.cancel()
 
     async def _handle_event(self, event: BaseEvent):
         """Route event to appropriate handler."""
