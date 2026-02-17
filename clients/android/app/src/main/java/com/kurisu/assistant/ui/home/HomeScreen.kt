@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.kurisu.assistant.ui.update.UpdateDialog
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,6 +63,17 @@ fun HomeScreen(
         viewModel.triggerMatch.collect { match ->
             onTriggerMatch(match.agentId, match.text)
         }
+    }
+
+    // Update dialog
+    if (state.updateRelease != null) {
+        UpdateDialog(
+            release = state.updateRelease!!,
+            progress = state.updateProgress,
+            apkFile = state.updateApkFile,
+            onDownload = viewModel::downloadAndInstall,
+            onDismiss = viewModel::dismissUpdate,
+        )
     }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)

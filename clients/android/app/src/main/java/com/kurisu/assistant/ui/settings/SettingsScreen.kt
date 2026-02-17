@@ -10,6 +10,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.kurisu.assistant.BuildConfig
+import com.kurisu.assistant.ui.update.UpdateDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -19,6 +21,16 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+
+    if (state.updateRelease != null) {
+        UpdateDialog(
+            release = state.updateRelease!!,
+            progress = state.updateProgress,
+            apkFile = state.updateApkFile,
+            onDownload = viewModel::downloadAndInstall,
+            onDismiss = viewModel::dismissUpdate,
+        )
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(state.message) {
@@ -132,7 +144,20 @@ fun SettingsScreen(
 
             // About & Logout
             Text("About", style = MaterialTheme.typography.titleMedium)
-            Text("Version 0.1.0", style = MaterialTheme.typography.bodyMedium)
+            Text("Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium)
+            OutlinedButton(
+                onClick = viewModel::checkForUpdate,
+                enabled = !state.isCheckingUpdate,
+            ) {
+                if (state.isCheckingUpdate) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text("Check for updates")
+            }
 
             Spacer(Modifier.height(8.dp))
 

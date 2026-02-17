@@ -33,8 +33,8 @@ com.kurisu.assistant/
 │   ├── local/                   -- DataStore, EncryptedPrefs, StorageKeys
 │   ├── remote/api/              -- Retrofit service, interceptors
 │   ├── remote/websocket/        -- OkHttp WebSocket, event payloads
-│   ├── model/                   -- Data classes (API, WS, Animation)
-│   └── repository/              -- Auth, Agent, Conversation, TTS, ASR, Vision, Tools repos
+│   ├── model/                   -- Data classes (API, WS, Animation, UpdateModels)
+│   └── repository/              -- Auth, Agent, Conversation, TTS, ASR, Vision, Tools, Update repos
 ├── domain/
 │   ├── chat/                    -- Stream processor, sentence splitter, narration stripper
 │   ├── tts/                     -- TTS queue, WAV parser, amplitude computer
@@ -49,6 +49,7 @@ com.kurisu.assistant/
 │   ├── agents/                  -- Agent CRUD management (create, edit, delete) + ViewModel
 │   ├── settings/                -- Settings screen + ViewModel
 │   ├── tools/                   -- Tools & Skills management (3-tab: Servers, Tools, Skills) + ViewModel
+│   ├── update/                  -- UpdateDialog composable (in-app update from GitHub Releases)
 │   └── character/               -- Character canvas, video player, screen + ViewModel
 ├── service/                     -- ChatForegroundService, ServiceState
 └── di/                          -- Hilt modules (App, Network)
@@ -99,6 +100,14 @@ Chat (back button) → Home
 - `ServiceState` singleton shares `conversationId`/`selectedAgentId`/`isServiceRunning` between service and ViewModel
 - ChatStreamProcessor uses internal CoroutineScope (`startCollecting()`/`stopCollecting()`) — survives both Activity and service lifecycles
 - ViewModel defers callback ownership to service when it's running; re-wires when service stops
+
+### In-App Update (GitHub Releases)
+- `UpdateRepository` uses its own plain `OkHttpClient` (no auth/interceptors) to call GitHub Releases API
+- Checks on app launch (HomeViewModel.init) and manually from Settings ("Check for updates" button)
+- Compares `tag_name` (semver) against `BuildConfig.VERSION_NAME`
+- Downloads APK to `cacheDir/updates/`, installs via FileProvider + `ACTION_VIEW` intent
+- `UpdateDialog` composable shows changelog, download progress, and install button
+- `REQUEST_INSTALL_PACKAGES` permission + FileProvider declared in manifest
 
 ### Character Animation
 - 60fps loop via `withFrameNanos`

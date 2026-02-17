@@ -6,8 +6,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.model.Agent
+import com.kurisu.assistant.data.model.GithubRelease
 import com.kurisu.assistant.data.repository.AgentRepository
 import com.kurisu.assistant.data.repository.ConversationRepository
+import com.kurisu.assistant.data.repository.UpdateRepository
 import com.kurisu.assistant.domain.voice.VoiceInteractionManager
 import com.kurisu.assistant.service.ChatForegroundService
 import com.kurisu.assistant.service.ServiceState
@@ -17,6 +19,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.io.File
 import javax.inject.Inject
 
 data class AgentConversation(
@@ -30,6 +33,9 @@ data class HomeUiState(
     val conversations: List<AgentConversation> = emptyList(),
     val isLoading: Boolean = false,
     val baseUrl: String = "",
+    val updateRelease: GithubRelease? = null,
+    val updateProgress: Float? = null,
+    val updateApkFile: File? = null,
 )
 
 data class TriggerMatch(
@@ -45,6 +51,7 @@ class HomeViewModel @Inject constructor(
     private val prefs: PreferencesDataStore,
     val voiceInteractionManager: VoiceInteractionManager,
     private val serviceState: ServiceState,
+    private val updateRepository: UpdateRepository,
 ) : ViewModel() {
 
     companion object {
@@ -62,6 +69,7 @@ class HomeViewModel @Inject constructor(
 
     init {
         loadConversations()
+        checkForUpdate()
 
         // Wire raw transcript for trigger word matching across all agents
         voiceInteractionManager.onRawTranscript = { text ->
@@ -73,7 +81,6 @@ class HomeViewModel @Inject constructor(
                 _triggerMatch.tryEmit(TriggerMatch(match.agent.id, text))
             }
         }
-
     }
 
     fun toggleService() {
@@ -133,6 +140,41 @@ class HomeViewModel @Inject constructor(
                 _state.update { it.copy(isLoading = false) }
             }
         }
+    }
+
+    private fun checkForUpdate() {
+        viewModelScope.launch {
+            try {
+                val release = updateRepository.checkForUpdate()
+                if (release != null) {
+                    _state.update { it.copy(updateRelease = release) }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Update check failed: ${e.message}")
+            }
+        }
+    }
+
+    fun downloadAndInstall() {
+        val release = _state.value.updateRelease ?: return
+        val apkAsset = release.assets.firstOrNull { it.name.endsWith(".apk") } ?: return
+
+        viewModelScope.launch {
+            _state.update { it.copy(updateProgress = 0f) }
+            try {
+                val file = updateRepository.downloadApk(apkAsset.browserDownloadUrl) { progress ->
+                    _state.update { it.copy(updateProgress = progress) }
+                }
+                _state.update { it.copy(updateApkFile = file, updateProgress = 1f) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Download failed", e)
+                _state.update { it.copy(updateProgress = null) }
+            }
+        }
+    }
+
+    fun dismissUpdate() {
+        _state.update { it.copy(updateRelease = null, updateProgress = null, updateApkFile = null) }
     }
 
     override fun onCleared() {
