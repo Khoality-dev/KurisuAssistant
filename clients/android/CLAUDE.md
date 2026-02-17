@@ -44,7 +44,7 @@ com.kurisu.assistant/
 │   ├── navigation/              -- NavGraph with routes (HOME, CHAT/{agentId}, AGENTS, TOOLS, SETTINGS, CHARACTER)
 │   ├── theme/                   -- Material 3 theme (primary #2563EB)
 │   ├── auth/                    -- Login screen + ViewModel
-│   ├── home/                    -- Messaging-app style conversation list (HomeScreen + HomeViewModel)
+│   ├── home/                    -- Conversation list + ModalNavigationDrawer (HomeScreen + HomeViewModel)
 │   ├── chat/                    -- Chat screen, message bubble, input, markdown (nav arg: agentId, triggerText)
 │   ├── agents/                  -- Agent CRUD management (create, edit, delete) + ViewModel
 │   ├── settings/                -- Settings screen + ViewModel
@@ -90,6 +90,7 @@ Chat (back button) → Home
 ### Voice Interaction
 - AudioRecord → Silero VAD (ONNX) → speech detection → ASR → trigger word → interaction mode
 - 30s idle timeout after TTS+streaming complete
+- **ASR transcript hint**: Every ASR result stored in `VoiceInteractionState.lastTranscript`, shown as placeholder in ChatInput and in Home MicStatusBar (overwrites on each new result, visible even without trigger word match)
 
 ### Foreground Service (Background Operation)
 - `ChatForegroundService` keeps the process alive via a persistent notification
