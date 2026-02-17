@@ -11,7 +11,9 @@ import com.kurisu.assistant.ui.auth.LoginScreen
 import com.kurisu.assistant.ui.character.CharacterScreen
 import com.kurisu.assistant.ui.chat.ChatScreen
 import com.kurisu.assistant.ui.home.HomeScreen
+import com.kurisu.assistant.ui.agents.AgentsScreen
 import com.kurisu.assistant.ui.settings.SettingsScreen
+import com.kurisu.assistant.ui.tools.ToolsScreen
 
 object Routes {
     const val SPLASH = "splash"
@@ -19,6 +21,8 @@ object Routes {
     const val HOME = "home"
     const val CHAT = "chat/{agentId}"
     const val SETTINGS = "settings"
+    const val TOOLS = "tools"
+    const val AGENTS = "agents"
     const val CHARACTER = "character/{agentId}"
 
     fun character(agentId: Int): String = "character/$agentId"
@@ -60,6 +64,12 @@ fun KurisuNavGraph(
                 onNavigateToSettings = {
                     navController.navigate(Routes.SETTINGS)
                 },
+                onNavigateToTools = {
+                    navController.navigate(Routes.TOOLS)
+                },
+                onNavigateToAgents = {
+                    navController.navigate(Routes.AGENTS)
+                },
                 onNavigateToCharacter = { agentId ->
                     navController.navigate(Routes.character(agentId))
                 },
@@ -83,6 +93,18 @@ fun KurisuNavGraph(
                 onNavigateToCharacter = { agentId ->
                     navController.navigate(Routes.character(agentId))
                 },
+            )
+        }
+
+        composable(Routes.TOOLS) {
+            ToolsScreen(
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.AGENTS) {
+            AgentsScreen(
+                onBack = { navController.popBackStack() },
             )
         }
 

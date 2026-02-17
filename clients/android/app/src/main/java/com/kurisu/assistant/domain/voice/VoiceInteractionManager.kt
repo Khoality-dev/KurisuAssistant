@@ -16,6 +16,7 @@ data class VoiceInteractionState(
     val isInteractionMode: Boolean = false,
     val isListening: Boolean = false,
     val isProcessing: Boolean = false,
+    val lastTranscript: String? = null,
 )
 
 @Singleton
@@ -144,6 +145,7 @@ class VoiceInteractionManager @Inject constructor(
     }
 
     private fun handleTranscript(text: String) {
+        _state.update { it.copy(lastTranscript = text) }
         onRawTranscript?.invoke(text)
         val trigger = triggerWord ?: return
 

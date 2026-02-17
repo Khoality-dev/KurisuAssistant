@@ -10,6 +10,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Person
@@ -27,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,6 +38,8 @@ fun HomeScreen(
     onAgentClick: (agentId: Int) -> Unit,
     onTriggerMatch: (agentId: Int, text: String) -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToTools: () -> Unit,
+    onNavigateToAgents: () -> Unit,
     onNavigateToCharacter: (agentId: Int) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
@@ -58,65 +64,117 @@ fun HomeScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Kurisu") },
-                actions = {
-                    IconButton(onClick = viewModel::loadConversations) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-                    }
-                    IconButton(onClick = onNavigateToSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
-                    }
-                },
-            )
-        },
-        bottomBar = {
-            MicStatusBar(
-                isListening = serviceRunning,
-                isProcessing = voiceState.isProcessing,
-                onClick = viewModel::toggleService,
-            )
-        },
-    ) { padding ->
-        if (state.isLoading && state.conversations.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator()
-            }
-        } else if (state.conversations.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center,
-            ) {
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(modifier = Modifier.width(280.dp)) {
+                Spacer(Modifier.height(16.dp))
                 Text(
-                    "No agents available",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    "Kurisu",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp),
+                )
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 28.dp))
+                Spacer(Modifier.height(8.dp))
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.Groups, contentDescription = null) },
+                    label = { Text("Agents") },
+                    selected = false,
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        onNavigateToAgents()
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.Build, contentDescription = null) },
+                    label = { Text("Tools & Skills") },
+                    selected = false,
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        onNavigateToTools()
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                    label = { Text("Settings") },
+                    selected = false,
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        onNavigateToSettings()
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp),
                 )
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-            ) {
-                items(state.conversations, key = { it.agent.id }) { conv ->
-                    ConversationRow(
-                        conversation = conv,
-                        baseUrl = state.baseUrl,
-                        onClick = { onAgentClick(conv.agent.id) },
-                        onCharacterClick = if (conv.agent.characterConfig != null) {
-                            { onNavigateToCharacter(conv.agent.id) }
-                        } else {
-                            null
-                        },
+        },
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Kurisu") },
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(Icons.Default.Menu, contentDescription = "Menu")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = viewModel::loadConversations) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        }
+                    },
+                )
+            },
+            bottomBar = {
+                MicStatusBar(
+                    isListening = serviceRunning,
+                    isProcessing = voiceState.isProcessing,
+                    lastTranscript = voiceState.lastTranscript,
+                    onClick = viewModel::toggleService,
+                )
+            },
+        ) { padding ->
+            if (state.isLoading && state.conversations.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+            } else if (state.conversations.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "No agents available",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    HorizontalDivider(
-                        modifier = Modifier.padding(start = 80.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                ) {
+                    items(state.conversations, key = { it.agent.id }) { conv ->
+                        ConversationRow(
+                            conversation = conv,
+                            baseUrl = state.baseUrl,
+                            onClick = { onAgentClick(conv.agent.id) },
+                            onCharacterClick = if (conv.agent.characterConfig != null) {
+                                { onNavigateToCharacter(conv.agent.id) }
+                            } else {
+                                null
+                            },
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 80.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                        )
+                    }
                 }
             }
         }
@@ -127,6 +185,7 @@ fun HomeScreen(
 private fun MicStatusBar(
     isListening: Boolean,
     isProcessing: Boolean,
+    lastTranscript: String?,
     onClick: () -> Unit,
 ) {
     val containerColor by animateColorAsState(
@@ -168,9 +227,12 @@ private fun MicStatusBar(
             Text(
                 text = when {
                     isProcessing -> "Processing..."
+                    isListening && lastTranscript != null -> lastTranscript
                     isListening -> "Listening for trigger words"
                     else -> "Microphone off"
                 },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall,
                 color = if (isListening) {
                     MaterialTheme.colorScheme.onPrimaryContainer

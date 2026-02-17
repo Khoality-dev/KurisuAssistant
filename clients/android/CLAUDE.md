@@ -34,20 +34,21 @@ com.kurisu.assistant/
 │   ├── remote/api/              -- Retrofit service, interceptors
 │   ├── remote/websocket/        -- OkHttp WebSocket, event payloads
 │   ├── model/                   -- Data classes (API, WS, Animation)
-│   └── repository/              -- Auth, Agent, Conversation, TTS, ASR, Vision repos
+│   └── repository/              -- Auth, Agent, Conversation, TTS, ASR, Vision, Tools repos
 ├── domain/
 │   ├── chat/                    -- Stream processor, sentence splitter, narration stripper
 │   ├── tts/                     -- TTS queue, WAV parser, amplitude computer
 │   ├── voice/                   -- AudioRecorder, VAD, VoiceInteractionManager
 │   └── character/               -- Compositor, image cache, animation migration
 ├── ui/
-│   ├── navigation/              -- NavGraph with routes (HOME, CHAT/{agentId}, SETTINGS, CHARACTER)
+│   ├── navigation/              -- NavGraph with routes (HOME, CHAT/{agentId}, AGENTS, TOOLS, SETTINGS, CHARACTER)
 │   ├── theme/                   -- Material 3 theme (primary #2563EB)
 │   ├── auth/                    -- Login screen + ViewModel
 │   ├── home/                    -- Messaging-app style conversation list (HomeScreen + HomeViewModel)
 │   ├── chat/                    -- Chat screen, message bubble, input, markdown (nav arg: agentId, triggerText)
-│   ├── agents/                  -- (Legacy, unused — replaced by home/)
+│   ├── agents/                  -- Agent CRUD management (create, edit, delete) + ViewModel
 │   ├── settings/                -- Settings screen + ViewModel
+│   ├── tools/                   -- Tools & Skills management (3-tab: Servers, Tools, Skills) + ViewModel
 │   └── character/               -- Character canvas, video player, screen + ViewModel
 ├── service/                     -- ChatForegroundService, ServiceState
 └── di/                          -- Hilt modules (App, Network)
@@ -55,16 +56,19 @@ com.kurisu.assistant/
 
 ## Commands
 
-- Build: `./gradlew assembleDebug`
+- Build: `./gradlew assembleDebug` (requires `JAVA_HOME` set to Android Studio JBR, e.g. `export JAVA_HOME="/c/Program Files/Android/Android Studio/jbr"`)
 - Install: `./gradlew installDebug`
+- Note: `gradle-wrapper.jar` is gitignored — builds must run from an environment where it has been generated (e.g. Android Studio)
 
 ## Navigation Flow
 
 ```
-Login → Home (messaging-app style conversation list)
+Login → Home (messaging-app style conversation list, hamburger menu → navigation drawer)
   ├── Tap agent row → Chat (with that agent, nav arg agentId)
   ├── Say trigger word (mic FAB) → Chat (agentId + triggerText) + auto voice interaction
-  └── Settings gear → Settings
+  ├── Drawer → Agents (CRUD: create, edit, delete with model/tools/memory)
+  ├── Drawer → Tools & Skills (3-tab: MCP Servers, Tools, Skills with CRUD)
+  └── Drawer → Settings
 Chat (back button) → Home
 ```
 
