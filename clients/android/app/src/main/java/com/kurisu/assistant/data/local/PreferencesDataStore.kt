@@ -38,6 +38,7 @@ class PreferencesDataStore @Inject constructor(
     private val KEY_SELECTED_AGENT_ID = intPreferencesKey(StorageKeys.SELECTED_AGENT_ID)
     private val KEY_AGENT_CONVERSATIONS = stringPreferencesKey(StorageKeys.AGENT_CONVERSATIONS)
     private val KEY_MEDIA_VOLUME = floatPreferencesKey(StorageKeys.MEDIA_VOLUME)
+    private val KEY_AUDIO_INPUT_DEVICE_TYPE = intPreferencesKey(StorageKeys.AUDIO_INPUT_DEVICE_TYPE)
 
     companion object {
         const val DEFAULT_BACKEND_URL = "http://localhost:15597"
@@ -117,4 +118,8 @@ class PreferencesDataStore @Inject constructor(
     // Media Volume
     suspend fun getMediaVolume(): Float = ds.data.first()[KEY_MEDIA_VOLUME] ?: 1.0f
     suspend fun setMediaVolume(volume: Float) { ds.edit { it[KEY_MEDIA_VOLUME] = volume } }
+
+    // Audio Input Device Type (-1 = default/auto)
+    suspend fun getAudioInputDeviceType(): Int = ds.data.first()[KEY_AUDIO_INPUT_DEVICE_TYPE] ?: -1
+    suspend fun setAudioInputDeviceType(type: Int) { ds.edit { it[KEY_AUDIO_INPUT_DEVICE_TYPE] = type } }
 }

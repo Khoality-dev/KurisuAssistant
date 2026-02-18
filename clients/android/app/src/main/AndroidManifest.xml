@@ -33,7 +33,7 @@
         </activity>
 
         <service
-            android:name=".service.ChatForegroundService"
+            android:name=".service.CoreService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
 

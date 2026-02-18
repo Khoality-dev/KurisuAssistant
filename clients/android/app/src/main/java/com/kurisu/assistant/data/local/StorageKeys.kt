@@ -15,4 +15,5 @@ object StorageKeys {
     const val SELECTED_AGENT_ID = "kurisu_selected_agent_id"
     const val AGENT_CONVERSATIONS = "kurisu_agent_conversations"
     const val MEDIA_VOLUME = "kurisu_media_volume"
+    const val AUDIO_INPUT_DEVICE_TYPE = "kurisu_audio_input_device_type"
 }

@@ -7,8 +7,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.kurisu.assistant.domain.audio.AudioRecorder
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kurisu.assistant.BuildConfig
 import com.kurisu.assistant.ui.update.UpdateDialog
@@ -138,6 +140,69 @@ fun SettingsScreen(
             )
             Button(onClick = viewModel::saveTtsSettings) {
                 Text("Save TTS Settings")
+            }
+
+            HorizontalDivider()
+
+            // Microphone section
+            Text("Microphone", style = MaterialTheme.typography.titleMedium)
+            if (state.inputDevices.isNotEmpty()) {
+                var micExpanded by remember { mutableStateOf(false) }
+                val selectedName = if (state.selectedDeviceType < 0) {
+                    "Default"
+                } else {
+                    state.inputDevices.find { it.first == state.selectedDeviceType }?.second
+                        ?: AudioRecorder.deviceTypeName(state.selectedDeviceType)
+                }
+                ExposedDropdownMenuBox(
+                    expanded = micExpanded,
+                    onExpandedChange = { micExpanded = it },
+                ) {
+                    OutlinedTextField(
+                        value = selectedName,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Input Device") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = micExpanded) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    )
+                    ExposedDropdownMenu(
+                        expanded = micExpanded,
+                        onDismissRequest = { micExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Default") },
+                            onClick = {
+                                viewModel.selectMicDevice(-1)
+                                micExpanded = false
+                            },
+                        )
+                        state.inputDevices.forEach { (type, name) ->
+                            DropdownMenuItem(
+                                text = { Text(name) },
+                                onClick = {
+                                    viewModel.selectMicDevice(type)
+                                    micExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    "No input devices found",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            OutlinedButton(onClick = viewModel::testMicrophone) {
+                Text(if (state.isTesting) "Stop Test" else "Test Microphone")
+            }
+            if (state.isTesting) {
+                LinearProgressIndicator(
+                    progress = { state.micTestLevel },
+                    modifier = Modifier.fillMaxWidth().height(8.dp),
+                )
             }
 
             HorizontalDivider()

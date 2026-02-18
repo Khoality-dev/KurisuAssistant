@@ -18,25 +18,28 @@ import com.kurisu.assistant.R
 import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.remote.websocket.WebSocketManager
 import com.kurisu.assistant.data.repository.AgentRepository
+import com.kurisu.assistant.data.repository.AsrRepository
 import com.kurisu.assistant.data.repository.ConversationRepository
+import com.kurisu.assistant.domain.audio.AudioRecorder
+import com.kurisu.assistant.domain.audio.VoiceActivityDetector
 import com.kurisu.assistant.domain.chat.ChatStreamProcessor
 import com.kurisu.assistant.domain.tts.TtsQueueManager
-import com.kurisu.assistant.domain.voice.VoiceInteractionManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import javax.inject.Inject
 
 @AndroidEntryPoint
-class ChatForegroundService : Service() {
+class CoreService : Service() {
 
     companion object {
-        private const val TAG = "ChatForegroundService"
+        private const val TAG = "CoreService"
         private const val CHANNEL_ID = "kurisu_chat_channel"
         private const val NOTIFICATION_ID = 1
+        private const val SILENCE_TIMEOUT_MS = 1500L
         const val ACTION_STOP = "com.kurisu.assistant.ACTION_STOP_SERVICE"
 
         fun start(context: Context) {
-            val intent = Intent(context, ChatForegroundService::class.java)
+            val intent = Intent(context, CoreService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -45,7 +48,7 @@ class ChatForegroundService : Service() {
         }
 
         fun stop(context: Context) {
-            context.stopService(Intent(context, ChatForegroundService::class.java))
+            context.stopService(Intent(context, CoreService::class.java))
         }
     }
 
@@ -55,13 +58,20 @@ class ChatForegroundService : Service() {
     @Inject lateinit var voiceInteractionManager: VoiceInteractionManager
     @Inject lateinit var agentRepository: AgentRepository
     @Inject lateinit var conversationRepository: ConversationRepository
+    @Inject lateinit var asrRepository: AsrRepository
     @Inject lateinit var prefs: PreferencesDataStore
-    @Inject lateinit var serviceState: ServiceState
+    @Inject lateinit var coreState: CoreState
+    @Inject lateinit var audioRecorder: AudioRecorder
+    @Inject lateinit var vad: VoiceActivityDetector
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+    private var vadJob: Job? = null
+    private var silenceTimerJob: Job? = null
+    private var isSpeaking = false
+
     inner class LocalBinder : Binder() {
-        val service: ChatForegroundService get() = this@ChatForegroundService
+        val service: CoreService get() = this@CoreService
     }
 
     private val binder = LocalBinder()
@@ -88,17 +98,20 @@ class ChatForegroundService : Service() {
 
         wireCallbacks()
         streamProcessor.startCollecting()
-        serviceState.setServiceRunning(true)
+        coreState.setServiceRunning(true)
 
-        // Ensure WebSocket is connected while service is alive
+        // Connect WebSocket
         serviceScope.launch {
             try { wsManager.connect() } catch (e: Exception) {
                 Log.e(TAG, "WebSocket connect failed: ${e.message}")
             }
         }
 
-        // Start listening for trigger words / voice interaction
-        voiceInteractionManager.startListening()
+        // Initialize VAD and start recording + VAD loop
+        serviceScope.launch {
+            audioRecorder.preferredDeviceType = prefs.getAudioInputDeviceType()
+            startRecordingAndVad()
+        }
 
         Log.d(TAG, "Service started")
         return START_STICKY
@@ -106,13 +119,110 @@ class ChatForegroundService : Service() {
 
     override fun onDestroy() {
         Log.d(TAG, "Service stopping")
-        voiceInteractionManager.stopListening()
+        stopRecordingAndVad()
         unwireCallbacks()
         streamProcessor.stopCollecting()
-        serviceState.setServiceRunning(false)
+        coreState.setServiceRunning(false)
+        coreState.setRecording(false)
         serviceScope.cancel()
         super.onDestroy()
     }
+
+    // ── Recording & VAD ──────────────────────────────────────────────
+
+    private fun startRecordingAndVad() {
+        if (!vad.initialize()) {
+            Log.e(TAG, "Failed to initialize VAD")
+            return
+        }
+
+        val started = audioRecorder.start()
+        if (!started) {
+            Log.e(TAG, "AudioRecorder failed to start")
+            return
+        }
+
+        coreState.setRecording(true)
+        Log.d(TAG, "Recording started, collecting audio chunks for VAD")
+
+        vadJob = serviceScope.launch(Dispatchers.IO) {
+            var chunkCount = 0
+            audioRecorder.audioChunks.collect { chunk ->
+                chunkCount++
+                if (chunkCount == 1) {
+                    Log.d(TAG, "VAD first chunk: size=${chunk.size} samples")
+                }
+                val probability = vad.processSamples(chunk)
+                val isSpeechDetected = vad.isSpeech(probability)
+
+                // Log periodically + any chunk with elevated probability
+                if (chunkCount % 100 == 0 || probability > 0.01f) {
+                    var sum = 0.0
+                    for (s in chunk) { sum += s.toDouble() * s.toDouble() }
+                    val rms = kotlin.math.sqrt(sum / chunk.size)
+                    Log.d(TAG, "VAD #$chunkCount prob=${String.format("%.4f", probability)} rms=${String.format("%.0f", rms)} maxIn=${String.format("%.4f", vad.lastMaxInput)}")
+                }
+
+                if (isSpeechDetected) {
+                    if (!isSpeaking) {
+                        Log.d(TAG, "Speech started at chunk #$chunkCount")
+                    }
+                    isSpeaking = true
+                    silenceTimerJob?.cancel()
+                    silenceTimerJob = null
+                } else if (isSpeaking && silenceTimerJob == null) {
+                    Log.d(TAG, "Speech ended, starting silence timer (${SILENCE_TIMEOUT_MS}ms)")
+                    silenceTimerJob = launch {
+                        delay(SILENCE_TIMEOUT_MS)
+                        // Launch ASR in serviceScope so it survives silenceTimerJob cancellation
+                        serviceScope.launch(Dispatchers.IO) { processCurrentRecording() }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun stopRecordingAndVad() {
+        vadJob?.cancel()
+        silenceTimerJob?.cancel()
+        isSpeaking = false
+
+        if (audioRecorder.isRecording) {
+            audioRecorder.stop()
+        }
+
+        coreState.setRecording(false)
+    }
+
+    private suspend fun processCurrentRecording() {
+        coreState.setProcessingAsr(true)
+        isSpeaking = false
+
+        try {
+            val pcmBytes = audioRecorder.takeAccumulatedPcm()
+            Log.d(TAG, "Took PCM snapshot: ${pcmBytes.size} bytes (${pcmBytes.size / 2} samples, ${String.format("%.1f", pcmBytes.size / 2 / 16000.0)}s)")
+
+            if (pcmBytes.isEmpty()) {
+                Log.w(TAG, "Empty recording, skipping ASR")
+            } else {
+                val text = asrRepository.transcribe(pcmBytes)
+                Log.d(TAG, "ASR result: '$text'")
+
+                if (text.isNotBlank()) {
+                    val trimmed = text.trim()
+                    coreState.emitTranscript(trimmed)
+                    voiceInteractionManager.handleTranscript(trimmed)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "ASR transcription error: ${e.message}", e)
+        }
+
+        coreState.setProcessingAsr(false)
+        vad.resetState()
+    }
+
+    // ── Callback wiring ──────────────────────────────────────────────
 
     private fun wireCallbacks() {
         streamProcessor.onSentenceBoundary = { text, voice ->
@@ -121,8 +231,8 @@ class ChatForegroundService : Service() {
 
         streamProcessor.onConversationId = { convId ->
             serviceScope.launch {
-                serviceState.setConversationId(convId)
-                val agentId = serviceState.state.value.selectedAgentId
+                coreState.setConversationId(convId)
+                val agentId = coreState.state.value.selectedAgentId
                 if (agentId != null) {
                     agentRepository.setConversationIdForAgent(agentId, convId)
                 }
@@ -131,17 +241,9 @@ class ChatForegroundService : Service() {
 
         streamProcessor.onStreamDone = {
             serviceScope.launch {
-                val convId = serviceState.state.value.conversationId
-                if (convId != null) {
-                    try {
-                        conversationRepository.getConversation(convId, 20, 0)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to refresh conversation on stream done", e)
-                    }
-                }
-                streamProcessor.clearStreamingMessages()
                 voiceInteractionManager.onStreamingComplete()
                 voiceInteractionManager.onTTSAndStreamingIdle()
+                coreState.emitStreamDone()
             }
         }
 
@@ -157,9 +259,12 @@ class ChatForegroundService : Service() {
         voiceInteractionManager.onTranscriptSend = null
     }
 
+    // ── Send message ─────────────────────────────────────────────────
+
     private fun sendMessage(text: String) {
         if (text.isBlank()) return
-        val state = serviceState.state.value
+        if (streamProcessor.state.value.isStreaming) return
+        val state = coreState.state.value
 
         streamProcessor.startStreaming()
         streamProcessor.addUserMessage(text)
@@ -178,6 +283,8 @@ class ChatForegroundService : Service() {
             }
         }
     }
+
+    // ── Notification ─────────────────────────────────────────────────
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -202,7 +309,7 @@ class ChatForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val stopIntent = Intent(this, ChatForegroundService::class.java).apply {
+        val stopIntent = Intent(this, CoreService::class.java).apply {
             action = ACTION_STOP
         }
         val stopPending = PendingIntent.getService(

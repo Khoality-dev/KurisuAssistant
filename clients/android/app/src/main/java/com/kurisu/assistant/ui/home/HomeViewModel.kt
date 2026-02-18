@@ -10,9 +10,8 @@ import com.kurisu.assistant.data.model.GithubRelease
 import com.kurisu.assistant.data.repository.AgentRepository
 import com.kurisu.assistant.data.repository.ConversationRepository
 import com.kurisu.assistant.data.repository.UpdateRepository
-import com.kurisu.assistant.domain.voice.VoiceInteractionManager
-import com.kurisu.assistant.service.ChatForegroundService
-import com.kurisu.assistant.service.ServiceState
+import com.kurisu.assistant.service.CoreService
+import com.kurisu.assistant.service.CoreState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -49,8 +48,7 @@ class HomeViewModel @Inject constructor(
     private val agentRepository: AgentRepository,
     private val conversationRepository: ConversationRepository,
     private val prefs: PreferencesDataStore,
-    val voiceInteractionManager: VoiceInteractionManager,
-    private val serviceState: ServiceState,
+    private val coreState: CoreState,
     private val updateRepository: UpdateRepository,
 ) : ViewModel() {
 
@@ -61,8 +59,7 @@ class HomeViewModel @Inject constructor(
     private val _state = MutableStateFlow(HomeUiState())
     val state: StateFlow<HomeUiState> = _state
 
-    val serviceRunning = serviceState.state.map { it.isServiceRunning }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val coreServiceState = coreState.state
 
     private val _triggerMatch = MutableSharedFlow<TriggerMatch>(extraBufferCapacity = 1)
     val triggerMatch: SharedFlow<TriggerMatch> = _triggerMatch
@@ -71,28 +68,30 @@ class HomeViewModel @Inject constructor(
         loadConversations()
         checkForUpdate()
 
-        // Wire raw transcript for trigger word matching across all agents
-        voiceInteractionManager.onRawTranscript = { text ->
-            val match = _state.value.conversations.find { conv ->
-                conv.agent.triggerWord != null &&
-                    text.lowercase().contains(conv.agent.triggerWord!!.lowercase())
-            }
-            if (match != null) {
-                _triggerMatch.tryEmit(TriggerMatch(match.agent.id, text))
+        // Observe ASR transcripts from CoreState for trigger word matching across all agents
+        viewModelScope.launch {
+            coreState.asrTranscripts.collect { text ->
+                val match = _state.value.conversations.find { conv ->
+                    conv.agent.triggerWord != null &&
+                        text.lowercase().contains(conv.agent.triggerWord!!.lowercase())
+                }
+                if (match != null) {
+                    _triggerMatch.tryEmit(TriggerMatch(match.agent.id, text))
+                }
             }
         }
     }
 
     fun toggleService() {
-        if (serviceState.state.value.isServiceRunning) {
-            ChatForegroundService.stop(application)
+        if (coreState.state.value.isServiceRunning) {
+            CoreService.stop(application)
         } else {
-            ChatForegroundService.start(application)
+            CoreService.start(application)
         }
     }
 
     fun startService() {
-        ChatForegroundService.start(application)
+        CoreService.start(application)
     }
 
     fun loadConversations() {
@@ -175,10 +174,5 @@ class HomeViewModel @Inject constructor(
 
     fun dismissUpdate() {
         _state.update { it.copy(updateRelease = null, updateProgress = null, updateApkFile = null) }
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        voiceInteractionManager.onRawTranscript = null
     }
 }

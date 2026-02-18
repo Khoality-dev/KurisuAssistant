@@ -38,7 +38,7 @@ com.kurisu.assistant/
 ├── domain/
 │   ├── chat/                    -- Stream processor, sentence splitter, narration stripper
 │   ├── tts/                     -- TTS queue, WAV parser, amplitude computer
-│   ├── voice/                   -- AudioRecorder, VAD, VoiceInteractionManager
+│   ├── audio/                   -- AudioRecorder, VoiceActivityDetector
 │   └── character/               -- Compositor, image cache, animation migration
 ├── ui/
 │   ├── navigation/              -- NavGraph with routes (HOME, CHAT/{agentId}, AGENTS, TOOLS, SETTINGS, CHARACTER)
@@ -51,7 +51,7 @@ com.kurisu.assistant/
 │   ├── tools/                   -- Tools & Skills management (3-tab: Servers, Tools, Skills) + ViewModel
 │   ├── update/                  -- UpdateDialog composable (in-app update from GitHub Releases)
 │   └── character/               -- Character canvas, video player, screen + ViewModel
-├── service/                     -- ChatForegroundService, ServiceState
+├── service/                     -- CoreService (foreground service), CoreState (shared singleton), VoiceInteractionManager
 └── di/                          -- Hilt modules (App, Network)
 ```
 
@@ -75,7 +75,7 @@ Chat (back button) → Home
 
 - `Routes.HOME` = landing page after login, shows agents as conversation rows with last message preview
 - `Routes.CHAT` = `chat/{agentId}?triggerText={text}`, ChatViewModel reads nav args via SavedStateHandle
-- HomeViewModel uses `VoiceInteractionManager.onRawTranscript` to check all agents' trigger words
+- HomeViewModel observes `CoreState.asrTranscripts` to check all agents' trigger words
 
 ## Key Patterns
 
@@ -91,15 +91,19 @@ Chat (back button) → Home
 ### Voice Interaction
 - AudioRecord → Silero VAD (ONNX) → speech detection → ASR → trigger word → interaction mode
 - 30s idle timeout after TTS+streaming complete
-- **ASR transcript hint**: Every ASR result stored in `VoiceInteractionState.lastTranscript`, shown as placeholder in ChatInput and in Home MicStatusBar (overwrites on each new result, visible even without trigger word match)
+- **ASR transcript hint**: Every ASR result stored in `CoreServiceState.lastTranscript`, shown as placeholder in ChatInput and in Home MicStatusBar (overwrites on each new result, visible even without trigger word match)
 
-### Foreground Service (Background Operation)
-- `ChatForegroundService` keeps the process alive via a persistent notification
-- Started when voice interaction mode enters; stopped when it exits
-- Owns callback wiring (ChatStreamProcessor → TtsQueueManager, VoiceInteractionManager → chat send)
-- `ServiceState` singleton shares `conversationId`/`selectedAgentId`/`isServiceRunning` between service and ViewModel
-- ChatStreamProcessor uses internal CoroutineScope (`startCollecting()`/`stopCollecting()`) — survives both Activity and service lifecycles
-- ViewModel defers callback ownership to service when it's running; re-wires when service stops
+### CoreService (Unified Foreground Service)
+- `CoreService` is the central engine — owns WebSocket, recording, VAD, ASR, chat sending (voice-triggered), TTS wiring, and voice interaction callbacks
+- Started on app launch (HomeScreen requests mic permission → starts service). Keeps process alive via persistent notification
+- **Owns all callback wiring**: `ChatStreamProcessor` → `TtsQueueManager`, `VoiceInteractionManager` → `sendMessage()`. No dual-ownership with ViewModel
+- **VAD loop**: Collects `AudioRecorder.audioChunks` → `VoiceActivityDetector.processSamples()` → speech/silence tracking → `processCurrentRecording()` on 1500ms silence after speech
+- **ASR pipeline**: `AudioRecorder.takeAccumulatedPcm()` → `AsrRepository.transcribe()` → `CoreState.emitTranscript()` → `VoiceInteractionManager.handleTranscript()`
+- `VoiceInteractionManager` (in `service/`) is a pure interaction-mode state machine (trigger word matching, auto-send, idle timer, sound effects). No audio/VAD/ASR — those live in CoreService
+- `CoreState` singleton is the bridge: `CoreServiceState` (isServiceRunning, isRecording, isProcessingAsr, lastTranscript, conversationId, selectedAgentId) + `asrTranscripts` SharedFlow + `streamDone` SharedFlow
+- `ChatStreamProcessor` uses internal CoroutineScope (`startCollecting()`/`stopCollecting()`) — survives both Activity and service lifecycles
+- **sendMessage in two places**: CoreService handles voice-triggered sends, ChatViewModel handles user-typed sends. Both use the same singletons (`streamProcessor`, `wsManager`). Concurrency guard: both check `streamProcessor.state.value.isStreaming` before sending
+- **Stream-done signaling**: CoreService emits `CoreState.streamDone` → ChatViewModel observes, reloads conversation from DB, then clears ephemeral streaming messages
 
 ### In-App Update (GitHub Releases)
 - `UpdateRepository` uses its own plain `OkHttpClient` (no auth/interceptors) to call GitHub Releases API

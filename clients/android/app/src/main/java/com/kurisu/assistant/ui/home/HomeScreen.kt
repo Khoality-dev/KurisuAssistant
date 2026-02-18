@@ -45,8 +45,8 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
-    val voiceState by viewModel.voiceInteractionManager.state.collectAsState()
-    val serviceRunning by viewModel.serviceRunning.collectAsState()
+    val coreServiceState by viewModel.coreServiceState.collectAsState()
+    val serviceRunning = coreServiceState.isServiceRunning
 
     // Request mic permission and auto-start service
     val micPermissionLauncher = rememberLauncherForActivityResult(
@@ -143,8 +143,8 @@ fun HomeScreen(
             bottomBar = {
                 MicStatusBar(
                     isListening = serviceRunning,
-                    isProcessing = voiceState.isProcessing,
-                    lastTranscript = voiceState.lastTranscript,
+                    isProcessing = coreServiceState.isProcessingAsr,
+                    lastTranscript = coreServiceState.lastTranscript,
                     onClick = viewModel::toggleService,
                 )
             },

@@ -17,9 +17,8 @@ import com.kurisu.assistant.data.repository.AuthRepository
 import com.kurisu.assistant.data.repository.ConversationRepository
 import com.kurisu.assistant.domain.chat.ChatStreamProcessor
 import com.kurisu.assistant.domain.tts.TtsQueueManager
-import com.kurisu.assistant.domain.voice.VoiceInteractionManager
-import com.kurisu.assistant.service.ChatForegroundService
-import com.kurisu.assistant.service.ServiceState
+import com.kurisu.assistant.service.CoreState
+import com.kurisu.assistant.service.VoiceInteractionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -35,7 +34,6 @@ data class ChatUiState(
     val baseUrl: String = "",
     val inputText: String = "",
     val selectedImages: List<Uri> = emptyList(),
-    val isMicActive: Boolean = false,
     val userAvatarUuid: String? = null,
     val frames: Map<String, FrameInfo> = emptyMap(),
 )
@@ -52,7 +50,7 @@ class ChatViewModel @Inject constructor(
     val streamProcessor: ChatStreamProcessor,
     val ttsQueueManager: TtsQueueManager,
     val voiceInteractionManager: VoiceInteractionManager,
-    private val serviceState: ServiceState,
+    private val coreState: CoreState,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ChatUiState())
@@ -61,22 +59,15 @@ class ChatViewModel @Inject constructor(
     val streamingState = streamProcessor.state
     val ttsState = ttsQueueManager.state
     val voiceState = voiceInteractionManager.state
-    val serviceRunning = serviceState.state.map { it.isServiceRunning }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val coreServiceState = coreState.state
 
     // Nav args
     private val navAgentId: Int = savedStateHandle["agentId"] ?: -1
     private val navTriggerText: String? = savedStateHandle["triggerText"]
 
     init {
-        // Always ensure event collection is active
+        // Safety net: ensure event collection is active even if service hasn't started yet
         streamProcessor.startCollecting()
-
-        // Start the foreground service immediately so background operation survives
-        startService()
-
-        // Wire ViewModel callbacks as fallback until the service's onStartCommand overwrites them
-        wireViewModelCallbacks()
 
         // Initial load
         viewModelScope.launch {
@@ -94,23 +85,12 @@ class ChatViewModel @Inject constructor(
             // After loading, handle trigger text (auto-start voice interaction)
             if (navTriggerText != null) {
                 sendMessage(navTriggerText)
-                voiceInteractionManager.startListening()
-                _state.update { it.copy(isMicActive = true) }
             }
         }
 
-        // Observe service state changes
+        // Observe service state for conversation ID sync (when service creates a new conversation via voice)
         viewModelScope.launch {
-            var prevRunning = serviceState.state.value.isServiceRunning
-            serviceState.state.collect { svcState ->
-                // Re-wire ViewModel callbacks when service stops
-                if (prevRunning && !svcState.isServiceRunning) {
-                    streamProcessor.startCollecting()
-                    wireViewModelCallbacks()
-                }
-                prevRunning = svcState.isServiceRunning
-
-                // Sync conversation ID from service (background messages)
+            coreState.state.collect { svcState ->
                 val currentConvId = _state.value.conversationId
                 val serviceConvId = svcState.conversationId
                 if (serviceConvId != null && serviceConvId != currentConvId) {
@@ -119,56 +99,21 @@ class ChatViewModel @Inject constructor(
                 }
             }
         }
-    }
 
-    /** Wire callbacks for when no foreground service is running (normal ViewModel-scoped operation). */
-    private fun wireViewModelCallbacks() {
-        // TTS sentence boundary callback
-        streamProcessor.onSentenceBoundary = { text, voice ->
-            ttsQueueManager.queueText(text, voice)
-        }
-
-        // Conversation ID from first chunk
-        streamProcessor.onConversationId = { convId ->
-            viewModelScope.launch {
-                _state.update { it.copy(conversationId = convId) }
-                serviceState.setConversationId(convId)
-                val agent = _state.value.selectedAgent
-                if (agent != null) {
-                    agentRepository.setConversationIdForAgent(agent.id, convId)
-                }
-            }
-        }
-
-        // On stream done: refresh from DB
-        streamProcessor.onStreamDone = {
-            viewModelScope.launch {
+        // Observe stream-done: reload from DB then clear ephemeral streaming messages
+        viewModelScope.launch {
+            coreState.streamDone.collect {
                 val convId = _state.value.conversationId
                 if (convId != null) {
-                    loadConversation(convId)
+                    try {
+                        loadConversation(convId)
+                    } catch (e: Exception) {
+                        Log.e("ChatViewModel", "Failed to reload on stream done", e)
+                    }
                 }
                 streamProcessor.clearStreamingMessages()
-                voiceInteractionManager.onStreamingComplete()
-                voiceInteractionManager.onTTSAndStreamingIdle()
             }
         }
-
-        // Voice interaction
-        voiceInteractionManager.onTranscriptSend = { text ->
-            sendMessage(text)
-        }
-    }
-
-    fun startService() {
-        // Sync current state to ServiceState so the service has context
-        val s = _state.value
-        serviceState.setConversationId(s.conversationId)
-        serviceState.setSelectedAgentId(s.selectedAgent?.id)
-        ChatForegroundService.start(application)
-    }
-
-    fun stopService() {
-        ChatForegroundService.stop(application)
     }
 
     /** Load the specific agent from nav args + its conversation. Also load all agents for dropdown. */
@@ -182,7 +127,7 @@ class ChatViewModel @Inject constructor(
             if (selectedAgent != null) {
                 agentRepository.setSelectedAgentId(selectedAgent.id)
                 voiceInteractionManager.setTriggerWord(selectedAgent.triggerWord)
-                serviceState.setSelectedAgentId(selectedAgent.id)
+                coreState.setSelectedAgentId(selectedAgent.id)
 
                 val convId = agentRepository.getConversationIdForAgent(selectedAgent.id)
                 if (convId != null) {
@@ -202,7 +147,7 @@ class ChatViewModel @Inject constructor(
             _state.update { it.copy(selectedAgent = agent) }
             agentRepository.setSelectedAgentId(agentId)
             voiceInteractionManager.setTriggerWord(agent.triggerWord)
-            serviceState.setSelectedAgentId(agentId)
+            coreState.setSelectedAgentId(agentId)
 
             ttsQueueManager.clearQueue()
 
@@ -229,7 +174,7 @@ class ChatViewModel @Inject constructor(
             isLoadingMore = false,
             frames = detail.frames,
         ) }
-        serviceState.setConversationId(id)
+        coreState.setConversationId(id)
     }
 
     fun loadMoreMessages() {
@@ -263,6 +208,7 @@ class ChatViewModel @Inject constructor(
     }
 
     fun sendMessage(text: String? = null) {
+        if (streamProcessor.state.value.isStreaming) return
         val s = _state.value
         val messageText = text ?: s.inputText.trim()
         if (messageText.isBlank() && s.selectedImages.isEmpty()) return
@@ -321,7 +267,7 @@ class ChatViewModel @Inject constructor(
                 val agentId = _state.value.selectedAgent?.id
                 if (agentId != null) agentRepository.clearConversationIdForAgent(agentId)
                 _state.update { it.copy(messages = emptyList(), conversationId = null, hasMore = false) }
-                serviceState.setConversationId(null)
+                coreState.setConversationId(null)
             } catch (_: Exception) {}
         }
     }
@@ -347,26 +293,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun toggleMic() {
-        val currentlyActive = _state.value.isMicActive
-        if (currentlyActive) {
-            voiceInteractionManager.stopListening()
-        } else {
-            voiceInteractionManager.startListening()
-        }
-        _state.update { it.copy(isMicActive = !currentlyActive) }
-    }
-
     fun refreshAgents() {
         viewModelScope.launch { loadAgentAndConversation() }
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        // Don't release singletons — service may still need them
-        // Only stop collecting if the service isn't running
-        if (!serviceState.state.value.isServiceRunning) {
-            streamProcessor.stopCollecting()
-        }
     }
 }

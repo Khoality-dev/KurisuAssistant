@@ -32,6 +32,7 @@ fun ChatScreen(
     val streaming by viewModel.streamingState.collectAsState()
     val ttsState by viewModel.ttsState.collectAsState()
     val voiceState by viewModel.voiceState.collectAsState()
+    val coreServiceState by viewModel.coreServiceState.collectAsState()
 
     val listState = rememberLazyListState()
 
@@ -223,10 +224,10 @@ fun ChatScreen(
                 onRemoveImage = viewModel::removeImage,
                 selectedImages = state.selectedImages,
                 isStreaming = streaming.isStreaming,
-                isMicActive = state.isMicActive,
+                isMicActive = false,
                 isInteractionMode = voiceState.isInteractionMode,
-                lastTranscript = voiceState.lastTranscript,
-                onMicToggle = viewModel::toggleMic,
+                lastTranscript = coreServiceState.lastTranscript,
+                onMicToggle = null,
             )
         }
     }
