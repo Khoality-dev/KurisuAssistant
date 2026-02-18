@@ -88,7 +88,10 @@ interface KurisuApiService {
 
     // ASR
     @POST("/asr")
-    suspend fun transcribe(@Body audio: RequestBody): TranscriptionResponse
+    suspend fun transcribe(
+        @Body audio: RequestBody,
+        @retrofit2.http.Query("language") language: String? = null,
+    ): TranscriptionResponse
 
     // Agents
     @GET("/agents")

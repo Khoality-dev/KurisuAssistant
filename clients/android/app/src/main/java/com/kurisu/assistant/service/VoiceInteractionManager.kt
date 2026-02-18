@@ -85,7 +85,8 @@ class VoiceInteractionManager @Inject constructor(
         }
     }
 
-    private fun enterMode() {
+    fun enterMode() {
+        if (_state.value.isInteractionMode) return
         _state.update { it.copy(isInteractionMode = true) }
         playSound("start_effect")
         onEnterMode?.invoke()

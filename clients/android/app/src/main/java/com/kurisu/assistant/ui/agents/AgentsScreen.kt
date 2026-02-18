@@ -118,16 +118,19 @@ fun AgentsScreen(
             name = state.editorName,
             modelName = state.editorModelName,
             systemPrompt = state.editorSystemPrompt,
+            voiceReference = state.editorVoiceReference,
             triggerWord = state.editorTriggerWord,
             think = state.editorThink,
             tools = state.editorTools,
             memory = state.editorMemory,
             availableModels = state.availableModels,
+            availableVoices = state.availableVoices,
             availableTools = state.availableTools.map { it.function.name },
             isSaving = state.isSaving,
             onNameChange = viewModel::setEditorName,
             onModelNameChange = viewModel::setEditorModelName,
             onSystemPromptChange = viewModel::setEditorSystemPrompt,
+            onVoiceReferenceChange = viewModel::setEditorVoiceReference,
             onTriggerWordChange = viewModel::setEditorTriggerWord,
             onThinkChange = viewModel::setEditorThink,
             onToggleTool = viewModel::toggleEditorTool,
@@ -238,16 +241,19 @@ private fun AgentEditorDialog(
     name: String,
     modelName: String,
     systemPrompt: String,
+    voiceReference: String,
     triggerWord: String,
     think: Boolean,
     tools: List<String>,
     memory: String,
     availableModels: List<String>,
+    availableVoices: List<String>,
     availableTools: List<String>,
     isSaving: Boolean,
     onNameChange: (String) -> Unit,
     onModelNameChange: (String) -> Unit,
     onSystemPromptChange: (String) -> Unit,
+    onVoiceReferenceChange: (String) -> Unit,
     onTriggerWordChange: (String) -> Unit,
     onThinkChange: (Boolean) -> Unit,
     onToggleTool: (String) -> Unit,
@@ -256,6 +262,7 @@ private fun AgentEditorDialog(
     onDismiss: () -> Unit,
 ) {
     var modelDropdownExpanded by remember { mutableStateOf(false) }
+    var voiceDropdownExpanded by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -306,6 +313,38 @@ private fun AgentEditorDialog(
                                     onClick = {
                                         onModelNameChange(model)
                                         modelDropdownExpanded = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Voice selector
+                ExposedDropdownMenuBox(
+                    expanded = voiceDropdownExpanded,
+                    onExpandedChange = { voiceDropdownExpanded = it },
+                ) {
+                    OutlinedTextField(
+                        value = voiceReference,
+                        onValueChange = onVoiceReferenceChange,
+                        label = { Text("Voice") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = voiceDropdownExpanded) },
+                        placeholder = { Text("None") },
+                    )
+                    if (availableVoices.isNotEmpty()) {
+                        ExposedDropdownMenu(
+                            expanded = voiceDropdownExpanded,
+                            onDismissRequest = { voiceDropdownExpanded = false },
+                        ) {
+                            availableVoices.forEach { voice ->
+                                DropdownMenuItem(
+                                    text = { Text(voice) },
+                                    onClick = {
+                                        onVoiceReferenceChange(voice)
+                                        voiceDropdownExpanded = false
                                     },
                                 )
                             }

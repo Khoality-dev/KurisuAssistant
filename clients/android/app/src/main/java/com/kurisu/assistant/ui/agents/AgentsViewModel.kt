@@ -9,6 +9,7 @@ import com.kurisu.assistant.data.model.AgentUpdate
 import com.kurisu.assistant.data.model.Tool
 import com.kurisu.assistant.data.repository.AgentRepository
 import com.kurisu.assistant.data.repository.ToolsRepository
+import com.kurisu.assistant.data.repository.TtsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +25,7 @@ data class AgentsUiState(
     // Available options for editor
     val availableModels: List<String> = emptyList(),
     val availableTools: List<Tool> = emptyList(),
+    val availableVoices: List<String> = emptyList(),
     // Editor dialog
     val showEditor: Boolean = false,
     val editingAgent: Agent? = null,
@@ -32,6 +34,7 @@ data class AgentsUiState(
     val editorSystemPrompt: String = "",
     val editorTriggerWord: String = "",
     val editorThink: Boolean = false,
+    val editorVoiceReference: String = "",
     val editorTools: List<String> = emptyList(),
     val editorMemory: String = "",
     val isSaving: Boolean = false,
@@ -43,6 +46,7 @@ data class AgentsUiState(
 class AgentsViewModel @Inject constructor(
     private val agentRepository: AgentRepository,
     private val toolsRepository: ToolsRepository,
+    private val ttsRepository: TtsRepository,
     private val prefs: PreferencesDataStore,
 ) : ViewModel() {
 
@@ -76,6 +80,10 @@ class AgentsViewModel @Inject constructor(
                 val allTools = tools.mcpTools + tools.builtinTools
                 _state.update { it.copy(availableTools = allTools) }
             } catch (_: Exception) {}
+            try {
+                val voices = ttsRepository.listVoices(null)
+                _state.update { it.copy(availableVoices = voices) }
+            } catch (_: Exception) {}
         }
     }
 
@@ -88,6 +96,7 @@ class AgentsViewModel @Inject constructor(
         editorName = "",
         editorModelName = it.availableModels.firstOrNull() ?: "",
         editorSystemPrompt = "",
+        editorVoiceReference = "",
         editorTriggerWord = "",
         editorThink = false,
         editorTools = emptyList(),
@@ -100,6 +109,7 @@ class AgentsViewModel @Inject constructor(
         editorName = agent.name,
         editorModelName = agent.modelName ?: "",
         editorSystemPrompt = agent.systemPrompt,
+        editorVoiceReference = agent.voiceReference ?: "",
         editorTriggerWord = agent.triggerWord ?: "",
         editorThink = agent.think,
         editorTools = agent.tools ?: emptyList(),
@@ -111,6 +121,7 @@ class AgentsViewModel @Inject constructor(
     fun setEditorName(v: String) = _state.update { it.copy(editorName = v) }
     fun setEditorModelName(v: String) = _state.update { it.copy(editorModelName = v) }
     fun setEditorSystemPrompt(v: String) = _state.update { it.copy(editorSystemPrompt = v) }
+    fun setEditorVoiceReference(v: String) = _state.update { it.copy(editorVoiceReference = v) }
     fun setEditorTriggerWord(v: String) = _state.update { it.copy(editorTriggerWord = v) }
     fun setEditorThink(v: Boolean) = _state.update { it.copy(editorThink = v) }
     fun setEditorMemory(v: String) = _state.update { it.copy(editorMemory = v) }
@@ -139,6 +150,7 @@ class AgentsViewModel @Inject constructor(
                         name = s.editorName.trim(),
                         modelName = s.editorModelName.trim(),
                         systemPrompt = s.editorSystemPrompt,
+                        voiceReference = s.editorVoiceReference.trim().ifBlank { null },
                         triggerWord = s.editorTriggerWord.trim().ifBlank { null },
                         think = s.editorThink,
                         tools = s.editorTools,
@@ -150,6 +162,7 @@ class AgentsViewModel @Inject constructor(
                         name = s.editorName.trim(),
                         modelName = s.editorModelName.trim(),
                         systemPrompt = s.editorSystemPrompt.ifBlank { null },
+                        voiceReference = s.editorVoiceReference.trim().ifBlank { null },
                         triggerWord = s.editorTriggerWord.trim().ifBlank { null },
                         think = s.editorThink,
                         tools = s.editorTools.ifEmpty { null },

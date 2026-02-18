@@ -114,6 +114,7 @@ data class Agent(
 data class AgentCreate(
     val name: String,
     @SerialName("system_prompt") val systemPrompt: String? = null,
+    @SerialName("voice_reference") val voiceReference: String? = null,
     @SerialName("model_name") val modelName: String,
     val tools: List<String>? = null,
     val think: Boolean? = null,

@@ -35,7 +35,7 @@ class CoreService : Service() {
         private const val TAG = "CoreService"
         private const val CHANNEL_ID = "kurisu_chat_channel"
         private const val NOTIFICATION_ID = 1
-        private const val SILENCE_TIMEOUT_MS = 1500L
+        private const val SILENCE_TIMEOUT_MS = 600L
         const val ACTION_STOP = "com.kurisu.assistant.ACTION_STOP_SERVICE"
 
         fun start(context: Context) {
@@ -68,6 +68,7 @@ class CoreService : Service() {
 
     private var vadJob: Job? = null
     private var silenceTimerJob: Job? = null
+    private var ttsObserverJob: Job? = null
     private var isSpeaking = false
 
     inner class LocalBinder : Binder() {
@@ -205,7 +206,8 @@ class CoreService : Service() {
             if (pcmBytes.isEmpty()) {
                 Log.w(TAG, "Empty recording, skipping ASR")
             } else {
-                val text = asrRepository.transcribe(pcmBytes)
+                val asrLanguage = prefs.getAsrLanguage()
+                val text = asrRepository.transcribe(pcmBytes, asrLanguage)
                 Log.d(TAG, "ASR result: '$text'")
 
                 if (text.isNotBlank()) {
@@ -241,14 +243,28 @@ class CoreService : Service() {
 
         streamProcessor.onStreamDone = {
             serviceScope.launch {
+                voiceInteractionManager.isStreaming = false
                 voiceInteractionManager.onStreamingComplete()
-                voiceInteractionManager.onTTSAndStreamingIdle()
+                // Wait for TTS to finish before starting idle timer
+                if (!ttsQueueManager.state.value.isQueueActive) {
+                    voiceInteractionManager.onTTSAndStreamingIdle()
+                }
                 coreState.emitStreamDone()
             }
         }
 
         voiceInteractionManager.onTranscriptSend = { text ->
             sendMessage(text)
+        }
+
+        // Observe TTS state to notify VoiceInteractionManager when TTS finishes
+        ttsObserverJob = serviceScope.launch {
+            ttsQueueManager.state.collect { ttsState ->
+                voiceInteractionManager.isTTSActive = ttsState.isQueueActive
+                if (!ttsState.isQueueActive && !streamProcessor.state.value.isStreaming) {
+                    voiceInteractionManager.onTTSAndStreamingIdle()
+                }
+            }
         }
     }
 
@@ -257,6 +273,8 @@ class CoreService : Service() {
         streamProcessor.onConversationId = null
         streamProcessor.onStreamDone = null
         voiceInteractionManager.onTranscriptSend = null
+        ttsObserverJob?.cancel()
+        ttsObserverJob = null
     }
 
     // ── Send message ─────────────────────────────────────────────────
@@ -266,6 +284,7 @@ class CoreService : Service() {
         if (streamProcessor.state.value.isStreaming) return
         val state = coreState.state.value
 
+        voiceInteractionManager.isStreaming = true
         streamProcessor.startStreaming()
         streamProcessor.addUserMessage(text)
 

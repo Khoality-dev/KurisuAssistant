@@ -29,9 +29,7 @@ data class SettingsUiState(
     val preferredName: String = "",
     val ollamaUrl: String = "",
     val ttsBackend: String = "",
-    val ttsVoice: String = "",
     val backends: List<String> = emptyList(),
-    val voices: List<String> = emptyList(),
     val isSaving: Boolean = false,
     val message: String? = null,
     val isCheckingUpdate: Boolean = false,
@@ -42,6 +40,7 @@ data class SettingsUiState(
     val selectedDeviceType: Int = -1,
     val isTesting: Boolean = false,
     val micTestLevel: Float = 0f,
+    val asrLanguage: String = "",
 )
 
 @HiltViewModel
@@ -63,12 +62,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val url = prefs.getBackendUrl()
             val ttsBackend = prefs.getTTSBackend() ?: ""
-            val ttsVoice = prefs.getTTSVoice() ?: ""
 
             _state.update { it.copy(
                 serverUrl = url,
                 ttsBackend = ttsBackend,
-                ttsVoice = ttsVoice,
             ) }
 
             try {
@@ -82,6 +79,7 @@ class SettingsViewModel @Inject constructor(
 
             loadTtsOptions()
             loadMicOptions()
+            loadAsrOptions()
         }
     }
 
@@ -89,7 +87,7 @@ class SettingsViewModel @Inject constructor(
     fun setPreferredName(v: String) = _state.update { it.copy(preferredName = v) }
     fun setOllamaUrl(v: String) = _state.update { it.copy(ollamaUrl = v) }
     fun setTtsBackend(v: String) = _state.update { it.copy(ttsBackend = v) }
-    fun setTtsVoice(v: String) = _state.update { it.copy(ttsVoice = v) }
+    fun setAsrLanguage(v: String) = _state.update { it.copy(asrLanguage = v) }
     fun clearMessage() = _state.update { it.copy(message = null) }
 
     fun saveServerUrl() {
@@ -124,7 +122,6 @@ class SettingsViewModel @Inject constructor(
     fun saveTtsSettings() {
         viewModelScope.launch {
             prefs.setTTSBackend(_state.value.ttsBackend)
-            prefs.setTTSVoice(_state.value.ttsVoice)
             _state.update { it.copy(message = "TTS settings saved") }
         }
     }
@@ -257,16 +254,25 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun saveAsrLanguage() {
+        viewModelScope.launch {
+            prefs.setAsrLanguage(_state.value.asrLanguage.trim())
+            _state.update { it.copy(message = "ASR language saved") }
+        }
+    }
+
+    private fun loadAsrOptions() {
+        viewModelScope.launch {
+            val lang = prefs.getAsrLanguage()
+            _state.update { it.copy(asrLanguage = lang) }
+        }
+    }
+
     private fun loadTtsOptions() {
         viewModelScope.launch {
             try {
                 val backends = ttsRepository.listBackends()
                 _state.update { it.copy(backends = backends) }
-            } catch (_: Exception) {}
-
-            try {
-                val voices = ttsRepository.listVoices(_state.value.ttsBackend.ifBlank { null })
-                _state.update { it.copy(voices = voices) }
             } catch (_: Exception) {}
         }
     }

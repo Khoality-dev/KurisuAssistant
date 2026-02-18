@@ -39,6 +39,7 @@ class PreferencesDataStore @Inject constructor(
     private val KEY_AGENT_CONVERSATIONS = stringPreferencesKey(StorageKeys.AGENT_CONVERSATIONS)
     private val KEY_MEDIA_VOLUME = floatPreferencesKey(StorageKeys.MEDIA_VOLUME)
     private val KEY_AUDIO_INPUT_DEVICE_TYPE = intPreferencesKey(StorageKeys.AUDIO_INPUT_DEVICE_TYPE)
+    private val KEY_ASR_LANGUAGE = stringPreferencesKey(StorageKeys.ASR_LANGUAGE)
 
     companion object {
         const val DEFAULT_BACKEND_URL = "http://localhost:15597"
@@ -122,4 +123,8 @@ class PreferencesDataStore @Inject constructor(
     // Audio Input Device Type (-1 = default/auto)
     suspend fun getAudioInputDeviceType(): Int = ds.data.first()[KEY_AUDIO_INPUT_DEVICE_TYPE] ?: -1
     suspend fun setAudioInputDeviceType(type: Int) { ds.edit { it[KEY_AUDIO_INPUT_DEVICE_TYPE] = type } }
+
+    // ASR Language (empty = auto-detect)
+    suspend fun getAsrLanguage(): String = ds.data.first()[KEY_ASR_LANGUAGE] ?: ""
+    suspend fun setAsrLanguage(language: String) { ds.edit { it[KEY_ASR_LANGUAGE] = language } }
 }

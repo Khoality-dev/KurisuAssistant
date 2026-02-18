@@ -10,10 +10,11 @@ import javax.inject.Singleton
 class AsrRepository @Inject constructor(
     private val api: KurisuApiService,
 ) {
-    /** Send raw audio bytes (WAV or PCM) to the ASR endpoint and get transcription text */
-    suspend fun transcribe(audioBytes: ByteArray): String {
+    /** Send raw PCM bytes to the ASR endpoint and get transcription text */
+    suspend fun transcribe(audioBytes: ByteArray, language: String? = null): String {
         val body = audioBytes.toRequestBody("application/octet-stream".toMediaTypeOrNull())
-        val response = api.transcribe(body)
+        val lang = language?.ifBlank { null }
+        val response = api.transcribe(body, lang)
         return response.text
     }
 }

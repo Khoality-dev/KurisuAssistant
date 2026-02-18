@@ -84,6 +84,7 @@ class ChatViewModel @Inject constructor(
 
             // After loading, handle trigger text (auto-start voice interaction)
             if (navTriggerText != null) {
+                voiceInteractionManager.enterMode()
                 sendMessage(navTriggerText)
             }
         }
@@ -295,5 +296,15 @@ class ChatViewModel @Inject constructor(
 
     fun refreshAgents() {
         viewModelScope.launch { loadAgentAndConversation() }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        // Exit interaction mode and clear trigger word when leaving chat
+        if (voiceInteractionManager.state.value.isInteractionMode) {
+            voiceInteractionManager.exitMode()
+        }
+        voiceInteractionManager.setTriggerWord(null)
+        coreState.setSelectedAgentId(null)
     }
 }

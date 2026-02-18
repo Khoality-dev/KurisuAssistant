@@ -126,20 +126,27 @@ fun SettingsScreen(
                     }
                 },
             )
+            Button(onClick = viewModel::saveTtsSettings) {
+                Text("Save TTS Settings")
+            }
+
+            HorizontalDivider()
+
+            // Speech Recognition section
+            Text("Speech Recognition", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(
-                value = state.ttsVoice,
-                onValueChange = viewModel::setTtsVoice,
-                label = { Text("Voice") },
+                value = state.asrLanguage,
+                onValueChange = viewModel::setAsrLanguage,
+                label = { Text("Language") },
+                placeholder = { Text("Auto-detect") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 supportingText = {
-                    if (state.voices.isNotEmpty()) {
-                        Text("Available: ${state.voices.take(5).joinToString(", ")}${if (state.voices.size > 5) "..." else ""}")
-                    }
+                    Text("ISO 639-1 code (e.g. en, ja, zh, vi). Empty = auto-detect")
                 },
             )
-            Button(onClick = viewModel::saveTtsSettings) {
-                Text("Save TTS Settings")
+            Button(onClick = viewModel::saveAsrLanguage) {
+                Text("Save ASR Language")
             }
 
             HorizontalDivider()
