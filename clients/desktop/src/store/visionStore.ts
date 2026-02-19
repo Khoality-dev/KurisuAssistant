@@ -2,9 +2,6 @@ import { create } from 'zustand';
 import { wsManager, VisionResultEvent, ConnectedEvent } from '../api/websocket';
 import type { VisionResult } from '../api/types';
 
-const DETECT_FPS = 5;
-const DETECT_INTERVAL = 1000 / DETECT_FPS;
-
 interface VisionState {
   isActive: boolean;
   stream: MediaStream | null;
@@ -26,15 +23,15 @@ interface VisionState {
 }
 
 // Module-level state for frame capture (not in Zustand to avoid re-renders)
-let _captureInterval: ReturnType<typeof setInterval> | null = null;
+const MAX_INFLIGHT_FRAMES = 3;
 let _hiddenVideo: HTMLVideoElement | null = null;
 let _hiddenCanvas: HTMLCanvasElement | null = null;
+let _captureActive = false;
+let _inflightFrames = 0;
 
 function _stopCapture() {
-  if (_captureInterval) {
-    clearInterval(_captureInterval);
-    _captureInterval = null;
-  }
+  _captureActive = false;
+  _inflightFrames = 0;
   if (_hiddenVideo) {
     _hiddenVideo.srcObject = null;
     _hiddenVideo.remove();
@@ -44,6 +41,22 @@ function _stopCapture() {
     _hiddenCanvas.remove();
     _hiddenCanvas = null;
   }
+}
+
+function _sendNextFrame() {
+  if (!_captureActive || !_hiddenVideo || !_hiddenCanvas || _hiddenVideo.readyState < 2) return;
+  if (_inflightFrames >= MAX_INFLIGHT_FRAMES) return;
+
+  _hiddenCanvas.width = _hiddenVideo.videoWidth;
+  _hiddenCanvas.height = _hiddenVideo.videoHeight;
+  const ctx = _hiddenCanvas.getContext('2d');
+  if (!ctx) return;
+
+  ctx.drawImage(_hiddenVideo, 0, 0);
+  const dataUrl = _hiddenCanvas.toDataURL('image/jpeg', 0.7);
+  const base64 = dataUrl.split(',')[1];
+  wsManager.sendVisionFrame(base64);
+  _inflightFrames++;
 }
 
 function _startCapture(stream: MediaStream) {
@@ -56,20 +69,13 @@ function _startCapture(stream: MediaStream) {
   _hiddenVideo.play();
 
   _hiddenCanvas = document.createElement('canvas');
+  _captureActive = true;
+  _inflightFrames = 0;
 
-  _captureInterval = setInterval(() => {
-    if (!_hiddenVideo || !_hiddenCanvas || _hiddenVideo.readyState < 2) return;
-
-    _hiddenCanvas.width = _hiddenVideo.videoWidth;
-    _hiddenCanvas.height = _hiddenVideo.videoHeight;
-    const ctx = _hiddenCanvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.drawImage(_hiddenVideo, 0, 0);
-    const dataUrl = _hiddenCanvas.toDataURL('image/jpeg', 0.7);
-    const base64 = dataUrl.split(',')[1];
-    wsManager.sendVisionFrame(base64);
-  }, DETECT_INTERVAL);
+  // Send initial burst of frames once the video is ready
+  _hiddenVideo.onloadeddata = () => {
+    for (let i = 0; i < MAX_INFLIGHT_FRAMES; i++) _sendNextFrame();
+  };
 }
 
 export const useVisionStore = create<VisionState>((set, get) => ({
@@ -185,6 +191,10 @@ wsManager.on('vision_result', (event: VisionResultEvent) => {
   // Forward detected face names to character window via IPC
   const faceNames = event.faces.filter((f) => f.name).map((f) => f.name);
   window.electron?.characterWindow?.sendFaceUpdate({ faces: faceNames });
+
+  // Backpressure: one result returned, send next frame to refill the pipeline
+  if (_inflightFrames > 0) _inflightFrames--;
+  _sendNextFrame();
 });
 
 // Sync vision state on WebSocket reconnect
