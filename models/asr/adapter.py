@@ -9,7 +9,7 @@ def transcribe(
     audio: np.ndarray,
     language: str | None = None,
     provider: str | None = None,
-) -> str:
+) -> tuple[str, str]:
     """Transcribe audio to text using the configured provider.
 
     Args:
@@ -18,7 +18,7 @@ def transcribe(
         provider: Provider name override (default from factory).
 
     Returns:
-        Transcribed text.
+        Tuple of (transcribed text, detected language code).
     """
     asr = get_provider(provider)
     return asr.transcribe(audio, language=language)

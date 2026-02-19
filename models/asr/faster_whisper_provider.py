@@ -40,10 +40,11 @@ class FasterWhisperProvider(BaseASRProvider):
             logger.info("faster-whisper model loaded")
         return self._model
 
-    def transcribe(self, audio: np.ndarray, language: str | None = None) -> str:
+    def transcribe(self, audio: np.ndarray, language: str | None = None) -> tuple[str, str]:
         model = self._get_model()
         kwargs = {}
         if language:
             kwargs["language"] = language
-        segments, _info = model.transcribe(audio, **kwargs)
-        return "".join(segment.text for segment in segments).strip()
+        segments, info = model.transcribe(audio, **kwargs)
+        text = "".join(segment.text for segment in segments).strip()
+        return text, info.language

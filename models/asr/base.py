@@ -9,7 +9,7 @@ class BaseASRProvider(ABC):
     """Abstract base for speech-to-text providers."""
 
     @abstractmethod
-    def transcribe(self, audio: np.ndarray, language: str | None = None) -> str:
+    def transcribe(self, audio: np.ndarray, language: str | None = None) -> tuple[str, str]:
         """Transcribe audio waveform to text.
 
         Args:
@@ -17,6 +17,6 @@ class BaseASRProvider(ABC):
             language: Optional language hint (e.g. "en", "ja").
 
         Returns:
-            Transcribed text string.
+            Tuple of (transcribed text, detected language code).
         """
         ...

@@ -25,8 +25,8 @@ async def asr_endpoint(
     try:
         pcm = np.frombuffer(audio, dtype=np.int16)
         waveform = pcm.astype(np.float32) / 32768.0
-        text = transcribe(waveform, language=language)
-        return {"text": text}
+        text, detected_language = transcribe(waveform, language=language)
+        return {"text": text, "language": detected_language}
     except HTTPException:
         raise
     except Exception as e:
