@@ -2,6 +2,7 @@
 
 from .events import (
     EventType,
+    ConnectedEvent,
     ChatRequestEvent,
     StreamChunkEvent,
     ToolApprovalRequestEvent,
@@ -15,6 +16,7 @@ from .events import (
 
 __all__ = [
     "EventType",
+    "ConnectedEvent",
     "ChatRequestEvent",
     "StreamChunkEvent",
     "ToolApprovalRequestEvent",

@@ -109,7 +109,15 @@ Two modes controlled by `event.agent_id` in `ChatRequestEvent`:
 
 **Tool access control**: Built-in tools (`built_in = True`) are always available to all agents. `Agent.tools` JSON array controls opt-in tools (media, routing, MCP). `execute_tool()` enforces this.
 
-**WebSocket reconnection**: Chat handler stores `_accumulated_messages` (complete messages, not chunks) for replay. `replace_websocket()` replays accumulated + in-progress chunk or `DoneEvent`. Client filters by conversation ID. Media WebSocket has no replay (ephemeral state); player registry preserves player state across reconnects.
+**Single WebSocket** (`/ws/chat`): All communication (chat, media, vision) flows through one WebSocket connection. No separate `/ws/media` endpoint.
+
+**WebSocket reconnection**: Chat handler stores `_accumulated_messages` (complete messages, not chunks) for replay. `replace_websocket()` replays accumulated + in-progress chunk or `DoneEvent` with `is_replay=True`. Client skips TTS for replayed chunks and reloads from DB immediately on replayed DoneEvent. On every connect/reconnect, server sends `ConnectedEvent` with full state snapshot (chat_active, conversation_id, media_state, vision_active/config). Client stores use this to sync: ChatWidget resumes streaming or reloads conversation, visionStore re-sends vision_start if server lost state, mediaStore syncs playback state.
+
+**Server heartbeat**: Server pings client every 30s; client responds with pong. If no pong within 10s, server closes the connection. Client auto-reconnects with exponential backoff.
+
+**Outgoing message queue**: When WebSocket is disconnected, outgoing messages (except `vision_frame`) are queued and flushed on reconnect.
+
+**Connection status UI**: `useConnectionStatus` hook subscribes to `wsManager.onStatusChange()`. Green/amber/red dot in MainWindow top bar.
 
 ### TTS Details
 

@@ -12,6 +12,7 @@ from fastapi import WebSocket
 from .events import (
     EventType,
     BaseEvent,
+    ConnectedEvent,
     ChatRequestEvent,
     ToolApprovalRequestEvent,
     ToolApprovalResponseEvent,
@@ -54,6 +55,8 @@ from utils.prompts import build_system_messages
 logger = logging.getLogger(__name__)
 
 # Default configuration
+HEARTBEAT_INTERVAL = 30  # seconds between server pings
+HEARTBEAT_TIMEOUT = 10   # seconds to wait for pong before closing
 DEFAULT_MAX_TURNS = 10
 DEFAULT_ADMIN_MODEL = "gemma3:4b"  # Fallback if Administrator agent not found
 ADMINISTRATOR_NAME = "Administrator"  # Reserved agent name for routing
@@ -93,28 +96,72 @@ class ChatSessionHandler:
         self._task_frame_id: Optional[int] = None
         self._task_done: bool = False
 
+        # Heartbeat
+        self._heartbeat_task: Optional[asyncio.Task] = None
+        self._last_pong_time: float = 0
+
         # Vision processing
         self._vision_processor: Optional[VisionProcessor] = None
+        self._vision_config: Optional[dict] = None
 
     async def run(self):
         """Main handler loop - receives and processes events."""
         from fastapi import WebSocketDisconnect
-        while True:
-            try:
-                data = await self.websocket.receive_json()
-                if data.get("type") == "ping":
-                    await self.websocket.send_json({"type": "pong"})
-                    continue
-                event = parse_event(data)
-                await self._handle_event(event)
-            except WebSocketDisconnect:
-                raise
-            except Exception as e:
-                logger.error(f"Error handling WebSocket event: {e}", exc_info=True)
-                await self.send_event(ErrorEvent(
-                    error=str(e),
-                    code="INTERNAL_ERROR",
-                ))
+        import time
+
+        self._last_pong_time = time.monotonic()
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+        try:
+            while True:
+                try:
+                    data = await self.websocket.receive_json()
+                    msg_type = data.get("type")
+                    if msg_type == "pong":
+                        self._last_pong_time = time.monotonic()
+                        continue
+                    event = parse_event(data)
+                    await self._handle_event(event)
+                except WebSocketDisconnect:
+                    raise
+                except Exception as e:
+                    logger.error(f"Error handling WebSocket event: {e}", exc_info=True)
+                    await self.send_event(ErrorEvent(
+                        error=str(e),
+                        code="INTERNAL_ERROR",
+                    ))
+        finally:
+            if self._heartbeat_task:
+                self._heartbeat_task.cancel()
+                self._heartbeat_task = None
+
+    async def _heartbeat_loop(self):
+        """Periodically ping the client; close if no pong received in time."""
+        import time
+        try:
+            while True:
+                await asyncio.sleep(HEARTBEAT_INTERVAL)
+                try:
+                    async with self._send_lock:
+                        state = self.websocket.client_state.name
+                        if state == "CONNECTED":
+                            await self.websocket.send_json({"type": "ping"})
+                        else:
+                            return
+                except Exception:
+                    return
+
+                # Wait for pong
+                await asyncio.sleep(HEARTBEAT_TIMEOUT)
+                if time.monotonic() - self._last_pong_time > HEARTBEAT_INTERVAL + HEARTBEAT_TIMEOUT:
+                    logger.warning("Heartbeat timeout — closing WebSocket for user %d", self.user_id)
+                    try:
+                        await self.websocket.close(code=4002, reason="Heartbeat timeout")
+                    except Exception:
+                        pass
+                    return
+        except asyncio.CancelledError:
+            pass
 
     async def _handle_event(self, event: BaseEvent):
         """Route event to appropriate handler."""
@@ -858,6 +905,11 @@ class ChatSessionHandler:
         """Initialize vision processor for frame-by-frame processing."""
         await self._handle_vision_stop()
 
+        self._vision_config = {
+            "enable_face": event.enable_face,
+            "enable_pose": event.enable_pose,
+            "enable_hands": event.enable_hands,
+        }
         self._vision_processor = VisionProcessor(
             self.user_id,
             enable_face=event.enable_face,
@@ -885,6 +937,7 @@ class ChatSessionHandler:
     async def _handle_vision_stop(self):
         """Stop vision processing."""
         self._vision_processor = None
+        self._vision_config = None
         logger.debug("Vision processing stopped for user %d", self.user_id)
 
     async def _handle_media_event(self, event: BaseEvent):
@@ -925,9 +978,38 @@ class ChatSessionHandler:
         except Exception as e:
             logger.warning(f"Failed to send WebSocket event {event_type}: {e}")
 
+    async def send_connected_state(self):
+        """Send a ConnectedEvent with current server-side state snapshot."""
+        from media.player import _players
+
+        chat_active = self.current_task is not None and not self.current_task.done()
+
+        # Media state
+        media_state = None
+        player = _players.get(self.user_id)
+        if player:
+            media_state = player.get_state()
+
+        await self.send_event(ConnectedEvent(
+            chat_active=chat_active,
+            conversation_id=self._task_conversation_id if chat_active or self._task_done else None,
+            frame_id=self._task_frame_id if chat_active or self._task_done else None,
+            media_state=media_state,
+            vision_active=self._vision_processor is not None,
+            vision_config=self._vision_config,
+        ))
+
     async def replace_websocket(self, websocket: WebSocket):
         """Replace WebSocket and replay accumulated state."""
         self.websocket = websocket
+
+        # Cancel old heartbeat (new run() will start a fresh one)
+        if self._heartbeat_task:
+            self._heartbeat_task.cancel()
+            self._heartbeat_task = None
+
+        # Update media player's send callback to route through new socket
+        get_media_player(self.user_id, self.send_event)
 
         if not self._accumulated_messages and not self._current_chunk:
             return
@@ -947,6 +1029,7 @@ class ChatSessionHandler:
                 name=msg.get("name"),
                 conversation_id=conv_id,
                 frame_id=frame_id,
+                is_replay=True,
             )
             try:
                 await self.websocket.send_json(event.to_dict())
@@ -963,6 +1046,7 @@ class ChatSessionHandler:
                 name=self._current_chunk.get("name"),
                 conversation_id=conv_id,
                 frame_id=frame_id,
+                is_replay=True,
             )
             try:
                 await self.websocket.send_json(event.to_dict())
@@ -971,7 +1055,7 @@ class ChatSessionHandler:
 
         # If task already done, send DoneEvent
         if self._task_done:
-            done = DoneEvent(conversation_id=conv_id, frame_id=frame_id)
+            done = DoneEvent(conversation_id=conv_id, frame_id=frame_id, is_replay=True)
             try:
                 await self.websocket.send_json(done.to_dict())
             except Exception:

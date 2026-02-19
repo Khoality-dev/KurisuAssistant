@@ -6,7 +6,6 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from core.security import get_current_user
 from websocket.manager import manager
 from websocket.handlers import ChatSessionHandler
-from websocket.media_handler import MediaSessionHandler
 from db.session import get_session
 from db.repositories import UserRepository
 
@@ -61,6 +60,9 @@ async def websocket_chat(
         handler = ChatSessionHandler(websocket, user_id)
         manager.set_handler(user_id, handler)
 
+    # Always send state snapshot (works for both fresh and reconnect)
+    await handler.send_connected_state()
+
     try:
         logger.info(f"WS [{username}] Entering handler.run()")
         await handler.run()
@@ -74,37 +76,3 @@ async def websocket_chat(
         manager.disconnect(websocket, username)
 
 
-@router.websocket("/ws/media")
-async def websocket_media(
-    websocket: WebSocket,
-    token: str = Query(...),
-):
-    """WebSocket endpoint for media audio streaming.
-
-    Dedicated connection for media chunks, isolated from chat/TTS/vision traffic.
-    """
-    # Authenticate user (same as /ws/chat)
-    username = get_current_user(token)
-    if not username:
-        await websocket.accept()
-        await websocket.close(code=4001, reason="Unauthorized")
-        return
-
-    with get_session() as session:
-        user_repo = UserRepository(session)
-        user = user_repo.get_by_username(username)
-        if not user:
-            await websocket.accept()
-            await websocket.close(code=4001, reason="User not found")
-            return
-        user_id = user.id
-
-    await websocket.accept()
-
-    handler = MediaSessionHandler(websocket, user_id)
-    try:
-        await handler.run()
-    except WebSocketDisconnect:
-        logger.debug(f"Media WebSocket disconnected for user: {username}")
-    except Exception as e:
-        logger.error(f"Media WebSocket error for user {username}: {e}", exc_info=True)

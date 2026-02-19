@@ -26,6 +26,7 @@ class EventType(str, Enum):
     MEDIA_VOLUME = "media_volume"
 
     # Server -> Client
+    CONNECTED = "connected"
     STREAM_CHUNK = "stream_chunk"
     TOOL_APPROVAL_REQUEST = "tool_approval_request"
     AGENT_SWITCH = "agent_switch"
@@ -49,6 +50,18 @@ class BaseEvent:
         data = asdict(self)
         data["type"] = self.type.value
         return data
+
+
+@dataclass
+class ConnectedEvent(BaseEvent):
+    """Server sends state snapshot on connect/reconnect."""
+    type: EventType = field(default=EventType.CONNECTED)
+    chat_active: bool = False
+    conversation_id: Optional[int] = None
+    frame_id: Optional[int] = None
+    media_state: Optional[Dict[str, Any]] = None
+    vision_active: bool = False
+    vision_config: Optional[Dict[str, Any]] = None
 
 
 # =============================================================================
@@ -120,6 +133,7 @@ class StreamChunkEvent(BaseEvent):
     conversation_id: int = 0
     frame_id: int = 0
     tool_args: Optional[Dict[str, Any]] = None  # Tool input params (for tool role messages)
+    is_replay: bool = False
 
 
 @dataclass
@@ -152,6 +166,7 @@ class DoneEvent(BaseEvent):
     type: EventType = field(default=EventType.DONE)
     conversation_id: int = 0
     frame_id: int = 0
+    is_replay: bool = False
 
 
 @dataclass
