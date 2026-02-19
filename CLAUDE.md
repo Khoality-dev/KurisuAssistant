@@ -8,7 +8,7 @@ KurisuAssistant is a voice-based AI assistant platform combining STT (faster-whi
 
 ### Services
 
-- **nginx** (80/443): HTTPS reverse proxy (self-signed certs)
+- **nginx** (80/443): HTTPS reverse proxy (self-signed certs, `proxy_buffering off` for WebSocket)
 - **api** (internal 15597): Main FastAPI app (`main.py`) — chat, auth, conversations, TTS, vision
 - **postgres** (internal 5432): pgvector/pgvector:pg16 (PostgreSQL 16 + vector extension, not host-exposed)
 - **gpt-sovits** (9880): Voice synthesis backend
@@ -186,7 +186,7 @@ Per-agent free-form text document (markdown), automatically consolidated from co
 
 ### Vision Pipeline (Face Recognition + Gesture Detection)
 
-**Architecture**: Frontend (getUserMedia webcam capture) → WebSocket (base64 JPEG frames at 3 FPS) → Backend (VisionProcessor runs face + gesture detection) → WebSocket (metadata results to frontend). Frontend renders webcam preview locally at native FPS via `<video>` element; backend never returns image data.
+**Architecture**: Frontend (getUserMedia webcam capture) → WebSocket (base64 JPEG frames via backpressure, max 5 in-flight) → Backend (VisionProcessor runs face + gesture detection) → WebSocket (metadata results to frontend). Frontend renders webcam preview locally at native FPS via `<video>` element; backend never returns image data.
 
 - **Face Recognition**: InsightFace (ArcFace, buffalo_l model, 512-dim embeddings). Lazy-loaded on first use. Models cached in `data/face_recognition/models/`. Embeddings stored in `face_photos.embedding` (pgvector `vector(512)`) with HNSW index for cosine similarity search.
 - **Gesture Detection**: Provider (`mediapipe_provider.py`) only extracts raw landmarks — YOLOv8n-Pose on CUDA (17 COCO keypoints) for body pose, MediaPipe Hands on CPU (21 landmarks/hand + handedness). Returns `{pose_landmarks, hands: [{landmarks, handedness}]}`. All gesture classification lives in `VisionProcessor`: hand gestures (`thumbs_up`, `peace_sign`, `pointing`, `open_palm`) classified per-frame via `classify_hand_gestures()`, `wave` classified from **pose trajectory** via `classify_pose_trajectory()` (wrist X oscillation across 15-frame sliding window, requiring wrist-above-shoulder + ≥2 direction reversals + minimum amplitude). Models lazy-loaded/offloaded on demand via enable flags.
