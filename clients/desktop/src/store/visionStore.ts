@@ -41,82 +41,19 @@ function _stopCapture() {
     _hiddenCanvas.remove();
     _hiddenCanvas = null;
   }
-  if (_cropCanvas) {
-    _cropCanvas.remove();
-    _cropCanvas = null;
-  }
 }
-
-/** Scan canvas edge pixels and return the bounding box of non-black content. */
-function _findContentBounds(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  const data = ctx.getImageData(0, 0, w, h).data;
-  const threshold = 16; // pixels below this brightness are "black"
-  let top = 0, bottom = h - 1, left = 0, right = w - 1;
-
-  // Scan top rows
-  outer_top: for (top = 0; top < h; top++) {
-    for (let x = 0; x < w; x += 4) { // sample every 4th pixel for speed
-      const i = (top * w + x) * 4;
-      if (data[i] > threshold || data[i + 1] > threshold || data[i + 2] > threshold) break outer_top;
-    }
-  }
-  // Scan bottom rows
-  outer_bottom: for (bottom = h - 1; bottom > top; bottom--) {
-    for (let x = 0; x < w; x += 4) {
-      const i = (bottom * w + x) * 4;
-      if (data[i] > threshold || data[i + 1] > threshold || data[i + 2] > threshold) break outer_bottom;
-    }
-  }
-  // Scan left columns
-  outer_left: for (left = 0; left < w; left++) {
-    for (let y = top; y <= bottom; y += 4) {
-      const i = (y * w + left) * 4;
-      if (data[i] > threshold || data[i + 1] > threshold || data[i + 2] > threshold) break outer_left;
-    }
-  }
-  // Scan right columns
-  outer_right: for (right = w - 1; right > left; right--) {
-    for (let y = top; y <= bottom; y += 4) {
-      const i = (y * w + right) * 4;
-      if (data[i] > threshold || data[i + 1] > threshold || data[i + 2] > threshold) break outer_right;
-    }
-  }
-
-  return { top, left, width: right - left + 1, height: bottom - top + 1 };
-}
-
-let _cropCanvas: HTMLCanvasElement | null = null;
 
 function _sendNextFrame() {
   if (!_captureActive || !_hiddenVideo || !_hiddenCanvas || _hiddenVideo.readyState < 2) return;
   if (_inflightFrames >= MAX_INFLIGHT_FRAMES) return;
 
-  const vw = _hiddenVideo.videoWidth;
-  const vh = _hiddenVideo.videoHeight;
-  _hiddenCanvas.width = vw;
-  _hiddenCanvas.height = vh;
+  _hiddenCanvas.width = _hiddenVideo.videoWidth;
+  _hiddenCanvas.height = _hiddenVideo.videoHeight;
   const ctx = _hiddenCanvas.getContext('2d');
   if (!ctx) return;
 
   ctx.drawImage(_hiddenVideo, 0, 0);
-
-  // Crop black padding if present
-  const bounds = _findContentBounds(ctx, vw, vh);
-  let sendCanvas: HTMLCanvasElement = _hiddenCanvas;
-
-  if (bounds.width < vw * 0.95 || bounds.height < vh * 0.95) {
-    // Significant padding detected — crop
-    if (!_cropCanvas) _cropCanvas = document.createElement('canvas');
-    _cropCanvas.width = bounds.width;
-    _cropCanvas.height = bounds.height;
-    const cropCtx = _cropCanvas.getContext('2d');
-    if (cropCtx) {
-      cropCtx.drawImage(_hiddenCanvas, bounds.left, bounds.top, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
-      sendCanvas = _cropCanvas;
-    }
-  }
-
-  const dataUrl = sendCanvas.toDataURL('image/jpeg', 0.7);
+  const dataUrl = _hiddenCanvas.toDataURL('image/jpeg', 0.7);
   const base64 = dataUrl.split(',')[1];
   wsManager.sendVisionFrame(base64);
   _inflightFrames++;
