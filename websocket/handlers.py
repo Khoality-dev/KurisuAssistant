@@ -124,6 +124,9 @@ class ChatSessionHandler:
                     await self._handle_event(event)
                 except WebSocketDisconnect:
                     raise
+                except RuntimeError:
+                    # WebSocket closed (e.g. heartbeat timeout) — treat as disconnect
+                    raise WebSocketDisconnect()
                 except Exception as e:
                     logger.error(f"Error handling WebSocket event: {e}", exc_info=True)
                     await self.send_event(ErrorEvent(
