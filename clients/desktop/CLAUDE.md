@@ -47,7 +47,7 @@ src/store/
   authStore.ts            — Auth state, login/register/logout, token persistence
   conversationStore.ts    — Current conversation + messages (paginated 20/page). No conversation list — agent selection drives conversation via localStorage mapping.
   agentStore.ts           — Agent list (filtered, no Administrator), selected agent ID (persisted). Agent selection triggers conversation load via agent-conversation mapping.
-  visionStore.ts          — Zustand singleton: vision pipeline control (getUserMedia webcam capture, frame upload at 3 FPS via WebSocket, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Syncs state on reconnect via `connected` listener. Used by both FacesWindow and ChatWidget camera toggle.
+  visionStore.ts          — Zustand singleton: vision pipeline control (getUserMedia webcam capture, backpressure-based frame upload via WebSocket with max 5 in-flight frames, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Syncs state on reconnect via `connected` listener. Used by both FacesWindow and ChatWidget camera toggle.
   mediaStore.ts           — Zustand singleton: media player state (playback, track, queue, volume). All media events (control + chunks) flow through wsManager on /ws/chat. Module-level listeners for media_state/media_chunk/media_error + `connected` listener for reconnect state sync. Buffers base64 chunks → Blob → Audio playback. Volume persisted to localStorage.
 src/CharacterWindowApp.tsx — Minimal IPC-driven renderer for separate character window (no auth/stores, subtitle overlay)
 src/videocall/            — Character animation engine (rendered in separate Electron window via IPC)
@@ -173,3 +173,4 @@ Separate Electron window (toggleable via Face icon in top bar). Opens as indepen
 - contextIsolation enabled, nodeIntegration disabled
 - Token validated on startup (not blindly trusted)
 - Tokens in localStorage (renderer-only, no XSS risk with contextIsolation)
+- Self-signed certificates accepted via `certificate-error` handler (for direct HTTPS connections to backend)

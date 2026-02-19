@@ -145,6 +145,12 @@ ipcMain.on('character:subtitle', (_event, data) => {
 
 // --- App Lifecycle ---
 
+// Accept self-signed certificates (for direct HTTPS connections to backend)
+app.on('certificate-error', (event, _webContents, _url, _error, _certificate, callback) => {
+  event.preventDefault();
+  callback(true);
+});
+
 app.whenReady().then(() => {
   createWindow();
 

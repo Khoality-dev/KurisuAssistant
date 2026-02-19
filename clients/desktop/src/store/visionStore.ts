@@ -23,7 +23,7 @@ interface VisionState {
 }
 
 // Module-level state for frame capture (not in Zustand to avoid re-renders)
-const MAX_INFLIGHT_FRAMES = 3;
+const MAX_INFLIGHT_FRAMES = 5;
 let _hiddenVideo: HTMLVideoElement | null = null;
 let _hiddenCanvas: HTMLCanvasElement | null = null;
 let _captureActive = false;
