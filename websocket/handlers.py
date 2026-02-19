@@ -109,13 +109,15 @@ class ChatSessionHandler:
         from fastapi import WebSocketDisconnect
         import time
 
+        ws = self.websocket
         self._last_pong_time = time.monotonic()
-        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        my_heartbeat = asyncio.create_task(self._heartbeat_loop(ws))
+        self._heartbeat_task = my_heartbeat
 
         try:
             while True:
                 try:
-                    data = await self.websocket.receive_json()
+                    data = await ws.receive_json()
                     msg_type = data.get("type")
                     if msg_type == "pong":
                         self._last_pong_time = time.monotonic()
@@ -134,21 +136,29 @@ class ChatSessionHandler:
                         code="INTERNAL_ERROR",
                     ))
         finally:
-            if self._heartbeat_task:
-                self._heartbeat_task.cancel()
+            my_heartbeat.cancel()
+            # Only clear the shared reference if it's still ours (not replaced by a newer run())
+            if self._heartbeat_task is my_heartbeat:
                 self._heartbeat_task = None
 
-    async def _heartbeat_loop(self):
-        """Periodically ping the client; close if no pong received in time."""
+    async def _heartbeat_loop(self, ws: WebSocket):
+        """Periodically ping the client; close if no pong received in time.
+
+        Operates on the specific WebSocket passed at creation time.
+        Auto-stops if the handler's websocket has been replaced (reconnect).
+        """
         import time
         try:
             while True:
                 await asyncio.sleep(HEARTBEAT_INTERVAL)
+                # Stop if websocket was replaced by a reconnect
+                if self.websocket is not ws:
+                    return
                 try:
                     async with self._send_lock:
-                        state = self.websocket.client_state.name
+                        state = ws.client_state.name
                         if state == "CONNECTED":
-                            await self.websocket.send_json({"type": "ping"})
+                            await ws.send_json({"type": "ping"})
                         else:
                             return
                 except Exception:
@@ -156,10 +166,12 @@ class ChatSessionHandler:
 
                 # Wait for pong
                 await asyncio.sleep(HEARTBEAT_TIMEOUT)
+                if self.websocket is not ws:
+                    return
                 if time.monotonic() - self._last_pong_time > HEARTBEAT_INTERVAL + HEARTBEAT_TIMEOUT:
                     logger.warning("Heartbeat timeout — closing WebSocket for user %d", self.user_id)
                     try:
-                        await self.websocket.close(code=4002, reason="Heartbeat timeout")
+                        await ws.close(code=4002, reason="Heartbeat timeout")
                     except Exception:
                         pass
                     return
@@ -977,9 +989,9 @@ class ChatSessionHandler:
                 if state == "CONNECTED":
                     await self.websocket.send_json(event.to_dict())
                 else:
-                    logger.warning(f"WebSocket not connected (state={state}), dropping {event_type}")
-        except Exception as e:
-            logger.warning(f"Failed to send WebSocket event {event_type}: {e}")
+                    logger.debug(f"WebSocket not connected (state={state}), dropping {event_type}")
+        except Exception:
+            logger.debug(f"Failed to send WebSocket event {event_type} (socket closed)")
 
     async def send_connected_state(self):
         """Send a ConnectedEvent with current server-side state snapshot."""
