@@ -26,7 +26,7 @@ src/api/client.ts         — Axios + WebSocket singleton; streaming + media via
 src/api/types.ts          — TypeScript interfaces for API
 src/components/
   LoginWindow.tsx          — Login/Register tabs, Remember Me, Server URL field, purple gradient
-  MainWindow.tsx           — Top bar (tabs + agent selector + clear conversation) + ChatWidget, no sidebar
+  MainWindow.tsx           — Top bar (tabs + agent selector + clear conversation + connection status dot) + ChatWidget, no sidebar
   ChatWidget.tsx           — Chat UI with streaming, TTS auto-play, image attach, pagination, IPC bridge to character window, voice interaction mode
   MessageBubble.tsx        — Individual bubble: role styling, thinking collapse, TTS, resend/delete
   ToolsWindow.tsx          — Three tabs: MCP Servers, Available Tools, Skills (CRUD + import/export)
@@ -42,12 +42,13 @@ src/components/
 src/hooks/
   useTTS.ts               — TTS synthesis/playback: speak(), queueText(), clearQueue(), onPlaybackStart subtitle callback, WAV duration parsing
   useAudioAmplitude.ts    — Web Audio API amplitude for lip sync (AudioBufferSourceNode + time-domain RMS)
+  useConnectionStatus.ts  — Hook subscribing to wsManager.onStatusChange() for connection status (connected/connecting/disconnected)
 src/store/
   authStore.ts            — Auth state, login/register/logout, token persistence
   conversationStore.ts    — Current conversation + messages (paginated 20/page). No conversation list — agent selection drives conversation via localStorage mapping.
   agentStore.ts           — Agent list (filtered, no Administrator), selected agent ID (persisted). Agent selection triggers conversation load via agent-conversation mapping.
-  visionStore.ts          — Zustand singleton: vision pipeline control (getUserMedia webcam capture, frame upload at 3 FPS via WebSocket, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Used by both FacesWindow and ChatWidget camera toggle.
-  mediaStore.ts           — Zustand singleton: media player state (playback, track, queue, volume). All media events (control + chunks) flow through wsManager on /ws/chat. Module-level listeners for media_state/media_chunk/media_error. Buffers base64 chunks → Blob → Audio playback. Volume persisted to localStorage.
+  visionStore.ts          — Zustand singleton: vision pipeline control (getUserMedia webcam capture, frame upload at 3 FPS via WebSocket, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Syncs state on reconnect via `connected` listener. Used by both FacesWindow and ChatWidget camera toggle.
+  mediaStore.ts           — Zustand singleton: media player state (playback, track, queue, volume). All media events (control + chunks) flow through wsManager on /ws/chat. Module-level listeners for media_state/media_chunk/media_error + `connected` listener for reconnect state sync. Buffers base64 chunks → Blob → Audio playback. Volume persisted to localStorage.
 src/CharacterWindowApp.tsx — Minimal IPC-driven renderer for separate character window (no auth/stores, subtitle overlay)
 src/videocall/            — Character animation engine (rendered in separate Electron window via IPC)
   types.ts                — PoseConfig, PatchInfo, PoseTree, AnimationNode/Edge/EdgeTransition, TransitionCondition (random/thinking/gesture), AnimationSettings, CharacterConfig, migrateEdgeToTransitions(), migratePoseTreeIds() (old pose-*/edge-* IDs → 8-char hex)

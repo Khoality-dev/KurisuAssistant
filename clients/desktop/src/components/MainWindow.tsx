@@ -22,6 +22,7 @@ import {
   Face as FaceIcon,
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
+import { useConnectionStatus } from '../hooks/useConnectionStatus';
 import { useAuthStore } from '../store/authStore';
 import { useConversationStore } from '../store/conversationStore';
 import { useAgentStore } from '../store/agentStore';
@@ -39,6 +40,7 @@ const TAB_TO_PAGE: Page[] = ['chat', 'agents', 'tools', 'faces'];
 const PAGE_TO_TAB: Record<string, number> = { chat: 0, agents: 1, tools: 2, faces: 3 };
 
 export const MainWindow: React.FC = () => {
+  const connectionStatus = useConnectionStatus();
   const { user, logout } = useAuthStore();
   const {
     currentConversation,
@@ -169,6 +171,21 @@ export const MainWindow: React.FC = () => {
         )}
 
         <Box sx={{ flex: 1 }} />
+        <Tooltip title={connectionStatus === 'connected' ? 'Connected' : connectionStatus === 'connecting' ? 'Connecting...' : 'Disconnected'}>
+          <Box
+            sx={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              mr: 1,
+              backgroundColor:
+                connectionStatus === 'connected' ? '#4caf50' :
+                connectionStatus === 'connecting' ? '#ff9800' :
+                '#f44336',
+              transition: 'background-color 0.3s',
+            }}
+          />
+        </Tooltip>
         <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
           {user?.username}
         </Typography>

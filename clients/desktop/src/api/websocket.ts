@@ -20,7 +20,7 @@ export type EventType =
   | 'media_state'
   | 'media_chunk'
   | 'media_error'
-  | 'reconnected';
+  | 'connected';
 
 // Base event interface
 export interface BaseEvent {
@@ -62,6 +62,7 @@ export interface StreamChunkEvent extends BaseEvent {
   voice_reference: string | null;
   conversation_id: number;
   frame_id: number;
+  is_replay?: boolean;
 }
 
 export interface AgentSwitchEvent extends BaseEvent {
@@ -77,6 +78,7 @@ export interface DoneEvent extends BaseEvent {
   type: 'done';
   conversation_id: number;
   frame_id: number;
+  is_replay?: boolean;
 }
 
 export interface ErrorEvent extends BaseEvent {
@@ -144,11 +146,27 @@ export interface MediaErrorEvent extends BaseEvent {
   error: string;
 }
 
-export interface ReconnectedEvent extends BaseEvent {
-  type: 'reconnected';
+export interface ConnectedEvent extends BaseEvent {
+  type: 'connected';
+  chat_active: boolean;
+  conversation_id: number | null;
+  frame_id: number | null;
+  media_state: {
+    state: 'stopped' | 'playing' | 'paused';
+    current_track: MediaStateEvent['current_track'];
+    queue: MediaStateEvent['queue'];
+    volume: number;
+  } | null;
+  vision_active: boolean;
+  vision_config: {
+    enable_face: boolean;
+    enable_pose: boolean;
+    enable_hands: boolean;
+  } | null;
 }
 
 export type ServerEvent =
+  | ConnectedEvent
   | StreamChunkEvent
   | AgentSwitchEvent
   | DoneEvent
@@ -157,10 +175,12 @@ export type ServerEvent =
   | VisionResultEvent
   | MediaStateEvent
   | MediaChunkEvent
-  | MediaErrorEvent
-  | ReconnectedEvent;
+  | MediaErrorEvent;
 
 type EventHandler<T = ServerEvent> = (event: T) => void;
+
+export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected';
+type StatusHandler = (status: ConnectionStatus) => void;
 
 class WebSocketManager {
   private ws: WebSocket | null = null;
@@ -173,6 +193,9 @@ class WebSocketManager {
   private isConnecting = false;
   private lastConnectedAt = 0;
   private intentionalClose = false;
+  private _connectionStatus: ConnectionStatus = 'disconnected';
+  private _statusHandlers: Set<StatusHandler> = new Set();
+  private _pendingMessages: string[] = [];
 
   /**
    * Set the authentication token.
@@ -208,6 +231,7 @@ class WebSocketManager {
 
     this.isConnecting = true;
     this.intentionalClose = false;
+    this.setStatus('connecting');
     this.connectionPromise = new Promise((resolve, reject) => {
       // Convert http(s) to ws(s)
       const wsUrl = config.apiBaseUrl
@@ -221,12 +245,29 @@ class WebSocketManager {
         this.lastConnectedAt = Date.now();
         this.reconnectAttempts = 0;
         this.isConnecting = false;
+        this.setStatus('connected');
+
+        // Flush queued messages
+        for (const msg of this._pendingMessages) {
+          try {
+            this.ws?.send(msg);
+          } catch (e) {
+            console.error('[WebSocket] Failed to flush queued message:', e);
+          }
+        }
+        this._pendingMessages = [];
+
         resolve();
       };
 
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          // Respond to server heartbeat pings
+          if (data.type === 'ping') {
+            this.ws?.send(JSON.stringify({ type: 'pong' }));
+            return;
+          }
           this.dispatchEvent(data as ServerEvent);
         } catch (e) {
           console.error('[WebSocket] Failed to parse message:', e);
@@ -243,6 +284,7 @@ class WebSocketManager {
         this.isConnecting = false;
         this.ws = null;
         this.connectionPromise = null;
+        this.setStatus('disconnected');
 
         if (!this.intentionalClose && this.token) {
           this.dispatchEvent({
@@ -272,23 +314,30 @@ class WebSocketManager {
     this.connectionPromise = null;
     this.isConnecting = false;
     this.reconnectAttempts = 0;
+    this._pendingMessages = [];
+    this.setStatus('disconnected');
   }
 
   /**
    * Send an event to the server.
    */
   send(event: Partial<ChatRequestEvent> | Partial<CancelEvent> | Partial<VisionStartEvent> | Partial<VisionStopEvent> | Record<string, unknown>) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error('WebSocket not connected');
-    }
-
     const fullEvent = {
       event_id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
       ...event,
     };
 
-    this.ws.send(JSON.stringify(fullEvent));
+    const json = JSON.stringify(fullEvent);
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      // Don't queue vision frames — they're high-frequency and stale immediately
+      if (event.type === 'vision_frame') return;
+      this._pendingMessages.push(json);
+      return;
+    }
+
+    this.ws.send(json);
   }
 
   /**
@@ -421,6 +470,28 @@ class WebSocketManager {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
+  /**
+   * Get current connection status.
+   */
+  get connectionStatus(): ConnectionStatus {
+    return this._connectionStatus;
+  }
+
+  /**
+   * Subscribe to connection status changes.
+   */
+  onStatusChange(handler: StatusHandler): () => void {
+    this._statusHandlers.add(handler);
+    return () => this._statusHandlers.delete(handler);
+  }
+
+  private setStatus(status: ConnectionStatus) {
+    if (this._connectionStatus !== status) {
+      this._connectionStatus = status;
+      this._statusHandlers.forEach((h) => h(status));
+    }
+  }
+
   private dispatchEvent(event: ServerEvent) {
     const handlers = this.handlers.get(event.type);
     if (handlers) {
@@ -447,11 +518,7 @@ class WebSocketManager {
       if (this.token && !this.isConnected() && !this.intentionalClose) {
         this.connect()
           .then(() => {
-            this.dispatchEvent({
-              type: 'reconnected',
-              event_id: '',
-              timestamp: new Date().toISOString(),
-            } as ReconnectedEvent);
+            // Server sends 'connected' event with state snapshot — no synthetic event needed
           })
           .catch(() => {
             this.attemptReconnect();

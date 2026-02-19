@@ -31,7 +31,7 @@ import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '../store/conversationStore';
 import { useAgentStore } from '../store/agentStore';
 import { apiClient } from '../api/client';
-import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, BaseEvent } from '../api/websocket';
+import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, ConnectedEvent } from '../api/websocket';
 import { storage } from '../utils/storage';
 import { useTTS } from '../hooks/useTTS';
 import { useASR } from '../hooks/useASR';
@@ -625,8 +625,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     }
 
     // Streaming TTS auto-play: feed complete sentences to TTS queue
-    // Streaming TTS: feed complete sentences to TTS queue
-    if (event.content && event.role !== 'tool') {
+    // Skip TTS for replayed chunks (reconnect scenario — content already spoken)
+    if (event.content && event.role !== 'tool' && !event.is_replay) {
       ttsVoiceRef.current = event.voice_reference || ttsVoiceRef.current;
       ttsBufferRef.current += event.content;
 
@@ -654,15 +654,34 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     // Clear thinking state
     amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
 
-    // Flush remaining TTS buffer
-    if (ttsBufferRef.current.trim()) {
-      const cleaned = stripNarration(ttsBufferRef.current);
-      if (cleaned) queueText(cleaned, ttsVoiceRef.current);
+    // Skip TTS flush for replayed done events
+    if (!event.is_replay) {
+      // Flush remaining TTS buffer
+      if (ttsBufferRef.current.trim()) {
+        const cleaned = stripNarration(ttsBufferRef.current);
+        if (cleaned) queueText(cleaned, ttsVoiceRef.current);
+      }
     }
     ttsBufferRef.current = '';
     ttsVoiceRef.current = undefined;
     // Note: don't clear activeAgentId here — TTS queue still plays after streaming ends.
     // activeAgentId is cleared when isQueueActive becomes false (see effect below).
+
+    if (event.is_replay) {
+      // Replay done: skip animation delay, just reload from DB immediately
+      cancelStreamUpdate();
+      setStreamingContent('');
+      setStreamingThinking('');
+      setIsStreaming(false);
+      if (event.conversation_id) {
+        loadConversation(event.conversation_id)
+          .then(() => setStreamingMessages([]))
+          .catch(console.error);
+      } else {
+        setStreamingMessages([]);
+      }
+      return;
+    }
 
     // Finalize last streaming message with accumulated content
     setStreamingMessages(prev => {
@@ -714,20 +733,23 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     setIsStreaming(false);
   }, []);
 
-  const handleReconnected = useCallback((_event: BaseEvent) => {
-    const convId = activeConversationId || streamingStateRef.current.conversationId;
-    if (convId) {
-      // Reload immediately to show whatever is saved
-      const reload = () => loadConversation(convId)
+  const handleConnected = useCallback((event: ConnectedEvent) => {
+    if (event.chat_active && event.conversation_id) {
+      // Server has an active streaming task — replay will arrive naturally via stream_chunk events.
+      // Just make sure we're in streaming mode so the UI shows the typing indicator.
+      if (!isStreamingRef.current) {
+        setIsStreaming(true);
+        isStreamingRef.current = true;
+      }
+    } else if (!event.chat_active && event.conversation_id) {
+      // Task finished while we were disconnected — reload from DB once
+      const convId = event.conversation_id;
+      loadConversation(convId)
         .then(() => setStreamingMessages([]))
         .catch(console.error);
-
-      reload();
-      // Retry after delays to catch messages saved while disconnected
-      setTimeout(reload, 3000);
-      setTimeout(reload, 8000);
     }
-  }, [activeConversationId, loadConversation]);
+    // If no conversation_id, nothing to restore
+  }, [loadConversation]);
 
   // Stable refs for WebSocket handlers — avoids re-registering on every render
   // (queueText → playQueue → amplitudeController cascading instability)
@@ -737,26 +759,26 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   handleDoneRef.current = handleDone;
   const handleErrorRef = useRef(handleError);
   handleErrorRef.current = handleError;
-  const handleReconnectedRef = useRef(handleReconnected);
-  handleReconnectedRef.current = handleReconnected;
+  const handleConnectedRef = useRef(handleConnected);
+  handleConnectedRef.current = handleConnected;
 
   // Set up WebSocket event listeners (registered once, delegates to latest ref)
   useEffect(() => {
     const onChunk = (e: StreamChunkEvent) => handleStreamChunkRef.current(e);
     const onDone = (e: DoneEvent) => handleDoneRef.current(e);
     const onError = (e: ErrorEvent) => handleErrorRef.current(e);
-    const onReconnected = (e: BaseEvent) => handleReconnectedRef.current(e);
+    const onConnected = (e: ConnectedEvent) => handleConnectedRef.current(e);
 
     wsManager.on('stream_chunk', onChunk);
     wsManager.on('done', onDone);
     wsManager.on('error', onError);
-    wsManager.on('reconnected', onReconnected);
+    wsManager.on('connected', onConnected);
 
     return () => {
       wsManager.off('stream_chunk', onChunk);
       wsManager.off('done', onDone);
       wsManager.off('error', onError);
-      wsManager.off('reconnected', onReconnected);
+      wsManager.off('connected', onConnected);
     };
   }, []);
 

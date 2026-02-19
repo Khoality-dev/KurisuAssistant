@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { wsManager, VisionResultEvent } from '../api/websocket';
+import { wsManager, VisionResultEvent, ConnectedEvent } from '../api/websocket';
 import type { VisionResult } from '../api/types';
 
 const DETECT_FPS = 5;
@@ -185,4 +185,23 @@ wsManager.on('vision_result', (event: VisionResultEvent) => {
   // Forward detected face names to character window via IPC
   const faceNames = event.faces.filter((f) => f.name).map((f) => f.name);
   window.electron?.characterWindow?.sendFaceUpdate({ faces: faceNames });
+});
+
+// Sync vision state on WebSocket reconnect
+wsManager.on<ConnectedEvent>('connected', (event) => {
+  const { isActive } = useVisionStore.getState();
+
+  if (event.vision_active && !isActive) {
+    // Server has vision running but client doesn't — tell server to stop
+    wsManager.sendVisionStop();
+  } else if (!event.vision_active && isActive) {
+    // Client has vision active but server lost state (e.g. restart) — re-send vision_start
+    const { enableFace, enablePose, enableHands } = useVisionStore.getState();
+    wsManager.sendVisionStart({
+      enable_face: enableFace,
+      enable_pose: enablePose,
+      enable_hands: enableHands,
+    }).catch(console.error);
+  }
+  // If both agree (both active or both inactive), do nothing
 });

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { wsManager, MediaStateEvent, MediaChunkEvent, MediaErrorEvent } from '../api/websocket';
+import { wsManager, MediaStateEvent, MediaChunkEvent, MediaErrorEvent, ConnectedEvent } from '../api/websocket';
 import type { MediaTrack } from '../api/types';
 
 const VOLUME_STORAGE_KEY = 'kurisu_media_volume';
@@ -193,4 +193,15 @@ wsManager.on<MediaChunkEvent>('media_chunk', (event) => {
 wsManager.on<MediaErrorEvent>('media_error', (event) => {
   console.log(`[media] media_error received: ${event.error}`);
   useMediaStore.setState({ error: event.error, isBuffering: false });
+});
+
+// Sync media state on WebSocket reconnect
+wsManager.on<ConnectedEvent>('connected', (event) => {
+  if (event.media_state) {
+    useMediaStore.setState({
+      playbackState: event.media_state.state as 'stopped' | 'playing' | 'paused',
+      currentTrack: event.media_state.current_track,
+      queue: event.media_state.queue,
+    });
+  }
 });
