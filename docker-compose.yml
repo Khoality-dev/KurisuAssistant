@@ -12,19 +12,6 @@ services:
     restart: unless-stopped
 
 
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: cloudflared
-    command: tunnel --no-autoupdate run
-    environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-    networks:
-      - default
-      - ollama-net
-    depends_on:
-      - api
-    restart: unless-stopped
-
   gpt-sovits:
     image: legwork7623/gpt-sovits:latest 
     container_name: gpt-sovits-container
