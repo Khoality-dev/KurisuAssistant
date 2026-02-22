@@ -146,7 +146,7 @@ src/config.ts             — API URL config (reads dynamically from storage)
 
 ## Character Animation
 
-Separate Electron window (toggleable via Face icon in top bar). Opens as independent, resizable BrowserWindow — same Vite bundle routed via `?window=character` query param → `CharacterWindowApp` (no auth, no stores, purely IPC-driven).
+Separate Electron window (toggleable via Face icon in top bar). Opens as independent, resizable (aspect-ratio-locked 2:3) frameless BrowserWindow — same Vite bundle routed via `?window=character` query param → `CharacterWindowApp` (no auth, no stores, purely IPC-driven). Default 512×768, min 256×384.
 
 **IPC channels** (main renderer → main process → character renderer):
 - `character:amplitude` — `{ amplitude, isPlaying, isThinking }` at ~30fps via setInterval

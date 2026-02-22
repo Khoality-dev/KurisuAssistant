@@ -51,7 +51,9 @@ function createCharacterWindow() {
   characterWindow = new BrowserWindow({
     width: 512,
     height: 768,
-    resizable: false,
+    minWidth: 256,
+    minHeight: 384,
+    resizable: true,
     alwaysOnTop: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -60,6 +62,8 @@ function createCharacterWindow() {
     },
     frame: false,
   });
+
+  characterWindow.setAspectRatio(2 / 3);
 
   if (process.env.VITE_DEV_SERVER_URL) {
     const url = new URL(process.env.VITE_DEV_SERVER_URL);
