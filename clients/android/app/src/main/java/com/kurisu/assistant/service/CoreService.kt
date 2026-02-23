@@ -38,6 +38,7 @@ class CoreService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val SILENCE_TIMEOUT_MS = 600L
         const val ACTION_STOP = "com.kurisu.assistant.ACTION_STOP_SERVICE"
+        const val ACTION_TOGGLE_RECORDING = "com.kurisu.assistant.ACTION_TOGGLE_RECORDING"
 
         fun start(context: Context) {
             val intent = Intent(context, CoreService::class.java)
@@ -50,6 +51,13 @@ class CoreService : Service() {
 
         fun stop(context: Context) {
             context.stopService(Intent(context, CoreService::class.java))
+        }
+
+        fun toggleRecording(context: Context) {
+            val intent = Intent(context, CoreService::class.java).apply {
+                action = ACTION_TOGGLE_RECORDING
+            }
+            context.startService(intent)
         }
     }
 
@@ -90,6 +98,18 @@ class CoreService : Service() {
         if (intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
+        }
+
+        if (intent?.action == ACTION_TOGGLE_RECORDING) {
+            if (coreState.state.value.isRecording) {
+                stopRecordingAndVad()
+            } else {
+                serviceScope.launch {
+                    audioRecorder.preferredDeviceType = prefs.getAudioInputDeviceType()
+                    startRecordingAndVad()
+                }
+            }
+            return START_STICKY
         }
 
         val notification = buildNotification()

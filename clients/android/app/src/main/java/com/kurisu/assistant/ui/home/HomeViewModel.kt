@@ -82,9 +82,9 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun toggleService() {
+    fun toggleRecording() {
         if (coreState.state.value.isServiceRunning) {
-            CoreService.stop(application)
+            CoreService.toggleRecording(application)
         } else {
             CoreService.start(application)
         }

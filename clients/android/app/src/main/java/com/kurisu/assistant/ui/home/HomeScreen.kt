@@ -48,14 +48,16 @@ fun HomeScreen(
     val coreServiceState by viewModel.coreServiceState.collectAsState()
     val serviceRunning = coreServiceState.isServiceRunning
 
-    // Request mic permission and auto-start service
+    // Request mic permission and auto-start service (only if not already running)
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) viewModel.startService()
+        if (granted && !coreServiceState.isServiceRunning) viewModel.startService()
     }
     LaunchedEffect(Unit) {
-        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        if (!coreServiceState.isServiceRunning) {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
     }
 
     // Handle trigger word matches
@@ -142,10 +144,10 @@ fun HomeScreen(
             },
             bottomBar = {
                 MicStatusBar(
-                    isListening = serviceRunning,
+                    isListening = coreServiceState.isRecording,
                     isProcessing = coreServiceState.isProcessingAsr,
                     lastTranscript = coreServiceState.lastTranscript,
-                    onClick = viewModel::toggleService,
+                    onClick = viewModel::toggleRecording,
                 )
             },
         ) { padding ->
