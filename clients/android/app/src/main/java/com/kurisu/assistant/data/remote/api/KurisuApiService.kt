@@ -122,7 +122,7 @@ interface KurisuApiService {
     suspend fun listTools(): ToolsResponse
 
     @GET("/mcp-servers")
-    suspend fun listMCPServers(): MCPServersResponse
+    suspend fun listMCPServers(): List<MCPServer>
 
     // Character Assets
     @Multipart

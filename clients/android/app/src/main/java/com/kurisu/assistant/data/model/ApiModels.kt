@@ -161,15 +161,16 @@ data class UploadVideoResponseDTO(
 
 @Serializable
 data class MCPServer(
+    val id: Int,
     val name: String,
-    val command: String,
-    val args: List<String>,
-    val url: String,
-    val status: String,
+    @SerialName("transport_type") val transportType: String,
+    val url: String? = null,
+    val command: String? = null,
+    val args: List<String>? = null,
+    val env: Map<String, String>? = null,
+    val enabled: Boolean = true,
+    @SerialName("created_at") val createdAt: String? = null,
 )
-
-@Serializable
-data class MCPServersResponse(val servers: List<MCPServer>)
 
 @Serializable
 data class ToolFunction(

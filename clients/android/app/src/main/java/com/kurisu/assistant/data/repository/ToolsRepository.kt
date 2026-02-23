@@ -16,7 +16,7 @@ class ToolsRepository @Inject constructor(
 ) {
     suspend fun listTools(): ToolsResponse = api.listTools()
 
-    suspend fun listMCPServers(): List<MCPServer> = api.listMCPServers().servers
+    suspend fun listMCPServers(): List<MCPServer> = api.listMCPServers()
 
     suspend fun listSkills(): List<Skill> = api.listSkills()
 

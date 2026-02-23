@@ -160,7 +160,7 @@ private fun ServersTab(servers: List<MCPServer>) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(servers, key = { it.name }) { server ->
+            items(servers, key = { it.id }) { server ->
                 ServerCard(server)
             }
         }
@@ -169,13 +169,22 @@ private fun ServersTab(servers: List<MCPServer>) {
 
 @Composable
 private fun ServerCard(server: MCPServer) {
-    val statusColor = when (server.status) {
-        "connected", "running" -> MaterialTheme.colorScheme.primary
-        "error", "failed" -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    val statusColor = if (server.enabled) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
     }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (server.enabled) {
+                MaterialTheme.colorScheme.surface
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            },
+        ),
+    ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -190,7 +199,7 @@ private fun ServerCard(server: MCPServer) {
                     onClick = {},
                     label = {
                         Text(
-                            text = server.status,
+                            text = server.transportType.uppercase(),
                             style = MaterialTheme.typography.labelSmall,
                             color = statusColor,
                         )
@@ -198,31 +207,25 @@ private fun ServerCard(server: MCPServer) {
                 )
             }
             Spacer(Modifier.height(4.dp))
-            if (server.url.isNotBlank()) {
-                Text(
-                    text = server.url,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            } else if (server.command.isNotBlank()) {
-                Text(
-                    text = buildString {
-                        append(server.command)
-                        if (server.args.isNotEmpty()) {
-                            append(" ")
-                            append(server.args.joinToString(" "))
-                        }
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            val connectionDetail = if (server.transportType == "sse") {
+                server.url ?: "(no URL)"
+            } else {
+                buildString {
+                    append(server.command ?: "")
+                    if (!server.args.isNullOrEmpty()) {
+                        append(" ")
+                        append(server.args.joinToString(" "))
+                    }
+                }
             }
+            Text(
+                text = connectionDetail,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
