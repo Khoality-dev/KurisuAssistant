@@ -16,6 +16,7 @@ const STORAGE_KEYS = {
   ASR_DEVICE_ID: 'kurisu_asr_device_id',
   SELECTED_AGENT_ID: 'kurisu_selected_agent_id',
   AGENT_CONVERSATIONS: 'kurisu_agent_conversations',
+  ASR_LANGUAGE: 'kurisu_asr_language',
 } as const;
 
 export const storage = {
@@ -368,6 +369,31 @@ export const storage = {
       localStorage.removeItem(STORAGE_KEYS.AGENT_CONVERSATIONS);
     } catch (error) {
       console.error('Failed to clear all agent conversations:', error);
+    }
+  },
+
+  setASRLanguage(language: string): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ASR_LANGUAGE, language);
+    } catch (error) {
+      console.error('Failed to save ASR language:', error);
+    }
+  },
+
+  getASRLanguage(): string | null {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.ASR_LANGUAGE);
+    } catch (error) {
+      console.error('Failed to get ASR language:', error);
+      return null;
+    }
+  },
+
+  clearASRLanguage(): void {
+    try {
+      localStorage.removeItem(STORAGE_KEYS.ASR_LANGUAGE);
+    } catch (error) {
+      console.error('Failed to clear ASR language:', error);
     }
   },
 };

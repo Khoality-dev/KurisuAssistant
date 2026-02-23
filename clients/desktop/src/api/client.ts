@@ -267,12 +267,20 @@ class APIClient {
   /**
    * Transcribe raw Int16 PCM audio (16kHz mono) to text
    */
-  async transcribe(audio: ArrayBuffer): Promise<string> {
-    const response = await this.client.post<{ text: string }>('/asr', audio, {
+  async transcribe(
+    audio: ArrayBuffer,
+    options?: { language?: string; mode?: string },
+  ): Promise<{ text: string; language: string }> {
+    const params: Record<string, string> = {};
+    if (options?.language) params.language = options.language;
+    if (options?.mode) params.mode = options.mode;
+
+    const response = await this.client.post<{ text: string; language: string }>('/asr', audio, {
       headers: { ...this.getHeaders(), 'Content-Type': 'application/octet-stream' },
+      params,
       timeout: 30000,
     });
-    return response.data.text;
+    return response.data;
   }
 
   // Agent Methods

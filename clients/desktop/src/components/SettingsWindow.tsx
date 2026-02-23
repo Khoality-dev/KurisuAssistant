@@ -54,6 +54,14 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
+  // ASR settings — auto-saved to localStorage on change
+  const [asrLanguage, setAsrLanguageState] = useState(storage.getASRLanguage() || '');
+  const setAsrLanguage = (v: string) => {
+    setAsrLanguageState(v);
+    if (v) storage.setASRLanguage(v);
+    else storage.clearASRLanguage();
+  };
+
   // TTS settings — auto-saved to localStorage on change
   const [ttsBackend, setTtsBackendState] = useState(storage.getTTSBackend() || 'gpt-sovits');
 
@@ -289,6 +297,20 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
             elevation={1}
             sx={{ maxWidth: 800, mx: 'auto', p: 4 }}
           >
+
+          {/* ASR Language */}
+          <Box sx={{ mb: 3 }}>
+            <TextField
+              label="ASR Language"
+              value={asrLanguage}
+              onChange={(e) => setAsrLanguage(e.target.value)}
+              fullWidth
+              placeholder="Auto-detect"
+              helperText="ISO 639-1 code (en, ja, zh, vi). Empty = auto-detect from first transcription."
+            />
+          </Box>
+
+          <Divider sx={{ mb: 3 }} />
 
           {/* TTS Backend */}
           <Box sx={{ mb: 3 }}>

@@ -93,6 +93,9 @@ export const useMicStore = create<MicState>((set, get) => ({
             },
           }),
         onSpeechEnd: async (audio: Float32Array) => {
+          // Skip audio too short to contain a trigger word (< 0.5s at 16kHz)
+          if (audio.length < 8000) return;
+
           const int16 = new Int16Array(audio.length);
           for (let i = 0; i < audio.length; i++) {
             const s = Math.max(-1, Math.min(1, audio[i]));
@@ -102,10 +105,20 @@ export const useMicStore = create<MicState>((set, get) => ({
           set({ status: 'processing' });
 
           try {
-            const text = await apiClient.transcribe(int16.buffer);
-            if (text.trim()) {
+            const language = storage.getASRLanguage() || undefined;
+            const { interactiveMode, interactionActive } = get();
+            const mode = interactiveMode && !interactionActive ? 'fast' : undefined;
+
+            const response = await apiClient.transcribe(int16.buffer, { language, mode });
+
+            // Cache detected language on first auto-detect
+            if (!storage.getASRLanguage() && response.language) {
+              storage.setASRLanguage(response.language);
+            }
+
+            if (response.text.trim()) {
               _seq += 1;
-              set({ result: { text: text.trim(), seq: _seq } });
+              set({ result: { text: response.text.trim(), seq: _seq } });
             }
           } catch (err: any) {
             console.error('ASR transcription error:', err);
