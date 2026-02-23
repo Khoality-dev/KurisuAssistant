@@ -42,7 +42,10 @@ fun ChatScreen(
     // Auto-scroll to bottom on new messages
     LaunchedEffect(allMessages.size) {
         if (allMessages.isNotEmpty()) {
-            listState.animateScrollToItem(allMessages.size - 1)
+            val lastIndex = listState.layoutInfo.totalItemsCount - 1
+            if (lastIndex >= 0) {
+                listState.animateScrollToItem(lastIndex)
+            }
         }
     }
 

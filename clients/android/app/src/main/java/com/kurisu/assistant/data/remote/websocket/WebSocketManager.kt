@@ -30,9 +30,12 @@ class WebSocketManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // WebSocket client — derived from shared client, no read/write timeouts
+    // pingInterval sends protocol-level WebSocket pings to keep connection alive
+    // through NAT gateways, firewalls, and mobile network idle timeouts
     private val wsClient: OkHttpClient = okHttpClient.newBuilder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .writeTimeout(0, TimeUnit.MILLISECONDS)
+        .pingInterval(30, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
@@ -239,6 +242,42 @@ class WebSocketManager @Inject constructor(
             approved = approved,
         )
         send(json.encodeToString(ToolApprovalResponsePayload.serializer(), payload))
+    }
+
+    fun sendMediaPlay(query: String) {
+        if (!isConnected) return
+        val payload = MediaPlayPayload(eventId = generateEventId(), timestamp = nowTimestamp(), query = query)
+        send(json.encodeToString(MediaPlayPayload.serializer(), payload))
+    }
+
+    fun sendMediaPause() {
+        if (!isConnected) return
+        val payload = MediaPausePayload(eventId = generateEventId(), timestamp = nowTimestamp())
+        send(json.encodeToString(MediaPausePayload.serializer(), payload))
+    }
+
+    fun sendMediaResume() {
+        if (!isConnected) return
+        val payload = MediaResumePayload(eventId = generateEventId(), timestamp = nowTimestamp())
+        send(json.encodeToString(MediaResumePayload.serializer(), payload))
+    }
+
+    fun sendMediaSkip() {
+        if (!isConnected) return
+        val payload = MediaSkipPayload(eventId = generateEventId(), timestamp = nowTimestamp())
+        send(json.encodeToString(MediaSkipPayload.serializer(), payload))
+    }
+
+    fun sendMediaStop() {
+        if (!isConnected) return
+        val payload = MediaStopPayload(eventId = generateEventId(), timestamp = nowTimestamp())
+        send(json.encodeToString(MediaStopPayload.serializer(), payload))
+    }
+
+    fun sendMediaVolume(volume: Float) {
+        if (!isConnected) return
+        val payload = MediaVolumePayload(eventId = generateEventId(), timestamp = nowTimestamp(), volume = volume)
+        send(json.encodeToString(MediaVolumePayload.serializer(), payload))
     }
 
     private suspend fun ensureConnected() {

@@ -39,6 +39,7 @@ com.kurisu.assistant/
 │   ├── chat/                    -- Stream processor, sentence splitter, narration stripper
 │   ├── tts/                     -- TTS queue, WAV parser, amplitude computer
 │   ├── audio/                   -- AudioRecorder, VoiceActivityDetector
+│   ├── media/                   -- MediaPlaybackManager (yt-dlp audio streaming via ExoPlayer)
 │   └── character/               -- Compositor, image cache, animation migration
 ├── ui/
 │   ├── navigation/              -- NavGraph with routes (HOME, CHAT/{agentId}, AGENTS, TOOLS, SETTINGS, CHARACTER)
@@ -50,6 +51,7 @@ com.kurisu.assistant/
 │   ├── settings/                -- Settings screen + ViewModel
 │   ├── tools/                   -- Tools & Skills management (3-tab: Servers, Tools, Skills) + ViewModel
 │   ├── update/                  -- UpdateDialog composable (in-app update from GitHub Releases)
+│   ├── media/                   -- MediaPlayerBar (persistent bottom bar) + MediaPlayerViewModel
 │   └── character/               -- Character canvas, video player, screen + ViewModel
 ├── service/                     -- CoreService (foreground service), CoreState (shared singleton), VoiceInteractionManager
 └── di/                          -- Hilt modules (App, Network)
@@ -112,6 +114,13 @@ Chat (back button) → Home
 - Downloads APK to `cacheDir/updates/`, installs via FileProvider + `ACTION_VIEW` intent
 - `UpdateDialog` composable shows changelog, download progress, and install button
 - `REQUEST_INSTALL_PACKAGES` permission + FileProvider declared in manifest
+
+### Media Player (yt-dlp Audio Streaming)
+- Backend streams audio as base64 chunks over WebSocket (`MediaChunkEvent`), client accumulates and plays
+- **MediaPlaybackManager** (`@Singleton` in `domain/media/`): Collects media events from `WebSocketManager.events`, accumulates base64 chunks → `ByteArray` list, on `is_last` concatenates → temp file → ExoPlayer plays. Manages pause/resume (local ExoPlayer), skip/stop (local + WS command). State: `StateFlow<MediaPlayerState>` (track info, playback state, volume, buffering). Volume persisted to DataStore
+- **MediaPlayerBar** (`ui/media/`): Persistent bottom bar in `MainActivity` (below NavHost). Thumbnail + title/artist + play/pause/skip/stop buttons. Uses `AnimatedVisibility` — shown when playback active or buffering. Self-contained via `hiltViewModel()`
+- **Lifecycle**: `CoreService.onStartCommand()` calls `mediaPlaybackManager.startCollecting()`, `onDestroy()` calls `stopCollecting()`
+- **WebSocket commands**: `sendMediaPlay/Pause/Resume/Skip/Stop/Volume` in `WebSocketManager`
 
 ### Character Animation
 - 60fps loop via `withFrameNanos`

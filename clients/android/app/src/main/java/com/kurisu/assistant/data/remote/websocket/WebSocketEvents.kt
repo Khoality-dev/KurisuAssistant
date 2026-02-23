@@ -57,3 +57,47 @@ data class ToolApprovalResponsePayload(
     @SerialName("approval_id") val approvalId: String,
     val approved: Boolean,
 )
+
+@Serializable
+data class MediaPlayPayload(
+    val type: String = "media_play",
+    @SerialName("event_id") val eventId: String,
+    val timestamp: String,
+    val query: String,
+)
+
+@Serializable
+data class MediaPausePayload(
+    val type: String = "media_pause",
+    @SerialName("event_id") val eventId: String,
+    val timestamp: String,
+)
+
+@Serializable
+data class MediaResumePayload(
+    val type: String = "media_resume",
+    @SerialName("event_id") val eventId: String,
+    val timestamp: String,
+)
+
+@Serializable
+data class MediaSkipPayload(
+    val type: String = "media_skip",
+    @SerialName("event_id") val eventId: String,
+    val timestamp: String,
+)
+
+@Serializable
+data class MediaStopPayload(
+    val type: String = "media_stop",
+    @SerialName("event_id") val eventId: String,
+    val timestamp: String,
+)
+
+@Serializable
+data class MediaVolumePayload(
+    val type: String = "media_volume",
+    @SerialName("event_id") val eventId: String,
+    val timestamp: String,
+    val volume: Float,
+)

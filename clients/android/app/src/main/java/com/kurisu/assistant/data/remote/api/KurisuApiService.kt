@@ -91,6 +91,7 @@ interface KurisuApiService {
     suspend fun transcribe(
         @Body audio: RequestBody,
         @retrofit2.http.Query("language") language: String? = null,
+        @retrofit2.http.Query("mode") mode: String? = null,
     ): TranscriptionResponse
 
     // Agents

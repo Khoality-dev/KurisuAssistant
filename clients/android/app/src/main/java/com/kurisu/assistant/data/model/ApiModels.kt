@@ -275,7 +275,7 @@ data class MessageRawData(
 data class ModelsResponse(val models: List<String>)
 
 @Serializable
-data class TranscriptionResponse(val text: String)
+data class TranscriptionResponse(val text: String, val language: String = "")
 
 @Serializable
 data class ImageUploadResponse(

@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -16,6 +17,7 @@ import androidx.navigation.compose.rememberNavController
 import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.remote.api.DynamicBaseUrlInterceptor
 import com.kurisu.assistant.data.repository.AuthRepository
+import com.kurisu.assistant.ui.media.MediaPlayerBar
 import com.kurisu.assistant.ui.navigation.KurisuNavGraph
 import com.kurisu.assistant.ui.navigation.Routes
 import com.kurisu.assistant.ui.theme.KurisuTheme
@@ -63,7 +65,12 @@ class MainActivity : ComponentActivity() {
                         }
                     } else {
                         val navController = rememberNavController()
-                        KurisuNavGraph(navController = navController, startDestination = dest)
+                        Column(Modifier.fillMaxSize()) {
+                            Box(Modifier.weight(1f)) {
+                                KurisuNavGraph(navController = navController, startDestination = dest)
+                            }
+                            MediaPlayerBar()
+                        }
                     }
                 }
             }

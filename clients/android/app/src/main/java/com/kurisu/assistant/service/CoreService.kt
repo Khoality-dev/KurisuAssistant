@@ -23,6 +23,7 @@ import com.kurisu.assistant.data.repository.ConversationRepository
 import com.kurisu.assistant.domain.audio.AudioRecorder
 import com.kurisu.assistant.domain.audio.VoiceActivityDetector
 import com.kurisu.assistant.domain.chat.ChatStreamProcessor
+import com.kurisu.assistant.domain.media.MediaPlaybackManager
 import com.kurisu.assistant.domain.tts.TtsQueueManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
@@ -63,6 +64,7 @@ class CoreService : Service() {
     @Inject lateinit var coreState: CoreState
     @Inject lateinit var audioRecorder: AudioRecorder
     @Inject lateinit var vad: VoiceActivityDetector
+    @Inject lateinit var mediaPlaybackManager: MediaPlaybackManager
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -99,6 +101,7 @@ class CoreService : Service() {
 
         wireCallbacks()
         streamProcessor.startCollecting()
+        mediaPlaybackManager.startCollecting()
         coreState.setServiceRunning(true)
 
         // Connect WebSocket
@@ -123,6 +126,7 @@ class CoreService : Service() {
         stopRecordingAndVad()
         unwireCallbacks()
         streamProcessor.stopCollecting()
+        mediaPlaybackManager.stopCollecting()
         coreState.setServiceRunning(false)
         coreState.setRecording(false)
         serviceScope.cancel()
@@ -201,17 +205,32 @@ class CoreService : Service() {
 
         try {
             val pcmBytes = audioRecorder.takeAccumulatedPcm()
-            Log.d(TAG, "Took PCM snapshot: ${pcmBytes.size} bytes (${pcmBytes.size / 2} samples, ${String.format("%.1f", pcmBytes.size / 2 / 16000.0)}s)")
+            val sampleCount = pcmBytes.size / 2
+            Log.d(TAG, "Took PCM snapshot: ${pcmBytes.size} bytes ($sampleCount samples, ${String.format("%.1f", sampleCount / 16000.0)}s)")
 
             if (pcmBytes.isEmpty()) {
                 Log.w(TAG, "Empty recording, skipping ASR")
+            } else if (sampleCount < 8000) {
+                // Skip audio too short to contain a trigger word (< 0.5s at 16kHz)
+                Log.d(TAG, "Audio too short ($sampleCount samples), skipping ASR")
             } else {
                 val asrLanguage = prefs.getAsrLanguage()
-                val text = asrRepository.transcribe(pcmBytes, asrLanguage)
-                Log.d(TAG, "ASR result: '$text'")
+                val language = asrLanguage.ifBlank { null }
+                val mode = if (!voiceInteractionManager.state.value.isInteractionMode) "fast" else null
+                val result = asrRepository.transcribe(pcmBytes, language = language, mode = mode)
+                Log.d(TAG, "ASR result: '${result.text}' (detected=${result.language}, selected=$asrLanguage, mode=$mode)")
 
-                if (text.isNotBlank()) {
-                    val trimmed = text.trim()
+                // Cache auto-detected language on first transcription
+                if (asrLanguage.isBlank() && result.language.isNotBlank()) {
+                    prefs.setAsrLanguage(result.language)
+                    Log.d(TAG, "Cached auto-detected ASR language: ${result.language}")
+                }
+
+                // Drop result if detected language doesn't match selected language
+                if (asrLanguage.isNotBlank() && result.language != asrLanguage) {
+                    Log.d(TAG, "ASR language mismatch, dropping result")
+                } else if (result.text.isNotBlank()) {
+                    val trimmed = result.text.trim()
                     coreState.emitTranscript(trimmed)
                     voiceInteractionManager.handleTranscript(trimmed)
                 }
