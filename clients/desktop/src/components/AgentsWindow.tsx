@@ -266,6 +266,7 @@ export const AgentsWindow: React.FC = () => {
       setAvatarPreview(apiClient.getImageUrl(agent.avatar_uuid));
     }
     setEditDialogOpen(true);
+    loadTools();
   };
 
   const openDeleteDialog = (agent: Agent) => {
@@ -320,6 +321,7 @@ export const AgentsWindow: React.FC = () => {
           onClick={() => {
             resetForm();
             setCreateDialogOpen(true);
+            loadTools();
           }}
         >
           New Agent
@@ -356,6 +358,7 @@ export const AgentsWindow: React.FC = () => {
               onClick={() => {
                 resetForm();
                 setCreateDialogOpen(true);
+                loadTools();
               }}
             >
               Create Agent
