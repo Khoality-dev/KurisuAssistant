@@ -154,15 +154,40 @@ export interface AgentUpdate {
 
 // MCP Server types
 export interface MCPServer {
+  id: number;
   name: string;
-  command: string;
-  args: string[];
-  url: string;
-  status: 'configured' | 'available' | 'unavailable';
+  transport_type: 'sse' | 'stdio';
+  url: string | null;
+  command: string | null;
+  args: string[] | null;
+  env: Record<string, string> | null;
+  enabled: boolean;
+  created_at: string | null;
 }
 
-export interface MCPServersResponse {
-  servers: MCPServer[];
+export interface MCPServerCreate {
+  name: string;
+  transport_type: 'sse' | 'stdio';
+  url?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+export interface MCPServerUpdate {
+  name?: string;
+  transport_type?: string;
+  url?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  enabled?: boolean;
+}
+
+export interface MCPServerTestResult {
+  status: 'available' | 'unavailable';
+  tool_count?: number;
+  error?: string;
 }
 
 // Tool types

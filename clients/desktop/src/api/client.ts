@@ -15,7 +15,10 @@ import type {
   AgentCreate,
   AgentUpdate,
   ToolsResponse,
-  MCPServersResponse,
+  MCPServer,
+  MCPServerCreate,
+  MCPServerUpdate,
+  MCPServerTestResult,
   UploadBaseResponseDTO,
   ComputePatchResponseDTO,
   UploadVideoResponseDTO,
@@ -394,11 +397,51 @@ class APIClient {
   }
 
   /**
-   * List MCP servers and their status
+   * List MCP servers for the current user
    */
-  async listMCPServers(): Promise<MCPServersResponse> {
-    const response = await this.client.get<MCPServersResponse>('/mcp-servers', {
+  async listMCPServers(): Promise<MCPServer[]> {
+    const response = await this.client.get<MCPServer[]>('/mcp-servers', {
       headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Create a new MCP server
+   */
+  async createMCPServer(data: MCPServerCreate): Promise<MCPServer> {
+    const response = await this.client.post<MCPServer>('/mcp-servers', data, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Update an MCP server
+   */
+  async updateMCPServer(id: number, data: MCPServerUpdate): Promise<MCPServer> {
+    const response = await this.client.patch<MCPServer>(`/mcp-servers/${id}`, data, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Delete an MCP server
+   */
+  async deleteMCPServer(id: number): Promise<void> {
+    await this.client.delete(`/mcp-servers/${id}`, {
+      headers: this.getHeaders(),
+    });
+  }
+
+  /**
+   * Test connectivity to an MCP server
+   */
+  async testMCPServer(id: number): Promise<MCPServerTestResult> {
+    const response = await this.client.post<MCPServerTestResult>(`/mcp-servers/${id}/test`, null, {
+      headers: this.getHeaders(),
+      timeout: 15000,
     });
     return response.data;
   }

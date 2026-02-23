@@ -18,6 +18,11 @@ import {
   Button,
   CircularProgress,
   TextField,
+  Switch,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
@@ -31,10 +36,11 @@ import {
   Delete as DeleteIcon,
   FileUpload as ImportIcon,
   FileDownload as ExportIcon,
+  PlayArrow as TestIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiClient } from '../api/client';
-import type { MCPServer, Tool, Skill } from '../api/types';
+import type { MCPServer, MCPServerTestResult, Tool, Skill } from '../api/types';
 
 const MotionCard = motion(Card);
 
@@ -67,6 +73,19 @@ export const ToolsWindow: React.FC = () => {
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
 
+  // MCP Server editor state
+  const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
+  const [editingServer, setEditingServer] = useState<MCPServer | null>(null);
+  const [serverName, setServerName] = useState('');
+  const [serverTransportType, setServerTransportType] = useState<'sse' | 'stdio'>('sse');
+  const [serverUrl, setServerUrl] = useState('');
+  const [serverCommand, setServerCommand] = useState('');
+  const [serverArgs, setServerArgs] = useState('');
+  const [serverEnv, setServerEnv] = useState('');
+  const [serverSaving, setServerSaving] = useState(false);
+  const [testingServerId, setTestingServerId] = useState<number | null>(null);
+  const [testResults, setTestResults] = useState<Record<number, MCPServerTestResult>>({});
+
   // Skill editor state
   const [skillDialogOpen, setSkillDialogOpen] = useState(false);
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
@@ -87,7 +106,7 @@ export const ToolsWindow: React.FC = () => {
         apiClient.listTools(),
         apiClient.listSkills(),
       ]);
-      setMcpServers(serversRes.servers);
+      setMcpServers(serversRes);
       setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools });
       setSkills(skillsRes);
     } catch (err: any) {
@@ -101,6 +120,122 @@ export const ToolsWindow: React.FC = () => {
     setSelectedTool(tool);
     setDetailsDialogOpen(true);
   };
+
+  // MCP Server handlers
+
+  const handleNewServer = () => {
+    setEditingServer(null);
+    setServerName('');
+    setServerTransportType('sse');
+    setServerUrl('');
+    setServerCommand('');
+    setServerArgs('');
+    setServerEnv('');
+    setMcpDialogOpen(true);
+  };
+
+  const handleEditServer = (server: MCPServer) => {
+    setEditingServer(server);
+    setServerName(server.name);
+    setServerTransportType(server.transport_type);
+    setServerUrl(server.url || '');
+    setServerCommand(server.command || '');
+    setServerArgs(server.args ? server.args.join('\n') : '');
+    setServerEnv(
+      server.env
+        ? Object.entries(server.env).map(([k, v]) => `${k}=${v}`).join('\n')
+        : ''
+    );
+    setMcpDialogOpen(true);
+  };
+
+  const handleSaveServer = async () => {
+    if (!serverName.trim()) return;
+    setServerSaving(true);
+    try {
+      const args = serverArgs.trim() ? serverArgs.trim().split('\n').map(s => s.trim()).filter(Boolean) : undefined;
+      const env = serverEnv.trim()
+        ? Object.fromEntries(
+            serverEnv.trim().split('\n').map(line => {
+              const idx = line.indexOf('=');
+              return idx > 0 ? [line.slice(0, idx).trim(), line.slice(idx + 1).trim()] : null;
+            }).filter((entry): entry is [string, string] => entry !== null)
+          )
+        : undefined;
+
+      if (editingServer) {
+        await apiClient.updateMCPServer(editingServer.id, {
+          name: serverName,
+          transport_type: serverTransportType,
+          url: serverTransportType === 'sse' ? serverUrl : undefined,
+          command: serverTransportType === 'stdio' ? serverCommand : undefined,
+          args: serverTransportType === 'stdio' ? args : undefined,
+          env,
+        });
+      } else {
+        await apiClient.createMCPServer({
+          name: serverName,
+          transport_type: serverTransportType,
+          url: serverTransportType === 'sse' ? serverUrl : undefined,
+          command: serverTransportType === 'stdio' ? serverCommand : undefined,
+          args: serverTransportType === 'stdio' ? args : undefined,
+          env,
+        });
+      }
+      setMcpDialogOpen(false);
+      const [serversRes, toolsRes] = await Promise.all([
+        apiClient.listMCPServers(),
+        apiClient.listTools(),
+      ]);
+      setMcpServers(serversRes);
+      setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools });
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'Failed to save MCP server');
+    } finally {
+      setServerSaving(false);
+    }
+  };
+
+  const handleDeleteServer = async (server: MCPServer) => {
+    try {
+      await apiClient.deleteMCPServer(server.id);
+      setMcpServers(prev => prev.filter(s => s.id !== server.id));
+      const toolsRes = await apiClient.listTools();
+      setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools });
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'Failed to delete MCP server');
+    }
+  };
+
+  const handleToggleServer = async (server: MCPServer) => {
+    try {
+      await apiClient.updateMCPServer(server.id, { enabled: !server.enabled });
+      setMcpServers(prev =>
+        prev.map(s => s.id === server.id ? { ...s, enabled: !s.enabled } : s)
+      );
+      const toolsRes = await apiClient.listTools();
+      setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools });
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'Failed to toggle MCP server');
+    }
+  };
+
+  const handleTestServer = async (server: MCPServer) => {
+    setTestingServerId(server.id);
+    try {
+      const result = await apiClient.testMCPServer(server.id);
+      setTestResults(prev => ({ ...prev, [server.id]: result }));
+    } catch (err: any) {
+      setTestResults(prev => ({
+        ...prev,
+        [server.id]: { status: 'unavailable', error: err.message },
+      }));
+    } finally {
+      setTestingServerId(null);
+    }
+  };
+
+  // Skill handlers
 
   const handleNewSkill = () => {
     setEditingSkill(null);
@@ -132,7 +267,6 @@ export const ToolsWindow: React.FC = () => {
         });
       }
       setSkillDialogOpen(false);
-      // Reload skills
       const skillsRes = await apiClient.listSkills();
       setSkills(skillsRes);
     } catch (err: any) {
@@ -197,28 +331,6 @@ export const ToolsWindow: React.FC = () => {
     input.click();
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'available':
-        return 'success';
-      case 'unavailable':
-        return 'error';
-      default:
-        return 'default';
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'available':
-        return <CheckCircleIcon fontSize="small" />;
-      case 'unavailable':
-        return <CancelIcon fontSize="small" />;
-      default:
-        return null;
-    }
-  };
-
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header */}
@@ -265,21 +377,40 @@ export const ToolsWindow: React.FC = () => {
           <>
             {/* MCP Servers Tab */}
             <TabPanel value={currentTab} index={0}>
-              {mcpServers.length === 0 ? (
-                <Paper sx={{ p: 4, textAlign: 'center', maxWidth: 600, mx: 'auto' }}>
-                  <Typography variant="h6" gutterBottom>
-                    No MCP Servers Configured
+              <Box sx={{ maxWidth: 900, mx: 'auto' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    MCP servers provide external tools to your agents via the Model Context Protocol.
                   </Typography>
-                  <Typography color="text.secondary">
-                    MCP servers are configured via config files in the backend.
-                  </Typography>
-                </Paper>
-              ) : (
-                <Grid container spacing={3} sx={{ maxWidth: 1200, mx: 'auto' }}>
-                  <AnimatePresence>
-                    {mcpServers.map((server, index) => (
-                      <Grid item xs={12} sm={6} md={4} key={server.name}>
+                  <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={handleNewServer}
+                    sx={{ ml: 2, flexShrink: 0 }}
+                  >
+                    New Server
+                  </Button>
+                </Box>
+
+                {mcpServers.length === 0 ? (
+                  <Paper sx={{ p: 4, textAlign: 'center' }}>
+                    <DnsIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
+                    <Typography variant="h6" gutterBottom>
+                      No MCP Servers
+                    </Typography>
+                    <Typography color="text.secondary" sx={{ mb: 2 }}>
+                      Add an MCP server to provide external tools to your agents.
+                    </Typography>
+                    <Button variant="outlined" startIcon={<AddIcon />} onClick={handleNewServer}>
+                      Add Your First Server
+                    </Button>
+                  </Paper>
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <AnimatePresence>
+                      {mcpServers.map((server, index) => (
                         <MotionCard
+                          key={server.id}
                           initial={{ opacity: 0, y: 20 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -20 }}
@@ -287,43 +418,94 @@ export const ToolsWindow: React.FC = () => {
                           sx={{
                             border: '1px solid',
                             borderColor: 'divider',
+                            opacity: server.enabled ? 1 : 0.6,
                           }}
                         >
                           <CardContent>
-                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                              <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                                {server.name}
-                              </Typography>
-                              <Chip
-                                icon={getStatusIcon(server.status)}
-                                label={server.status}
-                                color={getStatusColor(server.status) as any}
-                                size="small"
-                              />
+                            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                              <Box sx={{ flex: 1, mr: 2 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                  <DnsIcon fontSize="small" color={server.enabled ? 'primary' : 'disabled'} />
+                                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                                    {server.name}
+                                  </Typography>
+                                  <Chip
+                                    label={server.transport_type.toUpperCase()}
+                                    size="small"
+                                    variant="outlined"
+                                    color={server.transport_type === 'sse' ? 'primary' : 'secondary'}
+                                  />
+                                  {testResults[server.id] && (
+                                    <Chip
+                                      icon={testResults[server.id].status === 'available' ? <CheckCircleIcon /> : <CancelIcon />}
+                                      label={
+                                        testResults[server.id].status === 'available'
+                                          ? `${testResults[server.id].tool_count} tools`
+                                          : 'Unavailable'
+                                      }
+                                      size="small"
+                                      color={testResults[server.id].status === 'available' ? 'success' : 'error'}
+                                    />
+                                  )}
+                                </Box>
+                                <Typography
+                                  variant="body2"
+                                  color="text.secondary"
+                                  sx={{
+                                    fontFamily: 'monospace',
+                                    fontSize: '0.75rem',
+                                    backgroundColor: '#f5f5f5',
+                                    p: 1,
+                                    borderRadius: 1,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {server.transport_type === 'sse'
+                                    ? server.url || '(no URL)'
+                                    : `${server.command || ''}${server.args?.length ? ' ' + server.args.join(' ') : ''}`
+                                  }
+                                </Typography>
+                                {testResults[server.id]?.error && (
+                                  <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                                    {testResults[server.id].error}
+                                  </Typography>
+                                )}
+                              </Box>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                                <Switch
+                                  size="small"
+                                  checked={server.enabled}
+                                  onChange={() => handleToggleServer(server)}
+                                  title={server.enabled ? 'Disable' : 'Enable'}
+                                />
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleTestServer(server)}
+                                  title="Test connection"
+                                  disabled={testingServerId === server.id || !server.enabled}
+                                >
+                                  {testingServerId === server.id
+                                    ? <CircularProgress size={18} />
+                                    : <TestIcon fontSize="small" />
+                                  }
+                                </IconButton>
+                                <IconButton size="small" onClick={() => handleEditServer(server)} title="Edit">
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                                <IconButton size="small" onClick={() => handleDeleteServer(server)} title="Delete" color="error">
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Box>
                             </Box>
-                            <Typography
-                              variant="body2"
-                              color="text.secondary"
-                              sx={{
-                                fontFamily: 'monospace',
-                                fontSize: '0.75rem',
-                                backgroundColor: '#f5f5f5',
-                                p: 1,
-                                borderRadius: 1,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {server.url || `${server.command} ${server.args.join(' ')}`}
-                            </Typography>
                           </CardContent>
                         </MotionCard>
-                      </Grid>
-                    ))}
-                  </AnimatePresence>
-                </Grid>
-              )}
+                      ))}
+                    </AnimatePresence>
+                  </Box>
+                )}
+              </Box>
             </TabPanel>
 
             {/* Available Tools Tab */}
@@ -606,6 +788,89 @@ export const ToolsWindow: React.FC = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDetailsDialogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* MCP Server Editor Dialog */}
+      <Dialog
+        open={mcpDialogOpen}
+        onClose={() => setMcpDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          {editingServer ? 'Edit MCP Server' : 'New MCP Server'}
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 1 }}>
+            <TextField
+              label="Server Name"
+              value={serverName}
+              onChange={(e) => setServerName(e.target.value)}
+              fullWidth
+              placeholder="e.g., web-search"
+            />
+            <FormControl fullWidth>
+              <InputLabel>Transport Type</InputLabel>
+              <Select
+                value={serverTransportType}
+                label="Transport Type"
+                onChange={(e) => setServerTransportType(e.target.value as 'sse' | 'stdio')}
+              >
+                <MenuItem value="sse">SSE (Server-Sent Events)</MenuItem>
+                <MenuItem value="stdio">Stdio (Local Process)</MenuItem>
+              </Select>
+            </FormControl>
+            {serverTransportType === 'sse' ? (
+              <TextField
+                label="URL"
+                value={serverUrl}
+                onChange={(e) => setServerUrl(e.target.value)}
+                fullWidth
+                placeholder="http://localhost:8000/sse"
+              />
+            ) : (
+              <>
+                <TextField
+                  label="Command"
+                  value={serverCommand}
+                  onChange={(e) => setServerCommand(e.target.value)}
+                  fullWidth
+                  placeholder="e.g., npx or python"
+                />
+                <TextField
+                  label="Arguments (one per line)"
+                  value={serverArgs}
+                  onChange={(e) => setServerArgs(e.target.value)}
+                  fullWidth
+                  multiline
+                  minRows={2}
+                  maxRows={6}
+                  placeholder={'-y\n@modelcontextprotocol/server-filesystem\n/path/to/dir'}
+                />
+              </>
+            )}
+            <TextField
+              label="Environment Variables (optional, KEY=VALUE per line)"
+              value={serverEnv}
+              onChange={(e) => setServerEnv(e.target.value)}
+              fullWidth
+              multiline
+              minRows={2}
+              maxRows={6}
+              placeholder={'API_KEY=sk-xxx\nDEBUG=true'}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMcpDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveServer}
+            disabled={!serverName.trim() || serverSaving}
+          >
+            {serverSaving ? <CircularProgress size={20} /> : 'Save'}
+          </Button>
         </DialogActions>
       </Dialog>
 
