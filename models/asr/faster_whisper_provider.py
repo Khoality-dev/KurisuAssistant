@@ -26,7 +26,7 @@ class FasterWhisperProvider(BaseASRProvider):
             if model_name == "base" and os.path.exists("data/asr/whisper-ct2"):
                 model_name = "data/asr/whisper-ct2"
 
-            device = os.environ.get("ASR_DEVICE", "cpu")
+            device = os.environ.get("ASR_DEVICE", "cuda")
 
             compute_type = "float16" if device == "cuda" else "int8"
 
@@ -40,11 +40,19 @@ class FasterWhisperProvider(BaseASRProvider):
             logger.info("faster-whisper model loaded")
         return self._model
 
-    def transcribe(self, audio: np.ndarray, language: str | None = None) -> tuple[str, str]:
+    def transcribe(
+        self,
+        audio: np.ndarray,
+        language: str | None = None,
+        mode: str | None = None,
+    ) -> tuple[str, str]:
         model = self._get_model()
         kwargs = {}
         if language:
             kwargs["language"] = language
+        if mode == "fast":
+            kwargs["beam_size"] = 1
+            kwargs["without_timestamps"] = True
         segments, info = model.transcribe(audio, **kwargs)
         text = "".join(segment.text for segment in segments).strip()
         return text, info.language
