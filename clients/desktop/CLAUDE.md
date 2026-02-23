@@ -26,8 +26,9 @@ src/api/client.ts         — Axios + WebSocket singleton; streaming + media via
 src/api/types.ts          — TypeScript interfaces for API
 src/components/
   LoginWindow.tsx          — Login/Register tabs, Remember Me, Server URL field, purple gradient
-  MainWindow.tsx           — Top bar (tabs + agent selector + clear conversation + connection status dot) + ChatWidget, no sidebar
-  ChatWidget.tsx           — Chat UI with streaming, TTS auto-play, image attach, pagination, IPC bridge to character window, voice interaction mode
+  MainWindow.tsx           — Top bar (tabs + agent selector + clear conversation + connection status dot + phone toggle for voice mode) + ChatWidget, no sidebar
+  ChatWidget.tsx           — Chat UI with streaming, TTS auto-play, image attach, pagination, IPC bridge to character window, voice mode (typing/interactive)
+  InteractiveCallBar.tsx   — Full-height call bar replacing input area in interactive voice mode: transcript display, large mic button with pulse, status text, hang up
   MessageBubble.tsx        — Individual bubble: role styling, thinking collapse, TTS, resend/delete
   ToolsWindow.tsx          — Three tabs: MCP Servers, Available Tools, Skills (CRUD + import/export)
   AgentsWindow.tsx         — Agent CRUD with tool assignment + character config button
@@ -49,6 +50,7 @@ src/store/
   agentStore.ts           — Agent list (filtered, no Administrator), selected agent ID (persisted). Agent selection triggers conversation load via agent-conversation mapping.
   visionStore.ts          — Zustand singleton: vision pipeline control (getUserMedia webcam capture, backpressure-based frame upload via WebSocket with max 5 in-flight frames, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Syncs state on reconnect via `connected` listener. Used by both FacesWindow and ChatWidget camera toggle.
   mediaStore.ts           — Zustand singleton: media player state (playback, track, queue, volume). All media events (control + chunks) flow through wsManager on /ws/chat. Module-level listeners for media_state/media_chunk/media_error + `connected` listener for reconnect state sync. Buffers base64 chunks → Blob → Audio playback. Volume persisted to localStorage.
+  micStore.ts             — Zustand singleton: ASR lifecycle (VAD, status, result, devices) + interactive mode with substates. Module-level VAD instance, lazy-init reusable Audio elements for sound effects. Two-level state: `interactiveMode` (call bar UI shown, mic auto-started) + `interactionActive` (auto-send without trigger word). Used by MainWindow (phone toggle) and ChatWidget (transcript handling, conditional render).
 src/CharacterWindowApp.tsx — Minimal IPC-driven renderer for separate character window (no auth/stores, subtitle overlay)
 src/videocall/            — Character animation engine (rendered in separate Electron window via IPC)
   types.ts                — PoseConfig, PatchInfo, PoseTree, AnimationNode/Edge/EdgeTransition, TransitionCondition (random/thinking/gesture), AnimationSettings, CharacterConfig, migrateEdgeToTransitions(), migratePoseTreeIds() (old pose-*/edge-* IDs → 8-char hex)
@@ -90,16 +92,25 @@ src/config.ts             — API URL config (reads dynamically from storage)
 - Action narration (`*walks over*`) stripped via `stripNarration()` before TTS — preserves `**bold**`
 - **Subtitles**: `useTTS` parses WAV header for duration, calls `onPlaybackStart(text, duration)` before each queue item plays. On TTS error, falls back to 4s duration. ChatWidget forwards to character window via IPC.
 
-### Voice Interaction Mode (Trigger Word)
-- Per-agent `trigger_word` (nullable string) enables hands-free voice conversation
-- **Flow**: Mic on → ASR transcript contains trigger word (case-insensitive) → enter interaction mode → auto-send full transcript → agent responds with TTS → 30s idle timer after TTS finishes → exit mode
-- While in interaction mode, all subsequent ASR transcripts auto-send without needing trigger word
-- ASR transcripts without trigger word match are ignored (not inserted into input field)
-- If user speaks while agent is still streaming, transcript stored in `pendingAutoSendRef` and sent when streaming completes
-- **Exit conditions**: 30s silence after TTS+streaming finish, mic turned off (`asrStatus === 'idle'`), agent change, conversation change
-- **State**: `isInteractionMode` (boolean), `interactionTimerRef` (30s timeout), `pendingAutoSendRef` (queued transcript)
-- **Visual**: Green "Voice Active" chip next to mic button; mic icon turns green in interaction mode
-- **Sound effects**: `public/start_effect.wav` plays on mode enter, `public/stop_effect.wav` on mode exit
+### Interactive Mode
+Two-level state managed by `useMicStore` (Zustand, `src/store/micStore.ts`): `interactiveMode` (outer) + `interactionActive` (inner substate).
+
+**Typing (default, `interactiveMode: false`)**:
+- Mic on → ASR transcript placed into input field as dictation text → user presses Send manually
+- Trigger word detection: if transcript contains agent's `trigger_word` (case-insensitive), enables interactive mode + activates interaction + auto-sends that transcript
+- Mic button: red icon when listening, default when idle. No pulse animation.
+
+**Interactive (`interactiveMode: true`)**:
+- Entire bottom input area replaced by `InteractiveCallBar` — centered layout with transcript display, large 64px mic button, status text, red Hang Up button
+- **Auto mic**: Entering → `startListening()` if idle; exiting → `stopListening()`. Input field cleared on entry.
+- **Entry**: Phone toggle in MainWindow top bar, or trigger word match in typing mode
+- **Exit conditions**: Hang up button, phone toggle, agent change, conversation change
+
+**Interaction substates within interactive mode**:
+- **Idle (`interactionActive: false`)**: Mic listens, transcripts shown visually but NOT sent. Status text: "Waiting for trigger word...". Mic button grey, no pulse ring. Awaiting trigger word to activate.
+- **Active (`interactionActive: true`)**: All ASR transcripts auto-send (or queue via `pendingAutoSendRef` if streaming). Status text: "Listening..."/"Processing..."/"Thinking..."/"Speaking...". Mic button primary color with pulse ring animation.
+- **Activation**: Trigger word detected in transcript → `activateInteraction()` + auto-send. Sound effect: `start_effect.wav`.
+- **Deactivation**: 30s idle after TTS+streaming finish → `deactivateInteraction()` (stays in interactive mode, keeps listening). Sound effect: `stop_effect.wav`.
 - **Config**: `Agent.trigger_word` field in AgentsWindow edit dialog, stored in backend DB
 
 ### Conversation Management (One Per Agent)

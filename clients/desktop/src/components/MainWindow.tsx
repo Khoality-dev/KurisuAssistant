@@ -21,6 +21,8 @@ import {
   Chat as ChatIcon,
   Face as FaceIcon,
   Refresh as RefreshIcon,
+  Phone as PhoneIcon,
+  PhoneDisabled as PhoneDisabledIcon,
 } from '@mui/icons-material';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
 import { useAuthStore } from '../store/authStore';
@@ -33,6 +35,7 @@ import { AgentsWindow } from './AgentsWindow';
 import { ToolsWindow } from './ToolsWindow';
 import { FacesWindow } from './FacesWindow';
 import { MediaPlayerBar } from './MediaPlayerBar';
+import { useMicStore } from '../store/micStore';
 
 type Page = 'chat' | 'settings' | 'agents' | 'tools' | 'faces';
 
@@ -47,6 +50,8 @@ export const MainWindow: React.FC = () => {
     deleteConversation,
   } = useConversationStore();
   const { agents, selectedAgentId, loadAgents, selectAgent } = useAgentStore();
+  const { interactiveMode, enableInteractiveMode, disableInteractiveMode } = useMicStore();
+  const toggleInteractiveMode = () => interactiveMode ? disableInteractiveMode() : enableInteractiveMode();
 
   const [characterWindowOpen, setCharacterWindowOpen] = useState(false);
 
@@ -197,6 +202,17 @@ export const MainWindow: React.FC = () => {
         >
           <FaceIcon fontSize="small" />
         </IconButton>
+        <Tooltip title={interactiveMode ? 'Exit interactive mode' : 'Interactive mode'}>
+          <IconButton
+            onClick={toggleInteractiveMode}
+            size="small"
+            sx={{
+              color: interactiveMode ? 'error.main' : 'inherit',
+            }}
+          >
+            {interactiveMode ? <PhoneDisabledIcon fontSize="small" /> : <PhoneIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
         <IconButton
           onClick={() => setCurrentPage(currentPage === 'settings' ? 'chat' : 'settings')}
           size="small"

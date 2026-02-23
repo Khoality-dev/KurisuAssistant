@@ -34,10 +34,11 @@ import { apiClient } from '../api/client';
 import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, ConnectedEvent } from '../api/websocket';
 import { storage } from '../utils/storage';
 import { useTTS } from '../hooks/useTTS';
-import { useASR } from '../hooks/useASR';
+import { useMicStore } from '../store/micStore';
 import { useVisionStore } from '../store/visionStore';
 import type { AmplitudeState } from '../videocall/CharacterRenderer';
 import type { PoseTree } from '../videocall/types';
+import { InteractiveCallBar } from './InteractiveCallBar';
 import { MessageBubble } from './MessageBubble';
 import { FrameSeparator } from './FrameSeparator';
 import type { Message } from '../api/types';
@@ -102,20 +103,22 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   const ttsBufferRef = useRef('');
   const ttsVoiceRef = useRef<string | undefined>(undefined);
 
-  // ASR (voice input)
+  // Mic (ASR + interactive mode)
   const {
-    startListening, stopListening, status: asrStatus, transcript: asrTranscript,
+    status: asrStatus, result: asrResult,
     devices: asrDevices, loadDevices: loadAsrDevices, selectedDeviceId: asrDeviceId, selectDevice: selectAsrDevice,
-  } = useASR();
+    startListening, stopListening,
+    interactiveMode, enableInteractiveMode, disableInteractiveMode,
+    interactionActive, activateInteraction, deactivateInteraction,
+  } = useMicStore();
   const [micMenuAnchor, setMicMenuAnchor] = useState<HTMLElement | null>(null);
-
-  // Voice interaction mode
   const storeAgents = useAgentStore(state => state.agents);
-  const [isInteractionMode, setIsInteractionMode] = useState(false);
   const interactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingAutoSendRef = useRef<string | null>(null);
   const ttsPlayedForResponseRef = useRef(false);
   const INTERACTION_IDLE_MS = 30_000;
+  const [lastTranscript, setLastTranscript] = useState('');
+  const lastTranscriptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Vision (camera toggle)
   const {
@@ -269,62 +272,56 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     return () => window.removeEventListener('character-config-saved', handler);
   }, [agentMap, fetchAgentForPanel]);
 
-  // ASR transcript handling — interaction mode or plain insertion
+  // ASR transcript handling — branches on interactive mode + interaction active
   useEffect(() => {
-    if (!asrTranscript) return;
+    if (!asrResult) return;
+    const asrTranscript = asrResult.text;
+    const state = useMicStore.getState();
 
     const selectedAgent = storeAgents.find(a => a.id === agentId);
     const triggerWord = selectedAgent?.trigger_word?.trim();
+    const hasTrigger = triggerWord && asrTranscript.toLowerCase().includes(triggerWord.toLowerCase());
 
-    if (!isInteractionMode) {
-      // Check if transcript contains the trigger word (case-insensitive)
-      if (triggerWord && asrTranscript.toLowerCase().includes(triggerWord.toLowerCase())) {
-        // Enter interaction mode, auto-send full transcript
-        setIsInteractionMode(true);
-        // Clear any existing timer
-        if (interactionTimerRef.current) {
-          clearTimeout(interactionTimerRef.current);
-          interactionTimerRef.current = null;
+    if (state.interactiveMode) {
+      // Interactive mode — always show transcript visually
+      setLastTranscript(asrTranscript);
+      if (lastTranscriptTimerRef.current) clearTimeout(lastTranscriptTimerRef.current);
+      lastTranscriptTimerRef.current = setTimeout(() => setLastTranscript(''), 3000);
+
+      if (state.interactionActive || hasTrigger) {
+        // Interaction active (or trigger word detected) → auto-send
+        if (!state.interactionActive) activateInteraction();
+
+        if (isStreamingRef.current) {
+          pendingAutoSendRef.current = asrTranscript;
+        } else {
+          if (interactionTimerRef.current) {
+            clearTimeout(interactionTimerRef.current);
+            interactionTimerRef.current = null;
+          }
+          ttsPlayedForResponseRef.current = false;
+          handleSendText(asrTranscript);
         }
-        ttsPlayedForResponseRef.current = false;
-        handleSendText(asrTranscript);
-      } else {
-        // No trigger word match — ignore transcript
-        return;
       }
+      // If not active and no trigger word → transcript shown but not sent
     } else {
-      // In interaction mode: auto-send
-      if (isStreamingRef.current) {
-        // Store for sending after streaming finishes
-        pendingAutoSendRef.current = asrTranscript;
-      } else {
-        // Reset timer on each send
-        if (interactionTimerRef.current) {
-          clearTimeout(interactionTimerRef.current);
-          interactionTimerRef.current = null;
-        }
+      // Typing mode: put text in input field (dictation)
+      setInput(asrTranscript);
+
+      // Check trigger word → enable interactive mode + activate interaction + auto-send
+      if (hasTrigger) {
+        enableInteractiveMode();
+        activateInteraction();
         ttsPlayedForResponseRef.current = false;
-        handleSendText(asrTranscript);
+        handleSendText(asrTranscript).finally(() => setInput(''));
       }
     }
-  }, [asrTranscript]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [asrResult]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Exit interaction mode when mic is turned off
+  // Disable interactive mode when agent or conversation changes
   useEffect(() => {
-    if (asrStatus === 'idle' && isInteractionMode) {
-      setIsInteractionMode(false);
-      if (interactionTimerRef.current) {
-        clearTimeout(interactionTimerRef.current);
-        interactionTimerRef.current = null;
-      }
-      pendingAutoSendRef.current = null;
-    }
-  }, [asrStatus, isInteractionMode]);
-
-  // Exit interaction mode when agent or conversation changes
-  useEffect(() => {
-    if (isInteractionMode) {
-      setIsInteractionMode(false);
+    if (useMicStore.getState().interactiveMode) {
+      disableInteractiveMode();
       if (interactionTimerRef.current) {
         clearTimeout(interactionTimerRef.current);
         interactionTimerRef.current = null;
@@ -333,17 +330,16 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     }
   }, [agentId, currentConversation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Start 30s idle timer when TTS finishes and streaming is done
+  // Start 30s idle timer when TTS finishes and streaming is done — deactivates interaction (stays in interactive mode)
   useEffect(() => {
-    if (!isInteractionMode) return;
+    if (!interactiveMode || !interactionActive) return;
     // Timer starts when: not streaming AND TTS queue not active
     if (!isStreaming && !isQueueActive) {
-      // Clear previous timer
       if (interactionTimerRef.current) {
         clearTimeout(interactionTimerRef.current);
       }
       interactionTimerRef.current = setTimeout(() => {
-        setIsInteractionMode(false);
+        deactivateInteraction();
         interactionTimerRef.current = null;
         pendingAutoSendRef.current = null;
       }, INTERACTION_IDLE_MS);
@@ -354,11 +350,11 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         interactionTimerRef.current = null;
       }
     }
-  }, [isInteractionMode, isStreaming, isQueueActive]);
+  }, [interactiveMode, interactionActive, isStreaming, isQueueActive, deactivateInteraction]);
 
   // Handle pending auto-send when streaming finishes
   useEffect(() => {
-    if (!isStreaming && pendingAutoSendRef.current && isInteractionMode) {
+    if (!isStreaming && pendingAutoSendRef.current) {
       const text = pendingAutoSendRef.current;
       pendingAutoSendRef.current = null;
       ttsPlayedForResponseRef.current = false;
@@ -366,23 +362,20 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     }
   }, [isStreaming]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Play sound effects on interaction mode transitions
-  const prevInteractionModeRef = useRef(false);
+  // Clear UI state on interactive mode transitions
   useEffect(() => {
-    if (isInteractionMode && !prevInteractionModeRef.current) {
-      new Audio('/start_effect.wav').play().catch(() => {});
-    } else if (!isInteractionMode && prevInteractionModeRef.current) {
-      new Audio('/stop_effect.wav').play().catch(() => {});
+    if (interactiveMode) {
+      setInput('');
+    } else {
+      setLastTranscript('');
     }
-    prevInteractionModeRef.current = isInteractionMode;
-  }, [isInteractionMode]);
+  }, [interactiveMode]);
 
-  // Cleanup interaction timer on unmount
+  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
-      if (interactionTimerRef.current) {
-        clearTimeout(interactionTimerRef.current);
-      }
+      if (interactionTimerRef.current) clearTimeout(interactionTimerRef.current);
+      if (lastTranscriptTimerRef.current) clearTimeout(lastTranscriptTimerRef.current);
     };
   }, []);
 
@@ -1130,179 +1123,180 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         <div ref={messagesEndRef} />
       </Box>
 
-      {/* Input area */}
-      <Paper
-        elevation={3}
-        sx={{
-          p: 2,
-          borderTop: '1px solid',
-          borderColor: 'divider',
-        }}
-      >
-        {images.length > 0 && (
-          <Box sx={{ mb: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            {images.map((img, index) => (
-              <Chip
-                key={index}
-                label={img.name}
-                onDelete={() => removeImage(index)}
-                deleteIcon={<CloseIcon />}
-                size="small"
-              />
-            ))}
-          </Box>
-        )}
+      {/* Bottom area: interactive call bar or typing input */}
+      {interactiveMode ? (
+        <InteractiveCallBar
+          asrStatus={asrStatus}
+          interactionActive={interactionActive}
+          lastTranscript={lastTranscript}
+          isStreaming={isStreaming}
+          isTTSPlaying={isQueueActive}
+          onHangUp={disableInteractiveMode}
+        />
+      ) : (
+        <Paper
+          elevation={3}
+          sx={{
+            p: 2,
+            borderTop: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          {images.length > 0 && (
+            <Box sx={{ mb: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {images.map((img, index) => (
+                <Chip
+                  key={index}
+                  label={img.name}
+                  onDelete={() => removeImage(index)}
+                  deleteIcon={<CloseIcon />}
+                  size="small"
+                />
+              ))}
+            </Box>
+          )}
 
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            style={{ display: 'none' }}
-            onChange={handleFileSelect}
-          />
-          <IconButton
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isStreaming}
-          >
-            <AttachFileIcon />
-          </IconButton>
-
-          <Tooltip title={asrStatus === 'idle' ? 'Start voice input (right-click: select mic)' : 'Stop voice input'}>
-            <IconButton
-              onClick={handleMicToggle}
-              onContextMenu={handleMicContext}
-              disabled={isStreaming && !isInteractionMode}
-              sx={{
-                color: isInteractionMode ? 'success.main' : asrStatus === 'listening' ? 'error.main' : 'inherit',
-                animation: asrStatus === 'listening' ? 'pulse 1.5s infinite' : 'none',
-                '@keyframes pulse': {
-                  '0%': { opacity: 1 },
-                  '50%': { opacity: 0.5 },
-                  '100%': { opacity: 1 },
-                },
-              }}
-            >
-              {asrStatus === 'processing' ? (
-                <CircularProgress size={24} />
-              ) : asrStatus === 'listening' ? (
-                <MicIcon />
-              ) : (
-                <MicOffIcon />
-              )}
-            </IconButton>
-          </Tooltip>
-          {isInteractionMode && (
-            <Chip
-              label="Voice Active"
-              size="small"
-              color="success"
-              variant="outlined"
-              sx={{ height: 24, fontSize: '0.7rem' }}
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              style={{ display: 'none' }}
+              onChange={handleFileSelect}
             />
-          )}
-          <Menu
-            anchorEl={micMenuAnchor}
-            open={Boolean(micMenuAnchor)}
-            onClose={() => setMicMenuAnchor(null)}
-          >
-            {asrDevices.map((device) => (
-              <MenuItem
-                key={device.deviceId}
-                onClick={() => {
-                  selectAsrDevice(device.deviceId);
-                  setMicMenuAnchor(null);
-                }}
-                selected={device.deviceId === asrDeviceId}
-              >
-                {device.deviceId === asrDeviceId && (
-                  <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
-                )}
-                <ListItemText inset={device.deviceId !== asrDeviceId}>
-                  {device.label}
-                </ListItemText>
-              </MenuItem>
-            ))}
-            {asrDevices.length === 0 && (
-              <MenuItem disabled>No microphones found</MenuItem>
-            )}
-          </Menu>
-
-          <Tooltip title={cameraActive ? 'Stop camera (right-click: select webcam)' : 'Start camera (right-click: select webcam)'}>
             <IconButton
-              onClick={handleCameraToggle}
-              onContextMenu={handleCameraContext}
+              onClick={() => fileInputRef.current?.click()}
               disabled={isStreaming}
-              sx={{
-                color: cameraActive ? 'success.main' : 'inherit',
-                animation: cameraActive ? 'pulse 1.5s infinite' : 'none',
-              }}
             >
-              {cameraActive ? <VideocamIcon /> : <VideocamOffIcon />}
+              <AttachFileIcon />
             </IconButton>
-          </Tooltip>
-          <Menu
-            anchorEl={cameraMenuAnchor}
-            open={Boolean(cameraMenuAnchor)}
-            onClose={() => setCameraMenuAnchor(null)}
-          >
-            {cameraWebcams.map((cam) => (
-              <MenuItem
-                key={cam}
-                onClick={() => {
-                  setCameraSelectedWebcam(cam);
-                  setCameraMenuAnchor(null);
+
+            <Tooltip title={asrStatus === 'idle' ? 'Start dictation (right-click: select mic)' : 'Stop dictation'}>
+              <IconButton
+                onClick={handleMicToggle}
+                onContextMenu={handleMicContext}
+                disabled={isStreaming}
+                sx={{
+                  color: asrStatus === 'listening' ? 'error.main' : 'inherit',
                 }}
-                selected={cam === cameraSelectedWebcam}
               >
-                {cam === cameraSelectedWebcam && (
-                  <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
+                {asrStatus === 'processing' ? (
+                  <CircularProgress size={24} />
+                ) : asrStatus === 'listening' ? (
+                  <MicIcon />
+                ) : (
+                  <MicOffIcon />
                 )}
-                <ListItemText inset={cam !== cameraSelectedWebcam}>
-                  {cam}
-                </ListItemText>
-              </MenuItem>
-            ))}
-            {cameraWebcams.length === 0 && (
-              <MenuItem disabled>No webcams found</MenuItem>
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchorEl={micMenuAnchor}
+              open={Boolean(micMenuAnchor)}
+              onClose={() => setMicMenuAnchor(null)}
+            >
+              {asrDevices.map((device) => (
+                <MenuItem
+                  key={device.deviceId}
+                  onClick={() => {
+                    selectAsrDevice(device.deviceId);
+                    setMicMenuAnchor(null);
+                  }}
+                  selected={device.deviceId === asrDeviceId}
+                >
+                  {device.deviceId === asrDeviceId && (
+                    <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
+                  )}
+                  <ListItemText inset={device.deviceId !== asrDeviceId}>
+                    {device.label}
+                  </ListItemText>
+                </MenuItem>
+              ))}
+              {asrDevices.length === 0 && (
+                <MenuItem disabled>No microphones found</MenuItem>
+              )}
+            </Menu>
+
+            <Tooltip title={cameraActive ? 'Stop camera (right-click: select webcam)' : 'Start camera (right-click: select webcam)'}>
+              <IconButton
+                onClick={handleCameraToggle}
+                onContextMenu={handleCameraContext}
+                disabled={isStreaming}
+                sx={{
+                  color: cameraActive ? 'success.main' : 'inherit',
+                  animation: cameraActive ? 'pulse 1.5s infinite' : 'none',
+                  '@keyframes pulse': {
+                    '0%': { opacity: 1 },
+                    '50%': { opacity: 0.5 },
+                    '100%': { opacity: 1 },
+                  },
+                }}
+              >
+                {cameraActive ? <VideocamIcon /> : <VideocamOffIcon />}
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchorEl={cameraMenuAnchor}
+              open={Boolean(cameraMenuAnchor)}
+              onClose={() => setCameraMenuAnchor(null)}
+            >
+              {cameraWebcams.map((cam) => (
+                <MenuItem
+                  key={cam}
+                  onClick={() => {
+                    setCameraSelectedWebcam(cam);
+                    setCameraMenuAnchor(null);
+                  }}
+                  selected={cam === cameraSelectedWebcam}
+                >
+                  {cam === cameraSelectedWebcam && (
+                    <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
+                  )}
+                  <ListItemText inset={cam !== cameraSelectedWebcam}>
+                    {cam}
+                  </ListItemText>
+                </MenuItem>
+              ))}
+              {cameraWebcams.length === 0 && (
+                <MenuItem disabled>No webcams found</MenuItem>
+              )}
+            </Menu>
+
+            <TextField
+              fullWidth
+              multiline
+              maxRows={4}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Type your message..."
+              disabled={isStreaming}
+            />
+
+            {isStreaming ? (
+              <Button
+                variant="contained"
+                color="error"
+                endIcon={<StopIcon />}
+                onClick={handleCancel}
+                sx={{ minWidth: 100 }}
+              >
+                Stop
+              </Button>
+            ) : (
+              <Button
+                variant="contained"
+                endIcon={<SendIcon />}
+                onClick={handleSend}
+                disabled={!input.trim()}
+                sx={{ minWidth: 100 }}
+              >
+                Send
+              </Button>
             )}
-          </Menu>
-
-          <TextField
-            fullWidth
-            multiline
-            maxRows={4}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="Type your message..."
-            disabled={isStreaming}
-          />
-
-          {isStreaming ? (
-            <Button
-              variant="contained"
-              color="error"
-              endIcon={<StopIcon />}
-              onClick={handleCancel}
-              sx={{ minWidth: 100 }}
-            >
-              Stop
-            </Button>
-          ) : (
-            <Button
-              variant="contained"
-              endIcon={<SendIcon />}
-              onClick={handleSend}
-              disabled={!input.trim()}
-              sx={{ minWidth: 100 }}
-            >
-              Send
-            </Button>
-          )}
-        </Box>
-      </Paper>
+          </Box>
+        </Paper>
+      )}
     </Box>
   );
 };
