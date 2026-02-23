@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from core.deps import get_authenticated_user
 from db.models import User
 from tools.registry import tool_registry
-from mcp_tools.orchestrator import get_orchestrator
+from mcp_tools.orchestrator import get_user_orchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -21,14 +21,13 @@ async def list_tools(user: User = Depends(get_authenticated_user)):
     from the tool registry.
     """
     try:
-        # Get MCP tools
-        orchestrator = get_orchestrator()
+        # Get MCP tools for this user
         mcp_tools = []
-        if orchestrator:
-            try:
-                mcp_tools = await orchestrator.get_tools()
-            except Exception as e:
-                logger.warning(f"Failed to get MCP tools: {e}")
+        try:
+            orchestrator = get_user_orchestrator(user.id)
+            mcp_tools = await orchestrator.get_tools()
+        except Exception as e:
+            logger.warning(f"Failed to get MCP tools: {e}")
 
         # Get native tools with built_in flag
         native_tools = tool_registry.get_native_tool_info()

@@ -9,11 +9,10 @@ logger = logging.getLogger(__name__)
 
 
 class ToolRegistry:
-    """Central registry for all tools."""
+    """Central registry for all native tools."""
 
     def __init__(self):
         self._tools: Dict[str, BaseTool] = {}
-        self._mcp_tools: Dict[str, Dict] = {}  # MCP tool schemas
 
     def register(self, tool: BaseTool) -> None:
         """Register a tool.
@@ -45,20 +44,8 @@ class ToolRegistry:
         """
         return self._tools.get(name)
 
-    def register_mcp_tools(self, mcp_tools: List[Dict]) -> None:
-        """Register MCP tools from orchestrator.
-
-        Args:
-            mcp_tools: List of MCP tool schemas
-        """
-        for tool in mcp_tools:
-            name = tool.get("function", {}).get("name", "")
-            if name:
-                self._mcp_tools[name] = tool
-                logger.debug(f"Registered MCP tool: {name}")
-
     def get_schemas(self, tool_names: Optional[List[str]] = None) -> List[Dict]:
-        """Get Ollama-compatible schemas for tools.
+        """Get Ollama-compatible schemas for native tools.
 
         Args:
             tool_names: List of tool names to get, or None for all
@@ -72,11 +59,6 @@ class ToolRegistry:
         for name, tool in self._tools.items():
             if tool.built_in or tool_names is None or name in tool_names:
                 schemas.append(tool.get_schema())
-
-        # MCP tools filtered by tool_names
-        for name, schema in self._mcp_tools.items():
-            if tool_names is None or name in tool_names:
-                schemas.append(schema)
 
         return schemas
 
@@ -95,18 +77,7 @@ class ToolRegistry:
         Returns:
             List of tool names
         """
-        return list(self._tools.keys()) + list(self._mcp_tools.keys())
-
-    def is_mcp_tool(self, name: str) -> bool:
-        """Check if a tool is an MCP tool.
-
-        Args:
-            name: Tool name
-
-        Returns:
-            True if MCP tool
-        """
-        return name in self._mcp_tools
+        return list(self._tools.keys())
 
 
 # Global tool registry instance

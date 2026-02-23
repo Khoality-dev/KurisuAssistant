@@ -102,6 +102,26 @@ class Skill(Base):
     user = relationship("User")
 
 
+class MCPServer(Base):
+    """User-configured MCP server connection."""
+    __tablename__ = 'mcp_servers'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    name = Column(String, nullable=False)
+    transport_type = Column(String, nullable=False)  # "sse" or "stdio"
+    url = Column(String, nullable=True)
+    command = Column(String, nullable=True)
+    args = Column(JSON, nullable=True)
+    env = Column(JSON, nullable=True)
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_mcp_server_user_id_name'),)
+
+    user = relationship("User")
+
+
 class FaceIdentity(Base):
     __tablename__ = 'face_identities'
 

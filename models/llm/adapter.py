@@ -4,7 +4,7 @@ This module provides a clean interface for LLM interactions WITHOUT business log
 - NO knowledge of users, conversations, chunks, or database
 - Delegates to llm_providers for LLM API calls
 - Handles streaming with sentence chunking
-- Executes tool calls via MCP orchestrator
+- Handles streaming with sentence chunking for TTS
 """
 
 import datetime
@@ -12,7 +12,6 @@ import logging
 from typing import Optional, AsyncGenerator, Dict, List
 
 from models.llm import create_llm_provider
-from mcp_tools.orchestrator import get_orchestrator
 
 logger = logging.getLogger(__name__)
 

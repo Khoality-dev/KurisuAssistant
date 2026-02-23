@@ -21,7 +21,7 @@ db/
 ├── models.py                # SQLAlchemy ORM models
 ├── session.py               # Session management (pool: 10+20 overflow, 1hr recycle, pre-ping)
 └── repositories/            # Repository pattern with BaseRepository[T] generic CRUD
-    ├── base.py, user.py, conversation.py, frame.py, message.py, agent.py, face.py, skill.py
+    ├── base.py, user.py, conversation.py, frame.py, message.py, agent.py, face.py, skill.py, mcp_server.py, mcp_server.py
 
 models/                      # ML/inference modules (NO business logic/DB knowledge)
 ├── asr/                     # Pure ASR interface
@@ -65,12 +65,9 @@ agents/
 ├── orchestration.py         # OrchestrationSession, OrchestrationLog
 └── administrator.py         # AdministratorAgent (LLM-based router)
 
-mcp_config.json              # MCP server config (gitignored, see docs/mcp-config.md)
-
 mcp_tools/
-├── config.py                # Loads mcp_config.json
 ├── client.py                # Async list_tools()/call_tool() wrappers
-└── orchestrator.py          # Singleton orchestrator with caching
+└── orchestrator.py          # Per-user orchestrator registry with caching (UserMCPOrchestrator)
 
 media/                       # Media player module (yt-dlp audio streaming)
 ├── player.py                # MediaPlayer: per-user stateful player, yt-dlp download + base64 Opus chunk streaming
@@ -151,8 +148,7 @@ Two modes controlled by `event.agent_id` in `ChatRequestEvent`:
 - `get_music_queue`: Get current player state and queue
 - `route_to_agent`, `route_to_user`: Administrator routing tools
 
-**MCP tools** — drop-in config stubs in `mcp_tools/<tool-name>/` with `config.json` for auto-discovery. Actual servers live in separate repos/containers. Also opt-in via agent's `tools` list.
-- `web_search` (server in separate `mcp-servers` repo, config in `mcp_tools/web_search/config.json`): SerpAPI Google search (primary) + DuckDuckGo fallback. Runs as SSE container (`web-search-container:8000`). Server re-reads `.env` on every request (no restart needed after config change).
+**MCP tools** — per-user, managed via CRUD API (`/mcp-servers`). Stored in `mcp_servers` DB table. Each user has their own `UserMCPOrchestrator` with 30s tool cache. Also opt-in via agent's `tools` list. MCP tool schemas injected directly in `SimpleAgent.process()` (not via tool registry).
 
 ### Media Player (yt-dlp Audio Streaming)
 
@@ -254,6 +250,7 @@ Agent: id, user_id→User, name, system_prompt, voice_reference, avatar_uuid, mo
 FaceIdentity: id, user_id→User, name(unique per user), created_at
 FacePhoto: id, identity_id→FaceIdentity(CASCADE), embedding(vector(512)), photo_uuid, created_at
 Skill: id, user_id→User, name(unique per user), instructions(text), created_at
+MCPServer: id, user_id→User, name(unique per user), transport_type(sse|stdio), url?, command?, args(JSON)?, env(JSON)?, enabled(bool), created_at
 ```
 
 ## API Endpoints
@@ -282,7 +279,11 @@ All protected unless noted. Auth: `Authorization: Bearer <token>`.
 | POST | `/images` | Upload image → UUID |
 | GET | `/images/{uuid}` | Get image (public, 1yr cache) |
 | GET | `/tools` | List tools (MCP + built-in) |
-| GET | `/mcp-servers` | List MCP server status |
+| GET | `/mcp-servers` | List user's MCP servers |
+| POST | `/mcp-servers` | Create MCP server |
+| PATCH | `/mcp-servers/{id}` | Update MCP server |
+| DELETE | `/mcp-servers/{id}` | Delete MCP server |
+| POST | `/mcp-servers/{id}/test` | Test MCP server connectivity |
 | POST | `/tts` | Synthesize speech → WAV |
 | GET | `/tts/voices` | List voices (?provider=) |
 | GET | `/tts/backends` | List TTS backends |

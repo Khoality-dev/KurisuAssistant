@@ -6,6 +6,7 @@ from .frame import FrameRepository
 from .agent import AgentRepository
 from .face import FaceIdentityRepository, FacePhotoRepository
 from .skill import SkillRepository
+from .mcp_server import MCPServerRepository
 
 __all__ = [
     "BaseRepository",
@@ -17,4 +18,5 @@ __all__ = [
     "FaceIdentityRepository",
     "FacePhotoRepository",
     "SkillRepository",
+    "MCPServerRepository",
 ]

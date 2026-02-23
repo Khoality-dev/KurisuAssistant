@@ -161,8 +161,8 @@ class BaseAgent(ABC):
             except Exception as e:
                 logger.error(f"Tool execution failed: {e}", exc_info=True)
                 return f"Tool execution failed: {e}"
-        elif self.tool_registry.is_mcp_tool(tool_name):
-            # Execute MCP tool via orchestrator
+        elif context.user_id:
+            # Try MCP tool via per-user orchestrator
             return await self._execute_mcp_tool(tool_name, exec_args, context)
         else:
             return f"Unknown tool: {tool_name}"
@@ -184,8 +184,8 @@ class BaseAgent(ABC):
             Tool result
         """
         try:
-            from mcp_tools.orchestrator import get_orchestrator
-            orchestrator = get_orchestrator()
+            from mcp_tools.orchestrator import get_user_orchestrator
+            orchestrator = get_user_orchestrator(context.user_id)
 
             # Create a mock tool call object
             class MockToolCall:
@@ -398,6 +398,17 @@ class SimpleAgent(BaseAgent):
 
         # Get tools for this agent (only assigned tools; empty list = no tools)
         tool_schemas = self.tool_registry.get_schemas(self.config.tools if self.config.tools else [])
+
+        # Add user's MCP tools (filtered by agent's tools list)
+        if context.user_id:
+            try:
+                from mcp_tools.orchestrator import get_user_orchestrator
+                mcp_tools = await get_user_orchestrator(context.user_id).get_tools()
+                if self.config.tools:
+                    mcp_tools = [t for t in mcp_tools if t.get("function", {}).get("name") in self.config.tools]
+                tool_schemas.extend(mcp_tools)
+            except Exception as e:
+                logger.warning(f"Failed to load MCP tools for user {context.user_id}: {e}")
 
         # Determine model
         model = self.config.model_name or context.model_name
