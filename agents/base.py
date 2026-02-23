@@ -162,8 +162,8 @@ class BaseAgent(ABC):
                 logger.error(f"Tool execution failed: {e}", exc_info=True)
                 return f"Tool execution failed: {e}"
         elif context.user_id:
-            # Try MCP tool via per-user orchestrator
-            return await self._execute_mcp_tool(tool_name, exec_args, context)
+            # Try MCP tool via per-user orchestrator (use original args, not enriched exec_args)
+            return await self._execute_mcp_tool(tool_name, tool_args, context)
         else:
             return f"Unknown tool: {tool_name}"
 
