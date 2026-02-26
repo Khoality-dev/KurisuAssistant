@@ -872,7 +872,7 @@ class ChatSessionHandler:
                     voice_reference=agent.voice_reference,
                     avatar_uuid=agent.avatar_uuid,
                     model_name=agent.model_name,
-                    tools=agent.tools or [],
+                    excluded_tools=agent.excluded_tools,
                     think=agent.think,
                     memory=agent.memory,
                 )
@@ -1147,7 +1147,7 @@ class ChatSessionHandler:
                 voice_reference=agent.voice_reference,
                 avatar_uuid=agent.avatar_uuid,
                 model_name=agent.model_name,
-                tools=agent.tools or [],
+                excluded_tools=agent.excluded_tools,
                 think=agent.think,
                 memory=agent.memory,
             )

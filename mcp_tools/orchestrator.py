@@ -97,7 +97,7 @@ class UserMCPOrchestrator:
         self._tools_cache_time = 0
 
     async def get_tools(self) -> List[Dict]:
-        """Get MCP tools with caching."""
+        """Get MCP tools with caching (flat list)."""
         current_time = time.time()
 
         if current_time - self._tools_cache_time > self._cache_ttl:
@@ -113,6 +113,16 @@ class UserMCPOrchestrator:
                 self._cached_tools = []
 
         return self._cached_tools
+
+    def get_server_names(self) -> List[str]:
+        """Get enabled server names for the user."""
+        from db.session import get_session
+        from db.repositories import MCPServerRepository
+
+        with get_session() as session:
+            repo = MCPServerRepository(session)
+            servers = repo.list_enabled_by_user(self.user_id)
+            return [s.name for s in servers]
 
     async def execute_tool_calls(
         self,

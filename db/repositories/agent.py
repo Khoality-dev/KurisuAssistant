@@ -61,7 +61,7 @@ class AgentRepository(BaseRepository[Agent]):
         voice_reference: Optional[str] = None,
         avatar_uuid: Optional[str] = None,
         model_name: Optional[str] = None,
-        tools: Optional[List[str]] = None,
+        excluded_tools: Optional[List[str]] = None,
         think: bool = False,
         character_config: Optional[dict] = None,
         trigger_word: Optional[str] = None,
@@ -75,7 +75,7 @@ class AgentRepository(BaseRepository[Agent]):
             voice_reference: Voice file name for TTS
             avatar_uuid: Avatar image UUID
             model_name: LLM model override
-            tools: List of tool names
+            excluded_tools: List of tool names
 
         Returns:
             Created Agent instance
@@ -94,7 +94,7 @@ class AgentRepository(BaseRepository[Agent]):
             voice_reference=voice_reference,
             avatar_uuid=avatar_uuid,
             model_name=model_name,
-            tools=tools,
+            excluded_tools=excluded_tools,
             think=think,
             character_config=character_config,
             trigger_word=trigger_word,
@@ -108,7 +108,7 @@ class AgentRepository(BaseRepository[Agent]):
         voice_reference: Optional[str] = None,
         avatar_uuid: Optional[str] = None,
         model_name: Optional[str] = None,
-        tools: Optional[List[str]] = None,
+        excluded_tools: Optional[List[str]] = None,
         think: Optional[bool] = None,
         character_config: Optional[dict] = None,
         memory: Optional[str] = None,
@@ -123,7 +123,7 @@ class AgentRepository(BaseRepository[Agent]):
             voice_reference: New voice reference (optional)
             avatar_uuid: New avatar UUID (optional)
             model_name: New model name (optional)
-            tools: New tools list (optional)
+            excluded_tools: New excluded_tools list (optional)
 
         Returns:
             Updated Agent instance
@@ -139,8 +139,8 @@ class AgentRepository(BaseRepository[Agent]):
             update_data["avatar_uuid"] = avatar_uuid
         if model_name is not None:
             update_data["model_name"] = model_name
-        if tools is not None:
-            update_data["tools"] = tools
+        if excluded_tools is not None:
+            update_data["excluded_tools"] = excluded_tools
         if think is not None:
             update_data["think"] = think
         if character_config is not None:

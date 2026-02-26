@@ -64,7 +64,7 @@ class AgentCreate(BaseModel):
     name: str
     system_prompt: str = ""
     model_name: str  # Required - LLM model for this agent
-    tools: Optional[List[str]] = None
+    excluded_tools: Optional[List[str]] = None
     think: bool = False
     trigger_word: Optional[str] = None
 
@@ -75,7 +75,7 @@ class AgentUpdate(BaseModel):
     system_prompt: Optional[str] = None
     voice_reference: Optional[str] = None
     model_name: Optional[str] = None
-    tools: Optional[List[str]] = None
+    excluded_tools: Optional[List[str]] = None
     think: Optional[bool] = None
     memory: Optional[str] = None
     trigger_word: Optional[str] = None
@@ -89,7 +89,7 @@ class AgentResponse(BaseModel):
     voice_reference: Optional[str]
     avatar_uuid: Optional[str]
     model_name: Optional[str]
-    tools: Optional[List[str]]
+    excluded_tools: Optional[List[str]]
     think: bool
     character_config: Optional[dict] = None
     memory: Optional[str] = None
@@ -105,7 +105,7 @@ def _agent_to_response(agent) -> AgentResponse:
         voice_reference=agent.voice_reference,
         avatar_uuid=agent.avatar_uuid,
         model_name=agent.model_name,
-        tools=agent.tools,
+        excluded_tools=agent.excluded_tools,
         think=agent.think,
         character_config=getattr(agent, 'character_config', None),
         memory=agent.memory,
@@ -169,7 +169,7 @@ async def create_agent(
                 name=body.name,
                 system_prompt=body.system_prompt,
                 model_name=body.model_name,
-                tools=body.tools,
+                excluded_tools=body.excluded_tools,
                 think=body.think,
                 trigger_word=body.trigger_word,
             )
@@ -224,7 +224,7 @@ async def update_agent(
             system_prompt=body.system_prompt if agent.name != ADMINISTRATOR_NAME else None,
             voice_reference=body.voice_reference,
             model_name=body.model_name,
-            tools=body.tools if agent.name != ADMINISTRATOR_NAME else None,  # Admin uses routing tools only
+            excluded_tools=body.excluded_tools if agent.name != ADMINISTRATOR_NAME else None,  # Admin tools not configurable
             think=body.think,
             memory=body.memory,
             trigger_word=body.trigger_word,

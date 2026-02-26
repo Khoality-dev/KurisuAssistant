@@ -74,7 +74,7 @@ class Agent(Base):
     voice_reference = Column(String, nullable=True)  # Voice file name for TTS
     avatar_uuid = Column(String, nullable=True)  # Avatar image UUID
     model_name = Column(String, nullable=True)  # LLM model override
-    tools = Column(JSON, nullable=True)  # List of tool names
+    excluded_tools = Column(JSON, nullable=True)  # List of tool names to exclude
     think = Column(Boolean, default=False, nullable=False)  # Enable extended reasoning
     character_config = Column(JSON, nullable=True)  # Animation tree config for video call mode
     memory = Column(Text, nullable=True)  # Free-form persistent memory (markdown)

@@ -46,7 +46,7 @@ class AgentConfig:
     voice_reference: Optional[str] = None
     avatar_uuid: Optional[str] = None
     model_name: Optional[str] = None
-    tools: List[str] = field(default_factory=list)
+    excluded_tools: Optional[List[str]] = None
     think: bool = False
     memory: Optional[str] = None
 
@@ -109,10 +109,10 @@ class BaseAgent(ABC):
         tool = self.tool_registry.get(tool_name)
 
         # Enforce tool access: built-in tools always available,
-        # config.tools restricts non-built-in tools
-        if self.config.tools and tool_name not in self.config.tools:
+        # excluded_tools blocks specific non-built-in tools
+        if self.config.excluded_tools and tool_name in self.config.excluded_tools:
             if not (tool and tool.built_in):
-                logger.warning(f"Agent '{self.config.name}' tried to use unassigned tool: {tool_name}")
+                logger.warning(f"Agent '{self.config.name}' tried to use excluded tool: {tool_name}")
                 return f"Tool not available: {tool_name}"
 
         if require_approval and tool and tool.requires_approval:
@@ -396,16 +396,17 @@ class SimpleAgent(BaseAgent):
         # Expose prepared messages for raw_input logging
         self.last_prepared_messages = messages
 
-        # Get tools for this agent (only assigned tools; empty list = no tools)
-        tool_schemas = self.tool_registry.get_schemas(self.config.tools if self.config.tools else [])
+        # Get tools for this agent (all tools minus excluded)
+        tool_schemas = self.tool_registry.get_schemas(self.config.excluded_tools)
 
-        # Add user's MCP tools (filtered by agent's tools list)
+        # Add user's MCP tools (filtered by agent's exclusion list)
         if context.user_id:
             try:
                 from mcp_tools.orchestrator import get_user_orchestrator
                 mcp_tools = await get_user_orchestrator(context.user_id).get_tools()
-                if self.config.tools:
-                    mcp_tools = [t for t in mcp_tools if t.get("function", {}).get("name") in self.config.tools]
+                if self.config.excluded_tools:
+                    excluded = set(self.config.excluded_tools)
+                    mcp_tools = [t for t in mcp_tools if t.get("function", {}).get("name") not in excluded]
                 tool_schemas.extend(mcp_tools)
             except Exception as e:
                 logger.warning(f"Failed to load MCP tools for user {context.user_id}: {e}")

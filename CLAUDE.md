@@ -104,7 +104,7 @@ Two modes controlled by `event.agent_id` in `ChatRequestEvent`:
 
 **Agent message preparation** (`SimpleAgent._prepare_messages()`): Builds unified system prompt (agent identity + agent prompt + user prompt + preferred_name + timestamp + other agent descriptions). Filters out system/administrator messages from history.
 
-**Tool access control**: Built-in tools (`built_in = True`) are always available to all agents. `Agent.tools` JSON array controls opt-in tools (media, routing, MCP). `execute_tool()` enforces this.
+**Tool access control**: All tools available by default. Built-in tools (`built_in = True`) always available regardless. `Agent.excluded_tools` JSON array lists tools to disable for that agent. `execute_tool()` enforces exclusions.
 
 **Single WebSocket** (`/ws/chat`): All communication (chat, media, vision) flows through one WebSocket connection. No separate `/ws/media` endpoint.
 
@@ -136,19 +136,19 @@ Two modes controlled by `event.agent_id` in `ChatRequestEvent`:
 
 ### Tools
 
-**Built-in tools** (`built_in = True`) — always available to all agents, no opt-in needed. `conversation_id` and `user_id` auto-injected by `execute_tool()`:
+**Built-in tools** (`built_in = True`) — always available to all agents, cannot be excluded. `conversation_id` and `user_id` auto-injected by `execute_tool()`:
 - `search_messages`: Text/regex query with date range filtering (results include `frame_id`)
 - `get_conversation_info`: Conversation metadata
 - `get_frame_summaries`: List past session frames with summaries, timestamps, message counts
 - `get_frame_messages`: Get messages from a specific past session frame by ID
 - `get_skill_instructions`: On-demand skill lookup by name (uses `user_id`)
-**Opt-in tools** — must be added to agent's `tools` JSON array. `_handler` auto-injected:
+**Non-built-in tools** — available by default, can be excluded via agent's `excluded_tools` JSON array. `_handler` auto-injected:
 - `play_music`: Search YouTube and play/enqueue a track
 - `music_control`: Pause, resume, skip, stop playback
 - `get_music_queue`: Get current player state and queue
 - `route_to_agent`, `route_to_user`: Administrator routing tools
 
-**MCP tools** — per-user, managed via CRUD API (`/mcp-servers`). Stored in `mcp_servers` DB table. Each user has their own `UserMCPOrchestrator` with 30s tool cache. Also opt-in via agent's `tools` list. MCP tool schemas injected directly in `SimpleAgent.process()` (not via tool registry).
+**MCP tools** — per-user, managed via CRUD API (`/mcp-servers`). Stored in `mcp_servers` DB table. Each user has their own `UserMCPOrchestrator` with 30s tool cache. Excluded via agent's `excluded_tools` list. MCP tool schemas injected directly in `SimpleAgent.process()` (not via tool registry).
 
 ### Media Player (yt-dlp Audio Streaming)
 
@@ -246,7 +246,7 @@ User: id, username, password(bcrypt), system_prompt, preferred_name, user_avatar
 Conversation: id, user_id→User, title, created_at, updated_at
 Frame: id, conversation_id→Conversation, summary?, created_at, updated_at
 Message: id, role, message, thinking?, raw_input?, raw_output?, name?, frame_id→Frame, agent_id→Agent(SET NULL), created_at
-Agent: id, user_id→User, name, system_prompt, voice_reference, avatar_uuid, model_name, tools(JSON), think(bool), memory(text?), trigger_word(string?), created_at
+Agent: id, user_id→User, name, system_prompt, voice_reference, avatar_uuid, model_name, excluded_tools(JSON), think(bool), memory(text?), trigger_word(string?), created_at
 FaceIdentity: id, user_id→User, name(unique per user), created_at
 FacePhoto: id, identity_id→FaceIdentity(CASCADE), embedding(vector(512)), photo_uuid, created_at
 Skill: id, user_id→User, name(unique per user), instructions(text), created_at
