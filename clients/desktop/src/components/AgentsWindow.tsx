@@ -49,15 +49,15 @@ import { CharacterConfigDialog } from './CharacterConfigDialog';
 
 const MotionCard = motion(Card);
 
-// Internal tools that shouldn't be assignable to user agents
-const INTERNAL_TOOLS = ['route_to_agent', 'route_to_user'];
+// Internal tools that shouldn't appear in the exclusion list
+const INTERNAL_TOOLS = ['route_to_agent', 'route_to_user', 'play_music', 'music_control', 'get_music_queue'];
 
 interface AgentFormData {
   name: string;
   system_prompt: string;
   model_name: string;
   think: boolean;
-  tools: string[];
+  excluded_tools: string[];
   memory: string;
   trigger_word: string;
 }
@@ -86,7 +86,7 @@ export const AgentsWindow: React.FC = () => {
     system_prompt: '',
     model_name: '',
     think: false,
-    tools: [],
+    excluded_tools: [],
     memory: '',
     trigger_word: '',
   });
@@ -151,7 +151,7 @@ export const AgentsWindow: React.FC = () => {
         system_prompt: formData.system_prompt || undefined,
         model_name: formData.model_name,
         think: formData.think,
-        tools: formData.tools.length > 0 ? formData.tools : undefined,
+        excluded_tools: formData.excluded_tools.length > 0 ? formData.excluded_tools : undefined,
         trigger_word: formData.trigger_word.trim() || undefined,
       };
 
@@ -181,13 +181,13 @@ export const AgentsWindow: React.FC = () => {
     if (!selectedAgent) return;
 
     try {
-      const toolsChanged = JSON.stringify(formData.tools) !== JSON.stringify(selectedAgent.tools || []);
+      const toolsChanged = JSON.stringify(formData.excluded_tools) !== JSON.stringify(selectedAgent.excluded_tools || []);
       const updateData: AgentUpdate = {
         name: formData.name !== selectedAgent.name ? formData.name : undefined,
         system_prompt: formData.system_prompt !== selectedAgent.system_prompt ? formData.system_prompt : undefined,
         model_name: formData.model_name !== selectedAgent.model_name ? formData.model_name : undefined,
         think: formData.think !== selectedAgent.think ? formData.think : undefined,
-        tools: toolsChanged ? formData.tools : undefined,
+        excluded_tools: toolsChanged ? formData.excluded_tools : undefined,
         memory: formData.memory !== (selectedAgent.memory || '') ? formData.memory : undefined,
         trigger_word: formData.trigger_word !== (selectedAgent.trigger_word || '') ? (formData.trigger_word.trim() || '') : undefined,
       };
@@ -240,7 +240,7 @@ export const AgentsWindow: React.FC = () => {
       system_prompt: '',
       model_name: '',
       think: false,
-      tools: [],
+      excluded_tools: [],
       memory: '',
       trigger_word: '',
     });
@@ -258,7 +258,7 @@ export const AgentsWindow: React.FC = () => {
       system_prompt: agent.system_prompt || '',
       model_name: agent.model_name || '',
       think: agent.think,
-      tools: agent.tools || [],
+      excluded_tools: agent.excluded_tools || [],
       memory: agent.memory || '',
       trigger_word: agent.trigger_word || '',
     });
@@ -315,17 +315,24 @@ export const AgentsWindow: React.FC = () => {
         }}
       >
         <Typography variant="h6">Agents</Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => {
-            resetForm();
-            setCreateDialogOpen(true);
-            loadTools();
-          }}
-        >
-          New Agent
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Tooltip title="Refresh agent list">
+            <IconButton onClick={loadAgents} disabled={loading}>
+              <RefreshIcon sx={{ animation: loading ? 'spin 1s linear infinite' : 'none', '@keyframes spin': { '0%': { transform: 'rotate(0deg)' }, '100%': { transform: 'rotate(360deg)' } } }} />
+            </IconButton>
+          </Tooltip>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => {
+              resetForm();
+              setCreateDialogOpen(true);
+              loadTools();
+            }}
+          >
+            New Agent
+          </Button>
+        </Box>
       </Paper>
 
       {/* Content */}
@@ -440,21 +447,22 @@ export const AgentsWindow: React.FC = () => {
                           <Chip label={agent.model_name} size="small" variant="outlined" />
                         )}
                       </Box>
-                      {agent.tools && agent.tools.length > 0 && (
+                      {agent.excluded_tools && agent.excluded_tools.length > 0 && (
                         <Box sx={{ mt: 1, display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
-                          {agent.tools.slice(0, 3).map(tool => (
+                          {agent.excluded_tools.slice(0, 3).map(tool => (
                             <Chip
                               key={tool}
                               icon={<ExtensionIcon />}
                               label={tool}
                               size="small"
                               variant="outlined"
-                              color="primary"
+                              color="default"
+                              sx={{ textDecoration: 'line-through', opacity: 0.7 }}
                             />
                           ))}
-                          {agent.tools.length > 3 && (
+                          {agent.excluded_tools.length > 3 && (
                             <Chip
-                              label={`+${agent.tools.length - 3} more`}
+                              label={`+${agent.excluded_tools.length - 3} more`}
                               size="small"
                               variant="outlined"
                             />
@@ -599,8 +607,8 @@ export const AgentsWindow: React.FC = () => {
             <Autocomplete
               multiple
               options={availableTools.map(t => t.function.name)}
-              value={formData.tools}
-              onChange={(_, newValue) => setFormData({ ...formData, tools: newValue })}
+              value={formData.excluded_tools}
+              onChange={(_, newValue) => setFormData({ ...formData, excluded_tools: newValue })}
               disableCloseOnSelect
               renderOption={(props, option, { selected }) => {
                 const tool = availableTools.find(t => t.function.name === option);
@@ -626,7 +634,7 @@ export const AgentsWindow: React.FC = () => {
                 ))
               }
               renderInput={(params) => (
-                <TextField {...params} label="Tools" placeholder="Select tools..." helperText="Tools this agent can use" />
+                <TextField {...params} label="Disabled Tools" placeholder="Select tools to disable..." helperText="Tools to disable for this agent (all tools enabled by default)" />
               )}
             />
 
@@ -833,8 +841,8 @@ export const AgentsWindow: React.FC = () => {
             <Autocomplete
               multiple
               options={availableTools.map(t => t.function.name)}
-              value={formData.tools}
-              onChange={(_, newValue) => setFormData({ ...formData, tools: newValue })}
+              value={formData.excluded_tools}
+              onChange={(_, newValue) => setFormData({ ...formData, excluded_tools: newValue })}
               disableCloseOnSelect
               renderOption={(props, option, { selected }) => {
                 const tool = availableTools.find(t => t.function.name === option);
@@ -860,7 +868,7 @@ export const AgentsWindow: React.FC = () => {
                 ))
               }
               renderInput={(params) => (
-                <TextField {...params} label="Tools" placeholder="Select tools..." helperText="Tools this agent can use" />
+                <TextField {...params} label="Disabled Tools" placeholder="Select tools to disable..." helperText="Tools to disable for this agent (all tools enabled by default)" />
               )}
             />
 

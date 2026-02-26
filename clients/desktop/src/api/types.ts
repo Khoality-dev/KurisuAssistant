@@ -97,7 +97,7 @@ export interface Agent {
   voice_reference: string | null;
   avatar_uuid: string | null;
   model_name: string | null;
-  tools: string[] | null;
+  excluded_tools: string[] | null;
   think: boolean;
   character_config: CharacterConfigDTO | null;
   memory: string | null;
@@ -136,7 +136,7 @@ export interface AgentCreate {
   name: string;
   system_prompt?: string;
   model_name: string;  // Required - LLM model for this agent
-  tools?: string[];
+  excluded_tools?: string[];
   think?: boolean;
   trigger_word?: string;
 }
@@ -146,7 +146,7 @@ export interface AgentUpdate {
   system_prompt?: string;
   voice_reference?: string;
   model_name?: string;
-  tools?: string[];
+  excluded_tools?: string[];
   think?: boolean;
   memory?: string;
   trigger_word?: string;
@@ -206,6 +206,7 @@ export interface Tool {
 export interface ToolsResponse {
   mcp_tools: Tool[];
   builtin_tools: Tool[];
+  mcp_servers?: Record<string, Tool[]>;
 }
 
 // Skill types

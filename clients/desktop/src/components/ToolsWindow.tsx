@@ -66,7 +66,7 @@ function TabPanel(props: TabPanelProps) {
 export const ToolsWindow: React.FC = () => {
   const [currentTab, setCurrentTab] = useState(0);
   const [mcpServers, setMcpServers] = useState<MCPServer[]>([]);
-  const [tools, setTools] = useState<{ mcp: Tool[], builtin: Tool[] }>({ mcp: [], builtin: [] });
+  const [tools, setTools] = useState<{ mcp: Tool[], builtin: Tool[], mcpServers: Record<string, Tool[]> }>({ mcp: [], builtin: [], mcpServers: {} });
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -107,7 +107,7 @@ export const ToolsWindow: React.FC = () => {
         apiClient.listSkills(),
       ]);
       setMcpServers(serversRes);
-      setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools });
+      setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools, mcpServers: toolsRes.mcp_servers || {} });
       setSkills(skillsRes);
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to load data');
@@ -188,7 +188,7 @@ export const ToolsWindow: React.FC = () => {
         apiClient.listTools(),
       ]);
       setMcpServers(serversRes);
-      setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools });
+      setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools, mcpServers: toolsRes.mcp_servers || {} });
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to save MCP server');
     } finally {
@@ -201,7 +201,7 @@ export const ToolsWindow: React.FC = () => {
       await apiClient.deleteMCPServer(server.id);
       setMcpServers(prev => prev.filter(s => s.id !== server.id));
       const toolsRes = await apiClient.listTools();
-      setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools });
+      setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools, mcpServers: toolsRes.mcp_servers || {} });
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to delete MCP server');
     }
@@ -214,7 +214,7 @@ export const ToolsWindow: React.FC = () => {
         prev.map(s => s.id === server.id ? { ...s, enabled: !s.enabled } : s)
       );
       const toolsRes = await apiClient.listTools();
-      setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools });
+      setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools, mcpServers: toolsRes.mcp_servers || {} });
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to toggle MCP server');
     }
@@ -520,101 +520,168 @@ export const ToolsWindow: React.FC = () => {
                   </Typography>
                 </Paper>
               ) : (
-                <Grid container spacing={3} sx={{ maxWidth: 1200, mx: 'auto' }}>
-                  <AnimatePresence>
-                    {/* MCP Tools */}
-                    {tools.mcp.map((tool, index) => (
-                      <Grid item xs={12} sm={6} md={4} key={`mcp-${tool.function.name}`}>
-                        <MotionCard
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -20 }}
-                          transition={{ duration: 0.3, delay: index * 0.05 }}
-                          onClick={() => handleToolClick(tool)}
-                          sx={{
-                            cursor: 'pointer',
-                            border: '1px solid',
-                            borderColor: 'divider',
-                            '&:hover': {
-                              boxShadow: 3,
-                              transform: 'translateY(-2px)',
-                            },
-                            transition: 'box-shadow 0.2s, transform 0.2s',
-                          }}
-                        >
-                          <CardContent>
-                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                                {tool.function.name}
-                              </Typography>
-                              <Chip label="MCP" size="small" color="primary" variant="outlined" />
-                            </Box>
-                            <Typography
-                              variant="body2"
-                              color="text.secondary"
-                              sx={{
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                display: '-webkit-box',
-                                WebkitLineClamp: 3,
-                                WebkitBoxOrient: 'vertical',
-                                minHeight: 60,
-                              }}
-                            >
-                              {tool.function.description || 'No description available'}
-                            </Typography>
-                          </CardContent>
-                        </MotionCard>
+                <Box sx={{ maxWidth: 1200, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {/* MCP Server groups (grouped view) */}
+                  {Object.keys(tools.mcpServers).length > 0 ? (
+                    Object.entries(tools.mcpServers).map(([serverName, serverTools]) => (
+                      serverTools.length > 0 && (
+                        <Box key={serverName}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                            <DnsIcon fontSize="small" color="primary" />
+                            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{serverName}</Typography>
+                            <Chip label={`${serverTools.length} tools`} size="small" variant="outlined" />
+                          </Box>
+                          <Grid container spacing={2}>
+                            <AnimatePresence>
+                              {serverTools.map((tool, index) => (
+                                <Grid item xs={12} sm={6} md={4} key={tool.function.name}>
+                                  <MotionCard
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -20 }}
+                                    transition={{ duration: 0.3, delay: index * 0.05 }}
+                                    onClick={() => handleToolClick(tool)}
+                                    sx={{
+                                      cursor: 'pointer',
+                                      border: '1px solid',
+                                      borderColor: 'divider',
+                                      '&:hover': { boxShadow: 3, transform: 'translateY(-2px)' },
+                                      transition: 'box-shadow 0.2s, transform 0.2s',
+                                    }}
+                                  >
+                                    <CardContent>
+                                      <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+                                        {tool.function.name}
+                                      </Typography>
+                                      <Typography
+                                        variant="body2"
+                                        color="text.secondary"
+                                        sx={{
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          display: '-webkit-box',
+                                          WebkitLineClamp: 3,
+                                          WebkitBoxOrient: 'vertical',
+                                          minHeight: 60,
+                                        }}
+                                      >
+                                        {tool.function.description || 'No description available'}
+                                      </Typography>
+                                    </CardContent>
+                                  </MotionCard>
+                                </Grid>
+                              ))}
+                            </AnimatePresence>
+                          </Grid>
+                        </Box>
+                      )
+                    ))
+                  ) : tools.mcp.length > 0 && (
+                    /* Fallback: flat MCP list when grouped data unavailable */
+                    <Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                        <DnsIcon fontSize="small" color="primary" />
+                        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>MCP Tools</Typography>
+                        <Chip label={`${tools.mcp.length} tools`} size="small" variant="outlined" />
+                      </Box>
+                      <Grid container spacing={2}>
+                        <AnimatePresence>
+                          {tools.mcp.map((tool, index) => (
+                            <Grid item xs={12} sm={6} md={4} key={tool.function.name}>
+                              <MotionCard
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                                transition={{ duration: 0.3, delay: index * 0.05 }}
+                                onClick={() => handleToolClick(tool)}
+                                sx={{
+                                  cursor: 'pointer',
+                                  border: '1px solid',
+                                  borderColor: 'divider',
+                                  '&:hover': { boxShadow: 3, transform: 'translateY(-2px)' },
+                                  transition: 'box-shadow 0.2s, transform 0.2s',
+                                }}
+                              >
+                                <CardContent>
+                                  <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+                                    {tool.function.name}
+                                  </Typography>
+                                  <Typography
+                                    variant="body2"
+                                    color="text.secondary"
+                                    sx={{
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      display: '-webkit-box',
+                                      WebkitLineClamp: 3,
+                                      WebkitBoxOrient: 'vertical',
+                                      minHeight: 60,
+                                    }}
+                                  >
+                                    {tool.function.description || 'No description available'}
+                                  </Typography>
+                                </CardContent>
+                              </MotionCard>
+                            </Grid>
+                          ))}
+                        </AnimatePresence>
                       </Grid>
-                    ))}
+                    </Box>
+                  )}
 
-                    {/* Built-in Tools */}
-                    {tools.builtin.map((tool, index) => (
-                      <Grid item xs={12} sm={6} md={4} key={`builtin-${tool.function.name}`}>
-                        <MotionCard
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -20 }}
-                          transition={{ duration: 0.3, delay: (tools.mcp.length + index) * 0.05 }}
-                          onClick={() => handleToolClick(tool)}
-                          sx={{
-                            cursor: 'pointer',
-                            border: '1px solid',
-                            borderColor: 'divider',
-                            '&:hover': {
-                              boxShadow: 3,
-                              transform: 'translateY(-2px)',
-                            },
-                            transition: 'box-shadow 0.2s, transform 0.2s',
-                          }}
-                        >
-                          <CardContent>
-                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                                {tool.function.name}
-                              </Typography>
-                              {tool.built_in && <Chip label="Built-in" size="small" color="secondary" variant="outlined" />}
-                            </Box>
-                            <Typography
-                              variant="body2"
-                              color="text.secondary"
-                              sx={{
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                display: '-webkit-box',
-                                WebkitLineClamp: 3,
-                                WebkitBoxOrient: 'vertical',
-                                minHeight: 60,
-                              }}
-                            >
-                              {tool.function.description || 'No description available'}
-                            </Typography>
-                          </CardContent>
-                        </MotionCard>
+                  {/* Built-in Tools */}
+                  {tools.builtin.length > 0 && (
+                    <Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                        <ExtensionIcon fontSize="small" color="secondary" />
+                        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Built-in</Typography>
+                        <Chip label={`${tools.builtin.length} tools`} size="small" variant="outlined" />
+                      </Box>
+                      <Grid container spacing={2}>
+                        <AnimatePresence>
+                          {tools.builtin.map((tool, index) => (
+                            <Grid item xs={12} sm={6} md={4} key={tool.function.name}>
+                              <MotionCard
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                                transition={{ duration: 0.3, delay: index * 0.05 }}
+                                onClick={() => handleToolClick(tool)}
+                                sx={{
+                                  cursor: 'pointer',
+                                  border: '1px solid',
+                                  borderColor: 'divider',
+                                  '&:hover': { boxShadow: 3, transform: 'translateY(-2px)' },
+                                  transition: 'box-shadow 0.2s, transform 0.2s',
+                                }}
+                              >
+                                <CardContent>
+                                  <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+                                    {tool.function.name}
+                                  </Typography>
+                                  <Typography
+                                    variant="body2"
+                                    color="text.secondary"
+                                    sx={{
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      display: '-webkit-box',
+                                      WebkitLineClamp: 3,
+                                      WebkitBoxOrient: 'vertical',
+                                      minHeight: 60,
+                                    }}
+                                  >
+                                    {tool.function.description || 'No description available'}
+                                  </Typography>
+                                </CardContent>
+                              </MotionCard>
+                            </Grid>
+                          ))}
+                        </AnimatePresence>
                       </Grid>
-                    ))}
-                  </AnimatePresence>
-                </Grid>
+                    </Box>
+                  )}
+                </Box>
               )}
             </TabPanel>
 
@@ -746,7 +813,12 @@ export const ToolsWindow: React.FC = () => {
                   Source
                 </Typography>
                 <Chip
-                  label={tools.mcp.some(t => t.function.name === selectedTool.function.name) ? 'MCP' : selectedTool.built_in ? 'Built-in' : 'Native'}
+                  label={(() => {
+                    const serverName = Object.entries(tools.mcpServers).find(([, serverTools]) =>
+                      serverTools.some(t => t.function.name === selectedTool.function.name)
+                    )?.[0];
+                    return serverName || (selectedTool.built_in ? 'Built-in' : 'Native');
+                  })()}
                   color={tools.mcp.some(t => t.function.name === selectedTool.function.name) ? 'primary' : 'secondary'}
                   size="small"
                 />
