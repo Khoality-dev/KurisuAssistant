@@ -133,7 +133,6 @@ class StreamChunkEvent(BaseEvent):
     conversation_id: int = 0
     frame_id: int = 0
     tool_args: Optional[Dict[str, Any]] = None  # Tool input params (for tool role messages)
-    is_replay: bool = False
 
 
 @dataclass
@@ -166,7 +165,6 @@ class DoneEvent(BaseEvent):
     type: EventType = field(default=EventType.DONE)
     conversation_id: int = 0
     frame_id: int = 0
-    is_replay: bool = False
 
 
 @dataclass

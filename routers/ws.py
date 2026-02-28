@@ -43,20 +43,13 @@ async def websocket_chat(
     # Connect
     await manager.connect(websocket, username)
 
-    # Reuse existing handler if it has state to replay (reconnect scenario)
+    # Reuse existing handler if one exists (preserves vision/media state)
     handler = manager.get_handler(user_id)
-    existing = handler is not None
-    if handler and (
-        (handler.current_task and not handler.current_task.done())
-        or handler._accumulated_messages
-        or handler._current_chunk
-    ):
-        # Reconnect: swap socket on existing handler, replay accumulated state
-        logger.info(f"WS [{username}] Reconnecting to existing handler (task={handler.current_task is not None}, accumulated={len(handler._accumulated_messages)}, chunk={handler._current_chunk is not None})")
+    if handler:
+        logger.info(f"WS [{username}] Reconnecting to existing handler")
         await handler.replace_websocket(websocket)
     else:
-        # Fresh connection: create new handler
-        logger.info(f"WS [{username}] Fresh connection (existing_handler={existing})")
+        logger.info(f"WS [{username}] Fresh connection")
         handler = ChatSessionHandler(websocket, user_id)
         manager.set_handler(user_id, handler)
 

@@ -108,7 +108,7 @@ Two modes controlled by `event.agent_id` in `ChatRequestEvent`:
 
 **Single WebSocket** (`/ws/chat`): All communication (chat, media, vision) flows through one WebSocket connection. No separate `/ws/media` endpoint.
 
-**WebSocket reconnection**: Chat handler stores `_accumulated_messages` (complete messages, not chunks) for replay. `replace_websocket()` replays accumulated + in-progress chunk or `DoneEvent` with `is_replay=True`. Client skips TTS for replayed chunks and reloads from DB immediately on replayed DoneEvent. On every connect/reconnect, server sends `ConnectedEvent` with full state snapshot (chat_active, conversation_id, media_state, vision_active/config). Client stores use this to sync: ChatWidget resumes streaming or reloads conversation, visionStore re-sends vision_start if server lost state, mediaStore syncs playback state.
+**WebSocket reconnection**: Messages are persisted to DB incrementally (each complete message saved on role boundary). No server-side replay needed. `replace_websocket()` swaps socket + cancels old heartbeat + updates media player callback. On every connect/reconnect, server sends `ConnectedEvent` with full state snapshot (chat_active, conversation_id, media_state, vision_active/config). Client loads already-persisted messages from DB on reconnect, enters streaming mode if task still active, and receives remaining chunks live. Client stores use ConnectedEvent to sync: ChatWidget loads conversation + resumes streaming, visionStore re-sends vision_start if server lost state, mediaStore syncs playback state.
 
 **Server heartbeat**: Server pings client every 30s; client responds with pong. If no pong within 10s, server closes the connection. Client auto-reconnects with exponential backoff.
 
@@ -224,9 +224,9 @@ except Exception as e:
 ```
 
 ### Streaming & Persistence
-- Chat streams JSON Lines (`application/x-ndjson`) sentence-by-sentence with `conversation_id`, `frame_id`, `message`
-- Messages grouped by role during streaming, saved to DB **after stream completes** (one row per role change)
-- User message saved to DB but NOT streamed. Final chunk: `{"done": true}`
+- Chat streams via WebSocket `StreamChunkEvent` with `conversation_id`, `frame_id`, content
+- **Incremental persistence**: Each message saved to DB immediately on role boundary (not batched at end). User message → DB, then each assistant/tool message → DB as it completes. Survives server crashes mid-turn.
+- User message saved to DB before agent processing begins. Final event: `DoneEvent`
 - Thinking blocks: streamed as `{"content": "", "thinking": "..."}`, saved to `messages.thinking` column
 
 ### Conversation & Frame Management
