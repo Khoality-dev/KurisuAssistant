@@ -62,7 +62,6 @@ export interface StreamChunkEvent extends BaseEvent {
   voice_reference: string | null;
   conversation_id: number;
   frame_id: number;
-  is_replay?: boolean;
 }
 
 export interface AgentSwitchEvent extends BaseEvent {
@@ -78,7 +77,6 @@ export interface DoneEvent extends BaseEvent {
   type: 'done';
   conversation_id: number;
   frame_id: number;
-  is_replay?: boolean;
 }
 
 export interface ErrorEvent extends BaseEvent {

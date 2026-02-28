@@ -618,8 +618,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     }
 
     // Streaming TTS auto-play: feed complete sentences to TTS queue
-    // Skip TTS for replayed chunks (reconnect scenario — content already spoken)
-    if (event.content && event.role !== 'tool' && !event.is_replay) {
+    if (event.content && event.role !== 'tool') {
       ttsVoiceRef.current = event.voice_reference || ttsVoiceRef.current;
       ttsBufferRef.current += event.content;
 
@@ -647,34 +646,15 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     // Clear thinking state
     amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
 
-    // Skip TTS flush for replayed done events
-    if (!event.is_replay) {
-      // Flush remaining TTS buffer
-      if (ttsBufferRef.current.trim()) {
-        const cleaned = stripNarration(ttsBufferRef.current);
-        if (cleaned) queueText(cleaned, ttsVoiceRef.current);
-      }
+    // Flush remaining TTS buffer
+    if (ttsBufferRef.current.trim()) {
+      const cleaned = stripNarration(ttsBufferRef.current);
+      if (cleaned) queueText(cleaned, ttsVoiceRef.current);
     }
     ttsBufferRef.current = '';
     ttsVoiceRef.current = undefined;
     // Note: don't clear activeAgentId here — TTS queue still plays after streaming ends.
     // activeAgentId is cleared when isQueueActive becomes false (see effect below).
-
-    if (event.is_replay) {
-      // Replay done: skip animation delay, just reload from DB immediately
-      cancelStreamUpdate();
-      setStreamingContent('');
-      setStreamingThinking('');
-      setIsStreaming(false);
-      if (event.conversation_id) {
-        loadConversation(event.conversation_id)
-          .then(() => setStreamingMessages([]))
-          .catch(console.error);
-      } else {
-        setStreamingMessages([]);
-      }
-      return;
-    }
 
     // Finalize last streaming message with accumulated content
     setStreamingMessages(prev => {
@@ -728,12 +708,13 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
   const handleConnected = useCallback((event: ConnectedEvent) => {
     if (event.chat_active && event.conversation_id) {
-      // Server has an active streaming task — replay will arrive naturally via stream_chunk events.
-      // Just make sure we're in streaming mode so the UI shows the typing indicator.
+      // Server has an active streaming task — enter streaming mode and load
+      // already-persisted messages (user msg + any completed agent messages)
       if (!isStreamingRef.current) {
         setIsStreaming(true);
         isStreamingRef.current = true;
       }
+      loadConversation(event.conversation_id).catch(console.error);
     } else if (!event.chat_active && event.conversation_id) {
       // Task finished while we were disconnected — reload from DB once
       const convId = event.conversation_id;

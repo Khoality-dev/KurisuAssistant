@@ -20,8 +20,8 @@ GitHub Actions workflow (`.github/workflows/build.yml`): triggers on release cre
 ## Architecture
 
 ```
-electron/main.ts          — Multi-window Electron entry (main + character window) + auto-updater setup
-electron/preload.ts       — contextBridge API (platform + updater + characterWindow IPC bridge)
+electron/main.ts          — Multi-window Electron entry (main + character window) + auto-updater setup + extensions IPC (check-installed, launch, download-install)
+electron/preload.ts       — contextBridge API (platform + updater + characterWindow + extensions IPC bridge)
 src/api/client.ts         — Axios + WebSocket singleton; streaming + media via wsManager; migrateCharacterIds()
 src/api/types.ts          — TypeScript interfaces for API
 src/components/
@@ -31,7 +31,7 @@ src/components/
   InteractiveCallBar.tsx   — Full-height call bar replacing input area in interactive voice mode: transcript display, large mic button with pulse, status text, hang up
   MessageBubble.tsx        — Individual bubble: role styling, thinking collapse, TTS, resend/delete
   ToolsWindow.tsx          — Three tabs: MCP Servers, Available Tools, Skills (CRUD + import/export)
-  AgentsWindow.tsx         — Agent CRUD with tool assignment + character config button
+  AgentsWindow.tsx         — Agent CRUD with tool exclusion + character config button
   FacesWindow.tsx          — Face identity CRUD, webcam vision controls, live recognition display
   MediaPlayerBar.tsx       — Bottom bar: track info, play/pause/skip/stop, volume slider, slide-up animation. Visible when media playing/buffering.
   CharacterConfigDialog.tsx — React Flow graph editor: multi-pose nodes, edges with transition videos, conditions
@@ -39,6 +39,7 @@ src/components/
   EdgeEditor.tsx            — Transition edge editor: video upload, condition config (random timer)
   PoseGraphNode.tsx         — Custom React Flow node component (thumbnail + label + default chip)
   UpdateDialog.tsx          — Auto-update notification: shows download progress, "Restart Now" / "Later" on completion
+  ExtensionsWindow.tsx     — Extensions management page: Maestro companion app card with status polling (health endpoint), version detection (GitHub Releases API), install/update/launch actions via IPC
   SettingsWindow.tsx       — Account (backend) + TTS (localStorage) settings tabs
 src/hooks/
   useTTS.ts               — TTS synthesis/playback: speak(), queueText(), clearQueue(), onPlaybackStart subtitle callback, WAV duration parsing
@@ -82,6 +83,7 @@ src/config.ts             — API URL config (reads dynamically from storage)
 - Same-role chunks accumulated into single bubble; role/agent change → new bubble
 - Display via `requestAnimationFrame` batching
 - On DoneEvent: `loadConversation()` refreshes store from DB, clears streamingMessages
+- **Reconnect**: On `ConnectedEvent` with `chat_active`, loads persisted messages from DB (incremental persistence — each message saved server-side on role boundary) and enters streaming mode. No server-side replay needed.
 - Typing indicator: bouncing dots inside bubble before first chunk; "Done" checkmark after
 
 ### Streaming TTS (Always On)
