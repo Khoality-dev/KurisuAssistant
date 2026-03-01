@@ -19,8 +19,13 @@ from db import Base
 # access to the values within the .ini file in use.
 config = context.config
 
-# Set the database URL from environment variable if available
-db_url = os.getenv("DATABASE_URL", "postgresql://kurisu:kurisu@localhost:5432/kurisu")
+# Build the database URL from individual env vars (same as session.py)
+_user = os.getenv("POSTGRES_USER", "kurisu")
+_password = os.getenv("POSTGRES_PASSWORD", "kurisu")
+_host = os.getenv("POSTGRES_HOST", "localhost")
+_port = os.getenv("POSTGRES_PORT", "5432")
+_db = os.getenv("POSTGRES_DB", "kurisu")
+db_url = f"postgresql://{_user}:{_password}@{_host}:{_port}/{_db}"
 config.set_main_option("sqlalchemy.url", db_url)
 
 # Interpret the config file for Python logging.
