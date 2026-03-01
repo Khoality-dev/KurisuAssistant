@@ -101,6 +101,7 @@ export interface Agent {
   think: boolean;
   character_config: CharacterConfigDTO | null;
   memory: string | null;
+  memory_enabled: boolean;
   trigger_word: string | null;
 }
 
@@ -149,6 +150,7 @@ export interface AgentUpdate {
   excluded_tools?: string[];
   think?: boolean;
   memory?: string;
+  memory_enabled?: boolean;
   trigger_word?: string;
 }
 

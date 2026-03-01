@@ -59,6 +59,7 @@ interface AgentFormData {
   think: boolean;
   excluded_tools: string[];
   memory: string;
+  memory_enabled: boolean;
   trigger_word: string;
 }
 
@@ -88,6 +89,7 @@ export const AgentsWindow: React.FC = () => {
     think: false,
     excluded_tools: [],
     memory: '',
+    memory_enabled: true,
     trigger_word: '',
   });
 
@@ -189,6 +191,7 @@ export const AgentsWindow: React.FC = () => {
         think: formData.think !== selectedAgent.think ? formData.think : undefined,
         excluded_tools: toolsChanged ? formData.excluded_tools : undefined,
         memory: formData.memory !== (selectedAgent.memory || '') ? formData.memory : undefined,
+        memory_enabled: formData.memory_enabled !== selectedAgent.memory_enabled ? formData.memory_enabled : undefined,
         trigger_word: formData.trigger_word !== (selectedAgent.trigger_word || '') ? (formData.trigger_word.trim() || '') : undefined,
       };
 
@@ -242,6 +245,7 @@ export const AgentsWindow: React.FC = () => {
       think: false,
       excluded_tools: [],
       memory: '',
+      memory_enabled: true,
       trigger_word: '',
     });
     setAvatarFile(null);
@@ -260,6 +264,7 @@ export const AgentsWindow: React.FC = () => {
       think: agent.think,
       excluded_tools: agent.excluded_tools || [],
       memory: agent.memory || '',
+      memory_enabled: agent.memory_enabled,
       trigger_word: agent.trigger_word || '',
     });
     if (agent.avatar_uuid) {
@@ -873,17 +878,31 @@ export const AgentsWindow: React.FC = () => {
             />
 
             {/* Agent Memory */}
-            <TextField
-              label="Memory"
-              value={formData.memory}
-              onChange={(e) => setFormData({ ...formData, memory: e.target.value })}
-              multiline
-              minRows={3}
-              maxRows={10}
-              fullWidth
-              placeholder="No memories yet. Memory is automatically built from conversations."
-              helperText="Auto-updated after conversations. You can also edit manually."
-            />
+            <Box>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={formData.memory_enabled}
+                    onChange={(e) => setFormData({ ...formData, memory_enabled: e.target.checked })}
+                  />
+                }
+                label="Enable memory"
+              />
+              {formData.memory_enabled && (
+                <TextField
+                  label="Memory"
+                  value={formData.memory}
+                  onChange={(e) => setFormData({ ...formData, memory: e.target.value })}
+                  multiline
+                  minRows={3}
+                  maxRows={10}
+                  fullWidth
+                  placeholder="No memories yet. Memory is automatically built from conversations."
+                  helperText="Auto-updated after conversations. You can also edit manually."
+                  sx={{ mt: 1 }}
+                />
+              )}
+            </Box>
 
             {/* Trigger Word */}
             <TextField
