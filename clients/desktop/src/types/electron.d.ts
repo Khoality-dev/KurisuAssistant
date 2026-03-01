@@ -24,9 +24,18 @@ export interface CharacterWindowAPI {
   onCharacterReady: (cb: () => void) => () => void;
 }
 
+export interface ExtensionsAPI {
+  checkHealth: (url: string) => Promise<Record<string, any> | null>;
+  checkInstalled: (appName: string) => Promise<{ installed: boolean; path: string }>;
+  launchApp: (appName: string) => Promise<void>;
+  downloadAndInstall: (url: string) => Promise<void>;
+  onDownloadProgress: (cb: (progress: { percent: number }) => void) => () => void;
+}
+
 export interface ElectronAPI {
   platform: string;
   characterWindow: CharacterWindowAPI;
+  extensions: ExtensionsAPI;
 }
 
 declare global {

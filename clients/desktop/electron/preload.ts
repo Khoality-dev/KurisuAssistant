@@ -23,6 +23,18 @@ contextBridge.exposeInMainWorld('electron', {
     installUpdate: () => ipcRenderer.send('updater:install'),
   },
 
+  extensions: {
+    checkHealth: (url: string) => ipcRenderer.invoke('extensions:check-health', url),
+    checkInstalled: (appName: string) => ipcRenderer.invoke('extensions:check-installed', appName),
+    launchApp: (appName: string) => ipcRenderer.invoke('extensions:launch-app', appName),
+    downloadAndInstall: (url: string) => ipcRenderer.invoke('extensions:download-install', url),
+    onDownloadProgress: (cb: (progress: { percent: number }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, progress: { percent: number }) => cb(progress);
+      ipcRenderer.on('extensions:download-progress', handler);
+      return () => { ipcRenderer.removeListener('extensions:download-progress', handler); };
+    },
+  },
+
   characterWindow: {
     open: () => ipcRenderer.invoke('character:open-window'),
     close: () => ipcRenderer.invoke('character:close-window'),

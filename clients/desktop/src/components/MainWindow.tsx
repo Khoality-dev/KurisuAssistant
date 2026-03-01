@@ -18,6 +18,7 @@ import {
   Settings as SettingsIcon,
   SmartToy as AgentsIcon,
   Extension as ToolsIcon,
+  GetApp as ExtensionsIcon,
   Chat as ChatIcon,
   Face as FaceIcon,
   Refresh as RefreshIcon,
@@ -34,13 +35,14 @@ import { SettingsWindow } from './SettingsWindow';
 import { AgentsWindow } from './AgentsWindow';
 import { ToolsWindow } from './ToolsWindow';
 import { FacesWindow } from './FacesWindow';
+import { ExtensionsWindow } from './ExtensionsWindow';
 import { MediaPlayerBar } from './MediaPlayerBar';
 import { useMicStore } from '../store/micStore';
 
-type Page = 'chat' | 'settings' | 'agents' | 'tools' | 'faces';
+type Page = 'chat' | 'settings' | 'agents' | 'tools' | 'faces' | 'extensions';
 
-const TAB_TO_PAGE: Page[] = ['chat', 'agents', 'tools', 'faces'];
-const PAGE_TO_TAB: Record<string, number> = { chat: 0, agents: 1, tools: 2, faces: 3 };
+const TAB_TO_PAGE: Page[] = ['chat', 'agents', 'tools', 'faces', 'extensions'];
+const PAGE_TO_TAB: Record<string, number> = { chat: 0, agents: 1, tools: 2, faces: 3, extensions: 4 };
 
 export const MainWindow: React.FC = () => {
   const connectionStatus = useConnectionStatus();
@@ -129,6 +131,7 @@ export const MainWindow: React.FC = () => {
           <Tab icon={<AgentsIcon fontSize="small" />} label="Agents" iconPosition="start" />
           <Tab icon={<ToolsIcon fontSize="small" />} label="Tools" iconPosition="start" />
           <Tab icon={<FaceIcon fontSize="small" />} label="Faces" iconPosition="start" />
+          <Tab icon={<ExtensionsIcon fontSize="small" />} label="Extensions" iconPosition="start" />
         </Tabs>
 
         {/* Agent selector + clear conversation */}
@@ -246,6 +249,9 @@ export const MainWindow: React.FC = () => {
           </Box>
           <Box sx={{ flex: 1, display: currentPage === 'faces' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden' }}>
             <FacesWindow />
+          </Box>
+          <Box sx={{ flex: 1, display: currentPage === 'extensions' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden' }}>
+            <ExtensionsWindow />
           </Box>
           {currentPage === 'settings' && (
             <SettingsWindow onBack={() => setCurrentPage('chat')} />

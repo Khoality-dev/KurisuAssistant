@@ -1,5 +1,9 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path from 'path';
+import fs from 'fs';
+import https from 'https';
+import http from 'http';
+import { spawn } from 'child_process';
 import { autoUpdater } from 'electron-updater';
 
 // Set custom cache path to avoid permission issues on Windows
@@ -145,6 +149,95 @@ ipcMain.on('character:subtitle', (_event, data) => {
   if (characterWindow && !characterWindow.isDestroyed()) {
     characterWindow.webContents.send('character:subtitle', data);
   }
+});
+
+// --- Extensions ---
+
+function getExtensionExePath(appName: string): string {
+  const localAppData = process.env.LOCALAPPDATA || path.join(app.getPath('home'), 'AppData', 'Local');
+  if (appName === 'maestro') {
+    return path.join(localAppData, 'Programs', 'Maestro', 'Maestro.exe');
+  }
+  throw new Error(`Unknown extension: ${appName}`);
+}
+
+function downloadFile(url: string, destPath: string, onProgress: (percent: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const doRequest = (requestUrl: string, redirectCount: number) => {
+      if (redirectCount > 5) {
+        reject(new Error('Too many redirects'));
+        return;
+      }
+      const lib = requestUrl.startsWith('https') ? https : http;
+      const req = lib.get(requestUrl, { headers: { 'User-Agent': 'KurisuAssistant' } }, (res) => {
+        if (res.statusCode === 301 || res.statusCode === 302) {
+          const location = res.headers.location;
+          if (!location) { reject(new Error('Redirect without location')); return; }
+          doRequest(location, redirectCount + 1);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+        const totalBytes = parseInt(res.headers['content-length'] || '0', 10);
+        let downloadedBytes = 0;
+        const file = fs.createWriteStream(destPath);
+        res.on('data', (chunk: Buffer) => {
+          downloadedBytes += chunk.length;
+          if (totalBytes > 0) {
+            onProgress(Math.round((downloadedBytes / totalBytes) * 100));
+          }
+        });
+        res.pipe(file);
+        file.on('finish', () => file.close(() => resolve()));
+        file.on('error', (err) => { fs.unlink(destPath, () => {}); reject(err); });
+      });
+      req.on('error', reject);
+    };
+    doRequest(url, 0);
+  });
+}
+
+ipcMain.handle('extensions:check-health', (_event, url: string) => {
+  return new Promise((resolve) => {
+    const lib = url.startsWith('https') ? https : http;
+    const req = lib.get(url, { timeout: 3000 }, (res) => {
+      let data = '';
+      res.on('data', (chunk: Buffer) => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+});
+
+ipcMain.handle('extensions:check-installed', (_event, appName: string) => {
+  const exePath = getExtensionExePath(appName);
+  return { installed: fs.existsSync(exePath), path: exePath };
+});
+
+ipcMain.handle('extensions:launch-app', (_event, appName: string) => {
+  const exePath = getExtensionExePath(appName);
+  if (!fs.existsSync(exePath)) throw new Error('Application not found');
+  const child = spawn(exePath, [], { detached: true, stdio: 'ignore' });
+  child.unref();
+});
+
+ipcMain.handle('extensions:download-install', async (_event, url: string) => {
+  const tempDir = app.getPath('temp');
+  const fileName = url.split('/').pop() || 'installer.exe';
+  const destPath = path.join(tempDir, fileName);
+
+  await downloadFile(url, destPath, (percent) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('extensions:download-progress', { percent });
+    }
+  });
+
+  await shell.openPath(destPath);
 });
 
 // --- App Lifecycle ---
