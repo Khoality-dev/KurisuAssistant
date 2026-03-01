@@ -78,8 +78,8 @@ export const useMicStore = create<MicState>((set, get) => ({
 
     try {
       const vad = await MicVAD.new({
-        baseAssetPath: '/vad/',
-        onnxWASMBasePath: '/vad/',
+        baseAssetPath: './vad/',
+        onnxWASMBasePath: './vad/',
         model: 'legacy',
         startOnLoad: true,
         getStream: async () =>
