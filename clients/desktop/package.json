@@ -58,6 +58,9 @@
       "dist/**/*",
       "dist-electron/**/*"
     ],
+    "asarUnpack": [
+      "dist/vad/**/*"
+    ],
     "win": {
       "target": [
         "nsis"

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, net, protocol, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import https from 'https';
@@ -249,6 +249,21 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
 });
 
 app.whenReady().then(() => {
+  // Intercept file:// requests to serve asar-unpacked files (WASM/ONNX can't load from asar)
+  protocol.handle('file', (request) => {
+    const url = decodeURIComponent(new URL(request.url).pathname);
+    // On Windows, pathname starts with /C:/ — strip leading slash
+    const filePath = process.platform === 'win32' ? url.slice(1) : url;
+    // Redirect asar paths to asar.unpacked if the unpacked file exists
+    if (filePath.includes('app.asar')) {
+      const unpackedPath = filePath.replace('app.asar', 'app.asar.unpacked');
+      if (fs.existsSync(unpackedPath)) {
+        return net.fetch('file:///' + unpackedPath);
+      }
+    }
+    return net.fetch('file:///' + filePath);
+  });
+
   createWindow();
 
   // Auto-updater (no-op in dev mode — no update server configured)
