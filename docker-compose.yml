@@ -12,21 +12,16 @@ services:
     restart: unless-stopped
 
 
-  gpt-sovits:
-    image: legwork7623/gpt-sovits:latest 
-    container_name: gpt-sovits-container
+  index-tts:
+    image: legwork7623/index-tts:latest
+    container_name: index-tts-container
     environment:
-      - is_half=False
-      - is_share=False
+      - USE_FP16=true
+      - MODEL_DIR=/app/checkpoints
     volumes:
-      - ./data/sovits/output:/workspace/output
-      - ./data/sovits/logs:/workspace/logs
-      - ./data/sovits/weights:/workspace/SoVITS_weights
-      - ./data/voice_storage:/workspace/data/voice_storage
-    working_dir: /workspace
+      - index-tts-checkpoints:/app/checkpoints
     ports:
-      - "9880:9880"
-    shm_size: 16G
+      - "19770:19770"
     deploy:
       resources:
         reservations:
@@ -34,8 +29,6 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    stdin_open: true
-    tty: true
     restart: unless-stopped
   api:
     build:
@@ -58,7 +51,8 @@ services:
               capabilities: [gpu]
     environment:
       - LLM_API_URL=http://ollama-container:11434
-      - TTS_API_URL=http://gpt-sovits-container:9880
+      - TTS_PROVIDER=index-tts
+      - INDEX_TTS_API_URL=http://index-tts-container:19770
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_HOST=${POSTGRES_HOST}
@@ -92,3 +86,4 @@ networks:
 
 volumes:
   postgres-data:
+  index-tts-checkpoints:
