@@ -174,10 +174,10 @@ User-editable instruction blocks stored in DB, injected into every agent's syste
 
 Per-agent free-form text document (markdown), automatically consolidated from conversation history and injected into the agent's system prompt every request.
 
-- **Storage**: `Agent.memory` text column (nullable). No separate table.
-- **Injection**: Appended to system prompt in `SimpleAgent._prepare_messages()` as "Your memory:\n{memory}". Loaded from `AgentConfig.memory` (no runtime DB query).
+- **Storage**: `Agent.memory` text column (nullable). No separate table. `Agent.memory_enabled` boolean (default True) controls injection + consolidation.
+- **Injection**: Appended to system prompt in `SimpleAgent._prepare_messages()` as "Your memory:\n{memory}" only when `memory_enabled` is True. Loaded from `AgentConfig.memory` (no runtime DB query).
 - **Consolidation**: `utils/memory_consolidation.py` — fire-and-forget async task triggered on frame idle detection (same trigger as frame summarization). Reads agent's system prompt + current memory + new frame messages, calls LLM to produce updated memory. Hard limit ~4000 chars. Uses `User.summary_model` (same model as frame summarization).
-- **Trigger**: In `_run_single_agent()`, after frame summarization. Fires when `consolidation_fids` (old frame + unsummarized frames) is non-empty, `agent_id` is set, and `summary_model` is configured. Both summarization and consolidation are skipped if no summary model is set.
+- **Trigger**: In `_run_single_agent()`, after frame summarization. Fires when `consolidation_fids` (old frame + unsummarized frames) is non-empty, `agent_id` is set, `memory_enabled` is True, and `summary_model` is configured. Both summarization and consolidation are skipped if no summary model is set.
 - **Frontend**: Editable textarea in agent edit dialog (AgentsWindow.tsx). Exposed via `GET/PATCH /agents/{id}`.
 
 ### Vision Pipeline (Face Recognition + Gesture Detection)
@@ -246,7 +246,7 @@ User: id, username, password(bcrypt), system_prompt, preferred_name, user_avatar
 Conversation: id, user_id→User, title, created_at, updated_at
 Frame: id, conversation_id→Conversation, summary?, created_at, updated_at
 Message: id, role, message, thinking?, raw_input?, raw_output?, name?, frame_id→Frame, agent_id→Agent(SET NULL), created_at
-Agent: id, user_id→User, name, system_prompt, voice_reference, avatar_uuid, model_name, excluded_tools(JSON), think(bool), memory(text?), trigger_word(string?), created_at
+Agent: id, user_id→User, name, system_prompt, voice_reference, avatar_uuid, model_name, excluded_tools(JSON), think(bool), memory(text?), memory_enabled(bool, default true), trigger_word(string?), created_at
 FaceIdentity: id, user_id→User, name(unique per user), created_at
 FacePhoto: id, identity_id→FaceIdentity(CASCADE), embedding(vector(512)), photo_uuid, created_at
 Skill: id, user_id→User, name(unique per user), instructions(text), created_at

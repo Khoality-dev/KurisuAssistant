@@ -225,22 +225,6 @@ class ChatSessionHandler:
             # Setup conversation/frame
             conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids = await self._setup_conversation(event)
 
-            # Fire-and-forget summarization + memory consolidation (only if summary_model configured)
-            if summary_model:
-                from utils.frame_summary import summarize_frame
-                for fid in ([old_frame_id] if old_frame_id else []) + unsummarized_ids:
-                    asyncio.create_task(summarize_frame(fid, model_name=summary_model, api_url=ollama_url))
-
-                from utils.memory_consolidation import consolidate_agent_memory
-                consolidation_fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
-                if consolidation_fids and event.agent_id:
-                    asyncio.create_task(consolidate_agent_memory(
-                        agent_id=event.agent_id,
-                        frame_ids=consolidation_fids,
-                        model_name=summary_model,
-                        api_url=ollama_url,
-                    ))
-
             # Reset task state
             self._task_conversation_id = conversation_id
             self._task_frame_id = frame_id
@@ -250,6 +234,22 @@ class ChatSessionHandler:
             all_agents = self._load_user_agents()
             available_agents = [a for a in all_agents if a.name != ADMINISTRATOR_NAME]
             target_agent = self._get_agent_config(event.agent_id, available_agents)
+
+            # Fire-and-forget summarization + memory consolidation (only if summary_model configured)
+            if summary_model:
+                from utils.frame_summary import summarize_frame
+                for fid in ([old_frame_id] if old_frame_id else []) + unsummarized_ids:
+                    asyncio.create_task(summarize_frame(fid, model_name=summary_model, api_url=ollama_url))
+
+                from utils.memory_consolidation import consolidate_agent_memory
+                consolidation_fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
+                if consolidation_fids and event.agent_id and target_agent and target_agent.memory_enabled:
+                    asyncio.create_task(consolidate_agent_memory(
+                        agent_id=event.agent_id,
+                        frame_ids=consolidation_fids,
+                        model_name=summary_model,
+                        api_url=ollama_url,
+                    ))
 
             if not target_agent:
                 await self.send_event(ErrorEvent(
@@ -830,6 +830,7 @@ class ChatSessionHandler:
                     excluded_tools=agent.excluded_tools,
                     think=agent.think,
                     memory=agent.memory,
+                    memory_enabled=agent.memory_enabled,
                 )
                 for agent in agents
             ]
@@ -1055,6 +1056,7 @@ class ChatSessionHandler:
                 excluded_tools=agent.excluded_tools,
                 think=agent.think,
                 memory=agent.memory,
+                memory_enabled=agent.memory_enabled,
             )
 
             return BaseAgent.create_from_config(config, tool_registry)

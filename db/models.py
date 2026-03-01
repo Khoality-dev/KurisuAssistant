@@ -78,6 +78,7 @@ class Agent(Base):
     think = Column(Boolean, default=False, nullable=False)  # Enable extended reasoning
     character_config = Column(JSON, nullable=True)  # Animation tree config for video call mode
     memory = Column(Text, nullable=True)  # Free-form persistent memory (markdown)
+    memory_enabled = Column(Boolean, default=True, nullable=False)  # Enable memory injection + consolidation
     trigger_word = Column(String, nullable=True)  # Voice activation trigger word
     created_at = Column(DateTime, default=datetime.utcnow)
 

@@ -112,6 +112,7 @@ class AgentRepository(BaseRepository[Agent]):
         think: Optional[bool] = None,
         character_config: Optional[dict] = None,
         memory: Optional[str] = None,
+        memory_enabled: Optional[bool] = None,
         trigger_word: Optional[str] = None,
     ) -> Agent:
         """Update an agent.
@@ -147,6 +148,8 @@ class AgentRepository(BaseRepository[Agent]):
             update_data["character_config"] = character_config
         if memory is not None:
             update_data["memory"] = memory
+        if memory_enabled is not None:
+            update_data["memory_enabled"] = memory_enabled
         if trigger_word is not None:
             update_data["trigger_word"] = trigger_word
 

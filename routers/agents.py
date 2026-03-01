@@ -78,6 +78,7 @@ class AgentUpdate(BaseModel):
     excluded_tools: Optional[List[str]] = None
     think: Optional[bool] = None
     memory: Optional[str] = None
+    memory_enabled: Optional[bool] = None
     trigger_word: Optional[str] = None
 
 
@@ -93,6 +94,7 @@ class AgentResponse(BaseModel):
     think: bool
     character_config: Optional[dict] = None
     memory: Optional[str] = None
+    memory_enabled: bool = True
     trigger_word: Optional[str] = None
 
 
@@ -109,6 +111,7 @@ def _agent_to_response(agent) -> AgentResponse:
         think=agent.think,
         character_config=getattr(agent, 'character_config', None),
         memory=agent.memory,
+        memory_enabled=agent.memory_enabled,
         trigger_word=agent.trigger_word,
     )
 
@@ -227,6 +230,7 @@ async def update_agent(
             excluded_tools=body.excluded_tools if agent.name != ADMINISTRATOR_NAME else None,  # Admin tools not configurable
             think=body.think,
             memory=body.memory,
+            memory_enabled=body.memory_enabled,
             trigger_word=body.trigger_word,
         )
 

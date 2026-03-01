@@ -49,6 +49,7 @@ class AgentConfig:
     excluded_tools: Optional[List[str]] = None
     think: bool = False
     memory: Optional[str] = None
+    memory_enabled: bool = True
 
 
 @dataclass
@@ -316,7 +317,7 @@ class SimpleAgent(BaseAgent):
                     "If so, call get_skill_instructions to read the skill's full instructions first, then follow them."
                 )
         # Inject agent memory
-        if self.config.memory:
+        if self.config.memory_enabled and self.config.memory:
             system_parts.append("Your memory:\n" + self.config.memory)
 
         if agent_descriptions:
