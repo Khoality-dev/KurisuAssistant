@@ -251,17 +251,16 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
 app.whenReady().then(() => {
   // Intercept file:// requests to serve asar-unpacked files (WASM/ONNX can't load from asar)
   protocol.handle('file', (request) => {
-    const url = decodeURIComponent(new URL(request.url).pathname);
-    // On Windows, pathname starts with /C:/ — strip leading slash
-    const filePath = process.platform === 'win32' ? url.slice(1) : url;
-    // Redirect asar paths to asar.unpacked if the unpacked file exists
-    if (filePath.includes('app.asar')) {
-      const unpackedPath = filePath.replace('app.asar', 'app.asar.unpacked');
-      if (fs.existsSync(unpackedPath)) {
-        return net.fetch('file:///' + unpackedPath);
+    // Only rewrite paths inside app.asar that have an unpacked copy
+    if (request.url.includes('app.asar') && !request.url.includes('app.asar.unpacked')) {
+      const unpackedUrl = request.url.replace('app.asar', 'app.asar.unpacked');
+      const pathname = decodeURIComponent(new URL(unpackedUrl).pathname);
+      const filePath = process.platform === 'win32' ? pathname.slice(1) : pathname;
+      if (fs.existsSync(filePath)) {
+        return net.fetch(unpackedUrl);
       }
     }
-    return net.fetch('file:///' + filePath);
+    return net.fetch(request.url);
   });
 
   createWindow();
