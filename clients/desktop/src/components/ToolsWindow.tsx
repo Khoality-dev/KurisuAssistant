@@ -252,8 +252,23 @@ export const ToolsWindow: React.FC = () => {
   const handleTestServer = async (server: MCPServer) => {
     setTestingServerId(server.id);
     try {
-      const result = await apiClient.testMCPServer(server.id);
-      setTestResults(prev => ({ ...prev, [server.id]: result }));
+      if (server.location === 'client') {
+        if (!window.electron?.mcp) {
+          setTestResults(prev => ({ ...prev, [server.id]: { status: 'unavailable', error: 'Electron MCP not available (not running in desktop app)' } }));
+          return;
+        }
+        // Refresh client MCP servers and check if tools were discovered
+        await refreshClientMCPServers();
+        const tools = getClientTools();
+        if (tools.length > 0) {
+          setTestResults(prev => ({ ...prev, [server.id]: { status: 'available', tool_count: tools.length } }));
+        } else {
+          setTestResults(prev => ({ ...prev, [server.id]: { status: 'unavailable', error: 'No tools discovered. Check that the server is running.' } }));
+        }
+      } else {
+        const result = await apiClient.testMCPServer(server.id);
+        setTestResults(prev => ({ ...prev, [server.id]: result }));
+      }
     } catch (err: any) {
       setTestResults(prev => ({
         ...prev,
