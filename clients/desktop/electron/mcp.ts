@@ -9,6 +9,7 @@ import { ipcMain } from 'electron';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 export interface MCPServerConfig {
   name: string;
@@ -22,7 +23,7 @@ export interface MCPServerConfig {
 interface ManagedServer {
   config: MCPServerConfig;
   client: Client;
-  transport: StdioClientTransport | SSEClientTransport;
+  transport: StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport;
 }
 
 // Active server instances keyed by server name
@@ -39,7 +40,7 @@ async function startServer(config: MCPServerConfig): Promise<void> {
     { capabilities: {} },
   );
 
-  let transport: StdioClientTransport | SSEClientTransport;
+  let transport: StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport;
 
   if (config.transport_type === 'stdio' && config.command) {
     transport = new StdioClientTransport({
@@ -50,13 +51,21 @@ async function startServer(config: MCPServerConfig): Promise<void> {
         ...(config.env || {}),
       } as Record<string, string>,
     });
+    await client.connect(transport);
   } else if (config.transport_type === 'sse' && config.url) {
-    transport = new SSEClientTransport(new URL(config.url));
+    // Try Streamable HTTP first (modern MCP), fall back to legacy SSE
+    const url = new URL(config.url);
+    try {
+      transport = new StreamableHTTPClientTransport(url);
+      await client.connect(transport);
+    } catch {
+      transport = new SSEClientTransport(url);
+      await client.connect(transport);
+    }
   } else {
     throw new Error(`Invalid config for server "${config.name}": missing command or url`);
   }
 
-  await client.connect(transport);
   servers.set(config.name, { config, client, transport });
   console.log(`[MCP] Started server: ${config.name}`);
 }

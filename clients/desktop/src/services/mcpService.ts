@@ -17,6 +17,7 @@ import { wsManager, type ToolCallRequestEvent } from '../api/websocket';
 
 let initialized = false;
 let toolCallHandler: ((event: ToolCallRequestEvent) => void) | null = null;
+let clientTools: Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }> = [];
 
 /**
  * Initialize client-side MCP servers and register tools with backend.
@@ -39,6 +40,7 @@ export async function initClientMCPServers(): Promise<void> {
 
     if (clientServers.length === 0) {
       // No client servers — send empty registration to clear any stale tools
+      clientTools = [];
       wsManager.sendClientToolsRegister([]);
       setupToolCallHandler();
       initialized = true;
@@ -66,6 +68,7 @@ export async function initClientMCPServers(): Promise<void> {
 
     // Discover tools from all connected servers
     const tools = await window.electron.mcp.listTools();
+    clientTools = tools;
 
     // Register tools with backend
     wsManager.sendClientToolsRegister(tools);
@@ -155,6 +158,13 @@ function setupToolCallHandler(): void {
  */
 export function isInitialized(): boolean {
   return initialized;
+}
+
+/**
+ * Get the list of client-side tools discovered during initialization.
+ */
+export function getClientTools() {
+  return clientTools;
 }
 
 // Auto-initialize on WebSocket connect

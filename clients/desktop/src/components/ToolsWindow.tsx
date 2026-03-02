@@ -43,7 +43,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiClient } from '../api/client';
 import type { MCPServer, MCPServerTestResult, Tool, Skill } from '../api/types';
-import { refreshClientMCPServers } from '../services/mcpService';
+import { refreshClientMCPServers, getClientTools } from '../services/mcpService';
 
 const MotionCard = motion(Card);
 
@@ -101,6 +101,25 @@ export const ToolsWindow: React.FC = () => {
     loadData();
   }, []);
 
+  const applyToolsResponse = (toolsRes: { mcp_tools: Tool[]; builtin_tools: Tool[]; mcp_servers?: Record<string, Tool[]> }, servers?: MCPServer[]) => {
+    const mcpServersMap: Record<string, Tool[]> = { ...(toolsRes.mcp_servers || {}) };
+    const allMcpTools = [...toolsRes.mcp_tools];
+    const cTools = getClientTools();
+    if (cTools.length > 0) {
+      const serverList = servers || mcpServers;
+      const clientServerNames = serverList
+        .filter((s) => s.location === 'client' && s.enabled)
+        .map((s) => s.name);
+      if (clientServerNames.length === 1) {
+        mcpServersMap[clientServerNames[0]] = cTools as Tool[];
+      } else if (clientServerNames.length > 1) {
+        mcpServersMap['Client Tools'] = cTools as Tool[];
+      }
+      allMcpTools.push(...(cTools as Tool[]));
+    }
+    setTools({ mcp: allMcpTools, builtin: toolsRes.builtin_tools, mcpServers: mcpServersMap });
+  };
+
   const loadData = async () => {
     setLoading(true);
     setError('');
@@ -111,7 +130,7 @@ export const ToolsWindow: React.FC = () => {
         apiClient.listSkills(),
       ]);
       setMcpServers(serversRes);
-      setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools, mcpServers: toolsRes.mcp_servers || {} });
+      applyToolsResponse(toolsRes, serversRes);
       setSkills(skillsRes);
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to load data');
@@ -191,14 +210,12 @@ export const ToolsWindow: React.FC = () => {
         });
       }
       setMcpDialogOpen(false);
-      const [serversRes, toolsRes] = await Promise.all([
-        apiClient.listMCPServers(),
-        apiClient.listTools(),
-      ]);
+      const serversRes = await apiClient.listMCPServers();
       setMcpServers(serversRes);
-      setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools, mcpServers: toolsRes.mcp_servers || {} });
-      // Refresh client-side MCP servers if any client server was modified
-      refreshClientMCPServers();
+      // Refresh client-side MCP servers so getClientTools() is up to date
+      await refreshClientMCPServers();
+      const toolsRes = await apiClient.listTools();
+      applyToolsResponse(toolsRes, serversRes);
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to save MCP server');
     } finally {
@@ -210,9 +227,9 @@ export const ToolsWindow: React.FC = () => {
     try {
       await apiClient.deleteMCPServer(server.id);
       setMcpServers(prev => prev.filter(s => s.id !== server.id));
+      if (server.location === 'client') await refreshClientMCPServers();
       const toolsRes = await apiClient.listTools();
-      setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools, mcpServers: toolsRes.mcp_servers || {} });
-      if (server.location === 'client') refreshClientMCPServers();
+      applyToolsResponse(toolsRes);
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to delete MCP server');
     }
@@ -224,9 +241,9 @@ export const ToolsWindow: React.FC = () => {
       setMcpServers(prev =>
         prev.map(s => s.id === server.id ? { ...s, enabled: !s.enabled } : s)
       );
+      if (server.location === 'client') await refreshClientMCPServers();
       const toolsRes = await apiClient.listTools();
-      setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools, mcpServers: toolsRes.mcp_servers || {} });
-      if (server.location === 'client') refreshClientMCPServers();
+      applyToolsResponse(toolsRes);
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to toggle MCP server');
     }
