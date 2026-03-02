@@ -35,6 +35,15 @@ contextBridge.exposeInMainWorld('electron', {
     },
   },
 
+  mcp: {
+    startServers: (configs: Array<{ name: string; transport_type: string; url?: string; command?: string; args?: string[]; env?: Record<string, string> }>) =>
+      ipcRenderer.invoke('mcp:start-servers', configs),
+    stopServers: () => ipcRenderer.invoke('mcp:stop-servers'),
+    listTools: () => ipcRenderer.invoke('mcp:list-tools'),
+    callTool: (toolName: string, args: Record<string, unknown>) =>
+      ipcRenderer.invoke('mcp:call-tool', toolName, args),
+  },
+
   characterWindow: {
     open: () => ipcRenderer.invoke('character:open-window'),
     close: () => ipcRenderer.invoke('character:close-window'),

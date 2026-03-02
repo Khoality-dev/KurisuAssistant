@@ -24,6 +24,22 @@ export interface CharacterWindowAPI {
   onCharacterReady: (cb: () => void) => () => void;
 }
 
+export interface MCPServerConfig {
+  name: string;
+  transport_type: string;
+  url?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+export interface MCPAPI {
+  startServers: (configs: MCPServerConfig[]) => Promise<Array<{ name: string; ok: boolean; error?: string }>>;
+  stopServers: () => Promise<void>;
+  listTools: () => Promise<Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }>>;
+  callTool: (toolName: string, args: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
+}
+
 export interface ExtensionsAPI {
   checkHealth: (url: string) => Promise<Record<string, any> | null>;
   checkInstalled: (appName: string) => Promise<{ installed: boolean; path: string }>;
@@ -34,6 +50,7 @@ export interface ExtensionsAPI {
 
 export interface ElectronAPI {
   platform: string;
+  mcp: MCPAPI;
   characterWindow: CharacterWindowAPI;
   extensions: ExtensionsAPI;
 }

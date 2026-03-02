@@ -7,6 +7,9 @@ import { LoginWindow } from './components/LoginWindow';
 import { MainWindow } from './components/MainWindow';
 import { UpdateDialog } from './components/UpdateDialog';
 
+// Side-effect import: registers WebSocket listener for client-side MCP servers
+import './services/mcpService';
+
 const MainApp: React.FC = () => {
   const [initializing, setInitializing] = useState(true);
   const { isAuthenticated, initializeAuth } = useAuthStore();

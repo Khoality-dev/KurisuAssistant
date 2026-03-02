@@ -37,10 +37,13 @@ import {
   FileUpload as ImportIcon,
   FileDownload as ExportIcon,
   PlayArrow as TestIcon,
+  Computer as ComputerIcon,
+  Cloud as CloudIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiClient } from '../api/client';
 import type { MCPServer, MCPServerTestResult, Tool, Skill } from '../api/types';
+import { refreshClientMCPServers } from '../services/mcpService';
 
 const MotionCard = motion(Card);
 
@@ -82,6 +85,7 @@ export const ToolsWindow: React.FC = () => {
   const [serverCommand, setServerCommand] = useState('');
   const [serverArgs, setServerArgs] = useState('');
   const [serverEnv, setServerEnv] = useState('');
+  const [serverLocation, setServerLocation] = useState<'server' | 'client'>('server');
   const [serverSaving, setServerSaving] = useState(false);
   const [testingServerId, setTestingServerId] = useState<number | null>(null);
   const [testResults, setTestResults] = useState<Record<number, MCPServerTestResult>>({});
@@ -131,6 +135,7 @@ export const ToolsWindow: React.FC = () => {
     setServerCommand('');
     setServerArgs('');
     setServerEnv('');
+    setServerLocation('server');
     setMcpDialogOpen(true);
   };
 
@@ -146,6 +151,7 @@ export const ToolsWindow: React.FC = () => {
         ? Object.entries(server.env).map(([k, v]) => `${k}=${v}`).join('\n')
         : ''
     );
+    setServerLocation(server.location || 'server');
     setMcpDialogOpen(true);
   };
 
@@ -171,6 +177,7 @@ export const ToolsWindow: React.FC = () => {
           command: serverTransportType === 'stdio' ? serverCommand : undefined,
           args: serverTransportType === 'stdio' ? args : undefined,
           env,
+          location: serverLocation,
         });
       } else {
         await apiClient.createMCPServer({
@@ -180,6 +187,7 @@ export const ToolsWindow: React.FC = () => {
           command: serverTransportType === 'stdio' ? serverCommand : undefined,
           args: serverTransportType === 'stdio' ? args : undefined,
           env,
+          location: serverLocation,
         });
       }
       setMcpDialogOpen(false);
@@ -189,6 +197,8 @@ export const ToolsWindow: React.FC = () => {
       ]);
       setMcpServers(serversRes);
       setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools, mcpServers: toolsRes.mcp_servers || {} });
+      // Refresh client-side MCP servers if any client server was modified
+      refreshClientMCPServers();
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to save MCP server');
     } finally {
@@ -202,6 +212,7 @@ export const ToolsWindow: React.FC = () => {
       setMcpServers(prev => prev.filter(s => s.id !== server.id));
       const toolsRes = await apiClient.listTools();
       setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools, mcpServers: toolsRes.mcp_servers || {} });
+      if (server.location === 'client') refreshClientMCPServers();
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to delete MCP server');
     }
@@ -215,6 +226,7 @@ export const ToolsWindow: React.FC = () => {
       );
       const toolsRes = await apiClient.listTools();
       setTools({ mcp: toolsRes.mcp_tools, builtin: toolsRes.builtin_tools, mcpServers: toolsRes.mcp_servers || {} });
+      if (server.location === 'client') refreshClientMCPServers();
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to toggle MCP server');
     }
@@ -434,6 +446,13 @@ export const ToolsWindow: React.FC = () => {
                                     size="small"
                                     variant="outlined"
                                     color={server.transport_type === 'sse' ? 'primary' : 'secondary'}
+                                  />
+                                  <Chip
+                                    icon={server.location === 'client' ? <ComputerIcon /> : <CloudIcon />}
+                                    label={server.location === 'client' ? 'Internal' : 'External'}
+                                    size="small"
+                                    variant="outlined"
+                                    color={server.location === 'client' ? 'warning' : 'default'}
                                   />
                                   {testResults[server.id] && (
                                     <Chip
@@ -891,6 +910,27 @@ export const ToolsWindow: React.FC = () => {
               >
                 <MenuItem value="sse">SSE (Server-Sent Events)</MenuItem>
                 <MenuItem value="stdio">Stdio (Local Process)</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl fullWidth>
+              <InputLabel>Location</InputLabel>
+              <Select
+                value={serverLocation}
+                label="Location"
+                onChange={(e) => setServerLocation(e.target.value as 'server' | 'client')}
+              >
+                <MenuItem value="server">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CloudIcon fontSize="small" />
+                    External (Server)
+                  </Box>
+                </MenuItem>
+                <MenuItem value="client">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <ComputerIcon fontSize="small" />
+                    Internal (This Computer)
+                  </Box>
+                </MenuItem>
               </Select>
             </FormControl>
             {serverTransportType === 'sse' ? (

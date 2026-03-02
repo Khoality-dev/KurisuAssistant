@@ -6,7 +6,7 @@ KurisuAssistant-Client-Windows — desktop client for the KurisuAssistant AI pla
 
 ## Tech Stack
 
-React 18, Electron 28, MUI v5, Framer Motion, Zustand, Axios, Vite, react-markdown, electron-updater, TypeScript (strict mode)
+React 18, Electron 28, MUI v5, Framer Motion, Zustand, Axios, Vite, react-markdown, electron-updater, @modelcontextprotocol/sdk, TypeScript (strict mode)
 
 ## Commands
 
@@ -20,8 +20,9 @@ GitHub Actions workflow (`.github/workflows/build.yml`): triggers on release cre
 ## Architecture
 
 ```
-electron/main.ts          — Multi-window Electron entry (main + character window) + auto-updater setup + extensions IPC (check-installed, launch, download-install)
-electron/preload.ts       — contextBridge API (platform + updater + characterWindow + extensions IPC bridge)
+electron/main.ts          — Multi-window Electron entry (main + character window) + auto-updater setup + extensions IPC + MCP handler registration/cleanup
+electron/mcp.ts           — Client-side MCP server manager: start/stop stdio/SSE servers via @modelcontextprotocol/sdk, aggregate tool discovery, tool execution. IPC handlers: mcp:start-servers, mcp:stop-servers, mcp:list-tools, mcp:call-tool
+electron/preload.ts       — contextBridge API (platform + updater + characterWindow + extensions + mcp IPC bridge)
 src/api/client.ts         — Axios + WebSocket singleton; streaming + media via wsManager; migrateCharacterIds()
 src/api/types.ts          — TypeScript interfaces for API
 src/components/
@@ -30,7 +31,7 @@ src/components/
   ChatWidget.tsx           — Chat UI with streaming, TTS auto-play, image attach, pagination, IPC bridge to character window, voice mode (typing/interactive)
   InteractiveCallBar.tsx   — Full-height call bar replacing input area in interactive voice mode: transcript display, large mic button with pulse, status text, hang up
   MessageBubble.tsx        — Individual bubble: role styling, thinking collapse, TTS, resend/delete
-  ToolsWindow.tsx          — Three tabs: MCP Servers, Available Tools, Skills (CRUD + import/export)
+  ToolsWindow.tsx          — Three tabs: MCP Servers (with Internal/External location selector + badges), Available Tools, Skills (CRUD + import/export)
   AgentsWindow.tsx         — Agent CRUD with tool exclusion + character config button
   FacesWindow.tsx          — Face identity CRUD, webcam vision controls, live recognition display
   MediaPlayerBar.tsx       — Bottom bar: track info, play/pause/skip/stop, volume slider, slide-up animation. Visible when media playing/buffering.
@@ -52,6 +53,8 @@ src/store/
   visionStore.ts          — Zustand singleton: vision pipeline control (getUserMedia webcam capture, backpressure-based frame upload via WebSocket with max 5 in-flight frames, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Syncs state on reconnect via `connected` listener. Used by both FacesWindow and ChatWidget camera toggle.
   mediaStore.ts           — Zustand singleton: media player state (playback, track, queue, volume). All media events (control + chunks) flow through wsManager on /ws/chat. Module-level listeners for media_state/media_chunk/media_error + `connected` listener for reconnect state sync. Buffers base64 chunks → Blob → Audio playback. Volume persisted to localStorage.
   micStore.ts             — Zustand singleton: ASR lifecycle (VAD, status, result, devices) + interactive mode with substates. Module-level VAD instance, lazy-init reusable Audio elements for sound effects. Two-level state: `interactiveMode` (call bar UI shown, mic auto-started) + `interactionActive` (auto-send without trigger word). Used by MainWindow (phone toggle) and ChatWidget (transcript handling, conditional render).
+src/services/
+  mcpService.ts            — Client-side MCP lifecycle: auto-init on WebSocket connect, fetches client-location MCP configs from API, starts local servers via Electron IPC, discovers tools, registers schemas with backend via client_tools_register event. Handles tool_call_request forwarding (execute locally → send tool_call_response). refreshClientMCPServers() for config changes.
 src/CharacterWindowApp.tsx — Minimal IPC-driven renderer for separate character window (no auth/stores, subtitle overlay)
 src/videocall/            — Character animation engine (rendered in separate Electron window via IPC)
   types.ts                — PoseConfig, PatchInfo, PoseTree, AnimationNode/Edge/EdgeTransition, TransitionCondition (random/thinking/gesture), AnimationSettings, CharacterConfig, migrateEdgeToTransitions(), migratePoseTreeIds() (old pose-*/edge-* IDs → 8-char hex)
@@ -156,6 +159,8 @@ Two-level state managed by `useMicStore` (Zustand, `src/store/micStore.ts`): `in
 - `POST /faces/{id}/photos`, `DELETE /faces/{id}/photos/{photo_id}` — Face photo management
 - `GET /faces/{id}/photos/{photo_id}/image` — Serve face photo image
 - `GET /skills`, `POST /skills`, `PATCH /skills/{id}`, `DELETE /skills/{id}` — Skill CRUD (user-editable instruction blocks)
+- `GET /mcp-servers`, `POST /mcp-servers`, `PATCH /mcp-servers/{id}`, `DELETE /mcp-servers/{id}` — MCP server CRUD (location: server|client)
+- `POST /mcp-servers/{id}/test` — Test MCP server connectivity (server-side only)
 
 ## Character Animation
 
@@ -180,6 +185,18 @@ Separate Electron window (toggleable via Face icon in top bar). Opens as indepen
 ## Storage Keys (localStorage)
 
 `kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_tts_emo_audio`, `kurisu_tts_emo_alpha`, `kurisu_tts_use_emo_text`, `kurisu_selected_agent_id`, `kurisu_agent_conversations`, `kurisu_media_volume`
+
+## Client-Side MCP Servers
+
+MCP servers can run locally on the Electron client (`location: "client"`) in addition to the backend (`location: "server"`). Client-side servers access local files, apps, etc.
+
+**Architecture**: On WebSocket connect → fetch MCP configs from API → filter `location="client"` → start local processes via Electron IPC (`electron/mcp.ts`) → discover tools → register schemas with backend via `client_tools_register` WebSocket event. Backend stores client tool schemas in handler state and includes them in LLM tool calls. When LLM calls a client tool, backend sends `tool_call_request` via WebSocket → client executes locally → sends `tool_call_response` back → backend continues LLM loop (120s timeout).
+
+**IPC bridge** (`window.electron.mcp`): `startServers(configs)` → `{name, ok, error}[]`, `stopServers()`, `listTools()` → tool schemas, `callTool(name, args)` → `{content, isError}`.
+
+**WebSocket events**: `client_tools_register` (client→server, tool schemas), `tool_call_request` (server→client, request_id + tool_name + args), `tool_call_response` (client→server, request_id + content + is_error).
+
+**UI**: ToolsWindow server cards show Internal/External chip badge. Create/edit dialog has Location dropdown (External=server, Internal=client). Config changes trigger `refreshClientMCPServers()`.
 
 ## Security
 

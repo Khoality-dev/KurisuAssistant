@@ -164,6 +164,7 @@ export interface MCPServer {
   args: string[] | null;
   env: Record<string, string> | null;
   enabled: boolean;
+  location: 'server' | 'client';
   created_at: string | null;
 }
 
@@ -174,6 +175,7 @@ export interface MCPServerCreate {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  location?: 'server' | 'client';
 }
 
 export interface MCPServerUpdate {
@@ -184,6 +186,7 @@ export interface MCPServerUpdate {
   args?: string[];
   env?: Record<string, string>;
   enabled?: boolean;
+  location?: 'server' | 'client';
 }
 
 export interface MCPServerTestResult {

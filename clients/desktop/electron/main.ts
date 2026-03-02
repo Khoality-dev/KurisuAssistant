@@ -5,6 +5,7 @@ import https from 'https';
 import http from 'http';
 import { spawn } from 'child_process';
 import { autoUpdater } from 'electron-updater';
+import { registerMCPHandlers, cleanupMCP } from './mcp';
 
 // Set custom cache path to avoid permission issues on Windows
 app.setPath('userData', path.join(app.getPath('appData'), 'kurisu-assistant'));
@@ -264,6 +265,7 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+  registerMCPHandlers();
 
   // Auto-updater (no-op in dev mode — no update server configured)
   autoUpdater.autoDownload = true;
@@ -300,4 +302,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  cleanupMCP();
 });

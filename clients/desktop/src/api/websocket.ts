@@ -11,8 +11,11 @@ export type EventType =
   | 'cancel'
   | 'vision_start'
   | 'vision_stop'
+  | 'client_tools_register'
+  | 'tool_call_response'
   | 'stream_chunk'
   | 'tool_approval_request'
+  | 'tool_call_request'
   | 'agent_switch'
   | 'done'
   | 'error'
@@ -144,6 +147,14 @@ export interface MediaErrorEvent extends BaseEvent {
   error: string;
 }
 
+// Server -> Client: tool call forwarding
+export interface ToolCallRequestEvent extends BaseEvent {
+  type: 'tool_call_request';
+  request_id: string;
+  tool_name: string;
+  tool_args: Record<string, unknown>;
+}
+
 export interface ConnectedEvent extends BaseEvent {
   type: 'connected';
   chat_active: boolean;
@@ -170,6 +181,7 @@ export type ServerEvent =
   | DoneEvent
   | ErrorEvent
   | ToolApprovalRequestEvent
+  | ToolCallRequestEvent
   | VisionResultEvent
   | MediaStateEvent
   | MediaChunkEvent
@@ -403,6 +415,22 @@ class WebSocketManager {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.send({ type: 'cancel' });
     }
+  }
+
+  // Client-side MCP tool methods
+
+  /**
+   * Register client-side tool schemas with the backend.
+   */
+  sendClientToolsRegister(tools: Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }>) {
+    this.send({ type: 'client_tools_register', tools });
+  }
+
+  /**
+   * Send tool call result back to the backend.
+   */
+  sendToolCallResponse(requestId: string, content: string, isError: boolean) {
+    this.send({ type: 'tool_call_response', request_id: requestId, content, is_error: isError });
   }
 
   // Media control methods
