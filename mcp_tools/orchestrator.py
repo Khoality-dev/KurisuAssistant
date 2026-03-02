@@ -119,13 +119,13 @@ class UserMCPOrchestrator:
         return self._cached_tools
 
     def get_server_names(self) -> List[str]:
-        """Get enabled server names for the user."""
+        """Get enabled server-side server names for the user."""
         from db.session import get_session
         from db.repositories import MCPServerRepository
 
         with get_session() as session:
             repo = MCPServerRepository(session)
-            servers = repo.list_enabled_by_user(self.user_id)
+            servers = repo.list_enabled_by_user(self.user_id, location="server")
             return [s.name for s in servers]
 
     async def execute_tool_calls(
