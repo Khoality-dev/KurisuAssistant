@@ -4,7 +4,7 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import AsyncGenerator, Dict, List, Any, Optional, TYPE_CHECKING
+from typing import AsyncGenerator, Callable, Coroutine, Dict, List, Any, Optional, TYPE_CHECKING
 
 from websocket.events import (
     StreamChunkEvent,
@@ -63,6 +63,8 @@ class AgentContext:
     available_agents: List[AgentConfig] = field(default_factory=list)
     user_system_prompt: str = ""
     preferred_name: str = ""
+    client_tools: List[Dict] = field(default_factory=list)
+    client_tool_callback: Optional[Callable[[str, Dict], Coroutine[Any, Any, str]]] = None
 
 
 class BaseAgent(ABC):
@@ -163,7 +165,7 @@ class BaseAgent(ABC):
                 logger.error(f"Tool execution failed: {e}", exc_info=True)
                 return f"Tool execution failed: {e}"
         elif context.user_id:
-            # Try MCP tool via per-user orchestrator (use original args, not enriched exec_args)
+            # Try server-side MCP tool first, then client-side tool
             return await self._execute_mcp_tool(tool_name, tool_args, context)
         else:
             return f"Unknown tool: {tool_name}"
@@ -174,7 +176,7 @@ class BaseAgent(ABC):
         tool_args: Dict[str, Any],
         context: AgentContext,
     ) -> str:
-        """Execute an MCP tool.
+        """Execute an MCP tool (server-side), falling back to client-side tools.
 
         Args:
             tool_name: MCP tool name
@@ -205,12 +207,24 @@ class BaseAgent(ABC):
             )
 
             if results:
-                return results[0].get("content", "")
-            return "No result from MCP tool"
+                content = results[0].get("content", "")
+                if content != "MCP client not available":
+                    return content
 
         except Exception as e:
-            logger.error(f"MCP tool execution failed: {e}", exc_info=True)
-            return f"MCP tool execution failed: {e}"
+            logger.warning(f"Server MCP tool execution failed for '{tool_name}': {e}")
+
+        # Fall back to client-side tool
+        if context.client_tool_callback and tool_name in {
+            t.get("function", {}).get("name", "") for t in context.client_tools
+        }:
+            try:
+                return await context.client_tool_callback(tool_name, tool_args)
+            except Exception as e:
+                logger.error(f"Client tool execution failed: {e}", exc_info=True)
+                return f"Client tool execution failed: {e}"
+
+        return f"Unknown tool: {tool_name}"
 
     async def delegate_to(
         self,
@@ -400,7 +414,7 @@ class SimpleAgent(BaseAgent):
         # Get tools for this agent (all tools minus excluded)
         tool_schemas = self.tool_registry.get_schemas(self.config.excluded_tools)
 
-        # Add user's MCP tools (filtered by agent's exclusion list)
+        # Add user's server-side MCP tools (filtered by agent's exclusion list)
         if context.user_id:
             try:
                 from mcp_tools.orchestrator import get_user_orchestrator
@@ -411,6 +425,14 @@ class SimpleAgent(BaseAgent):
                 tool_schemas.extend(mcp_tools)
             except Exception as e:
                 logger.warning(f"Failed to load MCP tools for user {context.user_id}: {e}")
+
+        # Add client-side tools (filtered by agent's exclusion list)
+        if context.client_tools:
+            client_tools = context.client_tools
+            if self.config.excluded_tools:
+                excluded = set(self.config.excluded_tools)
+                client_tools = [t for t in client_tools if t.get("function", {}).get("name") not in excluded]
+            tool_schemas.extend(client_tools)
 
         # Determine model
         model = self.config.model_name or context.model_name

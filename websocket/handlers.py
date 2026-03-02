@@ -16,6 +16,7 @@ from .events import (
     ChatRequestEvent,
     ToolApprovalRequestEvent,
     ToolApprovalResponseEvent,
+    ToolCallRequestEvent,
     StreamChunkEvent,
     DoneEvent,
     ErrorEvent,
@@ -25,6 +26,8 @@ from .events import (
     VisionFrameEvent,
     VisionStopEvent,
     VisionResultEvent,
+    ClientToolsRegisterEvent,
+    ToolCallResponseEvent,
     MediaPlayEvent,
     MediaPauseEvent,
     MediaResumeEvent,
@@ -95,6 +98,11 @@ class ChatSessionHandler:
         # Heartbeat
         self._heartbeat_task: Optional[asyncio.Task] = None
         self._last_pong_time: float = 0
+
+        # Client-side MCP tools
+        self._client_tools: List[Dict] = []
+        self._client_tool_names: set = set()
+        self._pending_tool_calls: Dict[str, asyncio.Future] = {}
 
         # Vision processing
         self._vision_processor: Optional[VisionProcessor] = None
@@ -188,6 +196,10 @@ class ChatSessionHandler:
             await self._handle_vision_frame(event)
         elif isinstance(event, VisionStopEvent):
             await self._handle_vision_stop()
+        elif isinstance(event, ClientToolsRegisterEvent):
+            self._handle_client_tools_register(event)
+        elif isinstance(event, ToolCallResponseEvent):
+            self._handle_tool_call_response(event)
         elif isinstance(event, (MediaPlayEvent, MediaPauseEvent, MediaResumeEvent,
                                 MediaSkipEvent, MediaStopEvent, MediaQueueAddEvent,
                                 MediaQueueRemoveEvent, MediaVolumeEvent)):
@@ -278,6 +290,8 @@ class ChatSessionHandler:
                 available_agents=available_agents,
                 user_system_prompt=user_system_prompt,
                 preferred_name=preferred_name,
+                client_tools=self._client_tools,
+                client_tool_callback=self._execute_client_tool,
             )
 
             # Create and run the agent
@@ -526,6 +540,8 @@ class ChatSessionHandler:
                 available_agents=available_agents,
                 user_system_prompt=user_system_prompt,
                 preferred_name=preferred_name,
+                client_tools=self._client_tools,
+                client_tool_callback=self._execute_client_tool,
             )
 
             # Build agent lookup
@@ -910,6 +926,65 @@ class ChatSessionHandler:
         self._vision_processor = None
         self._vision_config = None
         logger.debug("Vision processing stopped for user %d", self.user_id)
+
+    # =============================================
+    # Client-side tool management
+    # =============================================
+
+    def _handle_client_tools_register(self, event: ClientToolsRegisterEvent):
+        """Store tool schemas registered by the client."""
+        self._client_tools = event.tools
+        self._client_tool_names = {
+            t.get("function", {}).get("name", "")
+            for t in event.tools
+            if t.get("function", {}).get("name")
+        }
+        logger.info(
+            "Client registered %d tools for user %d: %s",
+            len(self._client_tools),
+            self.user_id,
+            ", ".join(sorted(self._client_tool_names)),
+        )
+
+    def _handle_tool_call_response(self, event: ToolCallResponseEvent):
+        """Resolve a pending client tool call Future."""
+        future = self._pending_tool_calls.pop(event.request_id, None)
+        if future and not future.done():
+            if event.is_error:
+                future.set_result(f"Client tool error: {event.content}")
+            else:
+                future.set_result(event.content)
+        else:
+            logger.warning(
+                "Received tool_call_response for unknown/completed request_id=%s",
+                event.request_id,
+            )
+
+    async def _execute_client_tool(self, tool_name: str, tool_args: Dict) -> str:
+        """Forward a tool call to the client and await the result.
+
+        Creates an asyncio.Future, sends a ToolCallRequestEvent to the client,
+        and waits up to 120s for the client to respond with ToolCallResponseEvent.
+        """
+        import uuid as _uuid
+
+        request_id = str(_uuid.uuid4())
+        future = asyncio.get_event_loop().create_future()
+        self._pending_tool_calls[request_id] = future
+
+        await self.send_event(ToolCallRequestEvent(
+            request_id=request_id,
+            tool_name=tool_name,
+            tool_args=tool_args,
+        ))
+
+        try:
+            result = await asyncio.wait_for(future, timeout=120.0)
+            return result
+        except asyncio.TimeoutError:
+            return f"Client tool '{tool_name}' timed out after 120s"
+        finally:
+            self._pending_tool_calls.pop(request_id, None)
 
     async def _handle_media_event(self, event: BaseEvent):
         """Handle media control events using the player registry."""

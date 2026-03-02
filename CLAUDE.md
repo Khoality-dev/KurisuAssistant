@@ -148,7 +148,7 @@ Two modes controlled by `event.agent_id` in `ChatRequestEvent`:
 - `get_music_queue`: Get current player state and queue
 - `route_to_agent`, `route_to_user`: Administrator routing tools
 
-**MCP tools** — per-user, managed via CRUD API (`/mcp-servers`). Stored in `mcp_servers` DB table. Each user has their own `UserMCPOrchestrator` with 30s tool cache. Excluded via agent's `excluded_tools` list. MCP tool schemas injected directly in `SimpleAgent.process()` (not via tool registry).
+**MCP tools** — per-user, managed via CRUD API (`/mcp-servers`). Stored in `mcp_servers` DB table with `location` column (`"server"` or `"client"`). **Server-side (external)**: Each user has their own `UserMCPOrchestrator` with 30s tool cache; only loads `location="server"` servers. **Client-side (internal)**: Electron app starts local MCP server processes, discovers tools, registers schemas with backend via `client_tools_register` WebSocket event. Tool calls forwarded via `tool_call_request`/`tool_call_response` WebSocket events with 120s timeout. `AgentContext.client_tools` and `client_tool_callback` wire client tools into `SimpleAgent.process()`. Excluded via agent's `excluded_tools` list. MCP tool schemas injected directly in `SimpleAgent.process()` (not via tool registry).
 
 ### Media Player (yt-dlp Audio Streaming)
 
@@ -250,7 +250,7 @@ Agent: id, user_id→User, name, system_prompt, voice_reference, avatar_uuid, mo
 FaceIdentity: id, user_id→User, name(unique per user), created_at
 FacePhoto: id, identity_id→FaceIdentity(CASCADE), embedding(vector(512)), photo_uuid, created_at
 Skill: id, user_id→User, name(unique per user), instructions(text), created_at
-MCPServer: id, user_id→User, name(unique per user), transport_type(sse|stdio), url?, command?, args(JSON)?, env(JSON)?, enabled(bool), created_at
+MCPServer: id, user_id→User, name(unique per user), transport_type(sse|stdio), url?, command?, args(JSON)?, env(JSON)?, enabled(bool), location(server|client, default server), created_at
 ```
 
 ## API Endpoints

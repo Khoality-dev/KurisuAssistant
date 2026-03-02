@@ -25,6 +25,7 @@ class MCPServerCreate(BaseModel):
     command: Optional[str] = None
     args: Optional[List[str]] = None
     env: Optional[Dict[str, str]] = None
+    location: Optional[str] = "server"
 
     @field_validator("transport_type")
     @classmethod
@@ -32,6 +33,13 @@ class MCPServerCreate(BaseModel):
         if v not in ("sse", "stdio"):
             raise ValueError("transport_type must be 'sse' or 'stdio'")
         return v
+
+    @field_validator("location")
+    @classmethod
+    def validate_location(cls, v: Optional[str]) -> str:
+        if v is not None and v not in ("server", "client"):
+            raise ValueError("location must be 'server' or 'client'")
+        return v or "server"
 
 
 class MCPServerUpdate(BaseModel):
@@ -42,12 +50,20 @@ class MCPServerUpdate(BaseModel):
     args: Optional[List[str]] = None
     env: Optional[Dict[str, str]] = None
     enabled: Optional[bool] = None
+    location: Optional[str] = None
 
     @field_validator("transport_type")
     @classmethod
     def validate_transport_type(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and v not in ("sse", "stdio"):
             raise ValueError("transport_type must be 'sse' or 'stdio'")
+        return v
+
+    @field_validator("location")
+    @classmethod
+    def validate_location(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in ("server", "client"):
+            raise ValueError("location must be 'server' or 'client'")
         return v
 
 
@@ -61,6 +77,7 @@ def _serialize(server) -> dict:
         "args": server.args,
         "env": server.env,
         "enabled": server.enabled,
+        "location": server.location or "server",
         "created_at": server.created_at.isoformat() + "Z" if server.created_at else None,
     }
 
@@ -99,6 +116,7 @@ async def create_mcp_server(
                 command=data.command,
                 args=data.args,
                 env=data.env,
+                location=data.location,
             )
             result = _serialize(server)
         invalidate_user_orchestrator(user.id)
@@ -134,6 +152,7 @@ async def update_mcp_server(
                 args=data.args,
                 env=data.env,
                 enabled=data.enabled,
+                location=data.location,
             )
             result = _serialize(server)
         invalidate_user_orchestrator(user.id)
@@ -180,6 +199,10 @@ async def test_mcp_server(
             server = repo.get_by_user_and_id(user.id, server_id)
             if not server:
                 raise HTTPException(status_code=404, detail="MCP server not found")
+
+            # Client-side servers can't be tested from the backend
+            if server.location == "client":
+                return {"status": "unavailable", "error": "Client-side servers are tested from the desktop app"}
 
             # Build a temporary config and try listing tools
             from mcp_tools.orchestrator import _create_client_from_server

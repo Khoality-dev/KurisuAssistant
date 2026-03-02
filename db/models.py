@@ -116,6 +116,7 @@ class MCPServer(Base):
     args = Column(JSON, nullable=True)
     env = Column(JSON, nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
+    location = Column(String, default='server', nullable=False)  # "server" (backend) or "client" (Electron)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_mcp_server_user_id_name'),)

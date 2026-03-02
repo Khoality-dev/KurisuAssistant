@@ -21,13 +21,13 @@ class MCPServerRepository(BaseRepository[MCPServer]):
             .all()
         )
 
-    def list_enabled_by_user(self, user_id: int) -> List[MCPServer]:
-        return (
-            self.session.query(MCPServer)
-            .filter_by(user_id=user_id, enabled=True)
-            .order_by(MCPServer.created_at)
-            .all()
-        )
+    def list_enabled_by_user(self, user_id: int, location: Optional[str] = None) -> List[MCPServer]:
+        query = self.session.query(MCPServer).filter_by(user_id=user_id, enabled=True)
+        if location is not None:
+            query = query.filter(
+                (MCPServer.location == location) | (MCPServer.location.is_(None))
+            )
+        return query.order_by(MCPServer.created_at).all()
 
     def get_by_user_and_id(self, user_id: int, server_id: int) -> Optional[MCPServer]:
         return self.get_by_filter(user_id=user_id, id=server_id)
@@ -41,6 +41,7 @@ class MCPServerRepository(BaseRepository[MCPServer]):
         command: Optional[str] = None,
         args: Optional[list] = None,
         env: Optional[dict] = None,
+        location: Optional[str] = "server",
     ) -> MCPServer:
         existing = self.get_by_filter(user_id=user_id, name=name)
         if existing:
@@ -53,6 +54,7 @@ class MCPServerRepository(BaseRepository[MCPServer]):
             command=command,
             args=args,
             env=env,
+            location=location or "server",
         )
 
     def update_server(
@@ -65,6 +67,7 @@ class MCPServerRepository(BaseRepository[MCPServer]):
         args: Optional[list] = None,
         env: Optional[dict] = None,
         enabled: Optional[bool] = None,
+        location: Optional[str] = None,
     ) -> MCPServer:
         update_data = {}
         if name is not None:
@@ -81,6 +84,8 @@ class MCPServerRepository(BaseRepository[MCPServer]):
             update_data["env"] = env
         if enabled is not None:
             update_data["enabled"] = enabled
+        if location is not None:
+            update_data["location"] = location
         if update_data:
             return self.update(server, **update_data)
         return server

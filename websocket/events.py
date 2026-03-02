@@ -24,11 +24,14 @@ class EventType(str, Enum):
     MEDIA_QUEUE_ADD = "media_queue_add"
     MEDIA_QUEUE_REMOVE = "media_queue_remove"
     MEDIA_VOLUME = "media_volume"
+    CLIENT_TOOLS_REGISTER = "client_tools_register"
+    TOOL_CALL_RESPONSE = "tool_call_response"
 
     # Server -> Client
     CONNECTED = "connected"
     STREAM_CHUNK = "stream_chunk"
     TOOL_APPROVAL_REQUEST = "tool_approval_request"
+    TOOL_CALL_REQUEST = "tool_call_request"
     AGENT_SWITCH = "agent_switch"
     DONE = "done"
     ERROR = "error"
@@ -116,6 +119,22 @@ class VisionStopEvent(BaseEvent):
     type: EventType = field(default=EventType.VISION_STOP)
 
 
+@dataclass
+class ClientToolsRegisterEvent(BaseEvent):
+    """Client registers its locally-available tools."""
+    type: EventType = field(default=EventType.CLIENT_TOOLS_REGISTER)
+    tools: List[Dict[str, Any]] = field(default_factory=list)  # Tool schemas
+
+
+@dataclass
+class ToolCallResponseEvent(BaseEvent):
+    """Client responds to a tool call request with the result."""
+    type: EventType = field(default=EventType.TOOL_CALL_RESPONSE)
+    request_id: str = ""
+    content: str = ""
+    is_error: bool = False
+
+
 # =============================================================================
 # Server -> Client Events
 # =============================================================================
@@ -146,6 +165,15 @@ class ToolApprovalRequestEvent(BaseEvent):
     name: Optional[str] = None  # Which agent is requesting approval
     description: str = ""  # Human-readable description
     risk_level: str = "low"  # low, medium, high
+
+
+@dataclass
+class ToolCallRequestEvent(BaseEvent):
+    """Server forwards a tool call to the client for local execution."""
+    type: EventType = field(default=EventType.TOOL_CALL_REQUEST)
+    request_id: str = ""
+    tool_name: str = ""
+    tool_args: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -377,6 +405,22 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
             event_id=data.get("event_id", str(uuid.uuid4())),
             timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
             volume=data.get("volume", 1.0),
+        )
+
+    elif event_type == EventType.CLIENT_TOOLS_REGISTER.value:
+        return ClientToolsRegisterEvent(
+            event_id=data.get("event_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
+            tools=data.get("tools", []),
+        )
+
+    elif event_type == EventType.TOOL_CALL_RESPONSE.value:
+        return ToolCallResponseEvent(
+            event_id=data.get("event_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
+            request_id=data.get("request_id", ""),
+            content=data.get("content", ""),
+            is_error=data.get("is_error", False),
         )
 
     else:

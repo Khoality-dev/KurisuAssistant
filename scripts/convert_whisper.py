@@ -14,10 +14,15 @@ def main():
     parser.add_argument("--model", default="whisper-finetuned", help="Path to HuggingFace model directory")
     parser.add_argument("--output", default="data/asr/whisper-ct2", help="Output directory for CT2 model")
     parser.add_argument("--quantization", default="float16", choices=["float16", "float32", "int8", "int8_float16"])
+    parser.add_argument("--force", action="store_true", help="Overwrite existing output directory")
     args = parser.parse_args()
 
     if not os.path.exists(args.model):
         print(f"Error: Model directory '{args.model}' not found")
+        return 1
+
+    if os.path.exists(args.output) and not args.force:
+        print(f"Error: output directory '{args.output}' already exists, use --force to override")
         return 1
 
     print(f"Loading model from {args.model}...")
@@ -31,7 +36,7 @@ def main():
 
     print(f"Converting to CTranslate2 ({args.quantization}) -> {args.output}")
     os.makedirs(args.output, exist_ok=True)
-    converter.convert(args.output, quantization=args.quantization)
+    converter.convert(args.output, quantization=args.quantization, force=True)
 
     # Copy tokenizer/preprocessor files
     for filename in ["preprocessor_config.json", "tokenizer_config.json", "vocab.json", "normalizer.json"]:

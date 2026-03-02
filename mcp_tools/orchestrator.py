@@ -83,13 +83,17 @@ class UserMCPOrchestrator:
         self._cache_ttl: int = 30
 
     def _load_servers(self):
-        """Load enabled servers from DB and rebuild the MCP client."""
+        """Load enabled server-side servers from DB and rebuild the MCP client.
+
+        Only loads servers with location="server" (or NULL for backwards compat).
+        Client-side servers are managed by the Electron app.
+        """
         from db.session import get_session
         from db.repositories import MCPServerRepository
 
         with get_session() as session:
             repo = MCPServerRepository(session)
-            servers = repo.list_enabled_by_user(self.user_id)
+            servers = repo.list_enabled_by_user(self.user_id, location="server")
             self.mcp_client = _create_client_from_servers(servers)
 
     def invalidate(self):
