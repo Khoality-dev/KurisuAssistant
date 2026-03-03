@@ -250,18 +250,36 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
 });
 
 app.whenReady().then(() => {
-  // Intercept file:// requests to serve asar-unpacked files (WASM/ONNX can't load from asar)
+  // Intercept file:// requests to serve asar-unpacked files (WASM/ONNX can't load from asar).
+  // We must use fs.readFileSync (which Electron patches for asar support) instead of
+  // net.fetch, because net.fetch goes through Chromium's network stack which cannot
+  // read files from inside asar archives.
+  const mimeTypes: Record<string, string> = {
+    '.html': 'text/html', '.js': 'application/javascript', '.mjs': 'application/javascript',
+    '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json',
+    '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.webm': 'video/webm',
+    '.mp4': 'video/mp4', '.onnx': 'application/octet-stream', '.woff': 'font/woff',
+    '.woff2': 'font/woff2', '.ttf': 'font/ttf',
+  };
   protocol.handle('file', (request) => {
-    // Only rewrite paths inside app.asar that have an unpacked copy
-    if (request.url.includes('app.asar') && !request.url.includes('app.asar.unpacked')) {
-      const unpackedUrl = request.url.replace('app.asar', 'app.asar.unpacked');
-      const pathname = decodeURIComponent(new URL(unpackedUrl).pathname);
-      const filePath = process.platform === 'win32' ? pathname.slice(1) : pathname;
-      if (fs.existsSync(filePath)) {
-        return net.fetch(unpackedUrl);
+    let pathname = decodeURIComponent(new URL(request.url).pathname);
+    let filePath = process.platform === 'win32' ? pathname.slice(1) : pathname;
+
+    // Redirect asar paths to asar.unpacked if the unpacked file exists
+    if (filePath.includes('app.asar') && !filePath.includes('app.asar.unpacked')) {
+      const unpackedPath = filePath.replace('app.asar', 'app.asar.unpacked');
+      if (fs.existsSync(unpackedPath)) {
+        filePath = unpackedPath;
       }
     }
-    return net.fetch(request.url);
+
+    // Read via Node fs (asar-aware) and return as Response
+    const data = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    return new Response(data, {
+      headers: { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' },
+    });
   });
 
   createWindow();
