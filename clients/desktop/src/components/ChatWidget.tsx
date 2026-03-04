@@ -411,8 +411,13 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     }
   }, []);
 
+  const prevConversationIdRef = useRef<number | null>(null);
   useEffect(() => {
-    setActiveConversationId(currentConversation?.id || null);
+    const newId = currentConversation?.id || null;
+    const isActualSwitch = prevConversationIdRef.current !== null && prevConversationIdRef.current !== newId;
+    prevConversationIdRef.current = newId;
+
+    setActiveConversationId(newId);
     // Clear local streaming state when conversation changes
     setStreamingMessages([]);
     setStreamingContent('');
@@ -421,8 +426,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     setIsStreaming(false);
     isStreamingRef.current = false;
     cancelStreamUpdate();
-    // Clear TTS queue on conversation switch
-    clearQueue();
+    // Only clear TTS queue on actual conversation switch, not on reload of the same conversation
+    if (isActualSwitch) {
+      clearQueue();
+    }
     ttsBufferRef.current = '';
     ttsVoiceRef.current = undefined;
     streamingStateRef.current = {
@@ -433,7 +440,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       accumulatedThinking: '',
       hasPlaceholder: false,
       hasStarted: false,
-      conversationId: currentConversation?.id || null,
+      conversationId: newId,
     };
   }, [currentConversation]);
 
