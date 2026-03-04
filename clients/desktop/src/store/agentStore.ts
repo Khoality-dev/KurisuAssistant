@@ -2,22 +2,30 @@ import { create } from 'zustand';
 import { apiClient } from '../api/client';
 import { storage } from '../utils/storage';
 import { useConversationStore } from './conversationStore';
-import type { Agent } from '../api/types';
+import type { Agent, ConversationLastMessage } from '../api/types';
 
 const ADMINISTRATOR_NAME = 'Administrator';
+
+export interface AgentPreview {
+  conversationId: number;
+  lastMessage: ConversationLastMessage | null;
+}
 
 interface AgentState {
   agents: Agent[];
   selectedAgentId: number | null;
   isLoading: boolean;
+  agentPreviews: Record<number, AgentPreview>;
   loadAgents: () => Promise<void>;
   selectAgent: (id: number | null) => void;
+  loadAgentPreviews: () => Promise<void>;
 }
 
 export const useAgentStore = create<AgentState>((set, get) => ({
   agents: [],
   selectedAgentId: storage.getSelectedAgentId(),
   isLoading: false,
+  agentPreviews: {},
 
   loadAgents: async () => {
     try {
@@ -63,10 +71,37 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           }
         }
       }
+      // Load preview data for sidebar
+      get().loadAgentPreviews();
     } catch (err) {
       console.error('Failed to load agents:', err);
     } finally {
       set({ isLoading: false });
+    }
+  },
+
+  loadAgentPreviews: async () => {
+    try {
+      const conversations = await apiClient.getConversations();
+      const { agents } = get();
+      const previews: Record<number, AgentPreview> = {};
+
+      for (const agent of agents) {
+        const convId = storage.getAgentConversationId(agent.id);
+        if (convId) {
+          const conv = conversations.find((c) => c.id === convId);
+          if (conv) {
+            previews[agent.id] = {
+              conversationId: conv.id,
+              lastMessage: conv.last_message ?? null,
+            };
+          }
+        }
+      }
+
+      set({ agentPreviews: previews });
+    } catch (err) {
+      console.error('Failed to load agent previews:', err);
     }
   },
 

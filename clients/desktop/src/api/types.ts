@@ -32,12 +32,19 @@ export interface MessageRawData {
   raw_output: string | null; // Full concatenated LLM response
 }
 
+export interface ConversationLastMessage {
+  content: string;
+  role: string;
+  created_at: string | null;
+}
+
 export interface Conversation {
   id: number;
   title: string;
   frame_count: number;
   created_at: string;
   updated_at: string;
+  last_message?: ConversationLastMessage;
 }
 
 export interface FrameInfo {

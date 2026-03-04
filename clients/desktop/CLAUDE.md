@@ -27,7 +27,8 @@ src/api/client.ts         — Axios + WebSocket singleton; streaming + media via
 src/api/types.ts          — TypeScript interfaces for API
 src/components/
   LoginWindow.tsx          — Login/Register tabs, Remember Me, Server URL field, purple gradient
-  MainWindow.tsx           — Top bar (tabs + agent selector + clear conversation + connection status dot + phone toggle for voice mode) + ChatWidget, no sidebar
+  MainWindow.tsx           — Top bar (tabs + hamburger menu + agent name + clear conversation + connection status dot + phone toggle for voice mode) + ChatWidget + AgentSidebar
+  AgentSidebar.tsx         — Left drawer showing agents as conversation items (avatar, name, last message preview, relative timestamp). Toggled via hamburger button in top bar.
   ChatWidget.tsx           — Chat UI with streaming, TTS auto-play, image attach, pagination, IPC bridge to character window, voice mode (typing/interactive)
   InteractiveCallBar.tsx   — Full-height call bar replacing input area in interactive voice mode: transcript display, large mic button with pulse, status text, hang up
   MessageBubble.tsx        — Individual bubble: role styling, thinking collapse, TTS, resend/delete
@@ -49,7 +50,8 @@ src/hooks/
 src/store/
   authStore.ts            — Auth state, login/register/logout, token persistence
   conversationStore.ts    — Current conversation + messages (paginated 20/page). No conversation list — agent selection drives conversation via localStorage mapping.
-  agentStore.ts           — Agent list (filtered, no Administrator), selected agent ID (persisted). Agent selection triggers conversation load via agent-conversation mapping.
+  agentStore.ts           — Agent list (filtered, no Administrator), selected agent ID (persisted), agent previews (last message per agent for sidebar). Agent selection triggers conversation load via agent-conversation mapping.
+  sidebarStore.ts         — Sidebar open/close state (Zustand)
   visionStore.ts          — Zustand singleton: vision pipeline control (getUserMedia webcam capture, backpressure-based frame upload via WebSocket with max 5 in-flight frames, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Syncs state on reconnect via `connected` listener. Used by both FacesWindow and ChatWidget camera toggle.
   mediaStore.ts           — Zustand singleton: media player state (playback, track, queue, volume). All media events (control + chunks) flow through wsManager on /ws/chat. Module-level listeners for media_state/media_chunk/media_error + `connected` listener for reconnect state sync. Buffers base64 chunks → Blob → Audio playback. Volume persisted to localStorage.
   micStore.ts             — Zustand singleton: ASR lifecycle (VAD, status, result, devices) + interactive mode with substates. Module-level VAD instance, lazy-init reusable Audio elements for sound effects. Two-level state: `interactiveMode` (call bar UI shown, mic auto-started) + `interactionActive` (auto-send without trigger word). Used by MainWindow (phone toggle) and ChatWidget (transcript handling, conditional render).
@@ -119,7 +121,8 @@ Two-level state managed by `useMicStore` (Zustand, `src/store/micStore.ts`): `in
 - **Config**: `Agent.trigger_word` field in AgentsWindow edit dialog, stored in backend DB
 
 ### Conversation Management (One Per Agent)
-- No conversation sidebar — each agent has one conversation, managed via `kurisu_agent_conversations` localStorage mapping (`Record<string, number>`, agent ID → conversation ID)
+- **Agent sidebar** (`AgentSidebar.tsx`): Left drawer toggled via hamburger button. Shows all agents with avatar, name, last message preview, and relative timestamp. Agent previews loaded from `GET /conversations` (includes `last_message`), matched to agents via localStorage mapping. Refreshed on `loadAgents()`, `DoneEvent`, and clear conversation.
+- Each agent has one conversation, managed via `kurisu_agent_conversations` localStorage mapping (`Record<string, number>`, agent ID → conversation ID)
 - Agent selection triggers conversation load (or empty state if no mapping exists)
 - **Fallback recovery**: When localStorage mapping is missing (cleared, new device, etc.), agent store queries `GET /conversations?agent_id=` to find the latest conversation with messages from that agent. If found, loads it and restores the localStorage mapping. If not found, shows empty state (conversation auto-created on first message).
 - Backend auto-creates conversation on first message with `conversationId=null`; first `StreamChunkEvent` saves the mapping

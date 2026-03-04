@@ -693,6 +693,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       }
       // Clear streaming messages after store is updated with DB records
       setStreamingMessages([]);
+      // Refresh sidebar previews
+      useAgentStore.getState().loadAgentPreviews();
     }, 300);
   }, [loadConversation, queueText]);
 
