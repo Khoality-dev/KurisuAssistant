@@ -12,7 +12,6 @@ class User(Base):
     password = Column(Text, nullable=False)
     system_prompt = Column(Text, default='')
     preferred_name = Column(Text, default='')
-    user_avatar_uuid = Column(String, nullable=True)
     agent_avatar_uuid = Column(String, nullable=True)
     ollama_url = Column(String, nullable=True)  # Custom Ollama server URL (None = use default env var)
     summary_model = Column(String, nullable=True)  # Model for frame summarization (None = use chat model)
