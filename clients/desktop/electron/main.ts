@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, net, protocol, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, shell, Tray, Menu, nativeImage } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import https from 'https';
@@ -12,6 +12,74 @@ app.setPath('userData', path.join(app.getPath('appData'), 'kurisu-assistant'));
 
 let mainWindow: BrowserWindow | null = null;
 let characterWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let isQuitting = false;
+
+// --- Settings persistence ---
+const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+
+function loadSettings(): Record<string, any> {
+  try { return JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); }
+  catch { return {}; }
+}
+
+function saveSettings(settings: Record<string, any>): void {
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+}
+
+function initAutoLaunch(): void {
+  const settings = loadSettings();
+  if (settings.autoLaunchConfigured === undefined) {
+    app.setLoginItemSettings({ openAtLogin: true });
+    saveSettings({ ...settings, autoLaunchConfigured: true });
+  }
+}
+
+function createTray(): void {
+  // Try to use app icon from resources, fall back to empty
+  const iconPath = path.join(__dirname, '../resources/icon.ico');
+  const trayIcon = fs.existsSync(iconPath)
+    ? nativeImage.createFromPath(iconPath)
+    : nativeImage.createEmpty();
+
+  tray = new Tray(trayIcon);
+  tray.setToolTip('KurisuAssistant');
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Show',
+      click: () => {
+        mainWindow?.show();
+        mainWindow?.focus();
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Launch on Startup',
+      type: 'checkbox',
+      checked: app.getLoginItemSettings().openAtLogin,
+      click: (menuItem) => {
+        app.setLoginItemSettings({ openAtLogin: menuItem.checked });
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setContextMenu(contextMenu);
+
+  tray.on('double-click', () => {
+    mainWindow?.show();
+    mainWindow?.focus();
+  });
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -35,6 +103,14 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  // Hide to tray instead of closing
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow?.hide();
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -250,6 +326,8 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
 });
 
 app.whenReady().then(() => {
+  initAutoLaunch();
+
   // Intercept file:// requests to serve asar-unpacked files (WASM/ONNX can't load from asar).
   // We must use fs.readFileSync (which Electron patches for asar support) instead of
   // net.fetch, because net.fetch goes through Chromium's network stack which cannot
@@ -282,6 +360,7 @@ app.whenReady().then(() => {
     });
   });
 
+  createTray();
   createWindow();
   registerMCPHandlers();
 
@@ -317,11 +396,10 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  // Don't quit — tray keeps the app running
 });
 
 app.on('before-quit', () => {
+  isQuitting = true;
   cleanupMCP();
 });
