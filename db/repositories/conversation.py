@@ -85,23 +85,51 @@ class ConversationRepository(BaseRepository[Conversation]):
             limit: Maximum number of conversations to return
 
         Returns:
-            List of conversation dictionaries with frame count metadata
+            List of conversation dictionaries with frame count and last message metadata
         """
+        # Subquery: latest message ID per conversation
+        latest_msg_subq = (
+            self.session.query(
+                Frame.conversation_id.label("conv_id"),
+                func.max(Message.id).label("max_msg_id"),
+            )
+            .join(Message, Frame.id == Message.frame_id)
+            .group_by(Frame.conversation_id)
+            .subquery()
+        )
+
+        # Alias for the latest message
+        LatestMessage = self.session.query(Message).subquery()
+
         conversations = (
             self.session.query(
                 Conversation.id,
                 Conversation.title,
                 Conversation.created_at,
                 Conversation.updated_at,
-                func.count(Frame.id).label("frame_count"),
+                func.count(func.distinct(Frame.id)).label("frame_count"),
+                LatestMessage.c.message.label("last_message_content"),
+                LatestMessage.c.role.label("last_message_role"),
+                LatestMessage.c.created_at.label("last_message_at"),
             )
             .outerjoin(Frame, Conversation.id == Frame.conversation_id)
+            .outerjoin(
+                latest_msg_subq,
+                Conversation.id == latest_msg_subq.c.conv_id,
+            )
+            .outerjoin(
+                LatestMessage,
+                LatestMessage.c.id == latest_msg_subq.c.max_msg_id,
+            )
             .filter(Conversation.user_id == user_id)
             .group_by(
                 Conversation.id,
                 Conversation.title,
                 Conversation.created_at,
                 Conversation.updated_at,
+                LatestMessage.c.message,
+                LatestMessage.c.role,
+                LatestMessage.c.created_at,
             )
             .order_by(desc(Conversation.updated_at))
             .limit(limit)
@@ -111,6 +139,19 @@ class ConversationRepository(BaseRepository[Conversation]):
         result = []
         for conv in conversations:
             frame_count = conv.frame_count or 0
+
+            last_message = None
+            if conv.last_message_content is not None:
+                content = conv.last_message_content
+                last_message = {
+                    "content": content[:100] if len(content) > 100 else content,
+                    "role": conv.last_message_role,
+                    "created_at": (
+                        conv.last_message_at.isoformat() + "Z"
+                        if conv.last_message_at
+                        else None
+                    ),
+                }
 
             result.append(
                 {
@@ -123,6 +164,7 @@ class ConversationRepository(BaseRepository[Conversation]):
                         else conv.created_at.isoformat() + "Z"
                     ),
                     "frame_count": frame_count,
+                    "last_message": last_message,
                 }
             )
 

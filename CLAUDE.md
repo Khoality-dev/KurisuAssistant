@@ -265,7 +265,7 @@ All protected unless noted. Auth: `Authorization: Bearer <token>`.
 | POST | `/asr` | Audio → text (faster-whisper, raw PCM, ?language=) |
 | POST | `/chat` | Stream chat (multipart: text, model_name, conversation_id?, images?) → NDJSON |
 | GET | `/models` | List LLM models |
-| GET | `/conversations` | List conversations (?limit=50&agent_id= — with agent_id returns latest conversation for that agent) |
+| GET | `/conversations` | List conversations (?limit=50&agent_id= — with agent_id returns latest conversation for that agent). Each includes `last_message: {content, role, created_at}` |
 | GET | `/conversations/{id}` | Get conversation + messages (?limit=50&offset=0) |
 | POST | `/conversations/{id}` | Update title |
 | DELETE | `/conversations/{id}` | Delete conversation |
