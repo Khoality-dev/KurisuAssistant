@@ -60,6 +60,7 @@ interface AgentFormData {
   excluded_tools: string[];
   memory: string;
   memory_enabled: boolean;
+  preferred_name: string;
   trigger_word: string;
 }
 
@@ -90,6 +91,7 @@ export const AgentsWindow: React.FC = () => {
     excluded_tools: [],
     memory: '',
     memory_enabled: true,
+    preferred_name: '',
     trigger_word: '',
   });
 
@@ -154,6 +156,7 @@ export const AgentsWindow: React.FC = () => {
         model_name: formData.model_name,
         think: formData.think,
         excluded_tools: formData.excluded_tools.length > 0 ? formData.excluded_tools : undefined,
+        preferred_name: formData.preferred_name.trim() || undefined,
         trigger_word: formData.trigger_word.trim() || undefined,
       };
 
@@ -192,6 +195,7 @@ export const AgentsWindow: React.FC = () => {
         excluded_tools: toolsChanged ? formData.excluded_tools : undefined,
         memory: formData.memory !== (selectedAgent.memory || '') ? formData.memory : undefined,
         memory_enabled: formData.memory_enabled !== selectedAgent.memory_enabled ? formData.memory_enabled : undefined,
+        preferred_name: formData.preferred_name !== (selectedAgent.preferred_name || '') ? (formData.preferred_name.trim() || '') : undefined,
         trigger_word: formData.trigger_word !== (selectedAgent.trigger_word || '') ? (formData.trigger_word.trim() || '') : undefined,
       };
 
@@ -246,6 +250,7 @@ export const AgentsWindow: React.FC = () => {
       excluded_tools: [],
       memory: '',
       memory_enabled: true,
+      preferred_name: '',
       trigger_word: '',
     });
     setAvatarFile(null);
@@ -265,6 +270,7 @@ export const AgentsWindow: React.FC = () => {
       excluded_tools: agent.excluded_tools || [],
       memory: agent.memory || '',
       memory_enabled: agent.memory_enabled,
+      preferred_name: agent.preferred_name || '',
       trigger_word: agent.trigger_word || '',
     });
     if (agent.avatar_uuid) {
@@ -643,6 +649,15 @@ export const AgentsWindow: React.FC = () => {
               )}
             />
 
+            {/* Preferred Name */}
+            <TextField
+              label="Preferred Name"
+              value={formData.preferred_name}
+              onChange={(e) => setFormData({ ...formData, preferred_name: e.target.value })}
+              fullWidth
+              helperText="How this agent should address you"
+            />
+
             {/* Trigger Word */}
             <TextField
               label="Trigger Word"
@@ -903,6 +918,15 @@ export const AgentsWindow: React.FC = () => {
                 />
               )}
             </Box>
+
+            {/* Preferred Name */}
+            <TextField
+              label="Preferred Name"
+              value={formData.preferred_name}
+              onChange={(e) => setFormData({ ...formData, preferred_name: e.target.value })}
+              fullWidth
+              helperText="How this agent should address you"
+            />
 
             {/* Trigger Word */}
             <TextField

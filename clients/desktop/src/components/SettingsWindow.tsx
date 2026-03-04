@@ -22,6 +22,7 @@ import {
   Save as SaveIcon,
   AccountCircle as AccountCircleIcon,
   VolumeUp as VolumeUpIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useAuthStore } from '../store/authStore';
@@ -42,7 +43,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
 
   const [currentTab, setCurrentTab] = useState(0);
 
-  const [preferredName, setPreferredName] = useState('');
   const [ollamaUrl, setOllamaUrl] = useState('');
   const [summaryModel, setSummaryModel] = useState('');
   const [models, setModels] = useState<string[]>([]);
@@ -74,7 +74,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
 
   useEffect(() => {
     if (user) {
-      setPreferredName(user.preferred_name || '');
       setOllamaUrl(user.ollama_url || '');
       setSummaryModel(user.summary_model || '');
     }
@@ -95,9 +94,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
     try {
       // Update text fields (JSON request - PATCH /users/me)
       const profileUpdates: Partial<UserProfile> = {};
-      if (preferredName !== undefined && preferredName !== '') {
-        profileUpdates.preferred_name = preferredName;
-      }
       // Always include ollama_url (empty string will clear it on backend)
       profileUpdates.ollama_url = ollamaUrl || '';
       profileUpdates.summary_model = summaryModel || '';
@@ -173,17 +169,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
             elevation={1}
             sx={{ maxWidth: 800, mx: 'auto', p: 4 }}
           >
-          {/* Preferred Name */}
-          <Box sx={{ mb: 4 }}>
-            <TextField
-              label="Preferred Name"
-              value={preferredName}
-              onChange={(e) => setPreferredName(e.target.value)}
-              fullWidth
-              helperText="How the agent should address you"
-            />
-          </Box>
-
           {/* Ollama Server URL */}
           <Box sx={{ mb: 4 }}>
             <TextField
@@ -198,20 +183,29 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
 
           {/* Summary Model */}
           <Box sx={{ mb: 4 }}>
-            <FormControl fullWidth>
-              <InputLabel>Summary Model</InputLabel>
-              <Select
-                value={summaryModel}
-                label="Summary Model"
-                onChange={(e) => setSummaryModel(e.target.value)}
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+              <FormControl fullWidth>
+                <InputLabel>Summary Model</InputLabel>
+                <Select
+                  value={summaryModel}
+                  label="Summary Model"
+                  onChange={(e) => setSummaryModel(e.target.value)}
+                >
+                  {models.map((model) => (
+                    <MenuItem key={model} value={model}>
+                      {model}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <IconButton
+                onClick={() => apiClient.getModels().then(setModels).catch(() => {})}
+                sx={{ mt: 1 }}
+                title="Refresh models"
               >
-                {models.map((model) => (
-                  <MenuItem key={model} value={model}>
-                    {model}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+                <RefreshIcon />
+              </IconButton>
+            </Box>
             <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
               Model used for session summaries and agent memory consolidation. Summaries are disabled until a model is selected.
             </Typography>

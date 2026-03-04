@@ -100,6 +100,7 @@ export interface Agent {
   character_config: CharacterConfigDTO | null;
   memory: string | null;
   memory_enabled: boolean;
+  preferred_name: string | null;
   trigger_word: string | null;
 }
 
@@ -137,6 +138,7 @@ export interface AgentCreate {
   model_name: string;  // Required - LLM model for this agent
   excluded_tools?: string[];
   think?: boolean;
+  preferred_name?: string;
   trigger_word?: string;
 }
 
@@ -149,6 +151,7 @@ export interface AgentUpdate {
   think?: boolean;
   memory?: string;
   memory_enabled?: boolean;
+  preferred_name?: string;
   trigger_word?: string;
 }
 
