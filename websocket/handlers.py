@@ -45,7 +45,9 @@ from agents.administrator import AdministratorAgent
 from tools import tool_registry
 from media import get_media_player
 from vision import VisionProcessor
+from sqlalchemy import desc
 from db.session import get_session
+from db.models import Frame
 from db.repositories import (
     ConversationRepository,
     FrameRepository,
@@ -805,7 +807,7 @@ class ChatSessionHandler:
             frame_id = frame.id
 
             # Find older frames missing summaries (backfill)
-            from db.models import Frame, Message
+            from db.models import Message
             from sqlalchemy import func
             unsummarized = (
                 session.query(Frame.id)
@@ -1090,28 +1092,48 @@ class ChatSessionHandler:
                 del self.pending_approvals[request.approval_id]
 
     def _load_context_messages(self, conversation_id: int, frame_id: int) -> list:
-        """Load context messages from database.
+        """Load context messages from the last 2 frames.
 
-        Includes speaker name so _prepare_messages() can correctly map
-        roles (assistant=self, user=others) and add speaker prefixes.
+        Includes the previous frame's messages (prefixed with a summary separator)
+        plus the current frame's messages, giving the LLM more conversational context.
         """
         with get_session() as session:
             msg_repo = MessageRepository(session)
-            messages = msg_repo.get_by_frame(frame_id, limit=1000)
+            frame_repo = FrameRepository(session)
+
+            # Get the last 2 frames for this conversation (ordered by created_at)
+            frames = (
+                session.query(Frame)
+                .filter_by(conversation_id=conversation_id)
+                .filter(Frame.id <= frame_id)
+                .order_by(desc(Frame.created_at), desc(Frame.id))
+                .limit(2)
+                .all()
+            )
+            frames.reverse()  # chronological order
 
             result = []
-            for msg in messages:
-                entry = {
-                    "role": msg.role,
-                    "content": msg.message,
-                }
-                if msg.name:
-                    entry["name"] = msg.name
-                if msg.agent_id:
-                    entry["agent_id"] = msg.agent_id
-                if msg.thinking:
-                    entry["thinking"] = msg.thinking
-                result.append(entry)
+            for frame in frames:
+                if frame.id != frame_id and frame.summary:
+                    # Insert summary separator for the previous frame
+                    result.append({
+                        "role": "system",
+                        "content": f"[Previous session summary]: {frame.summary}",
+                    })
+
+                messages = msg_repo.get_by_frame(frame.id, limit=1000)
+                for msg in messages:
+                    entry = {
+                        "role": msg.role,
+                        "content": msg.message,
+                    }
+                    if msg.name:
+                        entry["name"] = msg.name
+                    if msg.agent_id:
+                        entry["agent_id"] = msg.agent_id
+                    if msg.thinking:
+                        entry["thinking"] = msg.thinking
+                    result.append(entry)
             return result
 
     def _load_agent(self, agent_id: int) -> BaseAgent:
