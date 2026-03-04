@@ -1156,6 +1156,7 @@ class ChatSessionHandler:
                 think=agent.think,
                 memory=agent.memory,
                 memory_enabled=agent.memory_enabled,
+                preferred_name=agent.preferred_name,
             )
 
             return BaseAgent.create_from_config(config, tool_registry)

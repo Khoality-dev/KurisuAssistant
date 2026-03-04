@@ -50,6 +50,7 @@ class AgentConfig:
     think: bool = False
     memory: Optional[str] = None
     memory_enabled: bool = True
+    preferred_name: Optional[str] = None
 
 
 @dataclass
@@ -316,8 +317,10 @@ class SimpleAgent(BaseAgent):
             system_parts.append(self.config.system_prompt)
         if context.user_system_prompt:
             system_parts.append(context.user_system_prompt)
-        if context.preferred_name:
-            system_parts.append(f"The user prefers to be called: {context.preferred_name}")
+        # Agent-level preferred_name takes priority over user-level
+        preferred_name = self.config.preferred_name or context.preferred_name
+        if preferred_name:
+            system_parts.append(f"The user prefers to be called: {preferred_name}")
         system_parts.append(f"Current time: {datetime.datetime.utcnow().isoformat()}")
 
         # List available skills (agents fetch full instructions on-demand via tool)

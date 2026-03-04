@@ -78,6 +78,7 @@ class Agent(Base):
     character_config = Column(JSON, nullable=True)  # Animation tree config for video call mode
     memory = Column(Text, nullable=True)  # Free-form persistent memory (markdown)
     memory_enabled = Column(Boolean, default=True, nullable=False)  # Enable memory injection + consolidation
+    preferred_name = Column(Text, nullable=True)  # How the user wants to be called by this agent
     trigger_word = Column(String, nullable=True)  # Voice activation trigger word
     created_at = Column(DateTime, default=datetime.utcnow)
 

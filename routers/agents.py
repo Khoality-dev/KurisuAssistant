@@ -66,6 +66,7 @@ class AgentCreate(BaseModel):
     model_name: str  # Required - LLM model for this agent
     excluded_tools: Optional[List[str]] = None
     think: bool = False
+    preferred_name: Optional[str] = None
     trigger_word: Optional[str] = None
 
 
@@ -79,6 +80,7 @@ class AgentUpdate(BaseModel):
     think: Optional[bool] = None
     memory: Optional[str] = None
     memory_enabled: Optional[bool] = None
+    preferred_name: Optional[str] = None
     trigger_word: Optional[str] = None
 
 
@@ -95,6 +97,7 @@ class AgentResponse(BaseModel):
     character_config: Optional[dict] = None
     memory: Optional[str] = None
     memory_enabled: bool = True
+    preferred_name: Optional[str] = None
     trigger_word: Optional[str] = None
 
 
@@ -112,6 +115,7 @@ def _agent_to_response(agent) -> AgentResponse:
         character_config=getattr(agent, 'character_config', None),
         memory=agent.memory,
         memory_enabled=agent.memory_enabled,
+        preferred_name=agent.preferred_name,
         trigger_word=agent.trigger_word,
     )
 
@@ -174,6 +178,7 @@ async def create_agent(
                 model_name=body.model_name,
                 excluded_tools=body.excluded_tools,
                 think=body.think,
+                preferred_name=body.preferred_name,
                 trigger_word=body.trigger_word,
             )
 
@@ -231,6 +236,7 @@ async def update_agent(
             think=body.think,
             memory=body.memory,
             memory_enabled=body.memory_enabled,
+            preferred_name=body.preferred_name,
             trigger_word=body.trigger_word,
         )
 
