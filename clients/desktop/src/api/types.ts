@@ -64,9 +64,7 @@ export interface UserProfile {
   email?: string;
   system_prompt?: string;
   preferred_name?: string;
-  user_avatar_uuid?: string;
   agent_avatar_uuid?: string;
-  assistant_avatar_uuid?: string; // Alias for agent_avatar_uuid
   ollama_url?: string; // Custom Ollama server URL (null/undefined = use default)
   summary_model?: string; // Model for frame summarization (null = use chat model)
 }

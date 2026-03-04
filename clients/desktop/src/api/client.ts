@@ -165,12 +165,9 @@ class APIClient {
     return response.data;
   }
 
-  async updateUserAvatars(userAvatar?: File, agentAvatar?: File): Promise<any> {
+  async updateUserAvatars(agentAvatar?: File): Promise<any> {
     const formData = new FormData();
 
-    if (userAvatar) {
-      formData.append('user_avatar', userAvatar);
-    }
     if (agentAvatar) {
       formData.append('agent_avatar', agentAvatar);
     }

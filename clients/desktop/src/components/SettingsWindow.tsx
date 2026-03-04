@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Paper,
   Typography,
   TextField,
   Button,
-  Avatar,
   IconButton,
   Alert,
   FormControl,
@@ -20,7 +19,6 @@ import {
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
-  PhotoCamera as PhotoCameraIcon,
   Save as SaveIcon,
   AccountCircle as AccountCircleIcon,
   VolumeUp as VolumeUpIcon,
@@ -48,8 +46,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
   const [ollamaUrl, setOllamaUrl] = useState('');
   const [summaryModel, setSummaryModel] = useState('');
   const [models, setModels] = useState<string[]>([]);
-  const [userAvatarFile, setUserAvatarFile] = useState<File | null>(null);
-  const [userAvatarPreview, setUserAvatarPreview] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -76,17 +72,11 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
   const setTtsEmotionAlpha = (v: number) => { setTtsEmotionAlphaState(v); storage.setTTSEmotionAlpha(v); };
   const setTtsUseEmotionText = (v: boolean) => { setTtsUseEmotionTextState(v); storage.setTTSUseEmotionText(v); };
 
-  const userAvatarInputRef = useRef<HTMLInputElement>(null);
-
   useEffect(() => {
     if (user) {
       setPreferredName(user.preferred_name || '');
       setOllamaUrl(user.ollama_url || '');
       setSummaryModel(user.summary_model || '');
-
-      if (user.user_avatar_uuid) {
-        setUserAvatarPreview(apiClient.getImageUrl(user.user_avatar_uuid));
-      }
     }
   }, [user]);
 
@@ -96,18 +86,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
     loadBackends();
     apiClient.getModels().then(setModels).catch(() => {});
   }, [loadVoices, loadBackends]);
-
-  const handleUserAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setUserAvatarFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setUserAvatarPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
   const handleSaveAccountSettings = async () => {
     setIsSaving(true);
@@ -128,15 +106,9 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
         await apiClient.updateUserProfile(profileUpdates);
       }
 
-      // Update avatar (multipart request - PATCH /users/me/avatars)
-      if (userAvatarFile) {
-        await apiClient.updateUserAvatars(userAvatarFile, undefined);
-      }
-
       await loadUserProfile(); // Reload user profile to get updated data
 
       setSuccessMessage('Settings saved successfully!');
-      setUserAvatarFile(null);
 
       // Clear success message after 3 seconds
       setTimeout(() => setSuccessMessage(''), 3000);
@@ -201,35 +173,6 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
             elevation={1}
             sx={{ maxWidth: 800, mx: 'auto', p: 4 }}
           >
-            {/* User Avatar */}
-          <Box sx={{ mb: 4 }}>
-            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
-              Your Avatar
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Avatar
-                src={userAvatarPreview || undefined}
-                sx={{ width: 80, height: 80 }}
-              >
-                {!userAvatarPreview && (user?.username?.[0] || 'U')}
-              </Avatar>
-              <input
-                ref={userAvatarInputRef}
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={handleUserAvatarSelect}
-              />
-              <Button
-                variant="outlined"
-                startIcon={<PhotoCameraIcon />}
-                onClick={() => userAvatarInputRef.current?.click()}
-              >
-                Upload Avatar
-              </Button>
-            </Box>
-          </Box>
-
           {/* Preferred Name */}
           <Box sx={{ mb: 4 }}>
             <TextField
