@@ -1109,6 +1109,8 @@ class ChatSessionHandler:
                     entry["name"] = msg.name
                 if msg.agent_id:
                     entry["agent_id"] = msg.agent_id
+                if msg.thinking:
+                    entry["thinking"] = msg.thinking
                 result.append(entry)
             return result
 
