@@ -386,7 +386,11 @@ class SimpleAgent(BaseAgent):
                 elif speaker:
                     content = f"[{speaker}]: {content}"
 
-            prepared.append({"role": chat_role, "content": content})
+            entry = {"role": chat_role, "content": content}
+            # Include thinking for this agent's own assistant messages
+            if chat_role == "assistant" and "thinking" in msg:
+                entry["thinking"] = msg["thinking"]
+            prepared.append(entry)
 
         return prepared
 
