@@ -24,6 +24,7 @@ import {
   Menu as MenuIcon,
 } from '@mui/icons-material';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
+import { wsManager } from '../api/websocket';
 import { useAuthStore } from '../store/authStore';
 import { useConversationStore } from '../store/conversationStore';
 import { useAgentStore } from '../store/agentStore';
@@ -197,8 +198,13 @@ export const MainWindow: React.FC = () => {
           )}
 
           {/* Connection status */}
-          <Tooltip title={connectionStatus === 'connected' ? 'Connected' : connectionStatus === 'connecting' ? 'Connecting...' : 'Disconnected'}>
+          <Tooltip title={connectionStatus === 'connected' ? 'Connected' : connectionStatus === 'connecting' ? 'Connecting...' : 'Disconnected — click to reconnect'}>
             <Box
+              onClick={() => {
+                if (connectionStatus === 'disconnected') {
+                  wsManager.reconnect();
+                }
+              }}
               sx={{
                 width: 8,
                 height: 8,
@@ -209,6 +215,7 @@ export const MainWindow: React.FC = () => {
                   connectionStatus === 'connecting' ? '#ff9800' :
                   '#f44336',
                 transition: 'background-color 0.3s',
+                cursor: connectionStatus === 'disconnected' ? 'pointer' : 'default',
               }}
             />
           </Tooltip>

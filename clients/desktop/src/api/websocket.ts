@@ -196,14 +196,9 @@ type StatusHandler = (status: ConnectionStatus) => void;
 class WebSocketManager {
   private ws: WebSocket | null = null;
   private token: string | null = null;
-  private reconnectAttempts = 0;
-  private reconnectDelay = 1000;
-  private maxReconnectDelay = 30000;
   private handlers: Map<EventType, Set<EventHandler>> = new Map();
   private connectionPromise: Promise<void> | null = null;
   private isConnecting = false;
-  private lastConnectedAt = 0;
-  private intentionalClose = false;
   private _connectionStatus: ConnectionStatus = 'disconnected';
   private _statusHandlers: Set<StatusHandler> = new Set();
   private _pendingMessages: string[] = [];
@@ -241,7 +236,6 @@ class WebSocketManager {
     }
 
     this.isConnecting = true;
-    this.intentionalClose = false;
     this.setStatus('connecting');
     this.connectionPromise = new Promise((resolve, reject) => {
       // Convert http(s) to ws(s)
@@ -253,8 +247,6 @@ class WebSocketManager {
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
-        this.lastConnectedAt = Date.now();
-        this.reconnectAttempts = 0;
         this.isConnecting = false;
         this.setStatus('connected');
 
@@ -296,17 +288,6 @@ class WebSocketManager {
         this.ws = null;
         this.connectionPromise = null;
         this.setStatus('disconnected');
-
-        if (!this.intentionalClose && this.token) {
-          this.dispatchEvent({
-            type: 'error',
-            error: 'Connection lost. Reconnecting...',
-            code: 'CONNECTION_LOST',
-            event_id: '',
-            timestamp: new Date().toISOString(),
-          } as ErrorEvent);
-          this.attemptReconnect();
-        }
       };
     });
 
@@ -317,16 +298,22 @@ class WebSocketManager {
    * Disconnect from the WebSocket server.
    */
   disconnect() {
-    this.intentionalClose = true;
     if (this.ws) {
       this.ws.close(1000, 'Client disconnect');
       this.ws = null;
     }
     this.connectionPromise = null;
     this.isConnecting = false;
-    this.reconnectAttempts = 0;
     this._pendingMessages = [];
     this.setStatus('disconnected');
+  }
+
+  /**
+   * Manually reconnect (e.g. user clicks status icon).
+   */
+  reconnect() {
+    if (this.isConnected() || this.isConnecting) return;
+    this.connect().catch(() => {});
   }
 
   /**
@@ -532,27 +519,6 @@ class WebSocketManager {
     }
   }
 
-  private attemptReconnect() {
-    if (this.intentionalClose || !this.token) return;
-
-    this.reconnectAttempts++;
-    const delay = Math.min(
-      this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
-      this.maxReconnectDelay,
-    );
-    console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
-    setTimeout(() => {
-      if (this.token && !this.isConnected() && !this.intentionalClose) {
-        this.connect()
-          .then(() => {
-            // Server sends 'connected' event with state snapshot — no synthetic event needed
-          })
-          .catch(() => {
-            this.attemptReconnect();
-          });
-      }
-    }, delay);
-  }
 }
 
 export const wsManager = new WebSocketManager();

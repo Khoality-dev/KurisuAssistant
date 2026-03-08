@@ -88,7 +88,7 @@ src/config.ts             — API URL config (reads dynamically from storage)
 - Same-role chunks accumulated into single bubble; role/agent change → new bubble
 - Display via `requestAnimationFrame` batching
 - On DoneEvent: `loadConversation()` refreshes store from DB, clears streamingMessages
-- **Reconnect**: On `ConnectedEvent` with `chat_active`, loads persisted messages from DB (incremental persistence — each message saved server-side on role boundary) and enters streaming mode. No server-side replay needed.
+- **Reconnect**: Manual only — user clicks the status dot in the top bar when disconnected. `wsManager.reconnect()` triggers `connect()`. On `ConnectedEvent` with `chat_active`, loads persisted messages from DB (incremental persistence — each message saved server-side on role boundary) and enters streaming mode. No auto-retry, no server-side replay needed.
 - Typing indicator: bouncing dots inside bubble before first chunk; "Done" checkmark after
 
 ### Streaming TTS (Always On)
