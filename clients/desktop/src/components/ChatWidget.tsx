@@ -613,6 +613,21 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       }
     }
 
+    // Merge images from chunk into current streaming message
+    if (event.images && event.images.length > 0) {
+      setStreamingMessages(prev => {
+        const updated = [...prev];
+        if (updated.length > 0) {
+          const last = updated[updated.length - 1];
+          updated[updated.length - 1] = {
+            ...last,
+            images: [...(last.images || []), ...event.images!],
+          };
+        }
+        return updated;
+      });
+    }
+
     // Always accumulate thinking + update isThinking for character transitions
     if (event.thinking) {
       state.accumulatedThinking += event.thinking;

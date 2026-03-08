@@ -65,6 +65,7 @@ export interface StreamChunkEvent extends BaseEvent {
   voice_reference: string | null;
   conversation_id: number;
   frame_id: number;
+  images: string[] | null;
 }
 
 export interface AgentSwitchEvent extends BaseEvent {

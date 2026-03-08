@@ -192,6 +192,10 @@ class APIClient {
     return `${config.apiBaseUrl}/images/${uuid}`;
   }
 
+  getUserImageUrl(uuid: string): string {
+    return `${config.apiBaseUrl}/images/u/${uuid}?token=${this.token}`;
+  }
+
   // TTS Methods
 
   /**

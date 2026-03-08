@@ -356,7 +356,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   <Box
                     key={idx}
                     component="img"
-                    src={apiClient.getImageUrl(imageUuid)}
+                    src={apiClient.getUserImageUrl(imageUuid)}
                     alt={`Image ${idx + 1}`}
                     sx={{
                       maxWidth: '100%',
@@ -364,7 +364,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                       borderRadius: 1,
                       cursor: 'pointer',
                     }}
-                    onClick={() => window.open(apiClient.getImageUrl(imageUuid), '_blank')}
+                    onClick={() => window.open(apiClient.getUserImageUrl(imageUuid), '_blank')}
                   />
                 ))}
               </Box>

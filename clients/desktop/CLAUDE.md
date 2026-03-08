@@ -134,8 +134,11 @@ Two-level state managed by `useMicStore` (Zustand, `src/store/micStore.ts`): `in
 - App startup: `initializeAuth()` → validates saved token via GET /users/me
 
 ### Image Handling
-- Upload: POST /images → {image_uuid} → sent with chat FormData
-- Display: user images at top of bubble; assistant images via markdown `![Image](/images/uuid)`
+- Upload: base64 images sent in `chat_request` WebSocket event → backend saves to per-user directory, returns UUIDs via `StreamChunkEvent.images`
+- Display: `message.images[]` UUIDs rendered via `apiClient.getUserImageUrl(uuid)` → `GET /images/u/{uuid}?token=` (auth-required, per-user scoped)
+- Streaming: `StreamChunkEvent.images` merged into current streaming message's images array
+- Tool images: MCP tools returning `ImageContent` produce image UUIDs streamed on tool-role chunks
+- Public images (avatars, faces): still use `apiClient.getImageUrl(uuid)` → `GET /images/{uuid}` (public)
 
 ### Pagination
 - 50 messages/page, newest first. Scroll to top triggers `loadMoreMessages()`. Position preserved.
