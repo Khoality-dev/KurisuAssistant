@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import List, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session, defer
 from sqlalchemy import desc, func
@@ -29,6 +29,7 @@ class MessageRepository(BaseRepository[Message]):
         name: Optional[str] = None,
         raw_input: Optional[str] = None,
         raw_output: Optional[str] = None,
+        images: Optional[List[str]] = None,
     ) -> Message:
         """Create a new message.
 
@@ -63,6 +64,8 @@ class MessageRepository(BaseRepository[Message]):
             data["raw_input"] = raw_input
         if raw_output is not None:
             data["raw_output"] = raw_output
+        if images is not None:
+            data["images"] = images
 
         return self.create(**data)
 

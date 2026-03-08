@@ -30,7 +30,7 @@ When WebSocket is disconnected, outgoing messages (except `vision_frame`) are qu
 ## Event Types
 
 ### Chat Events (server→client)
-- `StreamChunkEvent` — streaming content with `conversation_id`, `frame_id`
+- `StreamChunkEvent` — streaming content with `conversation_id`, `frame_id`, optional `images` (list of UUIDs)
 - `DoneEvent` — end of response
 - `TurnUpdateEvent` — orchestration turn updates
 - `LLMLogEvent` — LLM call logging

@@ -624,6 +624,14 @@ Upload an image and receive a UUID.
 
 ---
 
+### GET /images/u/{image_uuid}
+
+Retrieve a user-scoped chat image (requires auth via header or `?token=` query param).
+
+**Authentication:** Required (Bearer token in header or `token` query parameter)
+
+**Response:** JPEG image file with 1-year cache.
+
 ### GET /images/{image_uuid}
 
 Retrieve an uploaded image (public, no auth required).
@@ -1338,6 +1346,8 @@ Frames are session windows managed automatically:
 ### Image Handling
 
 1. Images sent as base64 in `chat_request` WebSocket events
-2. Converted to base64 for LLM processing
-3. Embedded as `![Image](/images/{uuid})` in stored message content
-4. Served publicly via `GET /images/{uuid}` with 1-year cache
+2. Saved to per-user directory (`data/image_storage/data/users/{user_id}/`) and assigned UUIDs
+3. UUIDs stored in message's `images` JSON column and streamed back to client via `StreamChunkEvent.images`
+4. Base64 images passed to LLM via Ollama's `images` key for vision model support
+5. Served via auth-required `GET /images/u/{uuid}` with 1-year cache
+6. MCP tools returning `ImageContent` blocks are also saved and attached to tool result messages

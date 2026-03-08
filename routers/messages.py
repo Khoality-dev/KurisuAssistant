@@ -57,6 +57,8 @@ async def get_message(
                 "created_at": message.created_at.isoformat() + "Z",
                 "has_raw_data": bool(message.raw_input or message.raw_output),
             }
+            if message.images:
+                result["images"] = message.images
             if message.thinking:
                 result["thinking"] = message.thinking
             return result

@@ -137,6 +137,7 @@ class UserMCPOrchestrator:
         tool_messages = []
 
         for tool_call in tool_calls:
+            image_uuids = []
             if self.mcp_client is not None:
                 try:
                     result = await call_tool(
@@ -144,7 +145,20 @@ class UserMCPOrchestrator:
                         tool_call.function.name,
                         tool_call.function.arguments,
                     )
-                    tool_text = result[0].text
+                    text_parts = []
+                    for block in result:
+                        if hasattr(block, 'text'):
+                            text_parts.append(block.text)
+                        elif hasattr(block, 'data') and hasattr(block, 'mimeType'):
+                            # ImageContent — save to user's directory
+                            from utils.images import save_image_from_base64
+                            try:
+                                img_uuid = save_image_from_base64(block.data, self.user_id)
+                                image_uuids.append(img_uuid)
+                                text_parts.append(f"[Generated image: {img_uuid}]")
+                            except Exception as e:
+                                text_parts.append(f"[Failed to save image: {e}]")
+                    tool_text = "\n".join(text_parts) if text_parts else ""
                 except Exception as e:
                     tool_text = f"Error executing tool {tool_call.function.name}: {e}"
             else:
@@ -157,6 +171,8 @@ class UserMCPOrchestrator:
                 "tool_name": tool_call.function.name,
                 "created_at": created_at,
             }
+            if image_uuids:
+                tool_message["images"] = image_uuids
             tool_messages.append(tool_message)
 
         return tool_messages
