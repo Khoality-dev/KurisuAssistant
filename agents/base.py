@@ -475,6 +475,7 @@ class SimpleAgent(BaseAgent):
                     tools=tool_schemas if tool_schemas else [],
                     stream=True,
                     think=self.config.think,
+                    options={"num_ctx": 8192},
                 )
 
                 # Accumulate full response to detect tool calls and build follow-up messages
