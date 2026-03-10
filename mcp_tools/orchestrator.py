@@ -3,8 +3,9 @@
 This module provides a per-user orchestrator registry for managing MCP tools:
 - Each user gets their own orchestrator with their configured servers
 - Servers are loaded from the database (mcp_servers table)
+- Each server gets its own FastMCPClient (no composite/proxy)
+- Tool name → client mapping for direct routing
 - Caching tools with 30-second TTL
-- Executing tool calls with conversation_id injection
 """
 
 import time
@@ -49,41 +50,23 @@ def _create_client_from_server(server) -> Optional[FastMCPClient]:
     return client
 
 
-def _create_client_from_servers(servers) -> Optional[FastMCPClient]:
-    """Create a single FastMCPClient from multiple MCPServer DB rows."""
-    mcp_servers: Dict[str, Any] = {}
-    for server in servers:
-        if server.transport_type == "sse" and server.url:
-            mcp_servers[server.name] = {"url": server.url}
-        elif server.transport_type == "stdio" and server.command:
-            entry: Dict[str, Any] = {"command": server.command}
-            if server.args:
-                entry["args"] = server.args
-            if server.env:
-                entry["env"] = server.env
-            mcp_servers[server.name] = entry
-
-    if not mcp_servers:
-        return None
-
-    config = {"mcpServers": mcp_servers}
-    client = FastMCPClient(config)
-    _patch_httpx_factory(client)
-    return client
-
-
 class UserMCPOrchestrator:
-    """Per-user orchestrator for MCP tool management and execution."""
+    """Per-user orchestrator for MCP tool management and execution.
+
+    Uses per-server clients instead of a composite client to avoid
+    tool name prefixing and proxy reconnection issues.
+    """
 
     def __init__(self, user_id: int):
         self.user_id = user_id
-        self.mcp_client: Optional[FastMCPClient] = None
+        self._server_clients: Dict[str, FastMCPClient] = {}
+        self._tool_to_client: Dict[str, FastMCPClient] = {}
         self._cached_tools: List[Dict] = []
         self._tools_cache_time: float = 0
         self._cache_ttl: int = 30
 
     def _load_servers(self):
-        """Load enabled server-side servers from DB and rebuild the MCP client.
+        """Load enabled server-side servers from DB and rebuild per-server clients.
 
         Only loads servers with location="server" (or NULL for backwards compat).
         Client-side servers are managed by the Electron app.
@@ -94,27 +77,40 @@ class UserMCPOrchestrator:
         with get_session() as session:
             repo = MCPServerRepository(session)
             servers = repo.list_enabled_by_user(self.user_id, location="server")
-            self.mcp_client = _create_client_from_servers(servers)
+
+        self._server_clients.clear()
+        for server in servers:
+            client = _create_client_from_server(server)
+            if client:
+                self._server_clients[server.name] = client
 
     def invalidate(self):
         """Reset cache, forcing reload on next call."""
         self._tools_cache_time = 0
 
     async def get_tools(self) -> List[Dict]:
-        """Get MCP tools with caching (flat list)."""
+        """Get MCP tools with caching (flat list from all servers)."""
         current_time = time.time()
 
         if current_time - self._tools_cache_time > self._cache_ttl:
             self._load_servers()
-            if self.mcp_client is not None:
+            all_tools: List[Dict] = []
+            tool_to_client: Dict[str, FastMCPClient] = {}
+
+            for server_name, client in self._server_clients.items():
                 try:
-                    self._cached_tools = await list_tools(self.mcp_client)
-                    self._tools_cache_time = current_time
+                    tools = await list_tools(client)
+                    for tool in tools:
+                        tool_name = tool.get("function", {}).get("name", "")
+                        if tool_name:
+                            tool_to_client[tool_name] = client
+                    all_tools.extend(tools)
                 except Exception as e:
-                    logger.error(f"Error getting MCP tools for user {self.user_id}: {e}")
-                    self._cached_tools = []
-            else:
-                self._cached_tools = []
+                    logger.error(f"Error getting MCP tools from '{server_name}' for user {self.user_id}: {e}")
+
+            self._cached_tools = all_tools
+            self._tool_to_client = tool_to_client
+            self._tools_cache_time = current_time
 
         return self._cached_tools
 
@@ -138,11 +134,14 @@ class UserMCPOrchestrator:
 
         for tool_call in tool_calls:
             image_uuids = []
-            if self.mcp_client is not None:
+            tool_name = tool_call.function.name
+            client = self._tool_to_client.get(tool_name)
+
+            if client is not None:
                 try:
                     result = await call_tool(
-                        self.mcp_client,
-                        tool_call.function.name,
+                        client,
+                        tool_name,
                         tool_call.function.arguments,
                     )
                     text_parts = []
@@ -160,7 +159,7 @@ class UserMCPOrchestrator:
                                 text_parts.append(f"[Failed to save image: {e}]")
                     tool_text = "\n".join(text_parts) if text_parts else ""
                 except Exception as e:
-                    tool_text = f"Error executing tool {tool_call.function.name}: {e}"
+                    tool_text = f"Error executing tool {tool_name}: {e}"
             else:
                 tool_text = "MCP client not available"
 
@@ -168,7 +167,7 @@ class UserMCPOrchestrator:
             tool_message = {
                 "role": "tool",
                 "content": tool_text,
-                "tool_name": tool_call.function.name,
+                "tool_name": tool_name,
                 "created_at": created_at,
             }
             if image_uuids:
