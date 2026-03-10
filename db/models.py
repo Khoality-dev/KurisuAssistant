@@ -15,6 +15,7 @@ class User(Base):
     agent_avatar_uuid = Column(String, nullable=True)
     ollama_url = Column(String, nullable=True)  # Custom Ollama server URL (None = use default env var)
     summary_model = Column(String, nullable=True)  # Model for frame summarization (None = use chat model)
+    context_size = Column(Integer, nullable=True)  # Ollama num_ctx override (None = default 8192)
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     agents = relationship("Agent", back_populates="user", cascade="all, delete-orphan")

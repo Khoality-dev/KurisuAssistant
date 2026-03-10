@@ -53,6 +53,7 @@ class UserRepository(BaseRepository[User]):
         preferred_name: Optional[str] = None,
         ollama_url: Optional[str] = None,
         summary_model: Optional[str] = None,
+        context_size: Optional[int] = None,
     ) -> User:
         """Update user preferences.
 
@@ -62,6 +63,7 @@ class UserRepository(BaseRepository[User]):
             preferred_name: New preferred name (optional)
             ollama_url: Custom Ollama server URL (optional, empty string clears it)
             summary_model: Model for frame summarization (optional, empty string clears it)
+            context_size: Ollama num_ctx override (optional, 0/None clears it)
 
         Returns:
             Updated User instance
@@ -76,6 +78,8 @@ class UserRepository(BaseRepository[User]):
             update_data["ollama_url"] = ollama_url if ollama_url else None
         if summary_model is not None:
             update_data["summary_model"] = summary_model if summary_model else None
+        if context_size is not None:
+            update_data["context_size"] = context_size if context_size else None
 
         if update_data:
             return self.update(user, **update_data)

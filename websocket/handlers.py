@@ -237,7 +237,7 @@ class ChatSessionHandler:
         from fastapi import WebSocketDisconnect
         try:
             # Setup conversation/frame
-            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids = await self._setup_conversation(event)
+            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
 
             # Reset task state
             self._task_conversation_id = conversation_id
@@ -313,6 +313,7 @@ class ChatSessionHandler:
                 client_tools=self._client_tools,
                 client_tool_callback=self._execute_client_tool,
                 images=event.images if event.images else None,
+                context_size=context_size,
             )
 
             # Create and run the agent
@@ -415,7 +416,7 @@ class ChatSessionHandler:
         """
         try:
             # Setup conversation/frame
-            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids = await self._setup_conversation(event)
+            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
 
             # Fire-and-forget summarization (only if summary_model configured)
             if summary_model:
@@ -590,6 +591,7 @@ class ChatSessionHandler:
                 client_tools=self._client_tools,
                 client_tool_callback=self._execute_client_tool,
                 images=event.images if event.images else None,
+                context_size=context_size,
             )
 
             # Build agent lookup
@@ -819,7 +821,7 @@ class ChatSessionHandler:
 
         Returns:
             Tuple of (conversation_id, frame_id, system_messages, user_system_prompt,
-                       preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids)
+                       preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size)
         """
         old_frame_id = None
 
@@ -836,6 +838,7 @@ class ChatSessionHandler:
 
             ollama_url = user.ollama_url
             summary_model = user.summary_model
+            context_size = user.context_size
 
             # Create or get conversation
             if event.conversation_id is None:
@@ -883,7 +886,7 @@ class ChatSessionHandler:
         # Build system messages
         system_messages = build_system_messages(system_prompt, preferred_name)
 
-        return conversation_id, frame_id, system_messages, system_prompt, preferred_name or "", old_frame_id, ollama_url, summary_model, unsummarized_ids
+        return conversation_id, frame_id, system_messages, system_prompt, preferred_name or "", old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size
 
     def _load_user_agents(self) -> List[AgentConfig]:
         """Load all agents for the current user."""

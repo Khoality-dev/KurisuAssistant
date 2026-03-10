@@ -67,6 +67,7 @@ class AgentContext:
     client_tools: List[Dict] = field(default_factory=list)
     client_tool_callback: Optional[Callable[[str, Dict], Coroutine[Any, Any, str]]] = None
     images: Optional[List[str]] = None  # base64 images for current user message
+    context_size: Optional[int] = None  # Ollama num_ctx override
 
 
 @dataclass
@@ -478,7 +479,7 @@ class SimpleAgent(BaseAgent):
                     tools=tool_schemas if tool_schemas else [],
                     stream=True,
                     think=self.config.think,
-                    options={"num_ctx": 8192},
+                    options={"num_ctx": context.context_size or 8192},
                 )
 
                 # Accumulate full response to detect tool calls and build follow-up messages
