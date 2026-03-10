@@ -74,6 +74,7 @@ export interface UserProfile {
   agent_avatar_uuid?: string;
   ollama_url?: string; // Custom Ollama server URL (null/undefined = use default)
   summary_model?: string; // Model for frame summarization (null = use chat model)
+  context_size?: number; // Ollama num_ctx override (null = default 8192)
 }
 
 export interface VoicesResponse {

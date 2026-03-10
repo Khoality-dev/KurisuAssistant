@@ -45,6 +45,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
 
   const [ollamaUrl, setOllamaUrl] = useState('');
   const [summaryModel, setSummaryModel] = useState('');
+  const [contextSize, setContextSize] = useState<number | ''>('');
   const [models, setModels] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -76,6 +77,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
     if (user) {
       setOllamaUrl(user.ollama_url || '');
       setSummaryModel(user.summary_model || '');
+      setContextSize(user.context_size || '');
     }
   }, [user]);
 
@@ -97,6 +99,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
       // Always include ollama_url (empty string will clear it on backend)
       profileUpdates.ollama_url = ollamaUrl || '';
       profileUpdates.summary_model = summaryModel || '';
+      profileUpdates.context_size = contextSize || 0;
 
       if (Object.keys(profileUpdates).length > 0) {
         await apiClient.updateUserProfile(profileUpdates);
@@ -209,6 +212,20 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
             <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
               Model used for session summaries and agent memory consolidation. Summaries are disabled until a model is selected.
             </Typography>
+          </Box>
+
+          {/* Context Size */}
+          <Box sx={{ mb: 4 }}>
+            <TextField
+              label="Context Size"
+              type="number"
+              value={contextSize}
+              onChange={(e) => setContextSize(e.target.value ? parseInt(e.target.value, 10) : '')}
+              fullWidth
+              placeholder="8192"
+              helperText="Ollama context window size (num_ctx). Higher values use more VRAM. Default: 8192."
+              inputProps={{ min: 2048, max: 131072, step: 1024 }}
+            />
           </Box>
 
           {/* Save Account Settings Button */}

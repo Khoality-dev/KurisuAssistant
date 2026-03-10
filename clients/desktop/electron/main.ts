@@ -9,6 +9,7 @@ import { registerMCPHandlers, cleanupMCP } from './mcp';
 
 // Set custom cache path to avoid permission issues on Windows
 app.setPath('userData', path.join(app.getPath('appData'), 'kurisu-assistant'));
+app.setAppUserModelId('com.kurisu.assistant');
 
 let mainWindow: BrowserWindow | null = null;
 let characterWindow: BrowserWindow | null = null;
