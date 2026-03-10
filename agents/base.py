@@ -200,6 +200,9 @@ class BaseAgent(ABC):
             from mcp_tools.orchestrator import get_user_orchestrator
             orchestrator = get_user_orchestrator(context.user_id)
 
+            # Ensure tool-to-client mapping is loaded (uses cache if fresh)
+            await orchestrator.get_tools()
+
             # Create a mock tool call object
             class MockToolCall:
                 class Function:
