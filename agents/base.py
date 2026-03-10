@@ -340,9 +340,12 @@ class SimpleAgent(BaseAgent):
             skill_names = get_skill_names_for_user(context.user_id)
             if skill_names:
                 system_parts.append(
-                    "You have skills available: " + ", ".join(skill_names) + ".\n"
-                    "IMPORTANT: Before performing any task, check if a relevant skill is available. "
-                    "If so, call get_skill_instructions to read the skill's full instructions first, then follow them."
+                    "## Skills\n"
+                    "You have the following skills: " + ", ".join(skill_names) + ".\n"
+                    "Skills contain detailed instructions on HOW to perform specific tasks. "
+                    "You MUST call get_skill_instructions to load the relevant skill's instructions BEFORE "
+                    "attempting any task that matches a skill name. Do NOT guess or improvise — "
+                    "always read the skill first and follow its instructions exactly."
                 )
         # Inject agent memory
         if self.config.memory_enabled and self.config.memory:
