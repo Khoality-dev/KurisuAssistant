@@ -61,6 +61,7 @@ class UserMCPOrchestrator:
         self.user_id = user_id
         self._server_clients: Dict[str, FastMCPClient] = {}
         self._tool_to_client: Dict[str, FastMCPClient] = {}
+        self._tool_to_server: Dict[str, str] = {}
         self._cached_tools: List[Dict] = []
         self._tools_cache_time: float = 0
         self._cache_ttl: int = 30
@@ -96,6 +97,7 @@ class UserMCPOrchestrator:
             self._load_servers()
             all_tools: List[Dict] = []
             tool_to_client: Dict[str, FastMCPClient] = {}
+            tool_to_server: Dict[str, str] = {}
 
             for server_name, client in self._server_clients.items():
                 try:
@@ -104,15 +106,26 @@ class UserMCPOrchestrator:
                         tool_name = tool.get("function", {}).get("name", "")
                         if tool_name:
                             tool_to_client[tool_name] = client
+                            tool_to_server[tool_name] = server_name
                     all_tools.extend(tools)
                 except Exception as e:
                     logger.error(f"Error getting MCP tools from '{server_name}' for user {self.user_id}: {e}")
 
             self._cached_tools = all_tools
             self._tool_to_client = tool_to_client
+            self._tool_to_server = tool_to_server
             self._tools_cache_time = current_time
 
         return self._cached_tools
+
+    def get_tools_by_server(self) -> Dict[str, List[Dict]]:
+        """Get cached tools grouped by server name."""
+        grouped: Dict[str, List[Dict]] = {}
+        for tool in self._cached_tools:
+            tool_name = tool.get("function", {}).get("name", "")
+            server_name = self._tool_to_server.get(tool_name, "Unknown")
+            grouped.setdefault(server_name, []).append(tool)
+        return grouped
 
     def get_server_names(self) -> List[str]:
         """Get enabled server-side server names for the user."""
