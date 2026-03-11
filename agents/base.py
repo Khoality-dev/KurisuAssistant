@@ -67,6 +67,7 @@ class AgentContext:
     client_tools: List[Dict] = field(default_factory=list)
     client_tool_callback: Optional[Callable[[str, Dict], Coroutine[Any, Any, str]]] = None
     images: Optional[List[str]] = None  # base64 images for current user message
+    knowledge_context: str = ""  # Auto-queried knowledge graph context
     context_size: Optional[int] = None  # Ollama num_ctx override
 
 
@@ -355,6 +356,14 @@ class SimpleAgent(BaseAgent):
         if self.config.memory_enabled and self.config.memory:
             system_parts.append("Your memory:\n" + self.config.memory)
 
+        # Inject pre-fetched knowledge graph context
+        if context.knowledge_context:
+            system_parts.append(
+                "## Relevant Knowledge\n"
+                "The following information was retrieved from past conversations and may be relevant:\n"
+                + context.knowledge_context
+            )
+
         if agent_descriptions:
             system_parts.append(
                 "Other agents in this conversation:\n"
@@ -429,6 +438,34 @@ class SimpleAgent(BaseAgent):
         from models.llm import create_llm_provider
 
         llm = create_llm_provider("ollama")
+
+        # Auto-query knowledge graph with the latest user message
+        if context.user_id and not context.knowledge_context:
+            last_user_msg = None
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    last_user_msg = msg.get("content", "")
+                    break
+            if last_user_msg:
+                try:
+                    from utils.knowledge_graph import query_knowledge
+                    from db.session import get_session
+                    from db.models import User
+                    with get_session() as db_session:
+                        user = db_session.query(User).filter_by(id=context.user_id).first()
+                        summary_model = user.summary_model if user else None
+                        ollama_url = user.ollama_url if user else None
+                    if summary_model:
+                        kg_result = await query_knowledge(
+                            user_id=context.user_id,
+                            question=last_user_msg,
+                            model_name=summary_model,
+                            api_url=ollama_url,
+                        )
+                        if kg_result and kg_result.strip():
+                            context.knowledge_context = kg_result
+                except Exception as e:
+                    logger.warning(f"Knowledge graph auto-query failed: {e}")
 
         # Prepare messages: filter Administrator, add speaker names, inject agent descriptions
         messages = self._prepare_messages(messages, context)

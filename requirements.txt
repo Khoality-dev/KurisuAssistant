@@ -41,3 +41,4 @@ onnxruntime-gpu
 mediapipe
 ultralytics
 yt-dlp
+lightrag-hku

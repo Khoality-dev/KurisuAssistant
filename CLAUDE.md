@@ -20,6 +20,7 @@ KurisuAssistant is a voice-based AI assistant platform combining STT (faster-whi
 - [API Reference](docs/API.md) — comprehensive endpoint documentation
 - [GPT-SoVITS Setup](docs/gpt-sovits.md) — voice synthesis backend configuration
 - [MCP Configuration](docs/mcp-config.md) — MCP server config format
+- Knowledge Graph — LightRAG-based per-user entity/relationship extraction (`utils/knowledge_graph.py`, `tools/knowledge.py`)
 
 ## Development Quick Reference
 

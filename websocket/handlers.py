@@ -265,6 +265,16 @@ class ChatSessionHandler:
                         api_url=ollama_url,
                     ))
 
+                # Fire-and-forget knowledge graph insertion
+                if consolidation_fids:
+                    from utils.knowledge_graph import insert_conversation_knowledge
+                    asyncio.create_task(insert_conversation_knowledge(
+                        user_id=self.user_id,
+                        frame_ids=consolidation_fids,
+                        model_name=summary_model,
+                        api_url=ollama_url,
+                    ))
+
             if not target_agent:
                 await self.send_event(ErrorEvent(
                     error=f"Agent not found: {event.agent_id}",
@@ -418,11 +428,22 @@ class ChatSessionHandler:
             # Setup conversation/frame
             conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
 
-            # Fire-and-forget summarization (only if summary_model configured)
+            # Fire-and-forget summarization + knowledge graph (only if summary_model configured)
             if summary_model:
                 from utils.frame_summary import summarize_frame
                 for fid in ([old_frame_id] if old_frame_id else []) + unsummarized_ids:
                     asyncio.create_task(summarize_frame(fid, model_name=summary_model, api_url=ollama_url))
+
+                # Fire-and-forget knowledge graph insertion
+                kg_fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
+                if kg_fids:
+                    from utils.knowledge_graph import insert_conversation_knowledge
+                    asyncio.create_task(insert_conversation_knowledge(
+                        user_id=self.user_id,
+                        frame_ids=kg_fids,
+                        model_name=summary_model,
+                        api_url=ollama_url,
+                    ))
 
             # Reset task state
             self._task_conversation_id = conversation_id
