@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('electron', {
     checkInstalled: (appName: string) => ipcRenderer.invoke('extensions:check-installed', appName),
     launchApp: (appName: string) => ipcRenderer.invoke('extensions:launch-app', appName),
     downloadAndInstall: (url: string) => ipcRenderer.invoke('extensions:download-install', url),
+    downloadPortable: (url: string, appName: string) => ipcRenderer.invoke('extensions:download-portable', url, appName),
+    uninstall: (appName: string) => ipcRenderer.invoke('extensions:uninstall', appName),
     onDownloadProgress: (cb: (progress: { percent: number }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, progress: { percent: number }) => cb(progress);
       ipcRenderer.on('extensions:download-progress', handler);

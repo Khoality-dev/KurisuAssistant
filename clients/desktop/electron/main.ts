@@ -236,6 +236,9 @@ function getExtensionExePath(appName: string): string {
   if (appName === 'maestro') {
     return path.join(localAppData, 'Programs', 'Maestro', 'Maestro.exe');
   }
+  if (appName === 'chronicle') {
+    return path.join(localAppData, 'Programs', 'Chronicle', 'Chronicle.exe');
+  }
   throw new Error(`Unknown extension: ${appName}`);
 }
 
@@ -316,6 +319,28 @@ ipcMain.handle('extensions:download-install', async (_event, url: string) => {
   });
 
   await shell.openPath(destPath);
+});
+
+ipcMain.handle('extensions:download-portable', async (_event, url: string, appName: string) => {
+  const exePath = getExtensionExePath(appName);
+  const dir = path.dirname(exePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  await downloadFile(url, exePath, (percent) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('extensions:download-progress', { percent });
+    }
+  });
+});
+
+ipcMain.handle('extensions:uninstall', (_event, appName: string) => {
+  const exePath = getExtensionExePath(appName);
+  const dir = path.dirname(exePath);
+  if (fs.existsSync(dir)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // --- App Lifecycle ---

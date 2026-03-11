@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Paper,
@@ -47,6 +47,20 @@ import { refreshClientMCPServers, getClientTools } from '../services/mcpService'
 
 const MotionCard = motion(Card);
 
+interface LocalService {
+  id: string;
+  name: string;
+  healthUrl: string;
+  mcpUrl: string;
+}
+
+const LOCAL_SERVICES: LocalService[] = [
+  { id: 'maestro', name: 'Maestro', healthUrl: 'http://localhost:29170/health', mcpUrl: 'http://localhost:29170/sse' },
+  { id: 'chronicle', name: 'Chronicle', healthUrl: 'http://localhost:29172/health', mcpUrl: 'http://localhost:29172/sse' },
+];
+
+const LOCAL_SERVICE_POLL_INTERVAL = 5000;
+
 interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
@@ -89,6 +103,46 @@ export const ToolsWindow: React.FC = () => {
   const [serverSaving, setServerSaving] = useState(false);
   const [testingServerId, setTestingServerId] = useState<number | null>(null);
   const [testResults, setTestResults] = useState<Record<number, MCPServerTestResult>>({});
+
+  // Local service detection state
+  const [detectedServices, setDetectedServices] = useState<Record<string, { running: boolean; version?: string }>>({});
+  const mcpAutoRegistered = useRef<Set<string>>(new Set());
+
+  const checkLocalServices = useCallback(async () => {
+    if (!window.electron?.extensions) return;
+    for (const svc of LOCAL_SERVICES) {
+      const data = await window.electron.extensions.checkHealth(svc.healthUrl);
+      const running = !!(data && data.status === 'ok');
+      setDetectedServices((prev) => ({
+        ...prev,
+        [svc.id]: { running, version: running ? data?.version : undefined },
+      }));
+      // Auto-register MCP server if running and not yet registered
+      if (running && !mcpAutoRegistered.current.has(svc.id)) {
+        try {
+          const servers = await apiClient.listMCPServers();
+          const exists = servers.some((s) => s.url === svc.mcpUrl);
+          if (!exists) {
+            await apiClient.createMCPServer({
+              name: svc.name,
+              transport_type: 'sse',
+              url: svc.mcpUrl,
+              location: 'server',
+            });
+            // Reload everything so tools from this server show up
+            loadData();
+          }
+          mcpAutoRegistered.current.add(svc.id);
+        } catch { /* ignore */ }
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    checkLocalServices();
+    const interval = setInterval(checkLocalServices, LOCAL_SERVICE_POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, [checkLocalServices]);
 
   // Skill editor state
   const [skillDialogOpen, setSkillDialogOpen] = useState(false);
@@ -422,6 +476,57 @@ export const ToolsWindow: React.FC = () => {
             {/* MCP Servers Tab */}
             <TabPanel value={currentTab} index={0}>
               <Box sx={{ maxWidth: 900, mx: 'auto' }}>
+                {/* Local Services Detection */}
+                <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
+                    Local Services
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                    {LOCAL_SERVICES.map((svc) => {
+                      const status = detectedServices[svc.id];
+                      const isRunning = status?.running;
+                      const isRegistered = mcpServers.some((s) => s.url === svc.mcpUrl);
+                      return (
+                        <Box
+                          key={svc.id}
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1,
+                            px: 1.5,
+                            py: 0.75,
+                            borderRadius: 1,
+                            border: '1px solid',
+                            borderColor: isRunning ? 'success.main' : 'divider',
+                            backgroundColor: isRunning ? 'success.main' : 'transparent',
+                            opacity: isRunning ? 1 : 0.5,
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: '50%',
+                              backgroundColor: isRunning ? '#fff' : 'text.disabled',
+                            }}
+                          />
+                          <Typography variant="body2" sx={{ fontWeight: 500, color: isRunning ? '#fff' : 'text.secondary' }}>
+                            {svc.name}
+                          </Typography>
+                          {isRunning && status?.version && (
+                            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                              v{status.version}
+                            </Typography>
+                          )}
+                          {isRunning && isRegistered && (
+                            <Chip label="Connected" size="small" sx={{ height: 20, fontSize: '0.7rem', backgroundColor: 'rgba(255,255,255,0.2)', color: '#fff' }} />
+                          )}
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Paper>
+
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
                   <Typography variant="body2" color="text.secondary">
                     MCP servers provide external tools to your agents via the Model Context Protocol.
@@ -436,7 +541,10 @@ export const ToolsWindow: React.FC = () => {
                   </Button>
                 </Box>
 
-                {mcpServers.length === 0 ? (
+                {(() => {
+                  const localMcpUrls = new Set(LOCAL_SERVICES.map((s) => s.mcpUrl));
+                  const userServers = mcpServers.filter((s) => !s.url || !localMcpUrls.has(s.url));
+                  return userServers.length === 0 ? (
                   <Paper sx={{ p: 4, textAlign: 'center' }}>
                     <DnsIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
                     <Typography variant="h6" gutterBottom>
@@ -452,7 +560,7 @@ export const ToolsWindow: React.FC = () => {
                 ) : (
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <AnimatePresence>
-                      {mcpServers.map((server, index) => (
+                      {userServers.map((server, index) => (
                         <MotionCard
                           key={server.id}
                           initial={{ opacity: 0, y: 20 }}
@@ -555,7 +663,8 @@ export const ToolsWindow: React.FC = () => {
                       ))}
                     </AnimatePresence>
                   </Box>
-                )}
+                );
+                })()}
               </Box>
             </TabPanel>
 

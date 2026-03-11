@@ -45,6 +45,8 @@ export interface ExtensionsAPI {
   checkInstalled: (appName: string) => Promise<{ installed: boolean; path: string }>;
   launchApp: (appName: string) => Promise<void>;
   downloadAndInstall: (url: string) => Promise<void>;
+  downloadPortable: (url: string, appName: string) => Promise<void>;
+  uninstall: (appName: string) => Promise<void>;
   onDownloadProgress: (cb: (progress: { percent: number }) => void) => () => void;
 }
 
