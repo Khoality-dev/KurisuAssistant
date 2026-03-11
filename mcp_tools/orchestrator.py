@@ -79,11 +79,11 @@ class UserMCPOrchestrator:
             repo = MCPServerRepository(session)
             servers = repo.list_enabled_by_user(self.user_id, location="server")
 
-        self._server_clients.clear()
-        for server in servers:
-            client = _create_client_from_server(server)
-            if client:
-                self._server_clients[server.name] = client
+            self._server_clients.clear()
+            for server in servers:
+                client = _create_client_from_server(server)
+                if client:
+                    self._server_clients[server.name] = client
 
     def invalidate(self):
         """Reset cache, forcing reload on next call."""
