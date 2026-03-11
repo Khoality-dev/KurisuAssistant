@@ -510,6 +510,9 @@ class SimpleAgent(BaseAgent):
 
         try:
             for _round in range(MAX_TOOL_ROUNDS):
+                # Update raw input snapshot before each LLM call
+                self.last_prepared_messages = [dict(m) for m in messages]
+
                 stream = llm.chat(
                     model=model,
                     messages=messages,
