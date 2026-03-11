@@ -563,6 +563,8 @@ class SimpleAgent(BaseAgent):
 
                 # Append assistant message (with tool_calls) so Ollama sees the call context
                 assistant_msg = {"role": "assistant", "content": full_content}
+                if full_thinking:
+                    assistant_msg["thinking"] = full_thinking
                 tc_list = []
                 for tc in all_tool_calls:
                     args = tc.function.arguments
