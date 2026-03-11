@@ -12,10 +12,10 @@ class User(Base):
     password = Column(Text, nullable=False)
     system_prompt = Column(Text, default='')
     preferred_name = Column(Text, default='')
-    user_avatar_uuid = Column(String, nullable=True)
     agent_avatar_uuid = Column(String, nullable=True)
     ollama_url = Column(String, nullable=True)  # Custom Ollama server URL (None = use default env var)
     summary_model = Column(String, nullable=True)  # Model for frame summarization (None = use chat model)
+    context_size = Column(Integer, nullable=True)  # Ollama num_ctx override (None = default 8192)
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     agents = relationship("Agent", back_populates="user", cascade="all, delete-orphan")
@@ -55,6 +55,7 @@ class Message(Base):
     raw_input = Column(Text, nullable=True)   # JSON: messages array sent to LLM
     raw_output = Column(Text, nullable=True)  # Full concatenated LLM response
     name = Column(String, nullable=True)  # Display name (agent name or tool name)
+    images = Column(JSON, nullable=True)  # List of image UUIDs attached to this message
     frame_id = Column(Integer, ForeignKey('frames.id', ondelete='CASCADE'), index=True)
     agent_id = Column(Integer, ForeignKey('agents.id', ondelete='SET NULL'), nullable=True)  # Which agent sent this message
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -79,6 +80,7 @@ class Agent(Base):
     character_config = Column(JSON, nullable=True)  # Animation tree config for video call mode
     memory = Column(Text, nullable=True)  # Free-form persistent memory (markdown)
     memory_enabled = Column(Boolean, default=True, nullable=False)  # Enable memory injection + consolidation
+    preferred_name = Column(Text, nullable=True)  # How the user wants to be called by this agent
     trigger_word = Column(String, nullable=True)  # Voice activation trigger word
     created_at = Column(DateTime, default=datetime.utcnow)
 

@@ -64,6 +64,7 @@ class AgentRepository(BaseRepository[Agent]):
         excluded_tools: Optional[List[str]] = None,
         think: bool = False,
         character_config: Optional[dict] = None,
+        preferred_name: Optional[str] = None,
         trigger_word: Optional[str] = None,
     ) -> Agent:
         """Create a new agent.
@@ -97,6 +98,7 @@ class AgentRepository(BaseRepository[Agent]):
             excluded_tools=excluded_tools,
             think=think,
             character_config=character_config,
+            preferred_name=preferred_name,
             trigger_word=trigger_word,
         )
 
@@ -113,6 +115,7 @@ class AgentRepository(BaseRepository[Agent]):
         character_config: Optional[dict] = None,
         memory: Optional[str] = None,
         memory_enabled: Optional[bool] = None,
+        preferred_name: Optional[str] = None,
         trigger_word: Optional[str] = None,
     ) -> Agent:
         """Update an agent.
@@ -150,6 +153,8 @@ class AgentRepository(BaseRepository[Agent]):
             update_data["memory"] = memory
         if memory_enabled is not None:
             update_data["memory_enabled"] = memory_enabled
+        if preferred_name is not None:
+            update_data["preferred_name"] = preferred_name if preferred_name else None
         if trigger_word is not None:
             update_data["trigger_word"] = trigger_word
 

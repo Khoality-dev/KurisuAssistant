@@ -83,6 +83,8 @@ async def get_conversation(
                 }
                 if msg.name:
                     message_dict["name"] = msg.name
+                if msg.images:
+                    message_dict["images"] = msg.images
                 if msg.thinking:
                     message_dict["thinking"] = msg.thinking
                 if msg.agent_id:

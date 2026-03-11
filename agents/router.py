@@ -175,12 +175,13 @@ class RouterAgent(BaseAgent):
                             result = await self.execute_tool(tool_name, tool_args, context)
 
                             yield StreamChunkEvent(
-                                content=result,
+                                content=result.content,
                                 role="tool",
                                 agent_id=None,
                                 name=tool_name,
                                 conversation_id=context.conversation_id,
                                 frame_id=context.frame_id,
+                                images=result.images or None,
                             )
 
         except Exception as e:

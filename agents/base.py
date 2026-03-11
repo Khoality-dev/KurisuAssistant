@@ -50,6 +50,7 @@ class AgentConfig:
     think: bool = False
     memory: Optional[str] = None
     memory_enabled: bool = True
+    preferred_name: Optional[str] = None
 
 
 @dataclass
@@ -65,6 +66,15 @@ class AgentContext:
     preferred_name: str = ""
     client_tools: List[Dict] = field(default_factory=list)
     client_tool_callback: Optional[Callable[[str, Dict], Coroutine[Any, Any, str]]] = None
+    images: Optional[List[str]] = None  # base64 images for current user message
+    context_size: Optional[int] = None  # Ollama num_ctx override
+
+
+@dataclass
+class ToolResult:
+    """Result from a tool execution, optionally including images."""
+    content: str
+    images: List[str] = field(default_factory=list)
 
 
 class BaseAgent(ABC):
@@ -97,7 +107,7 @@ class BaseAgent(ABC):
         tool_args: Dict[str, Any],
         context: AgentContext,
         require_approval: bool = True,
-    ) -> str:
+    ) -> ToolResult:
         """Execute a tool, optionally requesting approval first.
 
         Args:
@@ -107,7 +117,7 @@ class BaseAgent(ABC):
             require_approval: Whether to request user approval
 
         Returns:
-            Tool execution result
+            ToolResult with content and optional images
         """
         tool = self.tool_registry.get(tool_name)
 
@@ -116,7 +126,7 @@ class BaseAgent(ABC):
         if self.config.excluded_tools and tool_name in self.config.excluded_tools:
             if not (tool and tool.built_in):
                 logger.warning(f"Agent '{self.config.name}' tried to use excluded tool: {tool_name}")
-                return f"Tool not available: {tool_name}"
+                return ToolResult(content=f"Tool not available: {tool_name}")
 
         if require_approval and tool and tool.requires_approval:
             # Create approval request
@@ -134,7 +144,7 @@ class BaseAgent(ABC):
                 response = await context.handler.request_tool_approval(approval_request)
 
                 if not response.approved:
-                    return f"Tool execution denied by user: {tool_name}"
+                    return ToolResult(content=f"Tool execution denied by user: {tool_name}")
 
                 # Use modified args if provided
                 if response.modified_args:
@@ -160,22 +170,23 @@ class BaseAgent(ABC):
         # Execute the tool
         if tool:
             try:
-                return await tool.execute(exec_args)
+                result = await tool.execute(exec_args)
+                return ToolResult(content=result)
             except Exception as e:
                 logger.error(f"Tool execution failed: {e}", exc_info=True)
-                return f"Tool execution failed: {e}"
+                return ToolResult(content=f"Tool execution failed: {e}")
         elif context.user_id:
             # Try server-side MCP tool first, then client-side tool
             return await self._execute_mcp_tool(tool_name, tool_args, context)
         else:
-            return f"Unknown tool: {tool_name}"
+            return ToolResult(content=f"Unknown tool: {tool_name}")
 
     async def _execute_mcp_tool(
         self,
         tool_name: str,
         tool_args: Dict[str, Any],
         context: AgentContext,
-    ) -> str:
+    ) -> ToolResult:
         """Execute an MCP tool (server-side), falling back to client-side tools.
 
         Args:
@@ -184,11 +195,14 @@ class BaseAgent(ABC):
             context: Agent context
 
         Returns:
-            Tool result
+            ToolResult with content and optional images
         """
         try:
             from mcp_tools.orchestrator import get_user_orchestrator
             orchestrator = get_user_orchestrator(context.user_id)
+
+            # Ensure tool-to-client mapping is loaded (uses cache if fresh)
+            await orchestrator.get_tools()
 
             # Create a mock tool call object
             class MockToolCall:
@@ -209,7 +223,8 @@ class BaseAgent(ABC):
             if results:
                 content = results[0].get("content", "")
                 if content != "MCP client not available":
-                    return content
+                    images = results[0].get("images") or []
+                    return ToolResult(content=content, images=images)
 
         except Exception as e:
             logger.warning(f"Server MCP tool execution failed for '{tool_name}': {e}")
@@ -219,12 +234,13 @@ class BaseAgent(ABC):
             t.get("function", {}).get("name", "") for t in context.client_tools
         }:
             try:
-                return await context.client_tool_callback(tool_name, tool_args)
+                result = await context.client_tool_callback(tool_name, tool_args)
+                return ToolResult(content=result)
             except Exception as e:
                 logger.error(f"Client tool execution failed: {e}", exc_info=True)
-                return f"Client tool execution failed: {e}"
+                return ToolResult(content=f"Client tool execution failed: {e}")
 
-        return f"Unknown tool: {tool_name}"
+        return ToolResult(content=f"Unknown tool: {tool_name}")
 
     async def delegate_to(
         self,
@@ -316,8 +332,10 @@ class SimpleAgent(BaseAgent):
             system_parts.append(self.config.system_prompt)
         if context.user_system_prompt:
             system_parts.append(context.user_system_prompt)
-        if context.preferred_name:
-            system_parts.append(f"The user prefers to be called: {context.preferred_name}")
+        # Agent-level preferred_name takes priority over user-level
+        preferred_name = self.config.preferred_name or context.preferred_name
+        if preferred_name:
+            system_parts.append(f"The user prefers to be called: {preferred_name}")
         system_parts.append(f"Current time: {datetime.datetime.utcnow().isoformat()}")
 
         # List available skills (agents fetch full instructions on-demand via tool)
@@ -326,9 +344,12 @@ class SimpleAgent(BaseAgent):
             skill_names = get_skill_names_for_user(context.user_id)
             if skill_names:
                 system_parts.append(
-                    "You have skills available: " + ", ".join(skill_names) + ".\n"
-                    "IMPORTANT: Before performing any task, check if a relevant skill is available. "
-                    "If so, call get_skill_instructions to read the skill's full instructions first, then follow them."
+                    "## Skills\n"
+                    "You have the following skills: " + ", ".join(skill_names) + ".\n"
+                    "Skills contain detailed instructions on HOW to perform specific tasks. "
+                    "You MUST call get_skill_instructions to load the relevant skill's instructions BEFORE "
+                    "attempting any task that matches a skill name. Do NOT guess or improvise — "
+                    "always read the skill first and follow its instructions exactly."
                 )
         # Inject agent memory
         if self.config.memory_enabled and self.config.memory:
@@ -438,6 +459,13 @@ class SimpleAgent(BaseAgent):
                 client_tools = [t for t in client_tools if t.get("function", {}).get("name") not in excluded]
             tool_schemas.extend(client_tools)
 
+        # Attach base64 images to the last user message for vision models
+        if context.images:
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    msg["images"] = context.images
+                    break
+
         # Determine model
         model = self.config.model_name or context.model_name
 
@@ -451,6 +479,7 @@ class SimpleAgent(BaseAgent):
                     tools=tool_schemas if tool_schemas else [],
                     stream=True,
                     think=self.config.think,
+                    options={"num_ctx": context.context_size or 8192},
                 )
 
                 # Accumulate full response to detect tool calls and build follow-up messages
@@ -517,17 +546,18 @@ class SimpleAgent(BaseAgent):
 
                     # Yield tool result (name=tool, no agent_id — tools aren't agents)
                     yield StreamChunkEvent(
-                        content=result,
+                        content=result.content,
                         role="tool",
                         agent_id=None,
                         name=tool_name,
                         conversation_id=context.conversation_id,
                         frame_id=context.frame_id,
                         tool_args=tool_args,
+                        images=result.images or None,
                     )
 
                     # Append tool result for next LLM round
-                    messages.append({"role": "tool", "content": result})
+                    messages.append({"role": "tool", "content": result.content})
 
                 # Loop continues — LLM will see tool results and can call more tools or answer
 

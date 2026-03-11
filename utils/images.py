@@ -1,5 +1,6 @@
 """Image storage operations."""
 
+import base64
 import uuid
 import cv2
 import numpy as np
@@ -10,6 +11,10 @@ from fastapi import HTTPException, UploadFile
 # Image storage configuration - data/ directory at project root
 IMAGES_DIR = Path(__file__).parent.parent / "data" / "image_storage" / "data"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+
+# Per-user image storage for chat images
+USER_IMAGES_DIR = IMAGES_DIR / "users"
+USER_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def upload_image(file: UploadFile) -> str:
@@ -94,3 +99,34 @@ def save_image_from_array(image: np.ndarray) -> str:
 def get_image_url(image_uuid: str) -> str:
     """Get the URL for accessing an image."""
     return f"/images/{image_uuid}"
+
+
+def save_image_from_base64(base64_data: str, user_id: int) -> str:
+    """Save base64 image to per-user directory, return UUID."""
+    user_dir = USER_IMAGES_DIR / str(user_id)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    # Strip data URL prefix if present
+    if "," in base64_data:
+        base64_data = base64_data.split(",", 1)[1]
+
+    image_bytes = base64.b64decode(base64_data)
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError("Invalid image data")
+
+    image_uuid = str(uuid.uuid4())
+    cv2.imwrite(str(user_dir / f"{image_uuid}.jpg"), image, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    return image_uuid
+
+
+def get_user_image_path(user_id: int, image_uuid: str) -> Optional[Path]:
+    """Get path to a user-scoped image."""
+    try:
+        uuid.UUID(image_uuid)
+    except ValueError:
+        return None
+
+    path = USER_IMAGES_DIR / str(user_id) / f"{image_uuid}.jpg"
+    return path if path.exists() else None

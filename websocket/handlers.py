@@ -237,7 +237,7 @@ class ChatSessionHandler:
         from fastapi import WebSocketDisconnect
         try:
             # Setup conversation/frame
-            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids = await self._setup_conversation(event)
+            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
 
             # Reset task state
             self._task_conversation_id = conversation_id
@@ -272,15 +272,33 @@ class ChatSessionHandler:
                 ))
                 return
 
+            # Save user images to disk
+            image_uuids = []
+            if event.images:
+                from utils.images import save_image_from_base64
+                for b64 in event.images:
+                    try:
+                        image_uuids.append(save_image_from_base64(b64, self.user_id))
+                    except Exception as e:
+                        logger.warning(f"Failed to save image: {e}")
+
             # Load context messages
             context_messages = self._load_context_messages(conversation_id, frame_id)
 
             # Build messages
             user_message = {"role": "user", "content": event.text}
+            if image_uuids:
+                user_message["images"] = image_uuids
             messages = system_messages + context_messages + [user_message]
 
             # Save user message immediately
             self._save_message(user_message, frame_id)
+
+            # Stream image UUIDs to client
+            if image_uuids:
+                await self.send_event(StreamChunkEvent(
+                    content="", role="user", images=image_uuids,
+                    conversation_id=conversation_id, frame_id=frame_id))
 
             # Create agent context
             agent_context = AgentContext(
@@ -294,6 +312,8 @@ class ChatSessionHandler:
                 preferred_name=preferred_name,
                 client_tools=self._client_tools,
                 client_tool_callback=self._execute_client_tool,
+                images=event.images if event.images else None,
+                context_size=context_size,
             )
 
             # Create and run the agent
@@ -304,6 +324,7 @@ class ChatSessionHandler:
             current_name = target_agent.name
             chunk_content = ""
             chunk_thinking = ""
+            current_images = []
             raw_input_json = None
             current_tool_args_json = None
 
@@ -319,6 +340,10 @@ class ChatSessionHandler:
                 chunk.voice_reference = target_agent.voice_reference
                 await self.send_event(chunk)
 
+                # Track tool images
+                if chunk.images:
+                    current_images.extend(chunk.images)
+
                 # Save completed message on role change
                 if chunk.role != current_role:
                     if chunk_content or chunk_thinking:
@@ -331,12 +356,14 @@ class ChatSessionHandler:
                             "name": current_name,
                             "raw_input": raw_in,
                             "raw_output": chunk_content if current_role == "assistant" else None,
+                            "images": current_images if current_images else None,
                         }
                         self._save_message(completed_msg, frame_id)
                     current_role = chunk.role
                     current_name = chunk.name or target_agent.name
                     chunk_content = chunk.content
                     chunk_thinking = chunk.thinking or ""
+                    current_images = []
                     current_tool_args_json = json.dumps(chunk.tool_args, ensure_ascii=False) if chunk.tool_args else None
                 else:
                     chunk_content += chunk.content
@@ -354,6 +381,7 @@ class ChatSessionHandler:
                     "name": current_name,
                     "raw_input": raw_in,
                     "raw_output": chunk_content if current_role == "assistant" else None,
+                    "images": current_images if current_images else None,
                 }
                 self._save_message(completed_msg, frame_id)
 
@@ -388,7 +416,7 @@ class ChatSessionHandler:
         """
         try:
             # Setup conversation/frame
-            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids = await self._setup_conversation(event)
+            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
 
             # Fire-and-forget summarization (only if summary_model configured)
             if summary_model:
@@ -440,6 +468,16 @@ class ChatSessionHandler:
                 ))
                 return
 
+            # Save user images to disk
+            image_uuids = []
+            if event.images:
+                from utils.images import save_image_from_base64
+                for b64 in event.images:
+                    try:
+                        image_uuids.append(save_image_from_base64(b64, self.user_id))
+                    except Exception as e:
+                        logger.warning(f"Failed to save image: {e}")
+
             # Load context messages
             context_messages = self._load_context_messages(conversation_id, frame_id)
 
@@ -448,12 +486,20 @@ class ChatSessionHandler:
                 "role": "user",
                 "content": event.text,
             }
+            if image_uuids:
+                user_message["images"] = image_uuids
 
             # Messages for context (system + context + user)
             messages = system_messages + context_messages + [user_message]
 
             # Save user message immediately
             self._save_message(user_message, frame_id)
+
+            # Stream image UUIDs to client
+            if image_uuids:
+                await self.send_event(StreamChunkEvent(
+                    content="", role="user", images=image_uuids,
+                    conversation_id=conversation_id, frame_id=frame_id))
 
             # Select initial agent
             if event.agent_id:
@@ -544,6 +590,8 @@ class ChatSessionHandler:
                 preferred_name=preferred_name,
                 client_tools=self._client_tools,
                 client_tool_callback=self._execute_client_tool,
+                images=event.images if event.images else None,
+                context_size=context_size,
             )
 
             # Build agent lookup
@@ -658,6 +706,7 @@ class ChatSessionHandler:
                 current_name = current_agent.name  # Track name per group (agent name or tool name)
                 chunk_content = ""
                 chunk_thinking = ""
+                current_images = []
                 raw_input_json = None  # Captured from agent's prepared messages on first chunk
                 current_tool_args_json = None
 
@@ -675,6 +724,10 @@ class ChatSessionHandler:
                     # Send to client immediately
                     await self.send_event(chunk)
 
+                    # Track tool images
+                    if chunk.images:
+                        current_images.extend(chunk.images)
+
                     # Save completed message on role change
                     if chunk.role != current_role:
                         if chunk_content or chunk_thinking:
@@ -687,6 +740,7 @@ class ChatSessionHandler:
                                 "name": current_name,
                                 "raw_input": raw_in,
                                 "raw_output": chunk_content if current_role == "assistant" else None,
+                                "images": current_images if current_images else None,
                             }
                             self._save_message(completed_msg, frame_id)
                             conversation_messages.append({
@@ -699,6 +753,7 @@ class ChatSessionHandler:
                         current_name = chunk.name or current_agent.name
                         chunk_content = chunk.content
                         chunk_thinking = chunk.thinking or ""
+                        current_images = []
                         current_tool_args_json = json.dumps(chunk.tool_args, ensure_ascii=False) if chunk.tool_args else None
                     else:
                         chunk_content += chunk.content
@@ -722,6 +777,7 @@ class ChatSessionHandler:
                         "name": current_name,
                         "raw_input": raw_in,
                         "raw_output": chunk_content if current_role == "assistant" else None,
+                        "images": current_images if current_images else None,
                     }
                     self._save_message(completed_msg, frame_id)
                     conversation_messages.append({
@@ -765,7 +821,7 @@ class ChatSessionHandler:
 
         Returns:
             Tuple of (conversation_id, frame_id, system_messages, user_system_prompt,
-                       preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids)
+                       preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size)
         """
         old_frame_id = None
 
@@ -782,6 +838,7 @@ class ChatSessionHandler:
 
             ollama_url = user.ollama_url
             summary_model = user.summary_model
+            context_size = user.context_size
 
             # Create or get conversation
             if event.conversation_id is None:
@@ -829,7 +886,7 @@ class ChatSessionHandler:
         # Build system messages
         system_messages = build_system_messages(system_prompt, preferred_name)
 
-        return conversation_id, frame_id, system_messages, system_prompt, preferred_name or "", old_frame_id, ollama_url, summary_model, unsummarized_ids
+        return conversation_id, frame_id, system_messages, system_prompt, preferred_name or "", old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size
 
     def _load_user_agents(self) -> List[AgentConfig]:
         """Load all agents for the current user."""
@@ -1156,6 +1213,7 @@ class ChatSessionHandler:
                 think=agent.think,
                 memory=agent.memory,
                 memory_enabled=agent.memory_enabled,
+                preferred_name=agent.preferred_name,
             )
 
             return BaseAgent.create_from_config(config, tool_registry)
@@ -1172,4 +1230,5 @@ class ChatSessionHandler:
                 name=msg.get("name"),
                 raw_input=msg.get("raw_input"),
                 raw_output=msg.get("raw_output"),
+                images=msg.get("images"),
             )

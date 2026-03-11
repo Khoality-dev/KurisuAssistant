@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Optional
 from sqlalchemy.orm import Session
 
 from ..models import User
@@ -53,6 +53,7 @@ class UserRepository(BaseRepository[User]):
         preferred_name: Optional[str] = None,
         ollama_url: Optional[str] = None,
         summary_model: Optional[str] = None,
+        context_size: Optional[int] = None,
     ) -> User:
         """Update user preferences.
 
@@ -62,6 +63,7 @@ class UserRepository(BaseRepository[User]):
             preferred_name: New preferred name (optional)
             ollama_url: Custom Ollama server URL (optional, empty string clears it)
             summary_model: Model for frame summarization (optional, empty string clears it)
+            context_size: Ollama num_ctx override (optional, 0/None clears it)
 
         Returns:
             Updated User instance
@@ -76,34 +78,28 @@ class UserRepository(BaseRepository[User]):
             update_data["ollama_url"] = ollama_url if ollama_url else None
         if summary_model is not None:
             update_data["summary_model"] = summary_model if summary_model else None
+        if context_size is not None:
+            update_data["context_size"] = context_size if context_size else None
 
         if update_data:
             return self.update(user, **update_data)
         return user
 
     def update_avatar(
-        self, user: User, avatar_type: str, avatar_uuid: Optional[str]
+        self, user: User, avatar_uuid: Optional[str]
     ) -> User:
-        """Update user avatar UUID.
+        """Update default agent avatar UUID.
 
         Args:
             user: User instance to update
-            avatar_type: Either 'user' or 'agent'
             avatar_uuid: UUID of the avatar image or None to clear
 
         Returns:
             Updated User instance
-
-        Raises:
-            ValueError: If avatar_type is invalid
         """
-        if avatar_type not in ("user", "agent"):
-            raise ValueError("avatar_type must be 'user' or 'agent'")
+        return self.update(user, agent_avatar_uuid=avatar_uuid)
 
-        field_name = "user_avatar_uuid" if avatar_type == "user" else "agent_avatar_uuid"
-        return self.update(user, **{field_name: avatar_uuid})
-
-    def get_preferences(self, user: User) -> Tuple[str, str]:
+    def get_preferences(self, user: User) -> tuple[str, str]:
         """Get user preferences.
 
         Args:
@@ -114,16 +110,16 @@ class UserRepository(BaseRepository[User]):
         """
         return user.system_prompt or "", user.preferred_name or ""
 
-    def get_avatars(self, user: User) -> Tuple[Optional[str], Optional[str]]:
-        """Get user avatar UUIDs.
+    def get_avatar(self, user: User) -> Optional[str]:
+        """Get default agent avatar UUID.
 
         Args:
             user: User instance
 
         Returns:
-            Tuple of (user_avatar_uuid, agent_avatar_uuid)
+            agent_avatar_uuid or None
         """
-        return user.user_avatar_uuid, user.agent_avatar_uuid
+        return user.agent_avatar_uuid
 
     def admin_exists(self) -> bool:
         """Check if admin account exists.
