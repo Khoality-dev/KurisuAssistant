@@ -54,6 +54,10 @@ class QueryKnowledgeTool(BaseTool):
         if not user_id:
             return json.dumps({"error": "No user context available."})
 
+        agent_id = args.get("agent_id")
+        if not agent_id:
+            return json.dumps({"error": "No agent context available."})
+
         query = args.get("query")
         if not query:
             return json.dumps({"error": "query is required."})
@@ -76,6 +80,7 @@ class QueryKnowledgeTool(BaseTool):
 
             result = await query_knowledge(
                 user_id=user_id,
+                agent_id=agent_id,
                 question=query,
                 model_name=summary_model,
                 mode=mode,

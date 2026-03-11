@@ -47,11 +47,14 @@ async def lifespan(app: FastAPI):
     """Application lifespan events - runs on startup and shutdown."""
     # Startup
     logger.info("Application starting up...")
+    from utils.idle_processor import start_idle_processor, stop_idle_processor
+    start_idle_processor()
 
     yield
 
     # Shutdown: Cleanup resources
     logger.info("Shutting down application...")
+    stop_idle_processor()
     from db.session import engine
     engine.dispose()
     logger.info("Database connections closed")

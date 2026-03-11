@@ -266,10 +266,11 @@ class ChatSessionHandler:
                     ))
 
                 # Fire-and-forget knowledge graph insertion
-                if consolidation_fids:
+                if consolidation_fids and event.agent_id:
                     from utils.knowledge_graph import insert_conversation_knowledge
                     asyncio.create_task(insert_conversation_knowledge(
                         user_id=self.user_id,
+                        agent_id=event.agent_id,
                         frame_ids=consolidation_fids,
                         model_name=summary_model,
                         api_url=ollama_url,
@@ -434,16 +435,6 @@ class ChatSessionHandler:
                 for fid in ([old_frame_id] if old_frame_id else []) + unsummarized_ids:
                     asyncio.create_task(summarize_frame(fid, model_name=summary_model, api_url=ollama_url))
 
-                # Fire-and-forget knowledge graph insertion
-                kg_fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
-                if kg_fids:
-                    from utils.knowledge_graph import insert_conversation_knowledge
-                    asyncio.create_task(insert_conversation_knowledge(
-                        user_id=self.user_id,
-                        frame_ids=kg_fids,
-                        model_name=summary_model,
-                        api_url=ollama_url,
-                    ))
 
             # Reset task state
             self._task_conversation_id = conversation_id
@@ -460,6 +451,21 @@ class ChatSessionHandler:
 
             # Load all agents including Administrator
             all_agents = self._load_user_agents()
+
+            # Fire-and-forget knowledge graph insertion for all agents
+            if summary_model:
+                kg_fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
+                if kg_fids:
+                    from utils.knowledge_graph import insert_conversation_knowledge
+                    for agent in all_agents:
+                        if agent.name != ADMINISTRATOR_NAME:
+                            asyncio.create_task(insert_conversation_knowledge(
+                                user_id=self.user_id,
+                                agent_id=agent.id,
+                                frame_ids=kg_fids,
+                                model_name=summary_model,
+                                api_url=ollama_url,
+                            ))
 
             # Find Administrator agent and get its model
             admin_agent = None

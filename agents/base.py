@@ -164,6 +164,9 @@ class BaseAgent(ABC):
         if context.user_id:
             exec_args["user_id"] = context.user_id
 
+        # Inject agent_id for agent-scoped tools (e.g. knowledge graph)
+        exec_args["agent_id"] = self.config.id
+
         # Inject handler for tools that need WebSocket access (e.g. media player)
         if context.handler:
             exec_args["_handler"] = context.handler
@@ -440,7 +443,7 @@ class SimpleAgent(BaseAgent):
         llm = create_llm_provider("ollama")
 
         # Auto-query knowledge graph with the latest user message
-        if context.user_id and not context.knowledge_context:
+        if context.user_id and self.config.id and not context.knowledge_context:
             last_user_msg = None
             for msg in reversed(messages):
                 if msg.get("role") == "user":
@@ -458,6 +461,7 @@ class SimpleAgent(BaseAgent):
                     if summary_model:
                         kg_result = await query_knowledge(
                             user_id=context.user_id,
+                            agent_id=self.config.id,
                             question=last_user_msg,
                             model_name=summary_model,
                             api_url=ollama_url,

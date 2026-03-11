@@ -1,9 +1,9 @@
-"""Knowledge graph management using LightRAG for per-user entity/relationship extraction."""
+"""Knowledge graph management using LightRAG for per-agent entity/relationship extraction."""
 
 import asyncio
 import logging
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from lightrag import LightRAG, QueryParam
 from lightrag.llm.ollama import ollama_model_complete, ollama_embed
@@ -15,17 +15,19 @@ EMBEDDING_DIM = 1024
 MAX_TRANSCRIPT_CHARS = 8000
 DATA_DIR = os.path.join("data", "lightrag")
 
-_instances: Dict[int, LightRAG] = {}
+# Cache keyed by (user_id, agent_id)
+_instances: Dict[Tuple[int, int], LightRAG] = {}
 
 
-async def _get_instance(user_id: int, model_name: str, api_url: str = None) -> LightRAG:
-    """Get or create a LightRAG instance for a user."""
-    if user_id in _instances:
-        return _instances[user_id]
+async def _get_instance(user_id: int, agent_id: int, model_name: str, api_url: str = None) -> LightRAG:
+    """Get or create a LightRAG instance for a specific agent."""
+    key = (user_id, agent_id)
+    if key in _instances:
+        return _instances[key]
 
     ollama_host = api_url or os.getenv("LLM_API_URL", "http://localhost:11434")
 
-    working_dir = os.path.join(DATA_DIR, str(user_id))
+    working_dir = os.path.join(DATA_DIR, str(user_id), str(agent_id))
     os.makedirs(working_dir, exist_ok=True)
 
     rag = LightRAG(
@@ -42,12 +44,13 @@ async def _get_instance(user_id: int, model_name: str, api_url: str = None) -> L
     )
     await rag.initialize_storages()
 
-    _instances[user_id] = rag
+    _instances[key] = rag
     return rag
 
 
 async def insert_conversation_knowledge(
     user_id: int,
+    agent_id: int,
     frame_ids: list[int],
     model_name: str,
     api_url: str = None,
@@ -86,22 +89,23 @@ async def insert_conversation_knowledge(
         if not transcript.strip():
             return
 
-        rag = await _get_instance(user_id, model_name, api_url)
+        rag = await _get_instance(user_id, agent_id, model_name, api_url)
         await rag.ainsert(transcript)
 
-        logger.info(f"Inserted conversation knowledge for user {user_id} ({len(transcript)} chars)")
+        logger.info(f"Inserted conversation knowledge for agent {agent_id} (user {user_id}, {len(transcript)} chars)")
 
     except Exception as e:
-        logger.error(f"Failed to insert knowledge for user {user_id}: {e}", exc_info=True)
+        logger.error(f"Failed to insert knowledge for agent {agent_id} (user {user_id}): {e}", exc_info=True)
 
 
 async def query_knowledge(
     user_id: int,
+    agent_id: int,
     question: str,
     model_name: str,
     mode: str = "hybrid",
     api_url: str = None,
 ) -> str:
-    """Query the user's knowledge graph."""
-    rag = await _get_instance(user_id, model_name, api_url)
+    """Query an agent's knowledge graph."""
+    rag = await _get_instance(user_id, agent_id, model_name, api_url)
     return await rag.aquery(question, param=QueryParam(mode=mode))
