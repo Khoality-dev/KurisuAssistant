@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('mcp:start-servers', configs),
     stopServers: () => ipcRenderer.invoke('mcp:stop-servers'),
     listTools: () => ipcRenderer.invoke('mcp:list-tools'),
+    listToolsByServer: () => ipcRenderer.invoke('mcp:list-tools-by-server'),
     callTool: (toolName: string, args: Record<string, unknown>) =>
       ipcRenderer.invoke('mcp:call-tool', toolName, args),
   },

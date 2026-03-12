@@ -290,8 +290,8 @@ ipcMain.handle('extensions:check-health', (_event, url: string) => {
         try { resolve(JSON.parse(data)); } catch { resolve(null); }
       });
     });
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', (err) => { console.error(`[health-check] ${url} error:`, err.message); resolve(null); });
+    req.on('timeout', () => { console.error(`[health-check] ${url} timeout`); req.destroy(); resolve(null); });
   });
 });
 

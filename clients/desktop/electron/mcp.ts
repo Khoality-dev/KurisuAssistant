@@ -121,6 +121,28 @@ async function listAllTools(): Promise<ToolSchema[]> {
   return allTools;
 }
 
+async function listToolsByServer(): Promise<Record<string, ToolSchema[]>> {
+  const grouped: Record<string, ToolSchema[]> = {};
+
+  for (const [name, server] of servers) {
+    try {
+      const result = await server.client.listTools();
+      grouped[name] = result.tools.map((tool) => ({
+        type: 'function',
+        function: {
+          name: tool.name,
+          description: tool.description || '',
+          parameters: tool.inputSchema as Record<string, unknown>,
+        },
+      }));
+    } catch (e) {
+      console.error(`[MCP] Error listing tools from "${name}":`, e);
+    }
+  }
+
+  return grouped;
+}
+
 async function callTool(
   toolName: string,
   args: Record<string, unknown>,
@@ -184,6 +206,10 @@ export function registerMCPHandlers(): void {
 
   ipcMain.handle('mcp:list-tools', async () => {
     return listAllTools();
+  });
+
+  ipcMain.handle('mcp:list-tools-by-server', async () => {
+    return listToolsByServer();
   });
 
   ipcMain.handle(

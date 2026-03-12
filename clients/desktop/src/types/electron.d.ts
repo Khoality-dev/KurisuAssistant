@@ -37,6 +37,7 @@ export interface MCPAPI {
   startServers: (configs: MCPServerConfig[]) => Promise<Array<{ name: string; ok: boolean; error?: string }>>;
   stopServers: () => Promise<void>;
   listTools: () => Promise<Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }>>;
+  listToolsByServer: () => Promise<Record<string, Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }>>>;
   callTool: (toolName: string, args: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
 }
 

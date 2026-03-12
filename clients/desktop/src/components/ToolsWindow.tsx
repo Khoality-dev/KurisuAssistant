@@ -43,7 +43,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiClient } from '../api/client';
 import type { MCPServer, MCPServerTestResult, Tool, Skill } from '../api/types';
-import { refreshClientMCPServers, getClientTools } from '../services/mcpService';
+import { refreshClientMCPServers, getClientTools, getClientToolsByServer } from '../services/mcpService';
 
 const MotionCard = motion(Card);
 
@@ -55,8 +55,8 @@ interface LocalService {
 }
 
 const LOCAL_SERVICES: LocalService[] = [
-  { id: 'maestro', name: 'Maestro', healthUrl: 'http://localhost:29170/health', mcpUrl: 'http://localhost:29170/sse' },
-  { id: 'chronicle', name: 'Chronicle', healthUrl: 'http://localhost:29172/health', mcpUrl: 'http://localhost:29172/sse' },
+  { id: 'maestro', name: 'Maestro', healthUrl: 'http://127.0.0.1:29170/health', mcpUrl: 'http://127.0.0.1:29170/sse' },
+  { id: 'chronicle', name: 'Chronicle', healthUrl: 'http://127.0.0.1:29172/health', mcpUrl: 'http://127.0.0.1:29172/sse' },
 ];
 
 const LOCAL_SERVICE_POLL_INTERVAL = 5000;
@@ -108,6 +108,44 @@ export const ToolsWindow: React.FC = () => {
   const [detectedServices, setDetectedServices] = useState<Record<string, { running: boolean; version?: string }>>({});
   const mcpAutoRegistered = useRef<Set<string>>(new Set());
 
+  const registerLocalService = useCallback(async (svc: LocalService): Promise<boolean> => {
+    try {
+      const servers = await apiClient.listMCPServers();
+      // Match both localhost and 127.0.0.1 variants, and both server/client locations
+      const normalizeUrl = (u: string) => u.replace('://localhost:', '://127.0.0.1:');
+      const normalizedMcpUrl = normalizeUrl(svc.mcpUrl);
+      const existing = servers.find((s) => s.url && normalizeUrl(s.url) === normalizedMcpUrl);
+      if (!existing) {
+        console.log(`[LocalServices] Registering client MCP server for ${svc.name} at ${svc.mcpUrl}`);
+        await apiClient.createMCPServer({
+          name: svc.name,
+          transport_type: 'sse',
+          url: svc.mcpUrl,
+          location: 'client',
+        });
+      } else {
+        // Fix URL or location if needed
+        const updates: Record<string, string> = {};
+        if (existing.url !== svc.mcpUrl) updates.url = svc.mcpUrl;
+        if (existing.location !== 'client') updates.location = 'client';
+        if (Object.keys(updates).length > 0) {
+          console.log(`[LocalServices] Updating ${svc.name}:`, updates);
+          await apiClient.updateMCPServer(existing.id, updates);
+        } else {
+          console.log(`[LocalServices] ${svc.name} already registered`);
+        }
+      }
+      mcpAutoRegistered.current.add(svc.id);
+      // Refresh client MCP connections so Electron connects and registers tools via WebSocket
+      await refreshClientMCPServers();
+      loadData();
+      return true;
+    } catch (err) {
+      console.error(`[LocalServices] Failed to register ${svc.name}:`, err);
+      return false;
+    }
+  }, []);
+
   const checkLocalServices = useCallback(async () => {
     if (!window.electron?.extensions) return;
     for (const svc of LOCAL_SERVICES) {
@@ -117,26 +155,28 @@ export const ToolsWindow: React.FC = () => {
         ...prev,
         [svc.id]: { running, version: running ? data?.version : undefined },
       }));
-      // Auto-register MCP server if running and not yet registered
       if (running && !mcpAutoRegistered.current.has(svc.id)) {
-        try {
-          const servers = await apiClient.listMCPServers();
-          const exists = servers.some((s) => s.url === svc.mcpUrl);
-          if (!exists) {
-            await apiClient.createMCPServer({
-              name: svc.name,
-              transport_type: 'sse',
-              url: svc.mcpUrl,
-              location: 'server',
-            });
-            // Reload everything so tools from this server show up
-            loadData();
-          }
-          mcpAutoRegistered.current.add(svc.id);
-        } catch { /* ignore */ }
+        await registerLocalService(svc);
       }
     }
-  }, []);
+  }, [registerLocalService]);
+
+  const reconnectLocalService = useCallback(async (svc: LocalService) => {
+    console.log(`[LocalServices] Reconnecting ${svc.name}...`);
+    mcpAutoRegistered.current.delete(svc.id);
+    setDetectedServices((prev) => ({ ...prev, [svc.id]: { running: false } }));
+    if (!window.electron?.extensions) return;
+    const data = await window.electron.extensions.checkHealth(svc.healthUrl);
+    const running = !!(data && data.status === 'ok');
+    console.log(`[LocalServices] ${svc.name} health check: ${running ? 'OK' : 'FAILED'}`, data);
+    setDetectedServices((prev) => ({
+      ...prev,
+      [svc.id]: { running, version: running ? data?.version : undefined },
+    }));
+    if (running) {
+      await registerLocalService(svc);
+    }
+  }, [registerLocalService]);
 
   useEffect(() => {
     checkLocalServices();
@@ -155,21 +195,14 @@ export const ToolsWindow: React.FC = () => {
     loadData();
   }, []);
 
-  const applyToolsResponse = (toolsRes: { mcp_tools: Tool[]; builtin_tools: Tool[]; mcp_servers?: Record<string, Tool[]> }, servers?: MCPServer[]) => {
+  const applyToolsResponse = async (toolsRes: { mcp_tools: Tool[]; builtin_tools: Tool[]; mcp_servers?: Record<string, Tool[]> }) => {
     const mcpServersMap: Record<string, Tool[]> = { ...(toolsRes.mcp_servers || {}) };
     const allMcpTools = [...toolsRes.mcp_tools];
-    const cTools = getClientTools();
-    if (cTools.length > 0) {
-      const serverList = servers || mcpServers;
-      const clientServerNames = serverList
-        .filter((s) => s.location === 'client' && s.enabled)
-        .map((s) => s.name);
-      if (clientServerNames.length === 1) {
-        mcpServersMap[clientServerNames[0]] = cTools as Tool[];
-      } else if (clientServerNames.length > 1) {
-        mcpServersMap['Client Tools'] = cTools as Tool[];
-      }
-      allMcpTools.push(...(cTools as Tool[]));
+    // Merge client-side tools grouped by server name
+    const clientGrouped = await getClientToolsByServer();
+    for (const [serverName, serverTools] of Object.entries(clientGrouped)) {
+      mcpServersMap[serverName] = serverTools as Tool[];
+      allMcpTools.push(...(serverTools as Tool[]));
     }
     setTools({ mcp: allMcpTools, builtin: toolsRes.builtin_tools, mcpServers: mcpServersMap });
   };
@@ -184,7 +217,7 @@ export const ToolsWindow: React.FC = () => {
         apiClient.listSkills(),
       ]);
       setMcpServers(serversRes);
-      applyToolsResponse(toolsRes, serversRes);
+      await applyToolsResponse(toolsRes);
       setSkills(skillsRes);
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to load data');
@@ -269,7 +302,7 @@ export const ToolsWindow: React.FC = () => {
       // Refresh client-side MCP servers so getClientTools() is up to date
       await refreshClientMCPServers();
       const toolsRes = await apiClient.listTools();
-      applyToolsResponse(toolsRes, serversRes);
+      await applyToolsResponse(toolsRes);
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to save MCP server');
     } finally {
@@ -283,7 +316,7 @@ export const ToolsWindow: React.FC = () => {
       setMcpServers(prev => prev.filter(s => s.id !== server.id));
       if (server.location === 'client') await refreshClientMCPServers();
       const toolsRes = await apiClient.listTools();
-      applyToolsResponse(toolsRes);
+      await applyToolsResponse(toolsRes);
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to delete MCP server');
     }
@@ -297,7 +330,7 @@ export const ToolsWindow: React.FC = () => {
       );
       if (server.location === 'client') await refreshClientMCPServers();
       const toolsRes = await apiClient.listTools();
-      applyToolsResponse(toolsRes);
+      await applyToolsResponse(toolsRes);
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to toggle MCP server');
     }
@@ -485,7 +518,7 @@ export const ToolsWindow: React.FC = () => {
                     {LOCAL_SERVICES.map((svc) => {
                       const status = detectedServices[svc.id];
                       const isRunning = status?.running;
-                      const isRegistered = mcpServers.some((s) => s.url === svc.mcpUrl);
+                      const isRegistered = mcpServers.some((s) => s.url && (s.url === svc.mcpUrl || s.url === svc.mcpUrl.replace('://127.0.0.1:', '://localhost:')));
                       return (
                         <Box
                           key={svc.id}
@@ -521,6 +554,17 @@ export const ToolsWindow: React.FC = () => {
                           {isRunning && isRegistered && (
                             <Chip label="Connected" size="small" sx={{ height: 20, fontSize: '0.7rem', backgroundColor: 'rgba(255,255,255,0.2)', color: '#fff' }} />
                           )}
+                          <IconButton
+                            size="small"
+                            onClick={() => reconnectLocalService(svc)}
+                            sx={{
+                              p: 0.25,
+                              color: isRunning ? 'rgba(255,255,255,0.7)' : 'text.disabled',
+                              '&:hover': { color: isRunning ? '#fff' : 'text.primary' },
+                            }}
+                          >
+                            <RefreshIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
                         </Box>
                       );
                     })}
@@ -542,7 +586,7 @@ export const ToolsWindow: React.FC = () => {
                 </Box>
 
                 {(() => {
-                  const localMcpUrls = new Set(LOCAL_SERVICES.map((s) => s.mcpUrl));
+                  const localMcpUrls = new Set(LOCAL_SERVICES.flatMap((s) => [s.mcpUrl, s.mcpUrl.replace('://127.0.0.1:', '://localhost:')]));
                   const userServers = mcpServers.filter((s) => !s.url || !localMcpUrls.has(s.url));
                   return userServers.length === 0 ? (
                   <Paper sx={{ p: 4, textAlign: 'center' }}>

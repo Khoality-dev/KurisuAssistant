@@ -167,6 +167,14 @@ export function getClientTools() {
   return clientTools;
 }
 
+/**
+ * Get client-side tools grouped by server name.
+ */
+export async function getClientToolsByServer(): Promise<Record<string, typeof clientTools>> {
+  if (!window.electron?.mcp) return {};
+  return window.electron.mcp.listToolsByServer();
+}
+
 // Auto-initialize on WebSocket connect
 wsManager.on('connected', () => {
   initClientMCPServers();
