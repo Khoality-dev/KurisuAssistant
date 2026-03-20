@@ -5,11 +5,11 @@ import type {
   LoginResponse,
   Conversation,
   ConversationDetail,
-  Message,
   MessageRawData,
   UserProfile,
   VoicesResponse,
   BackendsResponse,
+  PullModelResponse,
   TTSRequest,
   Agent,
   AgentCreate,
@@ -149,6 +149,18 @@ class APIClient {
       headers: this.getHeaders(),
     });
     return response.data.models;
+  }
+
+  async pullModel(name: string): Promise<PullModelResponse> {
+    const response = await this.client.post<PullModelResponse>(
+      '/models/pull',
+      { name },
+      {
+        headers: this.getHeaders(),
+        timeout: 1800000, // Model downloads can take a while.
+      }
+    );
+    return response.data;
   }
 
   async getUserProfile(): Promise<UserProfile> {

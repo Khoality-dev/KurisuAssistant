@@ -85,6 +85,11 @@ export interface BackendsResponse {
   backends: string[];
 }
 
+export interface PullModelResponse {
+  status: string;
+  message: string;
+}
+
 export interface TTSRequest {
   text: string;
   voice?: string;

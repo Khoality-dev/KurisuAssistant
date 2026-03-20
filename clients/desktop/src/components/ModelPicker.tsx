@@ -1,0 +1,170 @@
+import React, { useMemo, useState } from 'react';
+import {
+  Autocomplete,
+  Box,
+  Button,
+  IconButton,
+  TextField,
+  Tooltip,
+} from '@mui/material';
+import { CircularProgress } from '@mui/material';
+import {
+  GetApp as GetAppIcon,
+  Refresh as RefreshIcon,
+} from '@mui/icons-material';
+import { apiClient } from '../api/client';
+
+interface ModelPickerProps {
+  label: string;
+  value: string;
+  models: string[];
+  onChange: (value: string) => void;
+  onRefresh: () => Promise<void>;
+  onSuccess?: (message: string) => void;
+  onError?: (message: string) => void;
+  helperText?: string;
+  required?: boolean;
+  disabled?: boolean;
+}
+
+const refreshIconSx = {
+  animation: 'spin 1s linear infinite',
+  '@keyframes spin': {
+    '0%': { transform: 'rotate(0deg)' },
+    '100%': { transform: 'rotate(360deg)' },
+  },
+};
+
+export const ModelPicker: React.FC<ModelPickerProps> = ({
+  label,
+  value,
+  models,
+  onChange,
+  onRefresh,
+  onSuccess,
+  onError,
+  helperText,
+  required = false,
+  disabled = false,
+}) => {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
+
+  const sortedModels = useMemo(
+    () => [...models].sort((a, b) => a.localeCompare(b)),
+    [models]
+  );
+
+  const trimmedValue = value.trim();
+  const installedModel = trimmedValue
+    ? sortedModels.find((model) => model.toLowerCase() === trimmedValue.toLowerCase())
+    : undefined;
+
+  const handleRefresh = async () => {
+    try {
+      setIsRefreshing(true);
+      await onRefresh();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handlePull = async () => {
+    if (!trimmedValue || installedModel) {
+      return;
+    }
+
+    try {
+      setIsPulling(true);
+      const result = await apiClient.pullModel(trimmedValue);
+      onChange(trimmedValue);
+      await onRefresh();
+      onSuccess?.(result.message);
+    } catch (error: any) {
+      onError?.(
+        error.response?.data?.detail ||
+        error.message ||
+        `Failed to pull model "${trimmedValue}"`
+      );
+    } finally {
+      setIsPulling(false);
+    }
+  };
+
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+        <Autocomplete
+          freeSolo
+          options={sortedModels}
+          value={value === '' ? null : value}
+          inputValue={value}
+          onChange={(_, newValue) => onChange(typeof newValue === 'string' ? newValue : '')}
+          onInputChange={(_, newInputValue, reason) => {
+            if (reason === 'input' || reason === 'clear') {
+              onChange(newInputValue);
+            }
+          }}
+          filterOptions={(options, state) => {
+            const input = state.inputValue.trim().toLowerCase();
+            if (!input) {
+              return options;
+            }
+            return options.filter((option) => option.toLowerCase().includes(input));
+          }}
+          selectOnFocus
+          handleHomeEndKeys
+          clearOnBlur={false}
+          noOptionsText="No installed models match. Enter an exact model name and click Pull."
+          disabled={disabled || isPulling}
+          sx={{ flex: 1 }}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label={label}
+              required={required}
+              placeholder="e.g. llama3.2:latest"
+              helperText={
+                helperText ||
+                'Lists pulled models. Enter an exact Ollama model name only if you want to pull a new one.'
+              }
+            />
+          )}
+        />
+        <Tooltip title="Refresh model list">
+          <span>
+            <IconButton
+              onClick={handleRefresh}
+              disabled={disabled || isRefreshing || isPulling}
+              sx={{ mt: 1 }}
+            >
+              <RefreshIcon sx={isRefreshing ? refreshIconSx : undefined} />
+            </IconButton>
+          </span>
+        </Tooltip>
+      </Box>
+      <Box
+        sx={{
+          mt: 1,
+          display: 'flex',
+          justifyContent: 'flex-end',
+          flexWrap: 'wrap',
+          gap: 1,
+        }}
+      >
+        {!installedModel && trimmedValue && (
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={isPulling ? <CircularProgress size={16} /> : <GetAppIcon />}
+            onClick={handlePull}
+            disabled={disabled || isPulling}
+            sx={{ px: 1.5, py: 0.75, minWidth: 116 }}
+          >
+            {isPulling ? 'Pulling...' : 'Pull Model'}
+          </Button>
+        )}
+      </Box>
+    </Box>
+  );
+};

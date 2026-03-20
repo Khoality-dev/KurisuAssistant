@@ -22,7 +22,6 @@ import {
   Save as SaveIcon,
   AccountCircle as AccountCircleIcon,
   VolumeUp as VolumeUpIcon,
-  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useAuthStore } from '../store/authStore';
@@ -30,6 +29,7 @@ import { apiClient } from '../api/client';
 import { useTTS } from '../hooks/useTTS';
 import { storage } from '../utils/storage';
 import type { UserProfile } from '../api/types';
+import { ModelPicker } from './ModelPicker';
 
 const MotionPaper = motion(Paper);
 
@@ -81,11 +81,21 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
     }
   }, [user]);
 
+  const loadModels = async () => {
+    try {
+      const data = await apiClient.getModels();
+      setModels(data);
+    } catch (error: any) {
+      console.error('Failed to load models:', error);
+      setErrorMessage(error.response?.data?.detail || error.message || 'Failed to load models from Ollama');
+    }
+  };
+
   // Load TTS voices, backends, and models on mount
   useEffect(() => {
     loadVoices();
     loadBackends();
-    apiClient.getModels().then(setModels).catch(() => {});
+    loadModels();
   }, [loadVoices, loadBackends]);
 
   const handleSaveAccountSettings = async () => {
@@ -98,7 +108,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
       const profileUpdates: Partial<UserProfile> = {};
       // Always include ollama_url (empty string will clear it on backend)
       profileUpdates.ollama_url = ollamaUrl || '';
-      profileUpdates.summary_model = summaryModel || '';
+      profileUpdates.summary_model = summaryModel.trim() || '';
       profileUpdates.context_size = contextSize || 0;
 
       if (Object.keys(profileUpdates).length > 0) {
@@ -186,29 +196,18 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
 
           {/* Summary Model */}
           <Box sx={{ mb: 4 }}>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-              <FormControl fullWidth>
-                <InputLabel>Summary Model</InputLabel>
-                <Select
-                  value={summaryModel}
-                  label="Summary Model"
-                  onChange={(e) => setSummaryModel(e.target.value)}
-                >
-                  {models.map((model) => (
-                    <MenuItem key={model} value={model}>
-                      {model}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <IconButton
-                onClick={() => apiClient.getModels().then(setModels).catch(() => {})}
-                sx={{ mt: 1 }}
-                title="Refresh models"
-              >
-                <RefreshIcon />
-              </IconButton>
-            </Box>
+            <ModelPicker
+              label="Summary Model"
+              value={summaryModel}
+              models={models}
+              onChange={setSummaryModel}
+              onRefresh={loadModels}
+              onSuccess={(message) => {
+                setSuccessMessage(message);
+                setTimeout(() => setSuccessMessage(''), 3000);
+              }}
+              onError={setErrorMessage}
+            />
             <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
               Model used for session summaries and agent memory consolidation. Summaries are disabled until a model is selected.
             </Typography>
