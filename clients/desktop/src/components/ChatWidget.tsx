@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Box,
   TextField,
@@ -954,7 +954,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     });
   };
 
-  const toggleThinking = (index: number) => {
+  const toggleThinking = useCallback((index: number) => {
     setExpandedThinking(prev => {
       const newSet = new Set(prev);
       if (newSet.has(index)) {
@@ -964,9 +964,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       }
       return newSet;
     });
-  };
+  }, []);
 
-  const handleDelete = async (messageIndex: number) => {
+  const handleDelete = useCallback(async (messageIndex: number) => {
     const combined = [...messages, ...streamingMessages];
     const filtered = combined.filter((message) => {
       const speakerName = message.name || message.agent?.name;
@@ -981,9 +981,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     } catch (e) {
       console.error('Failed to delete message:', e);
     }
-  };
+  }, [messages, streamingMessages, showAdministrator, activeConversationId, loadConversation]);
 
-  const handleResend = async (messageIndex: number) => {
+  const handleResend = useCallback(async (messageIndex: number) => {
     if (isStreaming) return;
 
     const combined = [...messages, ...streamingMessages];
@@ -1030,7 +1030,73 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       console.error('Failed to resend message:', e);
       setIsStreaming(false);
     }
-  };
+  }, [isStreaming, messages, streamingMessages, showAdministrator, activeConversationId, loadConversation, clearQueue, agentId]);
+
+  const messageElements = useMemo(() => {
+    const combined = [...messages, ...streamingMessages];
+    const activeStreamingMsg = isStreaming && streamingMessages.length > 0
+      ? streamingMessages[streamingMessages.length - 1]
+      : null;
+    const filtered = combined.filter((message) => {
+      const speakerName = message.name || message.agent?.name;
+      if (speakerName === 'Administrator' && !showAdministrator) {
+        return false;
+      }
+      return true;
+    });
+
+    const elements: React.ReactNode[] = [];
+    let lastFrameId: number | undefined;
+
+    filtered.forEach((message, index) => {
+      const currentFrameId = message.frame_id;
+      if (currentFrameId && currentFrameId !== lastFrameId && lastFrameId !== undefined) {
+        const frameInfo = frames[currentFrameId];
+        if (frameInfo) {
+          elements.push(
+            <FrameSeparator key={`frame-sep-${currentFrameId}`} frame={frameInfo} />
+          );
+        }
+      }
+      lastFrameId = currentFrameId;
+
+      const isActiveStreaming = message === activeStreamingMsg;
+      elements.push(
+        <MessageBubble
+          key={message.id ? `msg-${message.id}` : `stream-${index}`}
+          message={message}
+          index={index}
+          isLast={index === filtered.length - 1}
+          isStreaming={isActiveStreaming}
+          streamingThinking={isActiveStreaming ? streamingThinking : ''}
+          streamingContent={isActiveStreaming ? streamingContent : ''}
+          displayedThinking={isActiveStreaming ? streamingThinking : ''}
+          displayedContent={isActiveStreaming ? streamingContent : ''}
+          justFinishedStreaming={index === filtered.length - 1 && justFinishedStreaming}
+          expandedThinking={expandedThinking}
+          onToggleThinking={toggleThinking}
+          onResend={handleResend}
+          onDelete={handleDelete}
+          ttsRef={ttsRef}
+        />
+      );
+    });
+
+    return elements;
+  }, [
+    messages,
+    streamingMessages,
+    isStreaming,
+    showAdministrator,
+    frames,
+    streamingThinking,
+    streamingContent,
+    justFinishedStreaming,
+    expandedThinking,
+    toggleThinking,
+    handleResend,
+    handleDelete,
+  ]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%' }}>
@@ -1070,60 +1136,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         )}
 
         <AnimatePresence>
-          {(() => {
-            const combined = [...messages, ...streamingMessages];
-            // The active streaming message is the last one in streamingMessages
-            const activeStreamingMsg = isStreaming && streamingMessages.length > 0
-              ? streamingMessages[streamingMessages.length - 1]
-              : null;
-            const filtered = combined.filter((message) => {
-              const speakerName = message.name || message.agent?.name;
-              if (speakerName === 'Administrator' && !showAdministrator) {
-                return false;
-              }
-              return true;
-            });
-
-            const elements: React.ReactNode[] = [];
-            let lastFrameId: number | undefined;
-
-            filtered.forEach((message, index) => {
-              const currentFrameId = message.frame_id;
-              // Insert separator when frame changes (not before first message)
-              if (currentFrameId && currentFrameId !== lastFrameId && lastFrameId !== undefined) {
-                const frameInfo = frames[currentFrameId];
-                if (frameInfo) {
-                  elements.push(
-                    <FrameSeparator key={`frame-sep-${currentFrameId}`} frame={frameInfo} />
-                  );
-                }
-              }
-              lastFrameId = currentFrameId;
-
-              const isActiveStreaming = message === activeStreamingMsg;
-              elements.push(
-                <MessageBubble
-                  key={message.id ? `msg-${message.id}` : `stream-${index}`}
-                  message={message}
-                  index={index}
-                  isLast={index === filtered.length - 1}
-                  isStreaming={isActiveStreaming}
-                  streamingThinking={isActiveStreaming ? streamingThinking : ''}
-                  streamingContent={isActiveStreaming ? streamingContent : ''}
-                  displayedThinking={isActiveStreaming ? streamingThinking : ''}
-                  displayedContent={isActiveStreaming ? streamingContent : ''}
-                  justFinishedStreaming={index === filtered.length - 1 && justFinishedStreaming}
-                  expandedThinking={expandedThinking}
-                  onToggleThinking={toggleThinking}
-                  onResend={handleResend}
-                  onDelete={handleDelete}
-                  ttsRef={ttsRef}
-                />
-              );
-            });
-
-            return elements;
-          })()}
+          {messageElements}
         </AnimatePresence>
         <div ref={messagesEndRef} />
       </Box>

@@ -11,6 +11,11 @@ import { registerMCPHandlers, cleanupMCP } from './mcp';
 app.setPath('userData', path.join(app.getPath('appData'), 'kurisu-assistant'));
 app.setAppUserModelId('com.kurisu.assistant');
 
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+
 let mainWindow: BrowserWindow | null = null;
 let characterWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -80,6 +85,19 @@ function createTray(): void {
     mainWindow?.show();
     mainWindow?.focus();
   });
+}
+
+function focusMainWindow(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.show();
+    mainWindow.focus();
+    return;
+  }
+
+  createWindow();
 }
 
 function createWindow() {
@@ -351,6 +369,10 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
   callback(true);
 });
 
+app.on('second-instance', () => {
+  focusMainWindow();
+});
+
 app.whenReady().then(() => {
   initAutoLaunch();
 
@@ -417,6 +439,8 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
+    } else {
+      focusMainWindow();
     }
   });
 });
