@@ -53,8 +53,9 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({ onSelectAgent }) => 
           width: 340,
           display: 'flex',
           flexDirection: 'column',
-          backgroundColor: '#F8FAFC',
-          borderRight: 'none',
+          backgroundColor: '#FFFFFF',
+          borderRight: '1px solid',
+          borderColor: '#E2E8F0',
         },
       }}
     >
@@ -65,20 +66,21 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({ onSelectAgent }) => 
           alignItems: 'center',
           justifyContent: 'space-between',
           px: 2.5,
-          py: 2,
+          py: 1.75,
           backgroundColor: '#FFFFFF',
           borderBottom: '1px solid',
-          borderColor: 'divider',
+          borderColor: '#E2E8F0',
         }}
       >
-        <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.1rem', color: 'text.primary' }}>
+        <Typography variant="overline" sx={{ fontWeight: 700, letterSpacing: '0.12em', color: '#475569' }}>
           Conversations
         </Typography>
         <IconButton
           onClick={close}
           size="small"
           sx={{
-            color: 'text.secondary',
+            color: '#475569',
+            borderRadius: 0,
             '&:hover': { backgroundColor: '#F1F5F9' },
           }}
         >
@@ -87,7 +89,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({ onSelectAgent }) => 
       </Box>
 
       {/* Agent list */}
-      <List sx={{ flex: 1, overflow: 'auto', px: 1, py: 1 }}>
+      <List sx={{ flex: 1, overflow: 'auto', px: 0, py: 0 }}>
         {agents.map((agent) => {
           const preview = agentPreviews[agent.id];
           const hasMessage = !!preview?.lastMessage;
@@ -101,25 +103,22 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({ onSelectAgent }) => 
               selected={isSelected}
               onClick={() => handleSelect(agent.id)}
               sx={{
-                py: 1.25,
-                px: 1.5,
-                borderRadius: '10px',
-                mb: 0.5,
-                border: '1px solid transparent',
-                transition: 'all 0.15s ease',
+                py: 1.4,
+                px: 2,
+                borderRadius: 0,
+                mb: 0,
+                borderBottom: '1px solid',
+                borderColor: '#E2E8F0',
+                transition: 'background-color 0.15s ease',
                 '&:hover': {
-                  backgroundColor: '#FFFFFF',
-                  border: '1px solid',
-                  borderColor: 'divider',
+                  backgroundColor: '#F8FAFC',
                 },
                 '&.Mui-selected': {
-                  backgroundColor: '#FFFFFF',
-                  border: '1px solid',
-                  borderColor: '#DBEAFE',
-                  borderLeft: '3px solid #2563EB',
-                  boxShadow: '0 1px 3px rgba(37, 99, 235, 0.08)',
+                  backgroundColor: '#F1F5F9',
+                  borderLeft: '4px solid #2563EB',
+                  pl: 'calc(16px - 4px)',
                   '&:hover': {
-                    backgroundColor: '#FAFCFF',
+                    backgroundColor: '#EEF2F7',
                   },
                 },
               }}
@@ -130,8 +129,9 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({ onSelectAgent }) => 
                   sx={{
                     width: 44,
                     height: 44,
-                    border: isSelected ? '2px solid #2563EB' : '2px solid #E2E8F0',
-                    transition: 'border-color 0.15s ease',
+                    borderRadius: 0,
+                    backgroundColor: '#EFF6FF',
+                    color: '#2563EB',
                   }}
                 >
                   {!agent.avatar_uuid && (
@@ -145,7 +145,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({ onSelectAgent }) => 
                     variant="body2"
                     sx={{
                       fontWeight: isSelected ? 700 : 600,
-                      color: 'text.primary',
+                      color: '#0F172A',
                       fontSize: '0.875rem',
                       lineHeight: 1.3,
                     }}
@@ -157,7 +157,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({ onSelectAgent }) => 
                     <Typography
                       variant="caption"
                       sx={{
-                        color: isSelected ? 'primary.main' : 'text.secondary',
+                        color: isSelected ? '#2563EB' : '#64748B',
                         fontSize: '0.7rem',
                         fontWeight: isSelected ? 600 : 400,
                         ml: 1,
@@ -171,7 +171,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({ onSelectAgent }) => 
                 <Typography
                   variant="body2"
                   sx={{
-                    color: 'text.secondary',
+                    color: '#64748B',
                     fontSize: '0.8rem',
                     lineHeight: 1.4,
                   }}

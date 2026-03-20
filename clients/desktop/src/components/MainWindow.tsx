@@ -3,11 +3,11 @@ import {
   Box,
   Typography,
   IconButton,
+  Button,
   Alert,
   Tabs,
   Tab,
   Tooltip,
-  Divider,
 } from '@mui/material';
 import {
   Delete as DeleteIcon,
@@ -59,7 +59,6 @@ export const MainWindow: React.FC = () => {
 
   const [characterWindowOpen, setCharacterWindowOpen] = useState(false);
 
-  // Listen for character window being closed externally (via X button)
   useEffect(() => {
     const api = window.electron?.characterWindow;
     if (!api) return;
@@ -116,60 +115,217 @@ export const MainWindow: React.FC = () => {
   };
 
   const tabValue = currentPage === 'settings' ? false : PAGE_TO_TAB[currentPage] ?? false;
+  const activeAgentLabel = selectedAgent?.name || 'Group Chat';
+  const workspaceLabel = selectedAgent ? 'Agent Workspace' : 'Routing Workspace';
+  const connectionColor =
+    connectionStatus === 'connected' ? '#16A34A' :
+    connectionStatus === 'connecting' ? '#F59E0B' :
+    '#EF4444';
+  const shellPanelSx = {
+    backgroundColor: '#FFFFFF',
+    borderBottom: '1px solid',
+    borderColor: '#E2E8F0',
+  };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', backgroundColor: '#F8FAFC' }}>
       <AgentSidebar onSelectAgent={handleSidebarSelectAgent} />
-      {/* Top navigation bar */}
+
       <Box
         sx={{
-          display: 'flex',
-          alignItems: 'center',
-          borderBottom: '1px solid',
-          borderColor: 'divider',
-          backgroundColor: '#FFFFFF',
-          px: 1,
-          minHeight: 48,
+          ...shellPanelSx,
+          px: 2,
+          py: 1.25,
           flexShrink: 0,
-          gap: 0,
         }}
       >
-        {/* Left zone: Hamburger + agent name (Chat tab only) */}
-        {currentPage === 'chat' && (
-          <>
-            <Tooltip title="Conversations">
-              <IconButton size="small" onClick={sidebarToggle} sx={{ mr: 0.5 }}>
-                <MenuIcon sx={{ fontSize: 20 }} />
-              </IconButton>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              minHeight: 44,
+            }}
+          >
+            <Tabs
+              value={tabValue}
+              onChange={handleTabChange}
+              sx={{
+                minHeight: 44,
+                '& .MuiTabs-indicator': { display: 'none' },
+                '& .MuiTab-root': {
+                  minHeight: 44,
+                  minWidth: 'auto',
+                  textTransform: 'none',
+                  px: 2,
+                  borderRadius: 0,
+                  color: '#64748B',
+                  borderBottom: '2px solid transparent',
+                },
+                '& .Mui-selected': {
+                  color: '#0F172A',
+                  borderBottomColor: '#2563EB',
+                  backgroundColor: '#F8FAFC',
+                },
+              }}
+            >
+              <Tab icon={<ChatIcon fontSize="small" />} label="Chat" iconPosition="start" />
+              <Tab icon={<AgentsIcon fontSize="small" />} label="Agents" iconPosition="start" />
+              <Tab icon={<ToolsIcon fontSize="small" />} label="Tools" iconPosition="start" />
+              <Tab icon={<FaceIcon fontSize="small" />} label="Faces" iconPosition="start" />
+              <Tab icon={<ExtensionsIcon fontSize="small" />} label="Extensions" iconPosition="start" />
+            </Tabs>
+          </Box>
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <Tooltip title={connectionStatus === 'connected' ? 'Connected' : connectionStatus === 'connecting' ? 'Connecting...' : 'Disconnected - click to reconnect'}>
+              <Button
+                size="small"
+                variant="text"
+                onClick={() => {
+                  if (connectionStatus === 'disconnected') {
+                    wsManager.reconnect();
+                  }
+                }}
+                sx={{
+                  minWidth: 'auto',
+                  px: 1.25,
+                  py: 0.6,
+                  color: '#475569',
+                  backgroundColor: 'transparent',
+                  borderRadius: 0,
+                  '&:hover': {
+                    backgroundColor: '#F1F5F9',
+                  },
+                }}
+              >
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: connectionColor, mr: 1 }} />
+                {connectionStatus === 'connected' ? 'Online' : connectionStatus === 'connecting' ? 'Connecting' : 'Offline'}
+              </Button>
             </Tooltip>
-            {selectedAgent && (
-              <Typography variant="body2" sx={{ fontWeight: 600, maxWidth: 120, mr: 0.5 }} noWrap>
-                {selectedAgent.name}
-              </Typography>
-            )}
-            <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
-          </>
-        )}
 
-        {/* Center zone: Navigation tabs */}
-        <Tabs
-          value={tabValue}
-          onChange={handleTabChange}
-          sx={{ minHeight: 48, flex: 1, '& .MuiTab-root': { minHeight: 48, minWidth: 'auto', textTransform: 'none', px: 1.5 } }}
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.25,
+                px: 0,
+                py: 0,
+              }}
+            >
+              <IconButton
+                onClick={toggleCharacterWindow}
+                size="small"
+                color={characterWindowOpen ? 'primary' : 'default'}
+                title="Character Window"
+              >
+                <FaceIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+              <Tooltip title={interactiveMode ? 'Exit interactive mode' : 'Interactive mode'}>
+                <IconButton
+                  onClick={toggleInteractiveMode}
+                  size="small"
+                  sx={{ color: interactiveMode ? 'error.main' : 'inherit' }}
+                >
+                  {interactiveMode ? <PhoneDisabledIcon sx={{ fontSize: 18 }} /> : <PhoneIcon sx={{ fontSize: 18 }} />}
+                </IconButton>
+              </Tooltip>
+              <IconButton
+                onClick={() => setCurrentPage(currentPage === 'settings' ? 'chat' : 'settings')}
+                size="small"
+                color={currentPage === 'settings' ? 'primary' : 'default'}
+                title="Settings"
+              >
+                <SettingsIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+              <IconButton onClick={logout} size="small" title="Logout">
+                <LogoutIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+
+      {currentPage === 'chat' && (
+        <Box
+          sx={{
+            ...shellPanelSx,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2,
+            flexWrap: 'wrap',
+            px: 2.5,
+            py: 1.25,
+            flexShrink: 0,
+          }}
         >
-          <Tab icon={<ChatIcon fontSize="small" />} label="Chat" iconPosition="start" />
-          <Tab icon={<AgentsIcon fontSize="small" />} label="Agents" iconPosition="start" />
-          <Tab icon={<ToolsIcon fontSize="small" />} label="Tools" iconPosition="start" />
-          <Tab icon={<FaceIcon fontSize="small" />} label="Faces" iconPosition="start" />
-          <Tab icon={<ExtensionsIcon fontSize="small" />} label="Extensions" iconPosition="start" />
-        </Tabs>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0, flex: 1 }}>
+            <IconButton
+              onClick={sidebarToggle}
+              size="small"
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: 0,
+                border: '1px solid',
+                borderColor: '#E2E8F0',
+                color: '#0F172A',
+                flexShrink: 0,
+                '&:hover': {
+                  backgroundColor: '#F1F5F9',
+                },
+              }}
+            >
+              <MenuIcon sx={{ fontSize: 18 }} />
+            </IconButton>
 
-        {/* Right zone: Context actions + global utilities */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexShrink: 0 }}>
-          {/* Conversation actions (Chat tab only) */}
-          {currentPage === 'chat' && (
-            <>
-              <Tooltip title="Refresh messages">
+            <Box
+              sx={{
+                width: 10,
+                height: 40,
+                backgroundColor: '#0F172A',
+                flexShrink: 0,
+              }}
+            />
+
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography
+                variant="overline"
+                sx={{
+                  display: 'block',
+                  lineHeight: 1,
+                  letterSpacing: '0.12em',
+                  color: '#64748B',
+                  mb: 0.75,
+                }}
+              >
+                {workspaceLabel}
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.25, minWidth: 0, flexWrap: 'wrap' }}>
+                <Typography variant="body1" sx={{ fontWeight: 700, color: '#0F172A' }} noWrap>
+                  {activeAgentLabel}
+                </Typography>
+                {!selectedAgent && (
+                  <Typography variant="caption" color="text.secondary" noWrap>
+                    Administrator routing enabled
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+          </Box>
+
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.5,
+              px: 0,
+              py: 0,
+            }}
+          >
+            <Tooltip title="Refresh messages">
+              <span>
                 <IconButton
                   size="small"
                   onClick={() => {
@@ -177,84 +333,29 @@ export const MainWindow: React.FC = () => {
                       useConversationStore.getState().loadConversation(currentConversation.id);
                     }
                   }}
+                  disabled={!currentConversation}
                 >
                   <RefreshIcon sx={{ fontSize: 18 }} />
                 </IconButton>
-              </Tooltip>
-              <Tooltip title="Clear conversation">
-                <span>
-                  <IconButton
-                    size="small"
-                    onClick={handleClearConversation}
-                    disabled={!currentConversation}
-                    color="error"
-                  >
-                    <DeleteIcon sx={{ fontSize: 18 }} />
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
-            </>
-          )}
-
-          {/* Connection status */}
-          <Tooltip title={connectionStatus === 'connected' ? 'Connected' : connectionStatus === 'connecting' ? 'Connecting...' : 'Disconnected — click to reconnect'}>
-            <Box
-              onClick={() => {
-                if (connectionStatus === 'disconnected') {
-                  wsManager.reconnect();
-                }
-              }}
-              sx={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                mx: 0.5,
-                backgroundColor:
-                  connectionStatus === 'connected' ? '#4caf50' :
-                  connectionStatus === 'connecting' ? '#ff9800' :
-                  '#f44336',
-                transition: 'background-color 0.3s',
-                cursor: connectionStatus === 'disconnected' ? 'pointer' : 'default',
-              }}
-            />
-          </Tooltip>
-
-          {/* Global utility buttons */}
-          <IconButton
-            onClick={toggleCharacterWindow}
-            size="small"
-            color={characterWindowOpen ? 'primary' : 'default'}
-            title="Character Window"
-          >
-            <FaceIcon sx={{ fontSize: 18 }} />
-          </IconButton>
-          <Tooltip title={interactiveMode ? 'Exit interactive mode' : 'Interactive mode'}>
-            <IconButton
-              onClick={toggleInteractiveMode}
-              size="small"
-              sx={{ color: interactiveMode ? 'error.main' : 'inherit' }}
-            >
-              {interactiveMode ? <PhoneDisabledIcon sx={{ fontSize: 18 }} /> : <PhoneIcon sx={{ fontSize: 18 }} />}
-            </IconButton>
-          </Tooltip>
-          <IconButton
-            onClick={() => setCurrentPage(currentPage === 'settings' ? 'chat' : 'settings')}
-            size="small"
-            color={currentPage === 'settings' ? 'primary' : 'default'}
-            title="Settings"
-          >
-            <SettingsIcon sx={{ fontSize: 18 }} />
-          </IconButton>
-          <IconButton onClick={logout} size="small" title="Logout">
-            <LogoutIcon sx={{ fontSize: 18 }} />
-          </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Clear conversation">
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={handleClearConversation}
+                  disabled={!currentConversation}
+                  color="error"
+                >
+                  <DeleteIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Box>
         </Box>
-      </Box>
+      )}
 
-      {/* Content area */}
       <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Main content */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {error && (
             <Alert severity="error" onClose={() => setError('')}>
