@@ -64,6 +64,7 @@ class AgentContext:
     available_agents: List[AgentConfig] = field(default_factory=list)
     user_system_prompt: str = ""
     preferred_name: str = ""
+    api_url: Optional[str] = None  # User-specific Ollama endpoint
     client_tools: List[Dict] = field(default_factory=list)
     client_tool_callback: Optional[Callable[[str, Dict], Coroutine[Any, Any, str]]] = None
     images: Optional[List[str]] = None  # base64 images for current user message
@@ -440,7 +441,7 @@ class SimpleAgent(BaseAgent):
         import json
         from models.llm import create_llm_provider
 
-        llm = create_llm_provider("ollama")
+        llm = create_llm_provider("ollama", api_url=context.api_url)
 
         # Auto-query knowledge graph with the latest user message
         if context.user_id and self.config.id and not context.knowledge_context:

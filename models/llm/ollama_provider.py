@@ -25,6 +25,24 @@ class OllamaProvider(BaseLLMProvider):
         logger.info(f"Initializing Ollama provider with URL: {api_url}")
         self.client = OllamaClient(host=api_url)
 
+    def ensure_model_available(self, model: str) -> bool:
+        """Ensure a model exists locally before use.
+
+        Returns:
+            True if the model had to be pulled, False if it already existed
+        """
+        try:
+            available_models = self.list_models()
+            if model in available_models:
+                return False
+
+            logger.info(f"Model '{model}' not found locally. Pulling from Ollama registry.")
+            self.pull_model(model)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to ensure Ollama model '{model}' is available: {e}", exc_info=True)
+            raise
+
     def chat(
         self,
         model: str,
@@ -46,6 +64,7 @@ class OllamaProvider(BaseLLMProvider):
             Streaming iterator or response object
         """
         try:
+            self.ensure_model_available(model)
             return self.client.chat(
                 model=model,
                 messages=messages,
@@ -89,6 +108,7 @@ class OllamaProvider(BaseLLMProvider):
             Generated text
         """
         try:
+            self.ensure_model_available(model)
             default_options = {"temperature": 0.7}
             if options:
                 default_options.update(options)

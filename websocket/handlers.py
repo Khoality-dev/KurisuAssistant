@@ -321,6 +321,7 @@ class ChatSessionHandler:
                 available_agents=available_agents,
                 user_system_prompt=user_system_prompt,
                 preferred_name=preferred_name,
+                api_url=ollama_url,
                 client_tools=self._client_tools,
                 client_tool_callback=self._execute_client_tool,
                 images=event.images if event.images else None,
@@ -480,10 +481,16 @@ class ChatSessionHandler:
             admin_model = admin_agent.model_name if admin_agent and admin_agent.model_name else DEFAULT_ADMIN_MODEL
             admin_id = admin_agent.id if admin_agent else None
             admin_think = admin_agent.think if admin_agent else False
-            if self.administrator is None or self.administrator.model_name != admin_model or self.administrator.think != admin_think:
+            if (
+                self.administrator is None
+                or self.administrator.model_name != admin_model
+                or self.administrator.think != admin_think
+                or self.administrator.api_url != ollama_url
+            ):
                 self.administrator = AdministratorAgent(
                     agent_id=admin_id,
                     model_name=admin_model,
+                    api_url=ollama_url,
                     think=admin_think,
                 )
 
@@ -615,6 +622,7 @@ class ChatSessionHandler:
                 available_agents=available_agents,
                 user_system_prompt=user_system_prompt,
                 preferred_name=preferred_name,
+                api_url=ollama_url,
                 client_tools=self._client_tools,
                 client_tool_callback=self._execute_client_tool,
                 images=event.images if event.images else None,

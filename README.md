@@ -18,7 +18,7 @@ A voice-based AI assistant platform combining speech recognition, voice synthesi
 ## Prerequisites
 
 - Docker and Docker Compose
-- [Ollama](https://ollama.ai) with at least one model pulled
+- [Ollama](https://ollama.ai) (models can be pulled manually or automatically on first use)
 - (Optional) NVIDIA GPU for CUDA-accelerated ASR and vision
 
 ## Getting Started

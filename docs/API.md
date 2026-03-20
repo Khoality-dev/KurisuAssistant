@@ -103,6 +103,8 @@ Real-time streaming chat over WebSocket. See [WebSocket](#websocket) section for
 
 **Client → Server:** `chat_request` event with `text`, `model_name`, `conversation_id?`, `agent_id?`, `images?`
 
+If `model_name` refers to an Ollama model that is not downloaded yet, the server now pulls it automatically on first use before starting generation.
+
 **Server → Client:** `stream_chunk` events (sentence-by-sentence), then `done` event.
 
 ---
@@ -142,6 +144,8 @@ List available models with detailed info.
 ### POST /models/pull
 
 Pull/download a model from Ollama registry.
+
+Use this when you want to pre-download a model before selecting it in the client. Chat requests and other server-side LLM calls will also auto-pull missing models on first use.
 
 **Authentication:** Required
 
@@ -1108,6 +1112,8 @@ Persistent connection for real-time chat, vision, and media control. All events 
   "images": ["base64..."]
 }
 ```
+
+`model_name` may reference a model that is not downloaded yet. The server will try to pull it automatically from the configured Ollama instance before generation starts.
 
 **cancel** — Cancel current streaming response
 ```json

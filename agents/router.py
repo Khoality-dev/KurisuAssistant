@@ -104,7 +104,7 @@ class RouterAgent(BaseAgent):
         """Process messages, potentially delegating to sub-agents."""
         from models.llm import create_llm_provider
 
-        llm = create_llm_provider("ollama")
+        llm = create_llm_provider("ollama", api_url=context.api_url)
 
         # Build tools: regular tools + delegation tools
         delegation_tools = self._build_delegation_tools_for_user(context.user_id)

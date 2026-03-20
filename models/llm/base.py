@@ -64,6 +64,18 @@ class BaseLLMProvider(ABC):
         pass
 
     @abstractmethod
+    def ensure_model_available(self, model: str) -> bool:
+        """Ensure a model is available locally.
+
+        Args:
+            model: Model name/identifier to check and, if needed, pull
+
+        Returns:
+            True if the model was pulled during this call, False if it was already available
+        """
+        pass
+
+    @abstractmethod
     def pull_model(self, model: str) -> None:
         """Download/pull a model.
 
