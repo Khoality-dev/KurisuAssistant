@@ -39,7 +39,7 @@ interface MessageBubbleProps {
   ttsRef: React.RefObject<{ speak: (text: string, voice?: string, language?: string, backend?: string, emotionParams?: { emo_audio?: string; emo_alpha?: number; use_emo_text?: boolean }) => Promise<void>; stopTTS: () => void; isTTSPlaying: boolean; setActiveAgentForTTS: (agentId: number | null) => void }>;
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({
+const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   message,
   index,
   isLast,
@@ -637,3 +637,25 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     </MotionBox>
   );
 };
+
+function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
+  return (
+    prev.message === next.message &&
+    prev.index === next.index &&
+    prev.isLast === next.isLast &&
+    prev.isStreaming === next.isStreaming &&
+    prev.streamingThinking === next.streamingThinking &&
+    prev.streamingContent === next.streamingContent &&
+    prev.displayedThinking === next.displayedThinking &&
+    prev.displayedContent === next.displayedContent &&
+    prev.justFinishedStreaming === next.justFinishedStreaming &&
+    prev.expandedThinking.has(prev.index) === next.expandedThinking.has(next.index) &&
+    prev.onToggleThinking === next.onToggleThinking &&
+    prev.onRegenerate === next.onRegenerate &&
+    prev.onResend === next.onResend &&
+    prev.onDelete === next.onDelete &&
+    prev.ttsRef === next.ttsRef
+  );
+}
+
+export const MessageBubble = React.memo(MessageBubbleComponent, areMessageBubblePropsEqual);

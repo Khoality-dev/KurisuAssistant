@@ -6,7 +6,7 @@ interface FrameSeparatorProps {
   frame: FrameInfo;
 }
 
-export const FrameSeparator: React.FC<FrameSeparatorProps> = ({ frame }) => {
+const FrameSeparatorComponent: React.FC<FrameSeparatorProps> = ({ frame }) => {
   const dateStr = frame.created_at
     ? new Date(frame.created_at).toLocaleString(undefined, {
         month: 'short',
@@ -43,3 +43,5 @@ export const FrameSeparator: React.FC<FrameSeparatorProps> = ({ frame }) => {
     </Box>
   );
 };
+
+export const FrameSeparator = React.memo(FrameSeparatorComponent);

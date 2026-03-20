@@ -48,6 +48,254 @@ interface ChatWidgetProps {
   agentId?: number | null;
 }
 
+interface ChatComposerProps {
+  scopeKey: string;
+  externalDraft: string;
+  externalDraftVersion: number;
+  isStreaming: boolean;
+  asrStatus: ReturnType<typeof useMicStore.getState>['status'];
+  asrDevices: ReturnType<typeof useMicStore.getState>['devices'];
+  asrDeviceId: ReturnType<typeof useMicStore.getState>['selectedDeviceId'];
+  micMenuAnchor: HTMLElement | null;
+  cameraActive: boolean;
+  cameraWebcams: string[];
+  cameraSelectedWebcam: string | null;
+  cameraMenuAnchor: HTMLElement | null;
+  onSend: (text: string, imageFiles: File[]) => Promise<void>;
+  onCancel: () => void;
+  onMicToggle: () => void;
+  onMicContext: (e: React.MouseEvent<HTMLElement>) => void;
+  onCloseMicMenu: () => void;
+  onSelectAsrDevice: (deviceId: string) => void;
+  onCameraToggle: () => Promise<void>;
+  onCameraContext: (e: React.MouseEvent<HTMLElement>) => void;
+  onCloseCameraMenu: () => void;
+  onSelectCamera: (camera: string) => void;
+}
+
+const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
+  scopeKey,
+  externalDraft,
+  externalDraftVersion,
+  isStreaming,
+  asrStatus,
+  asrDevices,
+  asrDeviceId,
+  micMenuAnchor,
+  cameraActive,
+  cameraWebcams,
+  cameraSelectedWebcam,
+  cameraMenuAnchor,
+  onSend,
+  onCancel,
+  onMicToggle,
+  onMicContext,
+  onCloseMicMenu,
+  onSelectAsrDevice,
+  onCameraToggle,
+  onCameraContext,
+  onCloseCameraMenu,
+  onSelectCamera,
+}) => {
+  const [input, setInput] = useState('');
+  const [images, setImages] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setInput('');
+    setImages([]);
+  }, [scopeKey]);
+
+  useEffect(() => {
+    setInput(externalDraft);
+  }, [externalDraft, externalDraftVersion]);
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    setImages((prev) => [...prev, ...Array.from(e.target.files!)]);
+    e.target.value = '';
+  }, []);
+
+  const removeImage = useCallback((index: number) => {
+    setImages((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const handleSend = useCallback(async () => {
+    const text = input.trim();
+    if (!text || isStreaming) return;
+    const imageFiles = [...images];
+    setInput('');
+    setImages([]);
+    await onSend(text, imageFiles);
+  }, [images, input, isStreaming, onSend]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      void handleSend();
+    }
+  }, [handleSend]);
+
+  return (
+    <Paper
+      elevation={3}
+      sx={{
+        p: 2,
+        borderTop: '1px solid',
+        borderColor: 'divider',
+      }}
+    >
+      {images.length > 0 && (
+        <Box sx={{ mb: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          {images.map((img, index) => (
+            <Chip
+              key={`${img.name}-${index}`}
+              label={img.name}
+              onDelete={() => removeImage(index)}
+              deleteIcon={<CloseIcon />}
+              size="small"
+            />
+          ))}
+        </Box>
+      )}
+
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          style={{ display: 'none' }}
+          onChange={handleFileSelect}
+        />
+        <IconButton
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isStreaming}
+        >
+          <AttachFileIcon />
+        </IconButton>
+
+        <Tooltip title={asrStatus === 'idle' ? 'Start dictation (right-click: select mic)' : 'Stop dictation'}>
+          <IconButton
+            onClick={onMicToggle}
+            onContextMenu={onMicContext}
+            disabled={isStreaming}
+            sx={{
+              color: asrStatus === 'listening' ? 'error.main' : 'inherit',
+            }}
+          >
+            {asrStatus === 'processing' ? (
+              <CircularProgress size={24} />
+            ) : asrStatus === 'listening' ? (
+              <MicIcon />
+            ) : (
+              <MicOffIcon />
+            )}
+          </IconButton>
+        </Tooltip>
+        <Menu
+          anchorEl={micMenuAnchor}
+          open={Boolean(micMenuAnchor)}
+          onClose={onCloseMicMenu}
+        >
+          {asrDevices.map((device) => (
+            <MenuItem
+              key={device.deviceId}
+              onClick={() => onSelectAsrDevice(device.deviceId)}
+              selected={device.deviceId === asrDeviceId}
+            >
+              {device.deviceId === asrDeviceId && (
+                <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
+              )}
+              <ListItemText inset={device.deviceId !== asrDeviceId}>
+                {device.label}
+              </ListItemText>
+            </MenuItem>
+          ))}
+          {asrDevices.length === 0 && (
+            <MenuItem disabled>No microphones found</MenuItem>
+          )}
+        </Menu>
+
+        <Tooltip title={cameraActive ? 'Stop camera (right-click: select webcam)' : 'Start camera (right-click: select webcam)'}>
+          <IconButton
+            onClick={() => void onCameraToggle()}
+            onContextMenu={onCameraContext}
+            disabled={isStreaming}
+            sx={{
+              color: cameraActive ? 'success.main' : 'inherit',
+              animation: cameraActive ? 'pulse 1.5s infinite' : 'none',
+              '@keyframes pulse': {
+                '0%': { opacity: 1 },
+                '50%': { opacity: 0.5 },
+                '100%': { opacity: 1 },
+              },
+            }}
+          >
+            {cameraActive ? <VideocamIcon /> : <VideocamOffIcon />}
+          </IconButton>
+        </Tooltip>
+        <Menu
+          anchorEl={cameraMenuAnchor}
+          open={Boolean(cameraMenuAnchor)}
+          onClose={onCloseCameraMenu}
+        >
+          {cameraWebcams.map((cam) => (
+            <MenuItem
+              key={cam}
+              onClick={() => onSelectCamera(cam)}
+              selected={cam === cameraSelectedWebcam}
+            >
+              {cam === cameraSelectedWebcam && (
+                <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
+              )}
+              <ListItemText inset={cam !== cameraSelectedWebcam}>
+                {cam}
+              </ListItemText>
+            </MenuItem>
+          ))}
+          {cameraWebcams.length === 0 && (
+            <MenuItem disabled>No webcams found</MenuItem>
+          )}
+        </Menu>
+
+        <TextField
+          fullWidth
+          multiline
+          maxRows={4}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Type your message..."
+          disabled={isStreaming}
+        />
+
+        {isStreaming ? (
+          <Button
+            variant="contained"
+            color="error"
+            endIcon={<StopIcon />}
+            onClick={onCancel}
+            sx={{ minWidth: 100 }}
+          >
+            Stop
+          </Button>
+        ) : (
+          <Button
+            variant="contained"
+            endIcon={<SendIcon />}
+            onClick={() => void handleSend()}
+            disabled={!input.trim()}
+            sx={{ minWidth: 100 }}
+          >
+            Send
+          </Button>
+        )}
+      </Box>
+    </Paper>
+  );
+});
+
 export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = false, agentId = null }) => {
   const {
     messages,
@@ -60,14 +308,14 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     setCurrentConversationId,
   } = useConversationStore();
 
-  const [input, setInput] = useState('');
-  const [images, setImages] = useState<File[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingMessages, setStreamingMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState('');
   const [streamingThinking, setStreamingThinking] = useState('');
   const [justFinishedStreaming, setJustFinishedStreaming] = useState(false);
   const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
+  const [externalDraft, setExternalDraft] = useState('');
+  const [externalDraftVersion, setExternalDraftVersion] = useState(0);
   const [activeConversationId, setActiveConversationId] = useState<number | null>(
     currentConversation?.id || null
   );
@@ -78,9 +326,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   const amplitudeRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false, isThinking: false });
   const onAmplitudeUpdate = useCallback((amplitude: number, isPlaying: boolean) => {
     amplitudeRef.current = { ...amplitudeRef.current, amplitude, isPlaying };
-  }, []);
-
-  // Character panel state — all agents in conversation
+  }, []);  // Character panel state for all agents in the conversation
   interface AgentEntry { name: string; poseTree: PoseTree | null }
   const [agentMap, setAgentMap] = useState<Map<number, AgentEntry>>(new Map());
   const [activeAgentId, setActiveAgentId] = useState<number | null>(null);
@@ -151,6 +397,16 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     isStreamingRef.current = isStreaming;
   }, [isStreaming]);
 
+  const pushExternalDraft = useCallback((text: string) => {
+    setExternalDraft(text);
+    setExternalDraftVersion((prev) => prev + 1);
+  }, []);
+
+  const clearExternalDraft = useCallback(() => {
+    setExternalDraft('');
+    setExternalDraftVersion((prev) => prev + 1);
+  }, []);
+
   // Fetch agent and add/update the character panel map
   // forceRefresh=true bypasses cache (used when agent becomes active, to pick up config changes)
   const fetchAgentForPanel = useCallback((agentId: number, agentName?: string, forceRefresh = false) => {
@@ -158,8 +414,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     agentCacheRef.current.add(agentId);
     apiClient.getAgent(agentId).then((agent) => {
       const cc = agent.character_config;
-      const poseTree = cc?.pose_tree ?? null;
-      // Migrate legacy video_url → video_urls on edges
+      const poseTree = cc?.pose_tree ?? null;      // Migrate legacy video_url to video_urls on edges
       if (poseTree?.edges) {
         for (const e of poseTree.edges) {
           const raw = e as any;
@@ -270,9 +525,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     };
     window.addEventListener('character-config-saved', handler);
     return () => window.removeEventListener('character-config-saved', handler);
-  }, [agentMap, fetchAgentForPanel]);
-
-  // ASR transcript handling — branches on interactive mode + interaction active
+  }, [agentMap, fetchAgentForPanel]);  // ASR transcript handling: branch on interactive mode and interaction state
   useEffect(() => {
     if (!asrResult) return;
     const asrTranscript = asrResult.text;
@@ -282,14 +535,12 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     const triggerWord = selectedAgent?.trigger_word?.trim();
     const hasTrigger = triggerWord && asrTranscript.toLowerCase().includes(triggerWord.toLowerCase());
 
-    if (state.interactiveMode) {
-      // Interactive mode — always show transcript visually
+    if (state.interactiveMode) {      // Interactive mode: always show transcript visually
       setLastTranscript(asrTranscript);
       if (lastTranscriptTimerRef.current) clearTimeout(lastTranscriptTimerRef.current);
       lastTranscriptTimerRef.current = setTimeout(() => setLastTranscript(''), 3000);
 
-      if (state.interactionActive || hasTrigger) {
-        // Interaction active (or trigger word detected) → auto-send
+      if (state.interactionActive || hasTrigger) {        // Interaction active or trigger word detected: auto-send
         if (!state.interactionActive) activateInteraction();
 
         if (isStreamingRef.current) {
@@ -302,21 +553,18 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           ttsPlayedForResponseRef.current = false;
           handleSendText(asrTranscript);
         }
-      }
-      // If not active and no trigger word → transcript shown but not sent
+      }      // If not active and no trigger word, show transcript without sending
     } else {
       // Typing mode: put text in input field (dictation)
-      setInput(asrTranscript);
-
-      // Check trigger word → enable interactive mode + activate interaction + auto-send
+      pushExternalDraft(asrTranscript);      // Check trigger word, then enable interaction mode and auto-send
       if (hasTrigger) {
         enableInteractiveMode();
         activateInteraction();
         ttsPlayedForResponseRef.current = false;
-        handleSendText(asrTranscript).finally(() => setInput(''));
+        handleSendText(asrTranscript).finally(() => clearExternalDraft());
       }
     }
-  }, [asrResult]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [asrResult, clearExternalDraft, pushExternalDraft]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Disable interactive mode when agent or conversation changes
   useEffect(() => {
@@ -328,9 +576,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       }
       pendingAutoSendRef.current = null;
     }
-  }, [agentId, currentConversation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Start 30s idle timer when TTS finishes and streaming is done — deactivates interaction (stays in interactive mode)
+  }, [agentId, currentConversation?.id]); // eslint-disable-line react-hooks/exhaustive-deps  // Start a 30s idle timer after streaming and TTS finish; keep interactive mode enabled
   useEffect(() => {
     if (!interactiveMode || !interactionActive) return;
     // Timer starts when: not streaming AND TTS queue not active
@@ -343,8 +589,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         interactionTimerRef.current = null;
         pendingAutoSendRef.current = null;
       }, INTERACTION_IDLE_MS);
-    } else {
-      // Still streaming or playing TTS — clear timer
+    } else {      // Still streaming or playing TTS, so clear the idle timer
       if (interactionTimerRef.current) {
         clearTimeout(interactionTimerRef.current);
         interactionTimerRef.current = null;
@@ -365,11 +610,11 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   // Clear UI state on interactive mode transitions
   useEffect(() => {
     if (interactiveMode) {
-      setInput('');
+      clearExternalDraft();
     } else {
       setLastTranscript('');
     }
-  }, [interactiveMode]);
+  }, [interactiveMode, clearExternalDraft]);
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -379,17 +624,17 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     };
   }, []);
 
-  const toggleShowAdministrator = () => {
+  const toggleShowAdministrator = useCallback(() => {
     const newValue = !showAdministrator;
     setShowAdministrator(newValue);
     storage.setShowAdministrator(newValue);
-  };
+  }, [showAdministrator]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const previousScrollHeightRef = useRef<number>(0);
   const streamFrameRef = useRef<number | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
   const pendingStreamRef = useRef<{ content: string; thinking: string }>({ content: '', thinking: '' });
 
   const cancelStreamUpdate = () => {
@@ -526,9 +771,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         const cleaned = stripNarration(ttsBufferRef.current);
         if (cleaned) queueText(cleaned, ttsVoiceRef.current);
         ttsBufferRef.current = '';
-      }
-
-      // Capture ref values BEFORE mutating — React defers updater execution,
+      }      // Capture ref values before mutating. React defers updater execution,
       // so reading the ref inside the updater would see the new (wrong) value.
       const previousContent = state.accumulatedContent;
       const previousThinking = state.accumulatedThinking;
@@ -634,18 +877,14 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       amplitudeRef.current = { ...amplitudeRef.current, isThinking: true };
       scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
     }
-    if (event.content) {
-      // Content arrived — thinking phase is over
+    if (event.content) {      // Content arrived, so the thinking phase is over
       amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
     }
 
     // Streaming TTS auto-play: feed complete sentences to TTS queue
     if (event.content && event.role !== 'tool') {
       ttsVoiceRef.current = event.voice_reference || ttsVoiceRef.current;
-      ttsBufferRef.current += event.content;
-
-      // Split on sentence-ending punctuation — all but last segment are complete
-      const parts = ttsBufferRef.current.split(/(?<=[.!?。！？\n])\s*/);
+      ttsBufferRef.current += event.content;      // Split on sentence-ending punctuation; all but the last segment are complete      const parts = ttsBufferRef.current.split(/(?<=[.!?\n])\s*/);
       if (parts.length > 1) {
         const batch = parts.slice(0, -1).join(' ');
         ttsBufferRef.current = parts[parts.length - 1];
@@ -674,8 +913,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       if (cleaned) queueText(cleaned, ttsVoiceRef.current);
     }
     ttsBufferRef.current = '';
-    ttsVoiceRef.current = undefined;
-    // Note: don't clear activeAgentId here — TTS queue still plays after streaming ends.
+    ttsVoiceRef.current = undefined;    // Do not clear activeAgentId here; TTS may still be playing after streaming ends.
     // activeAgentId is cleared when isQueueActive becomes false (see effect below).
 
     // Finalize last streaming message with accumulated content
@@ -731,26 +969,21 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   }, []);
 
   const handleConnected = useCallback((event: ConnectedEvent) => {
-    if (event.chat_active && event.conversation_id) {
-      // Server has an active streaming task — enter streaming mode and load
+    if (event.chat_active && event.conversation_id) {      // Server still has an active streaming task; enter streaming mode and load
       // already-persisted messages (user msg + any completed agent messages)
       if (!isStreamingRef.current) {
         setIsStreaming(true);
         isStreamingRef.current = true;
       }
       loadConversation(event.conversation_id).catch(console.error);
-    } else if (!event.chat_active && event.conversation_id) {
-      // Task finished while we were disconnected — reload from DB once
+    } else if (!event.chat_active && event.conversation_id) {      // Task finished while we were disconnected; reload once from the database
       const convId = event.conversation_id;
       loadConversation(convId)
         .then(() => setStreamingMessages([]))
         .catch(console.error);
     }
     // If no conversation_id, nothing to restore
-  }, [loadConversation]);
-
-  // Stable refs for WebSocket handlers — avoids re-registering on every render
-  // (queueText → playQueue → amplitudeController cascading instability)
+  }, [loadConversation]);  // Stable refs for WebSocket handlers avoid re-registering on every render.  // This prevents queueText -> playQueue -> amplitudeController churn.
   const handleStreamChunkRef = useRef(handleStreamChunk);
   handleStreamChunkRef.current = handleStreamChunk;
   const handleDoneRef = useRef(handleDone);
@@ -781,7 +1014,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   }, []);
 
   // Handle scroll to load more messages
-  const handleScroll = () => {
+  const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
     if (!container || isLoadingMessages || !hasMoreMessages) return;
 
@@ -789,23 +1022,40 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       previousScrollHeightRef.current = container.scrollHeight;
       loadMoreMessages();
     }
-  };
+  }, [isLoadingMessages, hasMoreMessages, loadMoreMessages]);
+
+  const handleScrollRef = useRef(handleScroll);
+  handleScrollRef.current = handleScroll;
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const onScroll = () => {
+      if (scrollFrameRef.current !== null) return;
+      scrollFrameRef.current = requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        handleScrollRef.current();
+      });
+    };
+
+    container.addEventListener('scroll', onScroll, { passive: true });
+
+    return () => {
+      container.removeEventListener('scroll', onScroll);
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+    };
+  }, []);
 
   const handleSendText = async (overrideText: string) => {
     if (!overrideText.trim() || isStreamingRef.current) return;
     await _doSend(overrideText.trim(), []);
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || isStreaming) return;
-    const text = input.trim();
-    const imageFiles = [...images];
-    setInput('');
-    setImages([]);
-    await _doSend(text, imageFiles);
-  };
-
-  const _doSend = async (text: string, imageFiles: File[]) => {
+  const _doSend = useCallback(async (text: string, imageFiles: File[]) => {
     setIsStreaming(true);
 
     // Clear any previous TTS queue
@@ -872,7 +1122,12 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       setStreamingThinking('');
       setIsStreaming(false);
     }
-  };
+  }, [activeConversationId, agentId, cancelStreamUpdate, clearQueue, setCurrentConversationId]);
+
+  const handleSend = useCallback(async (text: string, imageFiles: File[]) => {
+    if (!text.trim() || isStreaming) return;
+    await _doSend(text.trim(), imageFiles);
+  }, [_doSend, isStreaming]);
 
   const handleCancel = () => {
     wsManager.sendCancel();
@@ -902,23 +1157,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     cancelStreamUpdate();
     setStreamingContent('');
     setStreamingThinking('');
-  };
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setImages([...images, ...Array.from(e.target.files)]);
-    }
-  };
-
-  const removeImage = (index: number) => {
-    setImages(images.filter((_, i) => i !== index));
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
   };
 
   const handleMicToggle = () => {
@@ -1098,48 +1336,49 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     handleDelete,
   ]);
 
+  const messagesPane = useMemo(() => (
+    <Box
+      ref={messagesContainerRef}
+      sx={{
+        flex: 1,
+        overflow: 'auto',
+        p: 3,
+        backgroundColor: '#F8FAFC',
+      }}
+    >
+      {!agentId && (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+          <Tooltip title={showAdministrator ? 'Hide Administrator messages' : 'Show Administrator messages'}>
+            <IconButton
+              size="small"
+              onClick={toggleShowAdministrator}
+              sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
+            >
+              {showAdministrator ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+        </Box>
+      )}
+
+      {isLoadingMessages && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+          <Typography variant="body2" color="text.secondary">
+            Loading earlier messages...
+          </Typography>
+        </Box>
+      )}
+
+      <AnimatePresence>
+        {messageElements}
+      </AnimatePresence>
+      <div ref={messagesEndRef} />
+    </Box>
+  ), [agentId, isLoadingMessages, messageElements, showAdministrator, toggleShowAdministrator]);
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%' }}>
 
-      {/* Messages area */}
-      <Box
-        ref={messagesContainerRef}
-        onScroll={handleScroll}
-        sx={{
-          flex: 1,
-          overflow: 'auto',
-          p: 3,
-          backgroundColor: '#F8FAFC',
-        }}
-      >
-        {/* Administrator visibility toggle — hidden in single agent mode */}
-        {!agentId && (
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
-            <Tooltip title={showAdministrator ? 'Hide Administrator messages' : 'Show Administrator messages'}>
-              <IconButton
-                size="small"
-                onClick={toggleShowAdministrator}
-                sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
-              >
-                {showAdministrator ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
-              </IconButton>
-            </Tooltip>
-          </Box>
-        )}
-
-        {isLoadingMessages && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
-            <Typography variant="body2" color="text.secondary">
-              Loading earlier messages...
-            </Typography>
-          </Box>
-        )}
-
-        <AnimatePresence>
-          {messageElements}
-        </AnimatePresence>
-        <div ref={messagesEndRef} />
-      </Box>
+      {messagesPane}
 
       {/* Bottom area: interactive call bar or typing input */}
       {interactiveMode ? (
@@ -1152,168 +1391,36 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           onHangUp={disableInteractiveMode}
         />
       ) : (
-        <Paper
-          elevation={3}
-          sx={{
-            p: 2,
-            borderTop: '1px solid',
-            borderColor: 'divider',
+        <ChatComposer
+          scopeKey={`${agentId ?? 'group'}:${activeConversationId ?? 'new'}`}
+          externalDraft={externalDraft}
+          externalDraftVersion={externalDraftVersion}
+          isStreaming={isStreaming}
+          asrStatus={asrStatus}
+          asrDevices={asrDevices}
+          asrDeviceId={asrDeviceId}
+          micMenuAnchor={micMenuAnchor}
+          cameraActive={cameraActive}
+          cameraWebcams={cameraWebcams}
+          cameraSelectedWebcam={cameraSelectedWebcam}
+          cameraMenuAnchor={cameraMenuAnchor}
+          onSend={handleSend}
+          onCancel={handleCancel}
+          onMicToggle={handleMicToggle}
+          onMicContext={handleMicContext}
+          onCloseMicMenu={() => setMicMenuAnchor(null)}
+          onSelectAsrDevice={(deviceId) => {
+            selectAsrDevice(deviceId);
+            setMicMenuAnchor(null);
           }}
-        >
-          {images.length > 0 && (
-            <Box sx={{ mb: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              {images.map((img, index) => (
-                <Chip
-                  key={index}
-                  label={img.name}
-                  onDelete={() => removeImage(index)}
-                  deleteIcon={<CloseIcon />}
-                  size="small"
-                />
-              ))}
-            </Box>
-          )}
-
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              style={{ display: 'none' }}
-              onChange={handleFileSelect}
-            />
-            <IconButton
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isStreaming}
-            >
-              <AttachFileIcon />
-            </IconButton>
-
-            <Tooltip title={asrStatus === 'idle' ? 'Start dictation (right-click: select mic)' : 'Stop dictation'}>
-              <IconButton
-                onClick={handleMicToggle}
-                onContextMenu={handleMicContext}
-                disabled={isStreaming}
-                sx={{
-                  color: asrStatus === 'listening' ? 'error.main' : 'inherit',
-                }}
-              >
-                {asrStatus === 'processing' ? (
-                  <CircularProgress size={24} />
-                ) : asrStatus === 'listening' ? (
-                  <MicIcon />
-                ) : (
-                  <MicOffIcon />
-                )}
-              </IconButton>
-            </Tooltip>
-            <Menu
-              anchorEl={micMenuAnchor}
-              open={Boolean(micMenuAnchor)}
-              onClose={() => setMicMenuAnchor(null)}
-            >
-              {asrDevices.map((device) => (
-                <MenuItem
-                  key={device.deviceId}
-                  onClick={() => {
-                    selectAsrDevice(device.deviceId);
-                    setMicMenuAnchor(null);
-                  }}
-                  selected={device.deviceId === asrDeviceId}
-                >
-                  {device.deviceId === asrDeviceId && (
-                    <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
-                  )}
-                  <ListItemText inset={device.deviceId !== asrDeviceId}>
-                    {device.label}
-                  </ListItemText>
-                </MenuItem>
-              ))}
-              {asrDevices.length === 0 && (
-                <MenuItem disabled>No microphones found</MenuItem>
-              )}
-            </Menu>
-
-            <Tooltip title={cameraActive ? 'Stop camera (right-click: select webcam)' : 'Start camera (right-click: select webcam)'}>
-              <IconButton
-                onClick={handleCameraToggle}
-                onContextMenu={handleCameraContext}
-                disabled={isStreaming}
-                sx={{
-                  color: cameraActive ? 'success.main' : 'inherit',
-                  animation: cameraActive ? 'pulse 1.5s infinite' : 'none',
-                  '@keyframes pulse': {
-                    '0%': { opacity: 1 },
-                    '50%': { opacity: 0.5 },
-                    '100%': { opacity: 1 },
-                  },
-                }}
-              >
-                {cameraActive ? <VideocamIcon /> : <VideocamOffIcon />}
-              </IconButton>
-            </Tooltip>
-            <Menu
-              anchorEl={cameraMenuAnchor}
-              open={Boolean(cameraMenuAnchor)}
-              onClose={() => setCameraMenuAnchor(null)}
-            >
-              {cameraWebcams.map((cam) => (
-                <MenuItem
-                  key={cam}
-                  onClick={() => {
-                    setCameraSelectedWebcam(cam);
-                    setCameraMenuAnchor(null);
-                  }}
-                  selected={cam === cameraSelectedWebcam}
-                >
-                  {cam === cameraSelectedWebcam && (
-                    <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
-                  )}
-                  <ListItemText inset={cam !== cameraSelectedWebcam}>
-                    {cam}
-                  </ListItemText>
-                </MenuItem>
-              ))}
-              {cameraWebcams.length === 0 && (
-                <MenuItem disabled>No webcams found</MenuItem>
-              )}
-            </Menu>
-
-            <TextField
-              fullWidth
-              multiline
-              maxRows={4}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Type your message..."
-              disabled={isStreaming}
-            />
-
-            {isStreaming ? (
-              <Button
-                variant="contained"
-                color="error"
-                endIcon={<StopIcon />}
-                onClick={handleCancel}
-                sx={{ minWidth: 100 }}
-              >
-                Stop
-              </Button>
-            ) : (
-              <Button
-                variant="contained"
-                endIcon={<SendIcon />}
-                onClick={handleSend}
-                disabled={!input.trim()}
-                sx={{ minWidth: 100 }}
-              >
-                Send
-              </Button>
-            )}
-          </Box>
-        </Paper>
+          onCameraToggle={handleCameraToggle}
+          onCameraContext={handleCameraContext}
+          onCloseCameraMenu={() => setCameraMenuAnchor(null)}
+          onSelectCamera={(camera) => {
+            setCameraSelectedWebcam(camera);
+            setCameraMenuAnchor(null);
+          }}
+        />
       )}
     </Box>
   );
@@ -1338,3 +1445,4 @@ async function fileToBase64(file: File): Promise<string> {
     reader.onerror = reject;
   });
 }
+
