@@ -11,12 +11,36 @@ services:
       - api
     restart: unless-stopped
 
+  vixtts:
+    build:
+      context: ${VIXTTS_ROOT:-/home/khoa/application/viXTTS}/vixtts
+      dockerfile: Dockerfile
+    container_name: vixtts-container
+    volumes:
+      - ${VIXTTS_ROOT:-/home/khoa/application/viXTTS}/models:/models
+      - ${VIXTTS_ROOT:-/home/khoa/application/viXTTS}/hf-cache:/root/.cache/huggingface
+    ports:
+      - "19770:19770"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:19770/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
 
   gpt-sovits:
     image: legwork7623/gpt-sovits:latest 
     container_name: gpt-sovits-container
     environment:
-      - is_half=False
+      - is_half=True
       - is_share=False
     volumes:
       - ./data/sovits/output:/workspace/output
@@ -44,6 +68,7 @@ services:
     container_name: kurisu-api
     depends_on:
       - postgres
+      - vixtts
     expose:
       - "15597"
     networks:
@@ -58,6 +83,8 @@ services:
               capabilities: [gpu]
     environment:
       - LLM_API_URL=http://ollama-container:11434
+      - TTS_PROVIDER=vixtts
+      - VIXTTS_API_URL=http://vixtts-container:19770
       - TTS_API_URL=http://gpt-sovits-container:9880
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}

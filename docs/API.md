@@ -662,7 +662,7 @@ Synthesize speech from text.
 | text | string | Yes | Text to synthesize |
 | voice | string | No | Voice name from `/tts/voices` |
 | language | string | No | Language code (e.g., "en", "ja") |
-| provider | string | No | TTS provider (default: `TTS_PROVIDER` env var or "gpt-sovits") |
+| provider | string | No | TTS provider (default: `TTS_PROVIDER` env var or "vixtts") |
 
 **Provider-Specific Parameters:**
 
@@ -674,7 +674,7 @@ Synthesize speech from text.
 | text_split_method | string | "cut5" | Text splitting method |
 | batch_size | integer | 20 | Batch size |
 
-**INDEX-TTS:**
+**viXTTS:**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -715,7 +715,7 @@ Check if a TTS server is reachable.
 
 **Request:** `application/json`
 ```json
-{"provider": "gpt-sovits"}
+{"provider": "vixtts"}
 ```
 
 **Response:** `200 OK` — Server health response
@@ -730,7 +730,7 @@ List available TTS backends.
 
 **Response:** `200 OK`
 ```json
-{"backends": ["gpt-sovits", "index-tts"]}
+{"backends": ["gpt-sovits", "vixtts"]}
 ```
 
 ---
