@@ -27,9 +27,10 @@ See `.env_template` for all options.
 | `LLM_API_URL` | `http://localhost:11434` | Ollama server URL |
 | `JWT_SECRET_KEY` | — | Secret for JWT tokens |
 | `ACCESS_TOKEN_EXPIRE_DAYS` | `30` | JWT token expiry |
-| `TTS_PROVIDER` | `gpt-sovits` | TTS backend (`gpt-sovits` or `index-tts`) |
+| `TTS_PROVIDER` | `vixtts` | TTS backend (`gpt-sovits` or `vixtts`) |
 | `TTS_API_URL` | (docker-compose) | GPT-SoVITS API URL (hardcoded as `http://gpt-sovits-container:9880` in docker-compose) |
-| `INDEX_TTS_API_URL` | — | INDEX-TTS API URL |
+| `VIXTTS_API_URL` | — | viXTTS API URL |
+| `VIXTTS_ROOT` | `/home/khoa/application/viXTTS` | Local viXTTS checkout used by Docker Compose for build context and model/cache mounts |
 | `ASR_MODEL` | `data/asr/whisper-ct2` | Whisper model path or size |
 | `ASR_DEVICE` | `auto` | ASR inference device (`cpu`/`cuda`) |
 | `FRAME_IDLE_THRESHOLD_MINUTES` | `30` | Idle time before starting a new session frame |

@@ -3,24 +3,24 @@
 from typing import Optional
 from .base import BaseTTSProvider
 from .gpt_sovits_provider import GPTSoVITSProvider
-from .index_tts_provider import IndexTTSProvider
+from .vixtts_provider import ViXTTSProvider
 
 
 # Registry of available TTS providers
 _PROVIDERS = {
     "gpt-sovits": GPTSoVITSProvider,
-    "index-tts": IndexTTSProvider,
+    "vixtts": ViXTTSProvider,
     # Add more providers here as they're implemented:
     # "cosyvoice": CosyVoiceProvider,
     # "fish-speech": FishSpeechProvider,
 }
 
 
-def create_tts_provider(provider_type: str = "gpt-sovits", **kwargs) -> BaseTTSProvider:
+def create_tts_provider(provider_type: str = "vixtts", **kwargs) -> BaseTTSProvider:
     """Factory function to create TTS provider instances.
 
     Args:
-        provider_type: Type of provider ("gpt-sovits", "cosyvoice", etc.)
+        provider_type: Type of provider ("vixtts", "gpt-sovits", etc.)
         **kwargs: Provider-specific initialization parameters
 
     Returns:
@@ -55,7 +55,7 @@ from .adapter import synthesize, list_voices, list_backends, check_health
 __all__ = [
     "BaseTTSProvider",
     "GPTSoVITSProvider",
-    "IndexTTSProvider",
+    "ViXTTSProvider",
     "create_tts_provider",
     "list_available_backends",
     # Adapter functions

@@ -23,7 +23,7 @@ def _get_provider(provider_type: Optional[str] = None):
     """Get or create TTS provider instance.
 
     Args:
-        provider_type: Provider type (defaults to TTS_PROVIDER env var or "gpt-sovits")
+        provider_type: Provider type (defaults to TTS_PROVIDER env var or "vixtts")
 
     Returns:
         TTS provider instance
@@ -31,7 +31,7 @@ def _get_provider(provider_type: Optional[str] = None):
     global _providers
 
     if provider_type is None:
-        provider_type = os.getenv("TTS_PROVIDER", "gpt-sovits")
+        provider_type = os.getenv("TTS_PROVIDER", "vixtts")
 
     # Create provider if not already in registry
     if provider_type not in _providers:
@@ -58,7 +58,7 @@ def synthesize(
         text: Text to synthesize
         voice: Voice identifier (provider-specific)
         language: Language code (e.g., "en", "ja")
-        provider: TTS provider to use (defaults to TTS_PROVIDER env var or "gpt-sovits")
+        provider: TTS provider to use (defaults to TTS_PROVIDER env var or "vixtts")
         **kwargs: Additional provider-specific parameters
 
     Returns:
@@ -86,7 +86,7 @@ def list_voices(provider: Optional[str] = None) -> list[str]:
     """List available voices from the specified provider.
 
     Args:
-        provider: TTS provider to use (defaults to TTS_PROVIDER env var or "gpt-sovits")
+        provider: TTS provider to use (defaults to TTS_PROVIDER env var or "vixtts")
 
     Returns:
         List of voice names
@@ -116,7 +116,7 @@ def check_health(provider: Optional[str] = None, api_url: Optional[str] = None) 
     """Check if a TTS server is reachable.
 
     Args:
-        provider: TTS provider to check (defaults to TTS_PROVIDER env var or "gpt-sovits")
+        provider: TTS provider to check (defaults to TTS_PROVIDER env var or "vixtts")
         api_url: Custom URL to check (optional, overrides provider default)
 
     Returns:

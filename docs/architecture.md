@@ -5,6 +5,7 @@
 - **nginx** (80/443): HTTPS reverse proxy (self-signed certs, `proxy_buffering off` for WebSocket)
 - **api** (internal 15597): Main FastAPI app (`main.py`) — chat, auth, conversations, TTS, vision
 - **postgres** (internal 5432): pgvector/pgvector:pg16 (PostgreSQL 16 + vector extension, not host-exposed)
+- **vixtts** (19770): Voice synthesis backend for the default TTS flow
 - **gpt-sovits** (9880): Voice synthesis backend
 - **mediamtx** (8554): RTSP server (available for IP camera streams, not used by default webcam pipeline)
 
@@ -40,7 +41,7 @@ models/                      # ML/inference modules (NO business logic/DB knowle
 ├── tts/                     # Pure TTS interface
 │   ├── base.py              # Abstract BaseTTSProvider
 │   ├── gpt_sovits_provider.py  # GPT-SoVITS (path as query param, POSIX format)
-│   ├── index_tts_provider.py   # INDEX-TTS (file via multipart/form-data)
+│   ├── vixtts_provider.py      # viXTTS (file via multipart/form-data)
 │   ├── adapter.py           # synthesize, list_voices, list_backends, check_health
 │   └── __init__.py          # Factory: create_tts_provider()
 └── __init__.py

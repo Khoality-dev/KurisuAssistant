@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-KurisuAssistant is a voice-based AI assistant platform combining STT (faster-whisper), TTS (GPT-SoVITS/INDEX-TTS), and LLM (Ollama). Microservices architecture with Docker Compose.
+KurisuAssistant is a voice-based AI assistant platform combining STT (faster-whisper), TTS (GPT-SoVITS/viXTTS), and LLM (Ollama). Microservices architecture with Docker Compose.
 
 ## Documentation Index
 
 - [Architecture](docs/architecture.md) — services, directory structure, design principles, key patterns
 - [Agents & Orchestration](docs/agents.md) — single/group modes, agent memory, tool access control
 - [WebSocket Protocol](docs/websocket.md) — connection, reconnection, heartbeat, event types
-- [TTS](docs/tts.md) — providers, voice discovery, text splitting, INDEX-TTS emotion
+- [TTS](docs/tts.md) — providers, voice discovery, text splitting, viXTTS notes
 - [ASR](docs/asr.md) — faster-whisper, frontend VAD, interactive modes, optimizations
 - [Tools & Skills](docs/tools.md) — built-in/opt-in tools, MCP tools (server + client), skills system
 - [Skills Format](docs/skills.md) — skill format, export/import, writing guide, API

@@ -1,4 +1,4 @@
-"""INDEX-TTS provider implementation."""
+"""viXTTS provider implementation."""
 
 import os
 import io
@@ -15,20 +15,20 @@ from .base import BaseTTSProvider
 logger = logging.getLogger(__name__)
 
 
-class IndexTTSProvider(BaseTTSProvider):
-    """INDEX-TTS provider for emotionally expressive zero-shot TTS."""
+class ViXTTSProvider(BaseTTSProvider):
+    """viXTTS provider for short-reference voice cloning."""
 
     def __init__(self, api_url: Optional[str] = None):
-        """Initialize INDEX-TTS provider.
+        """Initialize viXTTS provider.
 
         Args:
-            api_url: API endpoint URL (defaults to env var INDEX_TTS_API_URL)
+            api_url: API endpoint URL (defaults to env var VIXTTS_API_URL)
         """
         self.api_url = api_url or os.getenv(
-            "INDEX_TTS_API_URL",
-            "http://10.0.0.122:19770"
+            "VIXTTS_API_URL",
+            "http://localhost:19770",
         )
-        logger.info(f"INDEX-TTS provider initialized with URL: {self.api_url}")
+        logger.info(f"viXTTS provider initialized with URL: {self.api_url}")
 
     def _find_voice_file(self, voice_name: str) -> str:
         """Find the full path to a voice file by its stem name.
@@ -149,7 +149,7 @@ class IndexTTSProvider(BaseTTSProvider):
         language: Optional[str] = None,
         **kwargs
     ) -> bytes:
-        """Synthesize speech using INDEX-TTS.
+        """Synthesize speech using viXTTS.
 
         Automatically splits long text into chunks to prevent OOM during inference,
         then merges the audio chunks into a single WAV file.
@@ -157,14 +157,10 @@ class IndexTTSProvider(BaseTTSProvider):
         Args:
             text: Text to synthesize
             voice: Voice name without extension (e.g., "ayaka_ref")
-            language: Language code (not used by INDEX-TTS, kept for interface compatibility)
+            language: Language code passed through to the viXTTS server
             **kwargs: Additional parameters:
                 - emo_audio: Voice name for emotion reference audio file
-                - emo_vector: Emotion vector [happy, angry, sad, afraid, disgusted, melancholic, surprised, calm]
                 - emo_text: Text description for emotion control
-                - use_emo_text: Use emotion from text (default: False)
-                - emo_alpha: Emotion strength 0.0-1.0 (default: 1.0)
-                - use_random: Enable random sampling (default: False)
                 - max_chunk_length: Max characters per chunk (default: 200)
 
         Returns:
@@ -206,6 +202,9 @@ class IndexTTSProvider(BaseTTSProvider):
                 'use_random': kwargs.get('use_random', False),
             }
 
+            if language:
+                data['language'] = language
+
             # Add optional emotion text if provided
             if 'emo_text' in kwargs:
                 data['emo_text'] = kwargs['emo_text']
@@ -221,20 +220,20 @@ class IndexTTSProvider(BaseTTSProvider):
                 if emo_audio_path:
                     files['emo_audio'] = open(emo_audio_path, 'rb')
 
-                # Make TTS request using /tts/file endpoint
+                # Make TTS request using the multipart /tts/file endpoint
                 endpoint = f"{self.api_url}/tts/file"
 
                 response = requests.post(
                     endpoint,
                     files=files,
                     data=data,
-                    timeout=120  # INDEX-TTS can take longer for complex synthesis
+                    timeout=120
                 )
                 response.raise_for_status()
                 audio_chunks.append(response.content)
 
             except requests.exceptions.RequestException as e:
-                logger.error(f"INDEX-TTS API request failed for chunk {i+1}: {e}", exc_info=True)
+                logger.error(f"viXTTS API request failed for chunk {i+1}: {e}", exc_info=True)
                 raise RuntimeError(f"TTS synthesis failed for chunk {i+1}: {e}") from e
             finally:
                 # Close all opened files for this chunk
@@ -254,7 +253,7 @@ class IndexTTSProvider(BaseTTSProvider):
     def list_voices(self) -> list[str]:
         """List available voices by scanning the reference directory.
 
-        Note: INDEX-TTS uses reference audio files for zero-shot voice cloning.
+        Note: viXTTS uses short reference audio files for voice cloning.
         This scans the reference folder and returns all audio file names.
 
         Returns:
