@@ -13,9 +13,23 @@ import { registerAppToolIPC } from './appTools';
 app.setPath('userData', path.join(app.getPath('appData'), 'kurisu-assistant'));
 app.setAppUserModelId('com.kurisu.assistant');
 
+// Single instance lock — only one instance allowed at a time
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+}
+
 let mainWindow: BrowserWindow | null = null;
 let characterWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
 let isQuitting = false;
 
 // --- Settings persistence ---

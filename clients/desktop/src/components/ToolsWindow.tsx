@@ -55,13 +55,18 @@ const MotionCard = motion(Card);
 interface LocalServer {
   id: string;
   name: string;
-  healthUrl: string;
-  mcpUrl: string;
+  type: 'sse' | 'stdio';
+  // SSE servers
+  healthUrl?: string;
+  mcpUrl?: string;
+  // Stdio servers (auto-managed by the app)
+  mcpName?: string; // Name in the MCP server map
 }
 
 const LOCAL_SERVERS: LocalServer[] = [
-  { id: 'maestro', name: 'Maestro', healthUrl: 'http://127.0.0.1:29170/health', mcpUrl: 'http://127.0.0.1:29170/sse' },
-  { id: 'chronicle', name: 'Chronicle', healthUrl: 'http://127.0.0.1:29172/health', mcpUrl: 'http://127.0.0.1:29172/sse' },
+  { id: 'maestro', name: 'Maestro', type: 'sse', healthUrl: 'http://127.0.0.1:29170/health', mcpUrl: 'http://127.0.0.1:29170/sse' },
+  { id: 'chronicle', name: 'Chronicle', type: 'sse', healthUrl: 'http://127.0.0.1:29172/health', mcpUrl: 'http://127.0.0.1:29172/sse' },
+  { id: 'playwright', name: 'Playwright', type: 'stdio', mcpName: 'Playwright' },
 ];
 
 const LOCAL_SERVER_POLL_INTERVAL = 5000;
@@ -238,6 +243,7 @@ export const ToolsWindow: React.FC = () => {
   const mcpAutoRegistered = useRef<Set<string>>(new Set());
 
   const registerLocalServer = useCallback(async (svc: LocalServer): Promise<boolean> => {
+    if (!svc.mcpUrl) return false; // stdio servers don't need API registration
     try {
       const servers = await apiClient.listMCPServers();
       // Match both localhost and 127.0.0.1 variants, and both server/client locations
@@ -255,7 +261,7 @@ export const ToolsWindow: React.FC = () => {
       } else {
         // Fix URL or location if needed
         const updates: Record<string, string> = {};
-        if (existing.url !== svc.mcpUrl) updates.url = svc.mcpUrl;
+        if (svc.mcpUrl && existing.url !== svc.mcpUrl) updates.url = svc.mcpUrl;
         if (existing.location !== 'client') updates.location = 'client';
         if (Object.keys(updates).length > 0) {
           console.log(`[LocalServers] Updating ${svc.name}:`, updates);
@@ -276,16 +282,32 @@ export const ToolsWindow: React.FC = () => {
   }, []);
 
   const checkLocalServers = useCallback(async () => {
-    if (!window.electron?.extensions) return;
     for (const svc of LOCAL_SERVERS) {
-      const data = await window.electron.extensions.checkHealth(svc.healthUrl);
-      const running = !!(data && data.status === 'ok');
-      setDetectedServices((prev) => ({
-        ...prev,
-        [svc.id]: { running, version: running ? data?.version : undefined },
-      }));
-      if (running && !mcpAutoRegistered.current.has(svc.id)) {
-        await registerLocalServer(svc);
+      if (svc.type === 'sse' && svc.healthUrl) {
+        // SSE servers: poll health endpoint
+        if (!window.electron?.extensions) continue;
+        const data = await window.electron.extensions.checkHealth(svc.healthUrl);
+        const running = !!(data && data.status === 'ok');
+        setDetectedServices((prev) => ({
+          ...prev,
+          [svc.id]: { running, version: running ? data?.version : undefined },
+        }));
+        if (running && !mcpAutoRegistered.current.has(svc.id)) {
+          await registerLocalServer(svc);
+        }
+      } else if (svc.type === 'stdio' && svc.mcpName) {
+        // Stdio servers: check if running by listing tools
+        let running = false;
+        if (window.electron?.mcp) {
+          try {
+            const grouped = await window.electron.mcp.listToolsByServer();
+            running = svc.mcpName in grouped;
+          } catch {}
+        }
+        setDetectedServices((prev) => ({
+          ...prev,
+          [svc.id]: { running },
+        }));
       }
     }
   }, [registerLocalServer]);
@@ -294,7 +316,19 @@ export const ToolsWindow: React.FC = () => {
     console.log(`[LocalServers] Reconnecting ${svc.name}...`);
     mcpAutoRegistered.current.delete(svc.id);
     setDetectedServices((prev) => ({ ...prev, [svc.id]: { running: false } }));
-    if (!window.electron?.extensions) return;
+
+    if (svc.type === 'stdio' && svc.mcpName && window.electron?.mcp?.startServer) {
+      // Restart stdio server
+      const result = await window.electron.mcp.startServer(
+        { name: svc.mcpName, transport_type: 'stdio', command: 'npx', args: ['@playwright/mcp'] },
+      );
+      setDetectedServices((prev) => ({ ...prev, [svc.id]: { running: result.ok } }));
+      if (result.ok) await refreshClientMCPServers();
+      return;
+    }
+
+    // SSE servers: health check + register
+    if (!window.electron?.extensions || !svc.healthUrl) return;
     const data = await window.electron.extensions.checkHealth(svc.healthUrl);
     const running = !!(data && data.status === 'ok');
     console.log(`[LocalServers] ${svc.name} health check: ${running ? 'OK' : 'FAILED'}`, data);
@@ -662,7 +696,9 @@ export const ToolsWindow: React.FC = () => {
                     {LOCAL_SERVERS.map((svc) => {
                       const status = detectedServers[svc.id];
                       const isRunning = status?.running;
-                      const isRegistered = mcpServers.some((s) => s.url && (s.url === svc.mcpUrl || s.url === svc.mcpUrl.replace('://127.0.0.1:', '://localhost:')));
+                      const isRegistered = svc.type === 'stdio'
+                        ? isRunning  // stdio servers are auto-managed, "registered" if running
+                        : mcpServers.some((s) => s.url && svc.mcpUrl && (s.url === svc.mcpUrl || s.url === svc.mcpUrl.replace('://127.0.0.1:', '://localhost:')));
                       return (
                         <Box
                           key={svc.id}
@@ -730,7 +766,7 @@ export const ToolsWindow: React.FC = () => {
                 </Box>
 
                 {(() => {
-                  const localMcpUrls = new Set(LOCAL_SERVERS.flatMap((s) => [s.mcpUrl, s.mcpUrl.replace('://127.0.0.1:', '://localhost:')]));
+                  const localMcpUrls = new Set(LOCAL_SERVERS.filter(s => s.mcpUrl).flatMap((s) => [s.mcpUrl!, s.mcpUrl!.replace('://127.0.0.1:', '://localhost:')]));
                   const userServers = mcpServers.filter((s) => !s.url || !localMcpUrls.has(s.url));
                   return userServers.length === 0 ? (
                   <Paper sx={{ p: 4, textAlign: 'center' }}>

@@ -210,6 +210,10 @@ export function registerMCPHandlers(): void {
     }
   });
 
+  ipcMain.handle('mcp:is-server-running', (_event, name: string) => {
+    return servers.has(name);
+  });
+
   ipcMain.handle('mcp:stop-servers', async () => {
     await stopAllServers();
   });
