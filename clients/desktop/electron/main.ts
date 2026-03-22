@@ -6,19 +6,30 @@ import http from 'http';
 import { spawn } from 'child_process';
 import { autoUpdater } from 'electron-updater';
 import { registerMCPHandlers, cleanupMCP } from './mcp';
+import { registerHostToolIPC } from './hostTools';
+import { registerAppToolIPC } from './appTools';
 
 // Set custom cache path to avoid permission issues on Windows
 app.setPath('userData', path.join(app.getPath('appData'), 'kurisu-assistant'));
 app.setAppUserModelId('com.kurisu.assistant');
 
-const gotSingleInstanceLock = app.requestSingleInstanceLock();
-if (!gotSingleInstanceLock) {
+// Single instance lock — only one instance allowed at a time
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
   app.quit();
 }
 
 let mainWindow: BrowserWindow | null = null;
 let characterWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
 let isQuitting = false;
 
 // --- Settings persistence ---
@@ -369,10 +380,6 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
   callback(true);
 });
 
-app.on('second-instance', () => {
-  focusMainWindow();
-});
-
 app.whenReady().then(() => {
   initAutoLaunch();
 
@@ -411,6 +418,8 @@ app.whenReady().then(() => {
   createTray();
   createWindow();
   registerMCPHandlers();
+  registerHostToolIPC();
+  registerAppToolIPC();
 
   // Auto-updater (no-op in dev mode — no update server configured)
   autoUpdater.autoDownload = true;

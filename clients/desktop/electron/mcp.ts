@@ -29,7 +29,7 @@ interface ManagedServer {
 // Active server instances keyed by server name
 const servers = new Map<string, ManagedServer>();
 
-async function startServer(config: MCPServerConfig): Promise<void> {
+export async function startServer(config: MCPServerConfig): Promise<void> {
   // Stop existing server with same name if any
   if (servers.has(config.name)) {
     await stopServer(config.name);
@@ -198,6 +198,20 @@ export function registerMCPHandlers(): void {
       }
     }
     return results;
+  });
+
+  ipcMain.handle('mcp:start-server', async (_event, config: MCPServerConfig) => {
+    try {
+      await startServer(config);
+      return { name: config.name, ok: true };
+    } catch (e) {
+      console.error(`[MCP] Failed to start "${config.name}":`, e);
+      return { name: config.name, ok: false, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('mcp:is-server-running', (_event, name: string) => {
+    return servers.has(name);
   });
 
   ipcMain.handle('mcp:stop-servers', async () => {

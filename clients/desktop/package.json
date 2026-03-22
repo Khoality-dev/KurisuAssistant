@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
     "preview": "vite preview",
-    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "vite",
     "electron:build": "vite build && electron-builder"
   },
   "keywords": [
@@ -25,6 +25,7 @@
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@mui/icons-material": "^5.15.6",
     "@mui/material": "^5.15.6",
+    "@playwright/mcp": "^0.0.68",
     "@ricky0123/vad-web": "^0.0.30",
     "@xyflow/react": "^12.10.0",
     "axios": "^1.6.5",

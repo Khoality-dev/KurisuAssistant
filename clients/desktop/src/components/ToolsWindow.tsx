@@ -41,25 +41,35 @@ import {
   Cloud as CloudIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Terminal as TerminalIcon,
+  FolderOpen as FolderOpenIcon,
+} from '@mui/icons-material';
 import { apiClient } from '../api/client';
 import type { MCPServer, MCPServerTestResult, Tool, Skill } from '../api/types';
 import { refreshClientMCPServers, getClientTools, getClientToolsByServer } from '../services/mcpService';
+import { useAgentStore } from '../store/agentStore';
 
 const MotionCard = motion(Card);
 
-interface LocalService {
+interface LocalServer {
   id: string;
   name: string;
-  healthUrl: string;
-  mcpUrl: string;
+  type: 'sse' | 'stdio';
+  // SSE servers
+  healthUrl?: string;
+  mcpUrl?: string;
+  // Stdio servers (auto-managed by the app)
+  mcpName?: string; // Name in the MCP server map
 }
 
-const LOCAL_SERVICES: LocalService[] = [
-  { id: 'maestro', name: 'Maestro', healthUrl: 'http://127.0.0.1:29170/health', mcpUrl: 'http://127.0.0.1:29170/sse' },
-  { id: 'chronicle', name: 'Chronicle', healthUrl: 'http://127.0.0.1:29172/health', mcpUrl: 'http://127.0.0.1:29172/sse' },
+const LOCAL_SERVERS: LocalServer[] = [
+  { id: 'maestro', name: 'Maestro', type: 'sse', healthUrl: 'http://127.0.0.1:29170/health', mcpUrl: 'http://127.0.0.1:29170/sse' },
+  { id: 'chronicle', name: 'Chronicle', type: 'sse', healthUrl: 'http://127.0.0.1:29172/health', mcpUrl: 'http://127.0.0.1:29172/sse' },
+  { id: 'playwright', name: 'Playwright', type: 'stdio', mcpName: 'Playwright' },
 ];
 
-const LOCAL_SERVICE_POLL_INTERVAL = 5000;
+const LOCAL_SERVER_POLL_INTERVAL = 5000;
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -77,6 +87,130 @@ function TabPanel(props: TabPanelProps) {
     >
       {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
     </div>
+  );
+}
+
+// --- Host Access Panel ---
+
+function HostAccessPanel() {
+  const agents = useAgentStore((s) => s.agents);
+  const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null);
+  const [paths, setPaths] = useState<string[]>([]);
+  const [newPath, setNewPath] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Load paths when agent selection changes
+  useEffect(() => {
+    if (!selectedAgentId || !window.electron?.hostTools) return;
+    window.electron.hostTools.getAllowedPaths(selectedAgentId).then(setPaths);
+  }, [selectedAgentId]);
+
+  // Auto-select first agent
+  useEffect(() => {
+    if (!selectedAgentId && agents.length > 0) {
+      setSelectedAgentId(agents[0].id);
+    }
+  }, [agents, selectedAgentId]);
+
+  const savePaths = async (newPaths: string[]) => {
+    if (!selectedAgentId || !window.electron?.hostTools) return;
+    setSaving(true);
+    try {
+      await window.electron.hostTools.setAllowedPaths(selectedAgentId, newPaths);
+      setPaths(newPaths);
+      // Refresh client tools to re-register with backend
+      await refreshClientMCPServers();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addPath = () => {
+    const trimmed = newPath.trim();
+    if (!trimmed || paths.includes(trimmed)) return;
+    savePaths([...paths, trimmed]);
+    setNewPath('');
+  };
+
+  const removePath = (index: number) => {
+    savePaths(paths.filter((_, i) => i !== index));
+  };
+
+  return (
+    <Box sx={{ maxWidth: 900, mx: 'auto' }}>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        Configure which directories each agent can access on this machine.
+        File tools (host_read, host_write, host_edit, host_search) auto-execute within allowed paths.
+        Shell commands (host_bash) always require approval.
+      </Typography>
+
+      <FormControl fullWidth sx={{ mb: 3 }}>
+        <InputLabel>Agent</InputLabel>
+        <Select
+          value={selectedAgentId || ''}
+          label="Agent"
+          onChange={(e) => setSelectedAgentId(e.target.value as number)}
+        >
+          {agents.map((agent) => (
+            <MenuItem key={agent.id} value={agent.id}>
+              {agent.name}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      {selectedAgentId && (
+        <>
+          <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
+            Allowed Directories
+          </Typography>
+
+          {paths.length === 0 ? (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              No allowed paths configured. Host tools will be unavailable for this agent.
+            </Alert>
+          ) : (
+            <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {paths.map((p, i) => (
+                <Paper
+                  key={i}
+                  variant="outlined"
+                  sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <FolderOpenIcon fontSize="small" color="action" />
+                    <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{p}</Typography>
+                  </Box>
+                  <IconButton size="small" onClick={() => removePath(i)} disabled={saving}>
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Paper>
+              ))}
+            </Box>
+          )}
+
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <TextField
+              size="small"
+              fullWidth
+              placeholder="Absolute path, e.g. D:\Projects or /home/user/code"
+              value={newPath}
+              onChange={(e) => setNewPath(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && addPath()}
+            />
+            <Button
+              variant="contained"
+              size="small"
+              onClick={addPath}
+              disabled={saving || !newPath.trim()}
+              startIcon={<AddIcon />}
+            >
+              Add
+            </Button>
+          </Box>
+        </>
+      )}
+    </Box>
   );
 }
 
@@ -105,10 +239,11 @@ export const ToolsWindow: React.FC = () => {
   const [testResults, setTestResults] = useState<Record<number, MCPServerTestResult>>({});
 
   // Local service detection state
-  const [detectedServices, setDetectedServices] = useState<Record<string, { running: boolean; version?: string }>>({});
+  const [detectedServers, setDetectedServices] = useState<Record<string, { running: boolean; version?: string }>>({});
   const mcpAutoRegistered = useRef<Set<string>>(new Set());
 
-  const registerLocalService = useCallback(async (svc: LocalService): Promise<boolean> => {
+  const registerLocalServer = useCallback(async (svc: LocalServer): Promise<boolean> => {
+    if (!svc.mcpUrl) return false; // stdio servers don't need API registration
     try {
       const servers = await apiClient.listMCPServers();
       // Match both localhost and 127.0.0.1 variants, and both server/client locations
@@ -116,7 +251,7 @@ export const ToolsWindow: React.FC = () => {
       const normalizedMcpUrl = normalizeUrl(svc.mcpUrl);
       const existing = servers.find((s) => s.url && normalizeUrl(s.url) === normalizedMcpUrl);
       if (!existing) {
-        console.log(`[LocalServices] Registering client MCP server for ${svc.name} at ${svc.mcpUrl}`);
+        console.log(`[LocalServers] Registering client MCP server for ${svc.name} at ${svc.mcpUrl}`);
         await apiClient.createMCPServer({
           name: svc.name,
           transport_type: 'sse',
@@ -126,13 +261,13 @@ export const ToolsWindow: React.FC = () => {
       } else {
         // Fix URL or location if needed
         const updates: Record<string, string> = {};
-        if (existing.url !== svc.mcpUrl) updates.url = svc.mcpUrl;
+        if (svc.mcpUrl && existing.url !== svc.mcpUrl) updates.url = svc.mcpUrl;
         if (existing.location !== 'client') updates.location = 'client';
         if (Object.keys(updates).length > 0) {
-          console.log(`[LocalServices] Updating ${svc.name}:`, updates);
+          console.log(`[LocalServers] Updating ${svc.name}:`, updates);
           await apiClient.updateMCPServer(existing.id, updates);
         } else {
-          console.log(`[LocalServices] ${svc.name} already registered`);
+          console.log(`[LocalServers] ${svc.name} already registered`);
         }
       }
       mcpAutoRegistered.current.add(svc.id);
@@ -141,48 +276,76 @@ export const ToolsWindow: React.FC = () => {
       loadData();
       return true;
     } catch (err) {
-      console.error(`[LocalServices] Failed to register ${svc.name}:`, err);
+      console.error(`[LocalServers] Failed to register ${svc.name}:`, err);
       return false;
     }
   }, []);
 
-  const checkLocalServices = useCallback(async () => {
-    if (!window.electron?.extensions) return;
-    for (const svc of LOCAL_SERVICES) {
-      const data = await window.electron.extensions.checkHealth(svc.healthUrl);
-      const running = !!(data && data.status === 'ok');
-      setDetectedServices((prev) => ({
-        ...prev,
-        [svc.id]: { running, version: running ? data?.version : undefined },
-      }));
-      if (running && !mcpAutoRegistered.current.has(svc.id)) {
-        await registerLocalService(svc);
+  const checkLocalServers = useCallback(async () => {
+    for (const svc of LOCAL_SERVERS) {
+      if (svc.type === 'sse' && svc.healthUrl) {
+        // SSE servers: poll health endpoint
+        if (!window.electron?.extensions) continue;
+        const data = await window.electron.extensions.checkHealth(svc.healthUrl);
+        const running = !!(data && data.status === 'ok');
+        setDetectedServices((prev) => ({
+          ...prev,
+          [svc.id]: { running, version: running ? data?.version : undefined },
+        }));
+        if (running && !mcpAutoRegistered.current.has(svc.id)) {
+          await registerLocalServer(svc);
+        }
+      } else if (svc.type === 'stdio' && svc.mcpName) {
+        // Stdio servers: check if running by listing tools
+        let running = false;
+        if (window.electron?.mcp) {
+          try {
+            const grouped = await window.electron.mcp.listToolsByServer();
+            running = svc.mcpName in grouped;
+          } catch {}
+        }
+        setDetectedServices((prev) => ({
+          ...prev,
+          [svc.id]: { running },
+        }));
       }
     }
-  }, [registerLocalService]);
+  }, [registerLocalServer]);
 
-  const reconnectLocalService = useCallback(async (svc: LocalService) => {
-    console.log(`[LocalServices] Reconnecting ${svc.name}...`);
+  const reconnectLocalServer = useCallback(async (svc: LocalServer) => {
+    console.log(`[LocalServers] Reconnecting ${svc.name}...`);
     mcpAutoRegistered.current.delete(svc.id);
     setDetectedServices((prev) => ({ ...prev, [svc.id]: { running: false } }));
-    if (!window.electron?.extensions) return;
+
+    if (svc.type === 'stdio' && svc.mcpName && window.electron?.mcp?.startServer) {
+      // Restart stdio server
+      const result = await window.electron.mcp.startServer(
+        { name: svc.mcpName, transport_type: 'stdio', command: 'npx', args: ['@playwright/mcp'] },
+      );
+      setDetectedServices((prev) => ({ ...prev, [svc.id]: { running: result.ok } }));
+      if (result.ok) await refreshClientMCPServers();
+      return;
+    }
+
+    // SSE servers: health check + register
+    if (!window.electron?.extensions || !svc.healthUrl) return;
     const data = await window.electron.extensions.checkHealth(svc.healthUrl);
     const running = !!(data && data.status === 'ok');
-    console.log(`[LocalServices] ${svc.name} health check: ${running ? 'OK' : 'FAILED'}`, data);
+    console.log(`[LocalServers] ${svc.name} health check: ${running ? 'OK' : 'FAILED'}`, data);
     setDetectedServices((prev) => ({
       ...prev,
       [svc.id]: { running, version: running ? data?.version : undefined },
     }));
     if (running) {
-      await registerLocalService(svc);
+      await registerLocalServer(svc);
     }
-  }, [registerLocalService]);
+  }, [registerLocalServer]);
 
   useEffect(() => {
-    checkLocalServices();
-    const interval = setInterval(checkLocalServices, LOCAL_SERVICE_POLL_INTERVAL);
+    checkLocalServers();
+    const interval = setInterval(checkLocalServers, LOCAL_SERVER_POLL_INTERVAL);
     return () => clearInterval(interval);
-  }, [checkLocalServices]);
+  }, [checkLocalServers]);
 
   // Skill editor state
   const [skillDialogOpen, setSkillDialogOpen] = useState(false);
@@ -198,13 +361,27 @@ export const ToolsWindow: React.FC = () => {
   const applyToolsResponse = async (toolsRes: { mcp_tools: Tool[]; builtin_tools: Tool[]; mcp_servers?: Record<string, Tool[]> }) => {
     const mcpServersMap: Record<string, Tool[]> = { ...(toolsRes.mcp_servers || {}) };
     const allMcpTools = [...toolsRes.mcp_tools];
-    // Merge client-side tools grouped by server name
+    // Merge client-side MCP tools grouped by server name
     const clientGrouped = await getClientToolsByServer();
     for (const [serverName, serverTools] of Object.entries(clientGrouped)) {
       mcpServersMap[serverName] = serverTools as Tool[];
       allMcpTools.push(...(serverTools as Tool[]));
     }
-    setTools({ mcp: allMcpTools, builtin: toolsRes.builtin_tools, mcpServers: mcpServersMap });
+    // Merge built-in client tools (host, app, browser) into the tools list
+    // Fetch directly from IPC in case mcpService hasn't initialized yet
+    const builtinClientTools: Tool[] = [];
+    if (window.electron?.hostTools) {
+      try { builtinClientTools.push(...(await window.electron.hostTools.listTools() as Tool[])); } catch {}
+    }
+    if (window.electron?.appTools) {
+      try { builtinClientTools.push(...(await window.electron.appTools.listTools() as Tool[])); } catch {}
+    }
+    const mcpToolNames = new Set(allMcpTools.map(t => t.function.name));
+    const serverBuiltinNames = new Set(toolsRes.builtin_tools.map(t => t.function.name));
+    const clientBuiltins = builtinClientTools.filter(t =>
+      !mcpToolNames.has(t.function.name) && !serverBuiltinNames.has(t.function.name)
+    );
+    setTools({ mcp: allMcpTools, builtin: [...toolsRes.builtin_tools, ...clientBuiltins], mcpServers: mcpServersMap });
   };
 
   const loadData = async () => {
@@ -488,6 +665,7 @@ export const ToolsWindow: React.FC = () => {
           <Tab icon={<DnsIcon />} iconPosition="start" label="MCP Servers" />
           <Tab icon={<ExtensionIcon />} iconPosition="start" label="Available Tools" />
           <Tab icon={<SkillIcon />} iconPosition="start" label="Skills" />
+          <Tab icon={<TerminalIcon />} iconPosition="start" label="Host Access" />
         </Tabs>
       </Box>
 
@@ -509,16 +687,18 @@ export const ToolsWindow: React.FC = () => {
             {/* MCP Servers Tab */}
             <TabPanel value={currentTab} index={0}>
               <Box sx={{ maxWidth: 900, mx: 'auto' }}>
-                {/* Local Services Detection */}
+                {/* Local Servers Detection */}
                 <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
                   <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
-                    Local Services
+                    Local Servers
                   </Typography>
                   <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                    {LOCAL_SERVICES.map((svc) => {
-                      const status = detectedServices[svc.id];
+                    {LOCAL_SERVERS.map((svc) => {
+                      const status = detectedServers[svc.id];
                       const isRunning = status?.running;
-                      const isRegistered = mcpServers.some((s) => s.url && (s.url === svc.mcpUrl || s.url === svc.mcpUrl.replace('://127.0.0.1:', '://localhost:')));
+                      const isRegistered = svc.type === 'stdio'
+                        ? isRunning  // stdio servers are auto-managed, "registered" if running
+                        : mcpServers.some((s) => s.url && svc.mcpUrl && (s.url === svc.mcpUrl || s.url === svc.mcpUrl.replace('://127.0.0.1:', '://localhost:')));
                       return (
                         <Box
                           key={svc.id}
@@ -556,7 +736,7 @@ export const ToolsWindow: React.FC = () => {
                           )}
                           <IconButton
                             size="small"
-                            onClick={() => reconnectLocalService(svc)}
+                            onClick={() => reconnectLocalServer(svc)}
                             sx={{
                               p: 0.25,
                               color: isRunning ? 'rgba(255,255,255,0.7)' : 'text.disabled',
@@ -586,7 +766,7 @@ export const ToolsWindow: React.FC = () => {
                 </Box>
 
                 {(() => {
-                  const localMcpUrls = new Set(LOCAL_SERVICES.flatMap((s) => [s.mcpUrl, s.mcpUrl.replace('://127.0.0.1:', '://localhost:')]));
+                  const localMcpUrls = new Set(LOCAL_SERVERS.filter(s => s.mcpUrl).flatMap((s) => [s.mcpUrl!, s.mcpUrl!.replace('://127.0.0.1:', '://localhost:')]));
                   const userServers = mcpServers.filter((s) => !s.url || !localMcpUrls.has(s.url));
                   return userServers.length === 0 ? (
                   <Paper sx={{ p: 4, textAlign: 'center' }}>
@@ -990,6 +1170,11 @@ export const ToolsWindow: React.FC = () => {
                   </Box>
                 )}
               </Box>
+            </TabPanel>
+
+            {/* Host Access Tab */}
+            <TabPanel value={currentTab} index={3}>
+              <HostAccessPanel />
             </TabPanel>
           </>
         )}
