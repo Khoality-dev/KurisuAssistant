@@ -5,23 +5,13 @@ import { ChatPanel } from './ChatPanel';
 import { ResizeHandle } from './ResizeHandle';
 import { useLayoutStore } from '../../store/layoutStore';
 import { useAgentStore } from '../../store/agentStore';
+import { ConversationsPage } from '../conversations/ConversationsPage';
+import { SettingsPage } from '../settings/SettingsPage';
 
-// Placeholder pages — will be replaced with real implementations
+// Placeholder for file explorer — will be implemented in Phase 4
 const ExplorerPlaceholder = () => (
   <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'text.secondary' }}>
     File Explorer (coming soon)
-  </Box>
-);
-
-const ConversationsPlaceholder = () => (
-  <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'text.secondary' }}>
-    Conversations (coming soon)
-  </Box>
-);
-
-const SettingsPlaceholder = () => (
-  <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'text.secondary' }}>
-    Settings (coming soon)
   </Box>
 );
 
@@ -45,8 +35,8 @@ export const MainLayout: React.FC = () => {
   const renderMainContent = () => {
     switch (activePage) {
       case 'explorer': return <ExplorerPlaceholder />;
-      case 'conversations': return <ConversationsPlaceholder />;
-      case 'settings': return <SettingsPlaceholder />;
+      case 'conversations': return <ConversationsPage />;
+      case 'settings': return <SettingsPage />;
     }
   };
 
