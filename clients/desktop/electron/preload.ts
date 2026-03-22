@@ -37,6 +37,30 @@ contextBridge.exposeInMainWorld('electron', {
     },
   },
 
+  appTools: {
+    listTools: () => ipcRenderer.invoke('app-tools:list-tools'),
+    callTool: (name: string, args: Record<string, unknown>) =>
+      ipcRenderer.invoke('app-tools:call-tool', name, args),
+    isAppTool: (name: string) => ipcRenderer.invoke('app-tools:is-app-tool', name),
+    onExecute: (cb: (data: { callId: number; name: string; args: Record<string, unknown> }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { callId: number; name: string; args: Record<string, unknown> }) => cb(data);
+      ipcRenderer.on('app-tools:execute', handler);
+      return () => { ipcRenderer.removeListener('app-tools:execute', handler); };
+    },
+    sendResult: (callId: number, result: { content: string; isError: boolean }) =>
+      ipcRenderer.send('app-tools:result', callId, result),
+  },
+
+  hostTools: {
+    listTools: () => ipcRenderer.invoke('host-tools:list-tools'),
+    callTool: (toolName: string, args: Record<string, unknown>, agentId: number) =>
+      ipcRenderer.invoke('host-tools:call-tool', toolName, args, agentId),
+    isHostTool: (name: string) => ipcRenderer.invoke('host-tools:is-host-tool', name),
+    getAllowedPaths: (agentId: number) => ipcRenderer.invoke('host-tools:get-allowed-paths', agentId),
+    setAllowedPaths: (agentId: number, paths: string[]) =>
+      ipcRenderer.invoke('host-tools:set-allowed-paths', agentId, paths),
+  },
+
   mcp: {
     startServers: (configs: Array<{ name: string; transport_type: string; url?: string; command?: string; args?: string[]; env?: Record<string, string> }>) =>
       ipcRenderer.invoke('mcp:start-servers', configs),

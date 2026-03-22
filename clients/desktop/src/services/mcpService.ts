@@ -14,6 +14,7 @@
 
 import { apiClient } from '../api/client';
 import { wsManager, type ToolCallRequestEvent } from '../api/websocket';
+import { initAppToolsHandler } from './appToolsHandler';
 
 let initialized = false;
 let toolCallHandler: ((event: ToolCallRequestEvent) => void) | null = null;
@@ -39,10 +40,17 @@ export async function initClientMCPServers(): Promise<void> {
     );
 
     if (clientServers.length === 0) {
-      // No client servers — send empty registration to clear any stale tools
-      clientTools = [];
-      wsManager.sendClientToolsRegister([]);
+      // No client MCP servers — still register host + app tools
+      const hostTools = window.electron.hostTools
+        ? await window.electron.hostTools.listTools()
+        : [];
+      const appTools = window.electron.appTools
+        ? await window.electron.appTools.listTools()
+        : [];
+      clientTools = [...hostTools, ...appTools];
+      wsManager.sendClientToolsRegister(clientTools);
       setupToolCallHandler();
+      initAppToolsHandler();
       initialized = true;
       return;
     }
@@ -67,17 +75,29 @@ export async function initClientMCPServers(): Promise<void> {
     }
 
     // Discover tools from all connected servers
-    const tools = await window.electron.mcp.listTools();
-    clientTools = tools;
+    const mcpTools = await window.electron.mcp.listTools();
 
-    // Register tools with backend
-    wsManager.sendClientToolsRegister(tools);
+    // Merge host tools (file read/write/edit, search, bash)
+    const hostTools = window.electron.hostTools
+      ? await window.electron.hostTools.listTools()
+      : [];
+
+    // Merge app config tools (agent settings, MCP servers, vision)
+    const appTools = window.electron.appTools
+      ? await window.electron.appTools.listTools()
+      : [];
+
+    clientTools = [...hostTools, ...appTools, ...mcpTools];
+
+    // Register all client tools with backend
+    wsManager.sendClientToolsRegister(clientTools);
 
     // Set up handler for incoming tool call requests
     setupToolCallHandler();
 
+    initAppToolsHandler();
     initialized = true;
-    console.log(`[MCP] Initialized ${results.filter((r) => r.ok).length} client servers, ${tools.length} tools`);
+    console.log(`[MCP] Initialized ${results.filter((r) => r.ok).length} client servers, ${clientTools.length} tools (${hostTools.length} host + ${appTools.length} app + ${mcpTools.length} MCP)`);
   } catch (e) {
     console.error('[MCP] Failed to initialize client MCP servers:', e);
   }
@@ -122,16 +142,53 @@ function setupToolCallHandler(): void {
   }
 
   toolCallHandler = async (event: ToolCallRequestEvent) => {
-    if (!window.electron?.mcp) {
-      wsManager.sendToolCallResponse(
-        event.request_id,
-        'Electron MCP not available',
-        true,
-      );
-      return;
-    }
-
     try {
+      // Check if this is an app config tool (agent settings, MCP servers, vision)
+      if (window.electron?.appTools) {
+        const isApp = await window.electron.appTools.isAppTool(event.tool_name);
+        if (isApp) {
+          const result = await window.electron.appTools.callTool(
+            event.tool_name,
+            event.tool_args,
+          );
+          wsManager.sendToolCallResponse(
+            event.request_id,
+            result.content,
+            result.isError,
+          );
+          return;
+        }
+      }
+
+      // Check if this is a host tool (file read/write/edit, search, bash)
+      if (window.electron?.hostTools) {
+        const isHost = await window.electron.hostTools.isHostTool(event.tool_name);
+        if (isHost) {
+          const agentId = (event.tool_args as Record<string, unknown>).agent_id as number || 0;
+          const result = await window.electron.hostTools.callTool(
+            event.tool_name,
+            event.tool_args,
+            agentId,
+          );
+          wsManager.sendToolCallResponse(
+            event.request_id,
+            result.content,
+            result.isError,
+          );
+          return;
+        }
+      }
+
+      // Fall through to MCP tools
+      if (!window.electron?.mcp) {
+        wsManager.sendToolCallResponse(
+          event.request_id,
+          'Electron MCP not available',
+          true,
+        );
+        return;
+      }
+
       const result = await window.electron.mcp.callTool(
         event.tool_name,
         event.tool_args,

@@ -33,6 +33,22 @@ export interface MCPServerConfig {
   env?: Record<string, string>;
 }
 
+export interface AppToolsAPI {
+  listTools: () => Promise<Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }>>;
+  callTool: (name: string, args: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
+  isAppTool: (name: string) => Promise<boolean>;
+  onExecute: (cb: (data: { callId: number; name: string; args: Record<string, unknown> }) => void) => () => void;
+  sendResult: (callId: number, result: { content: string; isError: boolean }) => void;
+}
+
+export interface HostToolsAPI {
+  listTools: () => Promise<Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }>>;
+  callTool: (toolName: string, args: Record<string, unknown>, agentId: number) => Promise<{ content: string; isError: boolean }>;
+  isHostTool: (name: string) => Promise<boolean>;
+  getAllowedPaths: (agentId: number) => Promise<string[]>;
+  setAllowedPaths: (agentId: number, paths: string[]) => Promise<void>;
+}
+
 export interface MCPAPI {
   startServers: (configs: MCPServerConfig[]) => Promise<Array<{ name: string; ok: boolean; error?: string }>>;
   stopServers: () => Promise<void>;
@@ -53,6 +69,8 @@ export interface ExtensionsAPI {
 
 export interface ElectronAPI {
   platform: string;
+  appTools: AppToolsAPI;
+  hostTools: HostToolsAPI;
   mcp: MCPAPI;
   characterWindow: CharacterWindowAPI;
   extensions: ExtensionsAPI;
