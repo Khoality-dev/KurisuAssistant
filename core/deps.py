@@ -4,7 +4,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
-from db.session import get_session
+from db.service import get_db_service
 from db.models import User
 from db.repositories import UserRepository
 from core.security import get_current_user
@@ -13,10 +13,13 @@ from core.security import get_current_user
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 
-def get_db() -> Session:
-    """Dependency to get database session."""
-    with get_session() as session:
-        yield session
+def get_db():
+    """Legacy dependency — kept only for router signature compatibility.
+
+    All DB access now goes through DBService.  This dependency is a no-op
+    but still declared in many route signatures, so it must exist.
+    """
+    yield None
 
 
 def get_authenticated_user(token: str = Depends(oauth2_scheme)) -> User:
@@ -36,7 +39,7 @@ def get_authenticated_user(token: str = Depends(oauth2_scheme)) -> User:
     # if not username:
     #     raise HTTPException(status_code=401, detail="Invalid token")
 
-    with get_session() as session:
+    def _get_user(session):
         user_repo = UserRepository(session)
         user = user_repo.get_by_username(username)
         if not user:
@@ -44,3 +47,6 @@ def get_authenticated_user(token: str = Depends(oauth2_scheme)) -> User:
         # Detach from session so it can be used outside the context
         session.expunge(user)
         return user
+
+    db = get_db_service()
+    return db.execute_sync(_get_user)

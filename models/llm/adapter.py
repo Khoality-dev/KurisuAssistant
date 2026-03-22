@@ -210,3 +210,21 @@ def pull_model(model_name: str, api_url: Optional[str] = None) -> None:
     except Exception as e:
         logger.error(f"Error pulling model '{model_name}' from LLM provider: {e}", exc_info=True)
         raise
+
+
+def ensure_model_available(model_name: str, api_url: Optional[str] = None) -> bool:
+    """Ensure a model is available locally, pulling it if needed.
+
+    Args:
+        model_name: Name of the model to ensure
+        api_url: Optional custom Ollama API URL (None = use default from env)
+
+    Returns:
+        True if the model was pulled during this call, False if it was already available
+    """
+    llm_provider = create_llm_provider("ollama", api_url=api_url)
+    try:
+        return llm_provider.ensure_model_available(model_name)
+    except Exception as e:
+        logger.error(f"Error ensuring model '{model_name}' is available: {e}", exc_info=True)
+        raise

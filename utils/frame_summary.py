@@ -32,18 +32,16 @@ async def summarize_frame(
         api_url: Optional custom Ollama API URL
     """
     try:
-        from db.session import get_session
         from db.repositories import FrameRepository, MessageRepository
+        from db.service import get_db_service
+
+        db = get_db_service()
 
         # Load messages
-        with get_session() as session:
-            msg_repo = MessageRepository(session)
-            messages = msg_repo.get_by_frame(frame_id, limit=500)
-
+        def _load(session):
+            messages = MessageRepository(session).get_by_frame(frame_id, limit=500)
             if not messages:
                 return None
-
-            # Build transcript
             lines = []
             total_chars = 0
             for msg in messages:
@@ -55,8 +53,11 @@ async def summarize_frame(
                     break
                 lines.append(line)
                 total_chars += len(line)
+            return "\n".join(lines)
 
-            transcript = "\n".join(lines)
+        transcript = db.execute_sync(_load)
+        if not transcript:
+            return None
 
         # Call LLM non-streaming
         llm = create_llm_provider("ollama", api_url=api_url)
@@ -77,11 +78,13 @@ async def summarize_frame(
             return None
 
         # Store summary
-        with get_session() as session:
+        def _store(session):
             frame_repo = FrameRepository(session)
             frame = frame_repo.get_by_id(frame_id)
             if frame:
                 frame_repo.update_summary(frame, summary)
+
+        db.execute_sync(_store)
 
         logger.info(f"Summarized frame {frame_id}: {summary[:80]}...")
         return summary

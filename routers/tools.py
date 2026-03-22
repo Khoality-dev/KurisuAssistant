@@ -24,27 +24,12 @@ async def list_tools(user: User = Depends(get_authenticated_user)):
 
         # Flat MCP tools list (cached, reliable)
         mcp_tools = []
+        mcp_servers = {}
         try:
             mcp_tools = await orchestrator.get_tools()
+            mcp_servers = orchestrator.get_tools_by_server()
         except Exception as e:
             logger.warning(f"Failed to get MCP tools: {e}")
-
-        # Group MCP tools by server name using prefix matching
-        mcp_servers = {}
-        if mcp_tools:
-            server_names = orchestrator.get_server_names()
-            if len(server_names) == 1:
-                mcp_servers = {server_names[0]: mcp_tools}
-            elif server_names:
-                mcp_servers = {name: [] for name in server_names}
-                for tool in mcp_tools:
-                    tool_name = tool.get("function", {}).get("name", "")
-                    for name in server_names:
-                        if tool_name.startswith(f"{name}_"):
-                            mcp_servers[name].append(tool)
-                            break
-                # Remove empty groups
-                mcp_servers = {k: v for k, v in mcp_servers.items() if v}
 
         # Get native tools with built_in flag
         native_tools = tool_registry.get_native_tool_info()

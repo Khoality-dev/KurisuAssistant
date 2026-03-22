@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from core.deps import get_db, get_authenticated_user
-from db.session import get_session
+from db.service import get_db_service
 from db.models import User
 from db.repositories import MessageRepository, ConversationRepository
 
@@ -43,12 +43,10 @@ async def get_message(
 ):
     """Fetch a specific message by its ID."""
     try:
-        with get_session() as session:
+        def _get(session):
             msg_repo = MessageRepository(session)
             conv_repo = ConversationRepository(session)
-
             message = _verify_message_ownership(msg_repo, conv_repo, message_id, user.id)
-
             result = {
                 "id": message.id,
                 "role": message.role,
@@ -62,6 +60,9 @@ async def get_message(
             if message.thinking:
                 result["thinking"] = message.thinking
             return result
+
+        db = get_db_service()
+        return await db.execute(_get)
 
     except HTTPException:
         raise
@@ -78,17 +79,18 @@ async def delete_message(
 ):
     """Delete a message and all subsequent messages in the conversation."""
     try:
-        with get_session() as session:
+        def _delete(session):
             msg_repo = MessageRepository(session)
             conv_repo = ConversationRepository(session)
-
             message = _verify_message_ownership(msg_repo, conv_repo, message_id, user.id)
             conversation_id = message.frame.conversation_id
-
             count = msg_repo.delete_from_message(message_id, conversation_id)
             session.commit()
+            return count
 
-            return {"deleted": count}
+        db = get_db_service()
+        count = await db.execute(_delete)
+        return {"deleted": count}
 
     except HTTPException:
         raise
@@ -109,10 +111,9 @@ async def get_message_raw(
     and the full concatenated LLM response (raw_output).
     """
     try:
-        with get_session() as session:
+        def _get_raw(session):
             msg_repo = MessageRepository(session)
             conv_repo = ConversationRepository(session)
-
             message = _verify_message_ownership(msg_repo, conv_repo, message_id, user.id)
 
             # Parse raw_input from JSON string back to object
@@ -128,6 +129,9 @@ async def get_message_raw(
                 "raw_input": raw_input,
                 "raw_output": message.raw_output,
             }
+
+        db = get_db_service()
+        return await db.execute(_get_raw)
 
     except HTTPException:
         raise

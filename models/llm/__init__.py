@@ -26,7 +26,7 @@ def create_llm_provider(provider_type: str = "ollama", api_url: Optional[str] = 
 
 
 # Re-export adapter functions for convenience
-from .adapter import chat, list_models, generate, pull_model
+from .adapter import chat, list_models, generate, pull_model, ensure_model_available
 
 
 __all__ = [
@@ -38,4 +38,5 @@ __all__ = [
     "list_models",
     "generate",
     "pull_model",
+    "ensure_model_available",
 ]

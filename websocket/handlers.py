@@ -46,15 +46,15 @@ from tools import tool_registry
 from media import get_media_player
 from vision import VisionProcessor
 from sqlalchemy import desc
-from db.session import get_session
 from db.models import Frame
 from db.repositories import (
+    AgentRepository,
     ConversationRepository,
     FrameRepository,
     MessageRepository,
     UserRepository,
-    AgentRepository,
 )
+from db.service import get_db_service
 from utils.prompts import build_system_messages
 
 logger = logging.getLogger(__name__)
@@ -249,21 +249,13 @@ class ChatSessionHandler:
             available_agents = [a for a in all_agents if a.name != ADMINISTRATOR_NAME]
             target_agent = self._get_agent_config(event.agent_id, available_agents)
 
-            # Fire-and-forget summarization + memory consolidation (only if summary_model configured)
-            if summary_model:
-                from utils.frame_summary import summarize_frame
-                for fid in ([old_frame_id] if old_frame_id else []) + unsummarized_ids:
-                    asyncio.create_task(summarize_frame(fid, model_name=summary_model, api_url=ollama_url))
-
-                from utils.memory_consolidation import consolidate_agent_memory
-                consolidation_fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
-                if consolidation_fids and event.agent_id and target_agent and target_agent.memory_enabled:
-                    asyncio.create_task(consolidate_agent_memory(
-                        agent_id=event.agent_id,
-                        frame_ids=consolidation_fids,
-                        model_name=summary_model,
-                        api_url=ollama_url,
-                    ))
+            # Submit background tasks for old/unsummarized frames
+            # (memory consolidation chains automatically after each summary completes)
+            fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
+            if summary_model and fids:
+                import workers
+                for fid in fids:
+                    workers.submit(workers.SummarizeFrameTask(frame_id=fid, model_name=summary_model, api_url=ollama_url))
 
             if not target_agent:
                 await self.send_event(ErrorEvent(
@@ -310,6 +302,7 @@ class ChatSessionHandler:
                 available_agents=available_agents,
                 user_system_prompt=user_system_prompt,
                 preferred_name=preferred_name,
+                api_url=ollama_url,
                 client_tools=self._client_tools,
                 client_tool_callback=self._execute_client_tool,
                 images=event.images if event.images else None,
@@ -418,11 +411,12 @@ class ChatSessionHandler:
             # Setup conversation/frame
             conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
 
-            # Fire-and-forget summarization (only if summary_model configured)
-            if summary_model:
-                from utils.frame_summary import summarize_frame
-                for fid in ([old_frame_id] if old_frame_id else []) + unsummarized_ids:
-                    asyncio.create_task(summarize_frame(fid, model_name=summary_model, api_url=ollama_url))
+            # Submit background summarization tasks
+            fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
+            if summary_model and fids:
+                import workers
+                for fid in fids:
+                    workers.submit(workers.SummarizeFrameTask(frame_id=fid, model_name=summary_model, api_url=ollama_url))
 
             # Reset task state
             self._task_conversation_id = conversation_id
@@ -453,10 +447,16 @@ class ChatSessionHandler:
             admin_model = admin_agent.model_name if admin_agent and admin_agent.model_name else DEFAULT_ADMIN_MODEL
             admin_id = admin_agent.id if admin_agent else None
             admin_think = admin_agent.think if admin_agent else False
-            if self.administrator is None or self.administrator.model_name != admin_model or self.administrator.think != admin_think:
+            if (
+                self.administrator is None
+                or self.administrator.model_name != admin_model
+                or self.administrator.think != admin_think
+                or self.administrator.api_url != ollama_url
+            ):
                 self.administrator = AdministratorAgent(
                     agent_id=admin_id,
                     model_name=admin_model,
+                    api_url=ollama_url,
                     think=admin_think,
                 )
 
@@ -588,6 +588,7 @@ class ChatSessionHandler:
                 available_agents=available_agents,
                 user_system_prompt=user_system_prompt,
                 preferred_name=preferred_name,
+                api_url=ollama_url,
                 client_tools=self._client_tools,
                 client_tool_callback=self._execute_client_tool,
                 images=event.images if event.images else None,
@@ -823,15 +824,17 @@ class ChatSessionHandler:
             Tuple of (conversation_id, frame_id, system_messages, user_system_prompt,
                        preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size)
         """
-        old_frame_id = None
+        db = get_db_service()
 
-        with get_session() as session:
+        def _do_setup(session):
+            from db.models import Message
+            from sqlalchemy import func
+
             conv_repo = ConversationRepository(session)
             frame_repo = FrameRepository(session)
             msg_repo = MessageRepository(session)
             user_repo = UserRepository(session)
 
-            # Get user for preferences
             user = user_repo.get_by_id(self.user_id)
             if not user:
                 raise ValueError("User not found")
@@ -840,16 +843,14 @@ class ChatSessionHandler:
             summary_model = user.summary_model
             context_size = user.context_size
 
-            # Create or get conversation
             if event.conversation_id is None:
-                # Use first message as title (truncated)
                 title = (event.text[:80] + "...") if len(event.text) > 80 else event.text
                 conversation = conv_repo.create_conversation(self.user_id, title=title)
                 conversation_id = conversation.id
             else:
                 conversation_id = event.conversation_id
 
-            # Get or create frame with idle detection
+            old_frame_id = None
             frame = frame_repo.get_latest_by_conversation(conversation_id)
             if not frame:
                 frame = frame_repo.create_frame(conversation_id)
@@ -863,9 +864,6 @@ class ChatSessionHandler:
                     frame = frame_repo.create_frame(conversation_id)
             frame_id = frame.id
 
-            # Find older frames missing summaries (backfill)
-            from db.models import Message
-            from sqlalchemy import func
             unsummarized = (
                 session.query(Frame.id)
                 .outerjoin(Message, Frame.id == Message.frame_id)
@@ -880,20 +878,24 @@ class ChatSessionHandler:
             )
             unsummarized_ids = [row.id for row in unsummarized]
 
-            # Get user preferences
             system_prompt, preferred_name = user_repo.get_preferences(user)
 
-        # Build system messages
+            return (conversation_id, frame_id, system_prompt, preferred_name,
+                    old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size)
+
+        (conversation_id, frame_id, system_prompt, preferred_name,
+         old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size) = await db.execute(_do_setup)
+
         system_messages = build_system_messages(system_prompt, preferred_name)
 
         return conversation_id, frame_id, system_messages, system_prompt, preferred_name or "", old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size
 
     def _load_user_agents(self) -> List[AgentConfig]:
         """Load all agents for the current user."""
-        with get_session() as session:
-            agent_repo = AgentRepository(session)
-            agents = agent_repo.list_by_user(self.user_id)
+        db = get_db_service()
 
+        def _query(session):
+            agents = AgentRepository(session).list_by_user(self.user_id)
             return [
                 AgentConfig(
                     id=agent.id,
@@ -910,6 +912,8 @@ class ChatSessionHandler:
                 for agent in agents
             ]
 
+        return db.execute_sync(_query)
+
     def _get_agent_config(self, agent_id: int, agents: List[AgentConfig]) -> Optional[AgentConfig]:
         """Get agent config by ID from list."""
         for agent in agents:
@@ -923,17 +927,19 @@ class ChatSessionHandler:
 
     def _update_timestamps(self, frame_id: int, conversation_id: int):
         """Update frame and conversation timestamps."""
-        with get_session() as session:
+        db = get_db_service()
+
+        def _update(session):
             frame_repo = FrameRepository(session)
             conv_repo = ConversationRepository(session)
-
             frame = frame_repo.get_by_id(frame_id)
             if frame:
                 frame_repo.update_timestamp(frame)
-
             conversation = conv_repo.get_by_id(conversation_id)
             if conversation:
                 conv_repo.update_timestamp(conversation)
+
+        db.execute_sync(_update)
 
     async def _handle_approval_response(self, event: ToolApprovalResponseEvent):
         """Handle tool approval response from client."""
@@ -1154,11 +1160,11 @@ class ChatSessionHandler:
         Includes the previous frame's messages (prefixed with a summary separator)
         plus the current frame's messages, giving the LLM more conversational context.
         """
-        with get_session() as session:
-            msg_repo = MessageRepository(session)
-            frame_repo = FrameRepository(session)
+        db = get_db_service()
 
-            # Get the last 2 frames for this conversation (ordered by created_at)
+        def _query(session):
+            msg_repo = MessageRepository(session)
+
             frames = (
                 session.query(Frame)
                 .filter_by(conversation_id=conversation_id)
@@ -1167,12 +1173,11 @@ class ChatSessionHandler:
                 .limit(2)
                 .all()
             )
-            frames.reverse()  # chronological order
+            frames.reverse()
 
             result = []
             for frame in frames:
                 if frame.id != frame_id and frame.summary:
-                    # Insert summary separator for the previous frame
                     result.append({
                         "role": "system",
                         "content": f"[Previous session summary]: {frame.summary}",
@@ -1193,16 +1198,17 @@ class ChatSessionHandler:
                     result.append(entry)
             return result
 
+        return db.execute_sync(_query)
+
     def _load_agent(self, agent_id: int) -> BaseAgent:
         """Load agent from database."""
-        with get_session() as session:
-            agent_repo = AgentRepository(session)
-            agent = agent_repo.get_by_user_and_id(self.user_id, agent_id)
+        db = get_db_service()
 
+        def _query(session):
+            agent = AgentRepository(session).get_by_user_and_id(self.user_id, agent_id)
             if not agent:
                 raise ValueError(f"Agent not found: {agent_id}")
-
-            config = AgentConfig(
+            return AgentConfig(
                 id=agent.id,
                 name=agent.name,
                 system_prompt=agent.system_prompt or "",
@@ -1216,19 +1222,20 @@ class ChatSessionHandler:
                 preferred_name=agent.preferred_name,
             )
 
-            return BaseAgent.create_from_config(config, tool_registry)
+        config = db.execute_sync(_query)
+        return BaseAgent.create_from_config(config, tool_registry)
 
     def _save_message(self, msg: dict, frame_id: int):
         """Save a single message to database immediately."""
-        with get_session() as session:
-            MessageRepository(session).create_message(
-                role=msg["role"],
-                message=msg["content"],
-                frame_id=frame_id,
-                thinking=msg.get("thinking"),
-                agent_id=msg.get("agent_id"),
-                name=msg.get("name"),
-                raw_input=msg.get("raw_input"),
-                raw_output=msg.get("raw_output"),
-                images=msg.get("images"),
-            )
+        db = get_db_service()
+        db.execute_sync(lambda s: MessageRepository(s).create_message(
+            role=msg["role"],
+            message=msg["content"],
+            frame_id=frame_id,
+            thinking=msg.get("thinking"),
+            agent_id=msg.get("agent_id"),
+            name=msg.get("name"),
+            raw_input=msg.get("raw_input"),
+            raw_output=msg.get("raw_output"),
+            images=msg.get("images"),
+        ))

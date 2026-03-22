@@ -64,6 +64,7 @@ class AgentContext:
     available_agents: List[AgentConfig] = field(default_factory=list)
     user_system_prompt: str = ""
     preferred_name: str = ""
+    api_url: Optional[str] = None  # User-specific Ollama endpoint
     client_tools: List[Dict] = field(default_factory=list)
     client_tool_callback: Optional[Callable[[str, Dict], Coroutine[Any, Any, str]]] = None
     images: Optional[List[str]] = None  # base64 images for current user message
@@ -163,6 +164,9 @@ class BaseAgent(ABC):
         if context.user_id:
             exec_args["user_id"] = context.user_id
 
+        # Inject agent_id for agent-scoped tools (e.g. knowledge graph)
+        exec_args["agent_id"] = self.config.id
+
         # Inject handler for tools that need WebSocket access (e.g. media player)
         if context.handler:
             exec_args["_handler"] = context.handler
@@ -204,6 +208,15 @@ class BaseAgent(ABC):
             # Ensure tool-to-client mapping is loaded (uses cache if fresh)
             await orchestrator.get_tools()
 
+            # Inject context into MCP tool args (same as native tools)
+            mcp_args = dict(tool_args)
+            if context.user_id:
+                mcp_args["user_id"] = context.user_id
+            if context.conversation_id:
+                mcp_args["conversation_id"] = context.conversation_id
+            if self.config.id:
+                mcp_args["agent_id"] = self.config.id
+
             # Create a mock tool call object
             class MockToolCall:
                 class Function:
@@ -214,7 +227,7 @@ class BaseAgent(ABC):
                 def __init__(self, name, args):
                     self.function = self.Function(name, args)
 
-            mock_call = MockToolCall(tool_name, tool_args)
+            mock_call = MockToolCall(tool_name, mcp_args)
             results = await orchestrator.execute_tool_calls(
                 [mock_call],
                 conversation_id=context.conversation_id
@@ -428,7 +441,7 @@ class SimpleAgent(BaseAgent):
         import json
         from models.llm import create_llm_provider
 
-        llm = create_llm_provider("ollama")
+        llm = create_llm_provider("ollama", api_url=context.api_url)
 
         # Prepare messages: filter Administrator, add speaker names, inject agent descriptions
         messages = self._prepare_messages(messages, context)
@@ -473,6 +486,9 @@ class SimpleAgent(BaseAgent):
 
         try:
             for _round in range(MAX_TOOL_ROUNDS):
+                # Update raw input snapshot before each LLM call
+                self.last_prepared_messages = [dict(m) for m in messages]
+
                 stream = llm.chat(
                     model=model,
                     messages=messages,
@@ -526,6 +542,8 @@ class SimpleAgent(BaseAgent):
 
                 # Append assistant message (with tool_calls) so Ollama sees the call context
                 assistant_msg = {"role": "assistant", "content": full_content}
+                if full_thinking:
+                    assistant_msg["thinking"] = full_thinking
                 tc_list = []
                 for tc in all_tool_calls:
                     args = tc.function.arguments

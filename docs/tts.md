@@ -2,10 +2,10 @@
 
 ## Providers
 
-Configured via `TTS_PROVIDER` env var (default: `gpt-sovits`), overridable per-request.
+Configured via `TTS_PROVIDER` env var (default in Docker Compose: `vixtts`), overridable per-request.
 
 - **GPT-SoVITS** (`gpt_sovits_provider.py`): Voice reference path as query param, POSIX format
-- **INDEX-TTS** (`index_tts_provider.py`): Voice reference file via multipart/form-data
+- **viXTTS** (`vixtts_provider.py`): Voice reference file via multipart/form-data plus language code
 
 ## Voice Discovery
 
@@ -15,14 +15,14 @@ Scan `data/voice_storage/` for audio files (.wav/.mp3/.flac/.ogg). Frontend send
 
 Both providers split long text (default 200 chars) by paragraphs → sentences, merge WAV chunks.
 
-## INDEX-TTS Emotion
+## viXTTS Notes
 
-Additional parameters for emotion control:
-- `emo_audio` — emotion reference audio
-- `emo_vector` — 8 emotion dimensions
-- `emo_text` — emotion description text
-- `emo_alpha` (0-1) — emotion blending strength
+- `vixtts` uses a short uploaded reference clip plus a target `language` value.
+- The server keeps the same multipart `/tts/file` shape as the old backend so the assistant can stay simple.
+- Extra emotion-related fields may still be sent for compatibility, but the simple viXTTS server does not rely on them.
 
 ## Provider Setup
+
+The bundled Docker Compose stack expects a viXTTS checkout at `VIXTTS_ROOT`, defaulting to `/home/khoa/application/viXTTS`.
 
 See [GPT-SoVITS Setup](gpt-sovits.md) for detailed GPT-SoVITS configuration.

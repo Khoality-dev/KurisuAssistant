@@ -45,13 +45,20 @@ init_orchestrator()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events - runs on startup and shutdown."""
-    # Startup
+    # Startup — order matters: DB service first, then workers that depend on it
     logger.info("Application starting up...")
+    from db.service import start_db_service, stop_db_service
+    start_db_service()
+
+    import workers
+    workers.start()
 
     yield
 
-    # Shutdown: Cleanup resources
+    # Shutdown — reverse order: stop producers, drain workers, close DB
     logger.info("Shutting down application...")
+    workers.stop()
+    stop_db_service()
     from db.session import engine
     engine.dispose()
     logger.info("Database connections closed")

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.deps import get_db, get_authenticated_user
-from db.session import get_session
+from db.service import get_db_service
 from db.models import User
 from db.repositories import SkillRepository
 
@@ -34,7 +34,7 @@ async def list_skills(
 ):
     """List all skills for the current user."""
     try:
-        with get_session() as session:
+        def _list(session):
             repo = SkillRepository(session)
             skills = repo.list_by_user(user.id)
             return [
@@ -46,6 +46,9 @@ async def list_skills(
                 }
                 for s in skills
             ]
+
+        db = get_db_service()
+        return await db.execute(_list)
     except Exception as e:
         logger.error(f"Error listing skills: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -59,7 +62,7 @@ async def create_skill(
 ):
     """Create a new skill."""
     try:
-        with get_session() as session:
+        def _create(session):
             repo = SkillRepository(session)
             skill = repo.create_skill(
                 user_id=user.id,
@@ -72,6 +75,9 @@ async def create_skill(
                 "instructions": skill.instructions,
                 "created_at": skill.created_at.isoformat() + "Z" if skill.created_at else None,
             }
+
+        db = get_db_service()
+        return await db.execute(_create)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
@@ -88,12 +94,11 @@ async def update_skill(
 ):
     """Update a skill."""
     try:
-        with get_session() as session:
+        def _update(session):
             repo = SkillRepository(session)
             skill = repo.get_by_user_and_id(user.id, skill_id)
             if not skill:
                 raise HTTPException(status_code=404, detail="Skill not found")
-
             skill = repo.update_skill(skill, name=data.name, instructions=data.instructions)
             return {
                 "id": skill.id,
@@ -101,6 +106,9 @@ async def update_skill(
                 "instructions": skill.instructions,
                 "created_at": skill.created_at.isoformat() + "Z" if skill.created_at else None,
             }
+
+        db = get_db_service()
+        return await db.execute(_update)
     except HTTPException:
         raise
     except Exception as e:
@@ -116,12 +124,16 @@ async def delete_skill(
 ):
     """Delete a skill."""
     try:
-        with get_session() as session:
+        def _delete(session):
             repo = SkillRepository(session)
             deleted = repo.delete_by_user_and_id(user.id, skill_id)
             if not deleted:
                 raise HTTPException(status_code=404, detail="Skill not found")
-            return {"deleted": True}
+            return True
+
+        db = get_db_service()
+        await db.execute(_delete)
+        return {"deleted": True}
     except HTTPException:
         raise
     except Exception as e:

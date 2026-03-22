@@ -61,6 +61,7 @@ class UserMCPOrchestrator:
         self.user_id = user_id
         self._server_clients: Dict[str, FastMCPClient] = {}
         self._tool_to_client: Dict[str, FastMCPClient] = {}
+        self._tool_to_server: Dict[str, str] = {}
         self._cached_tools: List[Dict] = []
         self._tools_cache_time: float = 0
         self._cache_ttl: int = 30
@@ -71,18 +72,31 @@ class UserMCPOrchestrator:
         Only loads servers with location="server" (or NULL for backwards compat).
         Client-side servers are managed by the Electron app.
         """
-        from db.session import get_session
+        from db.service import get_db_service
         from db.repositories import MCPServerRepository
 
-        with get_session() as session:
+        def _fetch(session):
             repo = MCPServerRepository(session)
             servers = repo.list_enabled_by_user(self.user_id, location="server")
+            # Extract data while session is open
+            return [
+                (server.name, server.transport_type, server.url, server.command, server.args, server.env)
+                for server in servers
+            ]
+
+        db = get_db_service()
+        server_data = db.execute_sync(_fetch)
 
         self._server_clients.clear()
-        for server in servers:
+        for name, transport_type, url, command, args, env in server_data:
+            # Build a lightweight object for _create_client_from_server
+            server = type("S", (), {
+                "name": name, "transport_type": transport_type,
+                "url": url, "command": command, "args": args, "env": env,
+            })()
             client = _create_client_from_server(server)
             if client:
-                self._server_clients[server.name] = client
+                self._server_clients[name] = client
 
     def invalidate(self):
         """Reset cache, forcing reload on next call."""
@@ -96,6 +110,7 @@ class UserMCPOrchestrator:
             self._load_servers()
             all_tools: List[Dict] = []
             tool_to_client: Dict[str, FastMCPClient] = {}
+            tool_to_server: Dict[str, str] = {}
 
             for server_name, client in self._server_clients.items():
                 try:
@@ -104,25 +119,36 @@ class UserMCPOrchestrator:
                         tool_name = tool.get("function", {}).get("name", "")
                         if tool_name:
                             tool_to_client[tool_name] = client
+                            tool_to_server[tool_name] = server_name
                     all_tools.extend(tools)
                 except Exception as e:
                     logger.error(f"Error getting MCP tools from '{server_name}' for user {self.user_id}: {e}")
 
             self._cached_tools = all_tools
             self._tool_to_client = tool_to_client
+            self._tool_to_server = tool_to_server
             self._tools_cache_time = current_time
 
         return self._cached_tools
 
+    def get_tools_by_server(self) -> Dict[str, List[Dict]]:
+        """Get cached tools grouped by server name."""
+        grouped: Dict[str, List[Dict]] = {}
+        for tool in self._cached_tools:
+            tool_name = tool.get("function", {}).get("name", "")
+            server_name = self._tool_to_server.get(tool_name, "Unknown")
+            grouped.setdefault(server_name, []).append(tool)
+        return grouped
+
     def get_server_names(self) -> List[str]:
         """Get enabled server-side server names for the user."""
-        from db.session import get_session
+        from db.service import get_db_service
         from db.repositories import MCPServerRepository
 
-        with get_session() as session:
-            repo = MCPServerRepository(session)
-            servers = repo.list_enabled_by_user(self.user_id, location="server")
-            return [s.name for s in servers]
+        db = get_db_service()
+        return db.execute_sync(lambda s: [
+            srv.name for srv in MCPServerRepository(s).list_enabled_by_user(self.user_id, location="server")
+        ])
 
     async def execute_tool_calls(
         self,

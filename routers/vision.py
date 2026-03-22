@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from core.deps import get_authenticated_user
 from db.models import User
-from db.session import get_session
+from db.service import get_db_service
 from db.repositories import FaceIdentityRepository, FacePhotoRepository
 from models.face_recognition import get_provider as get_face_provider
 from utils.images import upload_image, get_image_path, delete_image
@@ -22,7 +22,7 @@ router = APIRouter(tags=["vision"])
 @router.get("/faces")
 async def list_faces(user: User = Depends(get_authenticated_user)):
     """List registered face identities with photo counts."""
-    with get_session() as session:
+    def _list(session):
         repo = FaceIdentityRepository(session)
         identities = repo.list_by_user(user.id)
         return [
@@ -34,6 +34,9 @@ async def list_faces(user: User = Depends(get_authenticated_user)):
             }
             for identity in identities
         ]
+
+    db = get_db_service()
+    return await db.execute(_list)
 
 
 @router.post("/faces")
@@ -66,7 +69,7 @@ async def create_face(
     photo.file.seek(0)
     photo_uuid = upload_image(photo)
 
-    with get_session() as session:
+    def _create(session):
         identity_repo = FaceIdentityRepository(session)
         photo_repo = FacePhotoRepository(session)
 
@@ -90,11 +93,14 @@ async def create_face(
             },
         }
 
+    db = get_db_service()
+    return await db.execute(_create)
+
 
 @router.get("/faces/{identity_id}")
 async def get_face(identity_id: int, user: User = Depends(get_authenticated_user)):
     """Get face identity details with all photos."""
-    with get_session() as session:
+    def _get(session):
         repo = FaceIdentityRepository(session)
         identity = repo.get_by_user_and_id(user.id, identity_id)
         if not identity:
@@ -115,22 +121,33 @@ async def get_face(identity_id: int, user: User = Depends(get_authenticated_user
             ],
         }
 
+    db = get_db_service()
+    return await db.execute(_get)
+
 
 @router.delete("/faces/{identity_id}")
 async def delete_face(identity_id: int, user: User = Depends(get_authenticated_user)):
     """Delete a face identity and all associated photos."""
-    with get_session() as session:
+    def _delete(session):
         repo = FaceIdentityRepository(session)
         identity = repo.get_by_user_and_id(user.id, identity_id)
         if not identity:
             raise HTTPException(status_code=404, detail="Face identity not found")
 
-        # Delete photo files from disk
-        for photo in identity.photos:
-            delete_image(photo.photo_uuid)
+        # Collect photo UUIDs for disk cleanup
+        photo_uuids = [photo.photo_uuid for photo in identity.photos]
 
         repo.delete(identity)
-        return {"status": "deleted"}
+        return photo_uuids
+
+    db = get_db_service()
+    photo_uuids = await db.execute(_delete)
+
+    # Delete photo files from disk (after DB commit)
+    for uuid in photo_uuids:
+        delete_image(uuid)
+
+    return {"status": "deleted"}
 
 
 @router.post("/faces/{identity_id}/photos")
@@ -156,7 +173,7 @@ async def add_face_photo(
     photo.file.seek(0)
     photo_uuid = upload_image(photo)
 
-    with get_session() as session:
+    def _add_photo(session):
         identity_repo = FaceIdentityRepository(session)
         photo_repo = FacePhotoRepository(session)
 
@@ -177,6 +194,9 @@ async def add_face_photo(
             "url": f"/images/{face_photo.photo_uuid}",
         }
 
+    db = get_db_service()
+    return await db.execute(_add_photo)
+
 
 @router.delete("/faces/{identity_id}/photos/{photo_id}")
 async def delete_face_photo(
@@ -185,7 +205,7 @@ async def delete_face_photo(
     user: User = Depends(get_authenticated_user),
 ):
     """Remove a specific photo from a face identity."""
-    with get_session() as session:
+    def _delete_photo(session):
         identity_repo = FaceIdentityRepository(session)
         photo_repo = FacePhotoRepository(session)
 
@@ -197,9 +217,16 @@ async def delete_face_photo(
         if not photo or photo.identity_id != identity.id:
             raise HTTPException(status_code=404, detail="Photo not found")
 
-        delete_image(photo.photo_uuid)
+        photo_uuid = photo.photo_uuid
         photo_repo.delete(photo)
-        return {"status": "deleted"}
+        return photo_uuid
+
+    db = get_db_service()
+    photo_uuid = await db.execute(_delete_photo)
+
+    # Delete image file from disk (after DB commit)
+    delete_image(photo_uuid)
+    return {"status": "deleted"}
 
 
 @router.get("/faces/{identity_id}/photos/{photo_id}/image")
@@ -211,7 +238,7 @@ async def get_face_photo_image(
     """Serve a face photo image file."""
     from fastapi.responses import FileResponse
 
-    with get_session() as session:
+    def _get_photo_uuid(session):
         identity_repo = FaceIdentityRepository(session)
         photo_repo = FacePhotoRepository(session)
 
@@ -223,9 +250,14 @@ async def get_face_photo_image(
         if not photo or photo.identity_id != identity.id:
             raise HTTPException(status_code=404, detail="Photo not found")
 
-        image_path = get_image_path(photo.photo_uuid)
-        if not image_path:
-            raise HTTPException(status_code=404, detail="Image file not found")
+        return photo.photo_uuid
 
-        media_type = "image/jpeg" if image_path.suffix.lower() == ".jpg" else "image/png"
-        return FileResponse(path=image_path, media_type=media_type)
+    db = get_db_service()
+    photo_uuid = await db.execute(_get_photo_uuid)
+
+    image_path = get_image_path(photo_uuid)
+    if not image_path:
+        raise HTTPException(status_code=404, detail="Image file not found")
+
+    media_type = "image/jpeg" if image_path.suffix.lower() == ".jpg" else "image/png"
+    return FileResponse(path=image_path, media_type=media_type)

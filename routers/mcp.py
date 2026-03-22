@@ -8,7 +8,7 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from core.deps import get_db, get_authenticated_user
-from db.session import get_session
+from db.service import get_db_service
 from db.models import User
 from db.repositories import MCPServerRepository
 from mcp_tools.orchestrator import get_user_orchestrator, invalidate_user_orchestrator
@@ -89,10 +89,8 @@ async def list_mcp_servers(
 ):
     """List all MCP servers for the current user."""
     try:
-        with get_session() as session:
-            repo = MCPServerRepository(session)
-            servers = repo.list_by_user(user.id)
-            return [_serialize(s) for s in servers]
+        db = get_db_service()
+        return await db.execute(lambda s: [_serialize(srv) for srv in MCPServerRepository(s).list_by_user(user.id)])
     except Exception as e:
         logger.error(f"Error listing MCP servers: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -106,7 +104,7 @@ async def create_mcp_server(
 ):
     """Create a new MCP server."""
     try:
-        with get_session() as session:
+        def _create(session):
             repo = MCPServerRepository(session)
             server = repo.create_server(
                 user_id=user.id,
@@ -118,7 +116,10 @@ async def create_mcp_server(
                 env=data.env,
                 location=data.location,
             )
-            result = _serialize(server)
+            return _serialize(server)
+
+        db = get_db_service()
+        result = await db.execute(_create)
         invalidate_user_orchestrator(user.id)
         return result
     except ValueError as e:
@@ -137,12 +138,11 @@ async def update_mcp_server(
 ):
     """Update an MCP server."""
     try:
-        with get_session() as session:
+        def _update(session):
             repo = MCPServerRepository(session)
             server = repo.get_by_user_and_id(user.id, server_id)
             if not server:
                 raise HTTPException(status_code=404, detail="MCP server not found")
-
             server = repo.update_server(
                 server,
                 name=data.name,
@@ -154,7 +154,10 @@ async def update_mcp_server(
                 enabled=data.enabled,
                 location=data.location,
             )
-            result = _serialize(server)
+            return _serialize(server)
+
+        db = get_db_service()
+        result = await db.execute(_update)
         invalidate_user_orchestrator(user.id)
         return result
     except HTTPException:
@@ -172,11 +175,15 @@ async def delete_mcp_server(
 ):
     """Delete an MCP server."""
     try:
-        with get_session() as session:
+        def _delete(session):
             repo = MCPServerRepository(session)
             deleted = repo.delete_by_user_and_id(user.id, server_id)
             if not deleted:
                 raise HTTPException(status_code=404, detail="MCP server not found")
+            return True
+
+        db = get_db_service()
+        await db.execute(_delete)
         invalidate_user_orchestrator(user.id)
         return {"deleted": True}
     except HTTPException:
@@ -194,29 +201,37 @@ async def test_mcp_server(
 ):
     """Test connectivity to an MCP server by listing its tools."""
     try:
-        with get_session() as session:
+        def _fetch_server(session):
             repo = MCPServerRepository(session)
             server = repo.get_by_user_and_id(user.id, server_id)
             if not server:
                 raise HTTPException(status_code=404, detail="MCP server not found")
+            return _serialize(server)
 
-            # Client-side servers can't be tested from the backend
-            if server.location == "client":
-                return {"status": "unavailable", "error": "Client-side servers are tested from the desktop app"}
+        db = get_db_service()
+        server_data = await db.execute(_fetch_server)
 
-            # Build a temporary config and try listing tools
-            from mcp_tools.orchestrator import _create_client_from_server
-            from mcp_tools.client import list_tools
+        # Client-side servers can't be tested from the backend
+        if server_data.get("location") == "client":
+            return {"status": "unavailable", "error": "Client-side servers are tested from the desktop app"}
 
-            client = _create_client_from_server(server)
-            if client is None:
-                return {"status": "unavailable", "error": "Could not create client"}
+        # Build a temporary config and try listing tools
+        from mcp_tools.client import list_tools
+        from types import SimpleNamespace
 
-            try:
-                tools = await list_tools(client)
-                return {"status": "available", "tool_count": len(tools)}
-            except Exception as e:
-                return {"status": "unavailable", "error": str(e)}
+        # _create_client_from_server expects an object with attributes
+        server_obj = SimpleNamespace(**server_data)
+
+        from mcp_tools.orchestrator import _create_client_from_server
+        client = _create_client_from_server(server_obj)
+        if client is None:
+            return {"status": "unavailable", "error": "Could not create client"}
+
+        try:
+            tools = await list_tools(client)
+            return {"status": "available", "tool_count": len(tools)}
+        except Exception as e:
+            return {"status": "unavailable", "error": str(e)}
 
     except HTTPException:
         raise

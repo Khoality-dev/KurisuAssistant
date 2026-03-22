@@ -4,7 +4,7 @@ A voice-based AI assistant platform combining speech recognition, voice synthesi
 
 ## Features
 
-- **Voice Conversations** — Browser-based Silero VAD detects speech, transcribes via faster-whisper, and responds with natural TTS (GPT-SoVITS or INDEX-TTS)
+- **Voice Conversations** — Browser-based Silero VAD detects speech, transcribes via faster-whisper, and responds with natural TTS (GPT-SoVITS or viXTTS)
 - **Multi-Agent System** — Create specialized agents with custom prompts, voices, models, and tool access. Administrator agent can route between them in group discussions
 - **Agent Memory** — Agents automatically consolidate conversation history into persistent memory, injected into every request
 - **Vision Pipeline** — Real-time face recognition (InsightFace) and gesture detection (YOLOv8-Pose + MediaPipe Hands) from webcam
@@ -18,7 +18,7 @@ A voice-based AI assistant platform combining speech recognition, voice synthesi
 ## Prerequisites
 
 - Docker and Docker Compose
-- [Ollama](https://ollama.ai) with at least one model pulled
+- [Ollama](https://ollama.ai) (models can be pulled manually or automatically on first use)
 - (Optional) NVIDIA GPU for CUDA-accelerated ASR and vision
 
 ## Getting Started
@@ -52,12 +52,14 @@ Key environment variables (see `.env_template` for all options):
 | `LLM_API_URL` | `http://localhost:11434` | Ollama server URL |
 | `POSTGRES_*` | `kurisu` | Database credentials |
 | `JWT_SECRET_KEY` | — | Secret for JWT tokens |
-| `TTS_PROVIDER` | `gpt-sovits` | TTS backend (`gpt-sovits` or `index-tts`) |
+| `TTS_PROVIDER` | `vixtts` | TTS backend (`gpt-sovits` or `vixtts`) |
 | `ASR_MODEL` | `data/asr/whisper-ct2` | Whisper model path or size |
 | `ASR_DEVICE` | `auto` | ASR inference device (`cpu`/`cuda`) |
 | `FRAME_IDLE_THRESHOLD_MINUTES` | `30` | Idle time before starting a new session frame |
 
 Voice reference files go in `data/voice_storage/` (.wav/.mp3/.flac/.ogg).
+
+When running the bundled Docker stack, the `vixtts` service builds from `VIXTTS_ROOT` and defaults to `/home/khoa/application/viXTTS`.
 
 ## Backup & Restore
 
@@ -83,7 +85,7 @@ MIT License. See [LICENSE](LICENSE).
 
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — CTranslate2-based Whisper
 - [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) — Voice synthesis
-- [INDEX-TTS](https://github.com/indexteam/index-tts) — Voice synthesis
+- [viXTTS](https://huggingface.co/capleaf/viXTTS) — Vietnamese voice-cloning TTS
 - [Ollama](https://ollama.ai) — Local LLM serving
 - [Silero VAD](https://github.com/snakers4/silero-vad) — Voice activity detection
 - [InsightFace](https://github.com/deepinsight/insightface) — Face recognition
