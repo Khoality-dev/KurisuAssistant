@@ -49,6 +49,7 @@ export const FullExplorer: React.FC = () => {
 
   const [hasVSCode, setHasVSCode] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; entry: FileEntry } | null>(null);
+  const [bgContextMenu, setBgContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
   const [currentPath, setCurrentPath] = useState('');
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -191,7 +192,15 @@ export const FullExplorer: React.FC = () => {
           <CircularProgress size={28} />
         </Box>
       ) : (
-        <TableContainer sx={{ flex: 1, overflow: 'auto' }}>
+        <TableContainer
+          sx={{ flex: 1, overflow: 'auto' }}
+          onContextMenu={(e) => {
+            // Only fire if right-clicking empty space (not a row)
+            if ((e.target as HTMLElement).closest('tr[class*="MuiTableRow"]')) return;
+            e.preventDefault();
+            setBgContextMenu({ mouseX: e.clientX, mouseY: e.clientY });
+          }}
+        >
           <Table size="small" stickyHeader>
             <TableHead>
               <TableRow>
@@ -268,6 +277,26 @@ export const FullExplorer: React.FC = () => {
         >
           <ListItemText>Open with Default App</ListItemText>
         </MenuItem>
+      </Menu>
+
+      {/* Background context menu (right-click empty space) */}
+      <Menu
+        open={bgContextMenu !== null}
+        onClose={() => setBgContextMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={bgContextMenu ? { top: bgContextMenu.mouseY, left: bgContextMenu.mouseX } : undefined}
+      >
+        {hasVSCode && currentPath && (
+          <MenuItem
+            onClick={() => {
+              window.electron?.explorer?.openInVSCode(currentPath);
+              setBgContextMenu(null);
+            }}
+            sx={{ fontSize: '0.8rem' }}
+          >
+            <ListItemText>Open Folder in VS Code</ListItemText>
+          </MenuItem>
+        )}
       </Menu>
     </Box>
   );
