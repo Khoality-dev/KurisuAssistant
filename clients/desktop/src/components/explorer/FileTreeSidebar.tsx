@@ -25,7 +25,7 @@ export const FileTreeSidebar: React.FC = () => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
   const { workspaceTreeWidth, setWorkspaceTreeWidth } = useLayoutStore();
-  const { openFile } = useExplorerStore();
+  const { openFile, workspaceRoot } = useExplorerStore();
 
   const [rootNodes, setRootNodes] = useState<TreeNode[]>([]);
   const [isLoadingRoots, setIsLoadingRoots] = useState(true);
@@ -36,14 +36,16 @@ export const FileTreeSidebar: React.FC = () => {
     window.electron?.explorer?.hasVSCode?.().then(setHasVSCode).catch(() => {});
   }, []);
 
-  // Load root filesystem entries (drives on Windows, home+/ on Linux)
+  // Load workspace root folder contents
   useEffect(() => {
-    if (!window.electron?.hostTools) {
+    if (!window.electron?.explorer || !workspaceRoot) {
+      setRootNodes([]);
       setIsLoadingRoots(false);
       return;
     }
 
-    window.electron.explorer.listDirectory('').then((result) => {
+    setIsLoadingRoots(true);
+    window.electron.explorer.listDirectory(workspaceRoot).then((result) => {
       const nodes: TreeNode[] = result.entries.map((e) => ({
         entry: e,
         children: [],
@@ -56,7 +58,7 @@ export const FileTreeSidebar: React.FC = () => {
     }).catch(() => {
       setIsLoadingRoots(false);
     });
-  }, []);
+  }, [workspaceRoot]);
 
   // Toggle expand/collapse for a folder node
   const toggleExpand = useCallback(async (nodePath: string[]) => {
@@ -149,6 +151,7 @@ export const FileTreeSidebar: React.FC = () => {
         >
           <Typography
             variant="caption"
+            noWrap
             sx={{
               fontWeight: 700,
               fontSize: '0.65rem',
@@ -157,7 +160,7 @@ export const FileTreeSidebar: React.FC = () => {
               color: 'text.secondary',
             }}
           >
-            Explorer
+            {workspaceRoot ? workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || 'Explorer' : 'Explorer'}
           </Typography>
         </Box>
 

@@ -30,6 +30,7 @@ interface ExplorerState {
   openFiles: OpenFile[];
   activeFileIndex: number;
   viewMode: ExplorerViewMode;
+  workspaceRoot: string; // folder shown in tree sidebar during editor mode
   navigate: (path: string) => Promise<void>;
   openFile: (entry: FileEntry) => Promise<void>;
   forceOpenBinary: (index: number) => Promise<void>;
@@ -109,6 +110,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   openFiles: [],
   activeFileIndex: -1,
   viewMode: (localStorage.getItem('kurisu_explorer_view') as ExplorerViewMode) || 'list',
+  workspaceRoot: '',
 
   navigate: async (navPath: string) => {
     set({ isLoading: true });
@@ -164,9 +166,15 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         error,
       };
 
+      // Set workspace root to file's parent dir (or current browsed path)
+      const parentDir = entry.fullPath.replace(/[\\/][^\\/]+$/, '');
+      const { currentPath, workspaceRoot } = get();
+      const newRoot = workspaceRoot || currentPath || parentDir;
+
       set({
         openFiles: [...openFiles, newFile],
         activeFileIndex: openFiles.length,
+        workspaceRoot: newRoot,
       });
     } catch (err) {
       console.error('Failed to open file:', err);
@@ -198,6 +206,8 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 
     if (newFiles.length === 0) {
       newActive = -1;
+      set({ openFiles: newFiles, activeFileIndex: newActive, workspaceRoot: '' });
+      return;
     } else if (index === activeFileIndex) {
       newActive = Math.min(index, newFiles.length - 1);
     } else if (index < activeFileIndex) {
