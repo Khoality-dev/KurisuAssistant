@@ -165,6 +165,7 @@ export const FileEditor: React.FC = () => {
           cursorSmoothCaretAnimation: 'on',
           bracketPairColorization: { enabled: true },
           automaticLayout: true,
+          unusualLineTerminators: 'auto',
         }}
       />
     </Box>
