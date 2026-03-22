@@ -21,6 +21,7 @@ import {
   Menu,
   MenuItem,
   ListItemText,
+  TextField,
 } from '@mui/material';
 import {
   ArrowUpward as UpIcon,
@@ -50,6 +51,8 @@ export const FullExplorer: React.FC = () => {
   const { openFile, viewMode, setViewMode } = useExplorerStore();
 
   const [hasVSCode, setHasVSCode] = useState(false);
+  const [editingPath, setEditingPath] = useState(false);
+  const [pathInput, setPathInput] = useState('');
   const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; entry: FileEntry } | null>(null);
   const [bgContextMenu, setBgContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
   const [currentPath, setCurrentPath] = useState('');
@@ -156,36 +159,61 @@ export const FullExplorer: React.FC = () => {
           </span>
         </Tooltip>
 
-        <Breadcrumbs
-          separator="›"
-          sx={{ flex: 1, '& .MuiBreadcrumbs-separator': { mx: 0.5, color: 'text.secondary' } }}
-        >
-          <Link
-            component="button"
-            underline="hover"
-            onClick={handleGoHome}
-            sx={{ fontSize: '0.8rem', color: 'text.secondary', cursor: 'pointer' }}
+        {editingPath ? (
+          <TextField
+            size="small"
+            fullWidth
+            autoFocus
+            value={pathInput}
+            onChange={(e) => setPathInput(e.target.value)}
+            onKeyDown={async (e) => {
+              if (e.key === 'Enter') {
+                const input = pathInput.trim();
+                if (input) {
+                  // Try listing as directory first; if it fails, try opening as file
+                  const result = await window.electron.explorer.listDirectory(input);
+                  if (result.entries.length > 0 || !result.error) {
+                    loadDirectory(input);
+                  } else {
+                    // Might be a file path — try opening in editor
+                    openFile({ name: input.split(/[\\/]/).pop() || input, fullPath: input, type: 'file', size: 0, modified: null, extension: '' });
+                  }
+                } else {
+                  loadDirectory('');
+                }
+                setEditingPath(false);
+              } else if (e.key === 'Escape') {
+                setEditingPath(false);
+              }
+            }}
+            onBlur={() => setEditingPath(false)}
+            sx={{ flex: 1, '& .MuiInputBase-input': { fontSize: '0.8rem', py: 0.5 } }}
+          />
+        ) : (
+          <Breadcrumbs
+            separator="›"
+            onClick={() => { setPathInput(currentPath); setEditingPath(true); }}
+            sx={{ flex: 1, cursor: 'text', '& .MuiBreadcrumbs-separator': { mx: 0.5, color: 'text.secondary' } }}
           >
-            Root
-          </Link>
-          {breadcrumbSegments.map((seg, i) => (
-            i === breadcrumbSegments.length - 1 ? (
-              <Typography key={seg.path} sx={{ fontSize: '0.8rem', fontWeight: 600 }}>
-                {seg.label}
-              </Typography>
-            ) : (
-              <Link
-                key={seg.path}
-                component="button"
-                underline="hover"
-                onClick={() => loadDirectory(seg.path)}
-                sx={{ fontSize: '0.8rem', color: 'text.secondary', cursor: 'pointer' }}
-              >
-                {seg.label}
-              </Link>
-            )
-          ))}
-        </Breadcrumbs>
+            {breadcrumbSegments.map((seg, i) => (
+              i === breadcrumbSegments.length - 1 ? (
+                <Typography key={seg.path} sx={{ fontSize: '0.8rem', fontWeight: 600 }}>
+                  {seg.label}
+                </Typography>
+              ) : (
+                <Link
+                  key={seg.path}
+                  component="button"
+                  underline="hover"
+                  onClick={(e) => { e.stopPropagation(); loadDirectory(seg.path); }}
+                  sx={{ fontSize: '0.8rem', color: 'text.secondary', cursor: 'pointer' }}
+                >
+                  {seg.label}
+                </Link>
+              )
+            ))}
+          </Breadcrumbs>
+        )}
 
         <Box sx={{ display: 'flex', gap: 0.25 }}>
           <Tooltip title="List view">
@@ -303,12 +331,14 @@ export const FullExplorer: React.FC = () => {
                   }}
                 >
                   <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {getFileIcon(entry.name, entry.type)}
-                      <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>
-                        {entry.name}
-                      </Typography>
-                    </Box>
+                    <Tooltip title={entry.name} enterDelay={500} placement="top-start">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                        {getFileIcon(entry.name, entry.type)}
+                        <Typography variant="body2" noWrap sx={{ fontSize: '0.8rem' }}>
+                          {entry.name}
+                        </Typography>
+                      </Box>
+                    </Tooltip>
                   </TableCell>
                   <TableCell align="right">
                     <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>

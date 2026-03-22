@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Box, Typography, CircularProgress, Menu, MenuItem, ListItemText } from '@mui/material';
+import { Box, Typography, CircularProgress, Menu, MenuItem, ListItemText, Tooltip } from '@mui/material';
 import {
   ChevronRight as ChevronRightIcon,
   ExpandMore as ExpandMoreIcon,
@@ -276,18 +276,20 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({ node, depth, path, onToggle, 
         </Box>
 
         {/* File name */}
-        <Typography
-          variant="body2"
-          noWrap
-          sx={{
-            fontSize: '0.8rem',
-            color: 'text.primary',
-            flex: 1,
-            minWidth: 0,
-          }}
-        >
-          {node.entry.name}
-        </Typography>
+        <Tooltip title={node.entry.name} enterDelay={600} placement="right">
+          <Typography
+            variant="body2"
+            noWrap
+            sx={{
+              fontSize: '0.8rem',
+              color: 'text.primary',
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
+            {node.entry.name}
+          </Typography>
+        </Tooltip>
       </Box>
 
       {/* Children */}
