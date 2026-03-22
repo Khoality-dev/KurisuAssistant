@@ -26,7 +26,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'explorer', label: 'Explorer', icon: <FolderIcon />, activeIcon: <FolderFilledIcon /> },
+  { id: 'workspace', label: 'Workspace', icon: <FolderIcon />, activeIcon: <FolderFilledIcon /> },
   { id: 'conversations', label: 'Conversations', icon: <ChatIcon />, activeIcon: <ChatFilledIcon /> },
   { id: 'settings', label: 'Settings', icon: <SettingsIcon />, activeIcon: <SettingsFilledIcon /> },
 ];

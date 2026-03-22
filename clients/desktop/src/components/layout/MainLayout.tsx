@@ -28,7 +28,7 @@ export const MainLayout: React.FC = () => {
 
   const renderMainContent = () => {
     switch (activePage) {
-      case 'explorer': return <FileExplorerPage />;
+      case 'workspace': return <FileExplorerPage />;
       case 'conversations': return <ConversationsPage />;
       case 'settings': return <SettingsPage />;
     }

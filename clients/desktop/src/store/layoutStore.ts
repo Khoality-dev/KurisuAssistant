@@ -1,20 +1,20 @@
 import { create } from 'zustand';
 
-export type ActivePage = 'explorer' | 'conversations' | 'settings';
+export type ActivePage = 'workspace' | 'conversations' | 'settings';
 
 interface LayoutState {
   activePage: ActivePage;
   chatPanelWidth: number;
   settingsSection: string;
-  explorerTreeWidth: number;
+  workspaceTreeWidth: number;
   setActivePage: (page: ActivePage) => void;
   setChatPanelWidth: (width: number) => void;
   setSettingsSection: (section: string) => void;
-  setExplorerTreeWidth: (width: number) => void;
+  setWorkspaceTreeWidth: (width: number) => void;
 }
 
 const CHAT_PANEL_WIDTH_KEY = 'kurisu_chat_panel_width';
-const EXPLORER_TREE_WIDTH_KEY = 'kurisu_explorer_tree_width';
+const WORKSPACE_TREE_WIDTH_KEY = 'kurisu_workspace_tree_width';
 
 function loadNumber(key: string, fallback: number): number {
   try {
@@ -26,10 +26,10 @@ function loadNumber(key: string, fallback: number): number {
 }
 
 export const useLayoutStore = create<LayoutState>((set) => ({
-  activePage: 'explorer',
+  activePage: 'workspace',
   chatPanelWidth: loadNumber(CHAT_PANEL_WIDTH_KEY, 400),
   settingsSection: 'account',
-  explorerTreeWidth: loadNumber(EXPLORER_TREE_WIDTH_KEY, 240),
+  workspaceTreeWidth: loadNumber(WORKSPACE_TREE_WIDTH_KEY, 240),
 
   setActivePage: (page) => set({ activePage: page }),
 
@@ -40,8 +40,8 @@ export const useLayoutStore = create<LayoutState>((set) => ({
 
   setSettingsSection: (section) => set({ settingsSection: section }),
 
-  setExplorerTreeWidth: (width) => {
-    localStorage.setItem(EXPLORER_TREE_WIDTH_KEY, String(width));
-    set({ explorerTreeWidth: width });
+  setWorkspaceTreeWidth: (width) => {
+    localStorage.setItem(WORKSPACE_TREE_WIDTH_KEY, String(width));
+    set({ workspaceTreeWidth: width });
   },
 }));

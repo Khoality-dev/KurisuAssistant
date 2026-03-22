@@ -24,7 +24,7 @@ const MAX_TREE_WIDTH = 500;
 export const FileTreeSidebar: React.FC = () => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
-  const { explorerTreeWidth, setExplorerTreeWidth } = useLayoutStore();
+  const { workspaceTreeWidth, setWorkspaceTreeWidth } = useLayoutStore();
   const { openFile } = useExplorerStore();
 
   const [rootNodes, setRootNodes] = useState<TreeNode[]>([]);
@@ -105,8 +105,8 @@ export const FileTreeSidebar: React.FC = () => {
   }, []);
 
   const handleResize = useCallback((delta: number) => {
-    setExplorerTreeWidth(Math.max(MIN_TREE_WIDTH, Math.min(MAX_TREE_WIDTH, explorerTreeWidth + delta)));
-  }, [explorerTreeWidth, setExplorerTreeWidth]);
+    setWorkspaceTreeWidth(Math.max(MIN_TREE_WIDTH, Math.min(MAX_TREE_WIDTH, workspaceTreeWidth + delta)));
+  }, [workspaceTreeWidth, setWorkspaceTreeWidth]);
 
   const handleFileClick = useCallback((entry: FileEntry) => {
     openFile(entry);
@@ -116,7 +116,7 @@ export const FileTreeSidebar: React.FC = () => {
     <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%', flexShrink: 0 }}>
       <Box
         sx={{
-          width: explorerTreeWidth,
+          width: workspaceTreeWidth,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
