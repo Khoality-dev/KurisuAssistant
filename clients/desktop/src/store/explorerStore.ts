@@ -93,12 +93,6 @@ function getLanguageFromExtension(filename: string): string {
 }
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico']);
-/** Detect binary content by checking for null bytes in the first 8KB. */
-export function isBinaryContent(content: string): boolean {
-  const sample = content.slice(0, 8192);
-  return sample.includes('\0');
-}
-
 export function isImageFile(filename: string): boolean {
   const dotIdx = filename.toLowerCase().lastIndexOf('.');
   if (dotIdx === -1) return false;
@@ -142,19 +136,26 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     }
 
     try {
-      const result = await window.electron.explorer.readFile(entry.fullPath);
-      if (result.error) {
-        console.error('Failed to read file:', result.error);
-        return;
+      // Check binary via raw buffer in main process (not utf-8 which corrupts binary)
+      const binary = window.electron.explorer.isBinary
+        ? await window.electron.explorer.isBinary(entry.fullPath)
+        : false;
+
+      let content = '';
+      if (!binary) {
+        const result = await window.electron.explorer.readFile(entry.fullPath);
+        if (result.error) {
+          console.error('Failed to read file:', result.error);
+          return;
+        }
+        content = result.content ?? '';
       }
 
-      const content = result.content ?? '';
-      const binary = isBinaryContent(content);
       const newFile: OpenFile = {
         path: entry.fullPath,
         name: entry.name,
-        content: binary ? '' : content,
-        originalContent: binary ? '' : content,
+        content,
+        originalContent: content,
         language: getLanguageFromExtension(entry.name),
         isBinary: binary,
         forceOpen: false,

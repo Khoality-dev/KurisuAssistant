@@ -89,6 +89,23 @@ export function registerExplorerIPC(): void {
     }
   });
 
+  // Binary file detection — read first 512 bytes as raw buffer, check for null bytes
+  ipcMain.handle('explorer:is-binary', (_event, filePath: string) => {
+    try {
+      const resolved = path.resolve(filePath);
+      const fd = fs.openSync(resolved, 'r');
+      const buf = Buffer.alloc(512);
+      const bytesRead = fs.readSync(fd, buf, 0, 512, 0);
+      fs.closeSync(fd);
+      for (let i = 0; i < bytesRead; i++) {
+        if (buf[i] === 0) return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  });
+
   // VS Code detection — check if `code` command is available
   let vsCodeAvailable: boolean | null = null;
 
