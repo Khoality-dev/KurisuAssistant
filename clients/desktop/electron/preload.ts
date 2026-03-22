@@ -59,12 +59,15 @@ contextBridge.exposeInMainWorld('electron', {
     getAllowedPaths: (agentId: number) => ipcRenderer.invoke('host-tools:get-allowed-paths', agentId),
     setAllowedPaths: (agentId: number, paths: string[]) =>
       ipcRenderer.invoke('host-tools:set-allowed-paths', agentId, paths),
+  },
+
+  explorer: {
     listDirectory: (dirPath: string) =>
-      ipcRenderer.invoke('host-tools:list-directory', dirPath),
+      ipcRenderer.invoke('explorer:list-directory', dirPath),
     readFile: (filePath: string) =>
-      ipcRenderer.invoke('host-tools:read-file', filePath),
+      ipcRenderer.invoke('explorer:read-file', filePath),
     writeFile: (filePath: string, content: string) =>
-      ipcRenderer.invoke('host-tools:write-file', filePath, content),
+      ipcRenderer.invoke('explorer:write-file', filePath, content),
   },
 
   onMCPToolsChanged: (cb: () => void) => {

@@ -37,7 +37,7 @@ export const FileTreeSidebar: React.FC = () => {
       return;
     }
 
-    window.electron.hostTools.listDirectory('').then((result) => {
+    window.electron.explorer.listDirectory('').then((result) => {
       const nodes: TreeNode[] = result.entries.map((e) => ({
         entry: e,
         children: [],
@@ -73,7 +73,7 @@ export const FileTreeSidebar: React.FC = () => {
       target.isExpanded = true;
 
       // Trigger async load
-      window.electron.hostTools.listDirectory(target.entry.fullPath).then((result) => {
+      window.electron.explorer.listDirectory(target.entry.fullPath).then((result) => {
         setRootNodes((current) => {
           const c = deepCloneNodes(current);
           const t = findNode(c, nodePath);

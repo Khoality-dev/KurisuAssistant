@@ -8,6 +8,7 @@ import { autoUpdater } from 'electron-updater';
 import { registerMCPHandlers, cleanupMCP } from './mcp';
 import { registerHostToolIPC } from './hostTools';
 import { registerAppToolIPC } from './appTools';
+import { registerExplorerIPC } from './explorerIPC';
 
 // Set custom cache path to avoid permission issues on Windows
 app.setPath('userData', path.join(app.getPath('appData'), 'kurisu-assistant'));
@@ -420,6 +421,7 @@ app.whenReady().then(() => {
   registerMCPHandlers();
   registerHostToolIPC();
   registerAppToolIPC();
+  registerExplorerIPC();
 
   // Auto-updater (no-op in dev mode — no update server configured)
   autoUpdater.autoDownload = true;

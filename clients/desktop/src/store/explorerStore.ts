@@ -104,7 +104,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   navigate: async (navPath: string) => {
     set({ isLoading: true });
     try {
-      const result = await window.electron.hostTools.listDirectory(navPath);
+      const result = await window.electron.explorer.listDirectory(navPath);
       set({
         currentPath: result.path,
         entries: result.entries,
@@ -144,7 +144,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     }
 
     try {
-      const result = await window.electron.hostTools.readFile(entry.fullPath);
+      const result = await window.electron.explorer.readFile(entry.fullPath);
       if (result.error) {
         console.error('Failed to read file:', result.error);
         return;
@@ -201,7 +201,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     if (!file) return;
 
     try {
-      const result = await window.electron.hostTools.writeFile(file.path, file.content);
+      const result = await window.electron.explorer.writeFile(file.path, file.content);
       if (result.error) {
         console.error('Failed to save file:', result.error);
         return;

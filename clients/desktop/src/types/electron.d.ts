@@ -47,6 +47,9 @@ export interface HostToolsAPI {
   isHostTool: (name: string) => Promise<boolean>;
   getAllowedPaths: (agentId: number) => Promise<string[]>;
   setAllowedPaths: (agentId: number, paths: string[]) => Promise<void>;
+}
+
+export interface ExplorerAPI {
   listDirectory: (dirPath: string) => Promise<{
     path: string;
     entries: Array<{ name: string; fullPath: string; type: 'file' | 'directory'; size: number; modified: string | null; extension: string }>;
@@ -82,6 +85,7 @@ export interface ElectronAPI {
   onMCPToolsChanged: (cb: () => void) => () => void;
   appTools: AppToolsAPI;
   hostTools: HostToolsAPI;
+  explorer: ExplorerAPI;
   mcp: MCPAPI;
   characterWindow: CharacterWindowAPI;
   extensions: ExtensionsAPI;
