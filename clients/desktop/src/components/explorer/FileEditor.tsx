@@ -84,6 +84,31 @@ export const FileEditor: React.FC = () => {
     );
   }
 
+  // Error state
+  if (activeFile.error) {
+    return (
+      <Box
+        sx={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 2,
+          color: 'text.secondary',
+        }}
+      >
+        <WarningIcon sx={{ fontSize: 48, color: 'error.main', opacity: 0.6 }} />
+        <Typography variant="body2" sx={{ fontSize: '0.9rem', fontWeight: 500 }}>
+          Failed to open file
+        </Typography>
+        <Typography variant="caption" sx={{ maxWidth: 400, textAlign: 'center', wordBreak: 'break-all' }}>
+          {activeFile.error}
+        </Typography>
+      </Box>
+    );
+  }
+
   // Binary file — try image preview first, fallback to "Open Anyway"
   if (activeFile.isBinary && !activeFile.forceOpen) {
     return <BinaryFileView file={activeFile} fileIndex={activeFileIndex} isDark={isDark} />;

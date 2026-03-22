@@ -15,8 +15,9 @@ export interface OpenFile {
   content: string;
   originalContent: string;
   language: string;
-  isBinary: boolean; // true = show "open as raw" prompt before rendering editor
-  forceOpen: boolean; // user confirmed to open binary as raw text
+  isBinary: boolean;
+  forceOpen: boolean;
+  error?: string; // read error message
 }
 
 export type ExplorerViewMode = 'list' | 'grid';
@@ -142,13 +143,14 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         : false;
 
       let content = '';
+      let error: string | undefined;
       if (!binary) {
         const result = await window.electron.explorer.readFile(entry.fullPath);
         if (result.error) {
-          console.error('Failed to read file:', result.error);
-          return;
+          error = result.error;
+        } else {
+          content = result.content ?? '';
         }
-        content = result.content ?? '';
       }
 
       const newFile: OpenFile = {
@@ -159,6 +161,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         language: getLanguageFromExtension(entry.name),
         isBinary: binary,
         forceOpen: false,
+        error,
       };
 
       set({
