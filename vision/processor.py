@@ -16,7 +16,7 @@ import numpy as np
 
 import models.face_recognition as face_rec_module
 import models.gesture_detection as gesture_module
-from db.session import get_session
+from db.service import get_db_service
 from models.gesture_detection.classifier import classify_hand_gestures, classify_pose_trajectory
 
 logger = logging.getLogger(__name__)
@@ -149,8 +149,8 @@ class VisionProcessor:
         from db.models import FacePhoto, FaceIdentity
         from sqlalchemy import select
 
-        entries = []
-        with get_session() as session:
+        def _load(session):
+            entries = []
             stmt = (
                 select(
                     FacePhoto.id,
@@ -171,8 +171,11 @@ class VisionProcessor:
                     "name": row.identity_name,
                     "embedding": emb,
                 })
-        self._embedding_cache = entries
-        logger.info("Loaded %d face embeddings into cache for user %d", len(entries), self.user_id)
+            return entries
+
+        db = get_db_service()
+        self._embedding_cache = db.execute_sync(_load)
+        logger.info("Loaded %d face embeddings into cache for user %d", len(self._embedding_cache), self.user_id)
 
     def _match_faces(self, faces_raw: list) -> list:
         if not faces_raw:

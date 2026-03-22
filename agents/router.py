@@ -7,7 +7,7 @@ from typing import AsyncGenerator, Dict, List, Optional
 from .base import BaseAgent, AgentConfig, AgentContext, SimpleAgent, async_iterate
 from websocket.events import StreamChunkEvent
 from tools import ToolRegistry
-from db.session import get_session
+from db.service import get_db_service
 from db.repositories import AgentRepository
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ class RouterAgent(BaseAgent):
         Returns:
             List of agent configs
         """
-        with get_session() as session:
+        def _load(session):
             agent_repo = AgentRepository(session)
             agents = agent_repo.list_by_user(user_id)
 
@@ -57,6 +57,9 @@ class RouterAgent(BaseAgent):
                 )
                 for agent in agents
             ]
+
+        db = get_db_service()
+        return db.execute_sync(_load)
 
     def _build_delegation_tools_for_user(self, user_id: int) -> List[Dict]:
         """Build delegation tools based on user's agents.
@@ -214,22 +217,12 @@ class RouterAgent(BaseAgent):
             StreamChunkEvent from sub-agent
         """
         # Load agent config from database
-        with get_session() as session:
+        def _load_agent(session):
             agent_repo = AgentRepository(session)
             agent = agent_repo.get_by_user_and_id(context.user_id, agent_id)
-
             if not agent:
-                yield StreamChunkEvent(
-                    content=f"Agent not found: {agent_id}",
-                    role="assistant",
-                    agent_id=self.config.id,
-                    name=self.config.name or "router",
-                    conversation_id=context.conversation_id,
-                    frame_id=context.frame_id,
-                )
-                return
-
-            agent_config = AgentConfig(
+                return None
+            return AgentConfig(
                 id=agent.id,
                 name=agent.name,
                 system_prompt=agent.system_prompt or "",
@@ -239,6 +232,20 @@ class RouterAgent(BaseAgent):
                 excluded_tools=agent.excluded_tools,
                 think=agent.think,
             )
+
+        db = get_db_service()
+        agent_config = await db.execute(_load_agent)
+
+        if not agent_config:
+            yield StreamChunkEvent(
+                content=f"Agent not found: {agent_id}",
+                role="assistant",
+                agent_id=self.config.id,
+                name=self.config.name or "router",
+                conversation_id=context.conversation_id,
+                frame_id=context.frame_id,
+            )
+            return
 
         # Add delegation context to messages
         task = tool_args.get("task", "")

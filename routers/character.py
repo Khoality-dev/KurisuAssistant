@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from core.deps import get_db, get_authenticated_user
 from db.models import User
-from db.session import get_session
+from db.service import get_db_service
 from db.repositories import AgentRepository
 
 logger = logging.getLogger(__name__)
@@ -138,10 +138,12 @@ async def upload_base_image(
 
     Saved to ``{agent_id}/{pose_id}/base.png``.  Re-uploading overwrites.
     """
-    with get_session() as session:
-        agent_repo = AgentRepository(session)
-        if not agent_repo.get_by_user_and_id(user.id, agent_id):
-            raise HTTPException(status_code=404, detail="Agent not found")
+    db = get_db_service()
+    agent_exists = await db.execute(
+        lambda s: AgentRepository(s).get_by_user_and_id(user.id, agent_id) is not None
+    )
+    if not agent_exists:
+        raise HTTPException(status_code=404, detail="Agent not found")
 
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
@@ -189,10 +191,12 @@ async def compute_patch(
             status_code=400, detail=f"part must be one of: {', '.join(sorted(VALID_PARTS))}"
         )
 
-    with get_session() as session:
-        agent_repo = AgentRepository(session)
-        if not agent_repo.get_by_user_and_id(user.id, agent_id):
-            raise HTTPException(status_code=404, detail="Agent not found")
+    db = get_db_service()
+    agent_exists = await db.execute(
+        lambda s: AgentRepository(s).get_by_user_and_id(user.id, agent_id) is not None
+    )
+    if not agent_exists:
+        raise HTTPException(status_code=404, detail="Agent not found")
 
     # Load base image from the pose directory
     base_path = _pose_dir(agent_id, pose_id) / "base.png"
@@ -254,10 +258,12 @@ async def upload_video(
 
     Saved to ``{agent_id}/edges/{edge_id}.mp4|.webm``.  Re-uploading overwrites.
     """
-    with get_session() as session:
-        agent_repo = AgentRepository(session)
-        if not agent_repo.get_by_user_and_id(user.id, agent_id):
-            raise HTTPException(status_code=404, detail="Agent not found")
+    db = get_db_service()
+    agent_exists = await db.execute(
+        lambda s: AgentRepository(s).get_by_user_and_id(user.id, agent_id) is not None
+    )
+    if not agent_exists:
+        raise HTTPException(status_code=404, detail="Agent not found")
 
     if not file.content_type or file.content_type not in VALID_VIDEO_TYPES:
         raise HTTPException(status_code=400, detail="File must be video/mp4 or video/webm")
@@ -297,10 +303,12 @@ async def migrate_ids(
     - Pose folders: ``{agent_id}/{old_node_id}/`` → ``{agent_id}/{new_node_id}/``
     - Edge video files: replaces old node IDs in filenames under ``edges/``
     """
-    with get_session() as session:
-        agent_repo = AgentRepository(session)
-        if not agent_repo.get_by_user_and_id(user.id, agent_id):
-            raise HTTPException(status_code=404, detail="Agent not found")
+    db = get_db_service()
+    agent_exists = await db.execute(
+        lambda s: AgentRepository(s).get_by_user_and_id(user.id, agent_id) is not None
+    )
+    if not agent_exists:
+        raise HTTPException(status_code=404, detail="Agent not found")
 
     id_mapping = body.id_mapping
     if not id_mapping:
@@ -455,7 +463,7 @@ async def update_character_config(
     Automatically cleans up orphaned asset files when the config changes
     (e.g., old base images and patches no longer referenced).
     """
-    with get_session() as session:
+    def _update_config(session):
         agent_repo = AgentRepository(session)
         agent = agent_repo.get_by_user_and_id(user.id, agent_id)
 
@@ -463,5 +471,7 @@ async def update_character_config(
             raise HTTPException(status_code=404, detail="Agent not found")
 
         agent = agent_repo.update_agent(agent, character_config=config)
-
         return {"message": "Character config updated", "character_config": agent.character_config}
+
+    db = get_db_service()
+    return await db.execute(_update_config)

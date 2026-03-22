@@ -11,7 +11,7 @@ from fastapi.security import OAuth2PasswordBearer
 
 from core.deps import get_db, get_authenticated_user
 from db.models import User
-from db.session import get_session
+from db.service import get_db_service
 from db.repositories import UserRepository
 from utils.images import upload_image, get_image_path, get_user_image_path
 
@@ -40,13 +40,16 @@ def _get_user_from_token(token: Optional[str]) -> User:
     username = "admin"
     # Original: username = get_current_user(token) ...
 
-    with get_session() as session:
+    def _fetch_user(session):
         user_repo = UserRepository(session)
         user = user_repo.get_by_username(username)
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         session.expunge(user)
         return user
+
+    db = get_db_service()
+    return db.execute_sync(_fetch_user)
 
 
 @router.get("/u/{image_uuid}")

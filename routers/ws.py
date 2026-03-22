@@ -6,7 +6,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from core.security import get_current_user
 from websocket.manager import manager
 from websocket.handlers import ChatSessionHandler
-from db.session import get_session
+from db.service import get_db_service
 from db.repositories import UserRepository
 
 logger = logging.getLogger(__name__)
@@ -31,14 +31,17 @@ async def websocket_chat(
         return
 
     # Get user ID from username
-    with get_session() as session:
+    def _get_user_id(session):
         user_repo = UserRepository(session)
         user = user_repo.get_by_username(username)
-        if not user:
-            await websocket.accept()
-            await websocket.close(code=4001, reason="User not found")
-            return
-        user_id = user.id
+        return user.id if user else None
+
+    db = get_db_service()
+    user_id = await db.execute(_get_user_id)
+    if user_id is None:
+        await websocket.accept()
+        await websocket.close(code=4001, reason="User not found")
+        return
 
     # Connect
     await manager.connect(websocket, username)

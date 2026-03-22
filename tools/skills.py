@@ -10,14 +10,15 @@ logger = logging.getLogger(__name__)
 
 def get_skill_names_for_user(user_id: int) -> List[str]:
     """Load all skill names for a user."""
-    from db.session import get_session
+    from db.service import get_db_service
     from db.repositories import SkillRepository
 
     try:
-        with get_session() as session:
-            repo = SkillRepository(session)
-            skills = repo.list_by_user(user_id)
-            return [skill.name for skill in skills if skill.name]
+        db = get_db_service()
+        return db.execute_sync(lambda s: [
+            skill.name for skill in SkillRepository(s).list_by_user(user_id)
+            if skill.name
+        ])
     except Exception as e:
         logger.error(f"Failed to load skill names for user {user_id}: {e}", exc_info=True)
         return []
@@ -55,7 +56,7 @@ class GetSkillInstructionsTool(BaseTool):
         }
 
     async def execute(self, args: Dict[str, Any]) -> str:
-        from db.session import get_session
+        from db.service import get_db_service
         from db.repositories import SkillRepository
 
         skill_name = args.get("name", "")
@@ -67,12 +68,15 @@ class GetSkillInstructionsTool(BaseTool):
             return "Error: no user context available."
 
         try:
-            with get_session() as session:
+            def _get_skill(session):
                 repo = SkillRepository(session)
                 skill = repo.get_by_filter(user_id=user_id, name=skill_name)
                 if not skill:
                     return f"Skill '{skill_name}' not found."
                 return skill.instructions or "(no instructions)"
+
+            db = get_db_service()
+            return await db.execute(_get_skill)
         except Exception as e:
             logger.error(f"Failed to get skill '{skill_name}': {e}", exc_info=True)
             return f"Error looking up skill: {e}"

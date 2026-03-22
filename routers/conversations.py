@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from core.deps import get_db, get_authenticated_user
-from db.session import get_session
+from db.service import get_db_service
 from db.models import User
 from db.repositories import ConversationRepository, MessageRepository, FrameRepository
 
@@ -26,7 +26,7 @@ async def list_conversations(
 ):
     """List user's conversations. If agent_id is provided, returns the latest conversation containing messages from that agent."""
     try:
-        with get_session() as session:
+        def _list(session):
             conv_repo = ConversationRepository(session)
             if agent_id is not None:
                 conversation = conv_repo.get_latest_by_agent(user.id, agent_id)
@@ -43,6 +43,9 @@ async def list_conversations(
                     }]
                 return []
             return conv_repo.list_by_user(user.id, limit)
+
+        db = get_db_service()
+        return await db.execute(_list)
     except Exception as e:
         logger.error(f"Error listing conversations for user {user.username}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -58,10 +61,9 @@ async def get_conversation(
 ):
     """Get conversation details with messages."""
     try:
-        with get_session() as session:
+        def _get(session):
             conv_repo = ConversationRepository(session)
             msg_repo = MessageRepository(session)
-            frame_repo = FrameRepository(session)
 
             conversation = conv_repo.get_by_user_and_id(user.id, conversation_id)
             if not conversation:
@@ -126,6 +128,9 @@ async def get_conversation(
                 "has_more": offset + len(messages_array) < total_messages,
             }
 
+        db = get_db_service()
+        return await db.execute(_get)
+
     except HTTPException:
         raise
     except Exception as e:
@@ -148,9 +153,10 @@ async def update_conversation(
         if not title:
             raise HTTPException(status_code=400, detail="Title is required")
 
-        with get_session() as session:
-            conv_repo = ConversationRepository(session)
-            conv_repo.update_title(user.id, title, conversation_id)
+        db = get_db_service()
+        await db.execute(
+            lambda s: ConversationRepository(s).update_title(user.id, title, conversation_id)
+        )
 
         return {"message": "Conversation title updated successfully"}
     except HTTPException:
@@ -168,9 +174,10 @@ async def delete_conversation(
 ):
     """Delete conversation and all its messages."""
     try:
-        with get_session() as session:
-            conv_repo = ConversationRepository(session)
-            result = conv_repo.delete_by_user_and_id(user.id, conversation_id)
+        db = get_db_service()
+        result = await db.execute(
+            lambda s: ConversationRepository(s).delete_by_user_and_id(user.id, conversation_id)
+        )
 
         if result:
             return {"message": "Conversation deleted successfully"}
@@ -191,7 +198,7 @@ async def list_frames(
 ):
     """List all frames in a conversation with metadata."""
     try:
-        with get_session() as session:
+        def _list_frames(session):
             conv_repo = ConversationRepository(session)
             frame_repo = FrameRepository(session)
 
@@ -201,6 +208,9 @@ async def list_frames(
 
             frames = frame_repo.list_by_conversation(conversation_id)
             return {"frames": frames}
+
+        db = get_db_service()
+        return await db.execute(_list_frames)
 
     except HTTPException:
         raise

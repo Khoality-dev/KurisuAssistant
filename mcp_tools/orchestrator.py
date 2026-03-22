@@ -72,18 +72,31 @@ class UserMCPOrchestrator:
         Only loads servers with location="server" (or NULL for backwards compat).
         Client-side servers are managed by the Electron app.
         """
-        from db.session import get_session
+        from db.service import get_db_service
         from db.repositories import MCPServerRepository
 
-        with get_session() as session:
+        def _fetch(session):
             repo = MCPServerRepository(session)
             servers = repo.list_enabled_by_user(self.user_id, location="server")
+            # Extract data while session is open
+            return [
+                (server.name, server.transport_type, server.url, server.command, server.args, server.env)
+                for server in servers
+            ]
 
-            self._server_clients.clear()
-            for server in servers:
-                client = _create_client_from_server(server)
-                if client:
-                    self._server_clients[server.name] = client
+        db = get_db_service()
+        server_data = db.execute_sync(_fetch)
+
+        self._server_clients.clear()
+        for name, transport_type, url, command, args, env in server_data:
+            # Build a lightweight object for _create_client_from_server
+            server = type("S", (), {
+                "name": name, "transport_type": transport_type,
+                "url": url, "command": command, "args": args, "env": env,
+            })()
+            client = _create_client_from_server(server)
+            if client:
+                self._server_clients[name] = client
 
     def invalidate(self):
         """Reset cache, forcing reload on next call."""
@@ -129,13 +142,13 @@ class UserMCPOrchestrator:
 
     def get_server_names(self) -> List[str]:
         """Get enabled server-side server names for the user."""
-        from db.session import get_session
+        from db.service import get_db_service
         from db.repositories import MCPServerRepository
 
-        with get_session() as session:
-            repo = MCPServerRepository(session)
-            servers = repo.list_enabled_by_user(self.user_id, location="server")
-            return [s.name for s in servers]
+        db = get_db_service()
+        return db.execute_sync(lambda s: [
+            srv.name for srv in MCPServerRepository(s).list_enabled_by_user(self.user_id, location="server")
+        ])
 
     async def execute_tool_calls(
         self,
