@@ -19,6 +19,8 @@ export interface OpenFile {
   forceOpen: boolean; // user confirmed to open binary as raw text
 }
 
+export type ExplorerViewMode = 'list' | 'grid';
+
 interface ExplorerState {
   currentPath: string;
   entries: FileEntry[];
@@ -26,6 +28,7 @@ interface ExplorerState {
   isRoot: boolean;
   openFiles: OpenFile[];
   activeFileIndex: number;
+  viewMode: ExplorerViewMode;
   navigate: (path: string) => Promise<void>;
   openFile: (entry: FileEntry) => Promise<void>;
   forceOpenBinary: (index: number) => Promise<void>;
@@ -33,6 +36,7 @@ interface ExplorerState {
   setActiveFile: (index: number) => void;
   updateFileContent: (index: number, content: string) => void;
   saveFile: (index: number) => Promise<void>;
+  setViewMode: (mode: ExplorerViewMode) => void;
 }
 
 const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
@@ -109,6 +113,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   isRoot: true,
   openFiles: [],
   activeFileIndex: -1,
+  viewMode: (localStorage.getItem('kurisu_explorer_view') as ExplorerViewMode) || 'list',
 
   navigate: async (navPath: string) => {
     set({ isLoading: true });
@@ -245,5 +250,10 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     } catch (err) {
       console.error('Failed to save file:', err);
     }
+  },
+
+  setViewMode: (mode) => {
+    localStorage.setItem('kurisu_explorer_view', mode);
+    set({ viewMode: mode });
   },
 }));

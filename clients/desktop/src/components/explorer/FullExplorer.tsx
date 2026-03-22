@@ -47,9 +47,8 @@ function formatDate(dateStr: string | null): string {
 }
 
 export const FullExplorer: React.FC = () => {
-  const { openFile } = useExplorerStore();
+  const { openFile, viewMode, setViewMode } = useExplorerStore();
 
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [hasVSCode, setHasVSCode] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; entry: FileEntry } | null>(null);
   const [bgContextMenu, setBgContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
