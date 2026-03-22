@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Box, Typography, CircularProgress } from '@mui/material';
+import { Box, Typography, CircularProgress, Menu, MenuItem, ListItemText } from '@mui/material';
 import {
   ChevronRight as ChevronRightIcon,
   ExpandMore as ExpandMoreIcon,
@@ -29,6 +29,12 @@ export const FileTreeSidebar: React.FC = () => {
 
   const [rootNodes, setRootNodes] = useState<TreeNode[]>([]);
   const [isLoadingRoots, setIsLoadingRoots] = useState(true);
+  const [hasVSCode, setHasVSCode] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; entry: FileEntry } | null>(null);
+
+  useEffect(() => {
+    window.electron?.explorer?.hasVSCode?.().then(setHasVSCode).catch(() => {});
+  }, []);
 
   // Load root filesystem entries (drives on Windows, home+/ on Linux)
   useEffect(() => {
@@ -112,6 +118,12 @@ export const FileTreeSidebar: React.FC = () => {
     openFile(entry);
   }, [openFile]);
 
+  const handleContextMenu = useCallback((e: React.MouseEvent, entry: FileEntry) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ mouseX: e.clientX, mouseY: e.clientY, entry });
+  }, []);
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%', flexShrink: 0 }}>
       <Box
@@ -165,12 +177,42 @@ export const FileTreeSidebar: React.FC = () => {
               path={[String(i)]}
               onToggle={toggleExpand}
               onFileClick={handleFileClick}
+              onContextMenu={handleContextMenu}
             />
           ))}
         </Box>
       </Box>
 
       <ResizeHandle onResize={handleResize} />
+
+      {/* Context menu */}
+      <Menu
+        open={contextMenu !== null}
+        onClose={() => setContextMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={contextMenu ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined}
+      >
+        {hasVSCode && (
+          <MenuItem
+            onClick={() => {
+              if (contextMenu) window.electron?.explorer?.openInVSCode(contextMenu.entry.fullPath);
+              setContextMenu(null);
+            }}
+            sx={{ fontSize: '0.8rem' }}
+          >
+            <ListItemText>Open with VS Code</ListItemText>
+          </MenuItem>
+        )}
+        <MenuItem
+          onClick={() => {
+            if (contextMenu) window.electron?.openPath(contextMenu.entry.fullPath);
+            setContextMenu(null);
+          }}
+          sx={{ fontSize: '0.8rem' }}
+        >
+          <ListItemText>Open with Default App</ListItemText>
+        </MenuItem>
+      </Menu>
     </Box>
   );
 };
@@ -183,9 +225,10 @@ interface TreeNodeRowProps {
   path: string[];
   onToggle: (path: string[]) => void;
   onFileClick: (entry: FileEntry) => void;
+  onContextMenu: (e: React.MouseEvent, entry: FileEntry) => void;
 }
 
-const TreeNodeRow: React.FC<TreeNodeRowProps> = ({ node, depth, path, onToggle, onFileClick }) => {
+const TreeNodeRow: React.FC<TreeNodeRowProps> = ({ node, depth, path, onToggle, onFileClick, onContextMenu }) => {
   const isDir = node.entry.type === 'directory';
 
   const handleClick = () => {
@@ -200,6 +243,7 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({ node, depth, path, onToggle, 
     <>
       <Box
         onClick={handleClick}
+        onContextMenu={(e) => onContextMenu(e, node.entry)}
         sx={{
           display: 'flex',
           alignItems: 'center',
@@ -255,6 +299,7 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({ node, depth, path, onToggle, 
           path={[...path, String(i)]}
           onToggle={onToggle}
           onFileClick={onFileClick}
+          onContextMenu={onContextMenu}
         />
       ))}
     </>

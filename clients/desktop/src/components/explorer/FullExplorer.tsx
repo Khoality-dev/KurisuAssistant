@@ -18,6 +18,9 @@ import {
   CircularProgress,
   IconButton,
   Tooltip,
+  Menu,
+  MenuItem,
+  ListItemText,
 } from '@mui/material';
 import {
   ArrowUpward as UpIcon,
@@ -44,6 +47,8 @@ function formatDate(dateStr: string | null): string {
 export const FullExplorer: React.FC = () => {
   const { openFile } = useExplorerStore();
 
+  const [hasVSCode, setHasVSCode] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; entry: FileEntry } | null>(null);
   const [currentPath, setCurrentPath] = useState('');
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -66,6 +71,25 @@ export const FullExplorer: React.FC = () => {
   useEffect(() => {
     loadDirectory('');
   }, [loadDirectory]);
+
+  // Check if VS Code is available
+  useEffect(() => {
+    window.electron?.explorer?.hasVSCode?.().then(setHasVSCode).catch(() => {});
+  }, []);
+
+  const handleContextMenu = (e: React.MouseEvent, entry: FileEntry) => {
+    e.preventDefault();
+    setContextMenu({ mouseX: e.clientX, mouseY: e.clientY, entry });
+  };
+
+  const handleCloseContextMenu = () => setContextMenu(null);
+
+  const handleOpenInVSCode = () => {
+    if (contextMenu) {
+      window.electron?.explorer?.openInVSCode(contextMenu.entry.fullPath);
+      setContextMenu(null);
+    }
+  };
 
   const handleEntryClick = (entry: FileEntry) => {
     if (entry.type === 'directory') {
@@ -183,6 +207,7 @@ export const FullExplorer: React.FC = () => {
                   hover
                   onClick={() => handleEntryClick(entry)}
                   onDoubleClick={() => entry.type === 'directory' && loadDirectory(entry.fullPath)}
+                  onContextMenu={(e) => handleContextMenu(e, entry)}
                   sx={{
                     cursor: 'pointer',
                     '& td': { py: 0.75, borderColor: 'divider' },
@@ -220,6 +245,30 @@ export const FullExplorer: React.FC = () => {
           </Table>
         </TableContainer>
       )}
+      {/* Context menu */}
+      <Menu
+        open={contextMenu !== null}
+        onClose={handleCloseContextMenu}
+        anchorReference="anchorPosition"
+        anchorPosition={contextMenu ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined}
+      >
+        {hasVSCode && (
+          <MenuItem onClick={handleOpenInVSCode} sx={{ fontSize: '0.8rem' }}>
+            <ListItemText>Open with VS Code</ListItemText>
+          </MenuItem>
+        )}
+        <MenuItem
+          onClick={() => {
+            if (contextMenu) {
+              window.electron?.openPath(contextMenu.entry.fullPath);
+              setContextMenu(null);
+            }
+          }}
+          sx={{ fontSize: '0.8rem' }}
+        >
+          <ListItemText>Open with Default App</ListItemText>
+        </MenuItem>
+      </Menu>
     </Box>
   );
 };

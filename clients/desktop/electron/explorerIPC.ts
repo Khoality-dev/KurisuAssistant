@@ -7,6 +7,7 @@
 import { ipcMain } from 'electron';
 import fs from 'fs';
 import path from 'path';
+import { exec } from 'child_process';
 
 export function registerExplorerIPC(): void {
   ipcMain.handle('explorer:list-directory', (_event, dirPath: string) => {
@@ -86,5 +87,32 @@ export function registerExplorerIPC(): void {
     } catch (e: any) {
       return { error: e.message };
     }
+  });
+
+  // VS Code detection — check if `code` command is available
+  let vsCodeAvailable: boolean | null = null;
+
+  ipcMain.handle('explorer:has-vscode', async () => {
+    if (vsCodeAvailable !== null) return vsCodeAvailable;
+
+    return new Promise<boolean>((resolve) => {
+      const cmd = process.platform === 'win32' ? 'where code' : 'which code';
+      exec(cmd, (err) => {
+        vsCodeAvailable = !err;
+        resolve(vsCodeAvailable);
+      });
+    });
+  });
+
+  ipcMain.handle('explorer:open-in-vscode', async (_event, filePath: string) => {
+    return new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      exec(`code "${filePath}"`, (err) => {
+        if (err) {
+          resolve({ ok: false, error: err.message });
+        } else {
+          resolve({ ok: true });
+        }
+      });
+    });
   });
 }

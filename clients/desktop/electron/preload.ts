@@ -69,6 +69,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('explorer:read-file', filePath),
     writeFile: (filePath: string, content: string) =>
       ipcRenderer.invoke('explorer:write-file', filePath, content),
+    hasVSCode: () => ipcRenderer.invoke('explorer:has-vscode'),
+    openInVSCode: (filePath: string) => ipcRenderer.invoke('explorer:open-in-vscode', filePath),
   },
 
   onMCPToolsChanged: (cb: () => void) => {

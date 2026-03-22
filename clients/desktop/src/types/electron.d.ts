@@ -58,6 +58,8 @@ export interface ExplorerAPI {
   }>;
   readFile: (filePath: string) => Promise<{ content?: string; path?: string; error?: string }>;
   writeFile: (filePath: string, content: string) => Promise<{ status?: string; path?: string; error?: string }>;
+  hasVSCode: () => Promise<boolean>;
+  openInVSCode: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 export interface MCPAPI {
