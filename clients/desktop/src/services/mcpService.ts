@@ -25,10 +25,24 @@ let clientTools: Array<{ type: string; function: { name: string; description: st
  * Called after WebSocket connect (ConnectedEvent).
  */
 export async function initClientMCPServers(): Promise<void> {
-  if (!window.electron?.mcp) {
+  if (!window.electron) {
     // Not running in Electron — skip
     return;
   }
+
+  // Always collect built-in tools (host, app, browser) regardless of MCP state
+  const hostTools = window.electron.hostTools
+    ? await window.electron.hostTools.listTools().catch(() => [])
+    : [];
+  const appTools = window.electron.appTools
+    ? await window.electron.appTools.listTools().catch(() => [])
+    : [];
+  const browserToolsList = window.electron.browserTools
+    ? await window.electron.browserTools.listTools().catch(() => [])
+    : [];
+  const builtinTools = [...hostTools, ...appTools, ...browserToolsList];
+
+  console.log(`[MCP] Built-in tools: ${hostTools.length} host + ${appTools.length} app + ${browserToolsList.length} browser`);
 
   try {
     // Fetch all MCP server configs
@@ -40,14 +54,7 @@ export async function initClientMCPServers(): Promise<void> {
     );
 
     if (clientServers.length === 0) {
-      // No client MCP servers — still register host + app tools
-      const hostTools = window.electron.hostTools
-        ? await window.electron.hostTools.listTools()
-        : [];
-      const appTools = window.electron.appTools
-        ? await window.electron.appTools.listTools()
-        : [];
-      clientTools = [...hostTools, ...appTools];
+      clientTools = builtinTools;
       wsManager.sendClientToolsRegister(clientTools);
       setupToolCallHandler();
       initAppToolsHandler();
@@ -74,20 +81,12 @@ export async function initClientMCPServers(): Promise<void> {
       );
     }
 
-    // Discover tools from all connected servers
-    const mcpTools = await window.electron.mcp.listTools();
-
-    // Merge host tools (file read/write/edit, search, bash)
-    const hostTools = window.electron.hostTools
-      ? await window.electron.hostTools.listTools()
+    // Discover tools from all connected MCP servers
+    const mcpTools = window.electron.mcp
+      ? await window.electron.mcp.listTools()
       : [];
 
-    // Merge app config tools (agent settings, MCP servers, vision)
-    const appTools = window.electron.appTools
-      ? await window.electron.appTools.listTools()
-      : [];
-
-    clientTools = [...hostTools, ...appTools, ...mcpTools];
+    clientTools = [...builtinTools, ...mcpTools];
 
     // Register all client tools with backend
     wsManager.sendClientToolsRegister(clientTools);
@@ -97,9 +96,18 @@ export async function initClientMCPServers(): Promise<void> {
 
     initAppToolsHandler();
     initialized = true;
-    console.log(`[MCP] Initialized ${results.filter((r) => r.ok).length} client servers, ${clientTools.length} tools (${hostTools.length} host + ${appTools.length} app + ${mcpTools.length} MCP)`);
+    console.log(`[MCP] Initialized ${results.filter((r) => r.ok).length} client servers, ${clientTools.length} tools (${builtinTools.length} built-in + ${mcpTools.length} MCP)`);
   } catch (e) {
     console.error('[MCP] Failed to initialize client MCP servers:', e);
+    // Still register built-in tools even if MCP init fails
+    if (builtinTools.length > 0 && !initialized) {
+      clientTools = builtinTools;
+      wsManager.sendClientToolsRegister(clientTools);
+      setupToolCallHandler();
+      initAppToolsHandler();
+      initialized = true;
+      console.log(`[MCP] Registered ${builtinTools.length} built-in tools (MCP failed)`);
+    }
   }
 }
 
@@ -148,6 +156,23 @@ function setupToolCallHandler(): void {
         const isApp = await window.electron.appTools.isAppTool(event.tool_name);
         if (isApp) {
           const result = await window.electron.appTools.callTool(
+            event.tool_name,
+            event.tool_args,
+          );
+          wsManager.sendToolCallResponse(
+            event.request_id,
+            result.content,
+            result.isError,
+          );
+          return;
+        }
+      }
+
+      // Check if this is a browser tool (Playwright)
+      if (window.electron?.browserTools) {
+        const isBrowser = await window.electron.browserTools.isBrowserTool(event.tool_name);
+        if (isBrowser) {
+          const result = await window.electron.browserTools.callTool(
             event.tool_name,
             event.tool_args,
           );

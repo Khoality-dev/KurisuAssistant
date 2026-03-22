@@ -327,13 +327,30 @@ export const ToolsWindow: React.FC = () => {
   const applyToolsResponse = async (toolsRes: { mcp_tools: Tool[]; builtin_tools: Tool[]; mcp_servers?: Record<string, Tool[]> }) => {
     const mcpServersMap: Record<string, Tool[]> = { ...(toolsRes.mcp_servers || {}) };
     const allMcpTools = [...toolsRes.mcp_tools];
-    // Merge client-side tools grouped by server name
+    // Merge client-side MCP tools grouped by server name
     const clientGrouped = await getClientToolsByServer();
     for (const [serverName, serverTools] of Object.entries(clientGrouped)) {
       mcpServersMap[serverName] = serverTools as Tool[];
       allMcpTools.push(...(serverTools as Tool[]));
     }
-    setTools({ mcp: allMcpTools, builtin: toolsRes.builtin_tools, mcpServers: mcpServersMap });
+    // Merge built-in client tools (host, app, browser) into the tools list
+    // Fetch directly from IPC in case mcpService hasn't initialized yet
+    const builtinClientTools: Tool[] = [];
+    if (window.electron?.hostTools) {
+      try { builtinClientTools.push(...(await window.electron.hostTools.listTools() as Tool[])); } catch {}
+    }
+    if (window.electron?.appTools) {
+      try { builtinClientTools.push(...(await window.electron.appTools.listTools() as Tool[])); } catch {}
+    }
+    if (window.electron?.browserTools) {
+      try { builtinClientTools.push(...(await window.electron.browserTools.listTools() as Tool[])); } catch {}
+    }
+    const mcpToolNames = new Set(allMcpTools.map(t => t.function.name));
+    const serverBuiltinNames = new Set(toolsRes.builtin_tools.map(t => t.function.name));
+    const clientBuiltins = builtinClientTools.filter(t =>
+      !mcpToolNames.has(t.function.name) && !serverBuiltinNames.has(t.function.name)
+    );
+    setTools({ mcp: allMcpTools, builtin: [...toolsRes.builtin_tools, ...clientBuiltins], mcpServers: mcpServersMap });
   };
 
   const loadData = async () => {

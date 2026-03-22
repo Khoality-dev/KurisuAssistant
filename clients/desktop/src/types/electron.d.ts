@@ -33,6 +33,12 @@ export interface MCPServerConfig {
   env?: Record<string, string>;
 }
 
+export interface BrowserToolsAPI {
+  listTools: () => Promise<Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }>>;
+  callTool: (name: string, args: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
+  isBrowserTool: (name: string) => Promise<boolean>;
+}
+
 export interface AppToolsAPI {
   listTools: () => Promise<Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }>>;
   callTool: (name: string, args: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
@@ -69,6 +75,7 @@ export interface ExtensionsAPI {
 
 export interface ElectronAPI {
   platform: string;
+  browserTools: BrowserToolsAPI;
   appTools: AppToolsAPI;
   hostTools: HostToolsAPI;
   mcp: MCPAPI;

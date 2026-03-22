@@ -133,9 +133,26 @@ export const AgentsWindow: React.FC = () => {
   const loadTools = async () => {
     try {
       const data = await apiClient.listTools();
-      const allTools = [...data.mcp_tools, ...data.builtin_tools]
-        .filter(t => !INTERNAL_TOOLS.includes(t.function.name));
-      setAvailableTools(allTools);
+      const allTools: Tool[] = [...data.mcp_tools, ...data.builtin_tools];
+      // Add client-side tools (host, app, browser) from Electron IPC
+      if (window.electron?.hostTools) {
+        try { allTools.push(...(await window.electron.hostTools.listTools() as Tool[])); } catch {}
+      }
+      if (window.electron?.appTools) {
+        try { allTools.push(...(await window.electron.appTools.listTools() as Tool[])); } catch {}
+      }
+      if (window.electron?.browserTools) {
+        try { allTools.push(...(await window.electron.browserTools.listTools() as Tool[])); } catch {}
+      }
+      // Deduplicate by name and filter internal tools
+      const seen = new Set<string>();
+      const uniqueTools = allTools.filter(t => {
+        const name = t.function.name;
+        if (seen.has(name) || INTERNAL_TOOLS.includes(name)) return false;
+        seen.add(name);
+        return true;
+      });
+      setAvailableTools(uniqueTools);
     } catch (err: any) {
       console.error('Failed to load tools:', err);
     }

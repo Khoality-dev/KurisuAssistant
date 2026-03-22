@@ -37,6 +37,13 @@ contextBridge.exposeInMainWorld('electron', {
     },
   },
 
+  browserTools: {
+    listTools: () => ipcRenderer.invoke('browser-tools:list-tools'),
+    callTool: (name: string, args: Record<string, unknown>) =>
+      ipcRenderer.invoke('browser-tools:call-tool', name, args),
+    isBrowserTool: (name: string) => ipcRenderer.invoke('browser-tools:is-browser-tool', name),
+  },
+
   appTools: {
     listTools: () => ipcRenderer.invoke('app-tools:list-tools'),
     callTool: (name: string, args: Record<string, unknown>) =>
