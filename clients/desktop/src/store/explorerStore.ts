@@ -141,24 +141,6 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
       return;
     }
 
-    // For image files, open with empty content (rendered as <img>)
-    if (isImageFile(entry.name)) {
-      const newFile: OpenFile = {
-        path: entry.fullPath,
-        name: entry.name,
-        content: '',
-        originalContent: '',
-        language: 'image',
-        isBinary: false,
-        forceOpen: false,
-      };
-      set({
-        openFiles: [...openFiles, newFile],
-        activeFileIndex: openFiles.length,
-      });
-      return;
-    }
-
     try {
       const result = await window.electron.explorer.readFile(entry.fullPath);
       if (result.error) {
@@ -171,7 +153,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
       const newFile: OpenFile = {
         path: entry.fullPath,
         name: entry.name,
-        content: binary ? '' : content, // Don't load binary content until user confirms
+        content: binary ? '' : content,
         originalContent: binary ? '' : content,
         language: getLanguageFromExtension(entry.name),
         isBinary: binary,

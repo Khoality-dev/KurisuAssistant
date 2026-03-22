@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import {
   InsertDriveFileOutlined as FileIcon,
 } from '@mui/icons-material';
 import Editor, { type OnMount } from '@monaco-editor/react';
-import { useExplorerStore, isImageFile } from '../../store/explorerStore';
+import { useExplorerStore } from '../../store/explorerStore';
 import { Button } from '@mui/material';
 import { WarningAmber as WarningIcon } from '@mui/icons-material';
 
@@ -84,63 +84,9 @@ export const FileEditor: React.FC = () => {
     );
   }
 
-  // Image preview
-  if (isImageFile(activeFile.name)) {
-    return (
-      <Box
-        sx={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          overflow: 'auto',
-          bgcolor: isDark ? '#0A0A0A' : '#FAFAFA',
-          p: 2,
-        }}
-      >
-        <Box
-          component="img"
-          src={`file:///${activeFile.path.replace(/\\/g, '/')}`}
-          alt={activeFile.name}
-          sx={{
-            maxWidth: '100%',
-            maxHeight: '100%',
-            objectFit: 'contain',
-            borderRadius: 1,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-          }}
-        />
-      </Box>
-    );
-  }
-
-  // Binary file prompt
+  // Binary file — try image preview first, fallback to "Open Anyway"
   if (activeFile.isBinary && !activeFile.forceOpen) {
-    return (
-      <Box
-        sx={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 2,
-          color: 'text.secondary',
-        }}
-      >
-        <WarningIcon sx={{ fontSize: 48, opacity: 0.4 }} />
-        <Typography variant="body2" sx={{ fontSize: '0.9rem', fontWeight: 500 }}>
-          The file is not displayed in the text editor because it is either binary or uses an unsupported text encoding.
-        </Typography>
-        <Button
-          variant="outlined"
-          size="small"
-          onClick={() => useExplorerStore.getState().forceOpenBinary(activeFileIndex)}
-        >
-          Open Anyway
-        </Button>
-      </Box>
-    );
+    return <BinaryFileView file={activeFile} fileIndex={activeFileIndex} isDark={isDark} />;
   }
 
   // Monaco editor
@@ -168,6 +114,73 @@ export const FileEditor: React.FC = () => {
           unusualLineTerminators: 'auto',
         }}
       />
+    </Box>
+  );
+};
+
+// --- Binary file handler: try image, fallback to prompt ---
+
+const BinaryFileView: React.FC<{
+  file: { path: string; name: string };
+  fileIndex: number;
+  isDark: boolean;
+}> = ({ file, fileIndex, isDark }) => {
+  const [imageError, setImageError] = useState(false);
+  const imgSrc = `file:///${file.path.replace(/\\/g, '/')}`;
+
+  if (!imageError) {
+    return (
+      <Box
+        sx={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'auto',
+          bgcolor: isDark ? '#0A0A0A' : '#FAFAFA',
+          p: 2,
+        }}
+      >
+        <Box
+          component="img"
+          src={imgSrc}
+          alt={file.name}
+          onError={() => setImageError(true)}
+          sx={{
+            maxWidth: '100%',
+            maxHeight: '100%',
+            objectFit: 'contain',
+            borderRadius: 1,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+          }}
+        />
+      </Box>
+    );
+  }
+
+  return (
+    <Box
+      sx={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 2,
+        color: 'text.secondary',
+      }}
+    >
+      <WarningIcon sx={{ fontSize: 48, opacity: 0.4 }} />
+      <Typography variant="body2" sx={{ fontSize: '0.9rem', fontWeight: 500 }}>
+        The file is not displayed in the text editor because it is either binary or uses an unsupported text encoding.
+      </Typography>
+      <Button
+        variant="outlined"
+        size="small"
+        onClick={() => useExplorerStore.getState().forceOpenBinary(fileIndex)}
+      >
+        Open Anyway
+      </Button>
     </Box>
   );
 };
