@@ -66,35 +66,23 @@ export async function initClientMCPServers(): Promise<void> {
       (s) => s.location === 'client' && s.enabled,
     );
 
-    if (clientServers.length === 0) {
-      clientTools = builtinTools;
-      wsManager.sendClientToolsRegister(clientTools);
-      setupToolCallHandler();
-      initAppToolsHandler();
-      initialized = true;
-      return;
+    // Start client-side MCP servers one by one (don't use startServers which kills all)
+    for (const s of clientServers) {
+      try {
+        await window.electron.mcp.startServer({
+          name: s.name,
+          transport_type: s.transport_type,
+          url: s.url || undefined,
+          command: s.command || undefined,
+          args: s.args || undefined,
+          env: s.env || undefined,
+        });
+      } catch (e) {
+        console.warn(`[MCP] Failed to start "${s.name}":`, e);
+      }
     }
 
-    // Start local MCP servers via Electron IPC
-    const configs = clientServers.map((s) => ({
-      name: s.name,
-      transport_type: s.transport_type,
-      url: s.url || undefined,
-      command: s.command || undefined,
-      args: s.args || undefined,
-      env: s.env || undefined,
-    }));
-
-    const results = await window.electron.mcp.startServers(configs);
-    const failed = results.filter((r) => !r.ok);
-    if (failed.length > 0) {
-      console.warn(
-        '[MCP] Some servers failed to start:',
-        failed.map((f) => `${f.name}: ${f.error}`).join(', '),
-      );
-    }
-
-    // Discover tools from all connected MCP servers
+    // Discover tools from ALL connected MCP servers (includes Playwright + client servers)
     const mcpTools = window.electron.mcp
       ? await window.electron.mcp.listTools()
       : [];
@@ -109,7 +97,7 @@ export async function initClientMCPServers(): Promise<void> {
 
     initAppToolsHandler();
     initialized = true;
-    console.log(`[MCP] Initialized ${results.filter((r) => r.ok).length} client servers, ${clientTools.length} tools (${builtinTools.length} built-in + ${mcpTools.length} MCP)`);
+    console.log(`[MCP] Initialized ${clientTools.length} tools (${builtinTools.length} built-in + ${mcpTools.length} MCP)`);
   } catch (e) {
     console.error('[MCP] Failed to initialize client MCP servers:', e);
     // Still register built-in tools even if MCP init fails
@@ -128,19 +116,14 @@ export async function initClientMCPServers(): Promise<void> {
  * Stop all client-side MCP servers.
  */
 export async function stopClientMCPServers(): Promise<void> {
-  if (!window.electron?.mcp) return;
-
   // Remove tool call handler
   if (toolCallHandler) {
     wsManager.off('tool_call_request', toolCallHandler);
     toolCallHandler = null;
   }
 
-  try {
-    await window.electron.mcp.stopServers();
-  } catch (e) {
-    console.error('[MCP] Failed to stop client MCP servers:', e);
-  }
+  // Don't call stopServers() — it kills all servers including Playwright.
+  // initClientMCPServers uses startServer (singular) which replaces by name.
 
   initialized = false;
 }
