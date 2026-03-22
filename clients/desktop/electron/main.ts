@@ -400,6 +400,23 @@ app.whenReady().then(() => {
     '.mp4': 'video/mp4', '.onnx': 'application/octet-stream', '.woff': 'font/woff',
     '.woff2': 'font/woff2', '.ttf': 'font/ttf',
   };
+  // Custom protocol for serving local files in the renderer (images, etc.)
+  // file:// is blocked by web security; local-file:// bypasses this.
+  // Usage: local-file:///D:/path/to/image.png
+  protocol.handle('local-file', (request) => {
+    let pathname = decodeURIComponent(new URL(request.url).pathname);
+    let filePath = process.platform === 'win32' ? pathname.slice(1) : pathname;
+    try {
+      const data = fs.readFileSync(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      return new Response(data, {
+        headers: { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' },
+      });
+    } catch {
+      return new Response('Not found', { status: 404 });
+    }
+  });
+
   protocol.handle('file', (request) => {
     let pathname = decodeURIComponent(new URL(request.url).pathname);
     let filePath = process.platform === 'win32' ? pathname.slice(1) : pathname;

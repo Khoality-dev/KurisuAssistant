@@ -126,7 +126,7 @@ const BinaryFileView: React.FC<{
   isDark: boolean;
 }> = ({ file, fileIndex, isDark }) => {
   const [imageError, setImageError] = useState(false);
-  const imgSrc = `file:///${file.path.replace(/\\/g, '/')}`;
+  const imgSrc = `local-file:///${file.path.replace(/\\/g, '/')}`;
 
   if (!imageError) {
     return (
