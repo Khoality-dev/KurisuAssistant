@@ -47,6 +47,14 @@ export interface HostToolsAPI {
   isHostTool: (name: string) => Promise<boolean>;
   getAllowedPaths: (agentId: number) => Promise<string[]>;
   setAllowedPaths: (agentId: number, paths: string[]) => Promise<void>;
+  listDirectory: (dirPath: string, agentId: number) => Promise<{
+    path: string;
+    entries: Array<{ name: string; fullPath: string; type: 'file' | 'directory'; size: number; modified: string | null; extension: string }>;
+    isRoot: boolean;
+    error?: string;
+  }>;
+  readFile: (filePath: string, agentId: number) => Promise<{ content?: string; path?: string; error?: string }>;
+  writeFile: (filePath: string, content: string, agentId: number) => Promise<{ status?: string; path?: string; error?: string }>;
 }
 
 export interface MCPAPI {

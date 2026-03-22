@@ -7,13 +7,7 @@ import { useLayoutStore } from '../../store/layoutStore';
 import { useAgentStore } from '../../store/agentStore';
 import { ConversationsPage } from '../conversations/ConversationsPage';
 import { SettingsPage } from '../settings/SettingsPage';
-
-// Placeholder for file explorer — will be implemented in Phase 4
-const ExplorerPlaceholder = () => (
-  <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'text.secondary' }}>
-    File Explorer (coming soon)
-  </Box>
-);
+import { FileExplorerPage } from '../explorer/FileExplorerPage';
 
 const MIN_CHAT_WIDTH = 300;
 const MAX_CHAT_WIDTH = 700;
@@ -34,7 +28,7 @@ export const MainLayout: React.FC = () => {
 
   const renderMainContent = () => {
     switch (activePage) {
-      case 'explorer': return <ExplorerPlaceholder />;
+      case 'explorer': return <FileExplorerPage />;
       case 'conversations': return <ConversationsPage />;
       case 'settings': return <SettingsPage />;
     }

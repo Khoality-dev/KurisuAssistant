@@ -43,6 +43,12 @@ src/components/
   UpdateDialog.tsx          — Auto-update notification: shows download progress, "Restart Now" / "Later" on completion
   ExtensionsWindow.tsx     — Extensions management page: Maestro companion app card with status polling (health endpoint), version detection (GitHub Releases API), install/update/launch actions via IPC
   SettingsWindow.tsx       — Account (backend) + TTS (localStorage) settings tabs
+  explorer/
+    FileExplorerPage.tsx   — Main explorer layout: FileTreeSidebar (left) + EditorTabs + FileEditor (right)
+    FileTreeSidebar.tsx    — Collapsible tree view with lazy-loaded children, resizable width via ResizeHandle, shows allowed paths as roots
+    EditorTabs.tsx         — Horizontal tab bar for open files: active highlight, dirty dot indicator, middle-click/X close
+    FileEditor.tsx         — Monaco editor wrapper with Ctrl+S save, language auto-detect, image preview for image files, empty state
+    FileIcon.tsx           — SVG file icons by extension/type (folder, TS, JS, PY, JSON, MD, HTML, CSS, image, config, default)
 src/hooks/
   useTTS.ts               — TTS synthesis/playback: speak(), queueText(), clearQueue(), onPlaybackStart subtitle callback, WAV duration parsing
   useAudioAmplitude.ts    — Web Audio API amplitude for lip sync (AudioBufferSourceNode + time-domain RMS)
@@ -55,6 +61,7 @@ src/store/
   visionStore.ts          — Zustand singleton: vision pipeline control (getUserMedia webcam capture, backpressure-based frame upload via WebSocket with max 5 in-flight frames, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Syncs state on reconnect via `connected` listener. Used by both FacesWindow and ChatWidget camera toggle.
   mediaStore.ts           — Zustand singleton: media player state (playback, track, queue, volume). All media events (control + chunks) flow through wsManager on /ws/chat. Module-level listeners for media_state/media_chunk/media_error + `connected` listener for reconnect state sync. Buffers base64 chunks → Blob → Audio playback. Volume persisted to localStorage.
   micStore.ts             — Zustand singleton: ASR lifecycle (VAD, status, result, devices) + interactive mode with substates. Module-level VAD instance, lazy-init reusable Audio elements for sound effects. Two-level state: `interactiveMode` (call bar UI shown, mic auto-started) + `interactionActive` (auto-send without trigger word). Used by MainWindow (phone toggle) and ChatWidget (transcript handling, conditional render).
+  explorerStore.ts        — File explorer state: tree navigation via IPC listDirectory, open/close/save files via IPC readFile/writeFile, dirty detection, language mapping from extension
 src/services/
   mcpService.ts            — Client-side MCP lifecycle: auto-init on WebSocket connect, fetches client-location MCP configs from API, starts local servers via Electron IPC, discovers tools, registers schemas with backend via client_tools_register event. Handles tool_call_request forwarding (execute locally → send tool_call_response). refreshClientMCPServers() for config changes.
 src/CharacterWindowApp.tsx — Minimal IPC-driven renderer for separate character window (no auth/stores, subtitle overlay)

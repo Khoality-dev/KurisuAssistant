@@ -453,6 +453,87 @@ export function registerHostToolIPC(): void {
   ipcMain.handle('host-tools:is-host-tool', (_event, name: string) => {
     return HOST_TOOL_NAMES.has(name);
   });
+
+  ipcMain.handle('host-tools:list-directory', (_event, dirPath: string, agentId: number) => {
+    const allowedPaths = getAllowedPaths(agentId);
+
+    // Root: return allowed paths as top-level entries
+    if (!dirPath) {
+      return {
+        path: '',
+        entries: allowedPaths.map(p => ({
+          name: path.basename(p) || p,
+          fullPath: path.resolve(p),
+          type: 'directory' as const,
+          size: 0,
+          modified: null,
+          extension: '',
+        })),
+        isRoot: true,
+      };
+    }
+
+    try {
+      const resolved = validatePath(dirPath, allowedPaths);
+      const stat = fs.statSync(resolved);
+      if (!stat.isDirectory()) {
+        return { path: resolved, entries: [], isRoot: false, error: 'Not a directory' };
+      }
+
+      const dirEntries = fs.readdirSync(resolved, { withFileTypes: true });
+      const entries = dirEntries
+        .filter(e => !e.name.startsWith('.'))
+        .map(entry => {
+          const fullPath = path.join(resolved, entry.name);
+          let size = 0;
+          let modified: string | null = null;
+          try {
+            const s = fs.statSync(fullPath);
+            size = s.size;
+            modified = s.mtime.toISOString();
+          } catch {}
+          return {
+            name: entry.name,
+            fullPath,
+            type: (entry.isDirectory() ? 'directory' : 'file') as 'directory' | 'file',
+            size,
+            modified,
+            extension: entry.isFile() ? path.extname(entry.name) : '',
+          };
+        })
+        .sort((a, b) => {
+          if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+
+      return { path: resolved, entries, isRoot: false };
+    } catch (e: any) {
+      return { path: dirPath, entries: [], isRoot: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('host-tools:read-file', async (_event, filePath: string, agentId: number) => {
+    const allowedPaths = getAllowedPaths(agentId);
+    try {
+      const resolved = validatePath(filePath, allowedPaths);
+      const content = fs.readFileSync(resolved, { encoding: 'utf-8' });
+      return { content, path: resolved };
+    } catch (e: any) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('host-tools:write-file', async (_event, filePath: string, content: string, agentId: number) => {
+    const allowedPaths = getAllowedPaths(agentId);
+    try {
+      const resolved = validatePath(filePath, allowedPaths);
+      fs.mkdirSync(path.dirname(resolved), { recursive: true });
+      fs.writeFileSync(resolved, content, { encoding: 'utf-8' });
+      return { status: 'ok', path: resolved };
+    } catch (e: any) {
+      return { error: e.message };
+    }
+  });
 }
 
 export { HOST_TOOL_NAMES, getHostToolSchemas };
