@@ -39,7 +39,7 @@ interface SettingsWindowProps {
 
 export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
   const { user, loadUserProfile } = useAuthStore();
-  const { voices, loadVoices, backends, loadBackends } = useTTS();
+  const { backends, loadBackends } = useTTS();
 
   const [currentTab, setCurrentTab] = useState(0);
 
@@ -60,16 +60,16 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
   };
 
   // TTS settings — auto-saved to localStorage on change
-  const [ttsBackend, setTtsBackendState] = useState(storage.getTTSBackend() || 'gpt-sovits');
+  const [ttsBackend, setTtsBackendState] = useState(storage.getTTSBackend() || 'vixtts');
+  const [ttsAutoPlay, setTtsAutoPlayState] = useState(storage.getTTSAutoPlay());
 
-  // INDEX-TTS emotion settings
-  const [ttsEmotionAudio, setTtsEmotionAudioState] = useState(storage.getTTSEmotionAudio() || '');
+  // viXTTS emotion settings
   const [ttsEmotionAlpha, setTtsEmotionAlphaState] = useState(storage.getTTSEmotionAlpha());
   const [ttsUseEmotionText, setTtsUseEmotionTextState] = useState(storage.getTTSUseEmotionText());
 
   // Auto-save wrappers
   const setTtsBackend = (v: string) => { setTtsBackendState(v); storage.setTTSBackend(v); };
-  const setTtsEmotionAudio = (v: string) => { setTtsEmotionAudioState(v); storage.setTTSEmotionAudio(v); };
+  const setTtsAutoPlay = (v: boolean) => { setTtsAutoPlayState(v); storage.setTTSAutoPlay(v); };
   const setTtsEmotionAlpha = (v: number) => { setTtsEmotionAlphaState(v); storage.setTTSEmotionAlpha(v); };
   const setTtsUseEmotionText = (v: boolean) => { setTtsUseEmotionTextState(v); storage.setTTSUseEmotionText(v); };
 
@@ -91,12 +91,11 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
     }
   };
 
-  // Load TTS voices, backends, and models on mount
+  // Load TTS backends and models on mount
   useEffect(() => {
-    loadVoices();
     loadBackends();
     loadModels();
-  }, [loadVoices, loadBackends]);
+  }, [loadBackends]);
 
   const handleSaveAccountSettings = async () => {
     setIsSaving(true);
@@ -283,34 +282,28 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
             </FormControl>
           </Box>
 
-          {/* INDEX-TTS Emotion Controls - Only show when backend is index-tts */}
-          {ttsBackend === 'index-tts' && (
+          <Box sx={{ mb: 3 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={ttsAutoPlay}
+                  onChange={(e) => setTtsAutoPlay(e.target.checked)}
+                />
+              }
+              label="Generate TTS During Responses"
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              When enabled, agent replies are spoken while the response text is still streaming.
+            </Typography>
+          </Box>
+
+          {/* viXTTS emotion controls */}
+          {ttsBackend === 'vixtts' && (
             <>
               <Divider sx={{ mb: 3 }} />
               <Typography variant="h6" sx={{ mb: 3 }}>
-                Emotion Controls (INDEX-TTS)
+                Emotion Controls (viXTTS)
               </Typography>
-
-              {/* Emotion Reference Audio */}
-              <Box sx={{ mb: 3 }}>
-                <FormControl fullWidth>
-                  <InputLabel>Emotion Reference Audio</InputLabel>
-                  <Select
-                    value={ttsEmotionAudio}
-                    label="Emotion Reference Audio"
-                    onChange={(e) => setTtsEmotionAudio(e.target.value)}
-                  >
-                    <MenuItem value="">
-                      <em>None</em>
-                    </MenuItem>
-                    {voices.map((voice) => (
-                      <MenuItem key={voice} value={voice}>
-                        {voice}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Box>
 
               {/* Emotion Strength (Alpha) */}
               <Box sx={{ mb: 3 }}>

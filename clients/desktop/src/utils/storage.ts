@@ -162,10 +162,11 @@ export const storage = {
    */
   getTTSAutoPlay(): boolean {
     try {
-      return localStorage.getItem(STORAGE_KEYS.TTS_AUTO_PLAY) === 'true';
+      const value = localStorage.getItem(STORAGE_KEYS.TTS_AUTO_PLAY);
+      return value === null ? true : value === 'true';
     } catch (error) {
       console.error('Failed to get TTS auto-play preference:', error);
-      return false;
+      return true;
     }
   },
 
@@ -181,11 +182,17 @@ export const storage = {
   },
 
   /**
-   * Get TTS backend from persistent storage
+   * Get TTS backend from persistent storage.
+   * Maps legacy `index-tts` settings to `vixtts`.
    */
   getTTSBackend(): string | null {
     try {
-      return localStorage.getItem(STORAGE_KEYS.TTS_BACKEND);
+      const backend = localStorage.getItem(STORAGE_KEYS.TTS_BACKEND);
+      if (backend === 'index-tts') {
+        localStorage.setItem(STORAGE_KEYS.TTS_BACKEND, 'vixtts');
+        return 'vixtts';
+      }
+      return backend;
     } catch (error) {
       console.error('Failed to get TTS backend:', error);
       return null;
@@ -193,7 +200,7 @@ export const storage = {
   },
 
   /**
-   * Save INDEX-TTS emotion settings to persistent storage
+   * Save viXTTS emotion settings to persistent storage
    */
   setTTSEmotionAudio(emoAudio: string): void {
     try {

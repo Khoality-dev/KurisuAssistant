@@ -3,6 +3,8 @@ import { apiClient } from '../api/client';
 import { storage } from '../utils/storage';
 import { useAudioAmplitude } from './useAudioAmplitude';
 
+const TTS_BACKENDS = ['vixtts', 'gpt-sovits'] as const;
+
 /**
  * Parse WAV header to get audio duration in seconds.
  */
@@ -38,7 +40,7 @@ export function useTTS(
 ) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [voices, setVoices] = useState<string[]>([]);
-  const [backends, setBackends] = useState<string[]>([]);
+  const [backends, setBackends] = useState<string[]>([...TTS_BACKENDS]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
 
@@ -54,9 +56,9 @@ export function useTTS(
   const currentQueueAudioRef = useRef<HTMLAudioElement | null>(null);
   const [isQueueActive, setIsQueueActive] = useState(false);
 
-  const loadVoices = useCallback(async () => {
+  const loadVoices = useCallback(async (backend?: string) => {
     try {
-      const voiceList = await apiClient.listVoices();
+      const voiceList = await apiClient.listVoices(backend);
       setVoices(voiceList);
       return voiceList;
     } catch (error) {
@@ -66,14 +68,9 @@ export function useTTS(
   }, []);
 
   const loadBackends = useCallback(async () => {
-    try {
-      const backendList = await apiClient.listBackends();
-      setBackends(backendList);
-      return backendList;
-    } catch (error) {
-      console.error('Failed to load backends:', error);
-      return [];
-    }
+    const backendList = [...TTS_BACKENDS];
+    setBackends(backendList);
+    return backendList;
   }, []);
 
   /**
@@ -219,14 +216,13 @@ export function useTTS(
   const queueText = useCallback((text: string, voice?: string) => {
     if (!text.trim()) return;
 
-    const backend = storage.getTTSBackend() || 'gpt-sovits';
-    const emotionParams = backend === 'index-tts'
+    const backend = storage.getTTSBackend() || 'vixtts';
+    const emotionParams = backend === 'vixtts'
       ? {
-          emo_audio: storage.getTTSEmotionAudio() || undefined,
           emo_alpha: storage.getTTSEmotionAlpha(),
           use_emo_text: storage.getTTSUseEmotionText(),
         }
-      : undefined;
+        : undefined;
 
     const trimmed = text.trim();
     const audioPromise = apiClient.synthesize(trimmed, voice, undefined, backend, emotionParams);

@@ -767,7 +767,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
     if (needsNewBubble) {
       // Flush TTS buffer from previous agent before switching
-      if (ttsBufferRef.current.trim()) {
+      if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
         const cleaned = stripNarration(ttsBufferRef.current);
         if (cleaned) queueText(cleaned, ttsVoiceRef.current);
         ttsBufferRef.current = '';
@@ -882,7 +882,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     }
 
     // Streaming TTS auto-play: feed complete sentences to TTS queue
-    if (event.content && event.role !== 'tool') {
+    if (storage.getTTSAutoPlay() && event.content && event.role !== 'tool') {
       ttsVoiceRef.current = event.voice_reference || ttsVoiceRef.current;
       ttsBufferRef.current += event.content;      // Split on sentence-ending punctuation; all but the last segment are complete      const parts = ttsBufferRef.current.split(/(?<=[.!?\n])\s*/);
       if (parts.length > 1) {
@@ -908,7 +908,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
 
     // Flush remaining TTS buffer
-    if (ttsBufferRef.current.trim()) {
+    if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
       const cleaned = stripNarration(ttsBufferRef.current);
       if (cleaned) queueText(cleaned, ttsVoiceRef.current);
     }
@@ -1046,6 +1046,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       if (scrollFrameRef.current !== null) {
         cancelAnimationFrame(scrollFrameRef.current);
         scrollFrameRef.current = null;
+      } else if (!storage.getTTSAutoPlay()) {
+        ttsBufferRef.current = '';
+      } else if (!storage.getTTSAutoPlay()) {
+        ttsBufferRef.current = '';
       }
     };
   }, []);

@@ -95,7 +95,7 @@ export interface TTSRequest {
   voice?: string;
   language?: string;
   provider?: string;
-  // INDEX-TTS emotion parameters
+  // viXTTS emotion parameters
   emo_audio?: string;
   emo_alpha?: number;
   use_emo_text?: boolean;

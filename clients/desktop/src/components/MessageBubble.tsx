@@ -94,11 +94,10 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
         if (message.agent?.id) {
           ttsRef.current.setActiveAgentForTTS(message.agent.id);
         }
-        const currentBackend = storage.getTTSBackend() || 'gpt-sovits';
+        const currentBackend = storage.getTTSBackend() || 'vixtts';
         const emotionParams =
-          currentBackend === 'index-tts'
+          currentBackend === 'vixtts'
             ? {
-                emo_audio: storage.getTTSEmotionAudio() || undefined,
                 emo_alpha: storage.getTTSEmotionAlpha(),
                 use_emo_text: storage.getTTSUseEmotionText(),
               }
