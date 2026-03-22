@@ -6,7 +6,6 @@ import {
 } from '@mui/icons-material';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import { useExplorerStore, isImageFile } from '../../store/explorerStore';
-import { useAgentStore } from '../../store/agentStore';
 
 export const FileEditor: React.FC = () => {
   const theme = useTheme();
@@ -29,9 +28,8 @@ export const FileEditor: React.FC = () => {
       ],
       run: () => {
         const { activeFileIndex: idx } = useExplorerStore.getState();
-        const currentAgentId = useAgentStore.getState().selectedAgentId;
-        if (idx >= 0 && currentAgentId !== null) {
-          saveFile(idx, currentAgentId);
+        if (idx >= 0) {
+          saveFile(idx);
         }
       },
     });
@@ -49,9 +47,8 @@ export const FileEditor: React.FC = () => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
         const { activeFileIndex: idx } = useExplorerStore.getState();
-        const currentAgentId = useAgentStore.getState().selectedAgentId;
-        if (idx >= 0 && currentAgentId !== null) {
-          saveFile(idx, currentAgentId);
+        if (idx >= 0) {
+          saveFile(idx);
         }
       }
     };

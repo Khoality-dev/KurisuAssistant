@@ -7,7 +7,6 @@ import {
 import { useTheme } from '@mui/material/styles';
 import { ResizeHandle } from '../layout/ResizeHandle';
 import { useLayoutStore } from '../../store/layoutStore';
-import { useAgentStore } from '../../store/agentStore';
 import { getFileIcon } from './FileIcon';
 import { useExplorerStore, type FileEntry } from '../../store/explorerStore';
 
@@ -26,61 +25,35 @@ export const FileTreeSidebar: React.FC = () => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
   const { explorerTreeWidth, setExplorerTreeWidth } = useLayoutStore();
-  const agentId = useAgentStore((s) => s.selectedAgentId);
   const { openFile } = useExplorerStore();
 
   const [rootNodes, setRootNodes] = useState<TreeNode[]>([]);
-  const [allowedPaths, setAllowedPaths] = useState<string[]>([]);
-  const [isLoadingRoots, setIsLoadingRoots] = useState(false);
+  const [isLoadingRoots, setIsLoadingRoots] = useState(true);
 
-  // Load allowed paths and build root nodes
+  // Load root filesystem entries (drives on Windows, home+/ on Linux)
   useEffect(() => {
-    if (agentId === null) {
-      setRootNodes([]);
-      setAllowedPaths([]);
+    if (!window.electron?.hostTools) {
+      setIsLoadingRoots(false);
       return;
     }
 
-    let cancelled = false;
-    setIsLoadingRoots(true);
-
-    window.electron.hostTools.getAllowedPaths(agentId).then((paths: string[]) => {
-      if (cancelled) return;
-      setAllowedPaths(paths);
-
-      // Build root tree nodes from allowed paths
-      const nodes: TreeNode[] = paths.map((p) => {
-        // Extract folder name from path
-        const segments = p.replace(/[\\/]+$/, '').split(/[\\/]/);
-        const name = segments[segments.length - 1] || p;
-        return {
-          entry: {
-            name,
-            fullPath: p,
-            type: 'directory' as const,
-            size: 0,
-            modified: null,
-            extension: '',
-          },
-          children: [],
-          isExpanded: false,
-          isLoaded: false,
-          isLoading: false,
-        };
-      });
+    window.electron.hostTools.listDirectory('').then((result) => {
+      const nodes: TreeNode[] = result.entries.map((e) => ({
+        entry: e,
+        children: [],
+        isExpanded: false,
+        isLoaded: false,
+        isLoading: false,
+      }));
       setRootNodes(nodes);
       setIsLoadingRoots(false);
     }).catch(() => {
-      if (!cancelled) setIsLoadingRoots(false);
+      setIsLoadingRoots(false);
     });
-
-    return () => { cancelled = true; };
-  }, [agentId]);
+  }, []);
 
   // Toggle expand/collapse for a folder node
   const toggleExpand = useCallback(async (nodePath: string[]) => {
-    if (agentId === null) return;
-
     setRootNodes((prev) => {
       const clone = deepCloneNodes(prev);
       const target = findNode(clone, nodePath);
@@ -100,7 +73,7 @@ export const FileTreeSidebar: React.FC = () => {
       target.isExpanded = true;
 
       // Trigger async load
-      window.electron.hostTools.listDirectory(target.entry.fullPath, agentId).then((result) => {
+      window.electron.hostTools.listDirectory(target.entry.fullPath).then((result) => {
         setRootNodes((current) => {
           const c = deepCloneNodes(current);
           const t = findNode(c, nodePath);
@@ -129,16 +102,15 @@ export const FileTreeSidebar: React.FC = () => {
 
       return clone;
     });
-  }, [agentId]);
+  }, []);
 
   const handleResize = useCallback((delta: number) => {
     setExplorerTreeWidth(Math.max(MIN_TREE_WIDTH, Math.min(MAX_TREE_WIDTH, explorerTreeWidth + delta)));
   }, [explorerTreeWidth, setExplorerTreeWidth]);
 
   const handleFileClick = useCallback((entry: FileEntry) => {
-    if (agentId === null) return;
-    openFile(entry, agentId);
-  }, [agentId, openFile]);
+    openFile(entry);
+  }, [openFile]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%', flexShrink: 0 }}>
@@ -179,29 +151,13 @@ export const FileTreeSidebar: React.FC = () => {
 
         {/* Tree content */}
         <Box sx={{ flex: 1, overflow: 'auto', py: 0.5 }}>
-          {agentId === null && (
-            <Box sx={{ px: 2, py: 3 }}>
-              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.8rem' }}>
-                Select an agent to browse files
-              </Typography>
-            </Box>
-          )}
-
-          {agentId !== null && isLoadingRoots && (
+          {isLoadingRoots && (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
               <CircularProgress size={20} />
             </Box>
           )}
 
-          {agentId !== null && !isLoadingRoots && allowedPaths.length === 0 && (
-            <Box sx={{ px: 2, py: 3 }}>
-              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.8rem', lineHeight: 1.5 }}>
-                Configure allowed paths in Settings &gt; Host Access
-              </Typography>
-            </Box>
-          )}
-
-          {agentId !== null && !isLoadingRoots && rootNodes.map((node, i) => (
+          {!isLoadingRoots && rootNodes.map((node, i) => (
             <TreeNodeRow
               key={node.entry.fullPath}
               node={node}

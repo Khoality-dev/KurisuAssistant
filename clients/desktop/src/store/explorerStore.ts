@@ -24,12 +24,12 @@ interface ExplorerState {
   isRoot: boolean;
   openFiles: OpenFile[];
   activeFileIndex: number;
-  navigate: (path: string, agentId: number) => Promise<void>;
-  openFile: (entry: FileEntry, agentId: number) => Promise<void>;
+  navigate: (path: string) => Promise<void>;
+  openFile: (entry: FileEntry) => Promise<void>;
   closeFile: (index: number) => void;
   setActiveFile: (index: number) => void;
   updateFileContent: (index: number, content: string) => void;
-  saveFile: (index: number, agentId: number) => Promise<void>;
+  saveFile: (index: number) => Promise<void>;
 }
 
 const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
@@ -101,10 +101,10 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   openFiles: [],
   activeFileIndex: -1,
 
-  navigate: async (path: string, agentId: number) => {
+  navigate: async (navPath: string) => {
     set({ isLoading: true });
     try {
-      const result = await window.electron.hostTools.listDirectory(path, agentId);
+      const result = await window.electron.hostTools.listDirectory(navPath);
       set({
         currentPath: result.path,
         entries: result.entries,
@@ -117,7 +117,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     }
   },
 
-  openFile: async (entry: FileEntry, agentId: number) => {
+  openFile: async (entry: FileEntry) => {
     const { openFiles } = get();
 
     // If already open, just switch to it
@@ -144,7 +144,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     }
 
     try {
-      const result = await window.electron.hostTools.readFile(entry.fullPath, agentId);
+      const result = await window.electron.hostTools.readFile(entry.fullPath);
       if (result.error) {
         console.error('Failed to read file:', result.error);
         return;
@@ -195,13 +195,13 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     set({ openFiles: updated });
   },
 
-  saveFile: async (index: number, agentId: number) => {
+  saveFile: async (index: number) => {
     const { openFiles } = get();
     const file = openFiles[index];
     if (!file) return;
 
     try {
-      const result = await window.electron.hostTools.writeFile(file.path, file.content, agentId);
+      const result = await window.electron.hostTools.writeFile(file.path, file.content);
       if (result.error) {
         console.error('Failed to save file:', result.error);
         return;

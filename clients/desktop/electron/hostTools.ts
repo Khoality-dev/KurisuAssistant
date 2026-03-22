@@ -454,27 +454,30 @@ export function registerHostToolIPC(): void {
     return HOST_TOOL_NAMES.has(name);
   });
 
-  ipcMain.handle('host-tools:list-directory', (_event, dirPath: string, agentId: number) => {
-    const allowedPaths = getAllowedPaths(agentId);
+  // --- Explorer IPC (unsandboxed — for user's file explorer, not agent tools) ---
 
-    // Root: return allowed paths as top-level entries
+  ipcMain.handle('host-tools:list-directory', (_event, dirPath: string) => {
+    // Root: return system drives / home directory
     if (!dirPath) {
-      return {
-        path: '',
-        entries: allowedPaths.map(p => ({
-          name: path.basename(p) || p,
-          fullPath: path.resolve(p),
-          type: 'directory' as const,
-          size: 0,
-          modified: null,
-          extension: '',
-        })),
-        isRoot: true,
-      };
+      const home = process.env.HOME || process.env.USERPROFILE || '';
+      const roots: Array<{ name: string; fullPath: string; type: 'directory'; size: number; modified: string | null; extension: string }> = [];
+      if (process.platform === 'win32') {
+        // List common drive letters
+        for (const letter of ['C', 'D', 'E', 'F']) {
+          const drive = `${letter}:\\`;
+          if (fs.existsSync(drive)) {
+            roots.push({ name: `${letter}:`, fullPath: drive, type: 'directory', size: 0, modified: null, extension: '' });
+          }
+        }
+      } else {
+        roots.push({ name: 'Home', fullPath: home, type: 'directory', size: 0, modified: null, extension: '' });
+        roots.push({ name: '/', fullPath: '/', type: 'directory', size: 0, modified: null, extension: '' });
+      }
+      return { path: '', entries: roots, isRoot: true };
     }
 
     try {
-      const resolved = validatePath(dirPath, allowedPaths);
+      const resolved = path.resolve(dirPath);
       const stat = fs.statSync(resolved);
       if (!stat.isDirectory()) {
         return { path: resolved, entries: [], isRoot: false, error: 'Not a directory' };
@@ -512,10 +515,9 @@ export function registerHostToolIPC(): void {
     }
   });
 
-  ipcMain.handle('host-tools:read-file', async (_event, filePath: string, agentId: number) => {
-    const allowedPaths = getAllowedPaths(agentId);
+  ipcMain.handle('host-tools:read-file', async (_event, filePath: string) => {
     try {
-      const resolved = validatePath(filePath, allowedPaths);
+      const resolved = path.resolve(filePath);
       const content = fs.readFileSync(resolved, { encoding: 'utf-8' });
       return { content, path: resolved };
     } catch (e: any) {
@@ -523,10 +525,9 @@ export function registerHostToolIPC(): void {
     }
   });
 
-  ipcMain.handle('host-tools:write-file', async (_event, filePath: string, content: string, agentId: number) => {
-    const allowedPaths = getAllowedPaths(agentId);
+  ipcMain.handle('host-tools:write-file', async (_event, filePath: string, content: string) => {
     try {
-      const resolved = validatePath(filePath, allowedPaths);
+      const resolved = path.resolve(filePath);
       fs.mkdirSync(path.dirname(resolved), { recursive: true });
       fs.writeFileSync(resolved, content, { encoding: 'utf-8' });
       return { status: 'ok', path: resolved };
