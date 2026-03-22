@@ -202,6 +202,10 @@ ipcMain.handle('shell:open-external', (_event, url: string) => {
   return shell.openExternal(url);
 });
 
+ipcMain.handle('shell:open-path', (_event, filePath: string) => {
+  return shell.openPath(filePath);
+});
+
 // IPC handlers for character window lifecycle
 ipcMain.handle('character:open-window', () => {
   createCharacterWindow();

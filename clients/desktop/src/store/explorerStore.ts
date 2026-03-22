@@ -86,11 +86,26 @@ function getLanguageFromExtension(filename: string): string {
 }
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico']);
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mkv', '.avi', '.mov']);
+const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a']);
+const BINARY_EXTENSIONS = new Set([
+  '.exe', '.dll', '.so', '.dylib', '.bin', '.dat',
+  '.zip', '.tar', '.gz', '.7z', '.rar',
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  '.wasm', '.onnx', '.pb', '.pt', '.pth',
+  ...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS,
+]);
 
 export function isImageFile(filename: string): boolean {
   const dotIdx = filename.toLowerCase().lastIndexOf('.');
   if (dotIdx === -1) return false;
   return IMAGE_EXTENSIONS.has(filename.toLowerCase().slice(dotIdx));
+}
+
+function isExternalFile(filename: string): boolean {
+  const dotIdx = filename.toLowerCase().lastIndexOf('.');
+  if (dotIdx === -1) return false;
+  return BINARY_EXTENSIONS.has(filename.toLowerCase().slice(dotIdx));
 }
 
 export const useExplorerStore = create<ExplorerState>((set, get) => ({
@@ -118,6 +133,14 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   },
 
   openFile: async (entry: FileEntry) => {
+    // Binary/external files — open with system default app
+    if (isExternalFile(entry.name)) {
+      if (window.electron?.openPath) {
+        await window.electron.openPath(entry.fullPath);
+      }
+      return;
+    }
+
     const { openFiles } = get();
 
     // If already open, just switch to it

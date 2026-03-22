@@ -82,6 +82,7 @@ export interface ExtensionsAPI {
 
 export interface ElectronAPI {
   platform: string;
+  openPath: (filePath: string) => Promise<string>;
   onMCPToolsChanged: (cb: () => void) => () => void;
   appTools: AppToolsAPI;
   hostTools: HostToolsAPI;
