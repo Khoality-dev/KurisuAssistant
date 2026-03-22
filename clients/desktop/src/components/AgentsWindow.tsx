@@ -141,9 +141,6 @@ export const AgentsWindow: React.FC = () => {
       if (window.electron?.appTools) {
         try { allTools.push(...(await window.electron.appTools.listTools() as Tool[])); } catch {}
       }
-      if (window.electron?.browserTools) {
-        try { allTools.push(...(await window.electron.browserTools.listTools() as Tool[])); } catch {}
-      }
       // Deduplicate by name and filter internal tools
       const seen = new Set<string>();
       const uniqueTools = allTools.filter(t => {

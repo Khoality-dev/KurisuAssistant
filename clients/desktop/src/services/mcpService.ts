@@ -37,12 +37,9 @@ export async function initClientMCPServers(): Promise<void> {
   const appTools = window.electron.appTools
     ? await window.electron.appTools.listTools().catch(() => [])
     : [];
-  const browserToolsList = window.electron.browserTools
-    ? await window.electron.browserTools.listTools().catch(() => [])
-    : [];
-  const builtinTools = [...hostTools, ...appTools, ...browserToolsList];
+  const builtinTools = [...hostTools, ...appTools];
 
-  console.log(`[MCP] Built-in tools: ${hostTools.length} host + ${appTools.length} app + ${browserToolsList.length} browser`);
+  console.log(`[MCP] Built-in tools: ${hostTools.length} host + ${appTools.length} app`);
 
   try {
     // Fetch all MCP server configs
@@ -156,23 +153,6 @@ function setupToolCallHandler(): void {
         const isApp = await window.electron.appTools.isAppTool(event.tool_name);
         if (isApp) {
           const result = await window.electron.appTools.callTool(
-            event.tool_name,
-            event.tool_args,
-          );
-          wsManager.sendToolCallResponse(
-            event.request_id,
-            result.content,
-            result.isError,
-          );
-          return;
-        }
-      }
-
-      // Check if this is a browser tool (Playwright)
-      if (window.electron?.browserTools) {
-        const isBrowser = await window.electron.browserTools.isBrowserTool(event.tool_name);
-        if (isBrowser) {
-          const result = await window.electron.browserTools.callTool(
             event.tool_name,
             event.tool_args,
           );

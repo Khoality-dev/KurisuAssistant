@@ -342,9 +342,6 @@ export const ToolsWindow: React.FC = () => {
     if (window.electron?.appTools) {
       try { builtinClientTools.push(...(await window.electron.appTools.listTools() as Tool[])); } catch {}
     }
-    if (window.electron?.browserTools) {
-      try { builtinClientTools.push(...(await window.electron.browserTools.listTools() as Tool[])); } catch {}
-    }
     const mcpToolNames = new Set(allMcpTools.map(t => t.function.name));
     const serverBuiltinNames = new Set(toolsRes.builtin_tools.map(t => t.function.name));
     const clientBuiltins = builtinClientTools.filter(t =>

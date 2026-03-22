@@ -44,13 +44,6 @@ export default defineConfig({
         onstart(options) {
           options.startup();
         },
-        vite: {
-          build: {
-            rollupOptions: {
-              external: (id) => id === 'playwright' || id.startsWith('playwright/') || id.startsWith('chromium-bidi'),
-            },
-          },
-        },
       },
       {
         entry: 'electron/preload.ts',
