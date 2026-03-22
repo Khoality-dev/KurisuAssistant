@@ -52,19 +52,19 @@ import { useAgentStore } from '../store/agentStore';
 
 const MotionCard = motion(Card);
 
-interface LocalService {
+interface LocalServer {
   id: string;
   name: string;
   healthUrl: string;
   mcpUrl: string;
 }
 
-const LOCAL_SERVICES: LocalService[] = [
+const LOCAL_SERVERS: LocalServer[] = [
   { id: 'maestro', name: 'Maestro', healthUrl: 'http://127.0.0.1:29170/health', mcpUrl: 'http://127.0.0.1:29170/sse' },
   { id: 'chronicle', name: 'Chronicle', healthUrl: 'http://127.0.0.1:29172/health', mcpUrl: 'http://127.0.0.1:29172/sse' },
 ];
 
-const LOCAL_SERVICE_POLL_INTERVAL = 5000;
+const LOCAL_SERVER_POLL_INTERVAL = 5000;
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -234,10 +234,10 @@ export const ToolsWindow: React.FC = () => {
   const [testResults, setTestResults] = useState<Record<number, MCPServerTestResult>>({});
 
   // Local service detection state
-  const [detectedServices, setDetectedServices] = useState<Record<string, { running: boolean; version?: string }>>({});
+  const [detectedServers, setDetectedServices] = useState<Record<string, { running: boolean; version?: string }>>({});
   const mcpAutoRegistered = useRef<Set<string>>(new Set());
 
-  const registerLocalService = useCallback(async (svc: LocalService): Promise<boolean> => {
+  const registerLocalServer = useCallback(async (svc: LocalServer): Promise<boolean> => {
     try {
       const servers = await apiClient.listMCPServers();
       // Match both localhost and 127.0.0.1 variants, and both server/client locations
@@ -245,7 +245,7 @@ export const ToolsWindow: React.FC = () => {
       const normalizedMcpUrl = normalizeUrl(svc.mcpUrl);
       const existing = servers.find((s) => s.url && normalizeUrl(s.url) === normalizedMcpUrl);
       if (!existing) {
-        console.log(`[LocalServices] Registering client MCP server for ${svc.name} at ${svc.mcpUrl}`);
+        console.log(`[LocalServers] Registering client MCP server for ${svc.name} at ${svc.mcpUrl}`);
         await apiClient.createMCPServer({
           name: svc.name,
           transport_type: 'sse',
@@ -258,10 +258,10 @@ export const ToolsWindow: React.FC = () => {
         if (existing.url !== svc.mcpUrl) updates.url = svc.mcpUrl;
         if (existing.location !== 'client') updates.location = 'client';
         if (Object.keys(updates).length > 0) {
-          console.log(`[LocalServices] Updating ${svc.name}:`, updates);
+          console.log(`[LocalServers] Updating ${svc.name}:`, updates);
           await apiClient.updateMCPServer(existing.id, updates);
         } else {
-          console.log(`[LocalServices] ${svc.name} already registered`);
+          console.log(`[LocalServers] ${svc.name} already registered`);
         }
       }
       mcpAutoRegistered.current.add(svc.id);
@@ -270,14 +270,14 @@ export const ToolsWindow: React.FC = () => {
       loadData();
       return true;
     } catch (err) {
-      console.error(`[LocalServices] Failed to register ${svc.name}:`, err);
+      console.error(`[LocalServers] Failed to register ${svc.name}:`, err);
       return false;
     }
   }, []);
 
-  const checkLocalServices = useCallback(async () => {
+  const checkLocalServers = useCallback(async () => {
     if (!window.electron?.extensions) return;
-    for (const svc of LOCAL_SERVICES) {
+    for (const svc of LOCAL_SERVERS) {
       const data = await window.electron.extensions.checkHealth(svc.healthUrl);
       const running = !!(data && data.status === 'ok');
       setDetectedServices((prev) => ({
@@ -285,33 +285,33 @@ export const ToolsWindow: React.FC = () => {
         [svc.id]: { running, version: running ? data?.version : undefined },
       }));
       if (running && !mcpAutoRegistered.current.has(svc.id)) {
-        await registerLocalService(svc);
+        await registerLocalServer(svc);
       }
     }
-  }, [registerLocalService]);
+  }, [registerLocalServer]);
 
-  const reconnectLocalService = useCallback(async (svc: LocalService) => {
-    console.log(`[LocalServices] Reconnecting ${svc.name}...`);
+  const reconnectLocalServer = useCallback(async (svc: LocalServer) => {
+    console.log(`[LocalServers] Reconnecting ${svc.name}...`);
     mcpAutoRegistered.current.delete(svc.id);
     setDetectedServices((prev) => ({ ...prev, [svc.id]: { running: false } }));
     if (!window.electron?.extensions) return;
     const data = await window.electron.extensions.checkHealth(svc.healthUrl);
     const running = !!(data && data.status === 'ok');
-    console.log(`[LocalServices] ${svc.name} health check: ${running ? 'OK' : 'FAILED'}`, data);
+    console.log(`[LocalServers] ${svc.name} health check: ${running ? 'OK' : 'FAILED'}`, data);
     setDetectedServices((prev) => ({
       ...prev,
       [svc.id]: { running, version: running ? data?.version : undefined },
     }));
     if (running) {
-      await registerLocalService(svc);
+      await registerLocalServer(svc);
     }
-  }, [registerLocalService]);
+  }, [registerLocalServer]);
 
   useEffect(() => {
-    checkLocalServices();
-    const interval = setInterval(checkLocalServices, LOCAL_SERVICE_POLL_INTERVAL);
+    checkLocalServers();
+    const interval = setInterval(checkLocalServers, LOCAL_SERVER_POLL_INTERVAL);
     return () => clearInterval(interval);
-  }, [checkLocalServices]);
+  }, [checkLocalServers]);
 
   // Skill editor state
   const [skillDialogOpen, setSkillDialogOpen] = useState(false);
@@ -653,14 +653,14 @@ export const ToolsWindow: React.FC = () => {
             {/* MCP Servers Tab */}
             <TabPanel value={currentTab} index={0}>
               <Box sx={{ maxWidth: 900, mx: 'auto' }}>
-                {/* Local Services Detection */}
+                {/* Local Servers Detection */}
                 <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
                   <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
-                    Local Services
+                    Local Servers
                   </Typography>
                   <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                    {LOCAL_SERVICES.map((svc) => {
-                      const status = detectedServices[svc.id];
+                    {LOCAL_SERVERS.map((svc) => {
+                      const status = detectedServers[svc.id];
                       const isRunning = status?.running;
                       const isRegistered = mcpServers.some((s) => s.url && (s.url === svc.mcpUrl || s.url === svc.mcpUrl.replace('://127.0.0.1:', '://localhost:')));
                       return (
@@ -700,7 +700,7 @@ export const ToolsWindow: React.FC = () => {
                           )}
                           <IconButton
                             size="small"
-                            onClick={() => reconnectLocalService(svc)}
+                            onClick={() => reconnectLocalServer(svc)}
                             sx={{
                               p: 0.25,
                               color: isRunning ? 'rgba(255,255,255,0.7)' : 'text.disabled',
@@ -730,7 +730,7 @@ export const ToolsWindow: React.FC = () => {
                 </Box>
 
                 {(() => {
-                  const localMcpUrls = new Set(LOCAL_SERVICES.flatMap((s) => [s.mcpUrl, s.mcpUrl.replace('://127.0.0.1:', '://localhost:')]));
+                  const localMcpUrls = new Set(LOCAL_SERVERS.flatMap((s) => [s.mcpUrl, s.mcpUrl.replace('://127.0.0.1:', '://localhost:')]));
                   const userServers = mcpServers.filter((s) => !s.url || !localMcpUrls.has(s.url));
                   return userServers.length === 0 ? (
                   <Paper sx={{ p: 4, textAlign: 'center' }}>

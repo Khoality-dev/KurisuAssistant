@@ -29,7 +29,7 @@ interface ManagedServer {
 // Active server instances keyed by server name
 const servers = new Map<string, ManagedServer>();
 
-async function startServer(config: MCPServerConfig): Promise<void> {
+export async function startServer(config: MCPServerConfig): Promise<void> {
   // Stop existing server with same name if any
   if (servers.has(config.name)) {
     await stopServer(config.name);

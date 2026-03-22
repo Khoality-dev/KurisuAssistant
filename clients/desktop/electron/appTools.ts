@@ -6,6 +6,10 @@
  */
 
 import { ipcMain, BrowserWindow } from 'electron';
+import { spawn } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import { startServer } from './mcp';
 
 // --- Tool schemas ---
 
@@ -27,6 +31,7 @@ const APP_TOOL_NAMES = new Set([
   'app_delete_mcp_server',
   'app_vision_start',
   'app_vision_stop',
+  'app_launch_browser',
 ]);
 
 function getAppToolSchemas(): ToolSchema[] {
@@ -169,7 +174,136 @@ function getAppToolSchemas(): ToolSchema[] {
         },
       },
     },
+    // --- Browser ---
+    {
+      type: 'function',
+      function: {
+        name: 'app_launch_browser',
+        description:
+          'Launch the user\'s browser with remote debugging enabled so Playwright MCP can connect to it. ' +
+          'Returns the CDP endpoint URL. Use with @playwright/mcp --cdp-endpoint.',
+        parameters: {
+          type: 'object',
+          properties: {
+            browser: {
+              type: 'string',
+              enum: ['chrome', 'edge', 'auto'],
+              description: 'Which browser to launch (default: "auto" — detects installed browser).',
+            },
+            port: {
+              type: 'integer',
+              description: 'Remote debugging port (default: 9222).',
+            },
+            url: {
+              type: 'string',
+              description: 'URL to open on launch.',
+            },
+          },
+          required: [],
+        },
+      },
+    },
   ];
+}
+
+// --- Browser launch (runs in main process, not renderer) ---
+
+function findBrowser(preference: string): { name: string; path: string } | null {
+  const candidates: { name: string; paths: string[] }[] = [
+    {
+      name: 'chrome',
+      paths: process.platform === 'win32'
+        ? [
+            path.join(process.env.PROGRAMFILES || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            path.join(process.env['PROGRAMFILES(X86)'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+          ]
+        : ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'],
+    },
+    {
+      name: 'edge',
+      paths: process.platform === 'win32'
+        ? [
+            path.join(process.env.PROGRAMFILES || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+            path.join(process.env['PROGRAMFILES(X86)'] || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+          ]
+        : ['/usr/bin/microsoft-edge', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'],
+    },
+  ];
+
+  if (preference !== 'auto') {
+    const match = candidates.find(c => c.name === preference);
+    if (match) {
+      const found = match.paths.find(p => fs.existsSync(p));
+      if (found) return { name: match.name, path: found };
+    }
+    return null;
+  }
+
+  // Auto-detect: try each in order
+  for (const candidate of candidates) {
+    const found = candidate.paths.find(p => fs.existsSync(p));
+    if (found) return { name: candidate.name, path: found };
+  }
+  return null;
+}
+
+async function executeLaunchBrowser(args: Record<string, unknown>): Promise<{ content: string; isError: boolean }> {
+  const preference = (args.browser as string) || 'auto';
+  const port = typeof args.port === 'number' ? args.port : 9222;
+  const url = (args.url as string) || '';
+
+  const browser = findBrowser(preference);
+  if (!browser) {
+    return {
+      content: JSON.stringify({ error: `No browser found. Tried: ${preference}. Install Chrome or Edge.` }),
+      isError: true,
+    };
+  }
+
+  const launchArgs = [`--remote-debugging-port=${port}`];
+  if (url) launchArgs.push(url);
+
+  try {
+    const child = spawn(browser.path, launchArgs, { detached: true, stdio: 'ignore' });
+    child.unref();
+
+    const cdpEndpoint = `http://localhost:${port}`;
+
+    // Wait a moment for the browser to start and open the CDP port
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Auto-start @playwright/mcp connected to this browser
+    try {
+      await startServer({
+        name: 'Playwright',
+        transport_type: 'stdio',
+        command: 'npx',
+        args: ['@playwright/mcp', '--cdp-endpoint', cdpEndpoint],
+      });
+
+      // Notify renderer to re-register tools (picks up new Playwright tools)
+      const mainWindow = BrowserWindow.getAllWindows().find(w => !w.isDestroyed());
+      if (mainWindow) {
+        mainWindow.webContents.send('mcp:tools-changed');
+      }
+    } catch (mcpErr: any) {
+      console.error('[AppTools] Failed to start Playwright MCP server:', mcpErr);
+      // Browser launched successfully, just MCP failed — still report success
+    }
+
+    return {
+      content: JSON.stringify({
+        status: 'ok',
+        browser: browser.name,
+        cdp_endpoint: cdpEndpoint,
+        message: `Launched ${browser.name} with CDP on port ${port}. Playwright MCP server connected — browser tools are now available.`,
+      }),
+      isError: false,
+    };
+  } catch (e: any) {
+    return { content: JSON.stringify({ error: e.message }), isError: true };
+  }
 }
 
 // --- IPC: forward tool calls to renderer ---
@@ -190,6 +324,11 @@ export function registerAppToolIPC(): void {
   ipcMain.handle(
     'app-tools:call-tool',
     async (_event, name: string, args: Record<string, unknown>) => {
+      // Tools that run in main process (no renderer needed)
+      if (name === 'app_launch_browser') {
+        return executeLaunchBrowser(args);
+      }
+
       const mainWindow = BrowserWindow.getAllWindows().find(w => !w.isDestroyed());
       if (!mainWindow) {
         return { content: JSON.stringify({ error: 'No window available.' }), isError: true };

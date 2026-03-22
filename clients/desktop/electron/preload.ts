@@ -61,6 +61,12 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('host-tools:set-allowed-paths', agentId, paths),
   },
 
+  onMCPToolsChanged: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on('mcp:tools-changed', handler);
+    return () => { ipcRenderer.removeListener('mcp:tools-changed', handler); };
+  },
+
   mcp: {
     startServers: (configs: Array<{ name: string; transport_type: string; url?: string; command?: string; args?: string[]; env?: Record<string, string> }>) =>
       ipcRenderer.invoke('mcp:start-servers', configs),

@@ -241,3 +241,11 @@ export async function getClientToolsByServer(): Promise<Record<string, typeof cl
 wsManager.on('connected', () => {
   initClientMCPServers();
 });
+
+// Re-register tools when MCP servers change (e.g. Playwright started by app_launch_browser)
+if (window.electron?.onMCPToolsChanged) {
+  window.electron.onMCPToolsChanged(() => {
+    console.log('[MCP] Tools changed — re-registering');
+    refreshClientMCPServers();
+  });
+}
