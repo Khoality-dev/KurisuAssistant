@@ -200,6 +200,16 @@ export function registerMCPHandlers(): void {
     return results;
   });
 
+  ipcMain.handle('mcp:start-server', async (_event, config: MCPServerConfig) => {
+    try {
+      await startServer(config);
+      return { name: config.name, ok: true };
+    } catch (e) {
+      console.error(`[MCP] Failed to start "${config.name}":`, e);
+      return { name: config.name, ok: false, error: String(e) };
+    }
+  });
+
   ipcMain.handle('mcp:stop-servers', async () => {
     await stopAllServers();
   });

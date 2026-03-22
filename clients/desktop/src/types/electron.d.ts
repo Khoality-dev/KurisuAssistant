@@ -51,6 +51,7 @@ export interface HostToolsAPI {
 
 export interface MCPAPI {
   startServers: (configs: MCPServerConfig[]) => Promise<Array<{ name: string; ok: boolean; error?: string }>>;
+  startServer: (config: MCPServerConfig) => Promise<{ name: string; ok: boolean; error?: string }>;
   stopServers: () => Promise<void>;
   listTools: () => Promise<Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }>>;
   listToolsByServer: () => Promise<Record<string, Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }>>>;

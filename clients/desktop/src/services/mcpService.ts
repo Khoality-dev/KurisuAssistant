@@ -30,7 +30,7 @@ export async function initClientMCPServers(): Promise<void> {
     return;
   }
 
-  // Always collect built-in tools (host, app, browser) regardless of MCP state
+  // Always collect built-in tools (host, app) regardless of MCP state
   const hostTools = window.electron.hostTools
     ? await window.electron.hostTools.listTools().catch(() => [])
     : [];
@@ -40,6 +40,22 @@ export async function initClientMCPServers(): Promise<void> {
   const builtinTools = [...hostTools, ...appTools];
 
   console.log(`[MCP] Built-in tools: ${hostTools.length} host + ${appTools.length} app`);
+
+  // Auto-start Playwright MCP server (stdio, always available for browser tools)
+  if (window.electron?.mcp?.startServer) {
+    try {
+      const result = await window.electron.mcp.startServer(
+        { name: 'Playwright', transport_type: 'stdio', command: 'npx', args: ['@playwright/mcp'] },
+      );
+      if (result.ok) {
+        console.log('[MCP] Playwright MCP server started');
+      } else {
+        console.warn('[MCP] Playwright MCP server failed:', result.error);
+      }
+    } catch (e) {
+      console.warn('[MCP] Failed to start Playwright MCP server:', e);
+    }
+  }
 
   try {
     // Fetch all MCP server configs
