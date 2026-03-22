@@ -15,6 +15,8 @@ export interface OpenFile {
   content: string;
   originalContent: string;
   language: string;
+  isBinary: boolean; // true = show "open as raw" prompt before rendering editor
+  forceOpen: boolean; // user confirmed to open binary as raw text
 }
 
 interface ExplorerState {
@@ -26,6 +28,7 @@ interface ExplorerState {
   activeFileIndex: number;
   navigate: (path: string) => Promise<void>;
   openFile: (entry: FileEntry) => Promise<void>;
+  forceOpenBinary: (index: number) => Promise<void>;
   closeFile: (index: number) => void;
   setActiveFile: (index: number) => void;
   updateFileContent: (index: number, content: string) => void;
@@ -86,15 +89,11 @@ function getLanguageFromExtension(filename: string): string {
 }
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico']);
-const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mkv', '.avi', '.mov']);
-const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a']);
-const BINARY_EXTENSIONS = new Set([
-  '.exe', '.dll', '.so', '.dylib', '.bin', '.dat',
-  '.zip', '.tar', '.gz', '.7z', '.rar',
-  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-  '.wasm', '.onnx', '.pb', '.pt', '.pth',
-  ...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS,
-]);
+/** Detect binary content by checking for null bytes in the first 8KB. */
+export function isBinaryContent(content: string): boolean {
+  const sample = content.slice(0, 8192);
+  return sample.includes('\0');
+}
 
 export function isImageFile(filename: string): boolean {
   const dotIdx = filename.toLowerCase().lastIndexOf('.');
@@ -102,11 +101,6 @@ export function isImageFile(filename: string): boolean {
   return IMAGE_EXTENSIONS.has(filename.toLowerCase().slice(dotIdx));
 }
 
-function isExternalFile(filename: string): boolean {
-  const dotIdx = filename.toLowerCase().lastIndexOf('.');
-  if (dotIdx === -1) return false;
-  return BINARY_EXTENSIONS.has(filename.toLowerCase().slice(dotIdx));
-}
 
 export const useExplorerStore = create<ExplorerState>((set, get) => ({
   currentPath: '',
@@ -133,14 +127,6 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   },
 
   openFile: async (entry: FileEntry) => {
-    // Binary/external files — open with system default app
-    if (isExternalFile(entry.name)) {
-      if (window.electron?.openPath) {
-        await window.electron.openPath(entry.fullPath);
-      }
-      return;
-    }
-
     const { openFiles } = get();
 
     // If already open, just switch to it
@@ -158,6 +144,8 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         content: '',
         originalContent: '',
         language: 'image',
+        isBinary: false,
+        forceOpen: false,
       };
       set({
         openFiles: [...openFiles, newFile],
@@ -174,12 +162,15 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
       }
 
       const content = result.content ?? '';
+      const binary = isBinaryContent(content);
       const newFile: OpenFile = {
         path: entry.fullPath,
         name: entry.name,
-        content,
-        originalContent: content,
+        content: binary ? '' : content, // Don't load binary content until user confirms
+        originalContent: binary ? '' : content,
         language: getLanguageFromExtension(entry.name),
+        isBinary: binary,
+        forceOpen: false,
       };
 
       set({
@@ -188,6 +179,24 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
       });
     } catch (err) {
       console.error('Failed to open file:', err);
+    }
+  },
+
+  forceOpenBinary: async (index: number) => {
+    const { openFiles } = get();
+    const file = openFiles[index];
+    if (!file) return;
+
+    try {
+      const result = await window.electron.explorer.readFile(file.path);
+      if (result.error) return;
+
+      const content = result.content ?? '';
+      const updated = [...openFiles];
+      updated[index] = { ...updated[index], content, originalContent: content, forceOpen: true };
+      set({ openFiles: updated });
+    } catch (err) {
+      console.error('Failed to force open binary:', err);
     }
   },
 

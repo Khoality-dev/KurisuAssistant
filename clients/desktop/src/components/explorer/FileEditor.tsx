@@ -6,6 +6,8 @@ import {
 } from '@mui/icons-material';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import { useExplorerStore, isImageFile } from '../../store/explorerStore';
+import { Button } from '@mui/material';
+import { WarningAmber as WarningIcon } from '@mui/icons-material';
 
 export const FileEditor: React.FC = () => {
   const theme = useTheme();
@@ -108,6 +110,35 @@ export const FileEditor: React.FC = () => {
             boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
           }}
         />
+      </Box>
+    );
+  }
+
+  // Binary file prompt
+  if (activeFile.isBinary && !activeFile.forceOpen) {
+    return (
+      <Box
+        sx={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 2,
+          color: 'text.secondary',
+        }}
+      >
+        <WarningIcon sx={{ fontSize: 48, opacity: 0.4 }} />
+        <Typography variant="body2" sx={{ fontSize: '0.9rem', fontWeight: 500 }}>
+          The file is not displayed in the text editor because it is either binary or uses an unsupported text encoding.
+        </Typography>
+        <Button
+          variant="outlined"
+          size="small"
+          onClick={() => useExplorerStore.getState().forceOpenBinary(activeFileIndex)}
+        >
+          Open Anyway
+        </Button>
       </Box>
     );
   }
