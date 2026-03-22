@@ -25,6 +25,8 @@ import {
 import {
   ArrowUpward as UpIcon,
   Home as HomeIcon,
+  ViewList as ListViewIcon,
+  GridView as GridViewIcon,
 } from '@mui/icons-material';
 import { getFileIcon } from './FileIcon';
 import { useExplorerStore, type FileEntry } from '../../store/explorerStore';
@@ -47,6 +49,7 @@ function formatDate(dateStr: string | null): string {
 export const FullExplorer: React.FC = () => {
   const { openFile } = useExplorerStore();
 
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [hasVSCode, setHasVSCode] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; entry: FileEntry } | null>(null);
   const [bgContextMenu, setBgContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
@@ -184,12 +187,89 @@ export const FullExplorer: React.FC = () => {
             )
           ))}
         </Breadcrumbs>
+
+        <Box sx={{ display: 'flex', gap: 0.25 }}>
+          <Tooltip title="List view">
+            <IconButton
+              size="small"
+              onClick={() => setViewMode('list')}
+              sx={{ color: viewMode === 'list' ? 'text.primary' : 'text.secondary', opacity: viewMode === 'list' ? 1 : 0.5 }}
+            >
+              <ListViewIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Icon view">
+            <IconButton
+              size="small"
+              onClick={() => setViewMode('grid')}
+              sx={{ color: viewMode === 'grid' ? 'text.primary' : 'text.secondary', opacity: viewMode === 'grid' ? 1 : 0.5 }}
+            >
+              <GridViewIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Box>
 
       {/* File list */}
       {isLoading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
           <CircularProgress size={28} />
+        </Box>
+      ) : viewMode === 'grid' ? (
+        /* Grid/icon view */
+        <Box
+          sx={{ flex: 1, overflow: 'auto', p: 2 }}
+          onContextMenu={(e) => {
+            if ((e.target as HTMLElement).closest('[data-entry]')) return;
+            e.preventDefault();
+            setBgContextMenu({ mouseX: e.clientX, mouseY: e.clientY });
+          }}
+        >
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {entries.map((entry) => (
+              <Box
+                key={entry.fullPath}
+                data-entry
+                onClick={() => handleEntryClick(entry)}
+                onContextMenu={(e) => handleContextMenu(e, entry)}
+                sx={{
+                  width: 96,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  p: 1,
+                  borderRadius: 1,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  '&:hover': { bgcolor: 'action.hover' },
+                  transition: 'background-color 100ms ease',
+                }}
+              >
+                <Box sx={{ '& svg': { width: 40, height: 40 } }}>
+                  {getFileIcon(entry.name, entry.type)}
+                </Box>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontSize: '0.7rem',
+                    textAlign: 'center',
+                    lineHeight: 1.2,
+                    wordBreak: 'break-all',
+                    maxHeight: '2.4em',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {entry.name}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+          {entries.length === 0 && (
+            <Typography sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
+              Empty directory
+            </Typography>
+          )}
         </Box>
       ) : (
         <TableContainer
