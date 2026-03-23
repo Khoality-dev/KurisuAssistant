@@ -6,6 +6,7 @@ import {
   IconButton,
   TextField,
   Tooltip,
+  Typography,
 } from '@mui/material';
 import { CircularProgress } from '@mui/material';
 import {
@@ -109,6 +110,28 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
             const p = providerMap.get(option) || 'ollama';
             return p.charAt(0).toUpperCase() + p.slice(1);
           }}
+          renderGroup={(params) => (
+            <li key={params.key}>
+              <Typography
+                sx={{
+                  px: 1.5,
+                  py: 0.75,
+                  fontWeight: 700,
+                  fontSize: '0.75rem',
+                  letterSpacing: '0.05em',
+                  textTransform: 'uppercase',
+                  color: params.group === 'Gemini' ? '#4285F4' : 'text.secondary',
+                  bgcolor: params.group === 'Gemini' ? 'rgba(66,133,244,0.06)' : 'action.hover',
+                  position: 'sticky',
+                  top: -8,
+                  zIndex: 1,
+                }}
+              >
+                {params.group}
+              </Typography>
+              {params.children}
+            </li>
+          )}
           value={value === '' ? null : value}
           inputValue={value}
           onChange={(_, newValue) => onChange(typeof newValue === 'string' ? newValue : '')}
