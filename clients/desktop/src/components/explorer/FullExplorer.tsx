@@ -48,7 +48,7 @@ function formatDate(dateStr: string | null): string {
 }
 
 export const FullExplorer: React.FC = () => {
-  const { openFile, viewMode, setViewMode, addSelection } = useExplorerStore();
+  const { openFile, viewMode, setViewMode, addSelection, setLiveSelection } = useExplorerStore();
 
   const [selectedEntries, setSelectedEntries] = useState<Set<string>>(new Set());
   const [lasso, setLasso] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -126,6 +126,15 @@ export const FullExplorer: React.FC = () => {
       setSelectedEntries(new Set([entry.fullPath]));
     }
     lastClickedRef.current = entry.fullPath;
+
+    // Update live selection chip to the clicked item
+    setLiveSelection({
+      filePath: entry.fullPath,
+      fileName: entry.name,
+      startLine: 0,
+      endLine: 0,
+      isWholeFile: true,
+    });
   };
 
   const handleEntryDoubleClick = (entry: FileEntry) => {
@@ -361,6 +370,7 @@ export const FullExplorer: React.FC = () => {
             if (e.shiftKey || e.ctrlKey || e.metaKey) return;
             if (!(e.target as HTMLElement).closest('[data-entry]')) {
               setSelectedEntries(new Set());
+              setLiveSelection(null);
             }
           }}
           onContextMenu={(e) => {
@@ -430,6 +440,7 @@ export const FullExplorer: React.FC = () => {
             if (e.shiftKey || e.ctrlKey || e.metaKey) return;
             if (!(e.target as HTMLElement).closest('tr[class*="MuiTableRow"]')) {
               setSelectedEntries(new Set());
+              setLiveSelection(null);
             }
           }}
           onContextMenu={(e) => {
