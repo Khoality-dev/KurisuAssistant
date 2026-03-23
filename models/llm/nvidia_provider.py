@@ -76,16 +76,50 @@ class NvidiaProvider(BaseLLMProvider):
         think = kwargs.get("think", False)
         options = kwargs.get("options", {})
 
-        # Clean messages to OpenAI format (strip Ollama-specific fields)
+        # Convert Ollama-format messages to OpenAI format
         clean_messages = []
+        # Track tool call IDs so tool results can reference them
+        tool_call_counter = 0
+        tool_name_to_id: Dict[str, str] = {}
+
         for msg in messages:
-            clean = {"role": msg.get("role", "user"), "content": msg.get("content", "")}
-            if msg.get("name"):
-                clean["name"] = msg["name"]
-            if msg.get("tool_calls"):
-                clean["tool_calls"] = msg["tool_calls"]
-            if msg.get("tool_call_id"):
-                clean["tool_call_id"] = msg["tool_call_id"]
+            role = msg.get("role", "user")
+            clean: Dict[str, Any] = {"role": role}
+
+            if role == "assistant":
+                clean["content"] = msg.get("content", "") or ""
+                # Convert Ollama tool_calls to OpenAI format (add id + type)
+                if msg.get("tool_calls"):
+                    openai_tcs = []
+                    for tc in msg["tool_calls"]:
+                        fn = tc.get("function", {})
+                        tc_id = f"call_{tool_call_counter}"
+                        tool_call_counter += 1
+                        tool_name_to_id[fn.get("name", "")] = tc_id
+                        args = fn.get("arguments", {})
+                        if isinstance(args, dict):
+                            args = json.dumps(args)
+                        openai_tcs.append({
+                            "id": tc_id,
+                            "type": "function",
+                            "function": {"name": fn.get("name", ""), "arguments": args},
+                        })
+                    clean["tool_calls"] = openai_tcs
+                    # OpenAI requires content to be null when tool_calls present
+                    if not clean["content"]:
+                        clean["content"] = None
+            elif role == "tool":
+                clean["content"] = msg.get("content", "")
+                # Match tool result to the tool call ID
+                tool_name = msg.get("name", "")
+                clean["tool_call_id"] = tool_name_to_id.get(tool_name, f"call_{tool_call_counter}")
+                if not tool_name_to_id.get(tool_name):
+                    tool_call_counter += 1
+            else:
+                clean["content"] = msg.get("content", "")
+                if msg.get("name"):
+                    clean["name"] = msg["name"]
+
             clean_messages.append(clean)
 
         payload: Dict[str, Any] = {
