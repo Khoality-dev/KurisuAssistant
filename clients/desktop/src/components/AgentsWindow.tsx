@@ -62,6 +62,11 @@ const formSectionSx = {
   boxShadow: 'none',
 };
 
+function detectProvider(modelName: string): string {
+  if (modelName.startsWith('gemini-')) return 'gemini';
+  return 'ollama';
+}
+
 interface AgentFormData {
   name: string;
   system_prompt: string;
@@ -171,10 +176,12 @@ export const AgentsWindow: React.FC = () => {
 
   const handleCreateAgent = async () => {
     try {
+      const modelName = formData.model_name.trim();
       const createData: AgentCreate = {
         name: formData.name,
         system_prompt: formData.system_prompt || undefined,
-        model_name: formData.model_name.trim(),
+        model_name: modelName,
+        provider_type: detectProvider(modelName),
         think: formData.think,
         excluded_tools: formData.excluded_tools.length > 0 ? formData.excluded_tools : undefined,
         preferred_name: formData.preferred_name.trim() || undefined,
@@ -213,6 +220,7 @@ export const AgentsWindow: React.FC = () => {
         name: formData.name !== selectedAgent.name ? formData.name : undefined,
         system_prompt: formData.system_prompt !== selectedAgent.system_prompt ? formData.system_prompt : undefined,
         model_name: normalizedModelName !== (selectedAgent.model_name || '') ? normalizedModelName : undefined,
+        provider_type: detectProvider(normalizedModelName) !== (selectedAgent.provider_type || 'ollama') ? detectProvider(normalizedModelName) : undefined,
         think: formData.think !== selectedAgent.think ? formData.think : undefined,
         excluded_tools: toolsChanged ? formData.excluded_tools : undefined,
         memory: formData.memory !== (selectedAgent.memory || '') ? formData.memory : undefined,

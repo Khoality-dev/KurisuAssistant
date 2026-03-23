@@ -72,7 +72,8 @@ export interface UserProfile {
   system_prompt?: string;
   preferred_name?: string;
   agent_avatar_uuid?: string;
-  ollama_url?: string; // Custom Ollama server URL (null/undefined = use default)
+  ollama_url?: string;
+  gemini_api_key?: string; // Masked in GET response, full key in PATCH
   summary_model?: string; // Model for frame summarization (null = use chat model)
   context_size?: number; // Ollama num_ctx override (null = default 8192)
 }
@@ -108,6 +109,7 @@ export interface Agent {
   voice_reference: string | null;
   avatar_uuid: string | null;
   model_name: string | null;
+  provider_type: string;
   excluded_tools: string[] | null;
   think: boolean;
   character_config: CharacterConfigDTO | null;
@@ -148,7 +150,8 @@ export interface UploadVideoResponseDTO {
 export interface AgentCreate {
   name: string;
   system_prompt?: string;
-  model_name: string;  // Required - LLM model for this agent
+  model_name: string;
+  provider_type?: string;
   excluded_tools?: string[];
   think?: boolean;
   preferred_name?: string;
@@ -160,6 +163,7 @@ export interface AgentUpdate {
   system_prompt?: string;
   voice_reference?: string;
   model_name?: string;
+  provider_type?: string;
   excluded_tools?: string[];
   think?: boolean;
   memory?: string;

@@ -44,6 +44,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
   const [currentTab, setCurrentTab] = useState(0);
 
   const [ollamaUrl, setOllamaUrl] = useState('');
+  const [geminiApiKey, setGeminiApiKey] = useState('');
   const [summaryModel, setSummaryModel] = useState('');
   const [contextSize, setContextSize] = useState<number | ''>('');
   const [models, setModels] = useState<string[]>([]);
@@ -76,6 +77,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
   useEffect(() => {
     if (user) {
       setOllamaUrl(user.ollama_url || '');
+      setGeminiApiKey(''); // Don't prefill — API returns masked value
       setSummaryModel(user.summary_model || '');
       setContextSize(user.context_size || '');
     }
@@ -107,6 +109,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
       const profileUpdates: Partial<UserProfile> = {};
       // Always include ollama_url (empty string will clear it on backend)
       profileUpdates.ollama_url = ollamaUrl || '';
+      if (geminiApiKey) profileUpdates.gemini_api_key = geminiApiKey;
       profileUpdates.summary_model = summaryModel.trim() || '';
       profileUpdates.context_size = contextSize || 0;
 
@@ -190,6 +193,19 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
               fullWidth
               placeholder="http://localhost:11434"
               helperText="Leave empty to use the default server"
+            />
+          </Box>
+
+          {/* Gemini API Key */}
+          <Box sx={{ mb: 4 }}>
+            <TextField
+              label="Google Gemini API Key"
+              value={geminiApiKey}
+              onChange={(e) => setGeminiApiKey(e.target.value)}
+              fullWidth
+              type="password"
+              placeholder={user?.gemini_api_key ? '••••••••' + user.gemini_api_key.slice(-4) : 'Enter API key to enable Gemini models'}
+              helperText="Get your key from ai.google.dev. Gemini models will appear in the model picker."
             />
           </Box>
 
