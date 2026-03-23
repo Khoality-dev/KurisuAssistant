@@ -358,6 +358,7 @@ export const FullExplorer: React.FC = () => {
           sx={{ flex: 1, overflow: 'auto', p: 2, position: 'relative' }}
           onClick={(e) => {
             if (lassoDragged.current) { lassoDragged.current = false; return; }
+            if (e.shiftKey || e.ctrlKey || e.metaKey) return;
             if (!(e.target as HTMLElement).closest('[data-entry]')) {
               setSelectedEntries(new Set());
             }
@@ -426,6 +427,7 @@ export const FullExplorer: React.FC = () => {
           sx={{ flex: 1, overflow: 'auto', position: 'relative' }}
           onClick={(e) => {
             if (lassoDragged.current) { lassoDragged.current = false; return; }
+            if (e.shiftKey || e.ctrlKey || e.metaKey) return;
             if (!(e.target as HTMLElement).closest('tr[class*="MuiTableRow"]')) {
               setSelectedEntries(new Set());
             }
