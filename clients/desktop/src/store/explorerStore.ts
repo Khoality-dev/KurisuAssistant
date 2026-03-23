@@ -251,7 +251,19 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   },
 
   setActiveFile: (index: number) => {
-    set({ activeFileIndex: index });
+    const { openFiles } = get();
+    const file = openFiles[index];
+    set({
+      activeFileIndex: index,
+      // Update live selection to the new active file (whole file)
+      liveSelection: file ? {
+        filePath: file.path,
+        fileName: file.name,
+        startLine: 1,
+        endLine: 0,
+        isWholeFile: true,
+      } : null,
+    });
   },
 
   updateFileContent: (index: number, content: string) => {
