@@ -2,13 +2,13 @@
 set -e
 
 echo "Waiting for PostgreSQL to be ready..."
-until python -c "from db.session import engine; engine.connect()" 2>/dev/null; do
+until python -c "from kurisuassistant.db.session import engine; engine.connect()" 2>/dev/null; do
   echo "PostgreSQL is unavailable - sleeping"
   sleep 2
 done
 
 echo "PostgreSQL is up - running migrations"
-if python migrate.py; then
+if python -m kurisuassistant.migrate; then
     echo "Migrations completed successfully"
 else
     echo "Migration failed with exit code $?"
@@ -16,4 +16,4 @@ else
 fi
 
 echo "Starting application..."
-exec uvicorn main:app --host 0.0.0.0 --port 15597 --ws-ping-interval 5 --ws-ping-timeout 5
+exec uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --ws-ping-interval 5 --ws-ping-timeout 5

@@ -24,7 +24,7 @@ set ACCESS_TOKEN_EXPIRE_DAYS=30
 
 REM Run migrations first
 echo Running database migrations...
-%VENV_PYTHON% migrate.py
+%VENV_PYTHON% -m kurisuassistant.migrate
 if %errorlevel% neq 0 (
     echo Migration failed!
     pause
@@ -33,4 +33,4 @@ if %errorlevel% neq 0 (
 
 REM Start the application
 echo Starting llm-hub application...
-%VENV_PYTHON% -m uvicorn main:app --host 0.0.0.0 --port 15597 --reload --log-level info
+%VENV_PYTHON% -m uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --reload --reload-dir kurisuassistant --log-level info
