@@ -30,7 +30,17 @@ interface ExplorerState {
   openFiles: OpenFile[];
   activeFileIndex: number;
   viewMode: ExplorerViewMode;
-  workspaceRoot: string; // folder shown in tree sidebar during editor mode
+  workspaceRoot: string;
+  // Editor selections for chat context (one per file, keyed by file path)
+  selections: Record<string, {
+    filePath: string;
+    fileName: string;
+    startLine: number;
+    endLine: number;
+    startColumn: number;
+    endColumn: number;
+    text: string;
+  }>;
   navigate: (path: string) => Promise<void>;
   openFile: (entry: FileEntry) => Promise<void>;
   forceOpenBinary: (index: number) => Promise<void>;
@@ -39,6 +49,8 @@ interface ExplorerState {
   updateFileContent: (index: number, content: string) => void;
   saveFile: (index: number) => Promise<void>;
   setViewMode: (mode: ExplorerViewMode) => void;
+  setFileSelection: (filePath: string, selection: ExplorerState['selections'][string] | null) => void;
+  clearAllSelections: () => void;
 }
 
 const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
@@ -111,6 +123,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   activeFileIndex: -1,
   viewMode: (localStorage.getItem('kurisu_explorer_view') as ExplorerViewMode) || 'list',
   workspaceRoot: '',
+  selections: {},
 
   navigate: async (navPath: string) => {
     set({ isLoading: true });
@@ -258,4 +271,15 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     localStorage.setItem('kurisu_explorer_view', mode);
     set({ viewMode: mode });
   },
+
+  setFileSelection: (filePath, selection) => {
+    const { selections } = get();
+    if (selection) {
+      set({ selections: { ...selections, [filePath]: selection } });
+    } else {
+      const { [filePath]: _, ...rest } = selections;
+      set({ selections: rest });
+    }
+  },
+  clearAllSelections: () => set({ selections: {} }),
 }));

@@ -1,11 +1,13 @@
 import React from 'react';
-import { Box, Typography, IconButton, Avatar, Tooltip } from '@mui/material';
+import { Box, Typography, IconButton, Avatar, Tooltip, Chip } from '@mui/material';
 import {
   Refresh as RefreshIcon,
   Delete as DeleteIcon,
+  Code as CodeIcon,
 } from '@mui/icons-material';
 import { useAgentStore } from '../../store/agentStore';
 import { useConversationStore } from '../../store/conversationStore';
+import { useExplorerStore } from '../../store/explorerStore';
 import { ChatWidget } from '../ChatWidget';
 import { MediaPlayerBar } from '../MediaPlayerBar';
 import { apiClient } from '../../api/client';
@@ -13,6 +15,9 @@ import { apiClient } from '../../api/client';
 export const ChatPanel: React.FC = () => {
   const { agents, selectedAgentId } = useAgentStore();
   const { currentConversation, deleteConversation } = useConversationStore();
+  const selections = useExplorerStore((s) => s.selections);
+  const setFileSelection = useExplorerStore((s) => s.setFileSelection);
+  const selectionEntries = Object.values(selections);
 
   const selectedAgent = agents.find(a => a.id === selectedAgentId);
 
@@ -86,6 +91,43 @@ export const ChatPanel: React.FC = () => {
           </IconButton>
         </Tooltip>
       </Box>
+
+      {/* Selection context chips */}
+      {selectionEntries.length > 0 && (
+        <Box
+          sx={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 0.5,
+            px: 1.5,
+            py: 0.75,
+            borderBottom: 1,
+            borderColor: 'divider',
+            flexShrink: 0,
+          }}
+        >
+          {selectionEntries.map((sel) => (
+            <Tooltip
+              key={sel.filePath}
+              title={`${sel.filePath}:${sel.startLine}-${sel.endLine}\n${sel.text.slice(0, 200)}${sel.text.length > 200 ? '...' : ''}`}
+              placement="top"
+            >
+              <Chip
+                icon={<CodeIcon sx={{ fontSize: 14 }} />}
+                label={`${sel.fileName}:${sel.startLine}${sel.startLine !== sel.endLine ? `-${sel.endLine}` : ''}`}
+                size="small"
+                onDelete={() => setFileSelection(sel.filePath, null)}
+                sx={{
+                  fontSize: '0.7rem',
+                  height: 24,
+                  '& .MuiChip-icon': { ml: 0.5 },
+                  '& .MuiChip-deleteIcon': { fontSize: 14 },
+                }}
+              />
+            </Tooltip>
+          ))}
+        </Box>
+      )}
 
       {/* Chat */}
       <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex' }}>

@@ -12,7 +12,7 @@ import { WarningAmber as WarningIcon } from '@mui/icons-material';
 export const FileEditor: React.FC = () => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
-  const { openFiles, activeFileIndex, updateFileContent, saveFile } = useExplorerStore();
+  const { openFiles, activeFileIndex, updateFileContent, saveFile, setFileSelection } = useExplorerStore();
   const editorRef = useRef<any>(null);
 
   const activeFile = activeFileIndex >= 0 ? openFiles[activeFileIndex] : null;
@@ -20,6 +20,32 @@ export const FileEditor: React.FC = () => {
   // Register Ctrl+S save handler
   const handleEditorMount: OnMount = useCallback((editor) => {
     editorRef.current = editor;
+
+    // Track selection changes
+    editor.onDidChangeCursorSelection(() => {
+      const sel = editor.getSelection();
+      const { openFiles: files, activeFileIndex: idx } = useExplorerStore.getState();
+      const file = idx >= 0 ? files[idx] : null;
+      if (!file || !sel || sel.isEmpty()) {
+        if (file) setFileSelection(file.path, null);
+        return;
+      }
+      const model = editor.getModel();
+      const text = model?.getValueInRange(sel) || '';
+      if (!text.trim()) {
+        setFileSelection(file.path, null);
+        return;
+      }
+      setFileSelection(file.path, {
+        filePath: file.path,
+        fileName: file.name,
+        startLine: sel.startLineNumber,
+        endLine: sel.endLineNumber,
+        startColumn: sel.startColumn,
+        endColumn: sel.endColumn,
+        text,
+      });
+    });
 
     editor.addAction({
       id: 'save-file',

@@ -36,6 +36,7 @@ import { storage } from '../utils/storage';
 import { useTTS } from '../hooks/useTTS';
 import { useMicStore } from '../store/micStore';
 import { useVisionStore } from '../store/visionStore';
+import { useExplorerStore } from '../store/explorerStore';
 import type { AmplitudeState } from '../videocall/CharacterRenderer';
 import type { PoseTree } from '../videocall/types';
 import { InteractiveCallBar } from './InteractiveCallBar';
@@ -1061,6 +1062,17 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
   const _doSend = useCallback(async (text: string, imageFiles: File[]) => {
     setIsStreaming(true);
+
+    // Prepend file selection references if any (model reads content via tools)
+    const { selections, clearAllSelections } = useExplorerStore.getState();
+    const selEntries = Object.values(selections);
+    if (selEntries.length > 0) {
+      const refs = selEntries.map((sel) =>
+        `[${sel.filePath}:${sel.startLine}-${sel.endLine}]`
+      );
+      text = refs.join(' ') + '\n' + text;
+      clearAllSelections();
+    }
 
     // Clear any previous TTS queue
     clearQueue();
