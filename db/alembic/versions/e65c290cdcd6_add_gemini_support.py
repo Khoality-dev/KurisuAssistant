@@ -16,8 +16,12 @@ depends_on = None
 def upgrade() -> None:
     op.add_column('users', sa.Column('gemini_api_key', sa.String(), nullable=True))
     op.add_column('agents', sa.Column('provider_type', sa.String(), nullable=False, server_default='ollama'))
+    op.add_column('messages', sa.Column('model_name', sa.String(), nullable=True))
+    op.add_column('messages', sa.Column('provider_type', sa.String(), nullable=True))
 
 
 def downgrade() -> None:
+    op.drop_column('messages', 'provider_type')
+    op.drop_column('messages', 'model_name')
     op.drop_column('agents', 'provider_type')
     op.drop_column('users', 'gemini_api_key')

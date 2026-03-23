@@ -524,6 +524,8 @@ class SimpleAgent(BaseAgent):
                             name=self.config.name,
                             conversation_id=context.conversation_id,
                             frame_id=context.frame_id,
+                            model_name=model,
+                            provider_type=self.config.provider_type,
                         )
 
                     # Handle content
@@ -536,6 +538,8 @@ class SimpleAgent(BaseAgent):
                             name=self.config.name,
                             conversation_id=context.conversation_id,
                             frame_id=context.frame_id,
+                            model_name=model,
+                            provider_type=self.config.provider_type,
                         )
 
                     # Collect tool calls (typically arrive in final chunk(s))

@@ -744,6 +744,8 @@ class ChatSessionHandler:
                                 "raw_input": raw_in,
                                 "raw_output": chunk_content if current_role == "assistant" else None,
                                 "images": current_images if current_images else None,
+                                "model_name": chunk.model_name if current_role == "assistant" else None,
+                                "provider_type": chunk.provider_type if current_role == "assistant" else None,
                             }
                             self._save_message(completed_msg, frame_id)
                             conversation_messages.append({
@@ -781,6 +783,8 @@ class ChatSessionHandler:
                         "raw_input": raw_in,
                         "raw_output": chunk_content if current_role == "assistant" else None,
                         "images": current_images if current_images else None,
+                        "model_name": chunk.model_name if current_role == "assistant" else None,
+                        "provider_type": chunk.provider_type if current_role == "assistant" else None,
                     }
                     self._save_message(completed_msg, frame_id)
                     conversation_messages.append({
@@ -1243,4 +1247,6 @@ class ChatSessionHandler:
             raw_input=msg.get("raw_input"),
             raw_output=msg.get("raw_output"),
             images=msg.get("images"),
+            model_name=msg.get("model_name"),
+            provider_type=msg.get("provider_type"),
         ))

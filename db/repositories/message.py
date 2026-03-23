@@ -30,6 +30,8 @@ class MessageRepository(BaseRepository[Message]):
         raw_input: Optional[str] = None,
         raw_output: Optional[str] = None,
         images: Optional[List[str]] = None,
+        model_name: Optional[str] = None,
+        provider_type: Optional[str] = None,
     ) -> Message:
         """Create a new message.
 
@@ -66,6 +68,10 @@ class MessageRepository(BaseRepository[Message]):
             data["raw_output"] = raw_output
         if images is not None:
             data["images"] = images
+        if model_name is not None:
+            data["model_name"] = model_name
+        if provider_type is not None:
+            data["provider_type"] = provider_type
 
         return self.create(**data)
 
