@@ -297,7 +297,7 @@ class GeminiProvider(BaseLLMProvider):
         async def _run_live_session():
             try:
                 live_config = types.LiveConnectConfig(
-                    response_modalities=["TEXT"],
+                    response_modalities=["AUDIO", "TEXT"],
                     system_instruction=system_instruction,
                     tools=gemini_tools,
                 )
