@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
+  openPath: (filePath: string) => ipcRenderer.invoke('shell:open-path', filePath),
 
   updater: {
     onUpdateAvailable: (cb: (info: { version: string }) => void) => {
@@ -59,6 +60,18 @@ contextBridge.exposeInMainWorld('electron', {
     getAllowedPaths: (agentId: number) => ipcRenderer.invoke('host-tools:get-allowed-paths', agentId),
     setAllowedPaths: (agentId: number, paths: string[]) =>
       ipcRenderer.invoke('host-tools:set-allowed-paths', agentId, paths),
+  },
+
+  explorer: {
+    listDirectory: (dirPath: string) =>
+      ipcRenderer.invoke('explorer:list-directory', dirPath),
+    readFile: (filePath: string) =>
+      ipcRenderer.invoke('explorer:read-file', filePath),
+    writeFile: (filePath: string, content: string) =>
+      ipcRenderer.invoke('explorer:write-file', filePath, content),
+    isBinary: (filePath: string) => ipcRenderer.invoke('explorer:is-binary', filePath),
+    hasVSCode: () => ipcRenderer.invoke('explorer:has-vscode'),
+    openInVSCode: (filePath: string) => ipcRenderer.invoke('explorer:open-in-vscode', filePath),
   },
 
   onMCPToolsChanged: (cb: () => void) => {

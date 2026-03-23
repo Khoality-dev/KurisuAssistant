@@ -45,7 +45,7 @@ export const InteractiveCallBar: React.FC<InteractiveCallBarProps> = ({
         justifyContent: 'center',
         gap: 3,
         p: 4,
-        backgroundColor: '#F8FAFC',
+        bgcolor: 'background.default',
       }}
     >
       {/* Transcript display */}

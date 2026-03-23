@@ -453,6 +453,7 @@ export function registerHostToolIPC(): void {
   ipcMain.handle('host-tools:is-host-tool', (_event, name: string) => {
     return HOST_TOOL_NAMES.has(name);
   });
+
 }
 
 export { HOST_TOOL_NAMES, getHostToolSchemas };

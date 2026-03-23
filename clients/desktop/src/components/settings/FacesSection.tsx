@@ -38,9 +38,9 @@ import {
   Close as CloseIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
-import { apiClient } from '../api/client';
-import { useVisionStore } from '../store/visionStore';
-import type { FaceIdentity, FaceIdentityDetail } from '../api/types';
+import { apiClient } from '../../api/client';
+import { useVisionStore } from '../../store/visionStore';
+import type { FaceIdentity, FaceIdentityDetail } from '../../api/types';
 
 const MotionCard = motion(Card);
 
@@ -49,7 +49,7 @@ interface CapturedPhoto {
   preview: string;
 }
 
-export const FacesWindow: React.FC = () => {
+export const FacesSection: React.FC = () => {
   const [faces, setFaces] = useState<FaceIdentity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -146,7 +146,7 @@ export const FacesWindow: React.FC = () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     const w = canvas.width;
-    const h = canvas.height;
+    void canvas.height; // height used implicitly
 
     // Draw face bounding boxes
     for (const face of latestResult.faces) {
@@ -340,12 +340,17 @@ export const FacesWindow: React.FC = () => {
   };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Header */}
+    <Box>
+      <Typography variant="h5" sx={{ mb: 3, fontWeight: 600 }}>
+        Face Identities
+      </Typography>
+
+      {/* Header actions */}
       <Paper
         elevation={0}
         sx={{
           p: 2,
+          mb: 3,
           borderBottom: '1px solid',
           borderColor: 'divider',
           display: 'flex',
@@ -367,251 +372,248 @@ export const FacesWindow: React.FC = () => {
         </Button>
       </Paper>
 
-      {/* Content */}
-      <Box sx={{ flex: 1, overflow: 'auto', p: 3, backgroundColor: '#F7F7F8' }}>
-        {successMessage && (
-          <Alert severity="success" sx={{ mb: 3, maxWidth: 1200, mx: 'auto' }}>
-            {successMessage}
-          </Alert>
-        )}
-        {(error || visionError) && (
-          <Alert
-            severity="error"
-            sx={{ mb: 3, maxWidth: 1200, mx: 'auto' }}
-            onClose={() => setError('')}
-          >
-            {error || visionError}
-          </Alert>
-        )}
+      {successMessage && (
+        <Alert severity="success" sx={{ mb: 3, maxWidth: 1200, mx: 'auto' }}>
+          {successMessage}
+        </Alert>
+      )}
+      {(error || visionError) && (
+        <Alert
+          severity="error"
+          sx={{ mb: 3, maxWidth: 1200, mx: 'auto' }}
+          onClose={() => setError('')}
+        >
+          {error || visionError}
+        </Alert>
+      )}
 
-        {/* Vision Controls */}
-        <Paper sx={{ p: 2, mb: 3, maxWidth: 1200, mx: 'auto' }}>
-          <Typography variant="subtitle1" gutterBottom>
-            Live Vision
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-            <FormControl size="small" sx={{ minWidth: 200 }}>
-              <InputLabel>Webcam</InputLabel>
-              <Select
-                value={selectedWebcam}
-                label="Webcam"
-                onChange={(e) => setSelectedWebcam(e.target.value)}
-                disabled={visionActive}
-              >
-                {webcams.map((cam) => (
-                  <MenuItem key={cam} value={cam}>
-                    {cam}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <Tooltip title="Refresh webcam list">
-              <IconButton onClick={loadWebcams} disabled={visionActive}>
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
-            <FormControlLabel
-              control={<Switch checked={enableFace} onChange={(e) => setEnableFace(e.target.checked)} size="small" />}
-              label="Face"
+      {/* Vision Controls */}
+      <Paper sx={{ p: 2, mb: 3, maxWidth: 1200, mx: 'auto' }}>
+        <Typography variant="subtitle1" gutterBottom>
+          Live Vision
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel>Webcam</InputLabel>
+            <Select
+              value={selectedWebcam}
+              label="Webcam"
+              onChange={(e) => setSelectedWebcam(e.target.value)}
               disabled={visionActive}
-            />
-            <FormControlLabel
-              control={<Switch checked={enablePose} onChange={(e) => setEnablePose(e.target.checked)} size="small" />}
-              label="Pose"
-              disabled={visionActive}
-            />
-            <FormControlLabel
-              control={<Switch checked={enableHands} onChange={(e) => setEnableHands(e.target.checked)} size="small" />}
-              label="Hands"
-              disabled={visionActive}
-            />
-            <Button
-              variant={visionActive ? 'outlined' : 'contained'}
-              color={visionActive ? 'error' : 'primary'}
-              startIcon={visionActive ? <VideocamOffIcon /> : <VideocamIcon />}
-              onClick={visionActive ? stopVision : startVision}
-              disabled={!selectedWebcam && !visionActive}
             >
-              {visionActive ? 'Stop Vision' : 'Start Vision'}
-            </Button>
-          </Box>
+              {webcams.map((cam) => (
+                <MenuItem key={cam} value={cam}>
+                  {cam}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Tooltip title="Refresh webcam list">
+            <IconButton onClick={loadWebcams} disabled={visionActive}>
+              <RefreshIcon />
+            </IconButton>
+          </Tooltip>
+          <FormControlLabel
+            control={<Switch checked={enableFace} onChange={(e) => setEnableFace(e.target.checked)} size="small" />}
+            label="Face"
+            disabled={visionActive}
+          />
+          <FormControlLabel
+            control={<Switch checked={enablePose} onChange={(e) => setEnablePose(e.target.checked)} size="small" />}
+            label="Pose"
+            disabled={visionActive}
+          />
+          <FormControlLabel
+            control={<Switch checked={enableHands} onChange={(e) => setEnableHands(e.target.checked)} size="small" />}
+            label="Hands"
+            disabled={visionActive}
+          />
+          <Button
+            variant={visionActive ? 'outlined' : 'contained'}
+            color={visionActive ? 'error' : 'primary'}
+            startIcon={visionActive ? <VideocamOffIcon /> : <VideocamIcon />}
+            onClick={visionActive ? stopVision : startVision}
+            disabled={!selectedWebcam && !visionActive}
+          >
+            {visionActive ? 'Stop Vision' : 'Start Vision'}
+          </Button>
+        </Box>
 
-          {visionActive && (
-            <Box sx={{ mt: 2 }}>
-              <Divider sx={{ mb: 1 }} />
+        {visionActive && (
+          <Box sx={{ mt: 2 }}>
+            <Divider sx={{ mb: 1 }} />
 
-              {/* Live webcam preview with detection overlay */}
-              <Box
-                sx={{
-                  mb: 2,
-                  display: 'flex',
-                  justifyContent: 'center',
-                  bgcolor: 'black',
-                  borderRadius: 2,
-                  overflow: 'hidden',
-                  position: 'relative',
-                }}
-              >
-                <video
-                  ref={visionVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  style={{ maxWidth: '100%', maxHeight: 400, objectFit: 'contain' }}
-                />
-                <canvas
-                  ref={visionCanvasRef}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100%',
-                    pointerEvents: 'none',
-                  }}
-                />
-              </Box>
-
-              {latestResult && (
-                <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Detected Faces
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
-                      {latestResult.faces.length === 0 ? (
-                        <Typography variant="body2" color="text.secondary">
-                          None
-                        </Typography>
-                      ) : (
-                        latestResult.faces.map((face, i) => (
-                          <Chip
-                            key={i}
-                            icon={<PersonIcon />}
-                            label={`${face.name} (${Math.round(face.confidence * 100)}%)`}
-                            size="small"
-                            color={face.identity_id ? 'success' : 'default'}
-                            variant="outlined"
-                          />
-                        ))
-                      )}
-                    </Box>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Detected Gestures
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
-                      {latestResult.gestures.length === 0 ? (
-                        <Typography variant="body2" color="text.secondary">
-                          None
-                        </Typography>
-                      ) : (
-                        latestResult.gestures.map((g, i) => (
-                          <Chip
-                            key={i}
-                            label={`${g.gesture} (${Math.round(g.confidence * 100)}%)`}
-                            size="small"
-                            color="primary"
-                            variant="outlined"
-                          />
-                        ))
-                      )}
-                    </Box>
-                  </Box>
-                </Box>
-              )}
-            </Box>
-          )}
-        </Paper>
-
-        {/* Faces Grid */}
-        {loading ? (
-          <Typography sx={{ textAlign: 'center', mt: 4 }}>Loading faces...</Typography>
-        ) : faces.length === 0 ? (
-          <Paper sx={{ p: 4, textAlign: 'center', maxWidth: 600, mx: 'auto' }}>
-            <Typography variant="h6" gutterBottom>
-              No faces registered
-            </Typography>
-            <Typography color="text.secondary" sx={{ mb: 3 }}>
-              Register faces to enable recognition during live vision. Use your webcam to scan your
-              face from multiple angles.
-            </Typography>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => {
-                setNewName('');
-                setCapturedPhotos([]);
-                setCreateDialogOpen(true);
+            {/* Live webcam preview with detection overlay */}
+            <Box
+              sx={{
+                mb: 2,
+                display: 'flex',
+                justifyContent: 'center',
+                bgcolor: 'black',
+                borderRadius: 2,
+                overflow: 'hidden',
+                position: 'relative',
               }}
             >
-              Register Face
-            </Button>
-          </Paper>
-        ) : (
-          <Grid container spacing={3} sx={{ maxWidth: 1200, mx: 'auto' }}>
-            <AnimatePresence>
-              {faces.map((face) => (
-                <Grid item xs={12} sm={6} md={4} key={face.id}>
-                  <MotionCard
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    transition={{ duration: 0.3 }}
-                    onClick={() => handleOpenDetail(face)}
-                    sx={{
-                      cursor: 'pointer',
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      '&:hover': { boxShadow: 3, transform: 'translateY(-2px)' },
-                      transition: 'box-shadow 0.2s, transform 0.2s',
-                    }}
-                  >
-                    <CardContent sx={{ textAlign: 'center', pt: 4 }}>
-                      <Avatar
-                        sx={{
-                          width: 80,
-                          height: 80,
-                          mx: 'auto',
-                          mb: 2,
-                          bgcolor: 'primary.main',
-                          fontSize: '2rem',
-                        }}
-                      >
-                        {face.name[0]?.toUpperCase()}
-                      </Avatar>
-                      <Typography variant="h6" gutterBottom>
-                        {face.name}
+              <video
+                ref={visionVideoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{ maxWidth: '100%', maxHeight: 400, objectFit: 'contain' }}
+              />
+              <canvas
+                ref={visionCanvasRef}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  pointerEvents: 'none',
+                }}
+              />
+            </Box>
+
+            {latestResult && (
+              <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Detected Faces
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                    {latestResult.faces.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">
+                        None
                       </Typography>
-                      <Chip
-                        icon={<PhotoCameraIcon />}
-                        label={`${face.photo_count} photo${face.photo_count !== 1 ? 's' : ''}`}
-                        size="small"
-                        variant="outlined"
-                      />
-                    </CardContent>
-                    <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
-                      <Tooltip title="Delete">
-                        <IconButton
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setFaceToDelete(face);
-                            setDeleteDialogOpen(true);
-                          }}
-                          color="error"
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </Tooltip>
-                    </CardActions>
-                  </MotionCard>
-                </Grid>
-              ))}
-            </AnimatePresence>
-          </Grid>
+                    ) : (
+                      latestResult.faces.map((face, i) => (
+                        <Chip
+                          key={i}
+                          icon={<PersonIcon />}
+                          label={`${face.name} (${Math.round(face.confidence * 100)}%)`}
+                          size="small"
+                          color={face.identity_id ? 'success' : 'default'}
+                          variant="outlined"
+                        />
+                      ))
+                    )}
+                  </Box>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Detected Gestures
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                    {latestResult.gestures.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">
+                        None
+                      </Typography>
+                    ) : (
+                      latestResult.gestures.map((g, i) => (
+                        <Chip
+                          key={i}
+                          label={`${g.gesture} (${Math.round(g.confidence * 100)}%)`}
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                        />
+                      ))
+                    )}
+                  </Box>
+                </Box>
+              </Box>
+            )}
+          </Box>
         )}
-      </Box>
+      </Paper>
+
+      {/* Faces Grid */}
+      {loading ? (
+        <Typography sx={{ textAlign: 'center', mt: 4 }}>Loading faces...</Typography>
+      ) : faces.length === 0 ? (
+        <Paper sx={{ p: 4, textAlign: 'center', maxWidth: 600, mx: 'auto' }}>
+          <Typography variant="h6" gutterBottom>
+            No faces registered
+          </Typography>
+          <Typography color="text.secondary" sx={{ mb: 3 }}>
+            Register faces to enable recognition during live vision. Use your webcam to scan your
+            face from multiple angles.
+          </Typography>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => {
+              setNewName('');
+              setCapturedPhotos([]);
+              setCreateDialogOpen(true);
+            }}
+          >
+            Register Face
+          </Button>
+        </Paper>
+      ) : (
+        <Grid container spacing={3} sx={{ maxWidth: 1200, mx: 'auto' }}>
+          <AnimatePresence>
+            {faces.map((face) => (
+              <Grid item xs={12} sm={6} md={4} key={face.id}>
+                <MotionCard
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  transition={{ duration: 0.3 }}
+                  onClick={() => handleOpenDetail(face)}
+                  sx={{
+                    cursor: 'pointer',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    '&:hover': { boxShadow: 3, transform: 'translateY(-2px)' },
+                    transition: 'box-shadow 0.2s, transform 0.2s',
+                  }}
+                >
+                  <CardContent sx={{ textAlign: 'center', pt: 4 }}>
+                    <Avatar
+                      sx={{
+                        width: 80,
+                        height: 80,
+                        mx: 'auto',
+                        mb: 2,
+                        bgcolor: 'primary.main',
+                        fontSize: '2rem',
+                      }}
+                    >
+                      {face.name[0]?.toUpperCase()}
+                    </Avatar>
+                    <Typography variant="h6" gutterBottom>
+                      {face.name}
+                    </Typography>
+                    <Chip
+                      icon={<PhotoCameraIcon />}
+                      label={`${face.photo_count} photo${face.photo_count !== 1 ? 's' : ''}`}
+                      size="small"
+                      variant="outlined"
+                    />
+                  </CardContent>
+                  <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
+                    <Tooltip title="Delete">
+                      <IconButton
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFaceToDelete(face);
+                          setDeleteDialogOpen(true);
+                        }}
+                        color="error"
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Tooltip>
+                  </CardActions>
+                </MotionCard>
+              </Grid>
+            ))}
+          </AnimatePresence>
+        </Grid>
+      )}
 
       {/* Hidden canvas for captures */}
       <canvas ref={webcamCanvasRef} style={{ display: 'none' }} />

@@ -1,12 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ThemeProvider } from '@mui/material/styles';
 import { CssBaseline, Box, CircularProgress } from '@mui/material';
-import { theme } from './theme/theme';
+import { createAppTheme } from './theme/theme';
 import { useAuthStore } from './store/authStore';
 import { LoginWindow } from './components/LoginWindow';
-import { MainWindow } from './components/MainWindow';
+import { MainLayout } from './components/layout/MainLayout';
 import { UpdateDialog } from './components/UpdateDialog';
-
 // Side-effect import: registers WebSocket listener for client-side MCP servers
 import './services/mcpService';
 
@@ -30,18 +29,37 @@ const MainApp: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: 'linear-gradient(135deg, #2563EB 0%, #1E40AF 100%)',
+          bgcolor: 'background.default',
         }}
       >
-        <CircularProgress size={60} sx={{ color: 'white' }} />
+        <CircularProgress size={40} sx={{ color: 'text.secondary' }} />
       </Box>
     );
   }
 
-  return isAuthenticated ? <MainWindow /> : <LoginWindow />;
+  return isAuthenticated ? <MainLayout /> : <LoginWindow />;
 };
 
 export const App: React.FC = () => {
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
+    try {
+      return (localStorage.getItem('kurisu_theme_mode') as 'light' | 'dark') || 'light';
+    } catch {
+      return 'light';
+    }
+  });
+
+  const theme = useMemo(() => createAppTheme(themeMode), [themeMode]);
+
+  // Expose theme toggle globally for settings
+  useEffect(() => {
+    (window as any).__setThemeMode = (mode: 'light' | 'dark') => {
+      localStorage.setItem('kurisu_theme_mode', mode);
+      setThemeMode(mode);
+    };
+    (window as any).__getThemeMode = () => themeMode;
+  }, [themeMode]);
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
