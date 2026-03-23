@@ -443,8 +443,15 @@ class SimpleAgent(BaseAgent):
         import json
         from models.llm import create_llm_provider
 
+        # Determine model and provider
+        model = self.config.model_name or context.model_name
+        provider_type = self.config.provider_type
+        # Auto-detect provider from model name if not explicitly set
+        if provider_type == "ollama" and model and model.startswith("gemini"):
+            provider_type = "gemini"
+
         llm = create_llm_provider(
-            self.config.provider_type,
+            provider_type,
             api_url=context.api_url,
             api_key=context.gemini_api_key,
         )
@@ -484,9 +491,6 @@ class SimpleAgent(BaseAgent):
                 if msg.get("role") == "user":
                     msg["images"] = context.images
                     break
-
-        # Determine model
-        model = self.config.model_name or context.model_name
 
         MAX_TOOL_ROUNDS = 10
 
