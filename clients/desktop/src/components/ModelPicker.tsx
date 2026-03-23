@@ -122,9 +122,6 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
                   textTransform: 'uppercase',
                   color: params.group === 'Gemini' ? '#4285F4' : 'text.secondary',
                   bgcolor: params.group === 'Gemini' ? 'rgba(66,133,244,0.06)' : 'action.hover',
-                  position: 'sticky',
-                  top: -8,
-                  zIndex: 1,
                 }}
               >
                 {params.group}
