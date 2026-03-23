@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Box, Typography, CircularProgress, Menu, MenuItem, ListItemText, Tooltip } from '@mui/material';
+import { Box, Typography, CircularProgress, Menu, MenuItem, ListItemText, Tooltip, IconButton } from '@mui/material';
 import {
   ChevronRight as ChevronRightIcon,
   ExpandMore as ExpandMoreIcon,
+  ArrowUpward as UpIcon,
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { ResizeHandle } from '../layout/ResizeHandle';
@@ -144,26 +145,49 @@ export const FileTreeSidebar: React.FC = () => {
         {/* Header */}
         <Box
           sx={{
-            px: 2,
-            py: 1.5,
+            px: 1,
+            py: 0.75,
             flexShrink: 0,
             borderBottom: 1,
             borderColor: 'divider',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.5,
           }}
         >
-          <Typography
-            variant="caption"
-            noWrap
-            sx={{
-              fontWeight: 700,
-              fontSize: '0.65rem',
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              color: 'text.secondary',
-            }}
-          >
-            {workspaceRoot ? workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || 'Explorer' : 'Explorer'}
-          </Typography>
+          <Tooltip title="Go to parent folder" placement="bottom">
+            <IconButton
+              size="small"
+              onClick={() => {
+                if (!workspaceRoot) return;
+                const sep = workspaceRoot.includes('\\') ? '\\' : '/';
+                const parts = workspaceRoot.split(sep).filter(Boolean);
+                parts.pop();
+                const parent = parts.length === 0 ? '' : (workspaceRoot.startsWith('/') ? '/' : '') + parts.join(sep) + (workspaceRoot.includes('\\') ? '\\' : '');
+                useExplorerStore.setState({ workspaceRoot: parent || workspaceRoot });
+              }}
+              sx={{ color: 'text.secondary', p: 0.5 }}
+            >
+              <UpIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title={workspaceRoot} enterDelay={500} placement="bottom">
+            <Typography
+              variant="caption"
+              noWrap
+              sx={{
+                fontWeight: 700,
+                fontSize: '0.65rem',
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: 'text.secondary',
+                flex: 1,
+                minWidth: 0,
+              }}
+            >
+              {workspaceRoot ? workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || 'Explorer' : 'Explorer'}
+            </Typography>
+          </Tooltip>
         </Box>
 
         {/* Tree content */}
@@ -202,6 +226,19 @@ export const FileTreeSidebar: React.FC = () => {
         anchorReference="anchorPosition"
         anchorPosition={contextMenu ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined}
       >
+        {contextMenu?.entry.type === 'directory' && (
+          <MenuItem
+            onClick={() => {
+              if (contextMenu) {
+                useExplorerStore.setState({ workspaceRoot: contextMenu.entry.fullPath });
+              }
+              setContextMenu(null);
+            }}
+            sx={{ fontSize: '0.8rem' }}
+          >
+            <ListItemText>Open Folder</ListItemText>
+          </MenuItem>
+        )}
         {hasVSCode && (
           <MenuItem
             onClick={() => {
