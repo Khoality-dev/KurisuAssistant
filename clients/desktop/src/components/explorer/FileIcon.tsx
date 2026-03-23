@@ -101,7 +101,18 @@ const DefaultFileIcon: React.FC = () => (
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico']);
 const CONFIG_EXTENSIONS = new Set(['.yaml', '.yml', '.toml', '.ini', '.env', '.conf', '.cfg']);
 
-export function getFileIcon(name: string, type: 'file' | 'directory', isOpen?: boolean): React.ReactNode {
+const DriveIcon: React.FC = () => (
+  <svg width={ICON_SIZE} height={ICON_SIZE} viewBox="0 0 18 18" fill="none">
+    <rect x="3" y="4" width="12" height="10" rx="1.5" fill="#6B7280" opacity="0.15" stroke="#6B7280" strokeWidth="1"/>
+    <rect x="5" y="7" width="8" height="1.5" rx="0.5" fill="#6B7280"/>
+    <circle cx="12" cy="11" r="1" fill="#22C55E"/>
+  </svg>
+);
+
+export function getFileIcon(name: string, type: 'file' | 'directory', isOpen?: boolean, isDrive?: boolean): React.ReactNode {
+  if (isDrive) {
+    return <DriveIcon />;
+  }
   if (type === 'directory') {
     return <FolderIcon open={isOpen} />;
   }

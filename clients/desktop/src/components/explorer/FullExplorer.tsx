@@ -255,6 +255,15 @@ export const FullExplorer: React.FC = () => {
         if (sel) handleCut(sel.fullPath, sel.name);
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
         handlePaste();
+      } else if (e.key === 'F3') {
+        // Add selected to chat
+        const selected = entries.filter(en => selectedEntries.has(en.fullPath));
+        for (const entry of selected) {
+          addSelection({
+            filePath: entry.fullPath, fileName: entry.name,
+            startLine: 0, endLine: 0, startColumn: 0, endColumn: 0, text: '',
+          });
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -505,7 +514,7 @@ export const FullExplorer: React.FC = () => {
                 }}
               >
                 <Box sx={{ '& svg': { width: 40, height: 40 } }}>
-                  {getFileIcon(entry.name, entry.type)}
+                  {getFileIcon(entry.name, entry.type, false, isRoot)}
                 </Box>
                 <Typography
                   variant="caption"
@@ -577,7 +586,7 @@ export const FullExplorer: React.FC = () => {
                   <TableCell>
                     <Tooltip title={entry.name} enterDelay={500} placement="top-start">
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-                        {getFileIcon(entry.name, entry.type)}
+                        {getFileIcon(entry.name, entry.type, false, isRoot)}
                         <Typography variant="body2" noWrap sx={{ fontSize: '0.8rem' }}>
                           {entry.name}
                         </Typography>
@@ -657,7 +666,9 @@ export const FullExplorer: React.FC = () => {
               ? `Add ${selectedEntries.size} items to Chat`
               : 'Add to Chat'}
           </ListItemText>
+          <Typography variant="caption" sx={{ ml: 2, color: 'text.secondary' }}>F3</Typography>
         </MenuItem>
+        {!isRoot && (<>
         <MenuItem
           onClick={() => {
             if (contextMenu) {
@@ -701,6 +712,7 @@ export const FullExplorer: React.FC = () => {
           <ListItemText>Delete</ListItemText>
           <Typography variant="caption" sx={{ ml: 2, color: 'text.secondary' }}>Del</Typography>
         </MenuItem>
+        </>)}
         {hasVSCode && (
           <MenuItem onClick={handleOpenInVSCode} sx={{ fontSize: '0.8rem' }}>
             <ListItemText>Open with VS Code</ListItemText>
