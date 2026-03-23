@@ -276,12 +276,15 @@ class GeminiProvider(BaseLLMProvider):
         )
 
     def list_models(self) -> List[str]:
-        """List available Gemini models."""
+        """List available Gemini models that support content generation."""
         try:
             models = []
             for model in self.client.models.list():
+                # Only include models that support generateContent
+                methods = getattr(model, 'supported_actions', None) or getattr(model, 'supported_generation_methods', None) or []
+                if methods and 'generateContent' not in methods:
+                    continue
                 name = model.name
-                # Strip "models/" prefix
                 if name.startswith("models/"):
                     name = name[7:]
                 models.append(name)
