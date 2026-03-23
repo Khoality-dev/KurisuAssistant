@@ -6,6 +6,7 @@ import {
   IconButton,
   TextField,
   Tooltip,
+  Typography,
 } from '@mui/material';
 import { CircularProgress } from '@mui/material';
 import {
@@ -17,7 +18,7 @@ import { apiClient } from '../api/client';
 interface ModelPickerProps {
   label: string;
   value: string;
-  models: string[];
+  models: Array<{ name: string; provider: string }>;
   onChange: (value: string) => void;
   onRefresh: () => Promise<void>;
   onSuccess?: (message: string) => void;
@@ -50,14 +51,22 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
 
-  const sortedModels = useMemo(
-    () => [...models].sort((a, b) => a.localeCompare(b)),
+  const providerMap = useMemo(() => {
+    const map = new Map<string, string>();
+    models.forEach(m => map.set(m.name, m.provider));
+    return map;
+  }, [models]);
+
+  const sortedModelNames = useMemo(
+    () => [...models]
+      .sort((a, b) => a.provider.localeCompare(b.provider) || a.name.localeCompare(b.name))
+      .map(m => m.name),
     [models]
   );
 
   const trimmedValue = value.trim();
   const installedModel = trimmedValue
-    ? sortedModels.find((model) => model.toLowerCase() === trimmedValue.toLowerCase())
+    ? sortedModelNames.find((model) => model.toLowerCase() === trimmedValue.toLowerCase())
     : undefined;
 
   const handleRefresh = async () => {
@@ -96,7 +105,30 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
       <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
         <Autocomplete
           freeSolo
-          options={sortedModels}
+          options={sortedModelNames}
+          groupBy={(option) => {
+            const p = providerMap.get(option) || 'ollama';
+            return p.charAt(0).toUpperCase() + p.slice(1);
+          }}
+          renderGroup={(params) => (
+            <li key={params.key}>
+              <Typography
+                sx={{
+                  px: 1.5,
+                  py: 0.75,
+                  fontWeight: 700,
+                  fontSize: '0.75rem',
+                  letterSpacing: '0.05em',
+                  textTransform: 'uppercase',
+                  color: params.group === 'Gemini' ? '#4285F4' : 'text.secondary',
+                  bgcolor: params.group === 'Gemini' ? 'rgba(66,133,244,0.06)' : 'action.hover',
+                }}
+              >
+                {params.group}
+              </Typography>
+              {params.children}
+            </li>
+          )}
           value={value === '' ? null : value}
           inputValue={value}
           onChange={(_, newValue) => onChange(typeof newValue === 'string' ? newValue : '')}
@@ -123,10 +155,10 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
               {...params}
               label={label}
               required={required}
-              placeholder="e.g. llama3.2:latest"
+              placeholder="e.g. llama3.2:latest or gemini-2.0-flash"
               helperText={
                 helperText ||
-                'Lists pulled models. Enter an exact Ollama model name only if you want to pull a new one.'
+                'Shows available models from Ollama and Gemini. Enter a model name to pull from Ollama.'
               }
             />
           )}

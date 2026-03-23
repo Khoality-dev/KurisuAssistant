@@ -245,11 +245,24 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
               sx={{
                 fontWeight: 600,
                 color: colorScheme.label,
-                flex: 1,
               }}
             >
               {label}
             </Typography>
+            {message.model_name && (
+              <Typography
+                variant="caption"
+                sx={{
+                  fontSize: '0.65rem',
+                  color: 'text.secondary',
+                  opacity: 0.6,
+                  ml: 0.5,
+                  flex: 1,
+                }}
+              >
+                {message.model_name}
+              </Typography>
+            )}
             {isTool && (
               <ExpandMoreIcon
                 sx={{

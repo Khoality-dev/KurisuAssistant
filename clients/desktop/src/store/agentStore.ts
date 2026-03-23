@@ -30,9 +30,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   loadAgents: async () => {
     try {
       set({ isLoading: true });
-      const allAgents = await apiClient.listAgents();
-      // Filter out Administrator for user-facing list
-      const agents = allAgents.filter((a) => a.name !== ADMINISTRATOR_NAME);
+      const agents = await apiClient.listAgents();
       set({ agents });
 
       // Auto-select first agent if stored selection is invalid
