@@ -204,9 +204,9 @@ class GeminiProvider(BaseLLMProvider):
         )
 
         try:
-            # Models that only support Live API
-            if model in LIVE_API_MODELS or 'native-audio' in model:
-                return self._live_chat(model, system_instruction, contents, gemini_tools, think, config_kwargs)
+            # TODO: Native-audio models need Live API — skip for now
+            # if model in LIVE_API_MODELS or 'native-audio' in model:
+            #     return self._live_chat(model, system_instruction, contents, gemini_tools, think, config_kwargs)
 
             if stream:
                 return self._stream_chat(model, contents, config)
