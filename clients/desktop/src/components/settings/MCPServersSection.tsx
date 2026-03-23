@@ -503,7 +503,7 @@ export const MCPServersSection: React.FC = () => {
                           sx={{
                             fontFamily: 'monospace',
                             fontSize: '0.75rem',
-                            backgroundColor: '#f5f5f5',
+                            backgroundColor: (t: any) => t.palette.mode === 'light' ? '#f5f5f5' : '#1A1A1A',
                             p: 1,
                             borderRadius: 1,
                             overflow: 'hidden',

@@ -58,7 +58,7 @@ const formSectionSx = {
   borderRadius: 2,
   border: '1px solid',
   borderColor: 'divider',
-  backgroundColor: '#FFFFFF',
+  backgroundColor: 'background.paper',
   boxShadow: 'none',
 };
 
@@ -735,7 +735,7 @@ export const AgentsSection: React.FC = () => {
             py: 2,
             borderBottom: '1px solid',
             borderColor: 'divider',
-            backgroundColor: '#FFFFFF',
+            backgroundColor: 'background.paper',
           }}
         >
           <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
@@ -769,7 +769,7 @@ export const AgentsSection: React.FC = () => {
                       width: 72,
                       height: 72,
                       fontSize: '1.8rem',
-                      bgcolor: '#EFF6FF',
+                      bgcolor: (t: any) => t.palette.mode === 'light' ? '#EFF6FF' : '#1A1A2E',
                       color: 'primary.main',
                     }}
                   >
@@ -904,7 +904,7 @@ export const AgentsSection: React.FC = () => {
                   <Typography variant="h6">Media & Character</Typography>
                 </Box>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <Box sx={{ p: 2, borderRadius: 2, backgroundColor: '#F8FAFC', border: '1px solid', borderColor: 'divider' }}>
+                  <Box sx={{ p: 2, borderRadius: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
                     <Typography variant="body2" sx={{ fontWeight: 600 }}>
                       Voice Reference
                     </Typography>
@@ -923,7 +923,7 @@ export const AgentsSection: React.FC = () => {
                       </Typography>
                     )}
                   </Box>
-                  <Box sx={{ p: 2, borderRadius: 2, backgroundColor: '#F8FAFC', border: '1px solid', borderColor: 'divider' }}>
+                  <Box sx={{ p: 2, borderRadius: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
                     <Typography variant="body2" sx={{ fontWeight: 600 }}>
                       Character Animation
                     </Typography>
@@ -959,7 +959,7 @@ export const AgentsSection: React.FC = () => {
                   sx={{
                     p: 2,
                     borderRadius: 2,
-                    backgroundColor: '#FFFFFF',
+                    backgroundColor: 'background.paper',
                     border: '1px solid',
                     borderColor: 'divider',
                   }}
@@ -1031,7 +1031,7 @@ export const AgentsSection: React.FC = () => {
                   onError={setError}
                   required
                 />
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, p: 2, borderRadius: 2, backgroundColor: '#F8FAFC', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, p: 2, borderRadius: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
                   <Box>
                     <Typography variant="body2" sx={{ fontWeight: 600 }}>
                       Extended Thinking
@@ -1082,7 +1082,7 @@ export const AgentsSection: React.FC = () => {
                     <TextField {...params} label="Disabled Tools" placeholder="Select tools to disable..." helperText="All tools remain enabled by default. Select only the ones this agent should not use." />
                   )}
                 />
-                <Box sx={{ p: 2, borderRadius: 2, backgroundColor: '#F8FAFC', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ p: 2, borderRadius: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
                     <Box>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>

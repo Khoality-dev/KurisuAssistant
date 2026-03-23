@@ -243,7 +243,7 @@ export const SkillsSection: React.FC = () => {
                             whiteSpace: 'pre-wrap',
                             fontFamily: 'monospace',
                             fontSize: '0.8rem',
-                            backgroundColor: '#f5f5f5',
+                            backgroundColor: (t: any) => t.palette.mode === 'light' ? '#f5f5f5' : '#1A1A1A',
                             p: 1.5,
                             borderRadius: 1,
                             maxHeight: 200,

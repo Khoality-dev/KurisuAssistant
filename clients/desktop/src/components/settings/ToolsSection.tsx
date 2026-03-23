@@ -326,7 +326,7 @@ export const ToolsSection: React.FC = () => {
                   variant="outlined"
                   sx={{
                     p: 2,
-                    backgroundColor: '#f5f5f5',
+                    backgroundColor: (t: any) => t.palette.mode === 'light' ? '#f5f5f5' : '#1A1A1A',
                     fontFamily: 'monospace',
                     fontSize: '0.85rem',
                     overflow: 'auto',
