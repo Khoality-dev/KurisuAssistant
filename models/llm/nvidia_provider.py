@@ -88,6 +88,9 @@ class NvidiaProvider(BaseLLMProvider):
 
             if role == "assistant":
                 clean["content"] = msg.get("content", "") or ""
+                # Include thinking as reasoning_content (NVIDIA/Qwen format)
+                if msg.get("thinking"):
+                    clean["reasoning_content"] = msg["thinking"]
                 # Convert Ollama tool_calls to OpenAI format (add id + type)
                 if msg.get("tool_calls"):
                     openai_tcs = []
