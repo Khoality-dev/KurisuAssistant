@@ -11,9 +11,7 @@ ADD ./requirements.txt /app/
 WORKDIR /app
 RUN pip install -r requirements.txt
 
-ADD . /app
-
-# Copy and set up entrypoint script
+# Copy entrypoint script
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 

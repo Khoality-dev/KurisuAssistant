@@ -94,7 +94,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker:ro
-      - ./mcp_tools:/app/mcp_tools
+      - ./kurisuassistant:/app/kurisuassistant
       - ./data:/app/data
     tty: true
     restart: unless-stopped
