@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { Box, Typography, IconButton } from '@mui/material';
+import { Box, Typography, IconButton, Tooltip } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { useExplorerStore } from '../../store/explorerStore';
@@ -52,8 +52,8 @@ export const EditorTabs: React.FC = () => {
           const isDirty = file.content !== file.originalContent;
 
           return (
+            <Tooltip key={file.path} title={file.path} enterDelay={400} placement="bottom">
             <Box
-              key={file.path}
               onClick={() => setActiveFile(index)}
               onMouseDown={(e) => handleMouseDown(e, index)}
               sx={{
@@ -144,6 +144,7 @@ export const EditorTabs: React.FC = () => {
                 <CloseIcon sx={{ fontSize: 14 }} />
               </IconButton>
             </Box>
+            </Tooltip>
           );
         })}
       </Box>
