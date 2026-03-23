@@ -206,7 +206,13 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 
     if (newFiles.length === 0) {
       newActive = -1;
+      // Restore explorer to the workspace folder the user was in
+      const { workspaceRoot } = get();
       set({ openFiles: newFiles, activeFileIndex: newActive, workspaceRoot: '' });
+      // Re-navigate to the folder so FullExplorer shows it
+      if (workspaceRoot) {
+        get().navigate(workspaceRoot);
+      }
       return;
     } else if (index === activeFileIndex) {
       newActive = Math.min(index, newFiles.length - 1);
