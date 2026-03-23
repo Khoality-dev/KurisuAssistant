@@ -37,6 +37,7 @@ import { useTTS } from '../hooks/useTTS';
 import { useMicStore } from '../store/micStore';
 import { useVisionStore } from '../store/visionStore';
 import { useExplorerStore } from '../store/explorerStore';
+import { useLayoutStore } from '../store/layoutStore';
 import type { AmplitudeState } from '../videocall/CharacterRenderer';
 import type { PoseTree } from '../videocall/types';
 import { InteractiveCallBar } from './InteractiveCallBar';
@@ -53,11 +54,26 @@ const SelectionChips: React.FC = () => {
 
   if (selections.length === 0 && !liveSelection) return null;
 
-  const handlePinnedClick = (sel: typeof selections[number]) => {
+  const handlePinnedClick = async (sel: typeof selections[number]) => {
     const store = useExplorerStore.getState();
     const idx = store.openFiles.findIndex(f => f.path === sel.filePath);
-    if (idx !== -1) store.setActiveFile(idx);
-    useExplorerStore.setState({ revealSelection: sel });
+    if (idx !== -1) {
+      store.setActiveFile(idx);
+    } else {
+      // Open the file first
+      await store.openFile({
+        name: sel.fileName,
+        fullPath: sel.filePath,
+        type: 'file',
+        size: 0,
+        modified: null,
+        extension: '',
+      });
+    }
+    if (sel.startLine > 0) {
+      useExplorerStore.setState({ revealSelection: sel });
+    }
+    useLayoutStore.getState().setActivePage('workspace');
   };
 
   return (
