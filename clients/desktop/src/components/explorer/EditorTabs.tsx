@@ -1,5 +1,5 @@
-import React, { useCallback } from 'react';
-import { Box, Typography, IconButton, Tooltip } from '@mui/material';
+import React, { useCallback, useState } from 'react';
+import { Box, Typography, IconButton, Tooltip, Menu, MenuItem, ListItemText } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { useExplorerStore } from '../../store/explorerStore';
@@ -8,7 +8,8 @@ import { getFileIcon } from './FileIcon';
 export const EditorTabs: React.FC = () => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
-  const { openFiles, activeFileIndex, setActiveFile, closeFile } = useExplorerStore();
+  const { openFiles, activeFileIndex, setActiveFile, closeFile, addSelection } = useExplorerStore();
+  const [tabContextMenu, setTabContextMenu] = useState<{ mouseX: number; mouseY: number; index: number } | null>(null);
 
   const handleClose = useCallback((e: React.MouseEvent, index: number) => {
     e.stopPropagation();
@@ -56,6 +57,7 @@ export const EditorTabs: React.FC = () => {
             <Box
               onClick={() => setActiveFile(index)}
               onMouseDown={(e) => handleMouseDown(e, index)}
+              onContextMenu={(e) => { e.preventDefault(); setTabContextMenu({ mouseX: e.clientX, mouseY: e.clientY, index }); }}
               sx={{
                 display: 'flex',
                 alignItems: 'center',
@@ -148,6 +150,42 @@ export const EditorTabs: React.FC = () => {
           );
         })}
       </Box>
+
+      {/* Tab context menu */}
+      <Menu
+        open={tabContextMenu !== null}
+        onClose={() => setTabContextMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={tabContextMenu ? { top: tabContextMenu.mouseY, left: tabContextMenu.mouseX } : undefined}
+      >
+        <MenuItem
+          onClick={() => {
+            if (tabContextMenu) {
+              const file = openFiles[tabContextMenu.index];
+              if (file) {
+                addSelection({
+                  filePath: file.path,
+                  fileName: file.name,
+                  startLine: 0, endLine: 0, startColumn: 0, endColumn: 0, text: '',
+                });
+              }
+            }
+            setTabContextMenu(null);
+          }}
+          sx={{ fontSize: '0.8rem' }}
+        >
+          <ListItemText>Add to Chat</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (tabContextMenu) closeFile(tabContextMenu.index);
+            setTabContextMenu(null);
+          }}
+          sx={{ fontSize: '0.8rem' }}
+        >
+          <ListItemText>Close</ListItemText>
+        </MenuItem>
+      </Menu>
     </Box>
   );
 };

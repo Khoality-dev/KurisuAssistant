@@ -75,6 +75,7 @@ const SelectionChips: React.FC = () => {
             : `${liveSelection.fileName}:${liveSelection.startLine}-${liveSelection.endLine}`}
           size="small"
           variant="outlined"
+          color="info"
           onDelete={() => setLiveSelection(null)}
           sx={{
             fontSize: '0.7rem',
@@ -88,9 +89,9 @@ const SelectionChips: React.FC = () => {
       )}
       {/* Pinned selections — solid */}
       {selections.map((sel) => (
-        <Tooltip key={sel.id} title={`${sel.filePath}:${sel.startLine}-${sel.endLine}`} placement="top" enterDelay={300}>
+        <Tooltip key={sel.id} title={sel.startLine > 0 ? `${sel.filePath}:${sel.startLine}-${sel.endLine}` : sel.filePath} placement="top" enterDelay={300}>
         <Chip
-          label={`${sel.fileName}:${sel.startLine}${sel.startLine !== sel.endLine ? `-${sel.endLine}` : ''}`}
+          label={sel.startLine > 0 ? `${sel.fileName}:${sel.startLine}${sel.startLine !== sel.endLine ? `-${sel.endLine}` : ''}` : sel.fileName}
           size="small"
           onClick={() => handlePinnedClick(sel)}
           onDelete={() => removeSelection(sel.id)}
@@ -1136,7 +1137,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         : `[${liveSelection.filePath}:${liveSelection.startLine}-${liveSelection.endLine}]`);
     }
     for (const sel of selections) {
-      refs.push(`[${sel.filePath}:${sel.startLine}-${sel.endLine}]`);
+      refs.push(sel.startLine > 0
+        ? `[${sel.filePath}:${sel.startLine}-${sel.endLine}]`
+        : `[${sel.filePath}]`);
     }
     if (refs.length > 0) {
       text = refs.join(' ') + '\n' + text;

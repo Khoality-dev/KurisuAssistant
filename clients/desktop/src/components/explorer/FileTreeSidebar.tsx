@@ -226,6 +226,25 @@ export const FileTreeSidebar: React.FC = () => {
         anchorReference="anchorPosition"
         anchorPosition={contextMenu ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined}
       >
+        <MenuItem
+          onClick={() => {
+            if (contextMenu) {
+              useExplorerStore.getState().addSelection({
+                filePath: contextMenu.entry.fullPath,
+                fileName: contextMenu.entry.name,
+                startLine: 0,
+                endLine: 0,
+                startColumn: 0,
+                endColumn: 0,
+                text: '',
+              });
+            }
+            setContextMenu(null);
+          }}
+          sx={{ fontSize: '0.8rem' }}
+        >
+          <ListItemText>Add to Chat</ListItemText>
+        </MenuItem>
         {contextMenu?.entry.type === 'directory' && (
           <MenuItem
             onClick={() => {

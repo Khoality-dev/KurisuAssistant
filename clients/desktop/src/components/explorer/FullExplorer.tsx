@@ -48,8 +48,9 @@ function formatDate(dateStr: string | null): string {
 }
 
 export const FullExplorer: React.FC = () => {
-  const { openFile, viewMode, setViewMode } = useExplorerStore();
+  const { openFile, viewMode, setViewMode, addSelection } = useExplorerStore();
 
+  const [selectedEntries, setSelectedEntries] = useState<Set<string>>(new Set());
   const [hasVSCode, setHasVSCode] = useState(false);
   const [editingPath, setEditingPath] = useState(false);
   const [pathInput, setPathInput] = useState('');
@@ -63,6 +64,7 @@ export const FullExplorer: React.FC = () => {
   const loadDirectory = useCallback(async (dirPath: string) => {
     if (!window.electron?.explorer) return;
     setIsLoading(true);
+    setSelectedEntries(new Set());
     try {
       const result = await window.electron.explorer.listDirectory(dirPath);
       setCurrentPath(result.path);
@@ -97,13 +99,45 @@ export const FullExplorer: React.FC = () => {
     }
   };
 
-  const handleEntryClick = (entry: FileEntry) => {
+  // Single click: select (Ctrl/Shift for multi). Double click: open.
+  const handleEntryClick = (e: React.MouseEvent, entry: FileEntry) => {
+    if (e.ctrlKey || e.metaKey) {
+      // Toggle selection
+      setSelectedEntries((prev) => {
+        const next = new Set(prev);
+        if (next.has(entry.fullPath)) next.delete(entry.fullPath);
+        else next.add(entry.fullPath);
+        return next;
+      });
+    } else {
+      // Single select
+      setSelectedEntries(new Set([entry.fullPath]));
+    }
+  };
+
+  const handleEntryDoubleClick = (entry: FileEntry) => {
     if (entry.type === 'directory') {
       loadDirectory(entry.fullPath);
+      setSelectedEntries(new Set());
     } else {
       openFile(entry);
     }
   };
+
+  // Ctrl+A to select all
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        // Only if explorer is focused (not in an input)
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        e.preventDefault();
+        setSelectedEntries(new Set(entries.map(e => e.fullPath)));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [entries]);
 
   const handleGoUp = () => {
     if (isRoot || !currentPath) return;
@@ -257,12 +291,14 @@ export const FullExplorer: React.FC = () => {
               <Box
                 key={entry.fullPath}
                 data-entry
-                onClick={() => handleEntryClick(entry)}
+                onClick={(e) => handleEntryClick(e, entry)}
+                onDoubleClick={() => handleEntryDoubleClick(entry)}
                 onContextMenu={(e) => handleContextMenu(e, entry)}
                 sx={{
                   width: 96,
                   display: 'flex',
                   flexDirection: 'column',
+                  bgcolor: selectedEntries.has(entry.fullPath) ? 'action.selected' : undefined,
                   alignItems: 'center',
                   gap: 0.5,
                   p: 1,
@@ -321,8 +357,9 @@ export const FullExplorer: React.FC = () => {
                 <TableRow
                   key={entry.fullPath}
                   hover
-                  onClick={() => handleEntryClick(entry)}
-                  onDoubleClick={() => entry.type === 'directory' && loadDirectory(entry.fullPath)}
+                  selected={selectedEntries.has(entry.fullPath)}
+                  onClick={(e) => handleEntryClick(e, entry)}
+                  onDoubleClick={() => handleEntryDoubleClick(entry)}
                   onContextMenu={(e) => handleContextMenu(e, entry)}
                   sx={{
                     cursor: 'pointer',
@@ -370,6 +407,32 @@ export const FullExplorer: React.FC = () => {
         anchorReference="anchorPosition"
         anchorPosition={contextMenu ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined}
       >
+        <MenuItem
+          onClick={() => {
+            if (contextMenu) {
+              // Add right-clicked entry (or all selected if it's in the selection)
+              const toAdd = selectedEntries.has(contextMenu.entry.fullPath)
+                ? entries.filter(e => selectedEntries.has(e.fullPath))
+                : [contextMenu.entry];
+              for (const entry of toAdd) {
+                addSelection({
+                  filePath: entry.fullPath,
+                  fileName: entry.name,
+                  startLine: 0, endLine: 0, startColumn: 0, endColumn: 0, text: '',
+                });
+              }
+              setSelectedEntries(new Set());
+            }
+            setContextMenu(null);
+          }}
+          sx={{ fontSize: '0.8rem' }}
+        >
+          <ListItemText>
+            {selectedEntries.size > 1 && contextMenu && selectedEntries.has(contextMenu.entry.fullPath)
+              ? `Add ${selectedEntries.size} items to Chat`
+              : 'Add to Chat'}
+          </ListItemText>
+        </MenuItem>
         {hasVSCode && (
           <MenuItem onClick={handleOpenInVSCode} sx={{ fontSize: '0.8rem' }}>
             <ListItemText>Open with VS Code</ListItemText>
