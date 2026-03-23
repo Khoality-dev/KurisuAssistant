@@ -280,10 +280,17 @@ export const FullExplorer: React.FC = () => {
         /* Grid/icon view */
         <Box
           sx={{ flex: 1, overflow: 'auto', p: 2 }}
+          onClick={(e) => {
+            if (!(e.target as HTMLElement).closest('[data-entry]')) {
+              setSelectedEntries(new Set());
+            }
+          }}
           onContextMenu={(e) => {
             if ((e.target as HTMLElement).closest('[data-entry]')) return;
             e.preventDefault();
-            setBgContextMenu({ mouseX: e.clientX, mouseY: e.clientY });
+            if (currentPath) {
+              setBgContextMenu({ mouseX: e.clientX, mouseY: e.clientY });
+            }
           }}
         >
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
@@ -337,11 +344,19 @@ export const FullExplorer: React.FC = () => {
       ) : (
         <TableContainer
           sx={{ flex: 1, overflow: 'auto' }}
+          onClick={(e) => {
+            // Click empty space → deselect all
+            if (!(e.target as HTMLElement).closest('tr[class*="MuiTableRow"]')) {
+              setSelectedEntries(new Set());
+            }
+          }}
           onContextMenu={(e) => {
-            // Only fire if right-clicking empty space (not a row)
             if ((e.target as HTMLElement).closest('tr[class*="MuiTableRow"]')) return;
             e.preventDefault();
-            setBgContextMenu({ mouseX: e.clientX, mouseY: e.clientY });
+            // Only show folder context menu if we're in a directory (not root)
+            if (currentPath) {
+              setBgContextMenu({ mouseX: e.clientX, mouseY: e.clientY });
+            }
           }}
         >
           <Table size="small" stickyHeader>
