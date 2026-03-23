@@ -121,6 +121,77 @@ export function registerExplorerIPC(): void {
     });
   });
 
+  // --- File management operations ---
+
+  ipcMain.handle('explorer:create-file', (_event, filePath: string) => {
+    try {
+      const resolved = path.resolve(filePath);
+      if (fs.existsSync(resolved)) return { error: 'File already exists' };
+      fs.mkdirSync(path.dirname(resolved), { recursive: true });
+      fs.writeFileSync(resolved, '', { encoding: 'utf-8' });
+      return { status: 'ok', path: resolved };
+    } catch (e: any) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('explorer:create-folder', (_event, dirPath: string) => {
+    try {
+      const resolved = path.resolve(dirPath);
+      if (fs.existsSync(resolved)) return { error: 'Folder already exists' };
+      fs.mkdirSync(resolved, { recursive: true });
+      return { status: 'ok', path: resolved };
+    } catch (e: any) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('explorer:rename', (_event, oldPath: string, newPath: string) => {
+    try {
+      const resolvedOld = path.resolve(oldPath);
+      const resolvedNew = path.resolve(newPath);
+      if (!fs.existsSync(resolvedOld)) return { error: 'Source not found' };
+      if (fs.existsSync(resolvedNew)) return { error: 'Destination already exists' };
+      fs.renameSync(resolvedOld, resolvedNew);
+      return { status: 'ok', oldPath: resolvedOld, newPath: resolvedNew };
+    } catch (e: any) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('explorer:delete', (_event, targetPath: string) => {
+    try {
+      const resolved = path.resolve(targetPath);
+      if (!fs.existsSync(resolved)) return { error: 'Not found' };
+      const stat = fs.statSync(resolved);
+      if (stat.isDirectory()) {
+        fs.rmSync(resolved, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(resolved);
+      }
+      return { status: 'ok', path: resolved };
+    } catch (e: any) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('explorer:copy', (_event, srcPath: string, destPath: string) => {
+    try {
+      const resolvedSrc = path.resolve(srcPath);
+      const resolvedDest = path.resolve(destPath);
+      if (!fs.existsSync(resolvedSrc)) return { error: 'Source not found' };
+      const stat = fs.statSync(resolvedSrc);
+      if (stat.isDirectory()) {
+        fs.cpSync(resolvedSrc, resolvedDest, { recursive: true });
+      } else {
+        fs.copyFileSync(resolvedSrc, resolvedDest);
+      }
+      return { status: 'ok', path: resolvedDest };
+    } catch (e: any) {
+      return { error: e.message };
+    }
+  });
+
   ipcMain.handle('explorer:open-in-vscode', async (_event, filePath: string) => {
     return new Promise<{ ok: boolean; error?: string }>((resolve) => {
       exec(`code "${filePath}"`, (err) => {

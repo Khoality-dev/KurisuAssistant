@@ -70,6 +70,11 @@ contextBridge.exposeInMainWorld('electron', {
     writeFile: (filePath: string, content: string) =>
       ipcRenderer.invoke('explorer:write-file', filePath, content),
     isBinary: (filePath: string) => ipcRenderer.invoke('explorer:is-binary', filePath),
+    createFile: (filePath: string) => ipcRenderer.invoke('explorer:create-file', filePath),
+    createFolder: (dirPath: string) => ipcRenderer.invoke('explorer:create-folder', dirPath),
+    rename: (oldPath: string, newPath: string) => ipcRenderer.invoke('explorer:rename', oldPath, newPath),
+    delete: (targetPath: string) => ipcRenderer.invoke('explorer:delete', targetPath),
+    copy: (srcPath: string, destPath: string) => ipcRenderer.invoke('explorer:copy', srcPath, destPath),
     hasVSCode: () => ipcRenderer.invoke('explorer:has-vscode'),
     openInVSCode: (filePath: string) => ipcRenderer.invoke('explorer:open-in-vscode', filePath),
   },
