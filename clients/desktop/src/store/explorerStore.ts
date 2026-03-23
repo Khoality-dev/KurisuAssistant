@@ -31,9 +31,9 @@ interface ExplorerState {
   activeFileIndex: number;
   viewMode: ExplorerViewMode;
   workspaceRoot: string;
-  // Editor selections for chat context (multiple per file)
+  // Pinned selections — added explicitly via Ctrl+Shift+L or right-click
   selections: Array<{
-    id: string; // unique key: filePath:startLine:endLine
+    id: string;
     filePath: string;
     fileName: string;
     startLine: number;
@@ -42,6 +42,14 @@ interface ExplorerState {
     endColumn: number;
     text: string;
   }>;
+  // Live selection — auto-set on editor blur, replaced on next blur
+  liveSelection: {
+    filePath: string;
+    fileName: string;
+    startLine: number;
+    endLine: number;
+    isWholeFile: boolean;
+  } | null;
   navigate: (path: string) => Promise<void>;
   openFile: (entry: FileEntry) => Promise<void>;
   forceOpenBinary: (index: number) => Promise<void>;
@@ -53,6 +61,7 @@ interface ExplorerState {
   revealSelection: ExplorerState['selections'][number] | null;
   addSelection: (selection: Omit<ExplorerState['selections'][number], 'id'>) => void;
   removeSelection: (id: string) => void;
+  setLiveSelection: (sel: ExplorerState['liveSelection']) => void;
   clearAllSelections: () => void;
 }
 
@@ -127,6 +136,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   viewMode: (localStorage.getItem('kurisu_explorer_view') as ExplorerViewMode) || 'list',
   workspaceRoot: '',
   selections: [],
+  liveSelection: null,
   revealSelection: null,
 
   navigate: async (navPath: string) => {
@@ -286,5 +296,6 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   removeSelection: (id) => {
     set({ selections: get().selections.filter(s => s.id !== id) });
   },
-  clearAllSelections: () => set({ selections: [] }),
+  setLiveSelection: (sel) => set({ liveSelection: sel }),
+  clearAllSelections: () => set({ selections: [], liveSelection: null }),
 }));

@@ -20,24 +20,34 @@ export const FileEditor: React.FC = () => {
   const handleEditorMount: OnMount = useCallback((editor) => {
     editorRef.current = editor;
 
-    // Auto-add selection to chat when editor loses focus (user clicks chat input)
+    // Auto-set live selection when editor loses focus
     editor.onDidBlurEditorText(() => {
       const sel = editor.getSelection();
-      const { openFiles: files, activeFileIndex: idx, addSelection: add } = useExplorerStore.getState();
+      const { openFiles: files, activeFileIndex: idx, setLiveSelection } = useExplorerStore.getState();
       const file = idx >= 0 ? files[idx] : null;
-      if (!file || !sel || sel.isEmpty()) return;
-      const model = editor.getModel();
-      const text = model?.getValueInRange(sel) || '';
-      if (!text.trim()) return;
-      add({
-        filePath: file.path,
-        fileName: file.name,
-        startLine: sel.startLineNumber,
-        endLine: sel.endLineNumber,
-        startColumn: sel.startColumn,
-        endColumn: sel.endColumn,
-        text,
-      });
+      if (!file) return;
+
+      if (!sel || sel.isEmpty()) {
+        // No selection — reference the whole file
+        const model = editor.getModel();
+        const totalLines = model?.getLineCount() || 0;
+        setLiveSelection({
+          filePath: file.path,
+          fileName: file.name,
+          startLine: 1,
+          endLine: totalLines,
+          isWholeFile: true,
+        });
+      } else {
+        // Has selection — reference the selected range
+        setLiveSelection({
+          filePath: file.path,
+          fileName: file.name,
+          startLine: sel.startLineNumber,
+          endLine: sel.endLineNumber,
+          isWholeFile: false,
+        });
+      }
     });
 
     // "Add Selection to Chat" action — Ctrl+Shift+L or context menu

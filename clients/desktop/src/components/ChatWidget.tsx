@@ -47,29 +47,46 @@ import type { Message } from '../api/types';
 // Selection context chips rendered above the chat input
 const SelectionChips: React.FC = () => {
   const selections = useExplorerStore((s) => s.selections);
+  const liveSelection = useExplorerStore((s) => s.liveSelection);
   const removeSelection = useExplorerStore((s) => s.removeSelection);
-  if (selections.length === 0) return null;
+  const setLiveSelection = useExplorerStore((s) => s.setLiveSelection);
 
-  const handleClick = (sel: typeof selections[number]) => {
-    // Open/switch to the file and reveal the selection
+  if (selections.length === 0 && !liveSelection) return null;
+
+  const handlePinnedClick = (sel: typeof selections[number]) => {
     const store = useExplorerStore.getState();
     const idx = store.openFiles.findIndex(f => f.path === sel.filePath);
-    if (idx !== -1) {
-      store.setActiveFile(idx);
-    }
-    // The editor will pick up activeFileIndex change and render the file;
-    // we store the target selection so FileEditor can scroll to it
+    if (idx !== -1) store.setActiveFile(idx);
     useExplorerStore.setState({ revealSelection: sel });
   };
 
   return (
     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, px: 1.5, py: 0.75, flexShrink: 0 }}>
+      {/* Live selection — dashed outline, auto-replaced */}
+      {liveSelection && (
+        <Chip
+          label={liveSelection.isWholeFile
+            ? liveSelection.fileName
+            : `${liveSelection.fileName}:${liveSelection.startLine}-${liveSelection.endLine}`}
+          size="small"
+          variant="outlined"
+          onDelete={() => setLiveSelection(null)}
+          sx={{
+            fontSize: '0.7rem',
+            height: 22,
+            borderRadius: 1,
+            borderStyle: 'dashed',
+            '& .MuiChip-deleteIcon': { fontSize: 14 },
+          }}
+        />
+      )}
+      {/* Pinned selections — solid */}
       {selections.map((sel) => (
         <Chip
           key={sel.id}
           label={`${sel.fileName}:${sel.startLine}${sel.startLine !== sel.endLine ? `-${sel.endLine}` : ''}`}
           size="small"
-          onClick={() => handleClick(sel)}
+          onClick={() => handlePinnedClick(sel)}
           onDelete={() => removeSelection(sel.id)}
           sx={{
             fontSize: '0.7rem',
@@ -1104,11 +1121,17 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     setIsStreaming(true);
 
     // Prepend file selection references if any (model reads content via tools)
-    const { selections, clearAllSelections } = useExplorerStore.getState();
-    if (selections.length > 0) {
-      const refs = selections.map((sel) =>
-        `[${sel.filePath}:${sel.startLine}-${sel.endLine}]`
-      );
+    const { selections, liveSelection, clearAllSelections } = useExplorerStore.getState();
+    const refs: string[] = [];
+    if (liveSelection) {
+      refs.push(liveSelection.isWholeFile
+        ? `[${liveSelection.filePath}]`
+        : `[${liveSelection.filePath}:${liveSelection.startLine}-${liveSelection.endLine}]`);
+    }
+    for (const sel of selections) {
+      refs.push(`[${sel.filePath}:${sel.startLine}-${sel.endLine}]`);
+    }
+    if (refs.length > 0) {
       text = refs.join(' ') + '\n' + text;
       clearAllSelections();
     }
