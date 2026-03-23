@@ -24,6 +24,8 @@ export interface Message {
   agent?: MessageAgent; // Embedded agent info (name, avatar)
   voice_reference?: string; // Voice reference for TTS (from streaming chunks)
   has_raw_data?: boolean; // Whether raw LLM input/output is available
+  model_name?: string; // LLM model that generated this message
+  provider_type?: string; // LLM provider (ollama, gemini)
 }
 
 export interface MessageRawData {
