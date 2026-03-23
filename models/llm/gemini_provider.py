@@ -4,6 +4,7 @@ Uses the google-genai SDK. Normalizes Gemini responses to match Ollama's
 streaming chunk format so agents work unchanged.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -12,6 +13,9 @@ from typing import List, Dict, Optional, Any
 
 from google import genai
 from google.genai import types
+
+# Models that require the Live API (no generateContent support)
+LIVE_API_MODELS = {'gemini-2.5-flash-native-audio-latest'}
 
 from .base import BaseLLMProvider
 
@@ -200,6 +204,10 @@ class GeminiProvider(BaseLLMProvider):
         )
 
         try:
+            # Models that only support Live API
+            if model in LIVE_API_MODELS or 'native-audio' in model:
+                return self._live_chat(model, system_instruction, contents, gemini_tools, think, config_kwargs)
+
             if stream:
                 return self._stream_chat(model, contents, config)
             else:
@@ -275,15 +283,116 @@ class GeminiProvider(BaseLLMProvider):
             )
         )
 
+    def _live_chat(self, model, system_instruction, contents, gemini_tools, think, config_kwargs):
+        """Use the Live API for models that don't support generateContent.
+
+        Runs the async live session in a background thread and yields
+        OllamaStyleChunks synchronously.
+        """
+        import queue
+        import threading
+
+        result_queue: queue.Queue = queue.Queue()
+
+        async def _run_live_session():
+            try:
+                live_config = types.LiveConnectConfig(
+                    response_modalities=["TEXT"],
+                    system_instruction=system_instruction,
+                    tools=gemini_tools,
+                )
+                if think:
+                    live_config.thinking_config = types.ThinkingConfig(thinking_budget=16000)
+
+                async with self.client.aio.live.connect(
+                    model=model,
+                    config=live_config,
+                ) as session:
+                    # Send conversation history as context
+                    # Live API expects turns sent via send_client_content
+                    for content in contents:
+                        await session.send_client_content(
+                            turns=content,
+                            turn_complete=False,
+                        )
+                    # Signal turn complete to get a response
+                    await session.send_client_content(
+                        turns=None,
+                        turn_complete=True,
+                    )
+
+                    # Collect response
+                    async for msg in session.receive():
+                        if msg.server_content and msg.server_content.model_turn:
+                            for part in msg.server_content.model_turn.parts:
+                                if hasattr(part, 'thought') and part.thought:
+                                    result_queue.put(OllamaStyleChunk(
+                                        message=OllamaStyleMessage(thinking=part.text)
+                                    ))
+                                elif hasattr(part, 'text') and part.text:
+                                    result_queue.put(OllamaStyleChunk(
+                                        message=OllamaStyleMessage(content=part.text)
+                                    ))
+                                # Ignore audio parts
+
+                        # Tool calls
+                        if msg.tool_call:
+                            tool_calls = []
+                            for fc in msg.tool_call.function_calls:
+                                tool_calls.append(ToolCall(
+                                    function=ToolCallFunction(
+                                        name=fc.name,
+                                        arguments=dict(fc.args) if fc.args else {},
+                                    )
+                                ))
+                            result_queue.put(OllamaStyleChunk(
+                                message=OllamaStyleMessage(tool_calls=tool_calls)
+                            ))
+
+                        # Check if turn is complete
+                        if msg.server_content and msg.server_content.turn_complete:
+                            break
+
+            except Exception as e:
+                logger.error(f"Live API session failed: {e}", exc_info=True)
+                result_queue.put(e)
+            finally:
+                result_queue.put(None)  # Sentinel
+
+        def _run_in_thread():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(_run_live_session())
+            finally:
+                loop.close()
+
+        thread = threading.Thread(target=_run_in_thread, daemon=True)
+        thread.start()
+
+        # Yield chunks from the queue
+        while True:
+            item = result_queue.get()
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                raise item
+            yield item
+
     def list_models(self) -> List[str]:
         """List available Gemini models that support content generation."""
         try:
             models = []
             for model in self.client.models.list():
-                # Only include models that support generateContent
+                # Include models that support generateContent or Live API
                 methods = getattr(model, 'supported_actions', None) or getattr(model, 'supported_generation_methods', None) or []
-                if methods and 'generateContent' not in methods:
-                    continue
+                if methods and 'generateContent' not in methods and 'streamGenerateContent' not in methods:
+                    # Check if it's a native-audio model (uses Live API)
+                    name = model.name
+                    if name.startswith("models/"):
+                        name = name[7:]
+                    if name not in LIVE_API_MODELS and 'native-audio' not in name:
+                        continue
                 name = model.name
                 if name.startswith("models/"):
                     name = name[7:]
