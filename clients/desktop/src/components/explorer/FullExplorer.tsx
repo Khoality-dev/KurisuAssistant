@@ -53,7 +53,7 @@ export const FullExplorer: React.FC = () => {
   const [selectedEntries, setSelectedEntries] = useState<Set<string>>(new Set());
   const [lasso, setLasso] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const lassoStart = useRef<{ x: number; y: number; scrollX: number; scrollY: number } | null>(null);
-  const lassoJustFinished = useRef(false);
+  const lassoDragged = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [hasVSCode, setHasVSCode] = useState(false);
   const [editingPath, setEditingPath] = useState(false);
@@ -103,7 +103,9 @@ export const FullExplorer: React.FC = () => {
     }
   };
 
-  // Single click: select (Ctrl/Shift for multi). Double click: open.
+  const lastClickedRef = useRef<string | null>(null);
+
+  // Single click: select (Ctrl toggle, Shift range). Double click: open.
   const handleEntryClick = (e: React.MouseEvent, entry: FileEntry) => {
     if (e.ctrlKey || e.metaKey) {
       // Toggle selection
@@ -113,10 +115,17 @@ export const FullExplorer: React.FC = () => {
         else next.add(entry.fullPath);
         return next;
       });
+    } else if (e.shiftKey) {
+      // Add to selection
+      setSelectedEntries((prev) => {
+        const next = new Set(prev);
+        next.add(entry.fullPath);
+        return next;
+      });
     } else {
-      // Single select
       setSelectedEntries(new Set([entry.fullPath]));
     }
+    lastClickedRef.current = entry.fullPath;
   };
 
   const handleEntryDoubleClick = (entry: FileEntry) => {
@@ -151,6 +160,7 @@ export const FullExplorer: React.FC = () => {
     const container = containerRef.current;
     if (!container) return;
     const rect = container.getBoundingClientRect();
+    lassoDragged.current = false;
     lassoStart.current = {
       x: e.clientX - rect.left + container.scrollLeft,
       y: e.clientY - rect.top + container.scrollTop,
@@ -169,6 +179,7 @@ export const FullExplorer: React.FC = () => {
       const ly = Math.min(sy, curY);
       const lw = Math.abs(curX - sx);
       const lh = Math.abs(curY - sy);
+      if (lw > 5 || lh > 5) lassoDragged.current = true;
       setLasso({ x: lx, y: ly, w: lw, h: lh });
 
       // Find entries whose DOM elements intersect the lasso
@@ -194,9 +205,6 @@ export const FullExplorer: React.FC = () => {
       document.removeEventListener('mouseup', handleMouseUp);
       document.body.style.userSelect = '';
       lassoStart.current = null;
-      // Prevent the click event from deselecting
-      lassoJustFinished.current = true;
-      setTimeout(() => { lassoJustFinished.current = false; }, 50);
       setLasso(null);
     };
 
@@ -349,7 +357,7 @@ export const FullExplorer: React.FC = () => {
           onMouseDown={handleLassoStart}
           sx={{ flex: 1, overflow: 'auto', p: 2, position: 'relative' }}
           onClick={(e) => {
-            if (lassoJustFinished.current) return;
+            if (lassoDragged.current) { lassoDragged.current = false; return; }
             if (!(e.target as HTMLElement).closest('[data-entry]')) {
               setSelectedEntries(new Set());
             }
@@ -417,7 +425,7 @@ export const FullExplorer: React.FC = () => {
           onMouseDown={handleLassoStart}
           sx={{ flex: 1, overflow: 'auto', position: 'relative' }}
           onClick={(e) => {
-            if (lassoJustFinished.current) return;
+            if (lassoDragged.current) { lassoDragged.current = false; return; }
             if (!(e.target as HTMLElement).closest('tr[class*="MuiTableRow"]')) {
               setSelectedEntries(new Set());
             }
