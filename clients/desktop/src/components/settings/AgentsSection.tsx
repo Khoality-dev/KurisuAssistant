@@ -42,12 +42,12 @@ import {
 } from '@mui/icons-material';
 import { CircularProgress } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
-import { apiClient } from '../api/client';
-import { useAgentStore } from '../store/agentStore';
-import { storage } from '../utils/storage';
-import type { Agent, AgentCreate, AgentUpdate, Tool, AvatarCandidate } from '../api/types';
-import { CharacterConfigDialog } from './CharacterConfigDialog';
-import { ModelPicker } from './ModelPicker';
+import { apiClient } from '../../api/client';
+import { useAgentStore } from '../../store/agentStore';
+import { storage } from '../../utils/storage';
+import type { Agent, AgentCreate, AgentUpdate, Tool, AvatarCandidate } from '../../api/types';
+import { CharacterConfigDialog } from '../CharacterConfigDialog';
+import { ModelPicker } from '../ModelPicker';
 
 const MotionCard = motion(Card);
 
@@ -58,7 +58,7 @@ const formSectionSx = {
   borderRadius: 2,
   border: '1px solid',
   borderColor: 'divider',
-  backgroundColor: '#FFFFFF',
+  backgroundColor: 'background.paper',
   boxShadow: 'none',
 };
 
@@ -75,7 +75,7 @@ interface AgentFormData {
   trigger_word: string;
 }
 
-export const AgentsWindow: React.FC = () => {
+export const AgentsSection: React.FC = () => {
   const { loadAgents: refreshAgentStore } = useAgentStore();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [models, setModels] = useState<Array<{ name: string; provider: string }>>([]);
@@ -344,12 +344,17 @@ export const AgentsWindow: React.FC = () => {
   const isAdministrator = selectedAgent?.name === 'Administrator';
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Header */}
+    <Box>
+      <Typography variant="h5" sx={{ mb: 3, fontWeight: 600 }}>
+        Agent Management
+      </Typography>
+
+      {/* Header actions */}
       <Paper
         elevation={0}
         sx={{
           p: 2,
+          mb: 3,
           borderBottom: '1px solid',
           borderColor: 'divider',
           display: 'flex',
@@ -378,185 +383,182 @@ export const AgentsWindow: React.FC = () => {
         </Box>
       </Paper>
 
-      {/* Content */}
-      <Box sx={{ flex: 1, overflow: 'auto', p: 3, backgroundColor: '#F7F7F8' }}>
-        {/* Alert messages */}
-        {successMessage && (
-          <Alert severity="success" sx={{ mb: 3, maxWidth: 1200, mx: 'auto' }}>
-            {successMessage}
-          </Alert>
-        )}
-        {error && (
-          <Alert severity="error" sx={{ mb: 3, maxWidth: 1200, mx: 'auto' }} onClose={() => setError('')}>
-            {error}
-          </Alert>
-        )}
+      {/* Alert messages */}
+      {successMessage && (
+        <Alert severity="success" sx={{ mb: 3, maxWidth: 1200, mx: 'auto' }}>
+          {successMessage}
+        </Alert>
+      )}
+      {error && (
+        <Alert severity="error" sx={{ mb: 3, maxWidth: 1200, mx: 'auto' }} onClose={() => setError('')}>
+          {error}
+        </Alert>
+      )}
 
-        {loading ? (
-          <Typography sx={{ textAlign: 'center', mt: 4 }}>Loading agents...</Typography>
-        ) : agents.length === 0 ? (
-          <Paper sx={{ p: 4, textAlign: 'center', maxWidth: 600, mx: 'auto' }}>
-            <Typography variant="h6" gutterBottom>
-              No agents yet
-            </Typography>
-            <Typography color="text.secondary" sx={{ mb: 3 }}>
-              Create your first agent to get started. Agents can have custom personalities, voices, and avatars.
-            </Typography>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => {
-                resetForm();
-                setCreateDialogOpen(true);
-                loadTools();
-              }}
-            >
-              Create Agent
-            </Button>
-          </Paper>
-        ) : (
-          <Grid container spacing={3} sx={{ maxWidth: 1200, mx: 'auto' }}>
-            <AnimatePresence>
-              {agents.map((agent) => (
-                <Grid item xs={12} sm={6} md={4} key={agent.id}>
-                  <MotionCard
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    transition={{ duration: 0.3 }}
-                    onClick={() => openEditDialog(agent)}
-                    sx={{
-                      position: 'relative',
-                      border: agent.name === 'Administrator' ? '2px solid' : '1px solid',
-                      borderColor: agent.name === 'Administrator' ? 'secondary.main' : 'divider',
-                      cursor: 'pointer',
-                      '&:hover': {
-                        boxShadow: 3,
-                        transform: 'translateY(-2px)',
-                      },
-                      transition: 'box-shadow 0.2s, transform 0.2s',
-                    }}
-                  >
-                    {agent.name === 'Administrator' && (
-                      <Chip
-                        label="System"
-                        color="secondary"
-                        size="small"
-                        icon={<SettingsIcon />}
-                        sx={{ position: 'absolute', top: 12, right: 12 }}
-                      />
-                    )}
-                    <CardContent sx={{ textAlign: 'center', pt: 4 }}>
-                      <Avatar
-                        src={getAgentAvatarUrl(agent)}
-                        sx={{
-                          width: 80,
-                          height: 80,
-                          mx: 'auto',
-                          mb: 2,
-                          bgcolor: 'primary.main',
-                          fontSize: '2rem',
-                        }}
-                      >
-                        {agent.name[0]?.toUpperCase()}
-                      </Avatar>
-                      <Typography variant="h6" gutterBottom>
-                        {agent.name}
-                      </Typography>
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          minHeight: 40,
-                        }}
-                      >
-                        {agent.system_prompt || 'No system prompt set'}
-                      </Typography>
-                      <Box sx={{ mt: 2, display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
-                        {agent.voice_reference && (
+      {loading ? (
+        <Typography sx={{ textAlign: 'center', mt: 4 }}>Loading agents...</Typography>
+      ) : agents.length === 0 ? (
+        <Paper sx={{ p: 4, textAlign: 'center', maxWidth: 600, mx: 'auto' }}>
+          <Typography variant="h6" gutterBottom>
+            No agents yet
+          </Typography>
+          <Typography color="text.secondary" sx={{ mb: 3 }}>
+            Create your first agent to get started. Agents can have custom personalities, voices, and avatars.
+          </Typography>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => {
+              resetForm();
+              setCreateDialogOpen(true);
+              loadTools();
+            }}
+          >
+            Create Agent
+          </Button>
+        </Paper>
+      ) : (
+        <Grid container spacing={3} sx={{ maxWidth: 1200, mx: 'auto' }}>
+          <AnimatePresence>
+            {agents.map((agent) => (
+              <Grid item xs={12} sm={6} md={4} key={agent.id}>
+                <MotionCard
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  transition={{ duration: 0.3 }}
+                  onClick={() => openEditDialog(agent)}
+                  sx={{
+                    position: 'relative',
+                    border: agent.name === 'Administrator' ? '2px solid' : '1px solid',
+                    borderColor: agent.name === 'Administrator' ? 'secondary.main' : 'divider',
+                    cursor: 'pointer',
+                    '&:hover': {
+                      boxShadow: 3,
+                      transform: 'translateY(-2px)',
+                    },
+                    transition: 'box-shadow 0.2s, transform 0.2s',
+                  }}
+                >
+                  {agent.name === 'Administrator' && (
+                    <Chip
+                      label="System"
+                      color="secondary"
+                      size="small"
+                      icon={<SettingsIcon />}
+                      sx={{ position: 'absolute', top: 12, right: 12 }}
+                    />
+                  )}
+                  <CardContent sx={{ textAlign: 'center', pt: 4 }}>
+                    <Avatar
+                      src={getAgentAvatarUrl(agent)}
+                      sx={{
+                        width: 80,
+                        height: 80,
+                        mx: 'auto',
+                        mb: 2,
+                        bgcolor: 'primary.main',
+                        fontSize: '2rem',
+                      }}
+                    >
+                      {agent.name[0]?.toUpperCase()}
+                    </Avatar>
+                    <Typography variant="h6" gutterBottom>
+                      {agent.name}
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        minHeight: 40,
+                      }}
+                    >
+                      {agent.system_prompt || 'No system prompt set'}
+                    </Typography>
+                    <Box sx={{ mt: 2, display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+                      {agent.voice_reference && (
+                        <Chip
+                          icon={<MicIcon />}
+                          label={agent.voice_reference}
+                          size="small"
+                          variant="outlined"
+                        />
+                      )}
+                      {agent.model_name && (
+                        <Chip label={agent.model_name} size="small" variant="outlined" />
+                      )}
+                    </Box>
+                    {agent.excluded_tools && agent.excluded_tools.length > 0 && (
+                      <Box sx={{ mt: 1, display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
+                        {agent.excluded_tools.slice(0, 3).map(tool => (
                           <Chip
-                            icon={<MicIcon />}
-                            label={agent.voice_reference}
+                            key={tool}
+                            icon={<ExtensionIcon />}
+                            label={tool}
+                            size="small"
+                            variant="outlined"
+                            color="default"
+                            sx={{ textDecoration: 'line-through', opacity: 0.7 }}
+                          />
+                        ))}
+                        {agent.excluded_tools.length > 3 && (
+                          <Chip
+                            label={`+${agent.excluded_tools.length - 3} more`}
                             size="small"
                             variant="outlined"
                           />
-                        )}
-                        {agent.model_name && (
-                          <Chip label={agent.model_name} size="small" variant="outlined" />
                         )}
                       </Box>
-                      {agent.excluded_tools && agent.excluded_tools.length > 0 && (
-                        <Box sx={{ mt: 1, display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
-                          {agent.excluded_tools.slice(0, 3).map(tool => (
-                            <Chip
-                              key={tool}
-                              icon={<ExtensionIcon />}
-                              label={tool}
-                              size="small"
-                              variant="outlined"
-                              color="default"
-                              sx={{ textDecoration: 'line-through', opacity: 0.7 }}
-                            />
-                          ))}
-                          {agent.excluded_tools.length > 3 && (
-                            <Chip
-                              label={`+${agent.excluded_tools.length - 3} more`}
-                              size="small"
-                              variant="outlined"
-                            />
-                          )}
-                        </Box>
-                      )}
-                      {agent.character_config && (
-                        <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
-                          <Chip
-                            icon={<FaceIcon />}
-                            label="Character"
-                            size="small"
-                            variant="outlined"
-                            color="success"
-                          />
-                        </Box>
-                      )}
-                    </CardContent>
-                    <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
-                      <Tooltip title="Configure Character">
+                    )}
+                    {agent.character_config && (
+                      <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
+                        <Chip
+                          icon={<FaceIcon />}
+                          label="Character"
+                          size="small"
+                          variant="outlined"
+                          color="success"
+                        />
+                      </Box>
+                    )}
+                  </CardContent>
+                  <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
+                    <Tooltip title="Configure Character">
+                      <IconButton
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCharacterConfigAgent(agent);
+                          setCharacterConfigOpen(true);
+                        }}
+                      >
+                        <FaceIcon />
+                      </IconButton>
+                    </Tooltip>
+                    {agent.name !== 'Administrator' && (
+                      <Tooltip title="Delete">
                         <IconButton
                           onClick={(e) => {
                             e.stopPropagation();
-                            setCharacterConfigAgent(agent);
-                            setCharacterConfigOpen(true);
+                            openDeleteDialog(agent);
                           }}
+                          color="error"
                         >
-                          <FaceIcon />
+                          <DeleteIcon />
                         </IconButton>
                       </Tooltip>
-                      {agent.name !== 'Administrator' && (
-                        <Tooltip title="Delete">
-                          <IconButton
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openDeleteDialog(agent);
-                            }}
-                            color="error"
-                          >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </CardActions>
-                  </MotionCard>
-                </Grid>
-              ))}
-            </AnimatePresence>
-          </Grid>
-        )}
-      </Box>
+                    )}
+                  </CardActions>
+                </MotionCard>
+              </Grid>
+            ))}
+          </AnimatePresence>
+        </Grid>
+      )}
 
       {/* Create Dialog */}
       <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
@@ -738,7 +740,7 @@ export const AgentsWindow: React.FC = () => {
             py: 2,
             borderBottom: '1px solid',
             borderColor: 'divider',
-            backgroundColor: '#FFFFFF',
+            backgroundColor: 'background.paper',
           }}
         >
           <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
@@ -772,7 +774,7 @@ export const AgentsWindow: React.FC = () => {
                       width: 72,
                       height: 72,
                       fontSize: '1.8rem',
-                      bgcolor: '#EFF6FF',
+                      bgcolor: (t: any) => t.palette.mode === 'light' ? '#EFF6FF' : '#1A1A2E',
                       color: 'primary.main',
                     }}
                   >
@@ -846,7 +848,7 @@ export const AgentsWindow: React.FC = () => {
                             cursor: 'pointer',
                             border: '2px solid rgba(255,255,255,0.15)',
                             transition: 'border-color 0.2s, box-shadow 0.2s, transform 0.2s',
-                            '&:hover': { transform: 'translateY(-1px)', borderColor: '#FFFFFF', boxShadow: '0 8px 24px rgba(15, 23, 42, 0.3)' },
+                            '&:hover': { transform: 'translateY(-1px)', borderColor: 'background.paper', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.3)' },
                           }}
                           onClick={async () => {
                             if (!selectedAgent) return;
@@ -907,7 +909,7 @@ export const AgentsWindow: React.FC = () => {
                   <Typography variant="h6">Media & Character</Typography>
                 </Box>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <Box sx={{ p: 2, borderRadius: 2, backgroundColor: '#F8FAFC', border: '1px solid', borderColor: 'divider' }}>
+                  <Box sx={{ p: 2, borderRadius: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
                     <Typography variant="body2" sx={{ fontWeight: 600 }}>
                       Voice Reference
                     </Typography>
@@ -926,7 +928,7 @@ export const AgentsWindow: React.FC = () => {
                       </Typography>
                     )}
                   </Box>
-                  <Box sx={{ p: 2, borderRadius: 2, backgroundColor: '#F8FAFC', border: '1px solid', borderColor: 'divider' }}>
+                  <Box sx={{ p: 2, borderRadius: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
                     <Typography variant="body2" sx={{ fontWeight: 600 }}>
                       Character Animation
                     </Typography>
@@ -962,7 +964,7 @@ export const AgentsWindow: React.FC = () => {
                   sx={{
                     p: 2,
                     borderRadius: 2,
-                    backgroundColor: '#FFFFFF',
+                    backgroundColor: 'background.paper',
                     border: '1px solid',
                     borderColor: 'divider',
                   }}
@@ -1034,7 +1036,7 @@ export const AgentsWindow: React.FC = () => {
                   onError={setError}
                   required
                 />
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, p: 2, borderRadius: 2, backgroundColor: '#F8FAFC', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, p: 2, borderRadius: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
                   <Box>
                     <Typography variant="body2" sx={{ fontWeight: 600 }}>
                       Extended Thinking
@@ -1085,7 +1087,7 @@ export const AgentsWindow: React.FC = () => {
                     <TextField {...params} label="Disabled Tools" placeholder="Select tools to disable..." helperText="All tools remain enabled by default. Select only the ones this agent should not use." />
                   )}
                 />
-                <Box sx={{ p: 2, borderRadius: 2, backgroundColor: '#F8FAFC', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ p: 2, borderRadius: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
                     <Box>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>

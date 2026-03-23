@@ -49,6 +49,20 @@ export interface HostToolsAPI {
   setAllowedPaths: (agentId: number, paths: string[]) => Promise<void>;
 }
 
+export interface ExplorerAPI {
+  listDirectory: (dirPath: string) => Promise<{
+    path: string;
+    entries: Array<{ name: string; fullPath: string; type: 'file' | 'directory'; size: number; modified: string | null; extension: string }>;
+    isRoot: boolean;
+    error?: string;
+  }>;
+  readFile: (filePath: string) => Promise<{ content?: string; path?: string; error?: string }>;
+  writeFile: (filePath: string, content: string) => Promise<{ status?: string; path?: string; error?: string }>;
+  isBinary: (filePath: string) => Promise<boolean>;
+  hasVSCode: () => Promise<boolean>;
+  openInVSCode: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
+}
+
 export interface MCPAPI {
   startServers: (configs: MCPServerConfig[]) => Promise<Array<{ name: string; ok: boolean; error?: string }>>;
   startServer: (config: MCPServerConfig) => Promise<{ name: string; ok: boolean; error?: string }>;
@@ -71,9 +85,11 @@ export interface ExtensionsAPI {
 
 export interface ElectronAPI {
   platform: string;
+  openPath: (filePath: string) => Promise<string>;
   onMCPToolsChanged: (cb: () => void) => () => void;
   appTools: AppToolsAPI;
   hostTools: HostToolsAPI;
+  explorer: ExplorerAPI;
   mcp: MCPAPI;
   characterWindow: CharacterWindowAPI;
   extensions: ExtensionsAPI;

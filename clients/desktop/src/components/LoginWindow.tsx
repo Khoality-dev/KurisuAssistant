@@ -59,7 +59,7 @@ export const LoginWindow: React.FC = () => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #2563EB 0%, #1E40AF 100%)',
+        bgcolor: 'background.default',
       }}
     >
       <MotionPaper

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Paper, Typography, Button, IconButton, Tooltip, Avatar, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import {
   CheckCircle as CheckCircleIcon,
   Psychology as PsychologyIcon,
@@ -128,6 +129,9 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   const displayContent = isStreamingThisMessage ? displayedContent : message.content;
   const displayThinking = isStreamingThisMessage ? displayedThinking : message.thinking;
 
+  const theme = useTheme();
+  const isDark = theme.palette.mode === 'dark';
+
   // Determine message styling based on role
   const isUser = message.role === 'user';
 
@@ -149,29 +153,31 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   const getColorScheme = () => {
     if (isUser) {
       return {
-        bg: '#FFFFFF',
-        border: '#E5E5E5',
+        bg: isDark ? '#1A1A1A' : '#FFFFFF',
+        border: isDark ? '#333333' : '#E5E5E5',
         label: 'text.primary'
       };
     }
     switch (message.role) {
       case 'tool':
         return {
-          bg: '#FFF8E1',
-          border: '#FFB74D',
-          label: '#F57C00'
+          bg: isDark ? '#2A2000' : '#FFF8E1',
+          border: isDark ? '#665200' : '#FFB74D',
+          label: isDark ? '#FFB74D' : '#F57C00'
         };
       case 'assistant':
       default:
         return {
-          bg: '#EFF6FF',
-          border: '#2563EB33',
+          bg: isDark ? '#0D1B2A' : '#EFF6FF',
+          border: isDark ? '#1E3A5F' : '#2563EB33',
           label: 'primary.main'
         };
     }
   };
 
   const colorScheme = getColorScheme();
+  const isTool = message.role === 'tool';
+  const [toolExpanded, setToolExpanded] = useState(false);
 
   // Don't show hover toolbar while streaming
   const showToolbar = !isStreamingThisMessage && message.content;
@@ -218,33 +224,57 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
             backgroundColor: colorScheme.bg,
             border: '1px solid',
             borderColor: colorScheme.border,
+            overflow: 'hidden',
+            wordBreak: 'break-word',
           }}
         >
-          {/* Header: just the label */}
-          <Typography
-            variant="caption"
+          {/* Header */}
+          <Box
+            onClick={isTool ? () => setToolExpanded(!toolExpanded) : undefined}
             sx={{
-              fontWeight: 600,
-              color: colorScheme.label,
-              mb: 1,
-              display: 'block',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.5,
+              mb: isTool && !toolExpanded ? 0 : 1,
+              cursor: isTool ? 'pointer' : 'default',
+              userSelect: isTool ? 'none' : 'auto',
             }}
           >
-            {label}
-          </Typography>
-          <Box
+            <Typography
+              variant="caption"
+              sx={{
+                fontWeight: 600,
+                color: colorScheme.label,
+                flex: 1,
+              }}
+            >
+              {label}
+            </Typography>
+            {isTool && (
+              <ExpandMoreIcon
+                sx={{
+                  fontSize: 16,
+                  color: 'text.secondary',
+                  transform: toolExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 150ms ease',
+                }}
+              />
+            )}
+          </Box>
+          {/* Content — collapsed by default for tool messages */}
+          {(!isTool || toolExpanded) && <Box
             sx={{
               '& p': { margin: 0, marginBottom: 1 },
               '& p:last-child': { marginBottom: 0 },
               '& code': {
-                backgroundColor: '#F3F4F6',
+                backgroundColor: isDark ? '#1A1A1A' : '#F3F4F6',
                 padding: '2px 6px',
                 borderRadius: 1,
                 fontFamily: 'Consolas, Monaco, monospace',
                 fontSize: '0.875em',
               },
               '& pre': {
-                backgroundColor: '#F3F4F6',
+                backgroundColor: isDark ? '#1A1A1A' : '#F3F4F6',
                 padding: 2,
                 borderRadius: 1,
                 overflow: 'auto',
@@ -373,6 +403,43 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
               <>
                 <ReactMarkdown
                   components={{
+                    pre: ({ children }) => (
+                      <Box
+                        component="pre"
+                        sx={{
+                          overflowX: 'auto',
+                          maxWidth: '100%',
+                          bgcolor: isDark ? '#0D0D0D' : '#F3F4F6',
+                          borderRadius: 1,
+                          p: 1.5,
+                          my: 1,
+                          fontSize: '0.8rem',
+                          lineHeight: 1.5,
+                          '& code': { background: 'none', p: 0, fontSize: 'inherit' },
+                        }}
+                      >
+                        {children}
+                      </Box>
+                    ),
+                    code: ({ children, className }) => {
+                      const isInline = !className;
+                      return isInline ? (
+                        <Box
+                          component="code"
+                          sx={{
+                            bgcolor: isDark ? '#1A1A1A' : '#F3F4F6',
+                            px: 0.5,
+                            py: 0.25,
+                            borderRadius: 0.5,
+                            fontSize: '0.85em',
+                          }}
+                        >
+                          {children}
+                        </Box>
+                      ) : (
+                        <code className={className}>{children}</code>
+                      );
+                    },
                     a: ({ node, children, href, ...props }) => (
                       <a
                         {...props}
@@ -449,7 +516,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                 </Typography>
               </Box>
             )}
-          </Box>
+          </Box>}
         </Paper>
 
         {/* Hover toolbar - appears below the bubble */}
@@ -588,7 +655,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                 </Typography>
                 <Box
                   sx={{
-                    backgroundColor: '#F3F4F6',
+                    backgroundColor: isDark ? '#1A1A1A' : '#F3F4F6',
                     p: 2,
                     borderRadius: 1,
                     overflow: 'auto',
@@ -610,7 +677,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                 </Typography>
                 <Box
                   sx={{
-                    backgroundColor: '#F3F4F6',
+                    backgroundColor: isDark ? '#1A1A1A' : '#F3F4F6',
                     p: 2,
                     borderRadius: 1,
                     overflow: 'auto',

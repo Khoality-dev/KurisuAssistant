@@ -15,7 +15,7 @@ import {
   SystemUpdateAlt as UpdateIcon,
   DeleteOutline as UninstallIcon,
 } from '@mui/icons-material';
-import { apiClient } from '../api/client';
+import { apiClient } from '../../api/client';
 
 const HEALTH_POLL_INTERVAL = 5000;
 
@@ -190,7 +190,7 @@ const ExtensionCard: React.FC<ExtensionCardProps> = ({
   );
 };
 
-export const ExtensionsWindow: React.FC = () => {
+export const ExtensionsSection: React.FC = () => {
   const [statuses, setStatuses] = useState<Record<string, ExtensionStatus>>(() => {
     const initial: Record<string, ExtensionStatus> = {};
     for (const ext of EXTENSIONS) {
@@ -353,7 +353,7 @@ export const ExtensionsWindow: React.FC = () => {
   };
 
   return (
-    <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
+    <Box>
       <Typography variant="h5" gutterBottom fontWeight={600}>
         Extensions
       </Typography>
