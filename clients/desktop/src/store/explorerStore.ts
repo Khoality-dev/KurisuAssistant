@@ -42,14 +42,14 @@ interface ExplorerState {
     endColumn: number;
     text: string;
   }>;
-  // Live selection — auto-set on editor blur, replaced on next blur
-  liveSelection: {
+  // Live selections — auto-set from explorer/editor, replaced on each interaction
+  liveSelections: Array<{
     filePath: string;
     fileName: string;
     startLine: number;
     endLine: number;
     isWholeFile: boolean;
-  } | null;
+  }>;
   navigate: (path: string) => Promise<void>;
   openFile: (entry: FileEntry) => Promise<void>;
   forceOpenBinary: (index: number) => Promise<void>;
@@ -61,7 +61,7 @@ interface ExplorerState {
   revealSelection: ExplorerState['selections'][number] | null;
   addSelection: (selection: Omit<ExplorerState['selections'][number], 'id'>) => void;
   removeSelection: (id: string) => void;
-  setLiveSelection: (sel: ExplorerState['liveSelection']) => void;
+  setLiveSelections: (sels: ExplorerState['liveSelections']) => void;
   clearAllSelections: () => void;
 }
 
@@ -136,7 +136,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   viewMode: (localStorage.getItem('kurisu_explorer_view') as ExplorerViewMode) || 'list',
   workspaceRoot: '',
   selections: [],
-  liveSelection: null,
+  liveSelections: [],
   revealSelection: null,
 
   navigate: async (navPath: string) => {
@@ -255,14 +255,13 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     const file = openFiles[index];
     set({
       activeFileIndex: index,
-      // Update live selection to the new active file (whole file)
-      liveSelection: file ? {
+      liveSelections: file ? [{
         filePath: file.path,
         fileName: file.name,
         startLine: 1,
         endLine: 0,
         isWholeFile: true,
-      } : null,
+      }] : [],
     });
   },
 
@@ -308,6 +307,6 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   removeSelection: (id) => {
     set({ selections: get().selections.filter(s => s.id !== id) });
   },
-  setLiveSelection: (sel) => set({ liveSelection: sel }),
-  clearAllSelections: () => set({ selections: [], liveSelection: null }),
+  setLiveSelections: (sels) => set({ liveSelections: sels }),
+  clearAllSelections: () => set({ selections: [], liveSelections: [] }),
 }));

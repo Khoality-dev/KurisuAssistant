@@ -48,11 +48,11 @@ import type { Message } from '../api/types';
 // Selection context chips rendered above the chat input
 const SelectionChips: React.FC = () => {
   const selections = useExplorerStore((s) => s.selections);
-  const liveSelection = useExplorerStore((s) => s.liveSelection);
+  const liveSelections = useExplorerStore((s) => s.liveSelections);
   const removeSelection = useExplorerStore((s) => s.removeSelection);
-  const setLiveSelection = useExplorerStore((s) => s.setLiveSelection);
+  const setLiveSelections = useExplorerStore((s) => s.setLiveSelections);
 
-  if (selections.length === 0 && !liveSelection) return null;
+  if (selections.length === 0 && liveSelections.length === 0) return null;
 
   const handlePinnedClick = async (sel: typeof selections[number]) => {
     const store = useExplorerStore.getState();
@@ -78,21 +78,17 @@ const SelectionChips: React.FC = () => {
 
   return (
     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, px: 1.5, py: 0.75, flexShrink: 0 }}>
-      {/* Live selection — dashed outline, auto-replaced */}
-      {liveSelection && (
-        <Tooltip title={liveSelection.isWholeFile
-          ? liveSelection.filePath
-          : `${liveSelection.filePath}:${liveSelection.startLine}-${liveSelection.endLine}`}
+      {/* Live selections — dashed outline, auto-replaced */}
+      {liveSelections.map((ls, i) => (
+        <Tooltip key={`live-${i}`} title={ls.isWholeFile ? ls.filePath : `${ls.filePath}:${ls.startLine}-${ls.endLine}`}
           placement="top" enterDelay={300}
         >
         <Chip
-          label={liveSelection.isWholeFile
-            ? liveSelection.fileName
-            : `${liveSelection.fileName}:${liveSelection.startLine}-${liveSelection.endLine}`}
+          label={ls.isWholeFile ? ls.fileName : `${ls.fileName}:${ls.startLine}-${ls.endLine}`}
           size="small"
           variant="outlined"
           color="info"
-          onDelete={() => setLiveSelection(null)}
+          onDelete={() => setLiveSelections(liveSelections.filter((_, j) => j !== i))}
           sx={{
             fontSize: '0.7rem',
             height: 22,
@@ -102,7 +98,7 @@ const SelectionChips: React.FC = () => {
           }}
         />
         </Tooltip>
-      )}
+      ))}
       {/* Pinned selections — solid */}
       {selections.map((sel) => (
         <Tooltip key={sel.id} title={sel.startLine > 0 ? `${sel.filePath}:${sel.startLine}-${sel.endLine}` : sel.filePath} placement="top" enterDelay={300}>
@@ -1145,12 +1141,12 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     setIsStreaming(true);
 
     // Prepend file selection references if any (model reads content via tools)
-    const { selections, liveSelection, clearAllSelections } = useExplorerStore.getState();
+    const { selections, liveSelections, clearAllSelections } = useExplorerStore.getState();
     const refs: string[] = [];
-    if (liveSelection) {
-      refs.push(liveSelection.isWholeFile
-        ? `[${liveSelection.filePath}]`
-        : `[${liveSelection.filePath}:${liveSelection.startLine}-${liveSelection.endLine}]`);
+    for (const ls of liveSelections) {
+      refs.push(ls.isWholeFile
+        ? `[${ls.filePath}]`
+        : `[${ls.filePath}:${ls.startLine}-${ls.endLine}]`);
     }
     for (const sel of selections) {
       refs.push(sel.startLine > 0

@@ -23,30 +23,28 @@ export const FileEditor: React.FC = () => {
     // Auto-set live selection when editor loses focus
     editor.onDidBlurEditorText(() => {
       const sel = editor.getSelection();
-      const { openFiles: files, activeFileIndex: idx, setLiveSelection } = useExplorerStore.getState();
+      const { openFiles: files, activeFileIndex: idx, setLiveSelections } = useExplorerStore.getState();
       const file = idx >= 0 ? files[idx] : null;
       if (!file) return;
 
       if (!sel || sel.isEmpty()) {
-        // No selection — reference the whole file
         const model = editor.getModel();
         const totalLines = model?.getLineCount() || 0;
-        setLiveSelection({
+        setLiveSelections([{
           filePath: file.path,
           fileName: file.name,
           startLine: 1,
           endLine: totalLines,
           isWholeFile: true,
-        });
+        }]);
       } else {
-        // Has selection — reference the selected range
-        setLiveSelection({
+        setLiveSelections([{
           filePath: file.path,
           fileName: file.name,
           startLine: sel.startLineNumber,
           endLine: sel.endLineNumber,
           isWholeFile: false,
-        });
+        }]);
       }
     });
 

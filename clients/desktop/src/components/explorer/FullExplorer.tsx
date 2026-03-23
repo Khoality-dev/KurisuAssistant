@@ -48,7 +48,7 @@ function formatDate(dateStr: string | null): string {
 }
 
 export const FullExplorer: React.FC = () => {
-  const { openFile, viewMode, setViewMode, addSelection, setLiveSelection } = useExplorerStore();
+  const { openFile, viewMode, setViewMode, addSelection, setLiveSelections } = useExplorerStore();
 
   const [selectedEntries, setSelectedEntries] = useState<Set<string>>(new Set());
   const [lasso, setLasso] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -83,6 +83,24 @@ export const FullExplorer: React.FC = () => {
   useEffect(() => {
     loadDirectory('');
   }, [loadDirectory]);
+
+  // Sync selected entries → live selection chips
+  useEffect(() => {
+    if (selectedEntries.size === 0) {
+      setLiveSelections([]);
+      return;
+    }
+    const sels = entries
+      .filter(e => selectedEntries.has(e.fullPath))
+      .map(e => ({
+        filePath: e.fullPath,
+        fileName: e.name,
+        startLine: 0,
+        endLine: 0,
+        isWholeFile: true,
+      }));
+    setLiveSelections(sels);
+  }, [selectedEntries, entries, setLiveSelections]);
 
   // Check if VS Code is available
   useEffect(() => {
@@ -126,15 +144,6 @@ export const FullExplorer: React.FC = () => {
       setSelectedEntries(new Set([entry.fullPath]));
     }
     lastClickedRef.current = entry.fullPath;
-
-    // Update live selection chip to the clicked item
-    setLiveSelection({
-      filePath: entry.fullPath,
-      fileName: entry.name,
-      startLine: 0,
-      endLine: 0,
-      isWholeFile: true,
-    });
   };
 
   const handleEntryDoubleClick = (entry: FileEntry) => {
@@ -370,7 +379,6 @@ export const FullExplorer: React.FC = () => {
             if (e.shiftKey || e.ctrlKey || e.metaKey) return;
             if (!(e.target as HTMLElement).closest('[data-entry]')) {
               setSelectedEntries(new Set());
-              setLiveSelection(null);
             }
           }}
           onContextMenu={(e) => {
@@ -440,7 +448,6 @@ export const FullExplorer: React.FC = () => {
             if (e.shiftKey || e.ctrlKey || e.metaKey) return;
             if (!(e.target as HTMLElement).closest('tr[class*="MuiTableRow"]')) {
               setSelectedEntries(new Set());
-              setLiveSelection(null);
             }
           }}
           onContextMenu={(e) => {
