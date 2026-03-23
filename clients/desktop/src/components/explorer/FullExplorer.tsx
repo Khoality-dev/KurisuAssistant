@@ -53,6 +53,7 @@ export const FullExplorer: React.FC = () => {
   const [selectedEntries, setSelectedEntries] = useState<Set<string>>(new Set());
   const [lasso, setLasso] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const lassoStart = useRef<{ x: number; y: number; scrollX: number; scrollY: number } | null>(null);
+  const lassoJustFinished = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [hasVSCode, setHasVSCode] = useState(false);
   const [editingPath, setEditingPath] = useState(false);
@@ -193,6 +194,9 @@ export const FullExplorer: React.FC = () => {
       document.removeEventListener('mouseup', handleMouseUp);
       document.body.style.userSelect = '';
       lassoStart.current = null;
+      // Prevent the click event from deselecting
+      lassoJustFinished.current = true;
+      setTimeout(() => { lassoJustFinished.current = false; }, 50);
       setLasso(null);
     };
 
@@ -345,6 +349,7 @@ export const FullExplorer: React.FC = () => {
           onMouseDown={handleLassoStart}
           sx={{ flex: 1, overflow: 'auto', p: 2, position: 'relative' }}
           onClick={(e) => {
+            if (lassoJustFinished.current) return;
             if (!(e.target as HTMLElement).closest('[data-entry]')) {
               setSelectedEntries(new Set());
             }
@@ -412,7 +417,7 @@ export const FullExplorer: React.FC = () => {
           onMouseDown={handleLassoStart}
           sx={{ flex: 1, overflow: 'auto', position: 'relative' }}
           onClick={(e) => {
-            // Click empty space → deselect all
+            if (lassoJustFinished.current) return;
             if (!(e.target as HTMLElement).closest('tr[class*="MuiTableRow"]')) {
               setSelectedEntries(new Set());
             }
