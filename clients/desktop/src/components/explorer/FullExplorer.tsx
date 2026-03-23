@@ -3,7 +3,7 @@
  * Displays a browseable file/folder list with breadcrumb navigation.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Box,
   Typography,
@@ -51,6 +51,9 @@ export const FullExplorer: React.FC = () => {
   const { openFile, viewMode, setViewMode, addSelection } = useExplorerStore();
 
   const [selectedEntries, setSelectedEntries] = useState<Set<string>>(new Set());
+  const [lasso, setLasso] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const lassoStart = useRef<{ x: number; y: number; scrollX: number; scrollY: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [hasVSCode, setHasVSCode] = useState(false);
   const [editingPath, setEditingPath] = useState(false);
   const [pathInput, setPathInput] = useState('');
@@ -138,6 +141,65 @@ export const FullExplorer: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [entries]);
+
+  // Lasso (rubber-band) selection
+  const handleLassoStart = useCallback((e: React.MouseEvent) => {
+    // Only start on empty space (left button, no entry clicked)
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('[data-entry], tr[class*="MuiTableRow"]')) return;
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    lassoStart.current = {
+      x: e.clientX - rect.left + container.scrollLeft,
+      y: e.clientY - rect.top + container.scrollTop,
+      scrollX: container.scrollLeft,
+      scrollY: container.scrollTop,
+    };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!lassoStart.current || !containerRef.current) return;
+      const r = containerRef.current.getBoundingClientRect();
+      const curX = moveEvent.clientX - r.left + containerRef.current.scrollLeft;
+      const curY = moveEvent.clientY - r.top + containerRef.current.scrollTop;
+      const sx = lassoStart.current.x;
+      const sy = lassoStart.current.y;
+      const lx = Math.min(sx, curX);
+      const ly = Math.min(sy, curY);
+      const lw = Math.abs(curX - sx);
+      const lh = Math.abs(curY - sy);
+      setLasso({ x: lx, y: ly, w: lw, h: lh });
+
+      // Find entries whose DOM elements intersect the lasso
+      const entryEls = containerRef.current.querySelectorAll('[data-entry-path]');
+      const selected = new Set<string>();
+      entryEls.forEach((el) => {
+        const elRect = el.getBoundingClientRect();
+        const elX = elRect.left - r.left + containerRef.current!.scrollLeft;
+        const elY = elRect.top - r.top + containerRef.current!.scrollTop;
+        const elW = elRect.width;
+        const elH = elRect.height;
+        // Rectangle intersection test
+        if (elX < lx + lw && elX + elW > lx && elY < ly + lh && elY + elH > ly) {
+          const path = el.getAttribute('data-entry-path');
+          if (path) selected.add(path);
+        }
+      });
+      setSelectedEntries(selected);
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.userSelect = '';
+      lassoStart.current = null;
+      setLasso(null);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.userSelect = 'none';
+  }, []);
 
   const handleGoUp = () => {
     if (isRoot || !currentPath) return;
@@ -279,7 +341,9 @@ export const FullExplorer: React.FC = () => {
       ) : viewMode === 'grid' ? (
         /* Grid/icon view */
         <Box
-          sx={{ flex: 1, overflow: 'auto', p: 2 }}
+          ref={containerRef}
+          onMouseDown={handleLassoStart}
+          sx={{ flex: 1, overflow: 'auto', p: 2, position: 'relative' }}
           onClick={(e) => {
             if (!(e.target as HTMLElement).closest('[data-entry]')) {
               setSelectedEntries(new Set());
@@ -298,6 +362,7 @@ export const FullExplorer: React.FC = () => {
               <Box
                 key={entry.fullPath}
                 data-entry
+                data-entry-path={entry.fullPath}
                 onClick={(e) => handleEntryClick(e, entry)}
                 onDoubleClick={() => handleEntryDoubleClick(entry)}
                 onContextMenu={(e) => handleContextMenu(e, entry)}
@@ -343,7 +408,9 @@ export const FullExplorer: React.FC = () => {
         </Box>
       ) : (
         <TableContainer
-          sx={{ flex: 1, overflow: 'auto' }}
+          ref={containerRef}
+          onMouseDown={handleLassoStart}
+          sx={{ flex: 1, overflow: 'auto', position: 'relative' }}
           onClick={(e) => {
             // Click empty space → deselect all
             if (!(e.target as HTMLElement).closest('tr[class*="MuiTableRow"]')) {
@@ -373,6 +440,7 @@ export const FullExplorer: React.FC = () => {
                   key={entry.fullPath}
                   hover
                   selected={selectedEntries.has(entry.fullPath)}
+                  data-entry-path={entry.fullPath}
                   onClick={(e) => handleEntryClick(e, entry)}
                   onDoubleClick={() => handleEntryDoubleClick(entry)}
                   onContextMenu={(e) => handleContextMenu(e, entry)}
@@ -415,6 +483,24 @@ export const FullExplorer: React.FC = () => {
           </Table>
         </TableContainer>
       )}
+      {/* Lasso selection rectangle */}
+      {lasso && containerRef.current && (
+        <Box
+          sx={{
+            position: 'fixed',
+            left: containerRef.current.getBoundingClientRect().left + lasso.x - containerRef.current.scrollLeft,
+            top: containerRef.current.getBoundingClientRect().top + lasso.y - containerRef.current.scrollTop,
+            width: lasso.w,
+            height: lasso.h,
+            border: '1px solid',
+            borderColor: 'info.main',
+            bgcolor: 'rgba(37, 99, 235, 0.08)',
+            pointerEvents: 'none',
+            zIndex: 10,
+          }}
+        />
+      )}
+
       {/* Context menu */}
       <Menu
         open={contextMenu !== null}
