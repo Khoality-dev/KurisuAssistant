@@ -64,6 +64,7 @@ class AgentCreate(BaseModel):
     name: str
     system_prompt: str = ""
     model_name: str  # Required - LLM model for this agent
+    provider_type: str = "ollama"  # "ollama" or "gemini"
     excluded_tools: Optional[List[str]] = None
     think: bool = False
     preferred_name: Optional[str] = None
@@ -76,6 +77,7 @@ class AgentUpdate(BaseModel):
     system_prompt: Optional[str] = None
     voice_reference: Optional[str] = None
     model_name: Optional[str] = None
+    provider_type: Optional[str] = None
     excluded_tools: Optional[List[str]] = None
     think: Optional[bool] = None
     memory: Optional[str] = None
@@ -92,6 +94,7 @@ class AgentResponse(BaseModel):
     voice_reference: Optional[str]
     avatar_uuid: Optional[str]
     model_name: Optional[str]
+    provider_type: str = "ollama"
     excluded_tools: Optional[List[str]]
     think: bool
     character_config: Optional[dict] = None

@@ -46,6 +46,7 @@ class AgentConfig:
     voice_reference: Optional[str] = None
     avatar_uuid: Optional[str] = None
     model_name: Optional[str] = None
+    provider_type: str = "ollama"
     excluded_tools: Optional[List[str]] = None
     think: bool = False
     memory: Optional[str] = None
@@ -65,6 +66,7 @@ class AgentContext:
     user_system_prompt: str = ""
     preferred_name: str = ""
     api_url: Optional[str] = None  # User-specific Ollama endpoint
+    gemini_api_key: Optional[str] = None  # User-specific Gemini API key
     client_tools: List[Dict] = field(default_factory=list)
     client_tool_callback: Optional[Callable[[str, Dict], Coroutine[Any, Any, str]]] = None
     images: Optional[List[str]] = None  # base64 images for current user message
@@ -441,7 +443,11 @@ class SimpleAgent(BaseAgent):
         import json
         from models.llm import create_llm_provider
 
-        llm = create_llm_provider("ollama", api_url=context.api_url)
+        llm = create_llm_provider(
+            self.config.provider_type,
+            api_url=context.api_url,
+            api_key=context.gemini_api_key,
+        )
 
         # Prepare messages: filter Administrator, add speaker names, inject agent descriptions
         messages = self._prepare_messages(messages, context)

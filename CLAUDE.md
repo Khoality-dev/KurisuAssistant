@@ -21,6 +21,7 @@ KurisuAssistant is a voice-based AI assistant platform combining STT (faster-whi
 - [GPT-SoVITS Setup](docs/gpt-sovits.md) — voice synthesis backend configuration
 - [MCP Configuration](docs/mcp-config.md) — MCP server config format
 - Notes & History — File-based per-agent notes (`tools/notes.py`) and DB-backed conversation history tools (`tools/history.py`)
+- LLM Providers — Multi-provider support: Ollama (local) and Google Gemini (cloud). Per-agent `provider_type` field, per-user `gemini_api_key`. Provider factory in `models/llm/__init__.py`.
 
 ## Development Quick Reference
 

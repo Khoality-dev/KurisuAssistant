@@ -237,7 +237,7 @@ class ChatSessionHandler:
         from fastapi import WebSocketDisconnect
         try:
             # Setup conversation/frame
-            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
+            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, gemini_api_key, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
 
             # Reset task state
             self._task_conversation_id = conversation_id
@@ -303,6 +303,7 @@ class ChatSessionHandler:
                 user_system_prompt=user_system_prompt,
                 preferred_name=preferred_name,
                 api_url=ollama_url,
+                gemini_api_key=gemini_api_key,
                 client_tools=self._client_tools,
                 client_tool_callback=self._execute_client_tool,
                 images=event.images if event.images else None,
@@ -409,7 +410,7 @@ class ChatSessionHandler:
         """
         try:
             # Setup conversation/frame
-            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
+            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, gemini_api_key, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
 
             # Submit background summarization tasks
             fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
@@ -589,6 +590,7 @@ class ChatSessionHandler:
                 user_system_prompt=user_system_prompt,
                 preferred_name=preferred_name,
                 api_url=ollama_url,
+                gemini_api_key=gemini_api_key,
                 client_tools=self._client_tools,
                 client_tool_callback=self._execute_client_tool,
                 images=event.images if event.images else None,
@@ -840,6 +842,7 @@ class ChatSessionHandler:
                 raise ValueError("User not found")
 
             ollama_url = user.ollama_url
+            gemini_api_key = getattr(user, 'gemini_api_key', None)
             summary_model = user.summary_model
             context_size = user.context_size
 
@@ -881,14 +884,14 @@ class ChatSessionHandler:
             system_prompt, preferred_name = user_repo.get_preferences(user)
 
             return (conversation_id, frame_id, system_prompt, preferred_name,
-                    old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size)
+                    old_frame_id, ollama_url, gemini_api_key, summary_model, unsummarized_ids, context_size)
 
         (conversation_id, frame_id, system_prompt, preferred_name,
-         old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size) = await db.execute(_do_setup)
+         old_frame_id, ollama_url, gemini_api_key, summary_model, unsummarized_ids, context_size) = await db.execute(_do_setup)
 
         system_messages = build_system_messages(system_prompt, preferred_name)
 
-        return conversation_id, frame_id, system_messages, system_prompt, preferred_name or "", old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size
+        return conversation_id, frame_id, system_messages, system_prompt, preferred_name or "", old_frame_id, ollama_url, gemini_api_key, summary_model, unsummarized_ids, context_size
 
     def _load_user_agents(self) -> List[AgentConfig]:
         """Load all agents for the current user."""
@@ -906,6 +909,7 @@ class ChatSessionHandler:
                     model_name=agent.model_name,
                     excluded_tools=agent.excluded_tools,
                     think=agent.think,
+                    provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
                     memory=agent.memory,
                     memory_enabled=agent.memory_enabled,
                 )
@@ -1217,6 +1221,7 @@ class ChatSessionHandler:
                 model_name=agent.model_name,
                 excluded_tools=agent.excluded_tools,
                 think=agent.think,
+                provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
                 memory=agent.memory,
                 memory_enabled=agent.memory_enabled,
                 preferred_name=agent.preferred_name,

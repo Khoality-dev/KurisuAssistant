@@ -43,6 +43,17 @@ async def list_models(
     try:
         user_ollama_url = user.ollama_url
         models = llm_list_models(api_url=user_ollama_url)
+
+        # Add Gemini models if user has API key
+        gemini_api_key = getattr(user, 'gemini_api_key', None)
+        if gemini_api_key:
+            try:
+                gemini_provider = create_llm_provider("gemini", api_key=gemini_api_key)
+                gemini_models = gemini_provider.list_models()
+                models.extend(gemini_models)
+            except Exception as ge:
+                logger.warning(f"Failed to list Gemini models: {ge}")
+
         return {"models": models}
     except Exception as e:
         logger.error(f"Error fetching models: {e}", exc_info=True)
