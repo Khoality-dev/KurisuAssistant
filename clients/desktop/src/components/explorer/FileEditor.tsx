@@ -1,22 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Box, Typography, Fab, Tooltip as MuiTooltip } from '@mui/material';
-import { AddComment as AddChatIcon } from '@mui/icons-material';
+import { Box, Typography, Button } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import {
   InsertDriveFileOutlined as FileIcon,
+  WarningAmber as WarningIcon,
 } from '@mui/icons-material';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import { useExplorerStore } from '../../store/explorerStore';
-import { Button } from '@mui/material';
-import { WarningAmber as WarningIcon } from '@mui/icons-material';
 
 export const FileEditor: React.FC = () => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
   const { openFiles, activeFileIndex, updateFileContent, saveFile } = useExplorerStore();
   const editorRef = useRef<any>(null);
-  const addToChatRef = useRef<(() => void) | null>(null);
-  const [floatingBtn, setFloatingBtn] = useState<{ x: number; y: number } | null>(null);
 
   const activeFile = activeFileIndex >= 0 ? openFiles[activeFileIndex] : null;
 
@@ -24,24 +20,27 @@ export const FileEditor: React.FC = () => {
   const handleEditorMount: OnMount = useCallback((editor) => {
     editorRef.current = editor;
 
-    // Show/hide floating "Add to Chat" button on selection change
-    editor.onDidChangeCursorSelection(() => {
+    // Auto-add selection to chat when editor loses focus (user clicks chat input)
+    editor.onDidBlurEditorText(() => {
       const sel = editor.getSelection();
-      if (!sel || sel.isEmpty()) {
-        setFloatingBtn(null);
-        return;
-      }
-      // Position the button near the end of the selection
-      const endPos = sel.getEndPosition();
-      const coords = editor.getScrolledVisiblePosition(endPos);
-      const editorDom = editor.getDomNode();
-      if (coords && editorDom) {
-        const rect = editorDom.getBoundingClientRect();
-        setFloatingBtn({ x: rect.left + coords.left + 20, y: rect.top + coords.top - 40 });
-      }
+      const { openFiles: files, activeFileIndex: idx, addSelection: add } = useExplorerStore.getState();
+      const file = idx >= 0 ? files[idx] : null;
+      if (!file || !sel || sel.isEmpty()) return;
+      const model = editor.getModel();
+      const text = model?.getValueInRange(sel) || '';
+      if (!text.trim()) return;
+      add({
+        filePath: file.path,
+        fileName: file.name,
+        startLine: sel.startLineNumber,
+        endLine: sel.endLineNumber,
+        startColumn: sel.startColumn,
+        endColumn: sel.endColumn,
+        text,
+      });
     });
 
-    // "Add Selection to Chat" action — Ctrl+Shift+L or context menu or floating button
+    // "Add Selection to Chat" action — Ctrl+Shift+L or context menu
     const addSelectionToChat = () => {
       const sel = editor.getSelection();
       const { openFiles: files, activeFileIndex: idx, addSelection: add } = useExplorerStore.getState();
@@ -59,9 +58,7 @@ export const FileEditor: React.FC = () => {
         endColumn: sel.endColumn,
         text,
       });
-      setFloatingBtn(null);
     };
-    addToChatRef.current = addSelectionToChat;
 
     editor.addAction({
       id: 'add-to-chat',
@@ -190,31 +187,7 @@ export const FileEditor: React.FC = () => {
 
   // Monaco editor
   return (
-    <Box sx={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-      {/* Floating "Add to Chat" button */}
-      {floatingBtn && (
-        <MuiTooltip title="Add selection to chat (Ctrl+Shift+L)" placement="top">
-          <Fab
-            size="small"
-            onClick={() => addToChatRef.current?.()}
-            sx={{
-              position: 'fixed',
-              left: floatingBtn.x,
-              top: floatingBtn.y,
-              zIndex: 1000,
-              width: 28,
-              height: 28,
-              minHeight: 28,
-              bgcolor: 'info.main',
-              color: '#fff',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-              '&:hover': { bgcolor: 'info.dark' },
-            }}
-          >
-            <AddChatIcon sx={{ fontSize: 16 }} />
-          </Fab>
-        </MuiTooltip>
-      )}
+    <Box sx={{ flex: 1, overflow: 'hidden' }}>
       <Editor
         key={activeFile.path}
         defaultValue={activeFile.content}
