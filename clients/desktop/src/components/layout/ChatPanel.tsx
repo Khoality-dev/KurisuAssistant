@@ -1,13 +1,11 @@
 import React from 'react';
-import { Box, Typography, IconButton, Avatar, Tooltip, Chip } from '@mui/material';
+import { Box, Typography, IconButton, Avatar, Tooltip } from '@mui/material';
 import {
   Refresh as RefreshIcon,
   Delete as DeleteIcon,
-  Code as CodeIcon,
 } from '@mui/icons-material';
 import { useAgentStore } from '../../store/agentStore';
 import { useConversationStore } from '../../store/conversationStore';
-import { useExplorerStore } from '../../store/explorerStore';
 import { ChatWidget } from '../ChatWidget';
 import { MediaPlayerBar } from '../MediaPlayerBar';
 import { apiClient } from '../../api/client';
@@ -15,8 +13,6 @@ import { apiClient } from '../../api/client';
 export const ChatPanel: React.FC = () => {
   const { agents, selectedAgentId } = useAgentStore();
   const { currentConversation, deleteConversation } = useConversationStore();
-  const selections = useExplorerStore((s) => s.selections);
-  const removeSelection = useExplorerStore((s) => s.removeSelection);
 
   const selectedAgent = agents.find(a => a.id === selectedAgentId);
 
@@ -90,43 +86,6 @@ export const ChatPanel: React.FC = () => {
           </IconButton>
         </Tooltip>
       </Box>
-
-      {/* Selection context chips */}
-      {selections.length > 0 && (
-        <Box
-          sx={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 0.5,
-            px: 1.5,
-            py: 0.75,
-            borderBottom: 1,
-            borderColor: 'divider',
-            flexShrink: 0,
-          }}
-        >
-          {selections.map((sel) => (
-            <Tooltip
-              key={sel.id}
-              title={`${sel.filePath}:${sel.startLine}-${sel.endLine}`}
-              placement="top"
-            >
-              <Chip
-                icon={<CodeIcon sx={{ fontSize: 14 }} />}
-                label={`${sel.fileName}:${sel.startLine}${sel.startLine !== sel.endLine ? `-${sel.endLine}` : ''}`}
-                size="small"
-                onDelete={() => removeSelection(sel.id)}
-                sx={{
-                  fontSize: '0.7rem',
-                  height: 24,
-                  '& .MuiChip-icon': { ml: 0.5 },
-                  '& .MuiChip-deleteIcon': { fontSize: 14 },
-                }}
-              />
-            </Tooltip>
-          ))}
-        </Box>
-      )}
 
       {/* Chat */}
       <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex' }}>

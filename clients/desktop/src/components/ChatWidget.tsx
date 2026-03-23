@@ -44,6 +44,46 @@ import { MessageBubble } from './MessageBubble';
 import { FrameSeparator } from './FrameSeparator';
 import type { Message } from '../api/types';
 
+// Selection context chips rendered above the chat input
+const SelectionChips: React.FC = () => {
+  const selections = useExplorerStore((s) => s.selections);
+  const removeSelection = useExplorerStore((s) => s.removeSelection);
+  if (selections.length === 0) return null;
+
+  const handleClick = (sel: typeof selections[number]) => {
+    // Open/switch to the file and reveal the selection
+    const store = useExplorerStore.getState();
+    const idx = store.openFiles.findIndex(f => f.path === sel.filePath);
+    if (idx !== -1) {
+      store.setActiveFile(idx);
+    }
+    // The editor will pick up activeFileIndex change and render the file;
+    // we store the target selection so FileEditor can scroll to it
+    useExplorerStore.setState({ revealSelection: sel });
+  };
+
+  return (
+    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, px: 1.5, py: 0.75, flexShrink: 0 }}>
+      {selections.map((sel) => (
+        <Chip
+          key={sel.id}
+          label={`${sel.fileName}:${sel.startLine}${sel.startLine !== sel.endLine ? `-${sel.endLine}` : ''}`}
+          size="small"
+          onClick={() => handleClick(sel)}
+          onDelete={() => removeSelection(sel.id)}
+          sx={{
+            fontSize: '0.7rem',
+            height: 22,
+            borderRadius: 1,
+            cursor: 'pointer',
+            '& .MuiChip-deleteIcon': { fontSize: 14 },
+          }}
+        />
+      ))}
+    </Box>
+  );
+};
+
 interface ChatWidgetProps {
   characterWindowOpen?: boolean;
   agentId?: number | null;
@@ -1394,6 +1434,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%' }}>
 
       {messagesPane}
+
+      {/* Selection context chips — above input */}
+      <SelectionChips />
 
       {/* Bottom area: interactive call bar or typing input */}
       {interactiveMode ? (

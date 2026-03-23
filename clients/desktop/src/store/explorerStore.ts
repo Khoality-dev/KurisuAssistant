@@ -50,6 +50,7 @@ interface ExplorerState {
   updateFileContent: (index: number, content: string) => void;
   saveFile: (index: number) => Promise<void>;
   setViewMode: (mode: ExplorerViewMode) => void;
+  revealSelection: ExplorerState['selections'][number] | null;
   addSelection: (selection: Omit<ExplorerState['selections'][number], 'id'>) => void;
   removeSelection: (id: string) => void;
   clearAllSelections: () => void;
@@ -126,6 +127,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   viewMode: (localStorage.getItem('kurisu_explorer_view') as ExplorerViewMode) || 'list',
   workspaceRoot: '',
   selections: [],
+  revealSelection: null,
 
   navigate: async (navPath: string) => {
     set({ isLoading: true });
