@@ -172,7 +172,8 @@ export const FullExplorer: React.FC = () => {
       return;
     }
     const dir = renaming.path.replace(/[\\/][^\\/]+$/, '');
-    const newPath = dir + (renaming.path.includes('\\') ? '\\' : '/') + renameValue.trim();
+    const sep = renaming.path.includes('\\') ? '\\' : '/';
+    const newPath = dir + sep + renameValue.trim();
     const result = await window.electron?.explorer?.rename(renaming.path, newPath);
     if (result?.error) console.error('Rename failed:', result.error);
     setRenaming(null);
@@ -182,6 +183,7 @@ export const FullExplorer: React.FC = () => {
   const handleDelete = async (targetPath?: string) => {
     const paths = targetPath ? [targetPath] : entries.filter(e => selectedEntries.has(e.fullPath)).map(e => e.fullPath);
     if (paths.length === 0) return;
+    // Note: delete is not undoable (files are gone). We could move to trash instead.
     for (const p of paths) {
       await window.electron?.explorer?.delete(p);
     }
