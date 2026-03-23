@@ -145,10 +145,13 @@ class APIClient {
   }
 
   async getModels(): Promise<Array<{ name: string; provider: string }>> {
-    const response = await this.client.get<{ models: Array<{ name: string; provider: string }> }>('/models', {
+    const response = await this.client.get<{ models: any[] }>('/models', {
       headers: this.getHeaders(),
     });
-    return response.data.models;
+    // Handle both old format (string[]) and new format ({name, provider}[])
+    return response.data.models.map((m: any) =>
+      typeof m === 'string' ? { name: m, provider: 'ollama' } : m
+    );
   }
 
   async pullModel(name: string): Promise<PullModelResponse> {

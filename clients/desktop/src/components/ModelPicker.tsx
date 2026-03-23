@@ -3,11 +3,9 @@ import {
   Autocomplete,
   Box,
   Button,
-  Chip,
   IconButton,
   TextField,
   Tooltip,
-  Typography,
 } from '@mui/material';
 import { CircularProgress } from '@mui/material';
 import {
@@ -59,7 +57,9 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
   }, [models]);
 
   const sortedModelNames = useMemo(
-    () => [...models].sort((a, b) => a.name.localeCompare(b.name)).map(m => m.name),
+    () => [...models]
+      .sort((a, b) => a.provider.localeCompare(b.provider) || a.name.localeCompare(b.name))
+      .map(m => m.name),
     [models]
   );
 
@@ -105,6 +105,10 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
         <Autocomplete
           freeSolo
           options={sortedModelNames}
+          groupBy={(option) => {
+            const p = providerMap.get(option) || 'ollama';
+            return p.charAt(0).toUpperCase() + p.slice(1);
+          }}
           value={value === '' ? null : value}
           inputValue={value}
           onChange={(_, newValue) => onChange(typeof newValue === 'string' ? newValue : '')}
@@ -126,32 +130,6 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
           noOptionsText="No installed models match. Enter an exact model name and click Pull."
           disabled={disabled || isPulling}
           sx={{ flex: 1 }}
-          renderOption={(props, option) => {
-            const provider = (providerMap.get(option) || 'ollama').charAt(0).toUpperCase() + (providerMap.get(option) || 'ollama').slice(1);
-            return (
-              <li {...props} key={option}>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                  <Typography variant="body2" noWrap sx={{ flex: 1, minWidth: 0 }}>
-                    {option}
-                  </Typography>
-                  <Chip
-                    label={provider}
-                    size="small"
-                    variant="outlined"
-                    sx={{
-                      ml: 1,
-                      height: 20,
-                      fontSize: '0.65rem',
-                      fontWeight: 600,
-                      flexShrink: 0,
-                      borderColor: provider.toLowerCase() === 'gemini' ? '#4285F4' : '#888',
-                      color: provider.toLowerCase() === 'gemini' ? '#4285F4' : '#888',
-                    }}
-                  />
-                </Box>
-              </li>
-            );
-          }}
           renderInput={(params) => (
             <TextField
               {...params}
