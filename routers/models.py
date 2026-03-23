@@ -42,7 +42,10 @@ async def list_models(
     """List available LLM models."""
     try:
         user_ollama_url = user.ollama_url
-        models = llm_list_models(api_url=user_ollama_url)
+        ollama_models = llm_list_models(api_url=user_ollama_url)
+
+        # Build model list: [{name, provider}]
+        models = [{"name": m, "provider": "ollama"} for m in ollama_models]
 
         # Add Gemini models if user has API key
         gemini_api_key = getattr(user, 'gemini_api_key', None)
@@ -50,7 +53,7 @@ async def list_models(
             try:
                 gemini_provider = create_llm_provider("gemini", api_key=gemini_api_key)
                 gemini_models = gemini_provider.list_models()
-                models.extend(gemini_models)
+                models.extend({"name": m, "provider": "gemini"} for m in gemini_models)
             except Exception as ge:
                 logger.warning(f"Failed to list Gemini models: {ge}")
 
