@@ -90,8 +90,8 @@ const SelectionChips: React.FC = () => {
           color="info"
           onDelete={() => setLiveSelections(liveSelections.filter((_, j) => j !== i))}
           sx={{
-            fontSize: '0.7rem',
-            height: 22,
+            fontSize: '0.8rem',
+            height: 28,
             borderRadius: 1,
             borderStyle: 'dashed',
             '& .MuiChip-deleteIcon': { fontSize: 14 },
@@ -108,8 +108,8 @@ const SelectionChips: React.FC = () => {
           onClick={() => handlePinnedClick(sel)}
           onDelete={() => removeSelection(sel.id)}
           sx={{
-            fontSize: '0.7rem',
-            height: 22,
+            fontSize: '0.8rem',
+            height: 28,
             borderRadius: 1,
             cursor: 'pointer',
             '& .MuiChip-deleteIcon': { fontSize: 14 },
