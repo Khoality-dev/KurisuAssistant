@@ -29,8 +29,8 @@ async def get_user_profile(
             "preferred_name": user.preferred_name or "",
             "agent_avatar_uuid": user.agent_avatar_uuid,
             "ollama_url": user.ollama_url,
-            "gemini_api_key": ("*" * 8 + user.gemini_api_key[-4:]) if user.gemini_api_key else None,
-            "nvidia_api_key": ("*" * 8 + user.nvidia_api_key[-4:]) if getattr(user, 'nvidia_api_key', None) else None,
+            "gemini_api_key": user.gemini_api_key,
+            "nvidia_api_key": getattr(user, 'nvidia_api_key', None),
             "summary_model": user.summary_model,
             "context_size": user.context_size,
         }

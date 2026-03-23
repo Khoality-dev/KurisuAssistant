@@ -156,3 +156,23 @@ async def ensure_model(
     except Exception as e:
         logger.error(f"Error ensuring model '{model_name}': {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class ValidateKeyRequest(BaseModel):
+    provider: str  # "gemini" or "nvidia"
+    api_key: str
+
+
+@router.post("/validate-key")
+async def validate_api_key(
+    body: ValidateKeyRequest,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Validate an API key by attempting to list models."""
+    try:
+        provider = create_llm_provider(body.provider, api_key=body.api_key)
+        models = provider.list_models()
+        return {"valid": True, "model_count": len(models)}
+    except Exception as e:
+        return {"valid": False, "error": str(e)}
