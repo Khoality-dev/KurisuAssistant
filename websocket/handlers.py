@@ -241,8 +241,12 @@ class ChatSessionHandler:
 
             # Load agents and find the target
             all_agents = self._load_user_agents()
-            available_agents = [a for a in all_agents if a.name != ADMINISTRATOR_NAME]
+            available_agents = [a for a in all_agents if a.name != 'Administrator']
             target_agent = self._get_agent_config(event.agent_id, available_agents)
+
+            # Default to first available agent if none specified
+            if not target_agent and available_agents:
+                target_agent = available_agents[0]
 
             # Submit background tasks for old/unsummarized frames
             # (memory consolidation chains automatically after each summary completes)
