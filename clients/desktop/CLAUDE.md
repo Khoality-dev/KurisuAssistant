@@ -20,35 +20,51 @@ GitHub Actions workflow (`.github/workflows/build.yml`): triggers on release cre
 ## Architecture
 
 ```
-electron/main.ts          — Multi-window Electron entry (main + character window) + auto-updater setup + extensions IPC + MCP handler registration/cleanup
-electron/mcp.ts           — Client-side MCP server manager: start/stop stdio/SSE servers via @modelcontextprotocol/sdk, aggregate tool discovery, tool execution. IPC handlers: mcp:start-servers, mcp:stop-servers, mcp:list-tools, mcp:call-tool
-electron/preload.ts       — contextBridge API (platform + updater + characterWindow + extensions + mcp IPC bridge)
+electron/main.ts          — Multi-window Electron entry + auto-updater + single instance lock + IPC registration (MCP, host tools, app tools, explorer)
+electron/mcp.ts           — MCP server manager: start/stop stdio/SSE servers, tool discovery/execution. IPC: mcp:start-server(s), mcp:stop-servers, mcp:list-tools, mcp:call-tool, mcp:is-server-running
+electron/hostTools.ts     — Agent host tools (sandboxed to per-agent allowed_paths): host_read/write/edit/search/bash. Settings persistence for allowed paths.
+electron/appTools.ts      — App config tools for agents: agent CRUD, MCP server management, vision control, browser launch (CDP). Forwards to renderer via IPC round-trip.
+electron/explorerIPC.ts   — Unsandboxed file explorer IPC: list-directory, read-file, write-file, is-binary, has-vscode, open-in-vscode
+electron/preload.ts       — contextBridge: hostTools, appTools, explorer, mcp, characterWindow, extensions, updater
 src/api/client.ts         — Axios + WebSocket singleton; streaming + media via wsManager; migrateCharacterIds()
 src/api/types.ts          — TypeScript interfaces for API
 src/components/
-  LoginWindow.tsx          — Login/Register tabs, Remember Me, Server URL field, purple gradient
-  MainWindow.tsx           — Top bar (tabs + hamburger menu + agent name + clear conversation + connection status dot + phone toggle for voice mode) + ChatWidget + AgentSidebar
-  AgentSidebar.tsx         — Left drawer showing agents as conversation items (avatar, name, last message preview, relative timestamp). Toggled via hamburger button in top bar.
-  ChatWidget.tsx           — Chat UI with streaming, TTS auto-play, image attach, pagination, IPC bridge to character window, voice mode (typing/interactive)
-  InteractiveCallBar.tsx   — Full-height call bar replacing input area in interactive voice mode: transcript display, large mic button with pulse, status text, hang up
-  MessageBubble.tsx        — Individual bubble: role styling, thinking collapse, TTS, resend/delete
-  ToolsWindow.tsx          — Three tabs: MCP Servers (with Internal/External location selector + badges), Available Tools, Skills (CRUD + import/export)
-  AgentsWindow.tsx         — Agent CRUD with tool exclusion + character config button
-  FacesWindow.tsx          — Face identity CRUD, webcam vision controls, live recognition display
-  MediaPlayerBar.tsx       — Bottom bar: track info, play/pause/skip/stop, volume slider, slide-up animation. Visible when media playing/buffering.
-  CharacterConfigDialog.tsx — React Flow graph editor: multi-pose nodes, edges with transition videos, conditions
-  PoseNodeEditor.tsx        — Extracted 3-step stepper sub-dialog for editing individual pose nodes
-  EdgeEditor.tsx            — Transition edge editor: video upload, condition config (random timer)
-  PoseGraphNode.tsx         — Custom React Flow node component (thumbnail + label + default chip)
-  UpdateDialog.tsx          — Auto-update notification: shows download progress, "Restart Now" / "Later" on completion
-  ExtensionsWindow.tsx     — Extensions management page: Maestro companion app card with status polling (health endpoint), version detection (GitHub Releases API), install/update/launch actions via IPC
-  SettingsWindow.tsx       — Account (backend) + TTS (localStorage) settings tabs
+  layout/
+    MainLayout.tsx         — 3-panel layout: ActivityBar (52px) | MainContent (flex) | ResizeHandle | ChatPanel (resizable)
+    ActivityBar.tsx        — Narrow icon column: Workspace/Conversations/Settings nav + connection/character/call/logout
+    ChatPanel.tsx          — Persistent right panel: agent header + ChatWidget + MediaPlayerBar
+    ResizeHandle.tsx       — DOM-based drag resize (no React re-renders during drag, sync on mouseup)
   explorer/
-    FileExplorerPage.tsx   — Main explorer layout: FileTreeSidebar (left) + EditorTabs + FileEditor (right)
-    FileTreeSidebar.tsx    — Collapsible tree view with lazy-loaded children, resizable width via ResizeHandle, shows allowed paths as roots
-    EditorTabs.tsx         — Horizontal tab bar for open files: active highlight, dirty dot indicator, middle-click/X close
-    FileEditor.tsx         — Monaco editor wrapper with Ctrl+S save, language auto-detect, image preview for image files, empty state
-    FileIcon.tsx           — SVG file icons by extension/type (folder, TS, JS, PY, JSON, MD, HTML, CSS, image, config, default)
+    FileExplorerPage.tsx   — Workspace page: FullExplorer (no files open) or FileTreeSidebar + EditorTabs + FileEditor
+    FullExplorer.tsx       — Full-page file browser: breadcrumb, list/grid views, multi-select (Ctrl/Shift/lasso), right-click context menu
+    FileTreeSidebar.tsx    — Editor-mode tree: shows workspaceRoot folder, lazy-load children, resizable, right-click Open Folder/Add to Chat
+    EditorTabs.tsx         — Tab bar: file icon + name, dirty dot, middle-click/X close, right-click Add to Chat, tooltip with full path
+    FileEditor.tsx         — Monaco editor: Ctrl+S save, auto-detect language, binary detection with Open Anyway, image preview, selection→chat context
+    FileIcon.tsx           — Custom SVG icons by type (folder, TS, JS, PY, JSON, MD, HTML, CSS, image, config, default)
+  conversations/
+    ConversationsPage.tsx  — Agent list with search, avatar, last message preview, timestamps. Click loads conversation into ChatPanel.
+  settings/
+    SettingsPage.tsx       — Left nav sidebar (10 sections) + lazy-loaded content area
+    AccountSection.tsx     — Ollama URL, summary model, context size
+    TTSSection.tsx         — TTS backend, auto-play, voice, emotion controls, ASR language
+    AppearanceSection.tsx  — Light/dark theme toggle
+    AgentsSection.tsx      — Full agent CRUD with dialogs, avatar, voice, character config, tool exclusion
+    MCPServersSection.tsx  — Local servers detection (Maestro, Chronicle, Playwright) + user MCP server CRUD
+    ToolsSection.tsx       — Available tools list with details dialog
+    SkillsSection.tsx      — Skill CRUD + import/export
+    HostAccessSection.tsx  — Per-agent allowed paths config
+    FacesSection.tsx       — Face identity CRUD + webcam capture
+    ExtensionsSection.tsx  — Companion app installer (Maestro, Chronicle)
+  LoginWindow.tsx          — Login/Register tabs, Remember Me, Server URL field
+  ChatWidget.tsx           — Chat UI with streaming, TTS, image attach, pagination, voice mode, selection context chips
+  InteractiveCallBar.tsx   — Voice mode call bar: transcript, mic button with pulse, hang up
+  MessageBubble.tsx        — Individual bubble: role styling, thinking collapse, TTS, resend/delete
+  MediaPlayerBar.tsx       — Bottom bar: track info, play/pause/skip/stop, volume slider
+  CharacterConfigDialog.tsx — React Flow graph editor: multi-pose nodes, edges with transition videos
+  PoseNodeEditor.tsx       — 3-step stepper for pose node editing
+  EdgeEditor.tsx           — Transition edge editor: video upload, condition config
+  PoseGraphNode.tsx        — Custom React Flow node component
+  UpdateDialog.tsx         — Auto-update notification
 src/hooks/
   useTTS.ts               — TTS synthesis/playback: speak(), queueText(), clearQueue(), onPlaybackStart subtitle callback, WAV duration parsing
   useAudioAmplitude.ts    — Web Audio API amplitude for lip sync (AudioBufferSourceNode + time-domain RMS)
@@ -57,11 +73,11 @@ src/store/
   authStore.ts            — Auth state, login/register/logout, token persistence
   conversationStore.ts    — Current conversation + messages (paginated 20/page). No conversation list — agent selection drives conversation via localStorage mapping.
   agentStore.ts           — Agent list (filtered, no Administrator), selected agent ID (persisted), agent previews (last message per agent for sidebar). Agent selection triggers conversation load via agent-conversation mapping.
-  sidebarStore.ts         — Sidebar open/close state (Zustand)
+  layoutStore.ts          — Layout state: activePage (workspace/conversations/settings), chatPanelWidth, workspaceTreeWidth, settingsSection (persisted)
+  explorerStore.ts        — File explorer: tree navigation, open/close/save files, dirty detection, selections for chat context, view mode, lasso multi-select
   visionStore.ts          — Zustand singleton: vision pipeline control (getUserMedia webcam capture, backpressure-based frame upload via WebSocket with max 5 in-flight frames, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Syncs state on reconnect via `connected` listener. Used by both FacesWindow and ChatWidget camera toggle.
   mediaStore.ts           — Zustand singleton: media player state (playback, track, queue, volume). All media events (control + chunks) flow through wsManager on /ws/chat. Module-level listeners for media_state/media_chunk/media_error + `connected` listener for reconnect state sync. Buffers base64 chunks → Blob → Audio playback. Volume persisted to localStorage.
   micStore.ts             — Zustand singleton: ASR lifecycle (VAD, status, result, devices) + interactive mode with substates. Module-level VAD instance, lazy-init reusable Audio elements for sound effects. Two-level state: `interactiveMode` (call bar UI shown, mic auto-started) + `interactionActive` (auto-send without trigger word). Used by MainWindow (phone toggle) and ChatWidget (transcript handling, conditional render).
-  explorerStore.ts        — File explorer state: tree navigation via IPC listDirectory, open/close/save files via IPC readFile/writeFile, dirty detection, language mapping from extension
 src/services/
   mcpService.ts            — Client-side MCP lifecycle: auto-init on WebSocket connect, fetches client-location MCP configs from API, starts local servers via Electron IPC, discovers tools, registers schemas with backend via client_tools_register event. Handles tool_call_request forwarding (execute locally → send tool_call_response). refreshClientMCPServers() for config changes.
 src/CharacterWindowApp.tsx — Minimal IPC-driven renderer for separate character window (no auth/stores, subtitle overlay)
