@@ -23,8 +23,9 @@ export const MainLayout: React.FC = () => {
   }, [loadAgents, loadAgentPreviews]);
 
   const handleChatResize = useCallback((delta: number) => {
-    setChatPanelWidth(Math.max(MIN_CHAT_WIDTH, Math.min(MAX_CHAT_WIDTH, chatPanelWidth - delta)));
-  }, [chatPanelWidth, setChatPanelWidth]);
+    const current = useLayoutStore.getState().chatPanelWidth;
+    setChatPanelWidth(Math.max(MIN_CHAT_WIDTH, Math.min(MAX_CHAT_WIDTH, current - delta)));
+  }, [setChatPanelWidth]);
 
   const renderMainContent = () => {
     switch (activePage) {
@@ -48,7 +49,7 @@ export const MainLayout: React.FC = () => {
       </Box>
 
       {/* Resize handle */}
-      <ResizeHandle onResize={handleChatResize} />
+      <ResizeHandle onResize={handleChatResize} onResizeEnd={() => useLayoutStore.getState().persistWidths()} />
 
       {/* Chat panel */}
       <Box sx={{ width: chatPanelWidth, flexShrink: 0, overflow: 'hidden' }}>

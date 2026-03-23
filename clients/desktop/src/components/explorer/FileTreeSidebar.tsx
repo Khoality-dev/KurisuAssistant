@@ -113,8 +113,9 @@ export const FileTreeSidebar: React.FC = () => {
   }, []);
 
   const handleResize = useCallback((delta: number) => {
-    setWorkspaceTreeWidth(Math.max(MIN_TREE_WIDTH, Math.min(MAX_TREE_WIDTH, workspaceTreeWidth + delta)));
-  }, [workspaceTreeWidth, setWorkspaceTreeWidth]);
+    const current = useLayoutStore.getState().workspaceTreeWidth;
+    setWorkspaceTreeWidth(Math.max(MIN_TREE_WIDTH, Math.min(MAX_TREE_WIDTH, current + delta)));
+  }, [setWorkspaceTreeWidth]);
 
   const handleFileClick = useCallback((entry: FileEntry) => {
     openFile(entry);
@@ -127,10 +128,10 @@ export const FileTreeSidebar: React.FC = () => {
   }, []);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%', flexShrink: 0 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%', width: workspaceTreeWidth, flexShrink: 0 }}>
       <Box
         sx={{
-          width: workspaceTreeWidth,
+          flex: 1,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -186,7 +187,7 @@ export const FileTreeSidebar: React.FC = () => {
         </Box>
       </Box>
 
-      <ResizeHandle onResize={handleResize} />
+      <ResizeHandle onResize={handleResize} onResizeEnd={() => useLayoutStore.getState().persistWidths()} />
 
       {/* Context menu */}
       <Menu

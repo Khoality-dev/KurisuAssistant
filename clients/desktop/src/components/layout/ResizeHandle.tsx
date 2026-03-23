@@ -1,41 +1,44 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Box } from '@mui/material';
 
 interface ResizeHandleProps {
   onResize: (delta: number) => void;
+  onResizeEnd?: () => void;
   direction?: 'horizontal' | 'vertical';
 }
 
-export const ResizeHandle: React.FC<ResizeHandleProps> = ({ onResize, direction = 'horizontal' }) => {
+export const ResizeHandle: React.FC<ResizeHandleProps> = ({ onResize, onResizeEnd, direction = 'horizontal' }) => {
+  const onResizeRef = useRef(onResize);
+  const onResizeEndRef = useRef(onResizeEnd);
   const startPos = useRef(0);
-  const isDragging = useRef(false);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  useEffect(() => { onResizeRef.current = onResize; }, [onResize]);
+  useEffect(() => { onResizeEndRef.current = onResizeEnd; }, [onResizeEnd]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     startPos.current = direction === 'horizontal' ? e.clientX : e.clientY;
-    isDragging.current = true;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      if (!isDragging.current) return;
       const current = direction === 'horizontal' ? moveEvent.clientX : moveEvent.clientY;
       const delta = current - startPos.current;
       startPos.current = current;
-      onResize(delta);
+      onResizeRef.current(delta);
     };
 
     const handleMouseUp = () => {
-      isDragging.current = false;
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      onResizeEndRef.current?.();
     };
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
     document.body.style.cursor = direction === 'horizontal' ? 'col-resize' : 'row-resize';
     document.body.style.userSelect = 'none';
-  }, [onResize, direction]);
+  };
 
   return (
     <Box
@@ -51,7 +54,6 @@ export const ResizeHandle: React.FC<ResizeHandleProps> = ({ onResize, direction 
           opacity: 0.4,
         },
         position: 'relative',
-        // Extend the interactive area
         '&::before': {
           content: '""',
           position: 'absolute',
