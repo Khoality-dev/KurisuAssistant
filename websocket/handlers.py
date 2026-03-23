@@ -217,15 +217,10 @@ class ChatSessionHandler:
             except asyncio.CancelledError:
                 pass
 
-        # Branch: single agent mode (direct) vs orchestration (Administrator routing)
-        if event.agent_id is not None:
-            self.current_task = asyncio.create_task(
-                self._run_single_agent(event)
-            )
-        else:
-            self.current_task = asyncio.create_task(
-                self._run_orchestration(event)
-            )
+        # Always use single agent mode (orchestration disabled)
+        self.current_task = asyncio.create_task(
+            self._run_single_agent(event)
+        )
 
     async def _run_single_agent(self, event: ChatRequestEvent):
         """Run a single agent directly, bypassing Administrator routing.
