@@ -211,14 +211,9 @@ class BaseAgent(ABC):
             # Ensure tool-to-client mapping is loaded (uses cache if fresh)
             await orchestrator.get_tools()
 
-            # Inject context into MCP tool args (same as native tools)
+            # Don't inject internal context (user_id, agent_id, etc.) into
+            # external MCP tool args — external servers don't expect them.
             mcp_args = dict(tool_args)
-            if context.user_id:
-                mcp_args["user_id"] = context.user_id
-            if context.conversation_id:
-                mcp_args["conversation_id"] = context.conversation_id
-            if self.config.id:
-                mcp_args["agent_id"] = self.config.id
 
             # Create a mock tool call object
             class MockToolCall:

@@ -76,9 +76,21 @@ class NvidiaProvider(BaseLLMProvider):
         think = kwargs.get("think", False)
         options = kwargs.get("options", {})
 
+        # Clean messages to OpenAI format (strip Ollama-specific fields)
+        clean_messages = []
+        for msg in messages:
+            clean = {"role": msg.get("role", "user"), "content": msg.get("content", "")}
+            if msg.get("name"):
+                clean["name"] = msg["name"]
+            if msg.get("tool_calls"):
+                clean["tool_calls"] = msg["tool_calls"]
+            if msg.get("tool_call_id"):
+                clean["tool_call_id"] = msg["tool_call_id"]
+            clean_messages.append(clean)
+
         payload: Dict[str, Any] = {
             "model": model,
-            "messages": messages,
+            "messages": clean_messages,
             "stream": stream,
             "max_tokens": min(options.get("num_ctx", 16384), 16384),
         }
