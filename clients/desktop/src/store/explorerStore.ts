@@ -31,8 +31,9 @@ interface ExplorerState {
   activeFileIndex: number;
   viewMode: ExplorerViewMode;
   workspaceRoot: string;
-  // Editor selections for chat context (one per file, keyed by file path)
-  selections: Record<string, {
+  // Editor selections for chat context (multiple per file)
+  selections: Array<{
+    id: string; // unique key: filePath:startLine:endLine
     filePath: string;
     fileName: string;
     startLine: number;
@@ -49,7 +50,8 @@ interface ExplorerState {
   updateFileContent: (index: number, content: string) => void;
   saveFile: (index: number) => Promise<void>;
   setViewMode: (mode: ExplorerViewMode) => void;
-  setFileSelection: (filePath: string, selection: ExplorerState['selections'][string] | null) => void;
+  addSelection: (selection: Omit<ExplorerState['selections'][number], 'id'>) => void;
+  removeSelection: (id: string) => void;
   clearAllSelections: () => void;
 }
 
@@ -123,7 +125,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   activeFileIndex: -1,
   viewMode: (localStorage.getItem('kurisu_explorer_view') as ExplorerViewMode) || 'list',
   workspaceRoot: '',
-  selections: {},
+  selections: [],
 
   navigate: async (navPath: string) => {
     set({ isLoading: true });
@@ -272,14 +274,15 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     set({ viewMode: mode });
   },
 
-  setFileSelection: (filePath, selection) => {
+  addSelection: (selection) => {
+    const id = `${selection.filePath}:${selection.startLine}:${selection.endLine}`;
     const { selections } = get();
-    if (selection) {
-      set({ selections: { ...selections, [filePath]: selection } });
-    } else {
-      const { [filePath]: _, ...rest } = selections;
-      set({ selections: rest });
-    }
+    // Don't add duplicate
+    if (selections.some(s => s.id === id)) return;
+    set({ selections: [...selections, { ...selection, id }] });
   },
-  clearAllSelections: () => set({ selections: {} }),
+  removeSelection: (id) => {
+    set({ selections: get().selections.filter(s => s.id !== id) });
+  },
+  clearAllSelections: () => set({ selections: [] }),
 }));

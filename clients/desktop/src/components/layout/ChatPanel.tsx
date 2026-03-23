@@ -16,8 +16,7 @@ export const ChatPanel: React.FC = () => {
   const { agents, selectedAgentId } = useAgentStore();
   const { currentConversation, deleteConversation } = useConversationStore();
   const selections = useExplorerStore((s) => s.selections);
-  const setFileSelection = useExplorerStore((s) => s.setFileSelection);
-  const selectionEntries = Object.values(selections);
+  const removeSelection = useExplorerStore((s) => s.removeSelection);
 
   const selectedAgent = agents.find(a => a.id === selectedAgentId);
 
@@ -93,7 +92,7 @@ export const ChatPanel: React.FC = () => {
       </Box>
 
       {/* Selection context chips */}
-      {selectionEntries.length > 0 && (
+      {selections.length > 0 && (
         <Box
           sx={{
             display: 'flex',
@@ -106,17 +105,17 @@ export const ChatPanel: React.FC = () => {
             flexShrink: 0,
           }}
         >
-          {selectionEntries.map((sel) => (
+          {selections.map((sel) => (
             <Tooltip
-              key={sel.filePath}
-              title={`${sel.filePath}:${sel.startLine}-${sel.endLine}\n${sel.text.slice(0, 200)}${sel.text.length > 200 ? '...' : ''}`}
+              key={sel.id}
+              title={`${sel.filePath}:${sel.startLine}-${sel.endLine}`}
               placement="top"
             >
               <Chip
                 icon={<CodeIcon sx={{ fontSize: 14 }} />}
                 label={`${sel.fileName}:${sel.startLine}${sel.startLine !== sel.endLine ? `-${sel.endLine}` : ''}`}
                 size="small"
-                onDelete={() => setFileSelection(sel.filePath, null)}
+                onDelete={() => removeSelection(sel.id)}
                 sx={{
                   fontSize: '0.7rem',
                   height: 24,

@@ -1065,9 +1065,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
     // Prepend file selection references if any (model reads content via tools)
     const { selections, clearAllSelections } = useExplorerStore.getState();
-    const selEntries = Object.values(selections);
-    if (selEntries.length > 0) {
-      const refs = selEntries.map((sel) =>
+    if (selections.length > 0) {
+      const refs = selections.map((sel) =>
         `[${sel.filePath}:${sel.startLine}-${sel.endLine}]`
       );
       text = refs.join(' ') + '\n' + text;

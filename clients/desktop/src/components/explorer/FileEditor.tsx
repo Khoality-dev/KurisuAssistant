@@ -12,7 +12,7 @@ import { WarningAmber as WarningIcon } from '@mui/icons-material';
 export const FileEditor: React.FC = () => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
-  const { openFiles, activeFileIndex, updateFileContent, saveFile, setFileSelection } = useExplorerStore();
+  const { openFiles, activeFileIndex, updateFileContent, saveFile } = useExplorerStore();
   const editorRef = useRef<any>(null);
 
   const activeFile = activeFileIndex >= 0 ? openFiles[activeFileIndex] : null;
@@ -21,22 +21,16 @@ export const FileEditor: React.FC = () => {
   const handleEditorMount: OnMount = useCallback((editor) => {
     editorRef.current = editor;
 
-    // Track selection changes
-    editor.onDidChangeCursorSelection(() => {
+    // "Add Selection to Chat" action — Ctrl+Shift+L or context menu
+    const addSelectionToChat = () => {
       const sel = editor.getSelection();
-      const { openFiles: files, activeFileIndex: idx } = useExplorerStore.getState();
+      const { openFiles: files, activeFileIndex: idx, addSelection: add } = useExplorerStore.getState();
       const file = idx >= 0 ? files[idx] : null;
-      if (!file || !sel || sel.isEmpty()) {
-        if (file) setFileSelection(file.path, null);
-        return;
-      }
+      if (!file || !sel || sel.isEmpty()) return;
       const model = editor.getModel();
       const text = model?.getValueInRange(sel) || '';
-      if (!text.trim()) {
-        setFileSelection(file.path, null);
-        return;
-      }
-      setFileSelection(file.path, {
+      if (!text.trim()) return;
+      add({
         filePath: file.path,
         fileName: file.name,
         startLine: sel.startLineNumber,
@@ -45,6 +39,17 @@ export const FileEditor: React.FC = () => {
         endColumn: sel.endColumn,
         text,
       });
+    };
+
+    editor.addAction({
+      id: 'add-to-chat',
+      label: 'Add Selection to Chat',
+      keybindings: [
+        2048 | 1024 | 42, // CtrlCmd + Shift + L
+      ],
+      contextMenuGroupId: '9_cutcopypaste',
+      contextMenuOrder: 10,
+      run: addSelectionToChat,
     });
 
     editor.addAction({
