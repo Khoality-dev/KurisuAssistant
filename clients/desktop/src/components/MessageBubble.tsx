@@ -176,6 +176,8 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   };
 
   const colorScheme = getColorScheme();
+  const isTool = message.role === 'tool';
+  const [toolExpanded, setToolExpanded] = useState(false);
 
   // Don't show hover toolbar while streaming
   const showToolbar = !isStreamingThisMessage && message.content;
@@ -226,19 +228,41 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
             wordBreak: 'break-word',
           }}
         >
-          {/* Header: just the label */}
-          <Typography
-            variant="caption"
+          {/* Header */}
+          <Box
+            onClick={isTool ? () => setToolExpanded(!toolExpanded) : undefined}
             sx={{
-              fontWeight: 600,
-              color: colorScheme.label,
-              mb: 1,
-              display: 'block',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.5,
+              mb: isTool && !toolExpanded ? 0 : 1,
+              cursor: isTool ? 'pointer' : 'default',
+              userSelect: isTool ? 'none' : 'auto',
             }}
           >
-            {label}
-          </Typography>
-          <Box
+            <Typography
+              variant="caption"
+              sx={{
+                fontWeight: 600,
+                color: colorScheme.label,
+                flex: 1,
+              }}
+            >
+              {label}
+            </Typography>
+            {isTool && (
+              <ExpandMoreIcon
+                sx={{
+                  fontSize: 16,
+                  color: 'text.secondary',
+                  transform: toolExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 150ms ease',
+                }}
+              />
+            )}
+          </Box>
+          {/* Content — collapsed by default for tool messages */}
+          {(!isTool || toolExpanded) && <Box
             sx={{
               '& p': { margin: 0, marginBottom: 1 },
               '& p:last-child': { marginBottom: 0 },
@@ -492,7 +516,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                 </Typography>
               </Box>
             )}
-          </Box>
+          </Box>}
         </Paper>
 
         {/* Hover toolbar - appears below the bubble */}
