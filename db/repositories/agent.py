@@ -61,6 +61,7 @@ class AgentRepository(BaseRepository[Agent]):
         voice_reference: Optional[str] = None,
         avatar_uuid: Optional[str] = None,
         model_name: Optional[str] = None,
+        provider_type: str = "ollama",
         excluded_tools: Optional[List[str]] = None,
         think: bool = False,
         character_config: Optional[dict] = None,
@@ -95,6 +96,7 @@ class AgentRepository(BaseRepository[Agent]):
             voice_reference=voice_reference,
             avatar_uuid=avatar_uuid,
             model_name=model_name,
+            provider_type=provider_type,
             excluded_tools=excluded_tools,
             think=think,
             character_config=character_config,
@@ -110,6 +112,7 @@ class AgentRepository(BaseRepository[Agent]):
         voice_reference: Optional[str] = None,
         avatar_uuid: Optional[str] = None,
         model_name: Optional[str] = None,
+        provider_type: Optional[str] = None,
         excluded_tools: Optional[List[str]] = None,
         think: Optional[bool] = None,
         character_config: Optional[dict] = None,
@@ -143,6 +146,8 @@ class AgentRepository(BaseRepository[Agent]):
             update_data["avatar_uuid"] = avatar_uuid
         if model_name is not None:
             update_data["model_name"] = model_name
+        if provider_type is not None:
+            update_data["provider_type"] = provider_type
         if excluded_tools is not None:
             update_data["excluded_tools"] = excluded_tools
         if think is not None:

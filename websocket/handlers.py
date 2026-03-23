@@ -217,15 +217,10 @@ class ChatSessionHandler:
             except asyncio.CancelledError:
                 pass
 
-        # Branch: single agent mode (direct) vs orchestration (Administrator routing)
-        if event.agent_id is not None:
-            self.current_task = asyncio.create_task(
-                self._run_single_agent(event)
-            )
-        else:
-            self.current_task = asyncio.create_task(
-                self._run_orchestration(event)
-            )
+        # Always use single agent mode (orchestration disabled)
+        self.current_task = asyncio.create_task(
+            self._run_single_agent(event)
+        )
 
     async def _run_single_agent(self, event: ChatRequestEvent):
         """Run a single agent directly, bypassing Administrator routing.
@@ -237,7 +232,7 @@ class ChatSessionHandler:
         from fastapi import WebSocketDisconnect
         try:
             # Setup conversation/frame
-            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
+            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, gemini_api_key, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
 
             # Reset task state
             self._task_conversation_id = conversation_id
@@ -246,8 +241,12 @@ class ChatSessionHandler:
 
             # Load agents and find the target
             all_agents = self._load_user_agents()
-            available_agents = [a for a in all_agents if a.name != ADMINISTRATOR_NAME]
+            available_agents = [a for a in all_agents if a.name != 'Administrator']
             target_agent = self._get_agent_config(event.agent_id, available_agents)
+
+            # Default to first available agent if none specified
+            if not target_agent and available_agents:
+                target_agent = available_agents[0]
 
             # Submit background tasks for old/unsummarized frames
             # (memory consolidation chains automatically after each summary completes)
@@ -303,6 +302,7 @@ class ChatSessionHandler:
                 user_system_prompt=user_system_prompt,
                 preferred_name=preferred_name,
                 api_url=ollama_url,
+                gemini_api_key=gemini_api_key,
                 client_tools=self._client_tools,
                 client_tool_callback=self._execute_client_tool,
                 images=event.images if event.images else None,
@@ -409,7 +409,7 @@ class ChatSessionHandler:
         """
         try:
             # Setup conversation/frame
-            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
+            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, gemini_api_key, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
 
             # Submit background summarization tasks
             fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
@@ -589,6 +589,7 @@ class ChatSessionHandler:
                 user_system_prompt=user_system_prompt,
                 preferred_name=preferred_name,
                 api_url=ollama_url,
+                gemini_api_key=gemini_api_key,
                 client_tools=self._client_tools,
                 client_tool_callback=self._execute_client_tool,
                 images=event.images if event.images else None,
@@ -742,6 +743,8 @@ class ChatSessionHandler:
                                 "raw_input": raw_in,
                                 "raw_output": chunk_content if current_role == "assistant" else None,
                                 "images": current_images if current_images else None,
+                                "model_name": chunk.model_name if current_role == "assistant" else None,
+                                "provider_type": chunk.provider_type if current_role == "assistant" else None,
                             }
                             self._save_message(completed_msg, frame_id)
                             conversation_messages.append({
@@ -779,6 +782,8 @@ class ChatSessionHandler:
                         "raw_input": raw_in,
                         "raw_output": chunk_content if current_role == "assistant" else None,
                         "images": current_images if current_images else None,
+                        "model_name": chunk.model_name if current_role == "assistant" else None,
+                        "provider_type": chunk.provider_type if current_role == "assistant" else None,
                     }
                     self._save_message(completed_msg, frame_id)
                     conversation_messages.append({
@@ -840,6 +845,7 @@ class ChatSessionHandler:
                 raise ValueError("User not found")
 
             ollama_url = user.ollama_url
+            gemini_api_key = getattr(user, 'gemini_api_key', None)
             summary_model = user.summary_model
             context_size = user.context_size
 
@@ -881,14 +887,14 @@ class ChatSessionHandler:
             system_prompt, preferred_name = user_repo.get_preferences(user)
 
             return (conversation_id, frame_id, system_prompt, preferred_name,
-                    old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size)
+                    old_frame_id, ollama_url, gemini_api_key, summary_model, unsummarized_ids, context_size)
 
         (conversation_id, frame_id, system_prompt, preferred_name,
-         old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size) = await db.execute(_do_setup)
+         old_frame_id, ollama_url, gemini_api_key, summary_model, unsummarized_ids, context_size) = await db.execute(_do_setup)
 
         system_messages = build_system_messages(system_prompt, preferred_name)
 
-        return conversation_id, frame_id, system_messages, system_prompt, preferred_name or "", old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size
+        return conversation_id, frame_id, system_messages, system_prompt, preferred_name or "", old_frame_id, ollama_url, gemini_api_key, summary_model, unsummarized_ids, context_size
 
     def _load_user_agents(self) -> List[AgentConfig]:
         """Load all agents for the current user."""
@@ -906,6 +912,7 @@ class ChatSessionHandler:
                     model_name=agent.model_name,
                     excluded_tools=agent.excluded_tools,
                     think=agent.think,
+                    provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
                     memory=agent.memory,
                     memory_enabled=agent.memory_enabled,
                 )
@@ -1217,6 +1224,7 @@ class ChatSessionHandler:
                 model_name=agent.model_name,
                 excluded_tools=agent.excluded_tools,
                 think=agent.think,
+                provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
                 memory=agent.memory,
                 memory_enabled=agent.memory_enabled,
                 preferred_name=agent.preferred_name,
@@ -1238,4 +1246,6 @@ class ChatSessionHandler:
             raw_input=msg.get("raw_input"),
             raw_output=msg.get("raw_output"),
             images=msg.get("images"),
+            model_name=msg.get("model_name"),
+            provider_type=msg.get("provider_type"),
         ))

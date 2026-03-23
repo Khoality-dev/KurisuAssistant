@@ -54,6 +54,7 @@ class UserRepository(BaseRepository[User]):
         ollama_url: Optional[str] = None,
         summary_model: Optional[str] = None,
         context_size: Optional[int] = None,
+        gemini_api_key: Optional[str] = None,
     ) -> User:
         """Update user preferences.
 
@@ -80,6 +81,8 @@ class UserRepository(BaseRepository[User]):
             update_data["summary_model"] = summary_model if summary_model else None
         if context_size is not None:
             update_data["context_size"] = context_size if context_size else None
+        if gemini_api_key is not None:
+            update_data["gemini_api_key"] = gemini_api_key if gemini_api_key else None
 
         if update_data:
             return self.update(user, **update_data)

@@ -16,6 +16,7 @@ class User(Base):
     ollama_url = Column(String, nullable=True)  # Custom Ollama server URL (None = use default env var)
     summary_model = Column(String, nullable=True)  # Model for frame summarization (None = use chat model)
     context_size = Column(Integer, nullable=True)  # Ollama num_ctx override (None = default 8192)
+    gemini_api_key = Column(String, nullable=True)  # Google Gemini API key
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     agents = relationship("Agent", back_populates="user", cascade="all, delete-orphan")
@@ -55,6 +56,8 @@ class Message(Base):
     raw_input = Column(Text, nullable=True)   # JSON: messages array sent to LLM
     raw_output = Column(Text, nullable=True)  # Full concatenated LLM response
     name = Column(String, nullable=True)  # Display name (agent name or tool name)
+    model_name = Column(String, nullable=True)  # LLM model that generated this message
+    provider_type = Column(String, nullable=True)  # LLM provider (ollama, gemini)
     images = Column(JSON, nullable=True)  # List of image UUIDs attached to this message
     frame_id = Column(Integer, ForeignKey('frames.id', ondelete='CASCADE'), index=True)
     agent_id = Column(Integer, ForeignKey('agents.id', ondelete='SET NULL'), nullable=True)  # Which agent sent this message
@@ -75,6 +78,7 @@ class Agent(Base):
     voice_reference = Column(String, nullable=True)  # Voice file name for TTS
     avatar_uuid = Column(String, nullable=True)  # Avatar image UUID
     model_name = Column(String, nullable=True)  # LLM model override
+    provider_type = Column(String, default='ollama', nullable=False)  # LLM provider: "ollama" or "gemini"
     excluded_tools = Column(JSON, nullable=True)  # List of tool names to exclude
     think = Column(Boolean, default=False, nullable=False)  # Enable extended reasoning
     character_config = Column(JSON, nullable=True)  # Animation tree config for video call mode

@@ -29,6 +29,7 @@ async def get_user_profile(
             "preferred_name": user.preferred_name or "",
             "agent_avatar_uuid": user.agent_avatar_uuid,
             "ollama_url": user.ollama_url,
+            "gemini_api_key": ("*" * 8 + user.gemini_api_key[-4:]) if user.gemini_api_key else None,
             "summary_model": user.summary_model,
             "context_size": user.context_size,
         }
@@ -49,16 +50,17 @@ async def update_user_profile(
         system_prompt = body.get("system_prompt")
         preferred_name = body.get("preferred_name")
         ollama_url = body.get("ollama_url")
+        gemini_api_key = body.get("gemini_api_key")
         summary_model = body.get("summary_model")
         context_size = body.get("context_size")
 
-        if system_prompt is not None or preferred_name is not None or ollama_url is not None or summary_model is not None or context_size is not None:
+        if any(v is not None for v in [system_prompt, preferred_name, ollama_url, gemini_api_key, summary_model, context_size]):
             def _update_prefs(session):
                 user_repo = UserRepository(session)
                 db_user = user_repo.get_by_id(user.id)
                 if not db_user:
                     raise ValueError(f"User {user.username} not found")
-                user_repo.update_preferences(db_user, system_prompt, preferred_name, ollama_url, summary_model, context_size)
+                user_repo.update_preferences(db_user, system_prompt, preferred_name, ollama_url, summary_model, context_size, gemini_api_key=gemini_api_key)
 
             db = get_db_service()
             await db.execute(_update_prefs)

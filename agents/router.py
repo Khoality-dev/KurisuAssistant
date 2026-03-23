@@ -54,6 +54,7 @@ class RouterAgent(BaseAgent):
                     model_name=agent.model_name,
                     excluded_tools=agent.excluded_tools,
                     think=agent.think,
+                    provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
                 )
                 for agent in agents
             ]
@@ -231,6 +232,7 @@ class RouterAgent(BaseAgent):
                 model_name=agent.model_name,
                 excluded_tools=agent.excluded_tools,
                 think=agent.think,
+                provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
             )
 
         db = get_db_service()

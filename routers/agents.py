@@ -35,22 +35,11 @@ DEFAULT_AGENT_PROMPT = """You are a helpful AI assistant. You are knowledgeable,
 
 
 def ensure_default_agents(agent_repo: AgentRepository, user_id: int) -> None:
-    """Ensure the Administrator and default Assistant agents exist for a user."""
+    """Ensure a default Assistant agent exists for a user."""
     agents = agent_repo.list_by_user(user_id)
-    agent_names = {agent.name for agent in agents}
 
-    # Always ensure Administrator exists (system agent for routing)
-    if ADMINISTRATOR_NAME not in agent_names:
-        agent_repo.create_agent(
-            user_id=user_id,
-            name=ADMINISTRATOR_NAME,
-            system_prompt=ADMINISTRATOR_PROMPT,
-            model_name=DEFAULT_MODEL,
-        )
-
-    # Create default Assistant if no other agents exist (besides Administrator)
-    non_admin_agents = [a for a in agents if a.name != ADMINISTRATOR_NAME]
-    if not non_admin_agents:
+    # Create default Assistant if no agents exist
+    if not agents:
         agent_repo.create_agent(
             user_id=user_id,
             name=DEFAULT_AGENT_NAME,
@@ -64,6 +53,7 @@ class AgentCreate(BaseModel):
     name: str
     system_prompt: str = ""
     model_name: str  # Required - LLM model for this agent
+    provider_type: str = "ollama"  # "ollama" or "gemini"
     excluded_tools: Optional[List[str]] = None
     think: bool = False
     preferred_name: Optional[str] = None
@@ -76,6 +66,7 @@ class AgentUpdate(BaseModel):
     system_prompt: Optional[str] = None
     voice_reference: Optional[str] = None
     model_name: Optional[str] = None
+    provider_type: Optional[str] = None
     excluded_tools: Optional[List[str]] = None
     think: Optional[bool] = None
     memory: Optional[str] = None
@@ -92,6 +83,7 @@ class AgentResponse(BaseModel):
     voice_reference: Optional[str]
     avatar_uuid: Optional[str]
     model_name: Optional[str]
+    provider_type: str = "ollama"
     excluded_tools: Optional[List[str]]
     think: bool
     character_config: Optional[dict] = None
@@ -178,6 +170,7 @@ async def create_agent(
                 name=body.name,
                 system_prompt=body.system_prompt,
                 model_name=body.model_name,
+                provider_type=body.provider_type,
                 excluded_tools=body.excluded_tools,
                 think=body.think,
                 preferred_name=body.preferred_name,
@@ -216,27 +209,14 @@ async def update_agent(
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
 
-        # Prevent renaming the Administrator agent
-        if agent.name == ADMINISTRATOR_NAME and body.name is not None and body.name != ADMINISTRATOR_NAME:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot rename the Administrator agent."
-            )
-
-        # Prevent changing Administrator's system prompt (it uses routing tools)
-        if agent.name == ADMINISTRATOR_NAME and body.system_prompt is not None:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot change the Administrator's system prompt."
-            )
-
         agent = agent_repo.update_agent(
             agent,
             name=body.name,
-            system_prompt=body.system_prompt if agent.name != ADMINISTRATOR_NAME else None,
+            system_prompt=body.system_prompt,
             voice_reference=body.voice_reference,
             model_name=body.model_name,
-            excluded_tools=body.excluded_tools if agent.name != ADMINISTRATOR_NAME else None,  # Admin tools not configurable
+            provider_type=body.provider_type,
+            excluded_tools=body.excluded_tools,
             think=body.think,
             memory=body.memory,
             memory_enabled=body.memory_enabled,
@@ -354,13 +334,6 @@ async def delete_agent(
         agent = agent_repo.get_by_user_and_id(user.id, agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
-
-        # Prevent deletion of Administrator agent
-        if agent.name == ADMINISTRATOR_NAME:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot delete the Administrator agent. It is required for the orchestration system."
-            )
 
         deleted = agent_repo.delete_by_user_and_id(user.id, agent_id)
         if not deleted:
