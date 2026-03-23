@@ -47,7 +47,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [summaryModel, setSummaryModel] = useState('');
   const [contextSize, setContextSize] = useState<number | ''>('');
-  const [models, setModels] = useState<string[]>([]);
+  const [models, setModels] = useState<Array<{ name: string; provider: string }>>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');

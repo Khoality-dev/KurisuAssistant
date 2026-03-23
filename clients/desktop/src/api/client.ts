@@ -144,8 +144,8 @@ class APIClient {
     return response.data;
   }
 
-  async getModels(): Promise<string[]> {
-    const response = await this.client.get<{ models: string[] }>('/models', {
+  async getModels(): Promise<Array<{ name: string; provider: string }>> {
+    const response = await this.client.get<{ models: Array<{ name: string; provider: string }> }>('/models', {
       headers: this.getHeaders(),
     });
     return response.data.models;

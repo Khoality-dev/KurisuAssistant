@@ -62,10 +62,6 @@ const formSectionSx = {
   boxShadow: 'none',
 };
 
-function detectProvider(modelName: string): string {
-  if (modelName.startsWith('gemini-')) return 'gemini';
-  return 'ollama';
-}
 
 interface AgentFormData {
   name: string;
@@ -82,7 +78,7 @@ interface AgentFormData {
 export const AgentsWindow: React.FC = () => {
   const { loadAgents: refreshAgentStore } = useAgentStore();
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [models, setModels] = useState<string[]>([]);
+  const [models, setModels] = useState<Array<{ name: string; provider: string }>>([]);
   const [availableTools, setAvailableTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -177,11 +173,12 @@ export const AgentsWindow: React.FC = () => {
   const handleCreateAgent = async () => {
     try {
       const modelName = formData.model_name.trim();
+      const provider = models.find(m => m.name === modelName)?.provider || 'ollama';
       const createData: AgentCreate = {
         name: formData.name,
         system_prompt: formData.system_prompt || undefined,
         model_name: modelName,
-        provider_type: detectProvider(modelName),
+        provider_type: provider,
         think: formData.think,
         excluded_tools: formData.excluded_tools.length > 0 ? formData.excluded_tools : undefined,
         preferred_name: formData.preferred_name.trim() || undefined,
@@ -220,7 +217,7 @@ export const AgentsWindow: React.FC = () => {
         name: formData.name !== selectedAgent.name ? formData.name : undefined,
         system_prompt: formData.system_prompt !== selectedAgent.system_prompt ? formData.system_prompt : undefined,
         model_name: normalizedModelName !== (selectedAgent.model_name || '') ? normalizedModelName : undefined,
-        provider_type: detectProvider(normalizedModelName) !== (selectedAgent.provider_type || 'ollama') ? detectProvider(normalizedModelName) : undefined,
+        provider_type: (() => { const p = models.find(m => m.name === normalizedModelName)?.provider || 'ollama'; return p !== (selectedAgent.provider_type || 'ollama') ? p : undefined; })(),
         think: formData.think !== selectedAgent.think ? formData.think : undefined,
         excluded_tools: toolsChanged ? formData.excluded_tools : undefined,
         memory: formData.memory !== (selectedAgent.memory || '') ? formData.memory : undefined,

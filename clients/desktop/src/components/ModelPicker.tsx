@@ -19,7 +19,7 @@ import { apiClient } from '../api/client';
 interface ModelPickerProps {
   label: string;
   value: string;
-  models: string[];
+  models: Array<{ name: string; provider: string }>;
   onChange: (value: string) => void;
   onRefresh: () => Promise<void>;
   onSuccess?: (message: string) => void;
@@ -52,14 +52,20 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
 
-  const sortedModels = useMemo(
-    () => [...models].sort((a, b) => a.localeCompare(b)),
+  const providerMap = useMemo(() => {
+    const map = new Map<string, string>();
+    models.forEach(m => map.set(m.name, m.provider));
+    return map;
+  }, [models]);
+
+  const sortedModelNames = useMemo(
+    () => [...models].sort((a, b) => a.name.localeCompare(b.name)).map(m => m.name),
     [models]
   );
 
   const trimmedValue = value.trim();
   const installedModel = trimmedValue
-    ? sortedModels.find((model) => model.toLowerCase() === trimmedValue.toLowerCase())
+    ? sortedModelNames.find((model) => model.toLowerCase() === trimmedValue.toLowerCase())
     : undefined;
 
   const handleRefresh = async () => {
@@ -98,7 +104,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
       <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
         <Autocomplete
           freeSolo
-          options={sortedModels}
+          options={sortedModelNames}
           value={value === '' ? null : value}
           inputValue={value}
           onChange={(_, newValue) => onChange(typeof newValue === 'string' ? newValue : '')}
@@ -121,7 +127,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
           disabled={disabled || isPulling}
           sx={{ flex: 1 }}
           renderOption={(props, option) => {
-            const provider = option.startsWith('gemini-') ? 'Gemini' : 'Ollama';
+            const provider = (providerMap.get(option) || 'ollama').charAt(0).toUpperCase() + (providerMap.get(option) || 'ollama').slice(1);
             return (
               <li {...props} key={option}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
@@ -138,8 +144,8 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
                       fontSize: '0.65rem',
                       fontWeight: 600,
                       flexShrink: 0,
-                      borderColor: provider === 'Gemini' ? '#4285F4' : '#888',
-                      color: provider === 'Gemini' ? '#4285F4' : '#888',
+                      borderColor: provider.toLowerCase() === 'gemini' ? '#4285F4' : '#888',
+                      color: provider.toLowerCase() === 'gemini' ? '#4285F4' : '#888',
                     }}
                   />
                 </Box>
