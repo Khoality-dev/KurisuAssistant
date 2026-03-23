@@ -154,6 +154,15 @@ class APIClient {
     );
   }
 
+  async validateApiKey(provider: string, apiKey: string): Promise<{ valid: boolean; model_count?: number; error?: string }> {
+    const response = await this.client.post<{ valid: boolean; model_count?: number; error?: string }>(
+      '/models/validate-key',
+      { provider, api_key: apiKey },
+      { headers: this.getHeaders() },
+    );
+    return response.data;
+  }
+
   async pullModel(name: string): Promise<PullModelResponse> {
     const response = await this.client.post<PullModelResponse>(
       '/models/pull',

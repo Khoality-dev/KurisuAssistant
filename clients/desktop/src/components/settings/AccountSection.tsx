@@ -8,11 +8,61 @@ import {
   Chip,
   CircularProgress,
 } from '@mui/material';
-import { Save as SaveIcon, CheckCircle as CheckIcon, Error as ErrorIcon } from '@mui/icons-material';
+import {
+  Save as SaveIcon,
+  Visibility as ShowIcon,
+  VisibilityOff as HideIcon,
+} from '@mui/icons-material';
 import { useAuthStore } from '../../store/authStore';
 import { apiClient } from '../../api/client';
 import { ModelPicker } from '../ModelPicker';
 import type { UserProfile } from '../../api/types';
+
+const ApiKeyField: React.FC<{
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  show: boolean;
+  onToggleShow: () => void;
+  valid: boolean | null;
+  validating: boolean;
+  onValidate: () => void;
+  helperText: string;
+}> = ({ label, value, onChange, show, onToggleShow, valid, validating, onValidate, helperText }) => (
+  <Box sx={{ mb: 4 }}>
+    <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+      <TextField
+        label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        fullWidth
+        type={show ? 'text' : 'password'}
+        placeholder="Enter API key"
+        helperText={helperText}
+        InputProps={{
+          endAdornment: value ? (
+            <Box sx={{ display: 'flex', gap: 0.5, mr: -0.5 }}>
+              <Button size="small" onClick={onToggleShow} sx={{ minWidth: 0, p: 0.5 }}>
+                {show ? <HideIcon fontSize="small" /> : <ShowIcon fontSize="small" />}
+              </Button>
+            </Box>
+          ) : undefined,
+        }}
+      />
+      <Button
+        variant="outlined"
+        size="small"
+        onClick={onValidate}
+        disabled={!value || validating}
+        sx={{ mt: 1, minWidth: 80, whiteSpace: 'nowrap' }}
+      >
+        {validating ? <CircularProgress size={16} /> : 'Validate'}
+      </Button>
+    </Box>
+    {valid === true && <Chip label="Valid" size="small" color="success" sx={{ mt: 1 }} />}
+    {valid === false && <Chip label="Invalid" size="small" color="error" sx={{ mt: 1 }} />}
+  </Box>
+);
 
 export const AccountSection: React.FC = () => {
   const { user, loadUserProfile } = useAuthStore();
@@ -20,6 +70,11 @@ export const AccountSection: React.FC = () => {
   const [ollamaUrl, setOllamaUrl] = useState('');
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [nvidiaApiKey, setNvidiaApiKey] = useState('');
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [showNvidiaKey, setShowNvidiaKey] = useState(false);
+  const [geminiValid, setGeminiValid] = useState<boolean | null>(null);
+  const [nvidiaValid, setNvidiaValid] = useState<boolean | null>(null);
+  const [validating, setValidating] = useState('');
   const [summaryModel, setSummaryModel] = useState('');
   const [contextSize, setContextSize] = useState<number | ''>('');
   const [models, setModels] = useState<Array<{ name: string; provider: string }>>([]);
@@ -30,6 +85,8 @@ export const AccountSection: React.FC = () => {
   useEffect(() => {
     if (user) {
       setOllamaUrl(user.ollama_url || '');
+      setGeminiApiKey(user.gemini_api_key || '');
+      setNvidiaApiKey(user.nvidia_api_key || '');
       setSummaryModel(user.summary_model || '');
       setContextSize(user.context_size || '');
     }
@@ -57,8 +114,8 @@ export const AccountSection: React.FC = () => {
     try {
       const profileUpdates: Partial<UserProfile> = {};
       profileUpdates.ollama_url = ollamaUrl || '';
-      if (geminiApiKey) profileUpdates.gemini_api_key = geminiApiKey;
-      if (nvidiaApiKey) profileUpdates.nvidia_api_key = nvidiaApiKey;
+      profileUpdates.gemini_api_key = geminiApiKey || '';
+      profileUpdates.nvidia_api_key = nvidiaApiKey || '';
       profileUpdates.summary_model = summaryModel.trim() || '';
       profileUpdates.context_size = contextSize || 0;
 
@@ -106,40 +163,48 @@ export const AccountSection: React.FC = () => {
       </Box>
 
       {/* Gemini API Key */}
-      <Box sx={{ mb: 4 }}>
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-          <TextField
-            label="Google Gemini API Key"
-            value={geminiApiKey}
-            onChange={(e) => setGeminiApiKey(e.target.value)}
-            fullWidth
-            type="password"
-            placeholder={user?.gemini_api_key ? user.gemini_api_key as string : 'Enter API key'}
-            helperText="Get your key from ai.google.dev"
-          />
-          {user?.gemini_api_key && !geminiApiKey && (
-            <Chip label="Saved" size="small" color="success" variant="outlined" sx={{ mt: 1.5 }} />
-          )}
-        </Box>
-      </Box>
+      <ApiKeyField
+        label="Google Gemini API Key"
+        value={geminiApiKey}
+        onChange={setGeminiApiKey}
+        show={showGeminiKey}
+        onToggleShow={() => setShowGeminiKey(!showGeminiKey)}
+        valid={geminiValid}
+        validating={validating === 'gemini'}
+        onValidate={async () => {
+          if (!geminiApiKey) return;
+          setValidating('gemini');
+          setGeminiValid(null);
+          try {
+            const result = await apiClient.validateApiKey('gemini', geminiApiKey);
+            setGeminiValid(result.valid);
+          } catch { setGeminiValid(false); }
+          setValidating('');
+        }}
+        helperText="Get your key from ai.google.dev"
+      />
 
       {/* NVIDIA NIM API Key */}
-      <Box sx={{ mb: 4 }}>
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-          <TextField
-            label="NVIDIA NIM API Key"
-            value={nvidiaApiKey}
-            onChange={(e) => setNvidiaApiKey(e.target.value)}
-            fullWidth
-            type="password"
-            placeholder={user?.nvidia_api_key ? user.nvidia_api_key as string : 'Enter API key'}
-            helperText="Get your key from build.nvidia.com"
-          />
-          {user?.nvidia_api_key && !nvidiaApiKey && (
-            <Chip label="Saved" size="small" color="success" variant="outlined" sx={{ mt: 1.5 }} />
-          )}
-        </Box>
-      </Box>
+      <ApiKeyField
+        label="NVIDIA NIM API Key"
+        value={nvidiaApiKey}
+        onChange={setNvidiaApiKey}
+        show={showNvidiaKey}
+        onToggleShow={() => setShowNvidiaKey(!showNvidiaKey)}
+        valid={nvidiaValid}
+        validating={validating === 'nvidia'}
+        onValidate={async () => {
+          if (!nvidiaApiKey) return;
+          setValidating('nvidia');
+          setNvidiaValid(null);
+          try {
+            const result = await apiClient.validateApiKey('nvidia', nvidiaApiKey);
+            setNvidiaValid(result.valid);
+          } catch { setNvidiaValid(false); }
+          setValidating('');
+        }}
+        helperText="Get your key from build.nvidia.com"
+      />
 
       {/* Summary Model */}
       <Box sx={{ mb: 4 }}>
