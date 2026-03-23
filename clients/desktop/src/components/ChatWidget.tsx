@@ -1443,7 +1443,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         flex: 1,
         overflow: 'auto',
         p: 3,
-        backgroundColor: '#F8FAFC',
+        bgcolor: 'background.default',
       }}
     >
       {!agentId && (

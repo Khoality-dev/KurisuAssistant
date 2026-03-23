@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Paper, Typography, Button, IconButton, Tooltip, Avatar, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import {
   CheckCircle as CheckCircleIcon,
   Psychology as PsychologyIcon,
@@ -128,6 +129,9 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   const displayContent = isStreamingThisMessage ? displayedContent : message.content;
   const displayThinking = isStreamingThisMessage ? displayedThinking : message.thinking;
 
+  const theme = useTheme();
+  const isDark = theme.palette.mode === 'dark';
+
   // Determine message styling based on role
   const isUser = message.role === 'user';
 
@@ -149,23 +153,23 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   const getColorScheme = () => {
     if (isUser) {
       return {
-        bg: '#FFFFFF',
-        border: '#E5E5E5',
+        bg: isDark ? '#1A1A1A' : '#FFFFFF',
+        border: isDark ? '#333333' : '#E5E5E5',
         label: 'text.primary'
       };
     }
     switch (message.role) {
       case 'tool':
         return {
-          bg: '#FFF8E1',
-          border: '#FFB74D',
-          label: '#F57C00'
+          bg: isDark ? '#2A2000' : '#FFF8E1',
+          border: isDark ? '#665200' : '#FFB74D',
+          label: isDark ? '#FFB74D' : '#F57C00'
         };
       case 'assistant':
       default:
         return {
-          bg: '#EFF6FF',
-          border: '#2563EB33',
+          bg: isDark ? '#0D1B2A' : '#EFF6FF',
+          border: isDark ? '#1E3A5F' : '#2563EB33',
           label: 'primary.main'
         };
     }
@@ -237,14 +241,14 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
               '& p': { margin: 0, marginBottom: 1 },
               '& p:last-child': { marginBottom: 0 },
               '& code': {
-                backgroundColor: '#F3F4F6',
+                backgroundColor: isDark ? '#1A1A1A' : '#F3F4F6',
                 padding: '2px 6px',
                 borderRadius: 1,
                 fontFamily: 'Consolas, Monaco, monospace',
                 fontSize: '0.875em',
               },
               '& pre': {
-                backgroundColor: '#F3F4F6',
+                backgroundColor: isDark ? '#1A1A1A' : '#F3F4F6',
                 padding: 2,
                 borderRadius: 1,
                 overflow: 'auto',
@@ -588,7 +592,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                 </Typography>
                 <Box
                   sx={{
-                    backgroundColor: '#F3F4F6',
+                    backgroundColor: isDark ? '#1A1A1A' : '#F3F4F6',
                     p: 2,
                     borderRadius: 1,
                     overflow: 'auto',
@@ -610,7 +614,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                 </Typography>
                 <Box
                   sx={{
-                    backgroundColor: '#F3F4F6',
+                    backgroundColor: isDark ? '#1A1A1A' : '#F3F4F6',
                     p: 2,
                     borderRadius: 1,
                     overflow: 'auto',

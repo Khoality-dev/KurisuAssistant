@@ -33,7 +33,7 @@ export const MediaPlayerBar: React.FC = () => {
               height: 64,
               px: 2,
               gap: 1.5,
-              backgroundColor: '#F9F9F9',
+              bgcolor: 'background.paper',
               borderTop: '1px solid',
               borderColor: 'divider',
               flexShrink: 0,

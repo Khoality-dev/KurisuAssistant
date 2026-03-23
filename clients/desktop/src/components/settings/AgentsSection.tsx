@@ -843,7 +843,7 @@ export const AgentsSection: React.FC = () => {
                             cursor: 'pointer',
                             border: '2px solid rgba(255,255,255,0.15)',
                             transition: 'border-color 0.2s, box-shadow 0.2s, transform 0.2s',
-                            '&:hover': { transform: 'translateY(-1px)', borderColor: '#FFFFFF', boxShadow: '0 8px 24px rgba(15, 23, 42, 0.3)' },
+                            '&:hover': { transform: 'translateY(-1px)', borderColor: 'background.paper', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.3)' },
                           }}
                           onClick={async () => {
                             if (!selectedAgent) return;

@@ -40,8 +40,8 @@ export const ActivityBar: React.FC<{
   const { logout } = useAuthStore();
   const { interactiveMode, enableInteractiveMode, disableInteractiveMode } = useMicStore();
 
-  const statusColor = connectionStatus === 'connected' ? '#22C55E'
-    : connectionStatus === 'connecting' ? '#F59E0B' : '#EF4444';
+  const statusColor = connectionStatus === 'connected' ? 'success.main'
+    : connectionStatus === 'connecting' ? 'warning.main' : 'error.main';
 
   return (
     <Box
