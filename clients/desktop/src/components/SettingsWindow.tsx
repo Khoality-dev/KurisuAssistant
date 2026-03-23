@@ -45,6 +45,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
 
   const [ollamaUrl, setOllamaUrl] = useState('');
   const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [nvidiaApiKey, setNvidiaApiKey] = useState('');
   const [summaryModel, setSummaryModel] = useState('');
   const [contextSize, setContextSize] = useState<number | ''>('');
   const [models, setModels] = useState<Array<{ name: string; provider: string }>>([]);
@@ -110,6 +111,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
       // Always include ollama_url (empty string will clear it on backend)
       profileUpdates.ollama_url = ollamaUrl || '';
       if (geminiApiKey) profileUpdates.gemini_api_key = geminiApiKey;
+      if (nvidiaApiKey) profileUpdates.nvidia_api_key = nvidiaApiKey;
       profileUpdates.summary_model = summaryModel.trim() || '';
       profileUpdates.context_size = contextSize || 0;
 
@@ -206,6 +208,19 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
               type="password"
               placeholder={user?.gemini_api_key ? '••••••••' + user.gemini_api_key.slice(-4) : 'Enter API key to enable Gemini models'}
               helperText="Get your key from ai.google.dev. Gemini models will appear in the model picker."
+            />
+          </Box>
+
+          {/* NVIDIA NIM API Key */}
+          <Box sx={{ mb: 4 }}>
+            <TextField
+              label="NVIDIA NIM API Key"
+              value={nvidiaApiKey}
+              onChange={(e) => setNvidiaApiKey(e.target.value)}
+              fullWidth
+              type="password"
+              placeholder={user?.nvidia_api_key ? '••••••••' + user.nvidia_api_key.slice(-4) : 'Enter API key to enable NVIDIA models'}
+              helperText="Get your key from build.nvidia.com. NVIDIA NIM models will appear in the model picker."
             />
           </Box>
 

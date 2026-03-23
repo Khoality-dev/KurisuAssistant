@@ -76,6 +76,7 @@ export interface UserProfile {
   agent_avatar_uuid?: string;
   ollama_url?: string;
   gemini_api_key?: string; // Masked in GET response, full key in PATCH
+  nvidia_api_key?: string; // Masked in GET response, full key in PATCH
   summary_model?: string; // Model for frame summarization (null = use chat model)
   context_size?: number; // Ollama num_ctx override (null = default 8192)
 }
