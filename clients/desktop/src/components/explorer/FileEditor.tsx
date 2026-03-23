@@ -52,6 +52,26 @@ export const FileEditor: React.FC = () => {
       run: addSelectionToChat,
     });
 
+    // Check for pending reveal (from clicking a selection chip)
+    const reveal = useExplorerStore.getState().revealSelection;
+    if (reveal) {
+      const { openFiles: files, activeFileIndex: idx } = useExplorerStore.getState();
+      const file = idx >= 0 ? files[idx] : null;
+      if (file && reveal.filePath === file.path) {
+        setTimeout(() => {
+          editor.revealLineInCenter(reveal.startLine);
+          editor.setSelection({
+            startLineNumber: reveal.startLine,
+            startColumn: reveal.startColumn,
+            endLineNumber: reveal.endLine,
+            endColumn: reveal.endColumn,
+          });
+          editor.focus();
+        }, 50);
+        useExplorerStore.setState({ revealSelection: null });
+      }
+    }
+
     editor.addAction({
       id: 'save-file',
       label: 'Save File',
@@ -74,23 +94,6 @@ export const FileEditor: React.FC = () => {
     }
   }, [activeFileIndex, updateFileContent]);
 
-  // Reveal selection when chip is clicked
-  const revealSelection = useExplorerStore((s) => s.revealSelection);
-  useEffect(() => {
-    if (!revealSelection || !editorRef.current) return;
-    if (activeFile && revealSelection.filePath === activeFile.path) {
-      const editor = editorRef.current;
-      editor.revealLineInCenter(revealSelection.startLine);
-      editor.setSelection({
-        startLineNumber: revealSelection.startLine,
-        startColumn: revealSelection.startColumn,
-        endLineNumber: revealSelection.endLine,
-        endColumn: revealSelection.endColumn,
-      });
-      editor.focus();
-      useExplorerStore.setState({ revealSelection: null });
-    }
-  }, [revealSelection, activeFile]);
 
   // Suppress default browser Ctrl+S when editor is not focused
   useEffect(() => {
