@@ -445,10 +445,7 @@ class SimpleAgent(BaseAgent):
 
         # Determine model and provider
         model = self.config.model_name or context.model_name
-        provider_type = self.config.provider_type
-        # Auto-detect provider from model name if not explicitly set
-        if provider_type == "ollama" and model and model.startswith("gemini"):
-            provider_type = "gemini"
+        provider_type = self.config.provider_type or "ollama"
 
         llm = create_llm_provider(
             provider_type,
