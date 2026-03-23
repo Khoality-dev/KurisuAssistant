@@ -5,8 +5,10 @@ import {
   TextField,
   Button,
   Alert,
+  Chip,
+  CircularProgress,
 } from '@mui/material';
-import { Save as SaveIcon } from '@mui/icons-material';
+import { Save as SaveIcon, CheckCircle as CheckIcon, Error as ErrorIcon } from '@mui/icons-material';
 import { useAuthStore } from '../../store/authStore';
 import { apiClient } from '../../api/client';
 import { ModelPicker } from '../ModelPicker';
@@ -105,28 +107,38 @@ export const AccountSection: React.FC = () => {
 
       {/* Gemini API Key */}
       <Box sx={{ mb: 4 }}>
-        <TextField
-          label="Google Gemini API Key"
-          value={geminiApiKey}
-          onChange={(e) => setGeminiApiKey(e.target.value)}
-          fullWidth
-          type="password"
-          placeholder={user?.gemini_api_key ? '••••••••' + (user.gemini_api_key as string).slice(-4) : 'Enter API key to enable Gemini models'}
-          helperText="Get your key from ai.google.dev. Gemini models will appear in the model picker."
-        />
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+          <TextField
+            label="Google Gemini API Key"
+            value={geminiApiKey}
+            onChange={(e) => setGeminiApiKey(e.target.value)}
+            fullWidth
+            type="password"
+            placeholder={user?.gemini_api_key ? user.gemini_api_key as string : 'Enter API key'}
+            helperText="Get your key from ai.google.dev"
+          />
+          {user?.gemini_api_key && !geminiApiKey && (
+            <Chip label="Saved" size="small" color="success" variant="outlined" sx={{ mt: 1.5 }} />
+          )}
+        </Box>
       </Box>
 
       {/* NVIDIA NIM API Key */}
       <Box sx={{ mb: 4 }}>
-        <TextField
-          label="NVIDIA NIM API Key"
-          value={nvidiaApiKey}
-          onChange={(e) => setNvidiaApiKey(e.target.value)}
-          fullWidth
-          type="password"
-          placeholder={user?.nvidia_api_key ? '••••••••' + (user.nvidia_api_key as string).slice(-4) : 'Enter API key to enable NVIDIA models'}
-          helperText="Get your key from build.nvidia.com. NVIDIA NIM models will appear in the model picker."
-        />
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+          <TextField
+            label="NVIDIA NIM API Key"
+            value={nvidiaApiKey}
+            onChange={(e) => setNvidiaApiKey(e.target.value)}
+            fullWidth
+            type="password"
+            placeholder={user?.nvidia_api_key ? user.nvidia_api_key as string : 'Enter API key'}
+            helperText="Get your key from build.nvidia.com"
+          />
+          {user?.nvidia_api_key && !nvidiaApiKey && (
+            <Chip label="Saved" size="small" color="success" variant="outlined" sx={{ mt: 1.5 }} />
+          )}
+        </Box>
       </Box>
 
       {/* Summary Model */}
