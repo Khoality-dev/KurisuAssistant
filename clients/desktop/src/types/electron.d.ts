@@ -59,6 +59,11 @@ export interface ExplorerAPI {
   readFile: (filePath: string) => Promise<{ content?: string; path?: string; error?: string }>;
   writeFile: (filePath: string, content: string) => Promise<{ status?: string; path?: string; error?: string }>;
   isBinary: (filePath: string) => Promise<boolean>;
+  createFile: (filePath: string) => Promise<{ status?: string; error?: string }>;
+  createFolder: (dirPath: string) => Promise<{ status?: string; error?: string }>;
+  rename: (oldPath: string, newPath: string) => Promise<{ status?: string; error?: string }>;
+  delete: (targetPath: string) => Promise<{ status?: string; error?: string }>;
+  copy: (srcPath: string, destPath: string) => Promise<{ status?: string; error?: string }>;
   hasVSCode: () => Promise<boolean>;
   openInVSCode: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
 }

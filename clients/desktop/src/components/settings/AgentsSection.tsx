@@ -217,7 +217,7 @@ export const AgentsSection: React.FC = () => {
         name: formData.name !== selectedAgent.name ? formData.name : undefined,
         system_prompt: formData.system_prompt !== selectedAgent.system_prompt ? formData.system_prompt : undefined,
         model_name: normalizedModelName !== (selectedAgent.model_name || '') ? normalizedModelName : undefined,
-        provider_type: (() => { const p = models.find(m => m.name === normalizedModelName)?.provider || 'ollama'; return p !== (selectedAgent.provider_type || 'ollama') ? p : undefined; })(),
+        provider_type: models.find(m => m.name === normalizedModelName)?.provider || 'ollama',
         think: formData.think !== selectedAgent.think ? formData.think : undefined,
         excluded_tools: toolsChanged ? formData.excluded_tools : undefined,
         memory: formData.memory !== (selectedAgent.memory || '') ? formData.memory : undefined,

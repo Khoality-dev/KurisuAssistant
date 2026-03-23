@@ -22,6 +22,11 @@ import {
   MenuItem,
   ListItemText,
   TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
 } from '@mui/material';
 import {
   ArrowUpward as UpIcon,
@@ -56,6 +61,11 @@ export const FullExplorer: React.FC = () => {
   const lassoDragged = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [hasVSCode, setHasVSCode] = useState(false);
+  const [clipboard, setClipboard] = useState<{ path: string; name: string; cut: boolean } | null>(null);
+  const [renaming, setRenaming] = useState<{ path: string; name: string } | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemType, setNewItemType] = useState<'file' | 'folder' | null>(null);
   const [editingPath, setEditingPath] = useState(false);
   const [pathInput, setPathInput] = useState('');
   const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; entry: FileEntry } | null>(null);
@@ -155,20 +165,110 @@ export const FullExplorer: React.FC = () => {
     }
   };
 
-  // Ctrl+A to select all
+  // File operation handlers
+  const handleRename = async () => {
+    if (!renaming || !renameValue.trim() || renameValue === renaming.name) {
+      setRenaming(null);
+      return;
+    }
+    const dir = renaming.path.replace(/[\\/][^\\/]+$/, '');
+    const sep = renaming.path.includes('\\') ? '\\' : '/';
+    const newPath = dir + sep + renameValue.trim();
+    const result = await window.electron?.explorer?.rename(renaming.path, newPath);
+    if (result?.error) console.error('Rename failed:', result.error);
+    setRenaming(null);
+    loadDirectory(currentPath);
+  };
+
+  const handleDelete = async (targetPath?: string) => {
+    const paths = targetPath ? [targetPath] : entries.filter(e => selectedEntries.has(e.fullPath)).map(e => e.fullPath);
+    if (paths.length === 0) return;
+    // Note: delete is not undoable (files are gone). We could move to trash instead.
+    for (const p of paths) {
+      await window.electron?.explorer?.delete(p);
+    }
+    setSelectedEntries(new Set());
+    loadDirectory(currentPath);
+  };
+
+  const handleCopy = (path: string, name: string) => {
+    setClipboard({ path, name, cut: false });
+  };
+
+  const handleCut = (path: string, name: string) => {
+    setClipboard({ path, name, cut: true });
+  };
+
+  const handlePaste = async () => {
+    if (!clipboard || !currentPath) return;
+    const dest = currentPath + (currentPath.includes('\\') ? '\\' : '/') + clipboard.name;
+    if (clipboard.cut) {
+      await window.electron?.explorer?.rename(clipboard.path, dest);
+      setClipboard(null);
+    } else {
+      await window.electron?.explorer?.copy(clipboard.path, dest);
+    }
+    loadDirectory(currentPath);
+  };
+
+  const handleCreateFile = async () => {
+    if (!newItemName.trim() || !currentPath) return;
+    const filePath = currentPath + (currentPath.includes('\\') ? '\\' : '/') + newItemName.trim();
+    await window.electron?.explorer?.createFile(filePath);
+    setNewItemType(null);
+    setNewItemName('');
+    loadDirectory(currentPath);
+  };
+
+  const handleCreateFolder = async () => {
+    if (!newItemName.trim() || !currentPath) return;
+    const dirPath = currentPath + (currentPath.includes('\\') ? '\\' : '/') + newItemName.trim();
+    await window.electron?.explorer?.createFolder(dirPath);
+    setNewItemType(null);
+    setNewItemName('');
+    loadDirectory(currentPath);
+  };
+
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
       if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
-        // Only if explorer is focused (not in an input)
-        const tag = (e.target as HTMLElement).tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
         e.preventDefault();
-        setSelectedEntries(new Set(entries.map(e => e.fullPath)));
+        setSelectedEntries(new Set(entries.map(en => en.fullPath)));
+      } else if (e.key === 'F2') {
+        // Rename selected
+        const sel = entries.find(en => selectedEntries.has(en.fullPath));
+        if (sel) {
+          setRenaming({ path: sel.fullPath, name: sel.name });
+          setRenameValue(sel.name);
+        }
+      } else if (e.key === 'Delete') {
+        if (selectedEntries.size > 0) handleDelete();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        const sel = entries.find(en => selectedEntries.has(en.fullPath));
+        if (sel) handleCopy(sel.fullPath, sel.name);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'x') {
+        const sel = entries.find(en => selectedEntries.has(en.fullPath));
+        if (sel) handleCut(sel.fullPath, sel.name);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        handlePaste();
+      } else if (e.key === 'F3') {
+        // Add selected to chat
+        const selected = entries.filter(en => selectedEntries.has(en.fullPath));
+        for (const entry of selected) {
+          addSelection({
+            filePath: entry.fullPath, fileName: entry.name,
+            startLine: 0, endLine: 0, startColumn: 0, endColumn: 0, text: '',
+          });
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [entries]);
+  }, [entries, selectedEntries, clipboard, currentPath]);
 
   // Lasso (rubber-band) selection
   const handleLassoStart = useCallback((e: React.MouseEvent) => {
@@ -414,7 +514,7 @@ export const FullExplorer: React.FC = () => {
                 }}
               >
                 <Box sx={{ '& svg': { width: 40, height: 40 } }}>
-                  {getFileIcon(entry.name, entry.type)}
+                  {getFileIcon(entry.name, entry.type, false, isRoot)}
                 </Box>
                 <Typography
                   variant="caption"
@@ -486,7 +586,7 @@ export const FullExplorer: React.FC = () => {
                   <TableCell>
                     <Tooltip title={entry.name} enterDelay={500} placement="top-start">
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-                        {getFileIcon(entry.name, entry.type)}
+                        {getFileIcon(entry.name, entry.type, false, isRoot)}
                         <Typography variant="body2" noWrap sx={{ fontSize: '0.8rem' }}>
                           {entry.name}
                         </Typography>
@@ -566,7 +666,53 @@ export const FullExplorer: React.FC = () => {
               ? `Add ${selectedEntries.size} items to Chat`
               : 'Add to Chat'}
           </ListItemText>
+          <Typography variant="caption" sx={{ ml: 2, color: 'text.secondary' }}>F3</Typography>
         </MenuItem>
+        {!isRoot && (<>
+        <MenuItem
+          onClick={() => {
+            if (contextMenu) {
+              setRenaming({ path: contextMenu.entry.fullPath, name: contextMenu.entry.name });
+              setRenameValue(contextMenu.entry.name);
+            }
+            setContextMenu(null);
+          }}
+          sx={{ fontSize: '0.8rem' }}
+        >
+          <ListItemText>Rename</ListItemText>
+          <Typography variant="caption" sx={{ ml: 2, color: 'text.secondary' }}>F2</Typography>
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (contextMenu) handleCopy(contextMenu.entry.fullPath, contextMenu.entry.name);
+            setContextMenu(null);
+          }}
+          sx={{ fontSize: '0.8rem' }}
+        >
+          <ListItemText>Copy</ListItemText>
+          <Typography variant="caption" sx={{ ml: 2, color: 'text.secondary' }}>Ctrl+C</Typography>
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (contextMenu) handleCut(contextMenu.entry.fullPath, contextMenu.entry.name);
+            setContextMenu(null);
+          }}
+          sx={{ fontSize: '0.8rem' }}
+        >
+          <ListItemText>Cut</ListItemText>
+          <Typography variant="caption" sx={{ ml: 2, color: 'text.secondary' }}>Ctrl+X</Typography>
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (contextMenu) handleDelete(contextMenu.entry.fullPath);
+            setContextMenu(null);
+          }}
+          sx={{ fontSize: '0.8rem', color: 'error.main' }}
+        >
+          <ListItemText>Delete</ListItemText>
+          <Typography variant="caption" sx={{ ml: 2, color: 'text.secondary' }}>Del</Typography>
+        </MenuItem>
+        </>)}
         {hasVSCode && (
           <MenuItem onClick={handleOpenInVSCode} sx={{ fontSize: '0.8rem' }}>
             <ListItemText>Open with VS Code</ListItemText>
@@ -592,6 +738,27 @@ export const FullExplorer: React.FC = () => {
         anchorReference="anchorPosition"
         anchorPosition={bgContextMenu ? { top: bgContextMenu.mouseY, left: bgContextMenu.mouseX } : undefined}
       >
+        <MenuItem
+          onClick={() => { setNewItemType('file'); setNewItemName(''); setBgContextMenu(null); }}
+          sx={{ fontSize: '0.8rem' }}
+        >
+          <ListItemText>New File</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={() => { setNewItemType('folder'); setNewItemName(''); setBgContextMenu(null); }}
+          sx={{ fontSize: '0.8rem' }}
+        >
+          <ListItemText>New Folder</ListItemText>
+        </MenuItem>
+        {clipboard && (
+          <MenuItem
+            onClick={() => { handlePaste(); setBgContextMenu(null); }}
+            sx={{ fontSize: '0.8rem' }}
+          >
+            <ListItemText>Paste ({clipboard.name})</ListItemText>
+            <Typography variant="caption" sx={{ ml: 2, color: 'text.secondary' }}>Ctrl+V</Typography>
+          </MenuItem>
+        )}
         {hasVSCode && currentPath && (
           <MenuItem
             onClick={() => {
@@ -604,6 +771,49 @@ export const FullExplorer: React.FC = () => {
           </MenuItem>
         )}
       </Menu>
+      {/* Rename dialog */}
+      <Dialog open={renaming !== null} onClose={() => setRenaming(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Rename</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') setRenaming(null); }}
+            size="small"
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRenaming(null)}>Cancel</Button>
+          <Button onClick={handleRename} variant="contained">Rename</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* New file/folder dialog */}
+      <Dialog open={newItemType !== null} onClose={() => setNewItemType(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>New {newItemType === 'folder' ? 'Folder' : 'File'}</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            placeholder={newItemType === 'folder' ? 'folder-name' : 'filename.txt'}
+            value={newItemName}
+            onChange={(e) => setNewItemName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { newItemType === 'folder' ? handleCreateFolder() : handleCreateFile(); }
+              if (e.key === 'Escape') setNewItemType(null);
+            }}
+            size="small"
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNewItemType(null)}>Cancel</Button>
+          <Button onClick={newItemType === 'folder' ? handleCreateFolder : handleCreateFile} variant="contained">Create</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

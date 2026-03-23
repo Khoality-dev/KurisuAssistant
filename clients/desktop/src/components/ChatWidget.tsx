@@ -52,7 +52,14 @@ const SelectionChips: React.FC = () => {
   const removeSelection = useExplorerStore((s) => s.removeSelection);
   const setLiveSelections = useExplorerStore((s) => s.setLiveSelections);
 
-  if (selections.length === 0 && liveSelections.length === 0) return null;
+  // Filter out live selections that overlap with pinned ones
+  const pinnedPaths = new Set(selections.map(s => `${s.filePath}:${s.startLine}-${s.endLine}`));
+  const filteredLive = liveSelections.filter(ls => {
+    const key = ls.isWholeFile ? `${ls.filePath}:0-0` : `${ls.filePath}:${ls.startLine}-${ls.endLine}`;
+    return !pinnedPaths.has(key);
+  });
+
+  if (selections.length === 0 && filteredLive.length === 0) return null;
 
   const handlePinnedClick = async (sel: typeof selections[number]) => {
     const store = useExplorerStore.getState();
@@ -79,7 +86,7 @@ const SelectionChips: React.FC = () => {
   return (
     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, px: 1.5, py: 0.75, flexShrink: 0 }}>
       {/* Live selections — dashed outline, auto-replaced */}
-      {liveSelections.map((ls, i) => (
+      {filteredLive.map((ls, i) => (
         <Tooltip key={`live-${i}`} title={ls.isWholeFile ? ls.filePath : `${ls.filePath}:${ls.startLine}-${ls.endLine}`}
           placement="top" enterDelay={300}
         >
@@ -88,7 +95,7 @@ const SelectionChips: React.FC = () => {
           size="small"
           variant="outlined"
           color="info"
-          onDelete={() => setLiveSelections(liveSelections.filter((_, j) => j !== i))}
+          onDelete={() => setLiveSelections(liveSelections.filter(x => x !== ls))}
           sx={{
             fontSize: '0.8rem',
             height: 28,
@@ -1143,15 +1150,18 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     // Prepend file selection references if any (model reads content via tools)
     const { selections, liveSelections, clearAllSelections } = useExplorerStore.getState();
     const refs: string[] = [];
-    for (const ls of liveSelections) {
-      refs.push(ls.isWholeFile
-        ? `[${ls.filePath}]`
-        : `[${ls.filePath}:${ls.startLine}-${ls.endLine}]`);
-    }
+    const seen = new Set<string>();
     for (const sel of selections) {
-      refs.push(sel.startLine > 0
+      const ref = sel.startLine > 0
         ? `[${sel.filePath}:${sel.startLine}-${sel.endLine}]`
-        : `[${sel.filePath}]`);
+        : `[${sel.filePath}]`;
+      if (!seen.has(ref)) { refs.push(ref); seen.add(ref); }
+    }
+    for (const ls of liveSelections) {
+      const ref = ls.isWholeFile
+        ? `[${ls.filePath}]`
+        : `[${ls.filePath}:${ls.startLine}-${ls.endLine}]`;
+      if (!seen.has(ref)) { refs.push(ref); seen.add(ref); }
     }
     if (refs.length > 0) {
       text = refs.join(' ') + '\n' + text;
