@@ -38,3 +38,11 @@ docker-compose logs -f api # View logs
 # Migrations (Alembic, auto-run on container startup via docker-entrypoint.sh)
 cd db && alembic revision --autogenerate -m "description"
 ```
+
+## Alembic Migrations
+
+- **Always** use `cd db && alembic revision --autogenerate -m "short_snake_case"` — never hand-write migration files.
+- Naming: `-m` becomes the filename slug. Use `add_foo_to_bar`, `remove_baz_column`, `create_widgets_table`.
+- After generating, verify single head: `cd db && alembic heads`. If multiple heads, merge with `alembic merge heads -m "merge_heads"`.
+- Review the generated `upgrade()`/`downgrade()` — autogenerate misses renames and data migrations.
+- Never use plain-text revision IDs — always let Alembic generate the hash.
