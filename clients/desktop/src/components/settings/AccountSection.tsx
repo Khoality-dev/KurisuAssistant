@@ -16,9 +16,11 @@ export const AccountSection: React.FC = () => {
   const { user, loadUserProfile } = useAuthStore();
 
   const [ollamaUrl, setOllamaUrl] = useState('');
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [nvidiaApiKey, setNvidiaApiKey] = useState('');
   const [summaryModel, setSummaryModel] = useState('');
   const [contextSize, setContextSize] = useState<number | ''>('');
-  const [models, setModels] = useState<string[]>([]);
+  const [models, setModels] = useState<Array<{ name: string; provider: string }>>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -53,6 +55,8 @@ export const AccountSection: React.FC = () => {
     try {
       const profileUpdates: Partial<UserProfile> = {};
       profileUpdates.ollama_url = ollamaUrl || '';
+      if (geminiApiKey) profileUpdates.gemini_api_key = geminiApiKey;
+      if (nvidiaApiKey) profileUpdates.nvidia_api_key = nvidiaApiKey;
       profileUpdates.summary_model = summaryModel.trim() || '';
       profileUpdates.context_size = contextSize || 0;
 
@@ -96,6 +100,32 @@ export const AccountSection: React.FC = () => {
           fullWidth
           placeholder="http://localhost:11434"
           helperText="Leave empty to use the default server"
+        />
+      </Box>
+
+      {/* Gemini API Key */}
+      <Box sx={{ mb: 4 }}>
+        <TextField
+          label="Google Gemini API Key"
+          value={geminiApiKey}
+          onChange={(e) => setGeminiApiKey(e.target.value)}
+          fullWidth
+          type="password"
+          placeholder={user?.gemini_api_key ? '••••••••' + (user.gemini_api_key as string).slice(-4) : 'Enter API key to enable Gemini models'}
+          helperText="Get your key from ai.google.dev. Gemini models will appear in the model picker."
+        />
+      </Box>
+
+      {/* NVIDIA NIM API Key */}
+      <Box sx={{ mb: 4 }}>
+        <TextField
+          label="NVIDIA NIM API Key"
+          value={nvidiaApiKey}
+          onChange={(e) => setNvidiaApiKey(e.target.value)}
+          fullWidth
+          type="password"
+          placeholder={user?.nvidia_api_key ? '••••••••' + (user.nvidia_api_key as string).slice(-4) : 'Enter API key to enable NVIDIA models'}
+          helperText="Get your key from build.nvidia.com. NVIDIA NIM models will appear in the model picker."
         />
       </Box>
 
