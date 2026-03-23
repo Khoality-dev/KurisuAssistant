@@ -3,9 +3,11 @@ import {
   Autocomplete,
   Box,
   Button,
+  Chip,
   IconButton,
   TextField,
   Tooltip,
+  Typography,
 } from '@mui/material';
 import { CircularProgress } from '@mui/material';
 import {
@@ -118,15 +120,41 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
           noOptionsText="No installed models match. Enter an exact model name and click Pull."
           disabled={disabled || isPulling}
           sx={{ flex: 1 }}
+          renderOption={(props, option) => {
+            const provider = option.startsWith('gemini-') ? 'Gemini' : 'Ollama';
+            return (
+              <li {...props} key={option}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                  <Typography variant="body2" noWrap sx={{ flex: 1, minWidth: 0 }}>
+                    {option}
+                  </Typography>
+                  <Chip
+                    label={provider}
+                    size="small"
+                    variant="outlined"
+                    sx={{
+                      ml: 1,
+                      height: 20,
+                      fontSize: '0.65rem',
+                      fontWeight: 600,
+                      flexShrink: 0,
+                      borderColor: provider === 'Gemini' ? '#4285F4' : '#888',
+                      color: provider === 'Gemini' ? '#4285F4' : '#888',
+                    }}
+                  />
+                </Box>
+              </li>
+            );
+          }}
           renderInput={(params) => (
             <TextField
               {...params}
               label={label}
               required={required}
-              placeholder="e.g. llama3.2:latest"
+              placeholder="e.g. llama3.2:latest or gemini-2.0-flash"
               helperText={
                 helperText ||
-                'Lists pulled models. Enter an exact Ollama model name only if you want to pull a new one.'
+                'Shows available models from Ollama and Gemini. Enter a model name to pull from Ollama.'
               }
             />
           )}
