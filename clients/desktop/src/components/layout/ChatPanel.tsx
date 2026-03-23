@@ -88,7 +88,7 @@ export const ChatPanel: React.FC = () => {
       </Box>
 
       {/* Chat */}
-      <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
+      <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', minWidth: 0 }}>
         <ChatWidget />
       </Box>
 

@@ -222,6 +222,8 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
             backgroundColor: colorScheme.bg,
             border: '1px solid',
             borderColor: colorScheme.border,
+            overflow: 'hidden',
+            wordBreak: 'break-word',
           }}
         >
           {/* Header: just the label */}
@@ -377,6 +379,43 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
               <>
                 <ReactMarkdown
                   components={{
+                    pre: ({ children }) => (
+                      <Box
+                        component="pre"
+                        sx={{
+                          overflowX: 'auto',
+                          maxWidth: '100%',
+                          bgcolor: isDark ? '#0D0D0D' : '#F3F4F6',
+                          borderRadius: 1,
+                          p: 1.5,
+                          my: 1,
+                          fontSize: '0.8rem',
+                          lineHeight: 1.5,
+                          '& code': { background: 'none', p: 0, fontSize: 'inherit' },
+                        }}
+                      >
+                        {children}
+                      </Box>
+                    ),
+                    code: ({ children, className }) => {
+                      const isInline = !className;
+                      return isInline ? (
+                        <Box
+                          component="code"
+                          sx={{
+                            bgcolor: isDark ? '#1A1A1A' : '#F3F4F6',
+                            px: 0.5,
+                            py: 0.25,
+                            borderRadius: 0.5,
+                            fontSize: '0.85em',
+                          }}
+                        >
+                          {children}
+                        </Box>
+                      ) : (
+                        <code className={className}>{children}</code>
+                      );
+                    },
                     a: ({ node, children, href, ...props }) => (
                       <a
                         {...props}

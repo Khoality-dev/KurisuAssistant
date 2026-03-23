@@ -1441,9 +1441,11 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       ref={messagesContainerRef}
       sx={{
         flex: 1,
-        overflow: 'auto',
+        overflowY: 'auto',
+        overflowX: 'hidden',
         p: 3,
         bgcolor: 'background.default',
+        minWidth: 0,
       }}
     >
       {!agentId && (
