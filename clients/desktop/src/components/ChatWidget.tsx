@@ -64,6 +64,11 @@ const SelectionChips: React.FC = () => {
     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, px: 1.5, py: 0.75, flexShrink: 0 }}>
       {/* Live selection — dashed outline, auto-replaced */}
       {liveSelection && (
+        <Tooltip title={liveSelection.isWholeFile
+          ? liveSelection.filePath
+          : `${liveSelection.filePath}:${liveSelection.startLine}-${liveSelection.endLine}`}
+          placement="top" enterDelay={300}
+        >
         <Chip
           label={liveSelection.isWholeFile
             ? liveSelection.fileName
@@ -79,11 +84,12 @@ const SelectionChips: React.FC = () => {
             '& .MuiChip-deleteIcon': { fontSize: 14 },
           }}
         />
+        </Tooltip>
       )}
       {/* Pinned selections — solid */}
       {selections.map((sel) => (
+        <Tooltip key={sel.id} title={`${sel.filePath}:${sel.startLine}-${sel.endLine}`} placement="top" enterDelay={300}>
         <Chip
-          key={sel.id}
           label={`${sel.fileName}:${sel.startLine}${sel.startLine !== sel.endLine ? `-${sel.endLine}` : ''}`}
           size="small"
           onClick={() => handlePinnedClick(sel)}
@@ -96,6 +102,7 @@ const SelectionChips: React.FC = () => {
             '& .MuiChip-deleteIcon': { fontSize: 14 },
           }}
         />
+        </Tooltip>
       ))}
     </Box>
   );
