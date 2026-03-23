@@ -17,6 +17,7 @@ class User(Base):
     summary_model = Column(String, nullable=True)  # Model for frame summarization (None = use chat model)
     context_size = Column(Integer, nullable=True)  # Ollama num_ctx override (None = default 8192)
     gemini_api_key = Column(String, nullable=True)  # Google Gemini API key
+    nvidia_api_key = Column(String, nullable=True)  # NVIDIA NIM API key
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     agents = relationship("Agent", back_populates="user", cascade="all, delete-orphan")

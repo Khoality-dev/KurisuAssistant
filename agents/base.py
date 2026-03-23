@@ -67,6 +67,7 @@ class AgentContext:
     preferred_name: str = ""
     api_url: Optional[str] = None  # User-specific Ollama endpoint
     gemini_api_key: Optional[str] = None  # User-specific Gemini API key
+    nvidia_api_key: Optional[str] = None  # User-specific NVIDIA NIM API key
     client_tools: List[Dict] = field(default_factory=list)
     client_tool_callback: Optional[Callable[[str, Dict], Coroutine[Any, Any, str]]] = None
     images: Optional[List[str]] = None  # base64 images for current user message
@@ -447,10 +448,17 @@ class SimpleAgent(BaseAgent):
         model = self.config.model_name or context.model_name
         provider_type = self.config.provider_type or "ollama"
 
+        # Select API key based on provider
+        api_key = None
+        if provider_type == "gemini":
+            api_key = context.gemini_api_key
+        elif provider_type == "nvidia":
+            api_key = context.nvidia_api_key
+
         llm = create_llm_provider(
             provider_type,
             api_url=context.api_url,
-            api_key=context.gemini_api_key,
+            api_key=api_key,
         )
 
         # Prepare messages: filter Administrator, add speaker names, inject agent descriptions

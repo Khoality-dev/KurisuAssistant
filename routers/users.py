@@ -30,6 +30,7 @@ async def get_user_profile(
             "agent_avatar_uuid": user.agent_avatar_uuid,
             "ollama_url": user.ollama_url,
             "gemini_api_key": ("*" * 8 + user.gemini_api_key[-4:]) if user.gemini_api_key else None,
+            "nvidia_api_key": ("*" * 8 + user.nvidia_api_key[-4:]) if getattr(user, 'nvidia_api_key', None) else None,
             "summary_model": user.summary_model,
             "context_size": user.context_size,
         }
@@ -51,16 +52,17 @@ async def update_user_profile(
         preferred_name = body.get("preferred_name")
         ollama_url = body.get("ollama_url")
         gemini_api_key = body.get("gemini_api_key")
+        nvidia_api_key = body.get("nvidia_api_key")
         summary_model = body.get("summary_model")
         context_size = body.get("context_size")
 
-        if any(v is not None for v in [system_prompt, preferred_name, ollama_url, gemini_api_key, summary_model, context_size]):
+        if any(v is not None for v in [system_prompt, preferred_name, ollama_url, gemini_api_key, nvidia_api_key, summary_model, context_size]):
             def _update_prefs(session):
                 user_repo = UserRepository(session)
                 db_user = user_repo.get_by_id(user.id)
                 if not db_user:
                     raise ValueError(f"User {user.username} not found")
-                user_repo.update_preferences(db_user, system_prompt, preferred_name, ollama_url, summary_model, context_size, gemini_api_key=gemini_api_key)
+                user_repo.update_preferences(db_user, system_prompt, preferred_name, ollama_url, summary_model, context_size, gemini_api_key=gemini_api_key, nvidia_api_key=nvidia_api_key)
 
             db = get_db_service()
             await db.execute(_update_prefs)

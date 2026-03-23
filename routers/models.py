@@ -57,6 +57,16 @@ async def list_models(
             except Exception as ge:
                 logger.warning(f"Failed to list Gemini models: {ge}")
 
+        # Add NVIDIA NIM models if user has API key
+        nvidia_api_key = getattr(user, 'nvidia_api_key', None)
+        if nvidia_api_key:
+            try:
+                nvidia_provider = create_llm_provider("nvidia", api_key=nvidia_api_key)
+                nvidia_models = nvidia_provider.list_models()
+                models.extend({"name": m, "provider": "nvidia"} for m in nvidia_models)
+            except Exception as ne:
+                logger.warning(f"Failed to list NVIDIA models: {ne}")
+
         return {"models": models}
     except Exception as e:
         logger.error(f"Error fetching models: {e}", exc_info=True)
