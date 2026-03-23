@@ -1,6 +1,6 @@
 """NVIDIA NIM LLM provider implementation.
 
-Uses the OpenAI-compatible API at integrate.api.nvidia.com.
+Uses raw requests to the OpenAI-compatible API at integrate.api.nvidia.com.
 Normalizes responses to match Ollama's streaming chunk format.
 """
 
@@ -10,7 +10,7 @@ import os
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
 
-from openai import OpenAI
+import requests
 
 from .base import BaseLLMProvider
 
@@ -44,14 +44,6 @@ class OllamaStyleChunk:
     message: OllamaStyleMessage = field(default_factory=OllamaStyleMessage)
 
 
-def _convert_tools(tools: List[Dict]) -> Optional[List[Dict]]:
-    """Convert Ollama-format tool schemas to OpenAI format."""
-    if not tools:
-        return None
-    # Ollama format is already OpenAI-compatible: {type: "function", function: {name, description, parameters}}
-    return tools
-
-
 class NvidiaProvider(BaseLLMProvider):
     """NVIDIA NIM implementation of BaseLLMProvider."""
 
@@ -62,11 +54,15 @@ class NvidiaProvider(BaseLLMProvider):
         if not api_key:
             logger.warning("No NVIDIA API key provided")
 
-        self.client = OpenAI(
-            api_key=api_key,
-            base_url=base_url or NVIDIA_BASE_URL,
-        )
-        logger.info(f"Initialized NVIDIA NIM provider (base_url={base_url or NVIDIA_BASE_URL})")
+        self.api_key = api_key
+        self.base_url = (base_url or NVIDIA_BASE_URL).rstrip("/")
+        logger.info(f"Initialized NVIDIA NIM provider (base_url={self.base_url})")
+
+    def _headers(self, stream: bool = False) -> Dict[str, str]:
+        h = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        if stream:
+            h["Accept"] = "text/event-stream"
+        return h
 
     def chat(
         self,
@@ -80,109 +76,135 @@ class NvidiaProvider(BaseLLMProvider):
         think = kwargs.get("think", False)
         options = kwargs.get("options", {})
 
-        # Build request params
-        params: Dict[str, Any] = {
+        payload: Dict[str, Any] = {
             "model": model,
             "messages": messages,
             "stream": stream,
+            "max_tokens": min(options.get("num_ctx", 16384), 16384),
         }
 
-        if options.get("num_ctx"):
-            params["max_tokens"] = min(options["num_ctx"], 16384)
-        else:
-            params["max_tokens"] = 16384
-
         if options.get("temperature") is not None:
-            params["temperature"] = options["temperature"]
+            payload["temperature"] = options["temperature"]
 
-        openai_tools = _convert_tools(tools)
-        if openai_tools:
-            params["tools"] = openai_tools
+        if tools:
+            payload["tools"] = tools
 
-        # Enable thinking for models that support it (e.g. qwen3.5)
         if think:
-            params["chat_template_kwargs"] = {"enable_thinking": True}
+            payload["chat_template_kwargs"] = {"enable_thinking": True}
 
         try:
             if stream:
-                return self._stream_chat(params)
+                return self._stream_chat(payload)
             else:
-                return self._sync_chat(params)
+                return self._sync_chat(payload)
         except Exception as e:
             logger.error(f"NVIDIA NIM chat failed (model={model}): {e}", exc_info=True)
             raise
 
-    def _stream_chat(self, params):
+    def _stream_chat(self, payload):
         """Stream chat responses, yielding OllamaStyleChunks."""
-        response = self.client.chat.completions.create(**params)
+        resp = requests.post(
+            f"{self.base_url}/chat/completions",
+            headers=self._headers(stream=True),
+            json=payload,
+            stream=True,
+        )
+        resp.raise_for_status()
 
-        for chunk in response:
-            if not chunk.choices:
+        # Accumulate partial tool call data across chunks
+        pending_tool_calls: Dict[int, Dict] = {}
+
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            text = line.decode("utf-8")
+            if not text.startswith("data: "):
+                continue
+            data_str = text[6:]
+            if data_str.strip() == "[DONE]":
+                break
+
+            try:
+                chunk = json.loads(data_str)
+            except json.JSONDecodeError:
                 continue
 
-            delta = chunk.choices[0].delta
-            text_content = delta.content or ""
-            thinking_content = None
+            choices = chunk.get("choices", [])
+            if not choices:
+                continue
+
+            delta = choices[0].get("delta", {})
+            content = delta.get("content", "") or ""
+            thinking = delta.get("reasoning_content") or None
+
+            # Handle streaming tool calls (accumulated across chunks)
+            tc_deltas = delta.get("tool_calls")
+            if tc_deltas:
+                for tc in tc_deltas:
+                    idx = tc.get("index", 0)
+                    if idx not in pending_tool_calls:
+                        pending_tool_calls[idx] = {"name": "", "arguments": ""}
+                    fn = tc.get("function", {})
+                    if fn.get("name"):
+                        pending_tool_calls[idx]["name"] = fn["name"]
+                    if fn.get("arguments"):
+                        pending_tool_calls[idx]["arguments"] += fn["arguments"]
+
+            # Emit tool calls on finish_reason=tool_calls
+            finish = choices[0].get("finish_reason")
             tool_calls_list = None
-
-            # Handle thinking (some models use <think> tags or reasoning_content)
-            reasoning = getattr(delta, 'reasoning_content', None)
-            if reasoning:
-                thinking_content = reasoning
-
-            # Handle tool calls
-            if delta.tool_calls:
+            if finish == "tool_calls" and pending_tool_calls:
                 tool_calls_list = []
-                for tc in delta.tool_calls:
-                    if tc.function and tc.function.name:
-                        args = {}
-                        if tc.function.arguments:
-                            try:
-                                args = json.loads(tc.function.arguments)
-                            except (json.JSONDecodeError, TypeError):
-                                args = {}
-                        tool_calls_list.append(ToolCall(
-                            function=ToolCallFunction(
-                                name=tc.function.name,
-                                arguments=args,
-                            )
-                        ))
+                for tc_data in pending_tool_calls.values():
+                    args = {}
+                    try:
+                        args = json.loads(tc_data["arguments"])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                    tool_calls_list.append(ToolCall(
+                        function=ToolCallFunction(name=tc_data["name"], arguments=args)
+                    ))
+                pending_tool_calls.clear()
 
-            if text_content or thinking_content or tool_calls_list:
+            if content or thinking or tool_calls_list:
                 yield OllamaStyleChunk(
                     message=OllamaStyleMessage(
-                        content=text_content,
-                        thinking=thinking_content,
+                        content=content,
+                        thinking=thinking,
                         tool_calls=tool_calls_list,
                     )
                 )
 
-    def _sync_chat(self, params):
+    def _sync_chat(self, payload):
         """Non-streaming chat, returns a single OllamaStyleChunk."""
-        params["stream"] = False
-        response = self.client.chat.completions.create(**params)
+        payload["stream"] = False
+        resp = requests.post(
+            f"{self.base_url}/chat/completions",
+            headers=self._headers(),
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
 
-        if not response.choices:
+        choices = data.get("choices", [])
+        if not choices:
             return OllamaStyleChunk(message=OllamaStyleMessage(content=""))
 
-        msg = response.choices[0].message
-        text = msg.content or ""
+        msg = choices[0].get("message", {})
+        text = msg.get("content", "") or ""
         tool_calls = None
 
-        if msg.tool_calls:
+        if msg.get("tool_calls"):
             tool_calls = []
-            for tc in msg.tool_calls:
+            for tc in msg["tool_calls"]:
+                fn = tc.get("function", {})
                 args = {}
-                if tc.function.arguments:
-                    try:
-                        args = json.loads(tc.function.arguments)
-                    except (json.JSONDecodeError, TypeError):
-                        args = {}
+                try:
+                    args = json.loads(fn.get("arguments", "{}"))
+                except (json.JSONDecodeError, TypeError):
+                    pass
                 tool_calls.append(ToolCall(
-                    function=ToolCallFunction(
-                        name=tc.function.name,
-                        arguments=args,
-                    )
+                    function=ToolCallFunction(name=fn.get("name", ""), arguments=args)
                 ))
 
         return OllamaStyleChunk(
@@ -195,8 +217,13 @@ class NvidiaProvider(BaseLLMProvider):
     def list_models(self) -> List[str]:
         """List available NVIDIA NIM models."""
         try:
-            response = self.client.models.list()
-            return [m.id for m in response.data]
+            resp = requests.get(
+                f"{self.base_url}/models",
+                headers=self._headers(),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return [m["id"] for m in data.get("data", [])]
         except Exception as e:
             logger.error(f"Failed to list NVIDIA models: {e}", exc_info=True)
             return []
@@ -210,13 +237,19 @@ class NvidiaProvider(BaseLLMProvider):
     ) -> str:
         """Generate text using NVIDIA NIM."""
         try:
-            response = self.client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=4096,
-                stream=False,
+            resp = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers=self._headers(),
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 4096,
+                    "stream": False,
+                },
             )
-            return response.choices[0].message.content or ""
+            resp.raise_for_status()
+            data = resp.json()
+            return data["choices"][0]["message"]["content"] or ""
         except Exception as e:
             logger.error(f"NVIDIA generate failed (model={model}): {e}", exc_info=True)
             raise

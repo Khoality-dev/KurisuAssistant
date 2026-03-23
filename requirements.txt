@@ -42,4 +42,3 @@ mediapipe
 ultralytics
 yt-dlp
 google-genai
-openai
