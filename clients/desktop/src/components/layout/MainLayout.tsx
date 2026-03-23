@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Box } from '@mui/material';
 import { ActivityBar } from './ActivityBar';
 import { ChatPanel } from './ChatPanel';
@@ -13,19 +13,20 @@ const MIN_CHAT_WIDTH = 300;
 const MAX_CHAT_WIDTH = 700;
 
 export const MainLayout: React.FC = () => {
-  const { activePage, chatPanelWidth, setChatPanelWidth } = useLayoutStore();
+  const { activePage, chatPanelWidth } = useLayoutStore();
   const { loadAgents, loadAgentPreviews } = useAgentStore();
   const [characterVisible, setCharacterVisible] = useState(false);
+  const chatPanelRef = useRef<HTMLDivElement>(null);
 
   // Load agents on mount
   useEffect(() => {
     loadAgents().then(() => loadAgentPreviews());
   }, [loadAgents, loadAgentPreviews]);
 
-  const handleChatResize = useCallback((delta: number) => {
-    const current = useLayoutStore.getState().chatPanelWidth;
-    setChatPanelWidth(Math.max(MIN_CHAT_WIDTH, Math.min(MAX_CHAT_WIDTH, current - delta)));
-  }, [setChatPanelWidth]);
+  const handleChatResizeEnd = useCallback((size: number) => {
+    useLayoutStore.getState().setChatPanelWidth(size);
+    useLayoutStore.getState().persistWidths();
+  }, []);
 
   const renderMainContent = () => {
     switch (activePage) {
@@ -44,15 +45,21 @@ export const MainLayout: React.FC = () => {
       />
 
       {/* Main content area */}
-      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
         {renderMainContent()}
       </Box>
 
       {/* Resize handle */}
-      <ResizeHandle onResize={handleChatResize} onResizeEnd={() => useLayoutStore.getState().persistWidths()} />
+      <ResizeHandle
+        targetRef={chatPanelRef}
+        min={MIN_CHAT_WIDTH}
+        max={MAX_CHAT_WIDTH}
+        invert
+        onResizeEnd={handleChatResizeEnd}
+      />
 
       {/* Chat panel */}
-      <Box sx={{ width: chatPanelWidth, flexShrink: 0, overflow: 'hidden' }}>
+      <Box ref={chatPanelRef} sx={{ width: chatPanelWidth, flexShrink: 0, overflow: 'hidden' }}>
         <ChatPanel />
       </Box>
     </Box>

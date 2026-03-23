@@ -1,37 +1,60 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import { Box } from '@mui/material';
 
 interface ResizeHandleProps {
-  onResize: (delta: number) => void;
-  onResizeEnd?: () => void;
+  /** Target element to resize — pass a ref to the DOM element */
+  targetRef: React.RefObject<HTMLElement | null>;
+  /** Which CSS dimension to resize */
+  property?: 'width' | 'height';
+  /** Min/max bounds */
+  min?: number;
+  max?: number;
+  /** Called once on drag end with the final size */
+  onResizeEnd?: (size: number) => void;
+  /** Direction for cursor */
   direction?: 'horizontal' | 'vertical';
+  /** -1 to invert (drag right = shrink, for right-side panels) */
+  invert?: boolean;
 }
 
-export const ResizeHandle: React.FC<ResizeHandleProps> = ({ onResize, onResizeEnd, direction = 'horizontal' }) => {
-  const onResizeRef = useRef(onResize);
-  const onResizeEndRef = useRef(onResizeEnd);
+export const ResizeHandle: React.FC<ResizeHandleProps> = ({
+  targetRef,
+  property = 'width',
+  min = 100,
+  max = 800,
+  onResizeEnd,
+  direction = 'horizontal',
+  invert = false,
+}) => {
   const startPos = useRef(0);
-
-  useEffect(() => { onResizeRef.current = onResize; }, [onResize]);
-  useEffect(() => { onResizeEndRef.current = onResizeEnd; }, [onResizeEnd]);
+  const startSize = useRef(0);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
+    const el = targetRef.current;
+    if (!el) return;
+
     startPos.current = direction === 'horizontal' ? e.clientX : e.clientY;
+    startSize.current = property === 'width' ? el.offsetWidth : el.offsetHeight;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const current = direction === 'horizontal' ? moveEvent.clientX : moveEvent.clientY;
-      const delta = current - startPos.current;
-      startPos.current = current;
-      onResizeRef.current(delta);
+      const delta = (current - startPos.current) * (invert ? -1 : 1);
+      const newSize = Math.max(min, Math.min(max, startSize.current + delta));
+      el.style[property] = `${newSize}px`;
     };
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (upEvent: MouseEvent) => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      onResizeEndRef.current?.();
+
+      // Sync final size to state
+      const current = direction === 'horizontal' ? upEvent.clientX : upEvent.clientY;
+      const delta = (current - startPos.current) * (invert ? -1 : 1);
+      const finalSize = Math.max(min, Math.min(max, startSize.current + delta));
+      onResizeEnd?.(finalSize);
     };
 
     document.addEventListener('mousemove', handleMouseMove);

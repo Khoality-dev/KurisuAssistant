@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Typography, CircularProgress, Menu, MenuItem, ListItemText, Tooltip } from '@mui/material';
 import {
   ChevronRight as ChevronRightIcon,
@@ -24,8 +24,9 @@ const MAX_TREE_WIDTH = 500;
 export const FileTreeSidebar: React.FC = () => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
-  const { workspaceTreeWidth, setWorkspaceTreeWidth } = useLayoutStore();
+  const { workspaceTreeWidth } = useLayoutStore();
   const { openFile, workspaceRoot } = useExplorerStore();
+  const sidebarRef = useRef<HTMLDivElement>(null);
 
   const [rootNodes, setRootNodes] = useState<TreeNode[]>([]);
   const [isLoadingRoots, setIsLoadingRoots] = useState(true);
@@ -112,10 +113,10 @@ export const FileTreeSidebar: React.FC = () => {
     });
   }, []);
 
-  const handleResize = useCallback((delta: number) => {
-    const current = useLayoutStore.getState().workspaceTreeWidth;
-    setWorkspaceTreeWidth(Math.max(MIN_TREE_WIDTH, Math.min(MAX_TREE_WIDTH, current + delta)));
-  }, [setWorkspaceTreeWidth]);
+  const handleTreeResizeEnd = useCallback((size: number) => {
+    useLayoutStore.getState().setWorkspaceTreeWidth(size);
+    useLayoutStore.getState().persistWidths();
+  }, []);
 
   const handleFileClick = useCallback((entry: FileEntry) => {
     openFile(entry);
@@ -128,7 +129,7 @@ export const FileTreeSidebar: React.FC = () => {
   }, []);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%', width: workspaceTreeWidth, flexShrink: 0 }}>
+    <Box ref={sidebarRef} sx={{ display: 'flex', flexDirection: 'row', height: '100%', width: workspaceTreeWidth, flexShrink: 0 }}>
       <Box
         sx={{
           flex: 1,
@@ -187,7 +188,12 @@ export const FileTreeSidebar: React.FC = () => {
         </Box>
       </Box>
 
-      <ResizeHandle onResize={handleResize} onResizeEnd={() => useLayoutStore.getState().persistWidths()} />
+      <ResizeHandle
+        targetRef={sidebarRef}
+        min={MIN_TREE_WIDTH}
+        max={MAX_TREE_WIDTH}
+        onResizeEnd={handleTreeResizeEnd}
+      />
 
       {/* Context menu */}
       <Menu
