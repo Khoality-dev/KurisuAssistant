@@ -113,7 +113,7 @@ class BackgroundService:
 
     async def _handle_summarize(self, task: SummarizeFrameTask):
         """Summarize a frame, then chain memory consolidation for all agents."""
-        from utils.frame_summary import summarize_frame
+        from kurisuassistant.utils.frame_summary import summarize_frame
 
         await summarize_frame(
             frame_id=task.frame_id,
@@ -126,12 +126,12 @@ class BackgroundService:
 
     def _chain_consolidation(self, summary_task: SummarizeFrameTask):
         """Submit ConsolidateMemoryTask for each agent with memory_enabled."""
-        from db.service import get_db_service
+        from kurisuassistant.db.service import get_db_service
 
         db = get_db_service()
 
         def _get_agents(session):
-            from db.models import Agent, Conversation, Frame
+            from kurisuassistant.db.models import Agent, Conversation, Frame
 
             frame = session.query(Frame).filter_by(id=summary_task.frame_id).first()
             if not frame:
@@ -161,7 +161,7 @@ class BackgroundService:
 
     @staticmethod
     async def _handle_consolidate(task: ConsolidateMemoryTask):
-        from utils.memory_consolidation import consolidate_agent_memory
+        from kurisuassistant.utils.memory_consolidation import consolidate_agent_memory
 
         await consolidate_agent_memory(
             user_id=task.user_id,
@@ -180,12 +180,12 @@ class BackgroundService:
 
         Consolidation is chained automatically after each summary completes.
         """
-        from db.service import get_db_service
+        from kurisuassistant.db.service import get_db_service
 
         db = get_db_service()
 
         def _query_idle_data(session):
-            from db.models import Conversation, Frame, Message, User
+            from kurisuassistant.db.models import Conversation, Frame, Message, User
             from sqlalchemy import func
 
             idle_threshold = timedelta(minutes=FRAME_IDLE_THRESHOLD_MINUTES)

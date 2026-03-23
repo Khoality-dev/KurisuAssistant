@@ -2,7 +2,7 @@
 
 Usage::
 
-    import workers
+    import kurisuassistant.workers
 
     workers.start()           # Called during app startup
     workers.submit(task)      # Submit a background task from anywhere

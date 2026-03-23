@@ -146,7 +146,7 @@ class VisionProcessor:
     # ----- Embedding cache + matching -----
 
     def _load_embedding_cache(self):
-        from db.models import FacePhoto, FaceIdentity
+        from kurisuassistant.db.models import FacePhoto, FaceIdentity
         from sqlalchemy import select
 
         def _load(session):

@@ -205,7 +205,7 @@ class BaseAgent(ABC):
             ToolResult with content and optional images
         """
         try:
-            from mcp_tools.orchestrator import get_user_orchestrator
+            from kurisuassistant.mcp_tools.orchestrator import get_user_orchestrator
             orchestrator = get_user_orchestrator(context.user_id)
 
             # Ensure tool-to-client mapping is loaded (uses cache if fresh)
@@ -326,7 +326,7 @@ class SimpleAgent(BaseAgent):
         - Adds speaker name prefix to agent/tool messages
         """
         import datetime
-        from agents.administrator import ADMINISTRATOR_NAME
+        from kurisuassistant.agents.administrator import ADMINISTRATOR_NAME
 
         # Build agent descriptions for context
         agent_descriptions = []
@@ -351,7 +351,7 @@ class SimpleAgent(BaseAgent):
 
         # List available skills (agents fetch full instructions on-demand via tool)
         if context.user_id:
-            from tools.skills import get_skill_names_for_user
+            from kurisuassistant.tools.skills import get_skill_names_for_user
             skill_names = get_skill_names_for_user(context.user_id)
             if skill_names:
                 system_parts.append(
@@ -437,7 +437,7 @@ class SimpleAgent(BaseAgent):
         append results to messages, and call LLM again (up to 10 rounds).
         """
         import json
-        from models.llm import create_llm_provider
+        from kurisuassistant.models.llm import create_llm_provider
 
         # Determine model and provider
         model = self.config.model_name or context.model_name
@@ -468,7 +468,7 @@ class SimpleAgent(BaseAgent):
         # Add user's server-side MCP tools (filtered by agent's exclusion list)
         if context.user_id:
             try:
-                from mcp_tools.orchestrator import get_user_orchestrator
+                from kurisuassistant.mcp_tools.orchestrator import get_user_orchestrator
                 mcp_tools = await get_user_orchestrator(context.user_id).get_tools()
                 if self.config.excluded_tools:
                     excluded = set(self.config.excluded_tools)

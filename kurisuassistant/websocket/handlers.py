@@ -252,7 +252,7 @@ class ChatSessionHandler:
             # (memory consolidation chains automatically after each summary completes)
             fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
             if summary_model and fids:
-                import workers
+                import kurisuassistant.workers as workers
                 for fid in fids:
                     workers.submit(workers.SummarizeFrameTask(frame_id=fid, model_name=summary_model, api_url=ollama_url))
 
@@ -266,7 +266,7 @@ class ChatSessionHandler:
             # Save user images to disk
             image_uuids = []
             if event.images:
-                from utils.images import save_image_from_base64
+                from kurisuassistant.utils.images import save_image_from_base64
                 for b64 in event.images:
                     try:
                         image_uuids.append(save_image_from_base64(b64, self.user_id))
@@ -415,7 +415,7 @@ class ChatSessionHandler:
             # Submit background summarization tasks
             fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
             if summary_model and fids:
-                import workers
+                import kurisuassistant.workers as workers
                 for fid in fids:
                     workers.submit(workers.SummarizeFrameTask(frame_id=fid, model_name=summary_model, api_url=ollama_url))
 
@@ -472,7 +472,7 @@ class ChatSessionHandler:
             # Save user images to disk
             image_uuids = []
             if event.images:
-                from utils.images import save_image_from_base64
+                from kurisuassistant.utils.images import save_image_from_base64
                 for b64 in event.images:
                     try:
                         image_uuids.append(save_image_from_base64(b64, self.user_id))
@@ -834,7 +834,7 @@ class ChatSessionHandler:
         db = get_db_service()
 
         def _do_setup(session):
-            from db.models import Message
+            from kurisuassistant.db.models import Message
             from sqlalchemy import func
 
             conv_repo = ConversationRepository(session)
@@ -1101,7 +1101,7 @@ class ChatSessionHandler:
 
     async def send_connected_state(self):
         """Send a ConnectedEvent with current server-side state snapshot."""
-        from media.player import _players
+        from kurisuassistant.media.player import _players
 
         chat_active = self.current_task is not None and not self.current_task.done()
 

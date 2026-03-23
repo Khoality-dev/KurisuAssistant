@@ -33,7 +33,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 @router.post("/register")
 async def register(form_data: OAuth2PasswordRequestForm = Depends()):
     """Register a new user account."""
-    from core.security import hash_password
+    from kurisuassistant.core.security import hash_password
 
     try:
         db = get_db_service()

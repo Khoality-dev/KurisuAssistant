@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 def get_skill_names_for_user(user_id: int) -> List[str]:
     """Load all skill names for a user."""
-    from db.service import get_db_service
-    from db.repositories import SkillRepository
+    from kurisuassistant.db.service import get_db_service
+    from kurisuassistant.db.repositories import SkillRepository
 
     try:
         db = get_db_service()
@@ -56,8 +56,8 @@ class GetSkillInstructionsTool(BaseTool):
         }
 
     async def execute(self, args: Dict[str, Any]) -> str:
-        from db.service import get_db_service
-        from db.repositories import SkillRepository
+        from kurisuassistant.db.service import get_db_service
+        from kurisuassistant.db.repositories import SkillRepository
 
         skill_name = args.get("name", "")
         user_id = args.get("user_id")

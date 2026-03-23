@@ -387,7 +387,7 @@ async def get_avatar_candidates(
     if not pose_tree or "nodes" not in pose_tree:
         raise HTTPException(status_code=400, detail="Agent has no character config with poses")
 
-    from models.face_recognition import get_provider
+    from kurisuassistant.models.face_recognition import get_provider
     face_provider = get_provider()
 
     candidates = []

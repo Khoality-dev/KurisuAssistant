@@ -58,7 +58,7 @@ NOTES_ROOT = os.getenv("NOTES_ROOT", os.path.join("data", "notes"))
 
 def _load_transcript(db, frame_ids: list[int]) -> str:
     """Load conversation transcript from frame IDs."""
-    from db.repositories import MessageRepository
+    from kurisuassistant.db.repositories import MessageRepository
 
     def _query(session):
         msg_repo = MessageRepository(session)
@@ -116,8 +116,8 @@ async def consolidate_agent_memory(
     Fire-and-forget — errors are logged, never raised.
     """
     try:
-        from db.repositories import AgentRepository
-        from db.service import get_db_service
+        from kurisuassistant.db.repositories import AgentRepository
+        from kurisuassistant.db.service import get_db_service
 
         db = get_db_service()
 

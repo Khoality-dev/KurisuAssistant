@@ -1,4 +1,4 @@
-"""Drop is_main field from agents - Administrator handles routing now
+"""Drop is_main field from kurisuassistant.agents - Administrator handles routing now
 
 Revision ID: fdd8389c86f3
 Revises: 3a0380b43210

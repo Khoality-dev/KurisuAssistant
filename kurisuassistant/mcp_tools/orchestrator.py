@@ -72,8 +72,8 @@ class UserMCPOrchestrator:
         Only loads servers with location="server" (or NULL for backwards compat).
         Client-side servers are managed by the Electron app.
         """
-        from db.service import get_db_service
-        from db.repositories import MCPServerRepository
+        from kurisuassistant.db.service import get_db_service
+        from kurisuassistant.db.repositories import MCPServerRepository
 
         def _fetch(session):
             repo = MCPServerRepository(session)
@@ -142,8 +142,8 @@ class UserMCPOrchestrator:
 
     def get_server_names(self) -> List[str]:
         """Get enabled server-side server names for the user."""
-        from db.service import get_db_service
-        from db.repositories import MCPServerRepository
+        from kurisuassistant.db.service import get_db_service
+        from kurisuassistant.db.repositories import MCPServerRepository
 
         db = get_db_service()
         return db.execute_sync(lambda s: [
@@ -176,7 +176,7 @@ class UserMCPOrchestrator:
                             text_parts.append(block.text)
                         elif hasattr(block, 'data') and hasattr(block, 'mimeType'):
                             # ImageContent — save to user's directory
-                            from utils.images import save_image_from_base64
+                            from kurisuassistant.utils.images import save_image_from_base64
                             try:
                                 img_uuid = save_image_from_base64(block.data, self.user_id)
                                 image_uuids.append(img_uuid)

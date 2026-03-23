@@ -32,8 +32,8 @@ async def summarize_frame(
         api_url: Optional custom Ollama API URL
     """
     try:
-        from db.repositories import FrameRepository, MessageRepository
-        from db.service import get_db_service
+        from kurisuassistant.db.repositories import FrameRepository, MessageRepository
+        from kurisuassistant.db.service import get_db_service
 
         db = get_db_service()
 

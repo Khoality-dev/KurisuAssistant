@@ -108,7 +108,7 @@ async def get_conversation(
                     frame_ids.add(msg.frame_id)
 
             # Build frames map for frame IDs referenced by returned messages
-            from db.models import Frame
+            from kurisuassistant.db.models import Frame
             frames_map = {}
             if frame_ids:
                 frames = session.query(Frame).filter(Frame.id.in_(frame_ids)).all()

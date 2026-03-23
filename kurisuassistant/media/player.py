@@ -272,18 +272,18 @@ class MediaPlayer:
 
     async def _send_state(self):
         """Send current state to client via callback."""
-        from websocket.events import MediaStateEvent
+        from kurisuassistant.websocket.events import MediaStateEvent
         await self._send_event(MediaStateEvent(**self.get_state()))
 
     async def _send_error(self, error: str):
         """Send error to client via callback."""
-        from websocket.events import MediaErrorEvent
+        from kurisuassistant.websocket.events import MediaErrorEvent
         await self._send_event(MediaErrorEvent(error=error))
 
     async def _stream_track(self, track: Track):
         """Download to cache via FFmpeg (if needed), then stream chunks."""
         try:
-            from websocket.events import MediaChunkEvent
+            from kurisuassistant.websocket.events import MediaChunkEvent
 
             logger.info(f"Streaming: {track.title}")
 

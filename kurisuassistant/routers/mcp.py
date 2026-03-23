@@ -216,13 +216,13 @@ async def test_mcp_server(
             return {"status": "unavailable", "error": "Client-side servers are tested from the desktop app"}
 
         # Build a temporary config and try listing tools
-        from mcp_tools.client import list_tools
+        from kurisuassistant.mcp_tools.client import list_tools
         from types import SimpleNamespace
 
         # _create_client_from_server expects an object with attributes
         server_obj = SimpleNamespace(**server_data)
 
-        from mcp_tools.orchestrator import _create_client_from_server
+        from kurisuassistant.mcp_tools.orchestrator import _create_client_from_server
         client = _create_client_from_server(server_obj)
         if client is None:
             return {"status": "unavailable", "error": "Could not create client"}

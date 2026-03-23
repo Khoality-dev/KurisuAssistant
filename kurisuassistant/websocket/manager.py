@@ -5,7 +5,7 @@ from typing import Dict, Optional, Set, TYPE_CHECKING
 from fastapi import WebSocket
 
 if TYPE_CHECKING:
-    from websocket.handlers import ChatSessionHandler
+    from kurisuassistant.websocket.handlers import ChatSessionHandler
 
 logger = logging.getLogger(__name__)
 

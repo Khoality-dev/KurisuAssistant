@@ -52,8 +52,8 @@ class HistoryListTool(BaseTool):
         }
 
     async def execute(self, args: Dict[str, Any]) -> str:
-        from db.service import get_db_service
-        from db.models import Frame, Message
+        from kurisuassistant.db.service import get_db_service
+        from kurisuassistant.db.models import Frame, Message
         from sqlalchemy import func, desc
 
         conversation_id = args.get("conversation_id")
@@ -144,9 +144,9 @@ class HistoryReadTool(BaseTool):
         }
 
     async def execute(self, args: Dict[str, Any]) -> str:
-        from db.service import get_db_service
-        from db.models import Frame, Message
-        from db.repositories import MessageRepository
+        from kurisuassistant.db.service import get_db_service
+        from kurisuassistant.db.models import Frame, Message
+        from kurisuassistant.db.repositories import MessageRepository
 
         conversation_id = args.get("conversation_id")
         if not conversation_id:
@@ -256,8 +256,8 @@ class HistorySearchTool(BaseTool):
         }
 
     async def execute(self, args: Dict[str, Any]) -> str:
-        from db.service import get_db_service
-        from db.models import Frame, Message
+        from kurisuassistant.db.service import get_db_service
+        from kurisuassistant.db.models import Frame, Message
 
         conversation_id = args.get("conversation_id")
         if not conversation_id:
