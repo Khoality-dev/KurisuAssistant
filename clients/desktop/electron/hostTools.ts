@@ -247,14 +247,15 @@ function getHostToolSchemas(): ToolSchema[] {
       function: {
         name: 'host_read',
         description:
-          'Read a file from the host machine at an absolute path. ' +
-          'Returns content with line numbers. Use offset/limit for large files.',
+          'Read a file from the host machine. ' +
+          'Use start_line/end_line to read a specific range. ' +
+          'When given a file reference like [path:10-20], pass start_line=10 and end_line=20.',
         parameters: {
           type: 'object',
           properties: {
             path: { type: 'string', description: 'Absolute path to the file.' },
-            offset: { type: 'integer', description: 'Starting line number, 0-based (default: 0).' },
-            limit: { type: 'integer', description: 'Maximum lines to return (default: 500).' },
+            start_line: { type: 'integer', description: 'First line to read, 1-based (default: 1).' },
+            end_line: { type: 'integer', description: 'Last line to read, inclusive (default: end of file).' },
           },
           required: ['path'],
         },
@@ -367,9 +368,24 @@ async function executeHostRead(args: Record<string, unknown>): Promise<ToolResul
   try {
     const filePath = args.path as string;
     if (!filePath) return err('path is required.');
-    const result = fsOps.readFile(filePath, args.offset as number, args.limit as number);
-    readFiles.add(path.resolve(filePath));
-    return ok(result);
+
+    const resolved = path.resolve(filePath);
+    if (!fs.existsSync(resolved)) return err(`File not found: ${filePath}`);
+    if (fs.statSync(resolved).isDirectory()) return err('Cannot read a directory.');
+
+    const text = fs.readFileSync(resolved, { encoding: 'utf-8' });
+    readFiles.add(resolved);
+
+    const lines = text.split('\n');
+    const startLine = typeof args.start_line === 'number' ? Math.max(1, args.start_line) : 1;
+    const endLine = typeof args.end_line === 'number' ? Math.min(args.end_line, lines.length) : lines.length;
+    const selected = lines.slice(startLine - 1, endLine);
+    const content = selected.join('\n');
+
+    if (endLine < lines.length || startLine > 1) {
+      return { content: content + `\n\n[Lines ${startLine}-${endLine} of ${lines.length}]`, isError: false };
+    }
+    return { content, isError: false };
   } catch (e: any) { return err(e.message); }
 }
 
@@ -414,12 +430,6 @@ async function executeHostEdit(args: Record<string, unknown>): Promise<ToolResul
         }
       };
       ipcMain.on('host-tools:diff-result', handler);
-
-      // Timeout after 5 minutes
-      setTimeout(() => {
-        ipcMain.removeListener('host-tools:diff-result', handler);
-        resolve(false);
-      }, 300000);
 
       mainWindow.webContents.send('host-tools:diff-review', {
         reviewId,
