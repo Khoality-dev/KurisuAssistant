@@ -36,6 +36,8 @@ export const FileEditor: React.FC = () => {
           fileName: file.name,
           startLine: 1,
           endLine: totalLines,
+          startColumn: 1,
+          endColumn: 1,
           isWholeFile: true,
         }]);
       } else {
@@ -44,6 +46,8 @@ export const FileEditor: React.FC = () => {
           fileName: file.name,
           startLine: sel.startLineNumber,
           endLine: sel.endLineNumber,
+          startColumn: sel.startColumn,
+          endColumn: sel.endColumn,
           isWholeFile: false,
         }]);
       }

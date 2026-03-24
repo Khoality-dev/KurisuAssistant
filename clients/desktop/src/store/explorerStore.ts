@@ -48,6 +48,8 @@ interface ExplorerState {
     fileName: string;
     startLine: number;
     endLine: number;
+    startColumn: number;
+    endColumn: number;
     isWholeFile: boolean;
   }>;
   navigate: (path: string) => Promise<void>;

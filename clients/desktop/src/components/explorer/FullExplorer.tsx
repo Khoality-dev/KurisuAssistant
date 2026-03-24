@@ -143,6 +143,8 @@ export const FullExplorer: React.FC = () => {
         fileName: e.name,
         startLine: 0,
         endLine: 0,
+        startColumn: 0,
+        endColumn: 0,
         isWholeFile: true,
       }));
     setLiveSelections(sels);

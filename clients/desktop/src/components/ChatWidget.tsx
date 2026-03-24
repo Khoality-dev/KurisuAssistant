@@ -1149,14 +1149,14 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     const seen = new Set<string>();
     for (const sel of selections) {
       const ref = sel.startLine > 0
-        ? `[${sel.filePath}:${sel.startLine}-${sel.endLine}]`
+        ? `[${sel.filePath}:${sel.startLine}:${sel.startColumn}-${sel.endLine}:${sel.endColumn}]`
         : `[${sel.filePath}]`;
       if (!seen.has(ref)) { refs.push(ref); seen.add(ref); }
     }
     for (const ls of liveSelections) {
       const ref = ls.isWholeFile
         ? `[${ls.filePath}]`
-        : `[${ls.filePath}:${ls.startLine}-${ls.endLine}]`;
+        : `[${ls.filePath}:${ls.startLine}:${ls.startColumn}-${ls.endLine}:${ls.endColumn}]`;
       if (!seen.has(ref)) { refs.push(ref); seen.add(ref); }
     }
     if (refs.length > 0) {
