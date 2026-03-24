@@ -118,6 +118,7 @@ export const FullExplorer: React.FC = () => {
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; entry: FileEntry } | null>(null);
   const [bgContextMenu, setBgContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
   const [currentPath, setCurrentPath] = useState('');
@@ -286,6 +287,14 @@ export const FullExplorer: React.FC = () => {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+F: focus search bar (works from anywhere)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
@@ -503,6 +512,7 @@ export const FullExplorer: React.FC = () => {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
           <TextField
             size="small"
+            inputRef={searchInputRef}
             placeholder="Search"
             value={filterText}
             onChange={(e) => {
