@@ -31,20 +31,15 @@ def get_authenticated_user(token: str = Depends(oauth2_scheme)) -> User:
     Raises:
         HTTPException: If token is invalid or user not found
     """
-    # BYPASS AUTH: Always return admin for development
-    username = "admin"
-
-    # Original auth code (disabled):
-    # username = get_current_user(token)
-    # if not username:
-    #     raise HTTPException(status_code=401, detail="Invalid token")
+    username = get_current_user(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
     def _get_user(session):
         user_repo = UserRepository(session)
         user = user_repo.get_by_username(username)
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
-        # Detach from session so it can be used outside the context
         session.expunge(user)
         return user
 

@@ -22,6 +22,7 @@ KurisuAssistant is a voice-based AI assistant platform combining STT (faster-whi
 - [MCP Configuration](docs/mcp-config.md) — MCP server config format
 - Notes & History — File-based per-agent notes (`kurisuassistant/tools/notes.py`) and DB-backed conversation history tools (`kurisuassistant/tools/history.py`)
 - LLM Providers — Multi-provider support: Ollama (local) and Google Gemini (cloud). Per-agent `provider_type` field, per-user `gemini_api_key`. Provider factory in `kurisuassistant/models/llm/__init__.py`.
+- Authentication — JWT access (1h) + refresh (30d) tokens. Secret persisted to `data/jwt_secret.key`. Refresh endpoint: `POST /auth/refresh`. Client auto-refreshes on 401/4001 with exponential backoff WebSocket reconnection.
 
 ## Development Quick Reference
 
