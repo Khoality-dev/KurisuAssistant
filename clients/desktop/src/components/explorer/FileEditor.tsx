@@ -72,7 +72,7 @@ export const FileEditor: React.FC = () => {
       id: 'add-to-chat',
       label: 'Add Selection to Chat',
       keybindings: [
-        2048 | 1024 | 42, // CtrlCmd + Shift + L
+        62, // F3
       ],
       contextMenuGroupId: '9_cutcopypaste',
       contextMenuOrder: 10,

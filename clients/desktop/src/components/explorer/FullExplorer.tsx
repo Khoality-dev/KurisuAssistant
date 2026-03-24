@@ -652,15 +652,20 @@ export const FullExplorer: React.FC = () => {
       {/* Search results — VS Code style */}
       {searchResults !== null ? (() => {
         // Group content matches by file
-        const grouped = new Map<string, Array<{ line: number; snippet: string }>>();
+        const contentByFile = new Map<string, Array<{ line: number; snippet: string }>>();
         for (const m of searchResults.matches) {
-          if (!grouped.has(m.path)) grouped.set(m.path, []);
-          grouped.get(m.path)!.push({ line: m.line, snippet: m.snippet });
+          if (!contentByFile.has(m.path)) contentByFile.set(m.path, []);
+          contentByFile.get(m.path)!.push({ line: m.line, snippet: m.snippet });
         }
+
+        // Merge: name-only matches (no content hits) stay as standalone entries.
+        // Files that match by both name and content are shown once under content grouped view.
+        const contentFilePaths = new Set(contentByFile.keys());
+        const nameOnlyMatches = searchResults.names.filter((n) => !contentFilePaths.has(n.path));
+
         const totalContentMatches = searchResults.matches.length;
-        const totalFiles = grouped.size;
-        const totalNames = searchResults.names.length;
-        const hasResults = totalNames > 0 || totalContentMatches > 0;
+        const totalFiles = contentByFile.size;
+        const hasResults = nameOnlyMatches.length > 0 || totalContentMatches > 0;
 
         return (
           <Box sx={{ flex: 1, overflow: 'auto' }}>
@@ -669,7 +674,7 @@ export const FullExplorer: React.FC = () => {
               <Box sx={{ px: 2, py: 0.75, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 <Typography variant="caption" color="text.secondary">
                   {totalContentMatches} result{totalContentMatches !== 1 ? 's' : ''} in {totalFiles} file{totalFiles !== 1 ? 's' : ''}
-                  {totalNames > 0 ? ` + ${totalNames} name match${totalNames !== 1 ? 'es' : ''}` : ''}
+                  {nameOnlyMatches.length > 0 ? ` + ${nameOnlyMatches.length} name match${nameOnlyMatches.length !== 1 ? 'es' : ''}` : ''}
                 </Typography>
                 {isSearching && <CircularProgress size={12} />}
               </Box>
@@ -681,8 +686,8 @@ export const FullExplorer: React.FC = () => {
               </Typography>
             )}
 
-            {/* Name matches */}
-            {searchResults.names.map((item, i) => {
+            {/* Name-only matches (files/folders with no content hits) */}
+            {nameOnlyMatches.map((item, i) => {
               const relativePath = item.path.startsWith(currentPath)
                 ? item.path.substring(currentPath.length).replace(/^[\\/]/, '')
                 : item.path;
@@ -707,13 +712,14 @@ export const FullExplorer: React.FC = () => {
               );
             })}
 
-            {/* Content matches grouped by file */}
-            {Array.from(grouped.entries()).map(([filePath, matches]) => {
+            {/* Content matches grouped by file (includes files that also match by name) */}
+            {Array.from(contentByFile.entries()).map(([filePath, matches]) => {
               const fileName = filePath.split(/[\\/]/).pop() || filePath;
-              const dir = filePath.startsWith(currentPath)
+              const relDir = filePath.startsWith(currentPath)
                 ? filePath.substring(currentPath.length).replace(/^[\\/]/, '').replace(/[\\/][^\\/]+$/, '')
                 : filePath.replace(/[\\/][^\\/]+$/, '');
               const isCollapsed = collapsedFiles.has(filePath);
+              const nameMatched = searchResults.names.some((n) => n.path === filePath);
 
               return (
                 <Box key={filePath}>
@@ -736,11 +742,11 @@ export const FullExplorer: React.FC = () => {
                     </Typography>
                     {getFileIcon(fileName, false)}
                     <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
-                      {fileName}
+                      {nameMatched ? <Highlight text={fileName} query={filterText} caseSensitive={caseSensitive} /> : fileName}
                     </Typography>
-                    {dir && (
+                    {relDir && (
                       <Typography variant="caption" color="text.secondary" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {dir}
+                        {relDir}
                       </Typography>
                     )}
                     <Box sx={{

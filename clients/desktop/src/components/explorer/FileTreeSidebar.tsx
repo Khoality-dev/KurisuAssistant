@@ -1,9 +1,11 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Box, Typography, CircularProgress, Menu, MenuItem, ListItemText, Tooltip, IconButton } from '@mui/material';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Box, Typography, CircularProgress, Menu, MenuItem, ListItemText, Tooltip, IconButton, TextField, InputAdornment } from '@mui/material';
 import {
   ChevronRight as ChevronRightIcon,
   ExpandMore as ExpandMoreIcon,
   ArrowUpward as UpIcon,
+  Search as SearchIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { ResizeHandle } from '../layout/ResizeHandle';
@@ -33,9 +35,32 @@ export const FileTreeSidebar: React.FC = () => {
   const [isLoadingRoots, setIsLoadingRoots] = useState(true);
   const [hasVSCode, setHasVSCode] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; entry: FileEntry } | null>(null);
+  const [treeFilter, setTreeFilter] = useState('');
+  const [showTreeFilter, setShowTreeFilter] = useState(false);
+  const treeSearchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     window.electron?.explorer?.hasVSCode?.().then(setHasVSCode).catch(() => {});
+  }, []);
+
+  // Ctrl+F focuses tree search when sidebar has focus
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        // Only handle if focus is inside the sidebar
+        if (sidebarRef.current?.contains(document.activeElement) || sidebarRef.current?.contains(e.target as Node)) {
+          e.preventDefault();
+          e.stopPropagation();
+          setShowTreeFilter(true);
+          setTimeout(() => {
+            treeSearchRef.current?.focus();
+            treeSearchRef.current?.select();
+          }, 0);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, true); // capture phase
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, []);
 
   // Load workspace root folder contents
@@ -129,6 +154,28 @@ export const FileTreeSidebar: React.FC = () => {
     setContextMenu({ mouseX: e.clientX, mouseY: e.clientY, entry });
   }, []);
 
+  // Filter tree nodes by name (recursive — show parent if any child matches)
+  const filteredNodes = useMemo(() => {
+    if (!treeFilter) return rootNodes;
+    const lowerFilter = treeFilter.toLowerCase();
+    function filterNodes(nodes: TreeNode[]): TreeNode[] {
+      const result: TreeNode[] = [];
+      for (const node of nodes) {
+        const nameMatch = node.entry.name.toLowerCase().includes(lowerFilter);
+        const filteredChildren = filterNodes(node.children);
+        if (nameMatch || filteredChildren.length > 0) {
+          result.push({
+            ...node,
+            children: filteredChildren,
+            isExpanded: filteredChildren.length > 0 ? true : node.isExpanded,
+          });
+        }
+      }
+      return result;
+    }
+    return filterNodes(rootNodes);
+  }, [rootNodes, treeFilter]);
+
   return (
     <Box ref={sidebarRef} sx={{ display: 'flex', flexDirection: 'row', height: '100%', width: workspaceTreeWidth, flexShrink: 0 }}>
       <Box
@@ -190,6 +237,44 @@ export const FileTreeSidebar: React.FC = () => {
           </Tooltip>
         </Box>
 
+        {/* Tree filter */}
+        {showTreeFilter && (
+          <Box sx={{ px: 0.5, py: 0.5, borderBottom: 1, borderColor: 'divider' }}>
+            <TextField
+              inputRef={treeSearchRef}
+              size="small"
+              fullWidth
+              placeholder="Filter..."
+              value={treeFilter}
+              onChange={(e) => setTreeFilter(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') { setTreeFilter(''); setShowTreeFilter(false); }
+              }}
+              autoFocus
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton size="small" onClick={() => { setTreeFilter(''); setShowTreeFilter(false); }} sx={{ p: 0.25 }}>
+                        <CloseIcon sx={{ fontSize: 12 }} />
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                },
+              }}
+              sx={{
+                '& .MuiInputBase-input': { fontSize: '0.75rem', py: 0.25 },
+                '& .MuiOutlinedInput-root': { pr: 0.5 },
+              }}
+            />
+          </Box>
+        )}
+
         {/* Tree content */}
         <Box sx={{ flex: 1, overflow: 'auto', py: 0.5 }}>
           {isLoadingRoots && (
@@ -198,7 +283,7 @@ export const FileTreeSidebar: React.FC = () => {
             </Box>
           )}
 
-          {!isLoadingRoots && rootNodes.map((node, i) => (
+          {!isLoadingRoots && filteredNodes.map((node, i) => (
             <TreeNodeRow
               key={node.entry.fullPath}
               node={node}
