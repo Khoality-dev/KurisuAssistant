@@ -89,11 +89,11 @@ const SelectionChips: React.FC = () => {
     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, px: 1.5, py: 0.75, flexShrink: 0 }}>
       {/* Live selections — dashed outline, auto-replaced */}
       {filteredLive.map((ls, i) => (
-        <Tooltip key={`live-${i}`} title={ls.isWholeFile ? ls.filePath : `${ls.filePath}:${ls.startLine}-${ls.endLine}`}
+        <Tooltip key={`live-${i}`} title={ls.isWholeFile ? ls.filePath : `${ls.filePath}:${ls.startLine}:${ls.startColumn}-${ls.endLine}:${ls.endColumn}`}
           placement="top" enterDelay={300}
         >
         <Chip
-          label={ls.isWholeFile ? ls.fileName : `${ls.fileName}:${ls.startLine}-${ls.endLine}`}
+          label={ls.isWholeFile ? ls.fileName : `${ls.fileName}:${ls.startLine}:${ls.startColumn}-${ls.endLine}:${ls.endColumn}`}
           size="small"
           variant="outlined"
           color="info"
@@ -110,9 +110,9 @@ const SelectionChips: React.FC = () => {
       ))}
       {/* Pinned selections — solid */}
       {selections.map((sel) => (
-        <Tooltip key={sel.id} title={sel.startLine > 0 ? `${sel.filePath}:${sel.startLine}-${sel.endLine}` : sel.filePath} placement="top" enterDelay={300}>
+        <Tooltip key={sel.id} title={sel.startLine > 0 ? `${sel.filePath}:${sel.startLine}:${sel.startColumn}-${sel.endLine}:${sel.endColumn}` : sel.filePath} placement="top" enterDelay={300}>
         <Chip
-          label={sel.startLine > 0 ? `${sel.fileName}:${sel.startLine}${sel.startLine !== sel.endLine ? `-${sel.endLine}` : ''}` : sel.fileName}
+          label={sel.startLine > 0 ? `${sel.fileName}:${sel.startLine}:${sel.startColumn}-${sel.endLine}:${sel.endColumn}` : sel.fileName}
           size="small"
           onClick={() => handlePinnedClick(sel)}
           onDelete={() => removeSelection(sel.id)}

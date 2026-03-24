@@ -146,7 +146,8 @@ export const FileEditor: React.FC = () => {
   if (diffReview) {
     const handleDiffResponse = (accepted: boolean) => {
       window.electron?.hostTools?.sendDiffResult(diffReview.reviewId, accepted);
-      useExplorerStore.setState({ diffReview: null });
+      // Defer unmount so Monaco can clean up its models first
+      setTimeout(() => useExplorerStore.setState({ diffReview: null }), 0);
     };
 
     // Detect language from file extension
@@ -183,6 +184,8 @@ export const FileEditor: React.FC = () => {
             modified={diffReview.modifiedContent}
             language={language}
             theme={isDark ? 'vs-dark' : 'light'}
+            keepCurrentOriginalModel
+            keepCurrentModifiedModel
             options={{
               readOnly: true,
               renderSideBySide: true,
