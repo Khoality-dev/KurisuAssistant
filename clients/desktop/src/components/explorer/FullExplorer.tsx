@@ -33,9 +33,26 @@ import {
   Home as HomeIcon,
   ViewList as ListViewIcon,
   GridView as GridViewIcon,
+  Search as SearchIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
+import InputAdornment from '@mui/material/InputAdornment';
 import { getFileIcon } from './FileIcon';
 import { useExplorerStore, type FileEntry } from '../../store/explorerStore';
+
+const OPERATING_SYSTEM = window.electron?.platform ?? 'win32';
+const SEP = OPERATING_SYSTEM === 'win32' ? '\\' : '/';
+
+/** Join path segments, handling trailing separators and normalizing slashes. */
+function joinPath(base: string, ...parts: string[]): string {
+  let result = base;
+  for (const part of parts) {
+    if (!result.endsWith(SEP) && !result.endsWith('/')) result += SEP;
+    result += part;
+  }
+  // Normalize doubled separators (but preserve leading \\ for UNC paths)
+  return result.replace(/(?<!^)[\\/]{2,}/g, SEP);
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return '—';
@@ -68,6 +85,9 @@ export const FullExplorer: React.FC = () => {
   const [newItemType, setNewItemType] = useState<'file' | 'folder' | null>(null);
   const [editingPath, setEditingPath] = useState(false);
   const [pathInput, setPathInput] = useState('');
+  const [filterText, setFilterText] = useState('');
+  const [searchResults, setSearchResults] = useState<Array<{ path: string; line: number; snippet: string }> | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; entry: FileEntry } | null>(null);
   const [bgContextMenu, setBgContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
   const [currentPath, setCurrentPath] = useState('');
@@ -79,6 +99,8 @@ export const FullExplorer: React.FC = () => {
     if (!window.electron?.explorer) return;
     setIsLoading(true);
     setSelectedEntries(new Set());
+    setFilterText('');
+    setSearchResults(null);
     try {
       const result = await window.electron.explorer.listDirectory(dirPath);
       setCurrentPath(result.path);
@@ -172,8 +194,7 @@ export const FullExplorer: React.FC = () => {
       return;
     }
     const dir = renaming.path.replace(/[\\/][^\\/]+$/, '');
-    const sep = renaming.path.includes('\\') ? '\\' : '/';
-    const newPath = dir + sep + renameValue.trim();
+    const newPath = joinPath(dir, renameValue.trim());
     const result = await window.electron?.explorer?.rename(renaming.path, newPath);
     if (result?.error) console.error('Rename failed:', result.error);
     setRenaming(null);
@@ -201,7 +222,7 @@ export const FullExplorer: React.FC = () => {
 
   const handlePaste = async () => {
     if (!clipboard || !currentPath) return;
-    const dest = currentPath + (currentPath.includes('\\') ? '\\' : '/') + clipboard.name;
+    const dest = joinPath(currentPath, clipboard.name);
     if (clipboard.cut) {
       await window.electron?.explorer?.rename(clipboard.path, dest);
       setClipboard(null);
@@ -213,7 +234,7 @@ export const FullExplorer: React.FC = () => {
 
   const handleCreateFile = async () => {
     if (!newItemName.trim() || !currentPath) return;
-    const filePath = currentPath + (currentPath.includes('\\') ? '\\' : '/') + newItemName.trim();
+    const filePath = joinPath(currentPath, newItemName.trim());
     await window.electron?.explorer?.createFile(filePath);
     setNewItemType(null);
     setNewItemName('');
@@ -222,7 +243,7 @@ export const FullExplorer: React.FC = () => {
 
   const handleCreateFolder = async () => {
     if (!newItemName.trim() || !currentPath) return;
-    const dirPath = currentPath + (currentPath.includes('\\') ? '\\' : '/') + newItemName.trim();
+    const dirPath = joinPath(currentPath, newItemName.trim());
     await window.electron?.explorer?.createFolder(dirPath);
     setNewItemType(null);
     setNewItemName('');
@@ -237,7 +258,10 @@ export const FullExplorer: React.FC = () => {
 
       if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
         e.preventDefault();
-        setSelectedEntries(new Set(entries.map(en => en.fullPath)));
+        const visible = filterText
+          ? entries.filter((en) => en.name.toLowerCase().includes(filterText.toLowerCase()))
+          : entries;
+        setSelectedEntries(new Set(visible.map(en => en.fullPath)));
       } else if (e.key === 'F2') {
         // Rename selected
         const sel = entries.find(en => selectedEntries.has(en.fullPath));
@@ -268,7 +292,7 @@ export const FullExplorer: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [entries, selectedEntries, clipboard, currentPath]);
+  }, [entries, selectedEntries, clipboard, currentPath, filterText]);
 
   // Lasso (rubber-band) selection
   const handleLassoStart = useCallback((e: React.MouseEvent) => {
@@ -333,11 +357,9 @@ export const FullExplorer: React.FC = () => {
 
   const handleGoUp = () => {
     if (isRoot || !currentPath) return;
-    // Go to parent directory
-    const sep = currentPath.includes('\\') ? '\\' : '/';
-    const parts = currentPath.split(sep).filter(Boolean);
+    const parts = currentPath.split(SEP).filter(Boolean);
     parts.pop();
-    const parent = parts.length === 0 ? '' : (currentPath.startsWith('/') ? '/' : '') + parts.join(sep) + (currentPath.includes('\\') ? '\\' : '');
+    const parent = parts.length === 0 ? '' : (OPERATING_SYSTEM === 'win32' ? '' : '/') + parts.join(SEP) + (OPERATING_SYSTEM === 'win32' ? SEP : '');
     loadDirectory(parent || '');
   };
 
@@ -348,7 +370,7 @@ export const FullExplorer: React.FC = () => {
   // Build breadcrumb segments from currentPath
   const breadcrumbSegments: { label: string; path: string }[] = [];
   if (currentPath) {
-    const sep = currentPath.includes('\\') ? '\\' : '/';
+    const sep = SEP;
     const parts = currentPath.split(sep).filter(Boolean);
     let accumulated = currentPath.startsWith('/') ? '/' : '';
     for (const part of parts) {
@@ -356,6 +378,10 @@ export const FullExplorer: React.FC = () => {
       breadcrumbSegments.push({ label: part, path: accumulated });
     }
   }
+
+  const filteredEntries = filterText
+    ? entries.filter((e) => e.name.toLowerCase().includes(filterText.toLowerCase()))
+    : entries;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -441,6 +467,54 @@ export const FullExplorer: React.FC = () => {
           </Breadcrumbs>
         )}
 
+        <TextField
+          size="small"
+          placeholder="Search... (Enter for content)"
+          value={filterText}
+          onChange={(e) => {
+            setFilterText(e.target.value);
+            if (!e.target.value) setSearchResults(null);
+          }}
+          onKeyDown={async (e) => {
+            if (e.key === 'Enter' && filterText.trim() && currentPath) {
+              setIsSearching(true);
+              try {
+                const result = await window.electron?.explorer?.search(filterText.trim(), currentPath);
+                setSearchResults(result?.matches || []);
+              } catch { setSearchResults([]); }
+              setIsSearching(false);
+            } else if (e.key === 'Escape') {
+              setFilterText('');
+              setSearchResults(null);
+            }
+          }}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                </InputAdornment>
+              ),
+              endAdornment: filterText ? (
+                <InputAdornment position="end">
+                  {isSearching ? (
+                    <CircularProgress size={14} />
+                  ) : (
+                    <IconButton size="small" onClick={() => { setFilterText(''); setSearchResults(null); }} sx={{ p: 0.25 }}>
+                      <CloseIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  )}
+                </InputAdornment>
+              ) : undefined,
+            },
+          }}
+          sx={{
+            width: 220,
+            '& .MuiInputBase-input': { fontSize: '0.8rem', py: 0.5 },
+            '& .MuiOutlinedInput-root': { pr: filterText ? 0.5 : 1 },
+          }}
+        />
+
         <Box sx={{ display: 'flex', gap: 0.25 }}>
           <Tooltip title="List view">
             <IconButton
@@ -463,8 +537,52 @@ export const FullExplorer: React.FC = () => {
         </Box>
       </Box>
 
-      {/* File list */}
-      {isLoading ? (
+      {/* Search results (content search via ripgrep) */}
+      {searchResults !== null ? (
+        <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
+          {searchResults.length === 0 ? (
+            <Typography sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
+              No content matches
+            </Typography>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              {searchResults.map((match, i) => {
+                const fileName = match.path.split(/[\\/]/).pop() || match.path;
+                return (
+                  <Box
+                    key={i}
+                    onClick={() => openFile({
+                      name: fileName,
+                      fullPath: match.path,
+                      type: 'file', size: 0, modified: null,
+                      extension: fileName.includes('.') ? '.' + fileName.split('.').pop() : '',
+                    })}
+                    sx={{
+                      px: 1.5, py: 0.75, cursor: 'pointer', borderRadius: 1,
+                      '&:hover': { bgcolor: 'action.hover' },
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
+                        {fileName}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        :{match.line}
+                      </Typography>
+                    </Box>
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {match.snippet}
+                    </Typography>
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
+        </Box>
+      ) :
+
+      /* File list */
+      isLoading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
           <CircularProgress size={28} />
         </Box>
@@ -490,7 +608,7 @@ export const FullExplorer: React.FC = () => {
           }}
         >
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-            {entries.map((entry) => (
+            {filteredEntries.map((entry) => (
               <Box
                 key={entry.fullPath}
                 data-entry
@@ -532,9 +650,9 @@ export const FullExplorer: React.FC = () => {
               </Box>
             ))}
           </Box>
-          {entries.length === 0 && (
+          {filteredEntries.length === 0 && (
             <Typography sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
-              Empty directory
+              {filterText ? 'No matches' : 'Empty directory'}
             </Typography>
           )}
         </Box>
@@ -568,7 +686,7 @@ export const FullExplorer: React.FC = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {entries.map((entry) => (
+              {filteredEntries.map((entry) => (
                 <TableRow
                   key={entry.fullPath}
                   hover
@@ -605,10 +723,10 @@ export const FullExplorer: React.FC = () => {
                   </TableCell>
                 </TableRow>
               ))}
-              {entries.length === 0 && (
+              {filteredEntries.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={3} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
-                    Empty directory
+                    {filterText ? 'No matches' : 'Empty directory'}
                   </TableCell>
                 </TableRow>
               )}

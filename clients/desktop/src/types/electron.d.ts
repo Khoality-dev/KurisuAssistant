@@ -70,6 +70,10 @@ export interface ExplorerAPI {
   copy: (srcPath: string, destPath: string) => Promise<{ status?: string; error?: string }>;
   hasVSCode: () => Promise<boolean>;
   openInVSCode: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
+  search: (query: string, dirPath: string, glob?: string) => Promise<{
+    matches: Array<{ path: string; line: number; snippet: string }>;
+    error?: string;
+  }>;
 }
 
 export interface MCPAPI {

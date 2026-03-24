@@ -82,6 +82,8 @@ contextBridge.exposeInMainWorld('electron', {
     copy: (srcPath: string, destPath: string) => ipcRenderer.invoke('explorer:copy', srcPath, destPath),
     hasVSCode: () => ipcRenderer.invoke('explorer:has-vscode'),
     openInVSCode: (filePath: string) => ipcRenderer.invoke('explorer:open-in-vscode', filePath),
+    search: (query: string, dirPath: string, glob?: string) =>
+      ipcRenderer.invoke('explorer:search', query, dirPath, glob),
   },
 
   onMCPToolsChanged: (cb: () => void) => {

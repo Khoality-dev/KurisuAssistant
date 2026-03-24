@@ -14,8 +14,8 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron';
 import fs from 'fs';
 import path from 'path';
-import { exec } from 'child_process';
 import { app } from 'electron';
+import * as fsOps from './fsOps';
 
 // --- Settings persistence ---
 
@@ -352,239 +352,90 @@ function getHostToolSchemas(): ToolSchema[] {
   ];
 }
 
-// --- Tool execution (pure — no approval logic) ---
+// --- Tool execution (delegates to shared fsOps) ---
 
-const MAX_OUTPUT_BYTES = 100 * 1024; // 100KB output cap
+type ToolResult = { content: string; isError: boolean };
 
-async function executeHostRead(args: Record<string, unknown>): Promise<{ content: string; isError: boolean }> {
-  try {
-    const filePath = args.path as string;
-    if (!filePath) return { content: JSON.stringify({ error: 'path is required.' }), isError: true };
-
-    const resolved = path.resolve(filePath);
-
-    if (!fs.existsSync(resolved)) {
-      return { content: JSON.stringify({ error: `File not found: ${filePath}` }), isError: true };
-    }
-    const stat = fs.statSync(resolved);
-    if (stat.isDirectory()) {
-      return { content: JSON.stringify({ error: 'Cannot read a directory. Provide a file path.' }), isError: true };
-    }
-
-    const offset = typeof args.offset === 'number' ? args.offset : 0;
-    const limit = typeof args.limit === 'number' ? args.limit : 500;
-
-    const text = fs.readFileSync(resolved, { encoding: 'utf-8' });
-    const lines = text.split('\n');
-    const totalLines = lines.length;
-    const selected = lines.slice(offset, offset + limit);
-
-    const numbered = selected.map((line, i) => `${offset + i + 1}\t${line}`).join('\n');
-    readFiles.add(resolved);
-
-    const result: Record<string, unknown> = { content: numbered, total_lines: totalLines };
-    if (offset + limit < totalLines) {
-      result.truncated = true;
-      result.next_offset = offset + limit;
-    }
-
-    return { content: JSON.stringify(result), isError: false };
-  } catch (e: any) {
-    return { content: JSON.stringify({ error: e.message }), isError: true };
-  }
+function ok(data: unknown): ToolResult {
+  return { content: JSON.stringify(data), isError: false };
+}
+function err(msg: string): ToolResult {
+  return { content: JSON.stringify({ error: msg }), isError: true };
 }
 
-async function executeHostWrite(args: Record<string, unknown>): Promise<{ content: string; isError: boolean }> {
+async function executeHostRead(args: Record<string, unknown>): Promise<ToolResult> {
+  try {
+    const filePath = args.path as string;
+    if (!filePath) return err('path is required.');
+    const result = fsOps.readFile(filePath, args.offset as number, args.limit as number);
+    readFiles.add(path.resolve(filePath));
+    return ok(result);
+  } catch (e: any) { return err(e.message); }
+}
+
+async function executeHostWrite(args: Record<string, unknown>): Promise<ToolResult> {
   try {
     const filePath = args.path as string;
     const content = args.content as string;
-    if (!filePath) return { content: JSON.stringify({ error: 'path is required.' }), isError: true };
-    if (content === undefined || content === null) return { content: JSON.stringify({ error: 'content is required.' }), isError: true };
-
-    const resolved = path.resolve(filePath);
-    fs.mkdirSync(path.dirname(resolved), { recursive: true });
-    fs.writeFileSync(resolved, content, { encoding: 'utf-8' });
-    readFiles.add(resolved);
-
-    const bytes = Buffer.byteLength(content, 'utf-8');
-    return { content: JSON.stringify({ status: 'ok', path: filePath, bytes }), isError: false };
-  } catch (e: any) {
-    return { content: JSON.stringify({ error: e.message }), isError: true };
-  }
+    if (!filePath) return err('path is required.');
+    if (content === undefined || content === null) return err('content is required.');
+    const result = fsOps.writeFile(filePath, content);
+    readFiles.add(result.path);
+    return ok({ status: 'ok', path: filePath, bytes: result.bytes });
+  } catch (e: any) { return err(e.message); }
 }
 
-async function executeHostEdit(args: Record<string, unknown>): Promise<{ content: string; isError: boolean }> {
+async function executeHostEdit(args: Record<string, unknown>): Promise<ToolResult> {
   try {
     const filePath = args.path as string;
     const oldText = args.old_text as string;
     const newText = args.new_text as string;
-    if (!filePath) return { content: JSON.stringify({ error: 'path is required.' }), isError: true };
-    if (!oldText) return { content: JSON.stringify({ error: 'old_text is required.' }), isError: true };
-    if (newText === undefined || newText === null) return { content: JSON.stringify({ error: 'new_text is required.' }), isError: true };
-
-    const resolved = path.resolve(filePath);
-    if (!fs.existsSync(resolved)) {
-      return { content: JSON.stringify({ error: `File not found: ${filePath}` }), isError: true };
-    }
-    if (!readFiles.has(resolved)) {
-      return { content: JSON.stringify({ error: 'Must read the file with host_read before editing.' }), isError: true };
-    }
-
-    const content = fs.readFileSync(resolved, { encoding: 'utf-8' });
-    if (!content.includes(oldText)) {
-      return { content: JSON.stringify({ error: 'old_text not found in file.' }), isError: true };
-    }
-
-    const count = content.split(oldText).length - 1;
-    if (count > 1) {
-      return { content: JSON.stringify({ error: `old_text matches ${count} locations. Provide more context to make it unique.` }), isError: true };
-    }
-
-    const newContent = content.replace(oldText, newText);
-    fs.writeFileSync(resolved, newContent, { encoding: 'utf-8' });
-
-    return { content: JSON.stringify({ status: 'ok', path: filePath }), isError: false };
-  } catch (e: any) {
-    return { content: JSON.stringify({ error: e.message }), isError: true };
-  }
+    if (!filePath) return err('path is required.');
+    if (!oldText) return err('old_text is required.');
+    if (newText === undefined || newText === null) return err('new_text is required.');
+    if (!readFiles.has(path.resolve(filePath))) return err('Must read the file with host_read before editing.');
+    fsOps.editFile(filePath, oldText, newText);
+    return ok({ status: 'ok', path: filePath });
+  } catch (e: any) { return err(e.message); }
 }
 
-async function executeHostSearch(args: Record<string, unknown>, allowedPaths: string[]): Promise<{ content: string; isError: boolean }> {
+async function executeHostSearch(args: Record<string, unknown>, allowedPaths: string[]): Promise<ToolResult> {
   try {
     const query = args.query as string;
-    if (!query) return { content: JSON.stringify({ error: 'query is required.' }), isError: true };
-
-    let searchPath: string;
-    if (args.path) {
-      searchPath = path.resolve(args.path as string);
-    } else if (allowedPaths.length > 0) {
-      searchPath = path.resolve(allowedPaths[0]);
-    } else {
-      return { content: JSON.stringify({ error: 'path is required when no allowed paths are configured.' }), isError: true };
-    }
-
-    if (!fs.existsSync(searchPath) || !fs.statSync(searchPath).isDirectory()) {
-      return { content: JSON.stringify({ error: `Directory not found: ${searchPath}` }), isError: true };
-    }
-
-    const rgArgs = ['--line-number', '--no-heading', '--max-count', '100'];
-    if (args.glob) {
-      rgArgs.push('--glob', args.glob as string);
-    }
-    rgArgs.push('--', query, searchPath);
-
-    const cmd = ['rg', ...rgArgs.map(a => `"${a.replace(/"/g, '\\"')}"`)]  .join(' ');
-
-    return new Promise((resolve) => {
-      exec(cmd, { maxBuffer: MAX_OUTPUT_BYTES, timeout: 30000 }, (error, stdout, stderr) => {
-        if (error && !stdout) {
-          if (error.code === 1) {
-            resolve({ content: JSON.stringify({ matches: [], message: 'No matches found.' }), isError: false });
-            return;
-          }
-          resolve({ content: JSON.stringify({ error: stderr || error.message }), isError: true });
-          return;
-        }
-
-        const lines = stdout.trim().split('\n').filter(Boolean).slice(0, 100);
-        const matches = lines.map((line) => {
-          const firstColon = line.indexOf(':');
-          const secondColon = line.indexOf(':', firstColon + 1);
-          if (firstColon === -1 || secondColon === -1) {
-            return { raw: line };
-          }
-          return {
-            path: line.substring(0, firstColon),
-            line: parseInt(line.substring(firstColon + 1, secondColon), 10),
-            snippet: line.substring(secondColon + 1).trim().substring(0, 200),
-          };
-        });
-
-        resolve({ content: JSON.stringify({ matches }), isError: false });
-      });
-    });
-  } catch (e: any) {
-    return { content: JSON.stringify({ error: e.message }), isError: true };
-  }
+    if (!query) return err('query is required.');
+    const searchPath = args.path as string || (allowedPaths.length > 0 ? allowedPaths[0] : null);
+    if (!searchPath) return err('path is required when no allowed paths are configured.');
+    const result = await fsOps.search(query, searchPath, args.glob as string | undefined, 100);
+    if (result.error) return err(result.error);
+    return ok({ matches: result.matches });
+  } catch (e: any) { return err(e.message); }
 }
 
-async function executeHostList(args: Record<string, unknown>): Promise<{ content: string; isError: boolean }> {
+async function executeHostList(args: Record<string, unknown>): Promise<ToolResult> {
   try {
     const dirPath = args.path as string;
-    if (!dirPath) return { content: JSON.stringify({ error: 'path is required.' }), isError: true };
-
-    const resolved = path.resolve(dirPath);
-    if (!fs.existsSync(resolved)) {
-      return { content: JSON.stringify({ error: `Directory not found: ${dirPath}` }), isError: true };
-    }
-    const stat = fs.statSync(resolved);
-    if (!stat.isDirectory()) {
-      return { content: JSON.stringify({ error: `Not a directory: ${dirPath}` }), isError: true };
-    }
-
-    const entries = fs.readdirSync(resolved, { withFileTypes: true });
-    const items = entries.map((entry) => {
-      const entryPath = path.join(resolved, entry.name);
-      const item: Record<string, unknown> = {
-        name: entry.name,
-        type: entry.isDirectory() ? 'directory' : 'file',
-      };
-      try {
-        const s = fs.statSync(entryPath);
-        if (!entry.isDirectory()) item.size = s.size;
-      } catch { /* skip stat errors */ }
-      return item;
-    });
-
-    return { content: JSON.stringify({ path: dirPath, entries: items, count: items.length }), isError: false };
-  } catch (e: any) {
-    return { content: JSON.stringify({ error: e.message }), isError: true };
-  }
+    if (!dirPath) return err('path is required.');
+    const entries = fsOps.listDirectory(dirPath, true);
+    const items = entries.map((e) => ({
+      name: e.name,
+      type: e.type,
+      ...(e.type === 'file' ? { size: e.size } : {}),
+    }));
+    return ok({ path: dirPath, entries: items, count: items.length });
+  } catch (e: any) { return err(e.message); }
 }
 
-async function executeHostBash(
-  args: Record<string, unknown>,
-  allowedPaths: string[],
-): Promise<{ content: string; isError: boolean }> {
+async function executeHostBash(args: Record<string, unknown>, allowedPaths: string[]): Promise<ToolResult> {
   try {
     const command = args.command as string;
-    if (!command) return { content: JSON.stringify({ error: 'command is required.' }), isError: true };
-
-    let workdir: string | undefined;
-    if (args.workdir) {
-      workdir = path.resolve(args.workdir as string);
-    } else if (allowedPaths.length > 0) {
-      workdir = path.resolve(allowedPaths[0]);
-    }
-
-    let timeout = typeof args.timeout === 'number' ? args.timeout : 60;
-    timeout = Math.max(1, Math.min(timeout, 300));
-
-    return new Promise((resolve) => {
-      exec(
-        command,
-        {
-          cwd: workdir,
-          maxBuffer: MAX_OUTPUT_BYTES,
-          timeout: timeout * 1000,
-        },
-        (error, stdout, stderr) => {
-          const timedOut = error && 'killed' in error && error.killed === true;
-          resolve({
-            content: JSON.stringify({
-              exit_code: error ? (error as any).code ?? 1 : 0,
-              stdout: stdout.substring(0, MAX_OUTPUT_BYTES),
-              stderr: stderr.substring(0, MAX_OUTPUT_BYTES),
-              timed_out: timedOut || false,
-            }),
-            isError: false,
-          });
-        },
-      );
-    });
-  } catch (e: any) {
-    return { content: JSON.stringify({ error: e.message }), isError: true };
-  }
+    if (!command) return err('command is required.');
+    const workdir = args.workdir
+      ? path.resolve(args.workdir as string)
+      : (allowedPaths.length > 0 ? path.resolve(allowedPaths[0]) : undefined);
+    const timeout = typeof args.timeout === 'number' ? args.timeout : 60;
+    const result = await fsOps.bash(command, workdir, timeout);
+    return ok(result);
+  } catch (e: any) { return err(e.message); }
 }
 
 // --- Main dispatch with approval gate ---
