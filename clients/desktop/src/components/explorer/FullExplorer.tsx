@@ -33,7 +33,10 @@ import {
   Home as HomeIcon,
   ViewList as ListViewIcon,
   GridView as GridViewIcon,
+  Search as SearchIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
+import InputAdornment from '@mui/material/InputAdornment';
 import { getFileIcon } from './FileIcon';
 import { SearchPanel } from './SearchPanel';
 import { useExplorerStore, type FileEntry } from '../../store/explorerStore';
@@ -84,6 +87,7 @@ export const FullExplorer: React.FC = () => {
   const [editingPath, setEditingPath] = useState(false);
   const [pathInput, setPathInput] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [searchActive, setSearchActive] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; entry: FileEntry } | null>(null);
   const [bgContextMenu, setBgContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
@@ -463,6 +467,36 @@ export const FullExplorer: React.FC = () => {
           </Breadcrumbs>
         )}
 
+        <TextField
+          inputRef={searchInputRef}
+          size="small"
+          placeholder="Search"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setSearchQuery(''); }}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                </InputAdornment>
+              ),
+              endAdornment: searchQuery ? (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setSearchQuery('')} sx={{ p: 0.25 }}>
+                    <CloseIcon sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </InputAdornment>
+              ) : undefined,
+            },
+          }}
+          sx={{
+            width: 200,
+            '& .MuiInputBase-input': { fontSize: '0.8rem', py: 0.5 },
+            '& .MuiOutlinedInput-root': { pr: searchQuery ? 0.5 : 1 },
+          }}
+        />
+
         <Box sx={{ display: 'flex', gap: 0.25 }}>
           <Tooltip title="List view">
             <IconButton
@@ -488,12 +522,12 @@ export const FullExplorer: React.FC = () => {
       <SearchPanel
         searchRoot={currentPath}
         visible
-        onClose={() => {}}
+        hideSearchBar
+        externalQuery={searchQuery}
+        onClose={() => setSearchQuery('')}
         onSearchActiveChange={setSearchActive}
-        inputRef={searchInputRef}
         onOpenFile={(fullPath, name) => openFile({ name, fullPath, type: 'file', size: 0, modified: null, extension: name.includes('.') ? '.' + name.split('.').pop() : '' })}
         onOpenDirectory={(fullPath) => loadDirectory(fullPath)}
-        inline
       />
 
       {/* File list */}

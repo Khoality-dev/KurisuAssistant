@@ -68,8 +68,14 @@ interface SearchPanelProps {
   showToggles?: boolean;
   /** Called when search results become active/inactive */
   onSearchActiveChange?: (active: boolean) => void;
-  /** Inline mode — search bar has no border/padding, suitable for embedding in a toolbar */
-  inline?: boolean;
+  /** Hide the built-in search bar (use with external input that drives the search) */
+  hideSearchBar?: boolean;
+  /** External query — when provided, drives the search instead of the built-in input */
+  externalQuery?: string;
+  /** External case sensitive toggle */
+  externalCaseSensitive?: boolean;
+  /** External whole word toggle */
+  externalWholeWord?: boolean;
 }
 
 export const SearchPanel: React.FC<SearchPanelProps> = ({
@@ -79,7 +85,8 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({
   compact = false,
   visible,
   onSearchActiveChange,
-  inline = false,
+  hideSearchBar = false,
+  externalQuery,
   onClose,
   inputRef: externalInputRef,
   showToggles = true,
@@ -146,6 +153,14 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({
     if (filterText.trim()) runSearch(filterText);
   }, [caseSensitive, wholeWord]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Sync with external query if provided
+  useEffect(() => {
+    if (externalQuery !== undefined) {
+      setFilterText(externalQuery);
+      runSearch(externalQuery);
+    }
+  }, [externalQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Notify parent when search results become active/inactive
   useEffect(() => {
     onSearchActiveChange?.(searchResults !== null);
@@ -179,10 +194,8 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({
   const snippetFontSize = compact ? '0.65rem' : '0.75rem';
   const rowHeight = compact ? 24 : 28;
 
-  return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: searchResults !== null ? 1 : undefined }}>
-      {/* Search bar */}
-      <Box sx={{ px: inline ? 0 : compact ? 0.5 : 1, py: inline ? 0 : 0.5, borderBottom: inline ? 0 : 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 0.25 }}>
+  const searchBar = (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, ...(inline ? {} : { px: compact ? 0.5 : 1, py: 0.5, borderBottom: 1, borderColor: 'divider' }) }}>
         <TextField
           inputRef={inputRef}
           size="small"
@@ -255,9 +268,9 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({
           </>
         )}
       </Box>
+  );
 
-      {/* Results */}
-      {searchResults !== null && (
+  const results = searchResults !== null ? (
         <Box sx={{ flex: 1, overflow: 'auto' }}>
           {/* Summary */}
           {hasResults && !compact && (
@@ -384,7 +397,21 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({
             );
           })}
         </Box>
-      )}
+  ) : null;
+
+  if (inline) {
+    return (
+      <>
+        {!hideSearchBar && searchBar}
+        {results}
+      </>
+    );
+  }
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: searchResults !== null ? 1 : undefined }}>
+      {!hideSearchBar && searchBar}
+      {results}
     </Box>
   );
 };
