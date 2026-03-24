@@ -394,9 +394,52 @@ async function executeHostEdit(args: Record<string, unknown>): Promise<ToolResul
     if (!oldText) return err('old_text is required.');
     if (newText === undefined || newText === null) return err('new_text is required.');
     if (!readFiles.has(path.resolve(filePath))) return err('Must read the file with host_read before editing.');
+
+    // Show diff to user for approval
+    const fileName = path.basename(filePath);
+    const diffPreview = buildDiffPreview(oldText, newText);
+    const mainWindow = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+    if (mainWindow) {
+      const result = await dialog.showMessageBox(mainWindow, {
+        type: 'question',
+        title: `Edit: ${fileName}`,
+        message: `An agent wants to edit ${fileName}:`,
+        detail: diffPreview,
+        buttons: ['Reject', 'Apply'],
+        defaultId: 1,
+        cancelId: 0,
+      });
+      if (result.response !== 1) {
+        return err('Edit rejected by user.');
+      }
+    }
+
     fsOps.editFile(filePath, oldText, newText);
     return ok({ status: 'ok', path: filePath });
   } catch (e: any) { return err(e.message); }
+}
+
+function buildDiffPreview(oldText: string, newText: string): string {
+  const oldLines = oldText.split('\n');
+  const newLines = newText.split('\n');
+  const lines: string[] = [];
+
+  // Show removed lines
+  for (const line of oldLines) {
+    lines.push(`- ${line}`);
+  }
+  lines.push('---');
+  // Show added lines
+  for (const line of newLines) {
+    lines.push(`+ ${line}`);
+  }
+
+  // Truncate if too long
+  const preview = lines.join('\n');
+  if (preview.length > 2000) {
+    return preview.substring(0, 2000) + '\n... (truncated)';
+  }
+  return preview;
 }
 
 async function executeHostSearch(args: Record<string, unknown>, allowedPaths: string[]): Promise<ToolResult> {
@@ -446,7 +489,8 @@ async function executeHostTool(
 ): Promise<{ content: string; isError: boolean }> {
   const allowedPaths = getAllowedPaths();
 
-  const approved = await gateToolCall(name, args, allowedPaths, () => {
+  // host_edit has its own diff approval dialog — skip the generic gate
+  const approved = name === 'host_edit' ? true : await gateToolCall(name, args, allowedPaths, () => {
     // Bash: never auto-approve (always goes to policy/session/dialog checks)
     if (name === 'host_bash') return false;
 
