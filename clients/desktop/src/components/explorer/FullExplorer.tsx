@@ -33,12 +33,9 @@ import {
   Home as HomeIcon,
   ViewList as ListViewIcon,
   GridView as GridViewIcon,
-  Search as SearchIcon,
-  Close as CloseIcon,
 } from '@mui/icons-material';
-import InputAdornment from '@mui/material/InputAdornment';
 import { getFileIcon } from './FileIcon';
-import { SearchPanel } from './SearchPanel';
+import { SearchBar, Highlight } from './SearchPanel';
 import { useExplorerStore, type FileEntry } from '../../store/explorerStore';
 
 const OPERATING_SYSTEM = window.electron?.platform ?? 'win32';
@@ -70,6 +67,12 @@ function formatDate(dateStr: string | null): string {
     + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
+// --- Search result types ---
+interface SearchResults {
+  names: Array<{ path: string; name: string; type: 'file' | 'directory' }>;
+  matches: Array<{ path: string; line: number; snippet: string }>;
+}
+
 export const FullExplorer: React.FC = () => {
   const { openFile, viewMode, setViewMode, addSelection, setLiveSelections } = useExplorerStore();
 
@@ -87,14 +90,26 @@ export const FullExplorer: React.FC = () => {
   const [editingPath, setEditingPath] = useState(false);
   const [pathInput, setPathInput] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchActive, setSearchActive] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; entry: FileEntry } | null>(null);
   const [bgContextMenu, setBgContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
   const [currentPath, setCurrentPath] = useState('');
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRoot, setIsRoot] = useState(true);
+
+  // Search state
+  const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
+  const contentCleanupRef = useRef<Array<() => void>>([]);
+
+  const cancelSearch = useCallback(() => {
+    window.electron?.explorer?.searchContentCancel?.();
+    contentCleanupRef.current.forEach((fn) => fn());
+    contentCleanupRef.current = [];
+  }, []);
 
   const loadDirectory = useCallback(async (dirPath: string) => {
     if (!window.electron?.explorer) return;
@@ -115,7 +130,7 @@ export const FullExplorer: React.FC = () => {
     loadDirectory('');
   }, [loadDirectory]);
 
-  // Sync selected entries → live selection chips
+  // Sync selected entries -> live selection chips
   useEffect(() => {
     if (selectedEntries.size === 0) {
       setLiveSelections([]);
@@ -137,6 +152,52 @@ export const FullExplorer: React.FC = () => {
   useEffect(() => {
     window.electron?.explorer?.hasVSCode?.().then(setHasVSCode).catch(() => {});
   }, []);
+
+  // Clean up search on unmount
+  useEffect(() => () => cancelSearch(), [cancelSearch]);
+
+  const handleSearch = useCallback((query: string, opts: { caseSensitive: boolean; wholeWord: boolean }) => {
+    cancelSearch();
+    setSearchQuery(query);
+    setSearchCaseSensitive(opts.caseSensitive);
+
+    if (!query.trim() || !currentPath || !window.electron?.explorer) {
+      setSearchResults(null);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    setSearchResults({ names: [], matches: [] });
+    setCollapsedFiles(new Set());
+
+    const q = query.trim();
+
+    // Phase 1: name matches
+    window.electron.explorer.searchNames(q, currentPath, opts).then((names) => {
+      setSearchResults((prev) => ({ names, matches: prev?.matches || [] }));
+    }).catch(() => {});
+
+    // Phase 2: streaming content matches
+    const offBatch = window.electron.explorer.onSearchContentBatch((batch) => {
+      setSearchResults((prev) => ({
+        names: prev?.names || [],
+        matches: [...(prev?.matches || []), ...batch],
+      }));
+    });
+    const offDone = window.electron.explorer.onSearchContentDone(() => {
+      setIsSearching(false);
+    });
+    contentCleanupRef.current = [offBatch, offDone];
+    window.electron.explorer.searchContentStart(q, currentPath, opts);
+  }, [currentPath, cancelSearch]);
+
+  const handleSearchClose = useCallback(() => {
+    cancelSearch();
+    setSearchResults(null);
+    setIsSearching(false);
+    setSearchQuery('');
+  }, [cancelSearch]);
 
   const handleContextMenu = (e: React.MouseEvent, entry: FileEntry) => {
     e.preventDefault();
@@ -203,7 +264,6 @@ export const FullExplorer: React.FC = () => {
   const handleDelete = async (targetPath?: string) => {
     const paths = targetPath ? [targetPath] : entries.filter(e => selectedEntries.has(e.fullPath)).map(e => e.fullPath);
     if (paths.length === 0) return;
-    // Note: delete is not undoable (files are gone). We could move to trash instead.
     for (const p of paths) {
       await window.electron?.explorer?.delete(p);
     }
@@ -252,7 +312,7 @@ export const FullExplorer: React.FC = () => {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+F: focus search bar (works from anywhere)
+      // Ctrl+F: focus search bar
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault();
         searchInputRef.current?.focus();
@@ -383,6 +443,21 @@ export const FullExplorer: React.FC = () => {
     }
   }
 
+  // --- Grouped search results ---
+  const searchActive = searchResults !== null;
+  const contentByFile = new Map<string, Array<{ line: number; snippet: string }>>();
+  if (searchResults) {
+    for (const m of searchResults.matches) {
+      if (!contentByFile.has(m.path)) contentByFile.set(m.path, []);
+      contentByFile.get(m.path)!.push({ line: m.line, snippet: m.snippet });
+    }
+  }
+  const contentFilePaths = new Set(contentByFile.keys());
+  const nameOnlyMatches = searchResults?.names.filter((n) => !contentFilePaths.has(n.path)) || [];
+  const totalContentMatches = searchResults?.matches.length || 0;
+  const totalFiles = contentByFile.size;
+  const hasResults = nameOnlyMatches.length > 0 || totalContentMatches > 0;
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Toolbar */}
@@ -467,35 +542,17 @@ export const FullExplorer: React.FC = () => {
           </Breadcrumbs>
         )}
 
-        <TextField
-          inputRef={searchInputRef}
-          size="small"
-          placeholder="Search"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Escape') setSearchQuery(''); }}
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-                </InputAdornment>
-              ),
-              endAdornment: searchQuery ? (
-                <InputAdornment position="end">
-                  <IconButton size="small" onClick={() => setSearchQuery('')} sx={{ p: 0.25 }}>
-                    <CloseIcon sx={{ fontSize: 14 }} />
-                  </IconButton>
-                </InputAdornment>
-              ) : undefined,
-            },
-          }}
-          sx={{
-            width: 200,
-            '& .MuiInputBase-input': { fontSize: '0.8rem', py: 0.5 },
-            '& .MuiOutlinedInput-root': { pr: searchQuery ? 0.5 : 1 },
-          }}
-        />
+        {/* Search bar in toolbar */}
+        <Box sx={{ width: 280, flexShrink: 0 }}>
+          <SearchBar
+            inputRef={searchInputRef}
+            visible
+            inline
+            onClose={handleSearchClose}
+            onSearch={handleSearch}
+            searching={isSearching}
+          />
+        </Box>
 
         <Box sx={{ display: 'flex', gap: 0.25 }}>
           <Tooltip title="List view">
@@ -519,18 +576,133 @@ export const FullExplorer: React.FC = () => {
         </Box>
       </Box>
 
-      <SearchPanel
-        searchRoot={currentPath}
-        visible
-        hideSearchBar
-        externalQuery={searchQuery}
-        onClose={() => setSearchQuery('')}
-        onSearchActiveChange={setSearchActive}
-        onOpenFile={(fullPath, name) => openFile({ name, fullPath, type: 'file', size: 0, modified: null, extension: name.includes('.') ? '.' + name.split('.').pop() : '' })}
-        onOpenDirectory={(fullPath) => loadDirectory(fullPath)}
-      />
+      {/* Search results (replaces file list when active) */}
+      {searchActive && (
+        <Box sx={{ flex: 1, overflow: 'auto' }}>
+          {/* Summary */}
+          {hasResults && (
+            <Box sx={{ px: 2, py: 0.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Typography variant="caption" color="text.secondary">
+                {totalContentMatches} result{totalContentMatches !== 1 ? 's' : ''} in {totalFiles} file{totalFiles !== 1 ? 's' : ''}
+                {nameOnlyMatches.length > 0 ? ` + ${nameOnlyMatches.length} name match${nameOnlyMatches.length !== 1 ? 'es' : ''}` : ''}
+              </Typography>
+              {isSearching && <CircularProgress size={12} />}
+            </Box>
+          )}
 
-      {/* File list */}
+          {!hasResults && !isSearching && (
+            <Typography sx={{ textAlign: 'center', py: 4, color: 'text.secondary', fontSize: '0.85rem' }}>
+              No results found.
+            </Typography>
+          )}
+
+          {/* Name-only matches */}
+          {nameOnlyMatches.map((item, i) => {
+            const relativePath = item.path.startsWith(currentPath)
+              ? item.path.substring(currentPath.length).replace(/^[\\/]/, '')
+              : item.path;
+            return (
+              <Box
+                key={`name-${i}`}
+                onClick={() => item.type === 'directory'
+                  ? loadDirectory(item.path)
+                  : openFile({ name: item.name, fullPath: item.path, type: 'file', size: 0, modified: null, extension: item.name.includes('.') ? '.' + item.name.split('.').pop() : '' })
+                }
+                sx={{
+                  display: 'flex', alignItems: 'center', height: 28, px: 1.5, gap: 1,
+                  cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' },
+                }}
+              >
+                {getFileIcon(item.name, item.type)}
+                <Typography variant="body2" noWrap sx={{ fontSize: '0.8rem', flex: 1 }}>
+                  <Highlight text={relativePath} query={searchQuery} caseSensitive={searchCaseSensitive} />
+                </Typography>
+              </Box>
+            );
+          })}
+
+          {/* Content matches grouped by file */}
+          {Array.from(contentByFile.entries()).map(([filePath, matches]) => {
+            const fileName = filePath.split(/[\\/]/).pop() || filePath;
+            const relDir = filePath.startsWith(currentPath)
+              ? filePath.substring(currentPath.length).replace(/^[\\/]/, '').replace(/[\\/][^\\/]+$/, '')
+              : filePath.replace(/[\\/][^\\/]+$/, '');
+            const isCollapsed = collapsedFiles.has(filePath);
+            const nameMatched = searchResults?.names.some((n) => n.path === filePath);
+
+            return (
+              <Box key={filePath}>
+                {/* File header */}
+                <Box
+                  onClick={() => setCollapsedFiles((prev) => {
+                    const next = new Set(prev);
+                    next.has(filePath) ? next.delete(filePath) : next.add(filePath);
+                    return next;
+                  })}
+                  sx={{
+                    display: 'flex', alignItems: 'center', height: 28,
+                    px: 1, gap: 0.5,
+                    cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' },
+                    position: 'sticky', top: 0, bgcolor: 'background.paper', zIndex: 1,
+                  }}
+                >
+                  <Typography sx={{ fontSize: '0.7rem', color: 'text.secondary', width: 12, textAlign: 'center', userSelect: 'none' }}>
+                    {isCollapsed ? '>' : 'v'}
+                  </Typography>
+                  {getFileIcon(fileName, 'file')}
+                  <Typography variant="body2" noWrap sx={{ fontWeight: 600, fontSize: '0.8rem', flex: 1 }}>
+                    {nameMatched ? <Highlight text={fileName} query={searchQuery} caseSensitive={searchCaseSensitive} /> : fileName}
+                  </Typography>
+                  {relDir && (
+                    <Typography variant="caption" noWrap color="text.secondary" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {relDir}
+                    </Typography>
+                  )}
+                  <Box sx={{
+                    bgcolor: 'action.selected', borderRadius: 3, px: 0.75, minWidth: 18,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Typography variant="caption" sx={{ fontSize: '0.7rem', fontWeight: 600 }}>
+                      {matches.length}
+                    </Typography>
+                  </Box>
+                </Box>
+
+                {/* Match lines */}
+                {!isCollapsed && matches.map((match, j) => {
+                  let snippet = match.snippet;
+                  const qi = (searchCaseSensitive ? snippet : snippet.toLowerCase()).indexOf(searchCaseSensitive ? searchQuery : searchQuery.toLowerCase());
+                  if (qi > 30) snippet = '...' + snippet.substring(qi - 20);
+                  if (snippet.length > 120) snippet = snippet.substring(0, 120) + '...';
+
+                  return (
+                    <Box
+                      key={j}
+                      onClick={() => openFile({ name: fileName, fullPath: filePath, type: 'file', size: 0, modified: null, extension: fileName.includes('.') ? '.' + fileName.split('.').pop() : '' })}
+                      sx={{
+                        display: 'flex', alignItems: 'baseline', height: 24,
+                        pl: 4.5, pr: 1.5, gap: 0.5,
+                        cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, overflow: 'hidden',
+                      }}
+                    >
+                      <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, width: 32, textAlign: 'right', fontSize: '0.7rem' }}>
+                        {match.line}
+                      </Typography>
+                      <Typography variant="caption" component="div" noWrap sx={{
+                        fontFamily: 'monospace', fontSize: '0.75rem', color: 'text.secondary', flex: 1,
+                      }}>
+                        <Highlight text={snippet} query={searchQuery} caseSensitive={searchCaseSensitive} />
+                      </Typography>
+                    </Box>
+                  );
+                })}
+              </Box>
+            );
+          })}
+        </Box>
+      )}
+
+      {/* File list (hidden when search is active) */}
       {!searchActive && (
         <>
           {isLoading ? (
