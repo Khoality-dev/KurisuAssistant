@@ -12,6 +12,8 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import {
@@ -406,6 +408,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   );
   // TTS settings are read fresh from storage in MessageBubble.handleTTS()
   const [showAdministrator, setShowAdministrator] = useState<boolean>(storage.getShowAdministrator());
+  const [errorToast, setErrorToast] = useState<string | null>(null);
 
   // Amplitude state (updated via ref to avoid re-renders, sent to character window via IPC)
   const amplitudeRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false, isThinking: false });
@@ -1038,15 +1041,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
   const handleError = useCallback((event: ErrorEvent) => {
     console.error('WebSocket error:', event.error);
-    setStreamingMessages(prev => {
-      if (prev.length === 0) return prev;
-      const updated = [...prev];
-      updated[updated.length - 1] = {
-        ...updated[updated.length - 1],
-        content: 'Error: ' + event.error,
-      };
-      return updated;
-    });
+    setErrorToast(event.error);
+    setStreamingMessages([]);
     cancelStreamUpdate();
     setStreamingContent('');
     setStreamingThinking('');
@@ -1537,6 +1533,16 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           }}
         />
       )}
+      <Snackbar
+        open={!!errorToast}
+        autoHideDuration={6000}
+        onClose={() => setErrorToast(null)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert onClose={() => setErrorToast(null)} severity="error" variant="filled" sx={{ width: '100%' }}>
+          {errorToast}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

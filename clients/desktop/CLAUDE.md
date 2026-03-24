@@ -111,7 +111,7 @@ src/config.ts             — API URL config (reads dynamically from storage)
 - Same-role chunks accumulated into single bubble; role/agent change → new bubble
 - Display via `requestAnimationFrame` batching
 - On DoneEvent: `loadConversation()` refreshes store from DB, clears streamingMessages
-- **Reconnect**: Manual only — user clicks the status dot in the top bar when disconnected. `wsManager.reconnect()` triggers `connect()`. On `ConnectedEvent` with `chat_active`, loads persisted messages from DB (incremental persistence — each message saved server-side on role boundary) and enters streaming mode. No auto-retry, no server-side replay needed.
+- **Reconnect**: Auto-reconnect with exponential backoff (1s→2s→4s...30s cap). On WebSocket 4001 (auth failure), auto-refreshes token via `POST /auth/refresh` then reconnects. Manual reconnect still available via status dot. On `ConnectedEvent` with `chat_active`, loads persisted messages from DB (incremental persistence — each message saved server-side on role boundary) and enters streaming mode.
 - Typing indicator: bouncing dots inside bubble before first chunk; "Done" checkmark after
 
 ### Streaming TTS (Always On)
@@ -153,8 +153,10 @@ Two-level state managed by `useMicStore` (Zustand, `src/store/micStore.ts`): `in
 - Mapping cleared on logout (`clearAllAgentConversations`) and agent delete (`clearAgentConversationId`)
 
 ### Auth Flow
-- Login → POST /login → JWT token → stored in apiClient + localStorage (if rememberMe)
-- App startup: `initializeAuth()` → validates saved token via GET /users/me
+- Login → POST /login → access token (1h) + refresh token (30d) → stored in apiClient + localStorage (if rememberMe)
+- App startup: `initializeAuth()` → sets refresh token on apiClient → validates via GET /users/me → auto-refreshes on 401 via axios interceptor
+- Token refresh: `POST /auth/refresh` with refresh_token body → returns new access_token. Coalesced (concurrent 401s share one refresh call). On success, persists new token if rememberMe. On failure, triggers logout.
+- WebSocket auth failure (4001): wsManager auto-refreshes via apiClient.tryRefresh() then reconnects
 
 ### Image Handling
 - Upload: base64 images sent in `chat_request` WebSocket event → backend saves to per-user directory, returns UUIDs via `StreamChunkEvent.images`
@@ -213,7 +215,7 @@ Separate Electron window (toggleable via Face icon in top bar). Opens as indepen
 
 ## Storage Keys (localStorage)
 
-`kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_tts_emo_audio`, `kurisu_tts_emo_alpha`, `kurisu_tts_use_emo_text`, `kurisu_selected_agent_id`, `kurisu_agent_conversations`, `kurisu_media_volume`
+`kurisu_auth_token`, `kurisu_refresh_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_tts_emo_audio`, `kurisu_tts_emo_alpha`, `kurisu_tts_use_emo_text`, `kurisu_selected_agent_id`, `kurisu_agent_conversations`, `kurisu_media_volume`
 
 ## Client-Side MCP Servers
 

@@ -5,6 +5,7 @@
 
 const STORAGE_KEYS = {
   AUTH_TOKEN: 'kurisu_auth_token',
+  REFRESH_TOKEN: 'kurisu_refresh_token',
   REMEMBER_ME: 'kurisu_remember_me',
   SELECTED_MODEL: 'kurisu_selected_model',
   TTS_VOICE: 'kurisu_tts_voice',
@@ -51,6 +52,31 @@ export const storage = {
       localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
     } catch (error) {
       console.error('Failed to clear token:', error);
+    }
+  },
+
+  setRefreshToken(token: string): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, token);
+    } catch (error) {
+      console.error('Failed to save refresh token:', error);
+    }
+  },
+
+  getRefreshToken(): string | null {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+    } catch (error) {
+      console.error('Failed to get refresh token:', error);
+      return null;
+    }
+  },
+
+  clearRefreshToken(): void {
+    try {
+      localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+    } catch (error) {
+      console.error('Failed to clear refresh token:', error);
     }
   },
 

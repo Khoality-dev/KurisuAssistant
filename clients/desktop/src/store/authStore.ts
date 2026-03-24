@@ -15,7 +15,7 @@ interface AuthState {
   setRememberMe: (remember: boolean) => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: false,
   user: null,
   rememberMe: storage.getRememberMe(),
@@ -23,12 +23,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   login: async (username: string, password: string, rememberMe: boolean) => {
     const response = await apiClient.login(username, password);
 
-    // Save token to storage if remember me is enabled
     if (rememberMe) {
       storage.setToken(response.access_token);
+      storage.setRefreshToken(response.refresh_token);
       storage.setRememberMe(true);
     } else {
       storage.clearToken();
+      storage.clearRefreshToken();
       storage.setRememberMe(false);
     }
 
@@ -39,12 +40,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   register: async (username: string, password: string, email?: string, rememberMe: boolean = false) => {
     const response = await apiClient.register(username, password, email);
 
-    // Save token to storage if remember me is enabled
     if (rememberMe) {
       storage.setToken(response.access_token);
+      storage.setRefreshToken(response.refresh_token);
       storage.setRememberMe(true);
     } else {
       storage.clearToken();
+      storage.clearRefreshToken();
       storage.setRememberMe(false);
     }
 
@@ -55,6 +57,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   logout: () => {
     apiClient.clearToken();
     storage.clearToken();
+    storage.clearRefreshToken();
     storage.setRememberMe(false);
     storage.clearAllAgentConversations();
     set({ isAuthenticated: false, user: null, rememberMe: false });
@@ -67,24 +70,36 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   initializeAuth: async () => {
     const token = storage.getToken();
+    const refreshToken = storage.getRefreshToken();
     const rememberMe = storage.getRememberMe();
 
-    if (token && rememberMe) {
-      try {
-        // Set token in API client
-        apiClient.setToken(token);
+    // Wire up auth failure callback so 401s trigger logout
+    apiClient.onAuthFailure(() => {
+      get().logout();
+    });
 
-        // Verify token is still valid by fetching user profile
-        const user = await apiClient.getUserProfile();
-        set({ isAuthenticated: true, user, rememberMe });
-      } catch (error) {
-        // Token is invalid or expired, clear it
-        console.error('Stored token is invalid:', error);
-        storage.clearToken();
-        storage.setRememberMe(false);
-        apiClient.clearToken();
-        set({ isAuthenticated: false, user: null, rememberMe: false });
-      }
+    if (!rememberMe || (!token && !refreshToken)) return;
+
+    // Set refresh token first so auto-refresh can work
+    if (refreshToken) {
+      apiClient.setRefreshToken(refreshToken);
+    }
+
+    if (token) {
+      apiClient.setToken(token);
+    }
+
+    try {
+      // getUserProfile will auto-refresh via the 401 interceptor if token expired
+      const user = await apiClient.getUserProfile();
+      set({ isAuthenticated: true, user, rememberMe });
+    } catch {
+      // Both tokens are invalid — clear everything
+      storage.clearToken();
+      storage.clearRefreshToken();
+      storage.setRememberMe(false);
+      apiClient.clearToken();
+      set({ isAuthenticated: false, user: null, rememberMe: false });
     }
   },
 

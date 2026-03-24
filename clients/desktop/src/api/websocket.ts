@@ -202,6 +202,10 @@ class WebSocketManager {
   private _connectionStatus: ConnectionStatus = 'disconnected';
   private _statusHandlers: Set<StatusHandler> = new Set();
   private _pendingMessages: string[] = [];
+  private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private _reconnectAttempt = 0;
+  private _maxReconnectDelay = 30000; // 30s cap
+  private _intentionalClose = false;
 
   /**
    * Set the authentication token.
@@ -213,10 +217,15 @@ class WebSocketManager {
   }
 
   /**
-   * Clear the authentication token.
+   * Clear the authentication token and stop reconnection.
    */
   clearToken() {
     this.token = null;
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+    this._reconnectAttempt = 0;
   }
 
   /**
@@ -235,6 +244,7 @@ class WebSocketManager {
       throw new Error('No authentication token set');
     }
 
+    this._intentionalClose = false;
     this.isConnecting = true;
     this.setStatus('connecting');
     this.connectionPromise = new Promise((resolve, reject) => {
@@ -248,6 +258,7 @@ class WebSocketManager {
 
       this.ws.onopen = () => {
         this.isConnecting = false;
+        this._reconnectAttempt = 0;
         this.setStatus('connected');
 
         // Flush queued messages
@@ -283,21 +294,61 @@ class WebSocketManager {
         reject(error);
       };
 
-      this.ws.onclose = () => {
+      this.ws.onclose = (event) => {
         this.isConnecting = false;
         this.ws = null;
         this.connectionPromise = null;
         this.setStatus('disconnected');
+
+        if (event.code === 4001) {
+          // Auth failure — try refresh then reconnect
+          this._handleAuthFailure();
+          return;
+        }
+
+        // Auto-reconnect on unexpected close (not intentional disconnect)
+        if (!this._intentionalClose && this.token) {
+          this._scheduleReconnect();
+        }
       };
     });
 
     return this.connectionPromise;
   }
 
+  private _scheduleReconnect() {
+    if (this._reconnectTimer) return;
+    // Exponential backoff: 1s, 2s, 4s, 8s, ... capped at 30s
+    const delay = Math.min(1000 * Math.pow(2, this._reconnectAttempt), this._maxReconnectDelay);
+    this._reconnectAttempt++;
+    console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${this._reconnectAttempt})`);
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null;
+      this.connect().catch(() => {});
+    }, delay);
+  }
+
+  private async _handleAuthFailure() {
+    try {
+      // Dynamic import to avoid circular dependency
+      const { apiClient } = await import('./client');
+      await apiClient.tryRefresh();
+      // tryRefresh calls wsManager.setToken which triggers connect()
+    } catch {
+      console.error('[WebSocket] Token refresh failed, auth required');
+    }
+  }
+
   /**
    * Disconnect from the WebSocket server.
    */
   disconnect() {
+    this._intentionalClose = true;
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+    this._reconnectAttempt = 0;
     if (this.ws) {
       this.ws.close(1000, 'Client disconnect');
       this.ws = null;

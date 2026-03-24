@@ -34,6 +34,9 @@ import type {
 class APIClient {
   private client: AxiosInstance;
   private token: string | null = null;
+  private refreshToken: string | null = null;
+  private refreshPromise: Promise<string> | null = null;
+  private _onAuthFailure: (() => void) | null = null;
 
   constructor() {
     this.client = axios.create({
@@ -45,6 +48,35 @@ class APIClient {
       reqConfig.baseURL = config.apiBaseUrl;
       return reqConfig;
     });
+
+    // Auto-refresh on 401 responses
+    this.client.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const original = error.config;
+        if (
+          error.response?.status === 401 &&
+          !original._isRetry &&
+          !original.url?.includes('/auth/refresh') &&
+          !original.url?.includes('/login')
+        ) {
+          original._isRetry = true;
+          try {
+            const newToken = await this.tryRefresh();
+            original.headers['Authorization'] = `Bearer ${newToken}`;
+            return this.client(original);
+          } catch {
+            // Refresh failed — force logout
+            this._onAuthFailure?.();
+          }
+        }
+        return Promise.reject(error);
+      },
+    );
+  }
+
+  onAuthFailure(callback: () => void) {
+    this._onAuthFailure = callback;
   }
 
   setToken(token: string) {
@@ -52,10 +84,53 @@ class APIClient {
     wsManager.setToken(token);
   }
 
+  setRefreshToken(token: string) {
+    this.refreshToken = token;
+  }
+
   clearToken() {
     this.token = null;
+    this.refreshToken = null;
+    this.refreshPromise = null;
     wsManager.clearToken();
     wsManager.disconnect();
+  }
+
+  getToken(): string | null {
+    return this.token;
+  }
+
+  getRefreshTokenValue(): string | null {
+    return this.refreshToken;
+  }
+
+  /**
+   * Try to refresh the access token. Coalesces concurrent calls.
+   */
+  async tryRefresh(): Promise<string> {
+    if (this.refreshPromise) return this.refreshPromise;
+
+    this.refreshPromise = (async () => {
+      if (!this.refreshToken) throw new Error('No refresh token');
+      const response = await this.client.post<{ access_token: string; token_type: string }>(
+        '/auth/refresh',
+        { refresh_token: this.refreshToken },
+      );
+      const newToken = response.data.access_token;
+      this.token = newToken;
+      wsManager.setToken(newToken);
+
+      // Persist if remember-me is on
+      const { storage } = await import('../utils/storage');
+      if (storage.getRememberMe()) {
+        storage.setToken(newToken);
+      }
+      return newToken;
+    })().finally(() => {
+      this.refreshPromise = null;
+    });
+
+    return this.refreshPromise;
   }
 
   private getHeaders() {
@@ -73,6 +148,7 @@ class APIClient {
 
     const response = await this.client.post<LoginResponse>('/login', formData);
     this.setToken(response.data.access_token);
+    this.setRefreshToken(response.data.refresh_token);
     return response.data;
   }
 
@@ -86,6 +162,7 @@ class APIClient {
 
     const response = await this.client.post<LoginResponse>('/register', formData);
     this.setToken(response.data.access_token);
+    this.setRefreshToken(response.data.refresh_token);
     return response.data;
   }
 
