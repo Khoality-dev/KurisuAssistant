@@ -281,7 +281,7 @@ export const FileTreeSidebar: React.FC = () => {
               noWrap
               sx={{
                 fontWeight: 700,
-                fontSize: '0.65rem',
+                fontSize: '0.8rem',
                 letterSpacing: '0.08em',
                 textTransform: 'uppercase',
                 color: 'text.secondary',
@@ -315,7 +315,7 @@ export const FileTreeSidebar: React.FC = () => {
               )}
 
               {!hasSearchResults && !isSearching && (
-                <Typography sx={{ textAlign: 'center', py: 3, color: 'text.secondary', fontSize: '0.75rem' }}>
+                <Typography sx={{ textAlign: 'center', py: 3, color: 'text.secondary', fontSize: '0.85rem' }}>
                   No results found
                 </Typography>
               )}
@@ -334,7 +334,7 @@ export const FileTreeSidebar: React.FC = () => {
                   }}
                 >
                   {getFileIcon(item.name, item.type)}
-                  <Typography variant="body2" noWrap sx={{ fontSize: '0.75rem', flex: 1 }}>
+                  <Typography variant="body2" noWrap sx={{ fontSize: '0.85rem', flex: 1 }}>
                     <Highlight text={item.name} query={searchQuery} caseSensitive={searchCaseSensitive} />
                   </Typography>
                 </Box>
@@ -359,14 +359,14 @@ export const FileTreeSidebar: React.FC = () => {
                         cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' },
                       }}
                     >
-                      <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', width: 10, textAlign: 'center' }}>
+                      <Typography sx={{ fontSize: '0.85rem', color: 'text.secondary', width: 10, textAlign: 'center' }}>
                         {isCollapsed ? '>' : 'v'}
                       </Typography>
                       {getFileIcon(fileName, 'file')}
-                      <Typography variant="body2" noWrap sx={{ fontSize: '0.75rem', fontWeight: 600, flex: 1 }}>
+                      <Typography variant="body2" noWrap sx={{ fontSize: '0.85rem', fontWeight: 600, flex: 1 }}>
                         {nameMatched ? <Highlight text={fileName} query={searchQuery} caseSensitive={searchCaseSensitive} /> : fileName}
                       </Typography>
-                      <Typography variant="caption" sx={{ fontSize: '0.6rem', color: 'text.secondary', pr: 0.5 }}>
+                      <Typography variant="caption" sx={{ fontSize: '0.85rem', color: 'text.secondary', pr: 0.5 }}>
                         {matches.length}
                       </Typography>
                     </Box>
@@ -388,10 +388,10 @@ export const FileTreeSidebar: React.FC = () => {
                             cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, overflow: 'hidden',
                           }}
                         >
-                          <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'text.secondary', flexShrink: 0, width: 28, textAlign: 'right' }}>
+                          <Typography variant="caption" sx={{ fontSize: '0.8rem', color: 'text.secondary', flexShrink: 0, width: 28, textAlign: 'right' }}>
                             {match.line}
                           </Typography>
-                          <Typography variant="caption" noWrap sx={{ fontSize: '0.65rem', fontFamily: 'monospace', color: 'text.secondary', flex: 1 }}>
+                          <Typography variant="caption" noWrap sx={{ fontSize: '0.8rem', fontFamily: 'monospace', color: 'text.secondary', flex: 1 }}>
                             <Highlight text={snippet} query={searchQuery} caseSensitive={searchCaseSensitive} />
                           </Typography>
                         </Box>
