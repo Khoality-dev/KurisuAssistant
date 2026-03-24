@@ -395,51 +395,46 @@ async function executeHostEdit(args: Record<string, unknown>): Promise<ToolResul
     if (newText === undefined || newText === null) return err('new_text is required.');
     if (!readFiles.has(path.resolve(filePath))) return err('Must read the file with host_read before editing.');
 
-    // Show diff to user for approval
-    const fileName = path.basename(filePath);
-    const diffPreview = buildDiffPreview(oldText, newText);
-    const mainWindow = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
-    if (mainWindow) {
-      const result = await dialog.showMessageBox(mainWindow, {
-        type: 'question',
-        title: `Edit: ${fileName}`,
-        message: `An agent wants to edit ${fileName}:`,
-        detail: diffPreview,
-        buttons: ['Reject', 'Apply'],
-        defaultId: 1,
-        cancelId: 0,
-      });
-      if (result.response !== 1) {
-        return err('Edit rejected by user.');
-      }
-    }
+    // Read the full file to build diff context
+    const resolved = path.resolve(filePath);
+    const fullContent = fs.readFileSync(resolved, { encoding: 'utf-8' });
+    if (!fullContent.includes(oldText)) return err('old_text not found in file.');
+    const newContent = fullContent.replace(oldText, newText);
 
-    fsOps.editFile(filePath, oldText, newText);
+    // Send diff to renderer for approval
+    const mainWindow = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+    if (!mainWindow) return err('No window available for diff review.');
+
+    const approved = await new Promise<boolean>((resolve) => {
+      const reviewId = `edit-${Date.now()}`;
+      const handler = (_event: any, id: string, accepted: boolean) => {
+        if (id === reviewId) {
+          ipcMain.removeListener('host-tools:diff-result', handler);
+          resolve(accepted);
+        }
+      };
+      ipcMain.on('host-tools:diff-result', handler);
+
+      // Timeout after 5 minutes
+      setTimeout(() => {
+        ipcMain.removeListener('host-tools:diff-result', handler);
+        resolve(false);
+      }, 300000);
+
+      mainWindow.webContents.send('host-tools:diff-review', {
+        reviewId,
+        filePath,
+        fileName: path.basename(filePath),
+        originalContent: fullContent,
+        modifiedContent: newContent,
+      });
+    });
+
+    if (!approved) return err('Edit rejected by user.');
+
+    fs.writeFileSync(resolved, newContent, { encoding: 'utf-8' });
     return ok({ status: 'ok', path: filePath });
   } catch (e: any) { return err(e.message); }
-}
-
-function buildDiffPreview(oldText: string, newText: string): string {
-  const oldLines = oldText.split('\n');
-  const newLines = newText.split('\n');
-  const lines: string[] = [];
-
-  // Show removed lines
-  for (const line of oldLines) {
-    lines.push(`- ${line}`);
-  }
-  lines.push('---');
-  // Show added lines
-  for (const line of newLines) {
-    lines.push(`+ ${line}`);
-  }
-
-  // Truncate if too long
-  const preview = lines.join('\n');
-  if (preview.length > 2000) {
-    return preview.substring(0, 2000) + '\n... (truncated)';
-  }
-  return preview;
 }
 
 async function executeHostSearch(args: Record<string, unknown>, allowedPaths: string[]): Promise<ToolResult> {

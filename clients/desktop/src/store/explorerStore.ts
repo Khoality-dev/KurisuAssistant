@@ -59,6 +59,13 @@ interface ExplorerState {
   saveFile: (index: number) => Promise<void>;
   setViewMode: (mode: ExplorerViewMode) => void;
   revealSelection: ExplorerState['selections'][number] | null;
+  diffReview: {
+    reviewId: string;
+    filePath: string;
+    fileName: string;
+    originalContent: string;
+    modifiedContent: string;
+  } | null;
   addSelection: (selection: Omit<ExplorerState['selections'][number], 'id'>) => void;
   removeSelection: (id: string) => void;
   setLiveSelections: (sels: ExplorerState['liveSelections']) => void;
@@ -138,6 +145,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   selections: [],
   liveSelections: [],
   revealSelection: null,
+  diffReview: null,
 
   navigate: async (navPath: string) => {
     set({ isLoading: true });

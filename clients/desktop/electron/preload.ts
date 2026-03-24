@@ -65,6 +65,13 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('host-tools:remove-tool-policy', toolName),
     getSessionApprovals: () => ipcRenderer.invoke('host-tools:get-session-approvals'),
     clearSessionApprovals: () => ipcRenderer.invoke('host-tools:clear-session-approvals'),
+    onDiffReview: (cb: (data: { reviewId: string; filePath: string; fileName: string; originalContent: string; modifiedContent: string }) => void) => {
+      const handler = (_event: any, data: any) => cb(data);
+      ipcRenderer.on('host-tools:diff-review', handler);
+      return () => ipcRenderer.removeListener('host-tools:diff-review', handler);
+    },
+    sendDiffResult: (reviewId: string, accepted: boolean) =>
+      ipcRenderer.send('host-tools:diff-result', reviewId, accepted),
   },
 
   explorer: {

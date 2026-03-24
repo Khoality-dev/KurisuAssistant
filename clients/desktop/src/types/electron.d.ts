@@ -51,6 +51,8 @@ export interface HostToolsAPI {
   removeToolPolicy: (toolName: string) => Promise<void>;
   getSessionApprovals: () => Promise<string[]>;
   clearSessionApprovals: () => Promise<void>;
+  onDiffReview: (cb: (data: { reviewId: string; filePath: string; fileName: string; originalContent: string; modifiedContent: string }) => void) => () => void;
+  sendDiffResult: (reviewId: string, accepted: boolean) => void;
 }
 
 export interface ExplorerAPI {

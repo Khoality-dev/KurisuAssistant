@@ -179,7 +179,7 @@ async function handleGetOpenFiles(): Promise<ToolResult> {
       path: f.path,
       name: f.name,
       active: i === activeFileIndex,
-      dirty: f.dirty || false,
+      dirty: f.content !== f.originalContent,
     })),
     count: openFiles.length,
   });
@@ -230,5 +230,11 @@ export function initAppToolsHandler(): void {
       result = err(e.message || String(e));
     }
     window.electron.appTools.sendResult(data.callId, result);
+  });
+
+  // Listen for diff review requests from host_edit
+  window.electron.hostTools?.onDiffReview?.((data) => {
+    useExplorerStore.setState({ diffReview: data });
+    useLayoutStore.getState().setActivePage('workspace');
   });
 }

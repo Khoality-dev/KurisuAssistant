@@ -5,11 +5,12 @@ import {
   InsertDriveFileOutlined as FileIcon,
   WarningAmber as WarningIcon,
 } from '@mui/icons-material';
-import Editor, { type OnMount } from '@monaco-editor/react';
+import Editor, { DiffEditor, type OnMount } from '@monaco-editor/react';
 import { useExplorerStore } from '../../store/explorerStore';
 
 export const FileEditor: React.FC = () => {
   const theme = useTheme();
+  const diffReview = useExplorerStore((s) => s.diffReview);
   const isDark = theme.palette.mode === 'dark';
   const { openFiles, activeFileIndex, updateFileContent, saveFile } = useExplorerStore();
   const editorRef = useRef<any>(null);
@@ -136,6 +137,62 @@ export const FileEditor: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [saveFile]);
+
+  // Diff review mode — agent wants to edit a file
+  if (diffReview) {
+    const handleDiffResponse = (accepted: boolean) => {
+      window.electron?.hostTools?.sendDiffResult(diffReview.reviewId, accepted);
+      useExplorerStore.setState({ diffReview: null });
+    };
+
+    // Detect language from file extension
+    const ext = diffReview.fileName.split('.').pop() || '';
+    const langMap: Record<string, string> = {
+      ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
+      py: 'python', rs: 'rust', go: 'go', java: 'java', json: 'json',
+      html: 'html', css: 'css', scss: 'scss', md: 'markdown', yml: 'yaml', yaml: 'yaml',
+      sh: 'shell', bash: 'shell', sql: 'sql', xml: 'xml', c: 'c', cpp: 'cpp', h: 'cpp',
+    };
+    const language = langMap[ext] || 'plaintext';
+
+    return (
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Box sx={{
+          px: 2, py: 1, borderBottom: 1, borderColor: 'divider',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            Review edit: {diffReview.fileName}
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button size="small" variant="outlined" color="error" onClick={() => handleDiffResponse(false)}>
+              Reject
+            </Button>
+            <Button size="small" variant="contained" color="success" onClick={() => handleDiffResponse(true)}>
+              Accept
+            </Button>
+          </Box>
+        </Box>
+        <Box sx={{ flex: 1 }}>
+          <DiffEditor
+            original={diffReview.originalContent}
+            modified={diffReview.modifiedContent}
+            language={language}
+            theme={isDark ? 'vs-dark' : 'light'}
+            options={{
+              readOnly: true,
+              renderSideBySide: true,
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              fontSize: 13,
+              lineHeight: 20,
+              automaticLayout: true,
+            }}
+          />
+        </Box>
+      </Box>
+    );
+  }
 
   // Empty state
   if (!activeFile) {
