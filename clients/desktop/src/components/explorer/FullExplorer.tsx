@@ -485,7 +485,6 @@ export const FullExplorer: React.FC = () => {
         </Box>
       </Box>
 
-      {/* Search panel */}
       <SearchPanel
         searchRoot={currentPath}
         visible
@@ -494,6 +493,7 @@ export const FullExplorer: React.FC = () => {
         inputRef={searchInputRef}
         onOpenFile={(fullPath, name) => openFile({ name, fullPath, type: 'file', size: 0, modified: null, extension: name.includes('.') ? '.' + name.split('.').pop() : '' })}
         onOpenDirectory={(fullPath) => loadDirectory(fullPath)}
+        inline
       />
 
       {/* File list */}

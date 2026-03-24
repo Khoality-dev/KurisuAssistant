@@ -68,6 +68,8 @@ interface SearchPanelProps {
   showToggles?: boolean;
   /** Called when search results become active/inactive */
   onSearchActiveChange?: (active: boolean) => void;
+  /** Inline mode — search bar has no border/padding, suitable for embedding in a toolbar */
+  inline?: boolean;
 }
 
 export const SearchPanel: React.FC<SearchPanelProps> = ({
@@ -77,6 +79,7 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({
   compact = false,
   visible,
   onSearchActiveChange,
+  inline = false,
   onClose,
   inputRef: externalInputRef,
   showToggles = true,
@@ -179,7 +182,7 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: searchResults !== null ? 1 : undefined }}>
       {/* Search bar */}
-      <Box sx={{ px: compact ? 0.5 : 1, py: 0.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 0.25 }}>
+      <Box sx={{ px: inline ? 0 : compact ? 0.5 : 1, py: inline ? 0 : 0.5, borderBottom: inline ? 0 : 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 0.25 }}>
         <TextField
           inputRef={inputRef}
           size="small"
