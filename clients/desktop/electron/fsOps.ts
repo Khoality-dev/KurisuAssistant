@@ -147,7 +147,11 @@ export function search(
       const lines = stdout.trim().split('\n').filter(Boolean).slice(0, maxResults);
       const matches: SearchMatch[] = [];
       for (const line of lines) {
-        const firstColon = line.indexOf(':');
+        // rg output: path:line:content
+        // On Windows, skip drive letter colon (e.g. "D:\foo\bar.txt:5:hello")
+        let start = 0;
+        if (/^[A-Za-z]:/.test(line)) start = 2;
+        const firstColon = line.indexOf(':', start);
         const secondColon = line.indexOf(':', firstColon + 1);
         if (firstColon === -1 || secondColon === -1) continue;
         matches.push({
