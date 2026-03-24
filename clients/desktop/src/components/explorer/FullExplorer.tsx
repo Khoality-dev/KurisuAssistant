@@ -33,37 +33,13 @@ import {
   Home as HomeIcon,
   ViewList as ListViewIcon,
   GridView as GridViewIcon,
-  Search as SearchIcon,
-  Close as CloseIcon,
 } from '@mui/icons-material';
-import InputAdornment from '@mui/material/InputAdornment';
 import { getFileIcon } from './FileIcon';
+import { SearchPanel } from './SearchPanel';
 import { useExplorerStore, type FileEntry } from '../../store/explorerStore';
 
 const OPERATING_SYSTEM = window.electron?.platform ?? 'win32';
 const SEP = OPERATING_SYSTEM === 'win32' ? '\\' : '/';
-
-/** Render text with query matches highlighted. */
-const Highlight: React.FC<{ text: string; query: string; caseSensitive?: boolean }> = ({ text, query, caseSensitive = false }) => {
-  if (!query) return <span>{text}</span>;
-  const haystack = caseSensitive ? text : text.toLowerCase();
-  const needle = caseSensitive ? query : query.toLowerCase();
-  const parts: React.ReactNode[] = [];
-  let cursor = 0;
-  let idx = haystack.indexOf(needle, cursor);
-  while (idx !== -1) {
-    if (idx > cursor) parts.push(text.substring(cursor, idx));
-    parts.push(
-      <span key={idx} style={{ backgroundColor: 'rgba(255,213,79,0.4)', borderRadius: 2, padding: '0 1px' }}>
-        {text.substring(idx, idx + query.length)}
-      </span>
-    );
-    cursor = idx + query.length;
-    idx = haystack.indexOf(needle, cursor);
-  }
-  if (cursor < text.length) parts.push(text.substring(cursor));
-  return <span>{parts}</span>;
-};
 
 /** Join path segments, handling trailing separators and normalizing slashes. */
 function joinPath(base: string, ...parts: string[]): string {
@@ -107,17 +83,7 @@ export const FullExplorer: React.FC = () => {
   const [newItemType, setNewItemType] = useState<'file' | 'folder' | null>(null);
   const [editingPath, setEditingPath] = useState(false);
   const [pathInput, setPathInput] = useState('');
-  const [filterText, setFilterText] = useState('');
-  const [searchResults, setSearchResults] = useState<{
-    names: Array<{ path: string; name: string; type: 'file' | 'directory' }>;
-    matches: Array<{ path: string; line: number; snippet: string }>;
-  } | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const contentCleanupRef = useRef<Array<() => void>>([]);
-  const [caseSensitive, setCaseSensitive] = useState(false);
-  const [wholeWord, setWholeWord] = useState(false);
-  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
+  const [showSearch, setShowSearch] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; entry: FileEntry } | null>(null);
   const [bgContextMenu, setBgContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
@@ -130,11 +96,7 @@ export const FullExplorer: React.FC = () => {
     if (!window.electron?.explorer) return;
     setIsLoading(true);
     setSelectedEntries(new Set());
-    setFilterText('');
-    setSearchResults(null);
-    window.electron?.explorer?.searchContentCancel?.();
-    contentCleanupRef.current.forEach((fn) => fn());
-    contentCleanupRef.current = [];
+    setShowSearch(false);
     try {
       const result = await window.electron.explorer.listDirectory(dirPath);
       setCurrentPath(result.path);
@@ -290,8 +252,11 @@ export const FullExplorer: React.FC = () => {
       // Ctrl+F: focus search bar (works from anywhere)
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault();
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
+        setShowSearch(true);
+        setTimeout(() => {
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        }, 0);
         return;
       }
 
@@ -300,10 +265,7 @@ export const FullExplorer: React.FC = () => {
 
       if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
         e.preventDefault();
-        const visible = filterText
-          ? entries.filter((en) => en.name.toLowerCase().includes(filterText.toLowerCase()))
-          : entries;
-        setSelectedEntries(new Set(visible.map(en => en.fullPath)));
+        setSelectedEntries(new Set(entries.map(en => en.fullPath)));
       } else if (e.key === 'F2') {
         // Rename selected
         const sel = entries.find(en => selectedEntries.has(en.fullPath));
@@ -334,7 +296,7 @@ export const FullExplorer: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [entries, selectedEntries, clipboard, currentPath, filterText]);
+  }, [entries, selectedEntries, clipboard, currentPath]);
 
   // Lasso (rubber-band) selection
   const handleLassoStart = useCallback((e: React.MouseEvent) => {
@@ -421,10 +383,6 @@ export const FullExplorer: React.FC = () => {
     }
   }
 
-  const filteredEntries = filterText
-    ? entries.filter((e) => e.name.toLowerCase().includes(filterText.toLowerCase()))
-    : entries;
-
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Toolbar */}
@@ -509,124 +467,6 @@ export const FullExplorer: React.FC = () => {
           </Breadcrumbs>
         )}
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-          <TextField
-            size="small"
-            inputRef={searchInputRef}
-            placeholder="Search"
-            value={filterText}
-            onChange={(e) => {
-              const value = e.target.value;
-              setFilterText(value);
-              if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-              if (!value.trim()) {
-                setSearchResults(null);
-                setIsSearching(false);
-                return;
-              }
-              setIsSearching(true);
-              setSearchResults({ names: [], matches: [] });
-              // Cancel previous streaming search
-              window.electron?.explorer?.searchContentCancel?.();
-              contentCleanupRef.current.forEach((fn) => fn());
-              contentCleanupRef.current = [];
-
-              searchTimerRef.current = setTimeout(async () => {
-                if (!currentPath || !window.electron?.explorer) {
-                  setIsSearching(false);
-                  return;
-                }
-                const q = value.trim();
-                const opts = { caseSensitive, wholeWord };
-
-                // Phase 1: name matches
-                try {
-                  const names = await window.electron.explorer.searchNames(q, currentPath, opts);
-                  setSearchResults((prev) => ({ names, matches: prev?.matches || [] }));
-                } catch {}
-
-                // Phase 2: streaming content matches
-                const offBatch = window.electron.explorer.onSearchContentBatch((batch) => {
-                  setSearchResults((prev) => ({
-                    names: prev?.names || [],
-                    matches: [...(prev?.matches || []), ...batch],
-                  }));
-                });
-                const offDone = window.electron.explorer.onSearchContentDone(() => {
-                  setIsSearching(false);
-                });
-                contentCleanupRef.current = [offBatch, offDone];
-
-                window.electron.explorer.searchContentStart(q, currentPath, opts);
-              }, 300);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                setFilterText('');
-                setSearchResults(null);
-                setIsSearching(false);
-                if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-                window.electron?.explorer?.searchContentCancel?.();
-                contentCleanupRef.current.forEach((fn) => fn());
-                contentCleanupRef.current = [];
-              }
-            }}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-                  </InputAdornment>
-                ),
-                endAdornment: filterText ? (
-                  <InputAdornment position="end">
-                    {isSearching ? (
-                      <CircularProgress size={14} />
-                    ) : (
-                      <IconButton size="small" onClick={() => { setFilterText(''); setSearchResults(null); }} sx={{ p: 0.25 }}>
-                        <CloseIcon sx={{ fontSize: 14 }} />
-                      </IconButton>
-                    )}
-                  </InputAdornment>
-                ) : undefined,
-              },
-            }}
-            sx={{
-              width: 200,
-              '& .MuiInputBase-input': { fontSize: '0.8rem', py: 0.5 },
-              '& .MuiOutlinedInput-root': { pr: filterText ? 0.5 : 1 },
-            }}
-          />
-          <Tooltip title="Match Case">
-            <IconButton
-              size="small"
-              onClick={() => setCaseSensitive((v) => !v)}
-              sx={{
-                fontSize: '0.75rem', fontWeight: 700, width: 24, height: 24,
-                color: caseSensitive ? 'primary.main' : 'text.disabled',
-                border: 1, borderColor: caseSensitive ? 'primary.main' : 'transparent',
-                borderRadius: 0.5,
-              }}
-            >
-              Aa
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Match Whole Word">
-            <IconButton
-              size="small"
-              onClick={() => setWholeWord((v) => !v)}
-              sx={{
-                fontSize: '0.7rem', fontWeight: 700, width: 24, height: 24,
-                color: wholeWord ? 'primary.main' : 'text.disabled',
-                border: 1, borderColor: wholeWord ? 'primary.main' : 'transparent',
-                borderRadius: 0.5,
-              }}
-            >
-              W
-            </IconButton>
-          </Tooltip>
-        </Box>
-
         <Box sx={{ display: 'flex', gap: 0.25 }}>
           <Tooltip title="List view">
             <IconButton
@@ -649,309 +489,174 @@ export const FullExplorer: React.FC = () => {
         </Box>
       </Box>
 
-      {/* Search results — VS Code style */}
-      {searchResults !== null ? (() => {
-        // Group content matches by file
-        const contentByFile = new Map<string, Array<{ line: number; snippet: string }>>();
-        for (const m of searchResults.matches) {
-          if (!contentByFile.has(m.path)) contentByFile.set(m.path, []);
-          contentByFile.get(m.path)!.push({ line: m.line, snippet: m.snippet });
-        }
+      {/* Search panel */}
+      <SearchPanel
+        searchRoot={currentPath}
+        visible={showSearch}
+        onClose={() => setShowSearch(false)}
+        inputRef={searchInputRef}
+        onOpenFile={(fullPath, name) => openFile({ name, fullPath, type: 'file', size: 0, modified: null, extension: name.includes('.') ? '.' + name.split('.').pop() : '' })}
+        onOpenDirectory={(fullPath) => loadDirectory(fullPath)}
+      />
 
-        // Merge: name-only matches (no content hits) stay as standalone entries.
-        // Files that match by both name and content are shown once under content grouped view.
-        const contentFilePaths = new Set(contentByFile.keys());
-        const nameOnlyMatches = searchResults.names.filter((n) => !contentFilePaths.has(n.path));
-
-        const totalContentMatches = searchResults.matches.length;
-        const totalFiles = contentByFile.size;
-        const hasResults = nameOnlyMatches.length > 0 || totalContentMatches > 0;
-
-        return (
-          <Box sx={{ flex: 1, overflow: 'auto' }}>
-            {/* Summary bar */}
-            {hasResults && (
-              <Box sx={{ px: 2, py: 0.75, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Typography variant="caption" color="text.secondary">
-                  {totalContentMatches} result{totalContentMatches !== 1 ? 's' : ''} in {totalFiles} file{totalFiles !== 1 ? 's' : ''}
-                  {nameOnlyMatches.length > 0 ? ` + ${nameOnlyMatches.length} name match${nameOnlyMatches.length !== 1 ? 'es' : ''}` : ''}
-                </Typography>
-                {isSearching && <CircularProgress size={12} />}
-              </Box>
-            )}
-
-            {!hasResults && (
-              <Typography sx={{ textAlign: 'center', py: 4, color: 'text.secondary', fontSize: '0.85rem' }}>
-                {isSearching ? 'Searching...' : 'No results found.'}
-              </Typography>
-            )}
-
-            {/* Name-only matches (files/folders with no content hits) */}
-            {nameOnlyMatches.map((item, i) => {
-              const relativePath = item.path.startsWith(currentPath)
-                ? item.path.substring(currentPath.length).replace(/^[\\/]/, '')
-                : item.path;
-              return (
-                <Box
-                  key={`name-${i}`}
-                  onClick={() => item.type === 'directory' ? loadDirectory(item.path) : openFile({
-                    name: item.name, fullPath: item.path, type: 'file', size: 0, modified: null,
-                    extension: item.name.includes('.') ? '.' + item.name.split('.').pop() : '',
-                  })}
-                  sx={{
-                    px: 1.5, py: 0.5, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', gap: 1,
-                    '&:hover': { bgcolor: 'action.hover' },
-                  }}
-                >
-                  {getFileIcon(item.name, item.type === 'directory')}
-                  <Typography variant="body2" sx={{ fontSize: '0.8rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    <Highlight text={relativePath} query={filterText} caseSensitive={caseSensitive} />
-                  </Typography>
-                </Box>
-              );
-            })}
-
-            {/* Content matches grouped by file (includes files that also match by name) */}
-            {Array.from(contentByFile.entries()).map(([filePath, matches]) => {
-              const fileName = filePath.split(/[\\/]/).pop() || filePath;
-              const relDir = filePath.startsWith(currentPath)
-                ? filePath.substring(currentPath.length).replace(/^[\\/]/, '').replace(/[\\/][^\\/]+$/, '')
-                : filePath.replace(/[\\/][^\\/]+$/, '');
-              const isCollapsed = collapsedFiles.has(filePath);
-              const nameMatched = searchResults.names.some((n) => n.path === filePath);
-
-              return (
-                <Box key={filePath}>
-                  {/* File header */}
+      {/* File list */}
+      {!showSearch && (
+        <>
+          {isLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+              <CircularProgress size={28} />
+            </Box>
+          ) : viewMode === 'grid' ? (
+            /* Grid/icon view */
+            <Box
+              ref={containerRef}
+              onMouseDown={handleLassoStart}
+              sx={{ flex: 1, overflow: 'auto', p: 2, position: 'relative' }}
+              onClick={(e) => {
+                if (lassoDragged.current) { lassoDragged.current = false; return; }
+                if (e.shiftKey || e.ctrlKey || e.metaKey) return;
+                if (!(e.target as HTMLElement).closest('[data-entry]')) {
+                  setSelectedEntries(new Set());
+                }
+              }}
+              onContextMenu={(e) => {
+                if ((e.target as HTMLElement).closest('[data-entry]')) return;
+                e.preventDefault();
+                if (currentPath) {
+                  setBgContextMenu({ mouseX: e.clientX, mouseY: e.clientY });
+                }
+              }}
+            >
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {entries.map((entry) => (
                   <Box
-                    onClick={() => setCollapsedFiles((prev) => {
-                      const next = new Set(prev);
-                      next.has(filePath) ? next.delete(filePath) : next.add(filePath);
-                      return next;
-                    })}
+                    key={entry.fullPath}
+                    data-entry
+                    data-entry-path={entry.fullPath}
+                    onClick={(e) => handleEntryClick(e, entry)}
+                    onDoubleClick={() => handleEntryDoubleClick(entry)}
+                    onContextMenu={(e) => handleContextMenu(e, entry)}
                     sx={{
-                      px: 1, py: 0.5, cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', gap: 0.5,
+                      width: 96,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      bgcolor: selectedEntries.has(entry.fullPath) ? 'action.selected' : undefined,
+                      alignItems: 'center',
+                      gap: 0.5,
+                      p: 1,
+                      borderRadius: 1,
+                      cursor: 'pointer',
+                      userSelect: 'none',
                       '&:hover': { bgcolor: 'action.hover' },
-                      position: 'sticky', top: 0, bgcolor: 'background.paper', zIndex: 1,
+                      transition: 'background-color 100ms ease',
                     }}
                   >
-                    <Typography sx={{ fontSize: '0.7rem', color: 'text.secondary', width: 12, textAlign: 'center', userSelect: 'none' }}>
-                      {isCollapsed ? '>' : 'v'}
-                    </Typography>
-                    {getFileIcon(fileName, false)}
-                    <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
-                      {nameMatched ? <Highlight text={fileName} query={filterText} caseSensitive={caseSensitive} /> : fileName}
-                    </Typography>
-                    {relDir && (
-                      <Typography variant="caption" color="text.secondary" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {relDir}
-                      </Typography>
-                    )}
-                    <Box sx={{
-                      bgcolor: 'action.selected', borderRadius: 3, px: 0.75, minWidth: 20,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      <Typography variant="caption" sx={{ fontSize: '0.7rem', fontWeight: 600 }}>
-                        {matches.length}
-                      </Typography>
+                    <Box sx={{ '& svg': { width: 40, height: 40 } }}>
+                      {getFileIcon(entry.name, entry.type, false, isRoot)}
                     </Box>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontSize: '0.7rem',
+                        textAlign: 'center',
+                        lineHeight: 1.2,
+                        wordBreak: 'break-all',
+                        maxHeight: '2.4em',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {entry.name}
+                    </Typography>
                   </Box>
-
-                  {/* Match lines */}
-                  {!isCollapsed && matches.map((match, j) => {
-                    let snippet = match.snippet;
-                    const qi = (caseSensitive ? snippet : snippet.toLowerCase()).indexOf(caseSensitive ? filterText : filterText.toLowerCase());
-                    if (qi > 30) snippet = '...' + snippet.substring(qi - 20);
-                    if (snippet.length > 120) snippet = snippet.substring(0, 120) + '...';
-
-                    return (
-                      <Box
-                        key={j}
-                        onClick={() => openFile({
-                          name: fileName, fullPath: filePath, type: 'file', size: 0, modified: null,
-                          extension: fileName.includes('.') ? '.' + fileName.split('.').pop() : '',
-                        })}
-                        sx={{
-                          pl: 4.5, pr: 1.5, py: 0.25, cursor: 'pointer',
-                          '&:hover': { bgcolor: 'action.hover' },
-                          display: 'flex', alignItems: 'baseline', gap: 1,
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, width: 32, textAlign: 'right', fontSize: '0.7rem' }}>
-                          {match.line}
-                        </Typography>
-                        <Typography variant="caption" component="div" sx={{
-                          fontFamily: 'monospace', fontSize: '0.75rem', color: 'text.secondary',
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
-                        }}>
-                          <Highlight text={snippet} query={filterText} caseSensitive={caseSensitive} />
-                        </Typography>
-                      </Box>
-                    );
-                  })}
-                </Box>
-              );
-            })}
-          </Box>
-        );
-      })() :
-
-      /* File list */
-      isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-          <CircularProgress size={28} />
-        </Box>
-      ) : viewMode === 'grid' ? (
-        /* Grid/icon view */
-        <Box
-          ref={containerRef}
-          onMouseDown={handleLassoStart}
-          sx={{ flex: 1, overflow: 'auto', p: 2, position: 'relative' }}
-          onClick={(e) => {
-            if (lassoDragged.current) { lassoDragged.current = false; return; }
-            if (e.shiftKey || e.ctrlKey || e.metaKey) return;
-            if (!(e.target as HTMLElement).closest('[data-entry]')) {
-              setSelectedEntries(new Set());
-            }
-          }}
-          onContextMenu={(e) => {
-            if ((e.target as HTMLElement).closest('[data-entry]')) return;
-            e.preventDefault();
-            if (currentPath) {
-              setBgContextMenu({ mouseX: e.clientX, mouseY: e.clientY });
-            }
-          }}
-        >
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-            {filteredEntries.map((entry) => (
-              <Box
-                key={entry.fullPath}
-                data-entry
-                data-entry-path={entry.fullPath}
-                onClick={(e) => handleEntryClick(e, entry)}
-                onDoubleClick={() => handleEntryDoubleClick(entry)}
-                onContextMenu={(e) => handleContextMenu(e, entry)}
-                sx={{
-                  width: 96,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  bgcolor: selectedEntries.has(entry.fullPath) ? 'action.selected' : undefined,
-                  alignItems: 'center',
-                  gap: 0.5,
-                  p: 1,
-                  borderRadius: 1,
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  '&:hover': { bgcolor: 'action.hover' },
-                  transition: 'background-color 100ms ease',
-                }}
-              >
-                <Box sx={{ '& svg': { width: 40, height: 40 } }}>
-                  {getFileIcon(entry.name, entry.type, false, isRoot)}
-                </Box>
-                <Typography
-                  variant="caption"
-                  sx={{
-                    fontSize: '0.7rem',
-                    textAlign: 'center',
-                    lineHeight: 1.2,
-                    wordBreak: 'break-all',
-                    maxHeight: '2.4em',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {entry.name}
-                </Typography>
+                ))}
               </Box>
-            ))}
-          </Box>
-          {filteredEntries.length === 0 && (
-            <Typography sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
-              {filterText ? 'No matches' : 'Empty directory'}
-            </Typography>
-          )}
-        </Box>
-      ) : (
-        <TableContainer
-          ref={containerRef}
-          onMouseDown={handleLassoStart}
-          sx={{ flex: 1, overflow: 'auto', position: 'relative' }}
-          onClick={(e) => {
-            if (lassoDragged.current) { lassoDragged.current = false; return; }
-            if (e.shiftKey || e.ctrlKey || e.metaKey) return;
-            if (!(e.target as HTMLElement).closest('tr[class*="MuiTableRow"]')) {
-              setSelectedEntries(new Set());
-            }
-          }}
-          onContextMenu={(e) => {
-            if ((e.target as HTMLElement).closest('tr[class*="MuiTableRow"]')) return;
-            e.preventDefault();
-            // Only show folder context menu if we're in a directory (not root)
-            if (currentPath) {
-              setBgContextMenu({ mouseX: e.clientX, mouseY: e.clientY });
-            }
-          }}
-        >
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', color: 'text.secondary', py: 0.75 }}>Name</TableCell>
-                <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', color: 'text.secondary', py: 0.75, width: 100 }} align="right">Size</TableCell>
-                <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', color: 'text.secondary', py: 0.75, width: 180 }}>Modified</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filteredEntries.map((entry) => (
-                <TableRow
-                  key={entry.fullPath}
-                  hover
-                  selected={selectedEntries.has(entry.fullPath)}
-                  data-entry-path={entry.fullPath}
-                  onClick={(e) => handleEntryClick(e, entry)}
-                  onDoubleClick={() => handleEntryDoubleClick(entry)}
-                  onContextMenu={(e) => handleContextMenu(e, entry)}
-                  sx={{
-                    cursor: 'pointer',
-                    '& td': { py: 0.75, borderColor: 'divider' },
-                    transition: 'background-color 100ms ease',
-                  }}
-                >
-                  <TableCell>
-                    <Tooltip title={entry.name} enterDelay={500} placement="top-start">
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-                        {getFileIcon(entry.name, entry.type, false, isRoot)}
-                        <Typography variant="body2" noWrap sx={{ fontSize: '0.8rem' }}>
-                          {entry.name}
-                        </Typography>
-                      </Box>
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell align="right">
-                    <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
-                      {entry.type === 'file' ? formatFileSize(entry.size) : '—'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
-                      {formatDate(entry.modified)}
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {filteredEntries.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={3} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
-                    {filterText ? 'No matches' : 'Empty directory'}
-                  </TableCell>
-                </TableRow>
+              {entries.length === 0 && (
+                <Typography sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
+                  Empty directory
+                </Typography>
               )}
-            </TableBody>
-          </Table>
-        </TableContainer>
+            </Box>
+          ) : (
+            <TableContainer
+              ref={containerRef}
+              onMouseDown={handleLassoStart}
+              sx={{ flex: 1, overflow: 'auto', position: 'relative' }}
+              onClick={(e) => {
+                if (lassoDragged.current) { lassoDragged.current = false; return; }
+                if (e.shiftKey || e.ctrlKey || e.metaKey) return;
+                if (!(e.target as HTMLElement).closest('tr[class*="MuiTableRow"]')) {
+                  setSelectedEntries(new Set());
+                }
+              }}
+              onContextMenu={(e) => {
+                if ((e.target as HTMLElement).closest('tr[class*="MuiTableRow"]')) return;
+                e.preventDefault();
+                // Only show folder context menu if we're in a directory (not root)
+                if (currentPath) {
+                  setBgContextMenu({ mouseX: e.clientX, mouseY: e.clientY });
+                }
+              }}
+            >
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', color: 'text.secondary', py: 0.75 }}>Name</TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', color: 'text.secondary', py: 0.75, width: 100 }} align="right">Size</TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', color: 'text.secondary', py: 0.75, width: 180 }}>Modified</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {entries.map((entry) => (
+                    <TableRow
+                      key={entry.fullPath}
+                      hover
+                      selected={selectedEntries.has(entry.fullPath)}
+                      data-entry-path={entry.fullPath}
+                      onClick={(e) => handleEntryClick(e, entry)}
+                      onDoubleClick={() => handleEntryDoubleClick(entry)}
+                      onContextMenu={(e) => handleContextMenu(e, entry)}
+                      sx={{
+                        cursor: 'pointer',
+                        '& td': { py: 0.75, borderColor: 'divider' },
+                        transition: 'background-color 100ms ease',
+                      }}
+                    >
+                      <TableCell>
+                        <Tooltip title={entry.name} enterDelay={500} placement="top-start">
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                            {getFileIcon(entry.name, entry.type, false, isRoot)}
+                            <Typography variant="body2" noWrap sx={{ fontSize: '0.8rem' }}>
+                              {entry.name}
+                            </Typography>
+                          </Box>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
+                          {entry.type === 'file' ? formatFileSize(entry.size) : '—'}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
+                          {formatDate(entry.modified)}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {entries.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={3} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
+                        Empty directory
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </>
       )}
+
       {/* Lasso selection rectangle */}
       {lasso && containerRef.current && (
         <Box
