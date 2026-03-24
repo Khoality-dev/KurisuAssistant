@@ -43,10 +43,14 @@ export interface AppToolsAPI {
 
 export interface HostToolsAPI {
   listTools: () => Promise<Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }>>;
-  callTool: (toolName: string, args: Record<string, unknown>, agentId: number) => Promise<{ content: string; isError: boolean }>;
+  callTool: (toolName: string, args: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
   isHostTool: (name: string) => Promise<boolean>;
-  getAllowedPaths: (agentId: number) => Promise<string[]>;
-  setAllowedPaths: (agentId: number, paths: string[]) => Promise<void>;
+  getAllowedPaths: () => Promise<string[]>;
+  setAllowedPaths: (paths: string[]) => Promise<void>;
+  getToolPolicies: () => Promise<Record<string, 'auto' | 'deny'>>;
+  removeToolPolicy: (toolName: string) => Promise<void>;
+  getSessionApprovals: () => Promise<string[]>;
+  clearSessionApprovals: () => Promise<void>;
 }
 
 export interface ExplorerAPI {

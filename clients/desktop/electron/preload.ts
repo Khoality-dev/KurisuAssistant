@@ -54,12 +54,17 @@ contextBridge.exposeInMainWorld('electron', {
 
   hostTools: {
     listTools: () => ipcRenderer.invoke('host-tools:list-tools'),
-    callTool: (toolName: string, args: Record<string, unknown>, agentId: number) =>
-      ipcRenderer.invoke('host-tools:call-tool', toolName, args, agentId),
+    callTool: (toolName: string, args: Record<string, unknown>) =>
+      ipcRenderer.invoke('host-tools:call-tool', toolName, args),
     isHostTool: (name: string) => ipcRenderer.invoke('host-tools:is-host-tool', name),
-    getAllowedPaths: (agentId: number) => ipcRenderer.invoke('host-tools:get-allowed-paths', agentId),
-    setAllowedPaths: (agentId: number, paths: string[]) =>
-      ipcRenderer.invoke('host-tools:set-allowed-paths', agentId, paths),
+    getAllowedPaths: () => ipcRenderer.invoke('host-tools:get-allowed-paths'),
+    setAllowedPaths: (paths: string[]) =>
+      ipcRenderer.invoke('host-tools:set-allowed-paths', paths),
+    getToolPolicies: () => ipcRenderer.invoke('host-tools:get-tool-policies'),
+    removeToolPolicy: (toolName: string) =>
+      ipcRenderer.invoke('host-tools:remove-tool-policy', toolName),
+    getSessionApprovals: () => ipcRenderer.invoke('host-tools:get-session-approvals'),
+    clearSessionApprovals: () => ipcRenderer.invoke('host-tools:clear-session-approvals'),
   },
 
   explorer: {

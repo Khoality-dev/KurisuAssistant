@@ -168,11 +168,9 @@ function setupToolCallHandler(): void {
       if (window.electron?.hostTools) {
         const isHost = await window.electron.hostTools.isHostTool(event.tool_name);
         if (isHost) {
-          const agentId = (event.tool_args as Record<string, unknown>).agent_id as number || 0;
           const result = await window.electron.hostTools.callTool(
             event.tool_name,
             event.tool_args,
-            agentId,
           );
           wsManager.sendToolCallResponse(
             event.request_id,
