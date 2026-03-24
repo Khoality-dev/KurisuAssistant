@@ -7,6 +7,8 @@
 
 import { apiClient } from '../api/client';
 import { useVisionStore } from '../store/visionStore';
+import { useExplorerStore } from '../store/explorerStore';
+import { useLayoutStore } from '../store/layoutStore';
 import { refreshClientMCPServers } from './mcpService';
 
 interface AppToolCall {
@@ -136,6 +138,62 @@ async function handleVisionStop(): Promise<ToolResult> {
   return ok({ status: 'ok', message: 'Vision pipeline stopped.' });
 }
 
+// --- UI control ---
+
+async function handleOpenFile(args: Record<string, unknown>): Promise<ToolResult> {
+  const filePath = args.path as string;
+  if (!filePath) return err('path is required.');
+
+  const name = filePath.split(/[\\/]/).pop() || filePath;
+  const ext = name.includes('.') ? '.' + name.split('.').pop() : '';
+
+  useExplorerStore.getState().openFile({
+    name,
+    fullPath: filePath,
+    type: 'file',
+    size: 0,
+    modified: null,
+    extension: ext,
+  });
+
+  // Switch to workspace page so the file is visible
+  useLayoutStore.getState().setActivePage('workspace');
+
+  return ok({ status: 'ok', opened: filePath });
+}
+
+async function handleOpenFolder(args: Record<string, unknown>): Promise<ToolResult> {
+  const folderPath = args.path as string;
+  if (!folderPath) return err('path is required.');
+
+  useExplorerStore.setState({ workspaceRoot: folderPath });
+  useLayoutStore.getState().setActivePage('workspace');
+
+  return ok({ status: 'ok', folder: folderPath });
+}
+
+async function handleGetOpenFiles(): Promise<ToolResult> {
+  const { openFiles, activeFileIndex } = useExplorerStore.getState();
+  return ok({
+    files: openFiles.map((f, i) => ({
+      path: f.path,
+      name: f.name,
+      active: i === activeFileIndex,
+      dirty: f.dirty || false,
+    })),
+    count: openFiles.length,
+  });
+}
+
+async function handleNavigate(args: Record<string, unknown>): Promise<ToolResult> {
+  const page = args.page as string;
+  if (!page || !['workspace', 'conversations', 'settings'].includes(page)) {
+    return err('page must be one of: workspace, conversations, settings');
+  }
+  useLayoutStore.getState().setActivePage(page as 'workspace' | 'conversations' | 'settings');
+  return ok({ status: 'ok', page });
+}
+
 // --- Dispatch ---
 
 async function dispatch(name: string, args: Record<string, unknown>): Promise<ToolResult> {
@@ -148,6 +206,10 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<To
     case 'app_delete_mcp_server': return handleDeleteMCPServer(args);
     case 'app_vision_start': return handleVisionStart(args);
     case 'app_vision_stop': return handleVisionStop();
+    case 'app_open_file': return handleOpenFile(args);
+    case 'app_open_folder': return handleOpenFolder(args);
+    case 'app_get_open_files': return handleGetOpenFiles();
+    case 'app_navigate': return handleNavigate(args);
     default: return err(`Unknown app tool: ${name}`);
   }
 }

@@ -32,6 +32,10 @@ const APP_TOOL_NAMES = new Set([
   'app_vision_start',
   'app_vision_stop',
   'app_launch_browser',
+  'app_open_file',
+  'app_open_folder',
+  'app_get_open_files',
+  'app_navigate',
 ]);
 
 function getAppToolSchemas(): ToolSchema[] {
@@ -200,6 +204,65 @@ function getAppToolSchemas(): ToolSchema[] {
             },
           },
           required: [],
+        },
+      },
+    },
+    // --- UI control ---
+    {
+      type: 'function',
+      function: {
+        name: 'app_open_file',
+        description: 'Open a file in the editor. The file will appear as a tab in the workspace.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Absolute path to the file to open.' },
+          },
+          required: ['path'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'app_open_folder',
+        description: 'Navigate the file explorer to a folder.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Absolute path to the folder.' },
+          },
+          required: ['path'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'app_get_open_files',
+        description: 'List all files currently open in the editor.',
+        parameters: {
+          type: 'object',
+          properties: {},
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'app_navigate',
+        description: 'Switch the app to a different page.',
+        parameters: {
+          type: 'object',
+          properties: {
+            page: {
+              type: 'string',
+              enum: ['workspace', 'conversations', 'settings'],
+              description: 'The page to navigate to.',
+            },
+          },
+          required: ['page'],
         },
       },
     },
