@@ -66,6 +66,8 @@ interface SearchPanelProps {
   inputRef?: React.RefObject<HTMLInputElement | null>;
   /** Show toggle buttons for case/whole word */
   showToggles?: boolean;
+  /** Called when search results become active/inactive */
+  onSearchActiveChange?: (active: boolean) => void;
 }
 
 export const SearchPanel: React.FC<SearchPanelProps> = ({
@@ -74,6 +76,7 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({
   onOpenDirectory,
   compact = false,
   visible,
+  onSearchActiveChange,
   onClose,
   inputRef: externalInputRef,
   showToggles = true,
@@ -139,6 +142,11 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({
   useEffect(() => {
     if (filterText.trim()) runSearch(filterText);
   }, [caseSensitive, wholeWord]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Notify parent when search results become active/inactive
+  useEffect(() => {
+    onSearchActiveChange?.(searchResults !== null);
+  }, [searchResults !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleClose = () => {
     setFilterText('');

@@ -83,8 +83,8 @@ export const FullExplorer: React.FC = () => {
   const [newItemType, setNewItemType] = useState<'file' | 'folder' | null>(null);
   const [editingPath, setEditingPath] = useState(false);
   const [pathInput, setPathInput] = useState('');
-  const [showSearch, setShowSearch] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [searchActive, setSearchActive] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; entry: FileEntry } | null>(null);
   const [bgContextMenu, setBgContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
   const [currentPath, setCurrentPath] = useState('');
@@ -96,7 +96,6 @@ export const FullExplorer: React.FC = () => {
     if (!window.electron?.explorer) return;
     setIsLoading(true);
     setSelectedEntries(new Set());
-    setShowSearch(false);
     try {
       const result = await window.electron.explorer.listDirectory(dirPath);
       setCurrentPath(result.path);
@@ -252,11 +251,8 @@ export const FullExplorer: React.FC = () => {
       // Ctrl+F: focus search bar (works from anywhere)
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault();
-        setShowSearch(true);
-        setTimeout(() => {
-          searchInputRef.current?.focus();
-          searchInputRef.current?.select();
-        }, 0);
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
         return;
       }
 
@@ -492,15 +488,16 @@ export const FullExplorer: React.FC = () => {
       {/* Search panel */}
       <SearchPanel
         searchRoot={currentPath}
-        visible={showSearch}
-        onClose={() => setShowSearch(false)}
+        visible
+        onClose={() => {}}
+        onSearchActiveChange={setSearchActive}
         inputRef={searchInputRef}
         onOpenFile={(fullPath, name) => openFile({ name, fullPath, type: 'file', size: 0, modified: null, extension: name.includes('.') ? '.' + name.split('.').pop() : '' })}
         onOpenDirectory={(fullPath) => loadDirectory(fullPath)}
       />
 
       {/* File list */}
-      {!showSearch && (
+      {!searchActive && (
         <>
           {isLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
