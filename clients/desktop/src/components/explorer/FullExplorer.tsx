@@ -43,6 +43,28 @@ import { useExplorerStore, type FileEntry } from '../../store/explorerStore';
 const OPERATING_SYSTEM = window.electron?.platform ?? 'win32';
 const SEP = OPERATING_SYSTEM === 'win32' ? '\\' : '/';
 
+/** Render text with query matches highlighted. */
+const Highlight: React.FC<{ text: string; query: string; caseSensitive?: boolean }> = ({ text, query, caseSensitive = false }) => {
+  if (!query) return <span>{text}</span>;
+  const haystack = caseSensitive ? text : text.toLowerCase();
+  const needle = caseSensitive ? query : query.toLowerCase();
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+  let idx = haystack.indexOf(needle, cursor);
+  while (idx !== -1) {
+    if (idx > cursor) parts.push(text.substring(cursor, idx));
+    parts.push(
+      <span key={idx} style={{ backgroundColor: 'rgba(255,213,79,0.4)', borderRadius: 2, padding: '0 1px' }}>
+        {text.substring(idx, idx + query.length)}
+      </span>
+    );
+    cursor = idx + query.length;
+    idx = haystack.indexOf(needle, cursor);
+  }
+  if (cursor < text.length) parts.push(text.substring(cursor));
+  return <span>{parts}</span>;
+};
+
 /** Join path segments, handling trailing separators and normalizing slashes. */
 function joinPath(base: string, ...parts: string[]): string {
   let result = base;
@@ -86,8 +108,16 @@ export const FullExplorer: React.FC = () => {
   const [editingPath, setEditingPath] = useState(false);
   const [pathInput, setPathInput] = useState('');
   const [filterText, setFilterText] = useState('');
-  const [searchResults, setSearchResults] = useState<Array<{ path: string; line: number; snippet: string }> | null>(null);
+  const [searchResults, setSearchResults] = useState<{
+    names: Array<{ path: string; name: string; type: 'file' | 'directory' }>;
+    matches: Array<{ path: string; line: number; snippet: string }>;
+  } | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contentCleanupRef = useRef<Array<() => void>>([]);
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [wholeWord, setWholeWord] = useState(false);
+  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; entry: FileEntry } | null>(null);
   const [bgContextMenu, setBgContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
   const [currentPath, setCurrentPath] = useState('');
@@ -101,6 +131,9 @@ export const FullExplorer: React.FC = () => {
     setSelectedEntries(new Set());
     setFilterText('');
     setSearchResults(null);
+    window.electron?.explorer?.searchContentCancel?.();
+    contentCleanupRef.current.forEach((fn) => fn());
+    contentCleanupRef.current = [];
     try {
       const result = await window.electron.explorer.listDirectory(dirPath);
       setCurrentPath(result.path);
@@ -467,53 +500,122 @@ export const FullExplorer: React.FC = () => {
           </Breadcrumbs>
         )}
 
-        <TextField
-          size="small"
-          placeholder="Search... (Enter for content)"
-          value={filterText}
-          onChange={(e) => {
-            setFilterText(e.target.value);
-            if (!e.target.value) setSearchResults(null);
-          }}
-          onKeyDown={async (e) => {
-            if (e.key === 'Enter' && filterText.trim() && currentPath) {
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+          <TextField
+            size="small"
+            placeholder="Search"
+            value={filterText}
+            onChange={(e) => {
+              const value = e.target.value;
+              setFilterText(value);
+              if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+              if (!value.trim()) {
+                setSearchResults(null);
+                setIsSearching(false);
+                return;
+              }
               setIsSearching(true);
-              try {
-                const result = await window.electron?.explorer?.search(filterText.trim(), currentPath);
-                setSearchResults(result?.matches || []);
-              } catch { setSearchResults([]); }
-              setIsSearching(false);
-            } else if (e.key === 'Escape') {
-              setFilterText('');
-              setSearchResults(null);
-            }
-          }}
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-                </InputAdornment>
-              ),
-              endAdornment: filterText ? (
-                <InputAdornment position="end">
-                  {isSearching ? (
-                    <CircularProgress size={14} />
-                  ) : (
-                    <IconButton size="small" onClick={() => { setFilterText(''); setSearchResults(null); }} sx={{ p: 0.25 }}>
-                      <CloseIcon sx={{ fontSize: 14 }} />
-                    </IconButton>
-                  )}
-                </InputAdornment>
-              ) : undefined,
-            },
-          }}
-          sx={{
-            width: 220,
-            '& .MuiInputBase-input': { fontSize: '0.8rem', py: 0.5 },
-            '& .MuiOutlinedInput-root': { pr: filterText ? 0.5 : 1 },
-          }}
-        />
+              setSearchResults({ names: [], matches: [] });
+              // Cancel previous streaming search
+              window.electron?.explorer?.searchContentCancel?.();
+              contentCleanupRef.current.forEach((fn) => fn());
+              contentCleanupRef.current = [];
+
+              searchTimerRef.current = setTimeout(async () => {
+                if (!currentPath || !window.electron?.explorer) {
+                  setIsSearching(false);
+                  return;
+                }
+                const q = value.trim();
+                const opts = { caseSensitive, wholeWord };
+
+                // Phase 1: name matches
+                try {
+                  const names = await window.electron.explorer.searchNames(q, currentPath, opts);
+                  setSearchResults((prev) => ({ names, matches: prev?.matches || [] }));
+                } catch {}
+
+                // Phase 2: streaming content matches
+                const offBatch = window.electron.explorer.onSearchContentBatch((batch) => {
+                  setSearchResults((prev) => ({
+                    names: prev?.names || [],
+                    matches: [...(prev?.matches || []), ...batch],
+                  }));
+                });
+                const offDone = window.electron.explorer.onSearchContentDone(() => {
+                  setIsSearching(false);
+                });
+                contentCleanupRef.current = [offBatch, offDone];
+
+                window.electron.explorer.searchContentStart(q, currentPath, opts);
+              }, 300);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setFilterText('');
+                setSearchResults(null);
+                setIsSearching(false);
+                if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+                window.electron?.explorer?.searchContentCancel?.();
+                contentCleanupRef.current.forEach((fn) => fn());
+                contentCleanupRef.current = [];
+              }
+            }}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                  </InputAdornment>
+                ),
+                endAdornment: filterText ? (
+                  <InputAdornment position="end">
+                    {isSearching ? (
+                      <CircularProgress size={14} />
+                    ) : (
+                      <IconButton size="small" onClick={() => { setFilterText(''); setSearchResults(null); }} sx={{ p: 0.25 }}>
+                        <CloseIcon sx={{ fontSize: 14 }} />
+                      </IconButton>
+                    )}
+                  </InputAdornment>
+                ) : undefined,
+              },
+            }}
+            sx={{
+              width: 200,
+              '& .MuiInputBase-input': { fontSize: '0.8rem', py: 0.5 },
+              '& .MuiOutlinedInput-root': { pr: filterText ? 0.5 : 1 },
+            }}
+          />
+          <Tooltip title="Match Case">
+            <IconButton
+              size="small"
+              onClick={() => setCaseSensitive((v) => !v)}
+              sx={{
+                fontSize: '0.75rem', fontWeight: 700, width: 24, height: 24,
+                color: caseSensitive ? 'primary.main' : 'text.disabled',
+                border: 1, borderColor: caseSensitive ? 'primary.main' : 'transparent',
+                borderRadius: 0.5,
+              }}
+            >
+              Aa
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Match Whole Word">
+            <IconButton
+              size="small"
+              onClick={() => setWholeWord((v) => !v)}
+              sx={{
+                fontSize: '0.7rem', fontWeight: 700, width: 24, height: 24,
+                color: wholeWord ? 'primary.main' : 'text.disabled',
+                border: 1, borderColor: wholeWord ? 'primary.main' : 'transparent',
+                borderRadius: 0.5,
+              }}
+            >
+              W
+            </IconButton>
+          </Tooltip>
+        </Box>
 
         <Box sx={{ display: 'flex', gap: 0.25 }}>
           <Tooltip title="List view">
@@ -537,49 +639,149 @@ export const FullExplorer: React.FC = () => {
         </Box>
       </Box>
 
-      {/* Search results (content search via ripgrep) */}
-      {searchResults !== null ? (
-        <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
-          {searchResults.length === 0 ? (
-            <Typography sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
-              No content matches
-            </Typography>
-          ) : (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-              {searchResults.map((match, i) => {
-                const fileName = match.path.split(/[\\/]/).pop() || match.path;
-                return (
+      {/* Search results — VS Code style */}
+      {searchResults !== null ? (() => {
+        // Group content matches by file
+        const grouped = new Map<string, Array<{ line: number; snippet: string }>>();
+        for (const m of searchResults.matches) {
+          if (!grouped.has(m.path)) grouped.set(m.path, []);
+          grouped.get(m.path)!.push({ line: m.line, snippet: m.snippet });
+        }
+        const totalContentMatches = searchResults.matches.length;
+        const totalFiles = grouped.size;
+        const totalNames = searchResults.names.length;
+        const hasResults = totalNames > 0 || totalContentMatches > 0;
+
+        return (
+          <Box sx={{ flex: 1, overflow: 'auto' }}>
+            {/* Summary bar */}
+            {hasResults && (
+              <Box sx={{ px: 2, py: 0.75, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Typography variant="caption" color="text.secondary">
+                  {totalContentMatches} result{totalContentMatches !== 1 ? 's' : ''} in {totalFiles} file{totalFiles !== 1 ? 's' : ''}
+                  {totalNames > 0 ? ` + ${totalNames} name match${totalNames !== 1 ? 'es' : ''}` : ''}
+                </Typography>
+                {isSearching && <CircularProgress size={12} />}
+              </Box>
+            )}
+
+            {!hasResults && (
+              <Typography sx={{ textAlign: 'center', py: 4, color: 'text.secondary', fontSize: '0.85rem' }}>
+                {isSearching ? 'Searching...' : 'No results found.'}
+              </Typography>
+            )}
+
+            {/* Name matches */}
+            {searchResults.names.map((item, i) => {
+              const relativePath = item.path.startsWith(currentPath)
+                ? item.path.substring(currentPath.length).replace(/^[\\/]/, '')
+                : item.path;
+              return (
+                <Box
+                  key={`name-${i}`}
+                  onClick={() => item.type === 'directory' ? loadDirectory(item.path) : openFile({
+                    name: item.name, fullPath: item.path, type: 'file', size: 0, modified: null,
+                    extension: item.name.includes('.') ? '.' + item.name.split('.').pop() : '',
+                  })}
+                  sx={{
+                    px: 1.5, py: 0.5, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 1,
+                    '&:hover': { bgcolor: 'action.hover' },
+                  }}
+                >
+                  {getFileIcon(item.name, item.type === 'directory')}
+                  <Typography variant="body2" sx={{ fontSize: '0.8rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <Highlight text={relativePath} query={filterText} caseSensitive={caseSensitive} />
+                  </Typography>
+                </Box>
+              );
+            })}
+
+            {/* Content matches grouped by file */}
+            {Array.from(grouped.entries()).map(([filePath, matches]) => {
+              const fileName = filePath.split(/[\\/]/).pop() || filePath;
+              const dir = filePath.startsWith(currentPath)
+                ? filePath.substring(currentPath.length).replace(/^[\\/]/, '').replace(/[\\/][^\\/]+$/, '')
+                : filePath.replace(/[\\/][^\\/]+$/, '');
+              const isCollapsed = collapsedFiles.has(filePath);
+
+              return (
+                <Box key={filePath}>
+                  {/* File header */}
                   <Box
-                    key={i}
-                    onClick={() => openFile({
-                      name: fileName,
-                      fullPath: match.path,
-                      type: 'file', size: 0, modified: null,
-                      extension: fileName.includes('.') ? '.' + fileName.split('.').pop() : '',
+                    onClick={() => setCollapsedFiles((prev) => {
+                      const next = new Set(prev);
+                      next.has(filePath) ? next.delete(filePath) : next.add(filePath);
+                      return next;
                     })}
                     sx={{
-                      px: 1.5, py: 0.75, cursor: 'pointer', borderRadius: 1,
+                      px: 1, py: 0.5, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: 0.5,
                       '&:hover': { bgcolor: 'action.hover' },
+                      position: 'sticky', top: 0, bgcolor: 'background.paper', zIndex: 1,
                     }}
                   >
-                    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
-                        {fileName}
+                    <Typography sx={{ fontSize: '0.7rem', color: 'text.secondary', width: 12, textAlign: 'center', userSelect: 'none' }}>
+                      {isCollapsed ? '>' : 'v'}
+                    </Typography>
+                    {getFileIcon(fileName, false)}
+                    <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
+                      {fileName}
+                    </Typography>
+                    {dir && (
+                      <Typography variant="caption" color="text.secondary" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {dir}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        :{match.line}
+                    )}
+                    <Box sx={{
+                      bgcolor: 'action.selected', borderRadius: 3, px: 0.75, minWidth: 20,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <Typography variant="caption" sx={{ fontSize: '0.7rem', fontWeight: 600 }}>
+                        {matches.length}
                       </Typography>
                     </Box>
-                    <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {match.snippet}
-                    </Typography>
                   </Box>
-                );
-              })}
-            </Box>
-          )}
-        </Box>
-      ) :
+
+                  {/* Match lines */}
+                  {!isCollapsed && matches.map((match, j) => {
+                    let snippet = match.snippet;
+                    const qi = (caseSensitive ? snippet : snippet.toLowerCase()).indexOf(caseSensitive ? filterText : filterText.toLowerCase());
+                    if (qi > 30) snippet = '...' + snippet.substring(qi - 20);
+                    if (snippet.length > 120) snippet = snippet.substring(0, 120) + '...';
+
+                    return (
+                      <Box
+                        key={j}
+                        onClick={() => openFile({
+                          name: fileName, fullPath: filePath, type: 'file', size: 0, modified: null,
+                          extension: fileName.includes('.') ? '.' + fileName.split('.').pop() : '',
+                        })}
+                        sx={{
+                          pl: 4.5, pr: 1.5, py: 0.25, cursor: 'pointer',
+                          '&:hover': { bgcolor: 'action.hover' },
+                          display: 'flex', alignItems: 'baseline', gap: 1,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, width: 32, textAlign: 'right', fontSize: '0.7rem' }}>
+                          {match.line}
+                        </Typography>
+                        <Typography variant="caption" component="div" sx={{
+                          fontFamily: 'monospace', fontSize: '0.75rem', color: 'text.secondary',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+                        }}>
+                          <Highlight text={snippet} query={filterText} caseSensitive={caseSensitive} />
+                        </Typography>
+                      </Box>
+                    );
+                  })}
+                </Box>
+              );
+            })}
+          </Box>
+        );
+      })() :
 
       /* File list */
       isLoading ? (

@@ -163,8 +163,35 @@ export function registerExplorerIPC(): void {
 
   // --- Content search (ripgrep) ---
 
-  ipcMain.handle('explorer:search', async (_event, query: string, dirPath: string, glob?: string) => {
-    return fsOps.search(query, dirPath, glob);
+  ipcMain.handle('explorer:search-names', async (_event, query: string, dirPath: string, options?: { caseSensitive?: boolean; wholeWord?: boolean }) => {
+    const { caseSensitive = false, wholeWord = false } = options || {};
+    return fsOps.searchNames(query, dirPath, { caseSensitive, wholeWord });
+  });
+
+  // Streaming content search — pushes batches to renderer via event
+  let activeContentSearch: { cancel: () => void } | null = null;
+
+  ipcMain.handle('explorer:search-content-start', (_event, query: string, dirPath: string, options?: { caseSensitive?: boolean; wholeWord?: boolean; glob?: string }) => {
+    // Cancel any previous search
+    if (activeContentSearch) { activeContentSearch.cancel(); activeContentSearch = null; }
+
+    const sender = _event.sender;
+    const { caseSensitive = false, wholeWord = false, glob } = options || {};
+
+    activeContentSearch = fsOps.searchStreaming(
+      query, dirPath, { caseSensitive, wholeWord, glob },
+      (batch) => {
+        if (!sender.isDestroyed()) sender.send('explorer:search-content-batch', batch);
+      },
+      (error) => {
+        if (!sender.isDestroyed()) sender.send('explorer:search-content-done', error || null);
+        activeContentSearch = null;
+      },
+    );
+  });
+
+  ipcMain.handle('explorer:search-content-cancel', () => {
+    if (activeContentSearch) { activeContentSearch.cancel(); activeContentSearch = null; }
   });
 
   ipcMain.handle('explorer:open-in-vscode', async (_event, filePath: string) => {

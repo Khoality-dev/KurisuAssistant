@@ -70,10 +70,12 @@ export interface ExplorerAPI {
   copy: (srcPath: string, destPath: string) => Promise<{ status?: string; error?: string }>;
   hasVSCode: () => Promise<boolean>;
   openInVSCode: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
-  search: (query: string, dirPath: string, glob?: string) => Promise<{
-    matches: Array<{ path: string; line: number; snippet: string }>;
-    error?: string;
-  }>;
+  searchNames: (query: string, dirPath: string, options?: { caseSensitive?: boolean; wholeWord?: boolean }) =>
+    Promise<Array<{ path: string; name: string; type: 'file' | 'directory' }>>;
+  searchContentStart: (query: string, dirPath: string, options?: { caseSensitive?: boolean; wholeWord?: boolean; glob?: string }) => Promise<void>;
+  searchContentCancel: () => Promise<void>;
+  onSearchContentBatch: (cb: (matches: Array<{ path: string; line: number; snippet: string }>) => void) => () => void;
+  onSearchContentDone: (cb: (error: string | null) => void) => () => void;
 }
 
 export interface MCPAPI {

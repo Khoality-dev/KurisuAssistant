@@ -6,6 +6,41 @@
 import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
+// Resolve bundled ripgrep binary path.
+// @vscode/ripgrep uses __dirname which breaks after vite bundles to dist-electron/.
+// Resolve from node_modules directly at runtime.
+function findRgPath(): string {
+  const candidates = [
+    // Dev: node_modules path
+    path.join(process.cwd(), 'node_modules', '@vscode', 'ripgrep', 'bin', `rg${process.platform === 'win32' ? '.exe' : ''}`),
+    // Packaged: unpacked from asar
+    path.join(process.resourcesPath || '', 'app.asar.unpacked', 'node_modules', '@vscode', 'ripgrep', 'bin', `rg${process.platform === 'win32' ? '.exe' : ''}`),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      console.log('[fsOps] ripgrep binary found:', p);
+      return p;
+    }
+  }
+  // Fallback to system rg
+  console.warn('[fsOps] bundled ripgrep not found, falling back to system rg');
+  return 'rg';
+}
+
+const rgPath = findRgPath();
+
+/** Shell-escape an argument for use in exec(). */
+function shellEscape(arg: string): string {
+  if (process.platform === 'win32') {
+    // Windows cmd: wrap in double quotes, escape inner quotes and trailing backslash
+    let escaped = arg.replace(/"/g, '\\"');
+    // A trailing \ before the closing " would escape it — double it
+    if (escaped.endsWith('\\')) escaped += '\\';
+    return `"${escaped}"`;
+  }
+  // Unix: wrap in single quotes, escape inner single quotes
+  return `'${arg.replace(/'/g, "'\\''")}'`;
+}
 
 const MAX_OUTPUT_BYTES = 100 * 1024; // 100KB
 
@@ -114,54 +149,180 @@ export function listDirectory(dirPath: string, includeHidden = false): ListEntry
     });
 }
 
-// --- Search (ripgrep) ---
+// --- Recursive file/folder name search ---
 
+export interface NameMatch {
+  path: string;
+  name: string;
+  type: 'file' | 'directory';
+}
+
+export interface SearchOptions {
+  caseSensitive?: boolean;
+  wholeWord?: boolean;
+  glob?: string;
+}
+
+export async function searchNames(
+  query: string,
+  dirPath: string,
+  options: SearchOptions = {},
+  maxResults = 50,
+  timeLimitMs = 2000,
+): Promise<NameMatch[]> {
+  const resolved = path.resolve(dirPath);
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) return [];
+
+  const { caseSensitive = false, wholeWord = false } = options;
+  const results: NameMatch[] = [];
+  const deadline = Date.now() + timeLimitMs;
+
+  function matches(name: string): boolean {
+    const a = caseSensitive ? name : name.toLowerCase();
+    const b = caseSensitive ? query : query.toLowerCase();
+    if (wholeWord) return a === b;
+    return a.includes(b);
+  }
+
+  async function walk(dir: string, depth: number) {
+    if (results.length >= maxResults || depth > 8 || Date.now() > deadline) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch { return; }
+
+    for (const entry of entries) {
+      if (results.length >= maxResults || Date.now() > deadline) return;
+      if (entry.name.startsWith('.')) continue;
+      const fullPath = path.join(dir, entry.name);
+
+      if (matches(entry.name)) {
+        results.push({
+          path: fullPath,
+          name: entry.name,
+          type: entry.isDirectory() ? 'directory' : 'file',
+        });
+      }
+
+      if (entry.isDirectory()) {
+        // Yield to event loop periodically to avoid blocking UI
+        if (results.length % 10 === 0) await new Promise((r) => setImmediate(r));
+        await walk(fullPath, depth + 1);
+      }
+    }
+  }
+
+  await walk(resolved, 0);
+  return results;
+}
+
+// --- Content search (ripgrep, streaming) ---
+
+function parseLine(line: string): SearchMatch | null {
+  let start = 0;
+  if (/^[A-Za-z]:/.test(line)) start = 2;
+  const firstColon = line.indexOf(':', start);
+  const secondColon = line.indexOf(':', firstColon + 1);
+  if (firstColon === -1 || secondColon === -1) return null;
+  return {
+    path: line.substring(0, firstColon),
+    line: parseInt(line.substring(firstColon + 1, secondColon), 10),
+    snippet: line.substring(secondColon + 1).trim().substring(0, 200),
+  };
+}
+
+/**
+ * Stream content search results. Calls `onBatch` with new matches as they
+ * arrive from ripgrep. Returns a handle to cancel the search.
+ */
+export function searchStreaming(
+  query: string,
+  dirPath: string,
+  options: SearchOptions = {},
+  onBatch: (matches: SearchMatch[]) => void,
+  onDone: (error?: string) => void,
+  maxResults = 500,
+): { cancel: () => void } {
+  const { caseSensitive = false, wholeWord = false, glob } = options;
+  const resolved = path.resolve(dirPath);
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+    onDone(`Directory not found: ${dirPath}`);
+    return { cancel: () => {} };
+  }
+
+  const parts = [shellEscape(rgPath), '--line-number', '--no-heading', '-F'];
+  if (!caseSensitive) parts.push('-i');
+  if (wholeWord) parts.push('-w');
+  if (glob) parts.push('--glob', shellEscape(glob));
+  parts.push('--', shellEscape(query), shellEscape(resolved));
+
+  const cmd = parts.join(' ');
+  const proc = exec(cmd, { maxBuffer: MAX_OUTPUT_BYTES * 10 });
+
+  let totalFound = 0;
+  let buffer = '';
+  let stderrBuf = '';
+  let killed = false;
+
+  proc.stderr?.on('data', (chunk: string | Buffer) => {
+    stderrBuf += chunk.toString();
+  });
+
+  proc.stdout?.on('data', (chunk: string | Buffer) => {
+    buffer += chunk.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    const batch: SearchMatch[] = [];
+    for (const line of lines) {
+      if (!line || totalFound >= maxResults) continue;
+      const match = parseLine(line);
+      if (match) {
+        batch.push(match);
+        totalFound++;
+      }
+    }
+    if (batch.length > 0) onBatch(batch);
+    if (totalFound >= maxResults && !killed) {
+      killed = true;
+      proc.kill();
+    }
+  });
+
+  proc.on('close', (code) => {
+    if (buffer) {
+      const match = parseLine(buffer);
+      if (match && totalFound < maxResults) onBatch([match]);
+    }
+    onDone(code && code !== 0 && code !== 1 && !killed ? stderrBuf.trim() || `rg exited with code ${code}` : undefined);
+  });
+
+  proc.on('error', (err) => {
+    onDone(err.message);
+  });
+
+  return {
+    cancel: () => {
+      killed = true;
+      try { proc.kill(); } catch {}
+    },
+  };
+}
+
+/** Promise-based content search (for host tools / agent use). */
 export function search(
   query: string,
   dirPath: string,
-  glob?: string,
+  options: SearchOptions = {},
   maxResults = 200,
 ): Promise<{ matches: SearchMatch[]; error?: string }> {
-  const resolved = path.resolve(dirPath);
-  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
-    return Promise.resolve({ matches: [], error: `Directory not found: ${dirPath}` });
-  }
-
-  const rgArgs = ['--line-number', '--no-heading', '--max-count', String(maxResults)];
-  if (glob) rgArgs.push('--glob', glob);
-  rgArgs.push('--', query, resolved);
-
-  const cmd = ['rg', ...rgArgs.map((a) => `"${a.replace(/"/g, '\\"')}"`)]  .join(' ');
-
   return new Promise((resolve) => {
-    exec(cmd, { maxBuffer: MAX_OUTPUT_BYTES, timeout: 30000 }, (error, stdout, stderr) => {
-      if (error && !stdout) {
-        if (error.code === 1) {
-          resolve({ matches: [] });
-          return;
-        }
-        resolve({ matches: [], error: stderr || error.message });
-        return;
-      }
-
-      const lines = stdout.trim().split('\n').filter(Boolean).slice(0, maxResults);
-      const matches: SearchMatch[] = [];
-      for (const line of lines) {
-        // rg output: path:line:content
-        // On Windows, skip drive letter colon (e.g. "D:\foo\bar.txt:5:hello")
-        let start = 0;
-        if (/^[A-Za-z]:/.test(line)) start = 2;
-        const firstColon = line.indexOf(':', start);
-        const secondColon = line.indexOf(':', firstColon + 1);
-        if (firstColon === -1 || secondColon === -1) continue;
-        matches.push({
-          path: line.substring(0, firstColon),
-          line: parseInt(line.substring(firstColon + 1, secondColon), 10),
-          snippet: line.substring(secondColon + 1).trim().substring(0, 200),
-        });
-      }
-      resolve({ matches });
-    });
+    const all: SearchMatch[] = [];
+    searchStreaming(query, dirPath, options,
+      (batch) => all.push(...batch),
+      (error) => resolve({ matches: all, error }),
+      maxResults,
+    );
   });
 }
 

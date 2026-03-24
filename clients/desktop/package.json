@@ -28,6 +28,7 @@
     "@mui/material": "^5.15.6",
     "@playwright/mcp": "^0.0.68",
     "@ricky0123/vad-web": "^0.0.30",
+    "@vscode/ripgrep": "^1.17.1",
     "@xyflow/react": "^12.10.0",
     "axios": "^1.6.5",
     "electron-store": "^11.0.2",
@@ -59,10 +60,12 @@
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "node_modules/@vscode/ripgrep/**/*"
     ],
     "asarUnpack": [
-      "dist/vad/**/*"
+      "dist/vad/**/*",
+      "node_modules/@vscode/ripgrep/**/*"
     ],
     "win": {
       "target": [

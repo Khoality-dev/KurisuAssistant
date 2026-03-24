@@ -82,8 +82,22 @@ contextBridge.exposeInMainWorld('electron', {
     copy: (srcPath: string, destPath: string) => ipcRenderer.invoke('explorer:copy', srcPath, destPath),
     hasVSCode: () => ipcRenderer.invoke('explorer:has-vscode'),
     openInVSCode: (filePath: string) => ipcRenderer.invoke('explorer:open-in-vscode', filePath),
-    search: (query: string, dirPath: string, glob?: string) =>
-      ipcRenderer.invoke('explorer:search', query, dirPath, glob),
+    searchNames: (query: string, dirPath: string, options?: { caseSensitive?: boolean; wholeWord?: boolean }) =>
+      ipcRenderer.invoke('explorer:search-names', query, dirPath, options),
+    searchContentStart: (query: string, dirPath: string, options?: { caseSensitive?: boolean; wholeWord?: boolean; glob?: string }) =>
+      ipcRenderer.invoke('explorer:search-content-start', query, dirPath, options),
+    searchContentCancel: () =>
+      ipcRenderer.invoke('explorer:search-content-cancel'),
+    onSearchContentBatch: (cb: (matches: Array<{ path: string; line: number; snippet: string }>) => void) => {
+      const handler = (_event: any, matches: any) => cb(matches);
+      ipcRenderer.on('explorer:search-content-batch', handler);
+      return () => ipcRenderer.removeListener('explorer:search-content-batch', handler);
+    },
+    onSearchContentDone: (cb: (error: string | null) => void) => {
+      const handler = (_event: any, error: any) => cb(error);
+      ipcRenderer.on('explorer:search-content-done', handler);
+      return () => ipcRenderer.removeListener('explorer:search-content-done', handler);
+    },
   },
 
   onMCPToolsChanged: (cb: () => void) => {
