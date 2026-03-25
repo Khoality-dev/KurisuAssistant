@@ -10,12 +10,13 @@ from pathlib import Path
 from typing import Optional, List
 
 import cv2
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from kurisuassistant.core.deps import get_db, get_authenticated_user
+from kurisuassistant.core.paths import DATA_DIR
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
 from kurisuassistant.db.repositories import AgentRepository
@@ -24,6 +25,9 @@ from kurisuassistant.utils.images import upload_image, save_image_from_array, ch
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+CHARACTER_ASSETS_DIR = DATA_DIR / "character_assets"
+VOICE_STORAGE_DIR = DATA_DIR / "voice_storage"
 
 
 DEFAULT_MODEL = "gemma3:4b"
@@ -322,6 +326,62 @@ async def update_agent_voice(
     return await db.execute(_update_voice)
 
 
+from fastapi.security import OAuth2PasswordBearer as _OAuth2
+_optional_oauth2 = _OAuth2(tokenUrl="login", auto_error=False)
+
+
+def _resolve_user(token: Optional[str], header_token: Optional[str]) -> User:
+    """Resolve user from query-param or header token (for media endpoints)."""
+    from kurisuassistant.core.security import get_current_user
+    from kurisuassistant.db.repositories import UserRepository as _UR
+    resolved = token or header_token
+    if not resolved:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = get_current_user(resolved)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    db_svc = get_db_service()
+    def _get(session):
+        user = _UR(session).get_by_username(username)
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        session.expunge(user)
+        return user
+    return db_svc.execute_sync(_get)
+
+
+@router.get("/{agent_id}/voice")
+async def get_agent_voice(
+    agent_id: int,
+    token: Optional[str] = Query(None),
+    header_token: Optional[str] = Depends(_optional_oauth2),
+):
+    """Serve the agent's voice reference audio file.
+
+    Accepts token via Authorization header or query param (for <audio> elements).
+    """
+    user = _resolve_user(token, header_token)
+    db_svc = get_db_service()
+
+    def _get_ref(session):
+        agent = AgentRepository(session).get_by_user_and_id(user.id, agent_id)
+        if not agent:
+            return None
+        return agent.voice_reference
+
+    voice_ref = await db_svc.execute(_get_ref)
+    if voice_ref is None:
+        raise HTTPException(status_code=404, detail="Agent not found or no voice reference")
+
+    voice_path = _find_voice_file(voice_ref)
+    if not voice_path:
+        raise HTTPException(status_code=404, detail="Voice file not found")
+
+    ext_to_media = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".flac": "audio/flac", ".ogg": "audio/ogg"}
+    media_type = ext_to_media.get(voice_path.suffix, "application/octet-stream")
+    return FileResponse(path=voice_path, media_type=media_type)
+
+
 @router.delete("/{agent_id}")
 async def delete_agent(
     agent_id: int,
@@ -351,15 +411,6 @@ async def delete_agent(
     return await db.execute(_delete)
 
 
-from kurisuassistant.core.paths import DATA_DIR
-CHARACTER_ASSETS_DIR = DATA_DIR / "character_assets"
-VOICE_STORAGE_DIR = DATA_DIR / "voice_storage"
-
-
-# ─── Export / Import ───
-
-EXPORT_VERSION = 1
-
 
 def _find_voice_file(voice_ref: str) -> Optional[Path]:
     """Find the voice file on disk by UUID reference."""
@@ -370,61 +421,76 @@ def _find_voice_file(voice_ref: str) -> Optional[Path]:
     return None
 
 
+# ─── Export / Import ───
+
+EXPORT_VERSION = 1
+
+
+def _get_agent_data(session, user_id: int, agent_id: int) -> Optional[dict]:
+    """Fetch agent fields needed for export."""
+    agent = AgentRepository(session).get_by_user_and_id(user_id, agent_id)
+    if not agent:
+        return None
+    return {
+        "name": agent.name,
+        "system_prompt": agent.system_prompt or "",
+        "model_name": agent.model_name,
+        "provider_type": agent.provider_type or "ollama",
+        "excluded_tools": agent.excluded_tools,
+        "think": agent.think,
+        "memory": agent.memory,
+        "memory_enabled": agent.memory_enabled,
+        "preferred_name": agent.preferred_name,
+        "trigger_word": agent.trigger_word,
+        "character_config": agent.character_config,
+        "voice_reference": agent.voice_reference,
+        "avatar_uuid": agent.avatar_uuid,
+    }
+
+
 @router.get("/{agent_id}/export")
 async def export_agent(
     agent_id: int,
+    format: str = "zip",
     user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db),
 ):
-    """Export an agent as a .zip archive containing metadata, character assets, voice, and avatar."""
+    """Export an agent. format=zip includes all assets; format=json is metadata only."""
     db_svc = get_db_service()
-
-    def _get(session):
-        agent = AgentRepository(session).get_by_user_and_id(user.id, agent_id)
-        if not agent:
-            return None
-        return {
-            "name": agent.name,
-            "system_prompt": agent.system_prompt or "",
-            "model_name": agent.model_name,
-            "provider_type": agent.provider_type or "ollama",
-            "excluded_tools": agent.excluded_tools,
-            "think": agent.think,
-            "memory": agent.memory,
-            "memory_enabled": agent.memory_enabled,
-            "preferred_name": agent.preferred_name,
-            "trigger_word": agent.trigger_word,
-            "character_config": agent.character_config,
-            "voice_reference": agent.voice_reference,
-            "avatar_uuid": agent.avatar_uuid,
-        }
-
-    agent_data = await db_svc.execute(_get)
+    agent_data = await db_svc.execute(lambda s: _get_agent_data(s, user.id, agent_id))
     if agent_data is None:
         raise HTTPException(status_code=404, detail="Agent not found")
 
+    safe_name = agent_data["name"].replace(" ", "_").replace("/", "_")
+
+    if format == "json":
+        meta = {k: v for k, v in agent_data.items() if k not in ("voice_reference", "avatar_uuid", "character_config")}
+        meta["version"] = EXPORT_VERSION
+        return StreamingResponse(
+            io.BytesIO(json.dumps(meta, ensure_ascii=False, indent=2).encode()),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.json"'},
+        )
+
+    # ZIP export — full archive with assets
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        # --- agent.json (metadata) ---
         meta = {k: v for k, v in agent_data.items() if k not in ("voice_reference", "avatar_uuid")}
         meta["version"] = EXPORT_VERSION
         zf.writestr("agent.json", json.dumps(meta, ensure_ascii=False, indent=2))
 
-        # --- avatar ---
         avatar_uuid = agent_data.get("avatar_uuid")
         if avatar_uuid:
             avatar_path = get_image_path(avatar_uuid)
             if avatar_path:
                 zf.write(avatar_path, f"avatar{avatar_path.suffix}")
 
-        # --- voice ---
         voice_ref = agent_data.get("voice_reference")
         if voice_ref:
             voice_path = _find_voice_file(voice_ref)
             if voice_path:
                 zf.write(voice_path, f"voice{voice_path.suffix}")
 
-        # --- character assets ---
         assets_dir = CHARACTER_ASSETS_DIR / str(agent_id)
         if assets_dir.exists():
             for file_path in assets_dir.rglob("*"):
@@ -433,7 +499,6 @@ async def export_agent(
                     zf.write(file_path, arc_name)
 
     buf.seek(0)
-    safe_name = agent_data["name"].replace(" ", "_").replace("/", "_")
     return StreamingResponse(
         buf,
         media_type="application/zip",
@@ -441,62 +506,77 @@ async def export_agent(
     )
 
 
-@router.post("/import")
-async def import_agent(
-    file: UploadFile = File(...),
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
-) -> AgentResponse:
-    """Import an agent from a .zip archive previously created by export."""
-    if not file.filename or not file.filename.endswith(".zip"):
-        raise HTTPException(status_code=400, detail="File must be a .zip archive")
-
-    contents = await file.read()
-    try:
-        zf = zipfile.ZipFile(io.BytesIO(contents))
-    except zipfile.BadZipFile:
-        raise HTTPException(status_code=400, detail="Invalid zip file")
-
-    if "agent.json" not in zf.namelist():
-        raise HTTPException(status_code=400, detail="Archive missing agent.json")
-
-    meta = json.loads(zf.read("agent.json"))
-    agent_name = meta.get("name", "Imported Agent")
-
-    # Deduplicate name
-    db_svc = get_db_service()
+async def _deduplicate_name(db_svc, user_id: int, agent_name: str) -> str:
+    """Return a unique agent name for the user."""
     existing_names: List[str] = await db_svc.execute(
-        lambda s: [a.name for a in AgentRepository(s).list_by_user(user.id)]
+        lambda s: [a.name for a in AgentRepository(s).list_by_user(user_id)]
     )
     original_name = agent_name
     counter = 2
     while agent_name in existing_names or agent_name in RESERVED_AGENT_NAMES:
         agent_name = f"{original_name} ({counter})"
         counter += 1
+    return agent_name
+
+
+async def _import_from_json(meta: dict, user: User) -> AgentResponse:
+    """Import agent from JSON metadata (no binary assets)."""
+    db_svc = get_db_service()
+    agent_name = await _deduplicate_name(db_svc, user.id, meta.get("name", "Imported Agent"))
+
+    def _create(session):
+        return AgentRepository(session).create_agent(
+            user_id=user.id,
+            name=agent_name,
+            system_prompt=meta.get("system_prompt", ""),
+            model_name=meta.get("model_name"),
+            provider_type=meta.get("provider_type", "ollama"),
+            excluded_tools=meta.get("excluded_tools"),
+            think=meta.get("think", False),
+            preferred_name=meta.get("preferred_name"),
+            trigger_word=meta.get("trigger_word"),
+        )
+
+    agent = await db_svc.execute(_create)
+    new_agent_id = agent.id
+
+    memory = meta.get("memory")
+    memory_enabled = meta.get("memory_enabled", True)
+    if memory is not None or not memory_enabled:
+        def _update_mem(session):
+            a = AgentRepository(session).get_by_user_and_id(user.id, new_agent_id)
+            return AgentRepository(session).update_agent(a, memory=memory, memory_enabled=memory_enabled)
+        await db_svc.execute(_update_mem)
+
+    def _get_final(session):
+        return _agent_to_response(AgentRepository(session).get_by_user_and_id(user.id, new_agent_id))
+    return await db_svc.execute(_get_final)
+
+
+async def _import_from_zip(zf: zipfile.ZipFile, meta: dict, user: User) -> AgentResponse:
+    """Import agent from ZIP archive with binary assets."""
+    db_svc = get_db_service()
+    agent_name = await _deduplicate_name(db_svc, user.id, meta.get("name", "Imported Agent"))
 
     # --- Import avatar ---
     avatar_uuid = None
     for name in zf.namelist():
         if name.startswith("avatar"):
-            avatar_data = zf.read(name)
             ext = Path(name).suffix
             avatar_uuid = str(uuid.uuid4())
-            dest = IMAGES_DIR / f"{avatar_uuid}{ext}"
-            dest.write_bytes(avatar_data)
+            (IMAGES_DIR / f"{avatar_uuid}{ext}").write_bytes(zf.read(name))
             break
 
     # --- Import voice ---
     voice_reference = None
     for name in zf.namelist():
         if name.startswith("voice"):
-            voice_data = zf.read(name)
             ext = Path(name).suffix
             if ext not in {".wav", ".mp3", ".flac", ".ogg"}:
                 ext = ".wav"
             voice_reference = str(uuid.uuid4())
             VOICE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-            dest = VOICE_STORAGE_DIR / f"{voice_reference}{ext}"
-            dest.write_bytes(voice_data)
+            (VOICE_STORAGE_DIR / f"{voice_reference}{ext}").write_bytes(zf.read(name))
             break
 
     # --- Create agent record ---
@@ -524,35 +604,27 @@ async def import_agent(
     memory_enabled = meta.get("memory_enabled", True)
     if memory is not None or not memory_enabled:
         def _update_mem(session):
-            agent_repo = AgentRepository(session)
-            a = agent_repo.get_by_user_and_id(user.id, new_agent_id)
-            return agent_repo.update_agent(a, memory=memory, memory_enabled=memory_enabled)
+            a = AgentRepository(session).get_by_user_and_id(user.id, new_agent_id)
+            return AgentRepository(session).update_agent(a, memory=memory, memory_enabled=memory_enabled)
         await db_svc.execute(_update_mem)
 
     # --- Import character assets ---
     char_prefix = "character_assets/"
     char_files = [n for n in zf.namelist() if n.startswith(char_prefix) and not n.endswith("/")]
     if char_files:
-        # Rewrite character_config URLs to point to new agent_id
         config = meta.get("character_config")
         if config:
-            config_str = json.dumps(config)
-            # The archive was exported from some agent_id — URLs in the config
-            # reference the old agent_id. We need to rewrite them to the new one.
-            # Extract old agent_id from a URL pattern like /character-assets/{old_id}/
             import re
-            old_ids = set(re.findall(r'/character-assets/(\d+)/', config_str))
-            for old_id in old_ids:
+            config_str = json.dumps(config)
+            for old_id in set(re.findall(r'/character-assets/(\d+)/', config_str)):
                 config_str = config_str.replace(f"/character-assets/{old_id}/", f"/character-assets/{new_agent_id}/")
             config = json.loads(config_str)
 
             def _update_config(session):
-                agent_repo = AgentRepository(session)
-                a = agent_repo.get_by_user_and_id(user.id, new_agent_id)
-                return agent_repo.update_agent(a, character_config=config)
+                a = AgentRepository(session).get_by_user_and_id(user.id, new_agent_id)
+                return AgentRepository(session).update_agent(a, character_config=config)
             await db_svc.execute(_update_config)
 
-        # Extract asset files
         dest_dir = CHARACTER_ASSETS_DIR / str(new_agent_id)
         for name in char_files:
             rel = name[len(char_prefix):]
@@ -560,12 +632,39 @@ async def import_agent(
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(zf.read(name))
 
-    # Return final agent state
     def _get_final(session):
-        a = AgentRepository(session).get_by_user_and_id(user.id, new_agent_id)
-        return _agent_to_response(a)
-
+        return _agent_to_response(AgentRepository(session).get_by_user_and_id(user.id, new_agent_id))
     return await db_svc.execute(_get_final)
+
+
+@router.post("/import")
+async def import_agent(
+    file: UploadFile = File(...),
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+) -> AgentResponse:
+    """Import an agent from a .zip archive or .json file."""
+    filename = file.filename or ""
+    contents = await file.read()
+
+    if filename.endswith(".json"):
+        try:
+            meta = json.loads(contents)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON file")
+        return await _import_from_json(meta, user)
+
+    if filename.endswith(".zip"):
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(contents))
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=400, detail="Invalid zip file")
+        if "agent.json" not in zf.namelist():
+            raise HTTPException(status_code=400, detail="Archive missing agent.json")
+        meta = json.loads(zf.read("agent.json"))
+        return await _import_from_zip(zf, meta, user)
+
+    raise HTTPException(status_code=400, detail="File must be .zip or .json")
 
 
 class AvatarCandidateResponse(BaseModel):
