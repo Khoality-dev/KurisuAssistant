@@ -5,7 +5,6 @@ import {
   Typography,
   TextField,
   Button,
-  Avatar,
   IconButton,
   Alert,
   Card,
@@ -26,33 +25,24 @@ import {
 import {
   Add as AddIcon,
   Delete as DeleteIcon,
-  PhotoCamera as PhotoCameraIcon,
-  MicNone as MicIcon,
   Badge as BadgeIcon,
   OpenInFull as OpenInFullIcon,
   CloseFullscreen as CloseFullscreenIcon,
   PsychologyAlt as PsychologyIcon,
-  Tune as TuneIcon,
   Save as SaveIcon,
   Refresh as RefreshIcon,
   Settings as SettingsIcon,
   Extension as ExtensionIcon,
-  Face as FaceIcon,
-  AutoAwesome as AutoAwesomeIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   FileDownload as ExportIcon,
   FileUpload as ImportIcon,
-  PlayArrow as PlayIcon,
-  Stop as StopIcon,
 } from '@mui/icons-material';
-import { CircularProgress } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiClient } from '../../api/client';
 import { useAgentStore } from '../../store/agentStore';
 import { storage } from '../../utils/storage';
-import type { Agent, AgentCreate, AgentUpdate, Tool, AvatarCandidate } from '../../api/types';
-import { CharacterConfigDialog } from '../CharacterConfigDialog';
+import type { Agent, AgentCreate, AgentUpdate, Tool } from '../../api/types';
 import { ModelPicker } from '../ModelPicker';
 
 const MotionCard = motion(Card);
@@ -294,8 +284,6 @@ export const AgentsSection: React.FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [characterConfigOpen, setCharacterConfigOpen] = useState(false);
-  const [characterConfigAgent, setCharacterConfigAgent] = useState<Agent | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
 
   // Form data
@@ -311,14 +299,6 @@ export const AgentsSection: React.FC = () => {
     trigger_word: '',
   });
 
-  // File upload refs
-  const avatarInputRef = useRef<HTMLInputElement>(null);
-  const voiceInputRef = useRef<HTMLInputElement>(null);
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [voiceFile, setVoiceFile] = useState<File | null>(null);
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const [avatarCandidates, setAvatarCandidates] = useState<AvatarCandidate[]>([]);
-  const [isDetecting, setIsDetecting] = useState(false);
   const [isPromptEditorExpanded, setIsPromptEditorExpanded] = useState(false);
 
   const toolGroups = useMemo(() => buildToolGroups(availableTools, mcpServerMap), [availableTools, mcpServerMap]);
@@ -401,16 +381,6 @@ export const AgentsSection: React.FC = () => {
 
       const newAgent = await apiClient.createAgent(createData);
 
-      // Upload avatar/voice to the agent's persona (if it has one)
-      if (newAgent.persona_id) {
-        if (avatarFile) {
-          await apiClient.updatePersonaAvatar(newAgent.persona_id, avatarFile);
-        }
-        if (voiceFile) {
-          await apiClient.updatePersonaVoice(newAgent.persona_id, voiceFile);
-        }
-      }
-
       setSuccessMessage(`Agent "${newAgent.name}" created successfully!`);
       setTimeout(() => setSuccessMessage(''), 3000);
       setCreateDialogOpen(false);
@@ -442,16 +412,6 @@ export const AgentsSection: React.FC = () => {
       const hasChanges = Object.values(updateData).some(v => v !== undefined);
       if (hasChanges) {
         await apiClient.updateAgent(selectedAgent.id, updateData);
-      }
-
-      // Upload avatar/voice to the agent's persona (if it has one)
-      if (selectedAgent.persona_id) {
-        if (avatarFile) {
-          await apiClient.updatePersonaAvatar(selectedAgent.persona_id, avatarFile);
-        }
-        if (voiceFile) {
-          await apiClient.updatePersonaVoice(selectedAgent.persona_id, voiceFile);
-        }
       }
 
       setSuccessMessage(`Agent "${formData.name}" updated successfully!`);
@@ -489,7 +449,7 @@ export const AgentsSection: React.FC = () => {
       a.download = `${agent.name.replace(/\s+/g, '_')}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      setSuccessMessage(`Agent "${agent.name}" exported as ${format.toUpperCase()}!`);
+      setSuccessMessage(`Agent "${agent.name}" exported!`);
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to export agent');
@@ -508,31 +468,6 @@ export const AgentsSection: React.FC = () => {
   };
 
   const importInputRef = useRef<HTMLInputElement>(null);
-  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
-  const [playingVoiceAgentId, setPlayingVoiceAgentId] = useState<number | null>(null);
-
-  const handlePlayVoice = (agent: Agent) => {
-    if (playingVoiceAgentId === agent.id) {
-      voiceAudioRef.current?.pause();
-      voiceAudioRef.current = null;
-      setPlayingVoiceAgentId(null);
-      return;
-    }
-    if (voiceAudioRef.current) {
-      voiceAudioRef.current.pause();
-      voiceAudioRef.current = null;
-    }
-    if (!agent.persona?.id) return;
-    const audio = new Audio(apiClient.getPersonaVoiceUrl(agent.persona.id));
-    audio.onended = () => setPlayingVoiceAgentId(null);
-    audio.onerror = () => {
-      setPlayingVoiceAgentId(null);
-      setError('Failed to play voice reference');
-    };
-    audio.play();
-    voiceAudioRef.current = audio;
-    setPlayingVoiceAgentId(agent.id);
-  };
 
   const resetForm = () => {
     setFormData({
@@ -546,10 +481,6 @@ export const AgentsSection: React.FC = () => {
       preferred_name: '',
       trigger_word: '',
     });
-    setAvatarFile(null);
-    setVoiceFile(null);
-    setAvatarPreview(null);
-    setAvatarCandidates([]);
     setSelectedAgent(null);
     setIsPromptEditorExpanded(false);
   };
@@ -567,10 +498,6 @@ export const AgentsSection: React.FC = () => {
       preferred_name: agent.persona?.preferred_name || '',
       trigger_word: agent.persona?.trigger_word || '',
     });
-    setAvatarPreview(agent.persona?.avatar_uuid ? apiClient.getImageUrl(agent.persona.avatar_uuid) : null);
-    setAvatarFile(null);
-    setVoiceFile(null);
-    setAvatarCandidates([]);
     setIsPromptEditorExpanded(false);
     setEditDialogOpen(true);
     loadTools();
@@ -579,32 +506,6 @@ export const AgentsSection: React.FC = () => {
   const openDeleteDialog = (agent: Agent) => {
     setSelectedAgent(agent);
     setDeleteDialogOpen(true);
-  };
-
-  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setAvatarFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAvatarPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleVoiceSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setVoiceFile(file);
-    }
-  };
-
-  const getAgentAvatarUrl = (agent: Agent) => {
-    if (agent.persona?.avatar_uuid) {
-      return apiClient.getImageUrl(agent.persona.avatar_uuid);
-    }
-    return undefined;
   };
 
   const isAdministrator = selectedAgent?.name === 'Administrator';
@@ -687,7 +588,7 @@ export const AgentsSection: React.FC = () => {
             No agents yet
           </Typography>
           <Typography color="text.secondary" sx={{ mb: 3 }}>
-            Create your first agent to get started. Agents can have custom personalities, voices, and avatars.
+            Create your first agent to get started. Agents define roles, models, and tool access.
           </Typography>
           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
             <Button
@@ -742,23 +643,15 @@ export const AgentsSection: React.FC = () => {
                       sx={{ position: 'absolute', top: 12, right: 12 }}
                     />
                   )}
-                  <CardContent sx={{ textAlign: 'center', pt: 4 }}>
-                    <Avatar
-                      src={getAgentAvatarUrl(agent)}
-                      sx={{
-                        width: 80,
-                        height: 80,
-                        mx: 'auto',
-                        mb: 2,
-                        bgcolor: 'primary.main',
-                        fontSize: '2rem',
-                      }}
-                    >
-                      {agent.name[0]?.toUpperCase()}
-                    </Avatar>
+                  <CardContent sx={{ pt: 3 }}>
                     <Typography variant="h6" gutterBottom>
                       {agent.name}
                     </Typography>
+                    {agent.persona?.preferred_name && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        Persona: {agent.persona.preferred_name}
+                      </Typography>
+                    )}
                     <Typography
                       variant="body2"
                       color="text.secondary"
@@ -773,65 +666,16 @@ export const AgentsSection: React.FC = () => {
                     >
                       {agent.system_prompt || 'No system prompt set'}
                     </Typography>
-                    <Box sx={{ mt: 2, display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
-                      {agent.persona?.voice_reference && (
-                        <Chip
-                          icon={<MicIcon />}
-                          label={agent.persona.voice_reference}
-                          size="small"
-                          variant="outlined"
-                        />
-                      )}
+                    <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                       {agent.model_name && (
                         <Chip label={agent.model_name} size="small" variant="outlined" />
                       )}
+                      {agent.provider_type && (
+                        <Chip label={agent.provider_type} size="small" variant="outlined" color="info" />
+                      )}
                     </Box>
-                    {agent.excluded_tools && agent.excluded_tools.length > 0 && (
-                      <Box sx={{ mt: 1, display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
-                        {agent.excluded_tools.slice(0, 3).map(tool => (
-                          <Chip
-                            key={tool}
-                            icon={<ExtensionIcon />}
-                            label={tool}
-                            size="small"
-                            variant="outlined"
-                            color="default"
-                            sx={{ textDecoration: 'line-through', opacity: 0.7 }}
-                          />
-                        ))}
-                        {agent.excluded_tools.length > 3 && (
-                          <Chip
-                            label={`+${agent.excluded_tools.length - 3} more`}
-                            size="small"
-                            variant="outlined"
-                          />
-                        )}
-                      </Box>
-                    )}
-                    {agent.persona?.character_config && (
-                      <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
-                        <Chip
-                          icon={<FaceIcon />}
-                          label="Character"
-                          size="small"
-                          variant="outlined"
-                          color="success"
-                        />
-                      </Box>
-                    )}
                   </CardContent>
                   <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
-                    <Tooltip title="Configure Character">
-                      <IconButton
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCharacterConfigAgent(agent);
-                          setCharacterConfigOpen(true);
-                        }}
-                      >
-                        <FaceIcon />
-                      </IconButton>
-                    </Tooltip>
                     <Tooltip title="Export">
                       <IconButton
                         onClick={(e) => {
@@ -868,30 +712,6 @@ export const AgentsSection: React.FC = () => {
         <DialogTitle>Create New Agent</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
-            {/* Avatar */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Avatar
-                src={avatarPreview || undefined}
-                sx={{ width: 80, height: 80, bgcolor: 'primary.main', fontSize: '2rem' }}
-              >
-                {formData.name?.[0]?.toUpperCase() || 'A'}
-              </Avatar>
-              <input
-                ref={avatarInputRef}
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={handleAvatarSelect}
-              />
-              <Button
-                variant="outlined"
-                startIcon={<PhotoCameraIcon />}
-                onClick={() => avatarInputRef.current?.click()}
-              >
-                Upload Avatar
-              </Button>
-            </Box>
-
             {/* Name */}
             <TextField
               label="Agent Name"
@@ -952,46 +772,6 @@ export const AgentsSection: React.FC = () => {
               </Typography>
             </Box>
 
-            {/* Preferred Name */}
-            <TextField
-              label="Preferred Name"
-              value={formData.preferred_name}
-              onChange={(e) => setFormData({ ...formData, preferred_name: e.target.value })}
-              fullWidth
-              helperText="How this agent should address you"
-            />
-
-            {/* Trigger Word */}
-            <TextField
-              label="Trigger Word"
-              value={formData.trigger_word}
-              onChange={(e) => setFormData({ ...formData, trigger_word: e.target.value })}
-              fullWidth
-              helperText="Say this word to activate voice interaction mode (e.g., agent's name)"
-            />
-
-            {/* Voice Reference */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <input
-                ref={voiceInputRef}
-                type="file"
-                accept="audio/*"
-                style={{ display: 'none' }}
-                onChange={handleVoiceSelect}
-              />
-              <Button
-                variant="outlined"
-                startIcon={<MicIcon />}
-                onClick={() => voiceInputRef.current?.click()}
-              >
-                Upload Voice Reference
-              </Button>
-              {voiceFile && (
-                <Typography variant="body2" color="text.secondary">
-                  {voiceFile.name}
-                </Typography>
-              )}
-            </Box>
           </Box>
         </DialogContent>
         <DialogActions>
@@ -1030,7 +810,7 @@ export const AgentsSection: React.FC = () => {
                 Edit Agent
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, maxWidth: 520 }}>
-                Refine identity, prompting, tools, memory, and media settings in one place.
+                Refine identity, prompting, tools, and memory settings.
               </Typography>
             </Box>
             <Typography variant="caption" color="text.secondary" sx={{ pt: 0.5 }}>
@@ -1040,207 +820,26 @@ export const AgentsSection: React.FC = () => {
         </DialogTitle>
         <DialogContent sx={{ p: 3 }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-            <Box
-              sx={{
-                ...formSectionSx,
-                p: 3,
-                color: 'text.primary',
-              }}
-            >
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Avatar
-                    src={avatarPreview || undefined}
-                    sx={{
-                      width: 72,
-                      height: 72,
-                      fontSize: '1.8rem',
-                      bgcolor: (t: any) => t.palette.mode === 'light' ? '#EFF6FF' : '#1A1A2E',
-                      color: 'primary.main',
-                    }}
-                  >
-                    {formData.name?.[0]?.toUpperCase() || 'A'}
-                  </Avatar>
-                  <Box>
-                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                      {formData.name || 'Unnamed Agent'}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                      {isAdministrator ? 'Core routing agent with protected identity settings.' : 'A tuned persona for voice, memory, and multi-tool workflows.'}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                      {formData.model_name || 'No model selected'}
-                      {formData.think ? ' • Extended thinking' : ''}
-                      {formData.memory_enabled ? ' • Memory enabled' : ''}
-                    </Typography>
-                  </Box>
-                </Box>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: { xs: '100%', sm: 220 } }}>
-                  <input ref={avatarInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAvatarSelect} />
-                  <Button
-                    variant="outlined"
-                    startIcon={<PhotoCameraIcon />}
-                    onClick={() => avatarInputRef.current?.click()}
-                    size="small"
-                    sx={{ justifyContent: 'flex-start' }}
-                  >
-                    Change Avatar
-                  </Button>
-                  {selectedAgent?.persona?.character_config && (
-                    <Button
-                      variant="outlined"
-                      startIcon={isDetecting ? <CircularProgress size={16} /> : <AutoAwesomeIcon />}
-                      onClick={async () => {
-                        if (!selectedAgent) return;
-                        setIsDetecting(true);
-                        setAvatarCandidates([]);
-                        try {
-                          const candidates = await apiClient.getAvatarCandidates(selectedAgent.persona!.id);
-                          setAvatarCandidates(candidates);
-                          if (candidates.length === 0) setError('No faces detected in pose images');
-                        } catch (err: any) {
-                          setError(err.response?.data?.detail || 'Failed to detect faces');
-                        } finally {
-                          setIsDetecting(false);
-                        }
-                      }}
-                      disabled={isDetecting}
-                      size="small"
-                      sx={{ justifyContent: 'flex-start' }}
-                    >
-                      {isDetecting ? 'Detecting...' : 'Detect from Poses'}
-                    </Button>
-                  )}
-                </Box>
+            <Box sx={formSectionSx}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <BadgeIcon fontSize="small" color="primary" />
+                <Typography variant="h6">Identity</Typography>
               </Box>
-              {avatarCandidates.length > 0 && (
-                <Box sx={{ mt: 2.5 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                    Suggested avatars from pose images
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextField
+                  label="Agent Name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  fullWidth
+                  required
+                  disabled={isAdministrator}
+                  helperText={isAdministrator ? 'Administrator name cannot be changed' : 'Display name used across the app'}
+                />
+                {selectedAgent?.persona && (
+                  <Typography variant="body2" color="text.secondary">
+                    Linked persona: {selectedAgent.persona.preferred_name || selectedAgent.persona.trigger_word || `#${selectedAgent.persona.id}`}
                   </Typography>
-                  <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-                    {avatarCandidates.map((candidate) => (
-                      <Tooltip key={candidate.uuid} title={`Pose: ${candidate.pose_id} (${(candidate.score * 100).toFixed(0)}%)`}>
-                        <Avatar
-                          src={apiClient.getImageUrl(candidate.uuid)}
-                          sx={{
-                            width: 64,
-                            height: 64,
-                            cursor: 'pointer',
-                            border: '2px solid rgba(255,255,255,0.15)',
-                            transition: 'border-color 0.2s, box-shadow 0.2s, transform 0.2s',
-                            '&:hover': { transform: 'translateY(-1px)', borderColor: 'background.paper', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.3)' },
-                          }}
-                          onClick={async () => {
-                            if (!selectedAgent) return;
-                            try {
-                              await apiClient.setPersonaAvatarFromUuid(selectedAgent.persona!.id, candidate.uuid);
-                              setAvatarPreview(apiClient.getImageUrl(candidate.uuid));
-                              setAvatarCandidates([]);
-                              setSuccessMessage('Avatar updated!');
-                              setTimeout(() => setSuccessMessage(''), 3000);
-                              loadAgents();
-                            } catch (err: any) {
-                              setError(err.response?.data?.detail || 'Failed to set avatar');
-                            }
-                          }}
-                        />
-                      </Tooltip>
-                    ))}
-                  </Box>
-                </Box>
-              )}
-            </Box>
-
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2.5 }}>
-              <Box sx={formSectionSx}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                  <BadgeIcon fontSize="small" color="primary" />
-                  <Typography variant="h6">Identity</Typography>
-                </Box>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <TextField
-                    label="Agent Name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    fullWidth
-                    required
-                    disabled={isAdministrator}
-                    helperText={isAdministrator ? 'Administrator name cannot be changed' : 'Display name used across the app'}
-                  />
-                  <TextField
-                    label="Preferred Name"
-                    value={formData.preferred_name}
-                    onChange={(e) => setFormData({ ...formData, preferred_name: e.target.value })}
-                    fullWidth
-                    helperText="How this agent should address you"
-                  />
-                  <TextField
-                    label="Trigger Word"
-                    value={formData.trigger_word}
-                    onChange={(e) => setFormData({ ...formData, trigger_word: e.target.value })}
-                    fullWidth
-                    helperText="Voice activation phrase for this agent"
-                  />
-                </Box>
-              </Box>
-              <Box sx={formSectionSx}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                  <TuneIcon fontSize="small" color="primary" />
-                  <Typography variant="h6">Media & Character</Typography>
-                </Box>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <Box sx={{ p: 2, borderRadius: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      Voice Reference
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, mb: 1.5 }}>
-                      Upload a fresh voice sample or keep the current reference.
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-                      <input ref={voiceInputRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={handleVoiceSelect} />
-                      <Button variant="outlined" startIcon={<MicIcon />} onClick={() => voiceInputRef.current?.click()} size="small">
-                        Change Voice Reference
-                      </Button>
-                    </Box>
-                    {(voiceFile || selectedAgent?.persona?.voice_reference) && (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1.25 }}>
-                        <Typography variant="caption" color="text.secondary">
-                          {voiceFile ? voiceFile.name : `Current: ${selectedAgent?.persona?.voice_reference}`}
-                        </Typography>
-                        {!voiceFile && selectedAgent?.persona?.voice_reference && (
-                          <Tooltip title={playingVoiceAgentId === selectedAgent.id ? 'Stop' : 'Play'}>
-                            <IconButton size="small" onClick={() => handlePlayVoice(selectedAgent)}>
-                              {playingVoiceAgentId === selectedAgent.id ? <StopIcon fontSize="small" /> : <PlayIcon fontSize="small" />}
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                      </Box>
-                    )}
-                  </Box>
-                  <Box sx={{ p: 2, borderRadius: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      Character Animation
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, mb: 1.5 }}>
-                      Manage pose assets and animation graph for this agent.
-                    </Typography>
-                    <Button
-                      variant="outlined"
-                      startIcon={<FaceIcon />}
-                      onClick={() => {
-                        if (selectedAgent) {
-                          setCharacterConfigAgent(selectedAgent);
-                          setCharacterConfigOpen(true);
-                        }
-                      }}
-                      size="small"
-                    >
-                      Configure Character Animation
-                      {selectedAgent?.persona?.character_config ? ' (Configured)' : ''}
-                    </Button>
-                  </Box>
-                </Box>
+                )}
               </Box>
             </Box>
 
@@ -1421,18 +1020,6 @@ export const AgentsSection: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Character Config Dialog */}
-      {characterConfigAgent && (
-        <CharacterConfigDialog
-          open={characterConfigOpen}
-          agent={characterConfigAgent}
-          onClose={() => {
-            setCharacterConfigOpen(false);
-            setCharacterConfigAgent(null);
-          }}
-          onSaved={loadAgents}
-        />
-      )}
     </Box>
   );
 };

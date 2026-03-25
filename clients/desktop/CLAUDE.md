@@ -48,7 +48,7 @@ src/components/
     AccountSection.tsx     — Ollama URL, summary model, context size
     TTSSection.tsx         — TTS backend, auto-play, voice, emotion controls, ASR language
     AppearanceSection.tsx  — Light/dark theme toggle
-    AgentsSection.tsx      — Full agent CRUD with dialogs, avatar, voice, character config, tool exclusion
+    AgentsSection.tsx      — Agent CRUD with dialogs for role/capability (name, system_prompt, model, tools, memory, persona picker). Avatar/voice/character config managed in PersonasSection.
     MCPServersSection.tsx  — Local servers detection (Maestro, Chronicle, Playwright) + user MCP server CRUD
     ToolsSection.tsx       — Available tools list with details dialog
     SkillsSection.tsx      — Skill CRUD + import/export
