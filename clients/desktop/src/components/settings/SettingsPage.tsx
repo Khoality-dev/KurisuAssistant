@@ -5,7 +5,6 @@ import {
   RecordVoiceOver as TTSIcon,
   Palette as AppearanceIcon,
   SmartToy as AgentsIcon,
-  Dns as MCPIcon,
   Extension as ToolsIcon,
   AutoFixHigh as SkillsIcon,
   FolderOpen as HostAccessIcon,
@@ -19,7 +18,6 @@ const AccountSection = React.lazy(() => import('./AccountSection').then(m => ({ 
 const TTSSection = React.lazy(() => import('./TTSSection').then(m => ({ default: m.TTSSection })));
 const AppearanceSection = React.lazy(() => import('./AppearanceSection').then(m => ({ default: m.AppearanceSection })));
 const AgentsSection = React.lazy(() => import('./AgentsSection').then(m => ({ default: m.AgentsSection })));
-const MCPServersSection = React.lazy(() => import('./MCPServersSection').then(m => ({ default: m.MCPServersSection })));
 const ToolsSection = React.lazy(() => import('./ToolsSection').then(m => ({ default: m.ToolsSection })));
 const SkillsSection = React.lazy(() => import('./SkillsSection').then(m => ({ default: m.SkillsSection })));
 const HostAccessSection = React.lazy(() => import('./HostAccessSection').then(m => ({ default: m.HostAccessSection })));
@@ -37,8 +35,7 @@ const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'tts', label: 'TTS & ASR', icon: <TTSIcon /> },
   { id: 'appearance', label: 'Appearance', icon: <AppearanceIcon /> },
   { id: 'agents', label: 'Agents', icon: <AgentsIcon /> },
-  { id: 'mcp-servers', label: 'MCP Servers', icon: <MCPIcon /> },
-  { id: 'tools', label: 'Available Tools', icon: <ToolsIcon /> },
+  { id: 'tools', label: 'Tools & MCP', icon: <ToolsIcon /> },
   { id: 'skills', label: 'Skills', icon: <SkillsIcon /> },
   { id: 'host-access', label: 'Host Access', icon: <HostAccessIcon /> },
   { id: 'faces', label: 'Face Identities', icon: <FacesIcon /> },
@@ -51,7 +48,7 @@ function renderSection(sectionId: string) {
     case 'tts': return <TTSSection />;
     case 'appearance': return <AppearanceSection />;
     case 'agents': return <AgentsSection />;
-    case 'mcp-servers': return <MCPServersSection />;
+    case 'mcp-servers': return <ToolsSection />; // Legacy route — redirect to merged page
     case 'tools': return <ToolsSection />;
     case 'skills': return <SkillsSection />;
     case 'host-access': return <HostAccessSection />;

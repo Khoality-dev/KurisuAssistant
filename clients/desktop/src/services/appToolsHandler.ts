@@ -44,6 +44,24 @@ async function handleGetAgents(): Promise<ToolResult> {
   })));
 }
 
+async function handleCreateAgent(args: Record<string, unknown>): Promise<ToolResult> {
+  const name = args.name as string;
+  const modelName = args.model_name as string;
+  if (!name) return err('name is required.');
+  if (!modelName) return err('model_name is required.');
+
+  const agent = await apiClient.createAgent({
+    name,
+    model_name: modelName,
+    system_prompt: args.system_prompt as string | undefined,
+    provider_type: args.provider_type as string | undefined,
+    think: args.think as boolean | undefined,
+    preferred_name: args.preferred_name as string | undefined,
+    trigger_word: args.trigger_word as string | undefined,
+  });
+  return ok({ status: 'ok', agent: { id: agent.id, name: agent.name, model_name: agent.model_name } });
+}
+
 async function handleUpdateAgent(args: Record<string, unknown>): Promise<ToolResult> {
   const agentId = args.agent_id as number;
   if (!agentId) return err('agent_id is required.');
@@ -57,6 +75,14 @@ async function handleUpdateAgent(args: Record<string, unknown>): Promise<ToolRes
 
   const agent = await apiClient.updateAgent(agentId, update);
   return ok({ status: 'ok', agent: { id: agent.id, name: agent.name, model_name: agent.model_name } });
+}
+
+async function handleDeleteAgent(args: Record<string, unknown>): Promise<ToolResult> {
+  const agentId = args.agent_id as number;
+  if (!agentId) return err('agent_id is required.');
+
+  await apiClient.deleteAgent(agentId);
+  return ok({ status: 'ok', deleted: agentId });
 }
 
 async function handleListMCPServers(): Promise<ToolResult> {
@@ -121,6 +147,61 @@ async function handleDeleteMCPServer(args: Record<string, unknown>): Promise<Too
   await refreshClientMCPServers();
   return ok({ status: 'ok', deleted: serverId });
 }
+
+// --- Skills ---
+
+async function handleListSkills(): Promise<ToolResult> {
+  const skills = await apiClient.listSkills();
+  return ok(skills.map(s => ({ id: s.id, name: s.name, instructions: s.instructions?.substring(0, 200) + (s.instructions && s.instructions.length > 200 ? '...' : '') })));
+}
+
+async function handleCreateSkill(args: Record<string, unknown>): Promise<ToolResult> {
+  const name = args.name as string;
+  if (!name) return err('name is required.');
+
+  const skill = await apiClient.createSkill({
+    name,
+    instructions: args.instructions as string | undefined,
+  });
+  return ok({ status: 'ok', skill: { id: skill.id, name: skill.name } });
+}
+
+async function handleUpdateSkill(args: Record<string, unknown>): Promise<ToolResult> {
+  const skillId = args.skill_id as number;
+  if (!skillId) return err('skill_id is required.');
+
+  const update: Record<string, unknown> = {};
+  for (const key of ['name', 'instructions']) {
+    if (args[key] !== undefined) update[key] = args[key];
+  }
+  if (Object.keys(update).length === 0) return err('No fields to update.');
+
+  const skill = await apiClient.updateSkill(skillId, update);
+  return ok({ status: 'ok', skill: { id: skill.id, name: skill.name } });
+}
+
+async function handleDeleteSkill(args: Record<string, unknown>): Promise<ToolResult> {
+  const skillId = args.skill_id as number;
+  if (!skillId) return err('skill_id is required.');
+
+  await apiClient.deleteSkill(skillId);
+  return ok({ status: 'ok', deleted: skillId });
+}
+
+// --- Tools ---
+
+async function handleListTools(): Promise<ToolResult> {
+  const tools = await apiClient.listTools();
+  return ok({
+    builtin_tools: tools.builtin_tools.map(t => ({ name: t.function.name, built_in: t.built_in })),
+    mcp_tools: tools.mcp_tools.map(t => ({ name: t.function.name })),
+    mcp_servers: tools.mcp_servers
+      ? Object.fromEntries(Object.entries(tools.mcp_servers).map(([server, serverTools]) => [server, serverTools.map(t => t.function.name)]))
+      : undefined,
+  });
+}
+
+// --- Vision ---
 
 async function handleVisionStart(args: Record<string, unknown>): Promise<ToolResult> {
   const store = useVisionStore.getState();
@@ -199,11 +280,18 @@ async function handleNavigate(args: Record<string, unknown>): Promise<ToolResult
 async function dispatch(name: string, args: Record<string, unknown>): Promise<ToolResult> {
   switch (name) {
     case 'app_get_agents': return handleGetAgents();
+    case 'app_create_agent': return handleCreateAgent(args);
     case 'app_update_agent': return handleUpdateAgent(args);
+    case 'app_delete_agent': return handleDeleteAgent(args);
     case 'app_list_mcp_servers': return handleListMCPServers();
     case 'app_add_mcp_server': return handleAddMCPServer(args);
     case 'app_update_mcp_server': return handleUpdateMCPServer(args);
     case 'app_delete_mcp_server': return handleDeleteMCPServer(args);
+    case 'app_list_skills': return handleListSkills();
+    case 'app_create_skill': return handleCreateSkill(args);
+    case 'app_update_skill': return handleUpdateSkill(args);
+    case 'app_delete_skill': return handleDeleteSkill(args);
+    case 'app_list_tools': return handleListTools();
     case 'app_vision_start': return handleVisionStart(args);
     case 'app_vision_stop': return handleVisionStop();
     case 'app_open_file': return handleOpenFile(args);

@@ -24,11 +24,18 @@ interface ToolSchema {
 
 const APP_TOOL_NAMES = new Set([
   'app_get_agents',
+  'app_create_agent',
   'app_update_agent',
+  'app_delete_agent',
   'app_list_mcp_servers',
   'app_add_mcp_server',
   'app_update_mcp_server',
   'app_delete_mcp_server',
+  'app_list_skills',
+  'app_create_skill',
+  'app_update_skill',
+  'app_delete_skill',
+  'app_list_tools',
   'app_vision_start',
   'app_vision_stop',
   'app_launch_browser',
@@ -56,6 +63,26 @@ function getAppToolSchemas(): ToolSchema[] {
     {
       type: 'function',
       function: {
+        name: 'app_create_agent',
+        description: 'Create a new agent with a name, system prompt, and model.',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Display name for the new agent.' },
+            system_prompt: { type: 'string', description: 'System prompt / personality.' },
+            model_name: { type: 'string', description: 'LLM model name (e.g. "gemma3:4b").' },
+            provider_type: { type: 'string', enum: ['ollama', 'gemini'], description: 'LLM provider (default: "ollama").' },
+            think: { type: 'boolean', description: 'Enable extended reasoning.' },
+            preferred_name: { type: 'string', description: 'How the agent should address the user.' },
+            trigger_word: { type: 'string', description: 'Voice activation trigger word.' },
+          },
+          required: ['name', 'model_name'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'app_update_agent',
         description:
           'Update an agent\'s settings. Only provide fields you want to change.',
@@ -75,6 +102,20 @@ function getAppToolSchemas(): ToolSchema[] {
             memory_enabled: { type: 'boolean', description: 'Enable memory injection + consolidation.' },
             preferred_name: { type: 'string', description: 'How the user wants to be called.' },
             trigger_word: { type: 'string', description: 'Voice activation trigger word.' },
+          },
+          required: ['agent_id'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'app_delete_agent',
+        description: 'Delete an agent by ID.',
+        parameters: {
+          type: 'object',
+          properties: {
+            agent_id: { type: 'integer', description: 'ID of the agent to delete.' },
           },
           required: ['agent_id'],
         },
@@ -146,6 +187,77 @@ function getAppToolSchemas(): ToolSchema[] {
             server_id: { type: 'integer', description: 'ID of the MCP server to delete.' },
           },
           required: ['server_id'],
+        },
+      },
+    },
+    // --- Skills ---
+    {
+      type: 'function',
+      function: {
+        name: 'app_list_skills',
+        description: 'List all skills configured for the current user.',
+        parameters: {
+          type: 'object',
+          properties: {},
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'app_create_skill',
+        description: 'Create a new skill with a name and instructions.',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Skill name.' },
+            instructions: { type: 'string', description: 'Skill instructions / content.' },
+          },
+          required: ['name'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'app_update_skill',
+        description: 'Update a skill. Only provide fields you want to change.',
+        parameters: {
+          type: 'object',
+          properties: {
+            skill_id: { type: 'integer', description: 'ID of the skill to update.' },
+            name: { type: 'string', description: 'New skill name.' },
+            instructions: { type: 'string', description: 'New instructions.' },
+          },
+          required: ['skill_id'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'app_delete_skill',
+        description: 'Delete a skill by ID.',
+        parameters: {
+          type: 'object',
+          properties: {
+            skill_id: { type: 'integer', description: 'ID of the skill to delete.' },
+          },
+          required: ['skill_id'],
+        },
+      },
+    },
+    // --- Tools ---
+    {
+      type: 'function',
+      function: {
+        name: 'app_list_tools',
+        description: 'List all available tools (built-in and MCP) with their schemas.',
+        parameters: {
+          type: 'object',
+          properties: {},
+          required: [],
         },
       },
     },
