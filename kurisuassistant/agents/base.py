@@ -41,17 +41,22 @@ async def async_iterate(sync_iterator):
 class AgentConfig:
     """Configuration for an agent."""
     id: Optional[int] = None  # Database ID (None for router)
-    name: str = ""
-    system_prompt: str = ""
-    voice_reference: Optional[str] = None
-    avatar_uuid: Optional[str] = None
+    name: str = ""  # Role name
+    system_prompt: str = ""  # Role instructions
     model_name: Optional[str] = None
     provider_type: str = "ollama"
     excluded_tools: Optional[List[str]] = None
     think: bool = False
     memory: Optional[str] = None
     memory_enabled: bool = True
+    # Persona fields (resolved from persona at load time)
+    persona_id: Optional[int] = None
+    persona_name: str = ""  # Character name
+    persona_system_prompt: str = ""  # Personality prompt
+    voice_reference: Optional[str] = None
+    avatar_uuid: Optional[str] = None
     preferred_name: Optional[str] = None
+    trigger_word: Optional[str] = None
 
 
 @dataclass
@@ -338,9 +343,11 @@ class SimpleAgent(BaseAgent):
 
         # Build unified system prompt: agent persona + user preferences
         system_parts = []
-        system_parts.append(f"You are {self.config.name}.")
+        system_parts.append(f"You are {self.config.persona_name or self.config.name}.")
         if self.config.system_prompt:
             system_parts.append(self.config.system_prompt)
+        if self.config.persona_system_prompt:
+            system_parts.append(self.config.persona_system_prompt)
         if context.user_system_prompt:
             system_parts.append(context.user_system_prompt)
         # Agent-level preferred_name takes priority over user-level

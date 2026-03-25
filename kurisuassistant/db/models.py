@@ -20,6 +20,7 @@ class User(Base):
     nvidia_api_key = Column(String, nullable=True)  # NVIDIA NIM API key
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
+    personas = relationship("Persona", back_populates="user", cascade="all, delete-orphan")
     agents = relationship("Agent", back_populates="user", cascade="all, delete-orphan")
 
 class Conversation(Base):
@@ -68,31 +69,48 @@ class Message(Base):
     agent = relationship("Agent")
 
 
+class Persona(Base):
+    """Reusable character identity — personality, voice, avatar, animation."""
+    __tablename__ = 'personas'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    name = Column(String, nullable=False)  # Character name (e.g., "Kurisu")
+    system_prompt = Column(Text, default='')  # Personality prompt
+    voice_reference = Column(String, nullable=True)  # Voice file for TTS
+    avatar_uuid = Column(String, nullable=True)  # Avatar image UUID
+    character_config = Column(JSON, nullable=True)  # Animation tree config
+    preferred_name = Column(Text, nullable=True)  # How user wants to be called
+    trigger_word = Column(String, nullable=True)  # Voice activation trigger word
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_persona_user_id_name'),)
+
+    user = relationship("User", back_populates="personas")
+    agents = relationship("Agent", back_populates="persona")
+
+
 class Agent(Base):
-    """User-created agent with custom personality and voice."""
+    """Agent role — inference config, tools, and memory. References a Persona for identity."""
     __tablename__ = 'agents'
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    name = Column(String, nullable=False)  # Display name (e.g., "Kurisu")
-    system_prompt = Column(Text, default='')  # Custom personality prompt
-    voice_reference = Column(String, nullable=True)  # Voice file name for TTS
-    avatar_uuid = Column(String, nullable=True)  # Avatar image UUID
+    persona_id = Column(Integer, ForeignKey('personas.id', ondelete='SET NULL'), nullable=True)
+    name = Column(String, nullable=False)  # Role name (e.g., "Coding Assistant")
+    system_prompt = Column(Text, default='')  # Role instructions
     model_name = Column(String, nullable=True)  # LLM model override
-    provider_type = Column(String, default='ollama', nullable=False)  # LLM provider: "ollama" or "gemini"
+    provider_type = Column(String, default='ollama', nullable=False)  # LLM provider
     excluded_tools = Column(JSON, nullable=True)  # List of tool names to exclude
     think = Column(Boolean, default=False, nullable=False)  # Enable extended reasoning
-    character_config = Column(JSON, nullable=True)  # Animation tree config for video call mode
     memory = Column(Text, nullable=True)  # Free-form persistent memory (markdown)
     memory_enabled = Column(Boolean, default=True, nullable=False)  # Enable memory injection + consolidation
-    preferred_name = Column(Text, nullable=True)  # How the user wants to be called by this agent
-    trigger_word = Column(String, nullable=True)  # Voice activation trigger word
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Unique name per user
     __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_agent_user_id_name'),)
 
     user = relationship("User", back_populates="agents")
+    persona = relationship("Persona", back_populates="agents")
 
 
 class Skill(Base):

@@ -18,6 +18,7 @@ from kurisuassistant.routers import (
     tts_router,
     mcp_router,
     ws_router,
+    personas_router,
     agents_router,
     models_router,
     tools_router,
@@ -113,6 +114,7 @@ app.include_router(asr_router)
 app.include_router(conversations_router)
 app.include_router(messages_router)
 app.include_router(users_router)
+app.include_router(personas_router)
 app.include_router(agents_router)
 app.include_router(models_router)
 app.include_router(tools_router)

@@ -97,11 +97,12 @@ async def get_conversation(
                     message_dict["agent_id"] = msg.agent_id
                     # Include agent info if available (eager loaded)
                     if msg.agent:
+                        persona = msg.agent.persona
                         message_dict["agent"] = {
                             "id": msg.agent.id,
                             "name": msg.agent.name,
-                            "avatar_uuid": msg.agent.avatar_uuid,
-                            "voice_reference": msg.agent.voice_reference,
+                            "avatar_uuid": persona.avatar_uuid if persona else None,
+                            "voice_reference": persona.voice_reference if persona else None,
                         }
                 messages_array.append(message_dict)
                 if msg.frame_id:

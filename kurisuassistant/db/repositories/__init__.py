@@ -3,6 +3,7 @@ from .user import UserRepository
 from .conversation import ConversationRepository
 from .message import MessageRepository
 from .frame import FrameRepository
+from .persona import PersonaRepository
 from .agent import AgentRepository
 from .face import FaceIdentityRepository, FacePhotoRepository
 from .skill import SkillRepository
@@ -14,6 +15,7 @@ __all__ = [
     "ConversationRepository",
     "MessageRepository",
     "FrameRepository",
+    "PersonaRepository",
     "AgentRepository",
     "FaceIdentityRepository",
     "FacePhotoRepository",

@@ -49,12 +49,17 @@ class RouterAgent(BaseAgent):
                     id=agent.id,
                     name=agent.name,
                     system_prompt=agent.system_prompt or "",
-                    voice_reference=agent.voice_reference,
-                    avatar_uuid=agent.avatar_uuid,
                     model_name=agent.model_name,
+                    provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
                     excluded_tools=agent.excluded_tools,
                     think=agent.think,
-                    provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
+                    persona_id=agent.persona.id if agent.persona else None,
+                    persona_name=agent.persona.name if agent.persona else agent.name,
+                    persona_system_prompt=agent.persona.system_prompt if agent.persona else "",
+                    voice_reference=agent.persona.voice_reference if agent.persona else None,
+                    avatar_uuid=agent.persona.avatar_uuid if agent.persona else None,
+                    preferred_name=agent.persona.preferred_name if agent.persona else None,
+                    trigger_word=agent.persona.trigger_word if agent.persona else None,
                 )
                 for agent in agents
             ]
@@ -227,12 +232,17 @@ class RouterAgent(BaseAgent):
                 id=agent.id,
                 name=agent.name,
                 system_prompt=agent.system_prompt or "",
-                voice_reference=agent.voice_reference,
-                avatar_uuid=agent.avatar_uuid,
                 model_name=agent.model_name,
+                provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
                 excluded_tools=agent.excluded_tools,
                 think=agent.think,
-                provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
+                persona_id=agent.persona.id if agent.persona else None,
+                persona_name=agent.persona.name if agent.persona else agent.name,
+                persona_system_prompt=agent.persona.system_prompt if agent.persona else "",
+                voice_reference=agent.persona.voice_reference if agent.persona else None,
+                avatar_uuid=agent.persona.avatar_uuid if agent.persona else None,
+                preferred_name=agent.persona.preferred_name if agent.persona else None,
+                trigger_word=agent.persona.trigger_word if agent.persona else None,
             )
 
         db = get_db_service()

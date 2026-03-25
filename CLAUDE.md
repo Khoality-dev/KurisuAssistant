@@ -23,6 +23,7 @@ KurisuAssistant is a voice-based AI assistant platform combining STT (faster-whi
 - Notes & History — File-based per-agent notes (`kurisuassistant/tools/notes.py`) and DB-backed conversation history tools (`kurisuassistant/tools/history.py`)
 - LLM Providers — Multi-provider support: Ollama (local) and Google Gemini (cloud). Per-agent `provider_type` field, per-user `gemini_api_key`. Provider factory in `kurisuassistant/models/llm/__init__.py`.
 - Authentication — JWT access (1h) + refresh (30d) tokens. Secret persisted to `data/jwt_secret.key`. Refresh endpoint: `POST /auth/refresh`. Client auto-refreshes on 401/4001 with exponential backoff WebSocket reconnection.
+- Persona/Agent Split — Agent split into Persona (identity/voice/avatar/animation) + Agent (role/capability). Persona CRUD router at `kurisuassistant/routers/personas.py`, repository at `kurisuassistant/db/repositories/persona.py`. Personas own voice_reference, avatar_uuid, character_config, preferred_name, trigger_word. Export/import as ZIP with persona.json + assets. Runtime: `AgentConfig` carries resolved persona fields (persona_name, persona_system_prompt, voice_reference, avatar_uuid, preferred_name, trigger_word). System prompt merges agent instructions then persona personality. Character assets stored under `data/character_assets/{persona_id}/`.
 
 ## Development Quick Reference
 

@@ -58,29 +58,13 @@ class AgentRepository(BaseRepository[Agent]):
         user_id: int,
         name: str,
         system_prompt: str = "",
-        voice_reference: Optional[str] = None,
-        avatar_uuid: Optional[str] = None,
         model_name: Optional[str] = None,
         provider_type: str = "ollama",
         excluded_tools: Optional[List[str]] = None,
         think: bool = False,
-        character_config: Optional[dict] = None,
-        preferred_name: Optional[str] = None,
-        trigger_word: Optional[str] = None,
+        persona_id: Optional[int] = None,
     ) -> Agent:
         """Create a new agent.
-
-        Args:
-            user_id: User ID who owns the agent
-            name: Agent display name
-            system_prompt: Custom personality prompt
-            voice_reference: Voice file name for TTS
-            avatar_uuid: Avatar image UUID
-            model_name: LLM model override
-            excluded_tools: List of tool names
-
-        Returns:
-            Created Agent instance
 
         Raises:
             ValueError: If agent with same name exists for user
@@ -93,15 +77,11 @@ class AgentRepository(BaseRepository[Agent]):
             user_id=user_id,
             name=name,
             system_prompt=system_prompt,
-            voice_reference=voice_reference,
-            avatar_uuid=avatar_uuid,
             model_name=model_name,
             provider_type=provider_type,
             excluded_tools=excluded_tools,
             think=think,
-            character_config=character_config,
-            preferred_name=preferred_name,
-            trigger_word=trigger_word,
+            persona_id=persona_id,
         )
 
     def update_agent(
@@ -109,41 +89,20 @@ class AgentRepository(BaseRepository[Agent]):
         agent: Agent,
         name: Optional[str] = None,
         system_prompt: Optional[str] = None,
-        voice_reference: Optional[str] = None,
-        avatar_uuid: Optional[str] = None,
         model_name: Optional[str] = None,
         provider_type: Optional[str] = None,
         excluded_tools: Optional[List[str]] = None,
         think: Optional[bool] = None,
-        character_config: Optional[dict] = None,
         memory: Optional[str] = None,
         memory_enabled: Optional[bool] = None,
-        preferred_name: Optional[str] = None,
-        trigger_word: Optional[str] = None,
+        persona_id: Optional[int] = None,
     ) -> Agent:
-        """Update an agent.
-
-        Args:
-            agent: Agent to update
-            name: New name (optional)
-            system_prompt: New prompt (optional)
-            voice_reference: New voice reference (optional)
-            avatar_uuid: New avatar UUID (optional)
-            model_name: New model name (optional)
-            excluded_tools: New excluded_tools list (optional)
-
-        Returns:
-            Updated Agent instance
-        """
+        """Update an agent."""
         update_data = {}
         if name is not None:
             update_data["name"] = name
         if system_prompt is not None:
             update_data["system_prompt"] = system_prompt
-        if voice_reference is not None:
-            update_data["voice_reference"] = voice_reference
-        if avatar_uuid is not None:
-            update_data["avatar_uuid"] = avatar_uuid
         if model_name is not None:
             update_data["model_name"] = model_name
         if provider_type is not None:
@@ -152,16 +111,12 @@ class AgentRepository(BaseRepository[Agent]):
             update_data["excluded_tools"] = excluded_tools
         if think is not None:
             update_data["think"] = think
-        if character_config is not None:
-            update_data["character_config"] = character_config
         if memory is not None:
             update_data["memory"] = memory
         if memory_enabled is not None:
             update_data["memory_enabled"] = memory_enabled
-        if preferred_name is not None:
-            update_data["preferred_name"] = preferred_name if preferred_name else None
-        if trigger_word is not None:
-            update_data["trigger_word"] = trigger_word
+        if persona_id is not None:
+            update_data["persona_id"] = persona_id
 
         if update_data:
             return self.update(agent, **update_data)
