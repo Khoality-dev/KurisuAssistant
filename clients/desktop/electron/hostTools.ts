@@ -572,4 +572,4 @@ export function registerHostToolIPC(): void {
   });
 }
 
-export { HOST_TOOL_NAMES, getHostToolSchemas };
+export { HOST_TOOL_NAMES, getHostToolSchemas, executeHostTool };

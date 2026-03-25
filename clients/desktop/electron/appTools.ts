@@ -487,6 +487,32 @@ async function executeLaunchBrowser(args: Record<string, unknown>): Promise<{ co
 let callCounter = 0;
 const pendingCalls = new Map<number, { resolve: (result: any) => void; timer: ReturnType<typeof setTimeout> }>();
 
+async function executeAppTool(
+  name: string,
+  args: Record<string, unknown>,
+): Promise<{ content: string; isError: boolean }> {
+  if (name === 'app_launch_browser') {
+    return executeLaunchBrowser(args);
+  }
+
+  const mainWindow = BrowserWindow.getAllWindows().find(w => !w.isDestroyed());
+  if (!mainWindow) {
+    return { content: JSON.stringify({ error: 'No window available.' }), isError: true };
+  }
+
+  const callId = ++callCounter;
+
+  return new Promise<{ content: string; isError: boolean }>((resolve) => {
+    const timer = setTimeout(() => {
+      pendingCalls.delete(callId);
+      resolve({ content: JSON.stringify({ error: 'App tool execution timed out.' }), isError: true });
+    }, 30000);
+
+    pendingCalls.set(callId, { resolve, timer });
+    mainWindow.webContents.send('app-tools:execute', { callId, name, args });
+  });
+}
+
 export function registerAppToolIPC(): void {
   ipcMain.handle('app-tools:list-tools', () => {
     return getAppToolSchemas();
@@ -499,29 +525,7 @@ export function registerAppToolIPC(): void {
   ipcMain.handle(
     'app-tools:call-tool',
     async (_event, name: string, args: Record<string, unknown>) => {
-      // Tools that run in main process (no renderer needed)
-      if (name === 'app_launch_browser') {
-        return executeLaunchBrowser(args);
-      }
-
-      const mainWindow = BrowserWindow.getAllWindows().find(w => !w.isDestroyed());
-      if (!mainWindow) {
-        return { content: JSON.stringify({ error: 'No window available.' }), isError: true };
-      }
-
-      const callId = ++callCounter;
-
-      return new Promise<{ content: string; isError: boolean }>((resolve) => {
-        const timer = setTimeout(() => {
-          pendingCalls.delete(callId);
-          resolve({ content: JSON.stringify({ error: 'App tool execution timed out.' }), isError: true });
-        }, 30000);
-
-        pendingCalls.set(callId, { resolve, timer });
-
-        // Send to renderer for execution
-        mainWindow.webContents.send('app-tools:execute', { callId, name, args });
-      });
+      return executeAppTool(name, args);
     },
   );
 
@@ -536,4 +540,4 @@ export function registerAppToolIPC(): void {
   });
 }
 
-export { APP_TOOL_NAMES, getAppToolSchemas };
+export { APP_TOOL_NAMES, getAppToolSchemas, executeAppTool };
