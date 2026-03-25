@@ -119,6 +119,8 @@ class BackgroundService:
             frame_id=task.frame_id,
             model_name=task.model_name,
             api_url=task.api_url,
+            provider_type=task.provider_type,
+            api_key=task.api_key,
         )
 
         # Chain: after summary completes, consolidate memory for each agent
@@ -157,6 +159,8 @@ class BackgroundService:
                 frame_ids=[summary_task.frame_id],
                 model_name=summary_task.model_name,
                 api_url=summary_task.api_url,
+                provider_type=summary_task.provider_type,
+                api_key=summary_task.api_key,
             ))
 
     @staticmethod
@@ -169,6 +173,8 @@ class BackgroundService:
             frame_ids=task.frame_ids,
             model_name=task.model_name,
             api_url=task.api_url,
+            provider_type=task.provider_type,
+            api_key=task.api_key,
         )
 
     # ------------------------------------------------------------------
@@ -214,7 +220,13 @@ class BackgroundService:
             user_ids = list(set(conv_to_user.values()))
             users = session.query(User).filter(User.id.in_(user_ids)).all()
             user_prefs = {
-                u.id: {"summary_model": u.summary_model, "ollama_url": u.ollama_url}
+                u.id: {
+                    "summary_model": u.summary_model,
+                    "ollama_url": u.ollama_url,
+                    "summary_provider": getattr(u, 'summary_provider', 'ollama') or 'ollama',
+                    "gemini_api_key": u.gemini_api_key,
+                    "nvidia_api_key": getattr(u, 'nvidia_api_key', None),
+                }
                 for u in users
             }
 
@@ -239,11 +251,20 @@ class BackgroundService:
             if not summary_model:
                 continue
 
+            summary_provider = prefs.get("summary_provider", "ollama")
+            api_key = None
+            if summary_provider == "gemini":
+                api_key = prefs.get("gemini_api_key")
+            elif summary_provider == "nvidia":
+                api_key = prefs.get("nvidia_api_key")
+
             # Only submit SummarizeFrameTask — consolidation chains automatically
             self.submit(SummarizeFrameTask(
                 frame_id=frame_id,
                 model_name=summary_model,
                 api_url=ollama_url,
+                provider_type=summary_provider,
+                api_key=api_key,
             ))
 
             logger.info("Queued idle processing for frame %d (user %d)", frame_id, user_id)

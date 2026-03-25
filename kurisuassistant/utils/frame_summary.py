@@ -21,6 +21,8 @@ async def summarize_frame(
     frame_id: int,
     model_name: str,
     api_url: Optional[str] = None,
+    provider_type: str = "ollama",
+    api_key: Optional[str] = None,
 ) -> Optional[str]:
     """Summarize a frame's messages and store the result.
 
@@ -30,6 +32,8 @@ async def summarize_frame(
         frame_id: Frame ID to summarize
         model_name: LLM model for summarization
         api_url: Optional custom Ollama API URL
+        provider_type: LLM provider ("ollama", "gemini", "nvidia")
+        api_key: Optional API key for cloud providers
     """
     try:
         from kurisuassistant.db.repositories import FrameRepository, MessageRepository
@@ -60,7 +64,7 @@ async def summarize_frame(
             return None
 
         # Call LLM non-streaming
-        llm = create_llm_provider("ollama", api_url=api_url)
+        llm = create_llm_provider(provider_type, api_url=api_url, api_key=api_key)
         llm_messages = [
             {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
             {"role": "user", "content": transcript},

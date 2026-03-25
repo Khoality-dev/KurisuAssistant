@@ -56,6 +56,7 @@ class UserRepository(BaseRepository[User]):
         context_size: Optional[int] = None,
         gemini_api_key: Optional[str] = None,
         nvidia_api_key: Optional[str] = None,
+        summary_provider: Optional[str] = None,
     ) -> User:
         """Update user preferences.
 
@@ -86,6 +87,8 @@ class UserRepository(BaseRepository[User]):
             update_data["gemini_api_key"] = gemini_api_key if gemini_api_key else None
         if nvidia_api_key is not None:
             update_data["nvidia_api_key"] = nvidia_api_key if nvidia_api_key else None
+        if summary_provider is not None:
+            update_data["summary_provider"] = summary_provider if summary_provider else "ollama"
 
         if update_data:
             return self.update(user, **update_data)

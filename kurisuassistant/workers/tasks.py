@@ -9,6 +9,8 @@ class SummarizeFrameTask:
     frame_id: int
     model_name: str
     api_url: str | None = None
+    provider_type: str = "ollama"
+    api_key: str | None = None
 
 
 @dataclass
@@ -19,3 +21,5 @@ class ConsolidateMemoryTask:
     frame_ids: list[int]
     model_name: str
     api_url: str | None = None
+    provider_type: str = "ollama"
+    api_key: str | None = None

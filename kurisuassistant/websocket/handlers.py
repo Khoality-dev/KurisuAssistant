@@ -232,7 +232,7 @@ class ChatSessionHandler:
         from fastapi import WebSocketDisconnect
         try:
             # Setup conversation/frame
-            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
+            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, summary_provider, unsummarized_ids, context_size = await self._setup_conversation(event)
 
             # Reset task state
             self._task_conversation_id = conversation_id
@@ -253,8 +253,9 @@ class ChatSessionHandler:
             fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
             if summary_model and fids:
                 import kurisuassistant.workers as workers
+                summary_api_key = gemini_api_key if summary_provider == "gemini" else nvidia_api_key if summary_provider == "nvidia" else None
                 for fid in fids:
-                    workers.submit(workers.SummarizeFrameTask(frame_id=fid, model_name=summary_model, api_url=ollama_url))
+                    workers.submit(workers.SummarizeFrameTask(frame_id=fid, model_name=summary_model, api_url=ollama_url, provider_type=summary_provider, api_key=summary_api_key))
 
             if not target_agent:
                 await self.send_event(ErrorEvent(
@@ -410,14 +411,15 @@ class ChatSessionHandler:
         """
         try:
             # Setup conversation/frame
-            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, unsummarized_ids, context_size = await self._setup_conversation(event)
+            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, summary_provider, unsummarized_ids, context_size = await self._setup_conversation(event)
 
             # Submit background summarization tasks
             fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
             if summary_model and fids:
                 import kurisuassistant.workers as workers
+                summary_api_key = gemini_api_key if summary_provider == "gemini" else nvidia_api_key if summary_provider == "nvidia" else None
                 for fid in fids:
-                    workers.submit(workers.SummarizeFrameTask(frame_id=fid, model_name=summary_model, api_url=ollama_url))
+                    workers.submit(workers.SummarizeFrameTask(frame_id=fid, model_name=summary_model, api_url=ollama_url, provider_type=summary_provider, api_key=summary_api_key))
 
             # Reset task state
             self._task_conversation_id = conversation_id
@@ -850,6 +852,7 @@ class ChatSessionHandler:
             gemini_api_key = getattr(user, 'gemini_api_key', None)
             nvidia_api_key = getattr(user, 'nvidia_api_key', None)
             summary_model = user.summary_model
+            summary_provider = getattr(user, 'summary_provider', 'ollama') or 'ollama'
             context_size = user.context_size
 
             if event.conversation_id is None:
@@ -890,14 +893,14 @@ class ChatSessionHandler:
             system_prompt, preferred_name = user_repo.get_preferences(user)
 
             return (conversation_id, frame_id, system_prompt, preferred_name,
-                    old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, unsummarized_ids, context_size)
+                    old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, summary_provider, unsummarized_ids, context_size)
 
         (conversation_id, frame_id, system_prompt, preferred_name,
-         old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, unsummarized_ids, context_size) = await db.execute(_do_setup)
+         old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, summary_provider, unsummarized_ids, context_size) = await db.execute(_do_setup)
 
         system_messages = build_system_messages(system_prompt, preferred_name)
 
-        return conversation_id, frame_id, system_messages, system_prompt, preferred_name or "", old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, unsummarized_ids, context_size
+        return conversation_id, frame_id, system_messages, system_prompt, preferred_name or "", old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, summary_provider, unsummarized_ids, context_size
 
     def _load_user_agents(self) -> List[AgentConfig]:
         """Load all agents for the current user."""

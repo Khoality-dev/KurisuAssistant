@@ -110,6 +110,8 @@ async def consolidate_agent_memory(
     frame_ids: list[int],
     model_name: str,
     api_url: Optional[str] = None,
+    provider_type: str = "ollama",
+    api_key: Optional[str] = None,
 ) -> None:
     """Consolidate agent memory AND notes from completed session frames.
 
@@ -140,7 +142,7 @@ async def consolidate_agent_memory(
         if not transcript.strip():
             return
 
-        llm = create_llm_provider("ollama", api_url=api_url)
+        llm = create_llm_provider(provider_type, api_url=api_url, api_key=api_key)
 
         # --- Step 1: Update Agent.memory (short essential text) ---
         memory_user_content = (

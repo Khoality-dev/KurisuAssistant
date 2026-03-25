@@ -15,6 +15,7 @@ class User(Base):
     agent_avatar_uuid = Column(String, nullable=True)
     ollama_url = Column(String, nullable=True)  # Custom Ollama server URL (None = use default env var)
     summary_model = Column(String, nullable=True)  # Model for frame summarization (None = use chat model)
+    summary_provider = Column(String, default='ollama', nullable=False)  # Provider for summary model ("ollama", "gemini", "nvidia")
     context_size = Column(Integer, nullable=True)  # Ollama num_ctx override (None = default 8192)
     gemini_api_key = Column(String, nullable=True)  # Google Gemini API key
     nvidia_api_key = Column(String, nullable=True)  # NVIDIA NIM API key
