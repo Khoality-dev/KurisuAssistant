@@ -6,6 +6,7 @@ Create Date: 2026-03-24 23:59:59.758902
 
 """
 from typing import Sequence, Union
+import json
 
 from alembic import op
 import sqlalchemy as sa
@@ -65,11 +66,11 @@ def upgrade() -> None:
             conn.execute(sa.text(
                 "INSERT INTO personas (user_id, name, system_prompt, voice_reference, avatar_uuid, "
                 "character_config, preferred_name, trigger_word, created_at) "
-                "VALUES (:uid, :name, :prompt, :voice, :avatar, :char_config, :pref, :trigger, :created)"
+                "VALUES (:uid, :name, :prompt, :voice, :avatar, CAST(:char_config AS json), :pref, :trigger, :created)"
             ), {
                 "uid": user_id, "name": persona_name, "prompt": system_prompt or "",
                 "voice": voice_ref, "avatar": avatar,
-                "char_config": sa.type_coerce(char_config, sa.JSON()) if char_config else None,
+                "char_config": json.dumps(char_config) if char_config else None,
                 "pref": pref_name, "trigger": trigger, "created": created,
             })
             persona_id = conn.execute(sa.text(
@@ -83,7 +84,6 @@ def upgrade() -> None:
 
         # Update character_config asset paths: /character-assets/{agent_id}/ → /character-assets/{persona_id}/
         if char_config and persona_id != agent_id:
-            import json
             config_str = json.dumps(char_config)
             old_prefix = f"/character-assets/{agent_id}/"
             new_prefix = f"/character-assets/{persona_id}/"
