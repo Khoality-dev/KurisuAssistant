@@ -266,8 +266,6 @@ interface AgentFormData {
   excluded_tools: string[];
   memory: string;
   memory_enabled: boolean;
-  preferred_name: string;
-  trigger_word: string;
 }
 
 export const AgentsSection: React.FC = () => {
@@ -295,8 +293,6 @@ export const AgentsSection: React.FC = () => {
     excluded_tools: [],
     memory: '',
     memory_enabled: true,
-    preferred_name: '',
-    trigger_word: '',
   });
 
   const [isPromptEditorExpanded, setIsPromptEditorExpanded] = useState(false);
@@ -495,8 +491,6 @@ export const AgentsSection: React.FC = () => {
       excluded_tools: agent.excluded_tools || [],
       memory: agent.memory || '',
       memory_enabled: agent.memory_enabled,
-      preferred_name: agent.persona?.preferred_name || '',
-      trigger_word: agent.persona?.trigger_word || '',
     });
     setIsPromptEditorExpanded(false);
     setEditDialogOpen(true);
@@ -647,9 +641,9 @@ export const AgentsSection: React.FC = () => {
                     <Typography variant="h6" gutterBottom>
                       {agent.name}
                     </Typography>
-                    {agent.persona?.preferred_name && (
+                    {agent.persona?.name && (
                       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        Persona: {agent.persona.preferred_name}
+                        Persona: {agent.persona.name}
                       </Typography>
                     )}
                     <Typography
@@ -837,7 +831,7 @@ export const AgentsSection: React.FC = () => {
                 />
                 {selectedAgent?.persona && (
                   <Typography variant="body2" color="text.secondary">
-                    Linked persona: {selectedAgent.persona.preferred_name || selectedAgent.persona.trigger_word || `#${selectedAgent.persona.id}`}
+                    Linked persona: {selectedAgent.persona.name}
                   </Typography>
                 )}
               </Box>
