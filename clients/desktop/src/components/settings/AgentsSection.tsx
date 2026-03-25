@@ -41,6 +41,8 @@ import {
   AutoAwesome as AutoAwesomeIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
+  FileDownload as ExportIcon,
+  FileUpload as ImportIcon,
 } from '@mui/icons-material';
 import { CircularProgress } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -480,6 +482,35 @@ export const AgentsSection: React.FC = () => {
     }
   };
 
+  const handleExportAgent = async (agent: Agent) => {
+    try {
+      const blob = await apiClient.exportAgent(agent.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${agent.name.replace(/\s+/g, '_')}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setSuccessMessage(`Agent "${agent.name}" exported!`);
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'Failed to export agent');
+    }
+  };
+
+  const handleImportAgent = async (file: File) => {
+    try {
+      const agent = await apiClient.importAgent(file);
+      setSuccessMessage(`Agent "${agent.name}" imported!`);
+      setTimeout(() => setSuccessMessage(''), 3000);
+      loadAgents();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'Failed to import agent');
+    }
+  };
+
+  const importInputRef = useRef<HTMLInputElement>(null);
+
   const resetForm = () => {
     setFormData({
       name: '',
@@ -582,6 +613,24 @@ export const AgentsSection: React.FC = () => {
             </IconButton>
           </Tooltip>
           <Button
+            variant="outlined"
+            startIcon={<ImportIcon />}
+            onClick={() => importInputRef.current?.click()}
+          >
+            Import
+          </Button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".zip"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleImportAgent(file);
+              e.target.value = '';
+            }}
+          />
+          <Button
             variant="contained"
             startIcon={<AddIcon />}
             onClick={() => {
@@ -617,17 +666,26 @@ export const AgentsSection: React.FC = () => {
           <Typography color="text.secondary" sx={{ mb: 3 }}>
             Create your first agent to get started. Agents can have custom personalities, voices, and avatars.
           </Typography>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => {
-              resetForm();
-              setCreateDialogOpen(true);
-              loadTools();
-            }}
-          >
-            Create Agent
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+            <Button
+              variant="outlined"
+              startIcon={<ImportIcon />}
+              onClick={() => importInputRef.current?.click()}
+            >
+              Import
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => {
+                resetForm();
+                setCreateDialogOpen(true);
+                loadTools();
+              }}
+            >
+              Create Agent
+            </Button>
+          </Box>
         </Paper>
       ) : (
         <Grid container spacing={3} sx={{ maxWidth: 1200, mx: 'auto' }}>
@@ -749,6 +807,16 @@ export const AgentsSection: React.FC = () => {
                         }}
                       >
                         <FaceIcon />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Export">
+                      <IconButton
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleExportAgent(agent);
+                        }}
+                      >
+                        <ExportIcon />
                       </IconButton>
                     </Tooltip>
                     {agent.name !== 'Administrator' && (

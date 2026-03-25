@@ -466,6 +466,29 @@ class APIClient {
   }
 
   /**
+   * Export an agent as a .zip archive
+   */
+  async exportAgent(id: number): Promise<Blob> {
+    const response = await this.client.get(`/agents/${id}/export`, {
+      headers: this.getHeaders(),
+      responseType: 'blob',
+    });
+    return response.data;
+  }
+
+  /**
+   * Import an agent from a .zip archive
+   */
+  async importAgent(file: File): Promise<Agent> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await this.client.post<Agent>('/agents/import', formData, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
    * Get avatar candidates detected from character pose base images
    */
   async getAvatarCandidates(agentId: number): Promise<AvatarCandidate[]> {
