@@ -466,11 +466,12 @@ class APIClient {
   }
 
   /**
-   * Export an agent as a .zip archive
+   * Export an agent as a .zip archive (full) or .json (metadata only)
    */
-  async exportAgent(id: number): Promise<Blob> {
+  async exportAgent(id: number, format: 'zip' | 'json' = 'zip'): Promise<Blob> {
     const response = await this.client.get(`/agents/${id}/export`, {
       headers: this.getHeaders(),
+      params: { format },
       responseType: 'blob',
     });
     return response.data;
@@ -486,6 +487,13 @@ class APIClient {
       headers: this.getHeaders(),
     });
     return response.data;
+  }
+
+  /**
+   * Get URL for playing an agent's voice reference audio
+   */
+  getVoiceUrl(agentId: number): string {
+    return `${config.apiBaseUrl}/agents/${agentId}/voice?token=${this.token}`;
   }
 
   /**

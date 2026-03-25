@@ -22,6 +22,10 @@ import {
   Switch,
   Checkbox,
   Collapse,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -43,6 +47,8 @@ import {
   ExpandLess as ExpandLessIcon,
   FileDownload as ExportIcon,
   FileUpload as ImportIcon,
+  PlayArrow as PlayIcon,
+  Stop as StopIcon,
 } from '@mui/icons-material';
 import { CircularProgress } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -482,16 +488,16 @@ export const AgentsSection: React.FC = () => {
     }
   };
 
-  const handleExportAgent = async (agent: Agent) => {
+  const handleExportAgent = async (agent: Agent, format: 'zip' | 'json' = 'zip') => {
     try {
-      const blob = await apiClient.exportAgent(agent.id);
+      const blob = await apiClient.exportAgent(agent.id, format);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${agent.name.replace(/\s+/g, '_')}.zip`;
+      a.download = `${agent.name.replace(/\s+/g, '_')}.${format}`;
       a.click();
       URL.revokeObjectURL(url);
-      setSuccessMessage(`Agent "${agent.name}" exported!`);
+      setSuccessMessage(`Agent "${agent.name}" exported as ${format.toUpperCase()}!`);
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to export agent');
@@ -510,6 +516,32 @@ export const AgentsSection: React.FC = () => {
   };
 
   const importInputRef = useRef<HTMLInputElement>(null);
+  const [exportMenuAnchor, setExportMenuAnchor] = useState<null | HTMLElement>(null);
+  const [exportMenuAgent, setExportMenuAgent] = useState<Agent | null>(null);
+  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [playingVoiceAgentId, setPlayingVoiceAgentId] = useState<number | null>(null);
+
+  const handlePlayVoice = (agent: Agent) => {
+    if (playingVoiceAgentId === agent.id) {
+      voiceAudioRef.current?.pause();
+      voiceAudioRef.current = null;
+      setPlayingVoiceAgentId(null);
+      return;
+    }
+    if (voiceAudioRef.current) {
+      voiceAudioRef.current.pause();
+      voiceAudioRef.current = null;
+    }
+    const audio = new Audio(apiClient.getVoiceUrl(agent.id));
+    audio.onended = () => setPlayingVoiceAgentId(null);
+    audio.onerror = () => {
+      setPlayingVoiceAgentId(null);
+      setError('Failed to play voice reference');
+    };
+    audio.play();
+    voiceAudioRef.current = audio;
+    setPlayingVoiceAgentId(agent.id);
+  };
 
   const resetForm = () => {
     setFormData({
@@ -622,7 +654,7 @@ export const AgentsSection: React.FC = () => {
           <input
             ref={importInputRef}
             type="file"
-            accept=".zip"
+            accept=".zip,.json"
             hidden
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -813,7 +845,8 @@ export const AgentsSection: React.FC = () => {
                       <IconButton
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleExportAgent(agent);
+                          setExportMenuAnchor(e.currentTarget);
+                          setExportMenuAgent(agent);
                         }}
                       >
                         <ExportIcon />
@@ -1181,9 +1214,18 @@ export const AgentsSection: React.FC = () => {
                       </Button>
                     </Box>
                     {(voiceFile || selectedAgent?.voice_reference) && (
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.25 }}>
-                        {voiceFile ? voiceFile.name : `Current: ${selectedAgent?.voice_reference}`}
-                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1.25 }}>
+                        <Typography variant="caption" color="text.secondary">
+                          {voiceFile ? voiceFile.name : `Current: ${selectedAgent?.voice_reference}`}
+                        </Typography>
+                        {!voiceFile && selectedAgent?.voice_reference && (
+                          <Tooltip title={playingVoiceAgentId === selectedAgent.id ? 'Stop' : 'Play'}>
+                            <IconButton size="small" onClick={() => handlePlayVoice(selectedAgent)}>
+                              {playingVoiceAgentId === selectedAgent.id ? <StopIcon fontSize="small" /> : <PlayIcon fontSize="small" />}
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </Box>
                     )}
                   </Box>
                   <Box sx={{ p: 2, borderRadius: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
@@ -1372,6 +1414,28 @@ export const AgentsSection: React.FC = () => {
           </Box>
         </DialogActions>
       </Dialog>
+
+      {/* Export Menu */}
+      <Menu
+        anchorEl={exportMenuAnchor}
+        open={Boolean(exportMenuAnchor)}
+        onClose={() => setExportMenuAnchor(null)}
+      >
+        <MenuItem onClick={() => {
+          if (exportMenuAgent) handleExportAgent(exportMenuAgent, 'zip');
+          setExportMenuAnchor(null);
+        }}>
+          <ListItemIcon><ExportIcon fontSize="small" /></ListItemIcon>
+          <ListItemText primary="Full backup (.zip)" secondary="Includes all assets" />
+        </MenuItem>
+        <MenuItem onClick={() => {
+          if (exportMenuAgent) handleExportAgent(exportMenuAgent, 'json');
+          setExportMenuAnchor(null);
+        }}>
+          <ListItemIcon><ExportIcon fontSize="small" /></ListItemIcon>
+          <ListItemText primary="Template (.json)" secondary="Metadata only, no assets" />
+        </MenuItem>
+      </Menu>
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
