@@ -38,8 +38,13 @@ async function handleGetAgents(): Promise<ToolResult> {
     system_prompt: a.system_prompt?.substring(0, 200) + (a.system_prompt && a.system_prompt.length > 200 ? '...' : ''),
     think: a.think,
     memory_enabled: a.memory_enabled,
-    preferred_name: a.preferred_name,
-    trigger_word: a.trigger_word,
+    persona_id: a.persona_id,
+    persona: a.persona ? {
+      id: a.persona.id,
+      name: a.persona.name,
+      preferred_name: a.persona.preferred_name,
+      trigger_word: a.persona.trigger_word,
+    } : null,
     excluded_tools: a.excluded_tools,
   })));
 }
@@ -56,8 +61,7 @@ async function handleCreateAgent(args: Record<string, unknown>): Promise<ToolRes
     system_prompt: args.system_prompt as string | undefined,
     provider_type: args.provider_type as string | undefined,
     think: args.think as boolean | undefined,
-    preferred_name: args.preferred_name as string | undefined,
-    trigger_word: args.trigger_word as string | undefined,
+    persona_id: args.persona_id as number | undefined,
   });
   return ok({ status: 'ok', agent: { id: agent.id, name: agent.name, model_name: agent.model_name } });
 }
@@ -67,7 +71,7 @@ async function handleUpdateAgent(args: Record<string, unknown>): Promise<ToolRes
   if (!agentId) return err('agent_id is required.');
 
   const update: Record<string, unknown> = {};
-  for (const key of ['name', 'system_prompt', 'model_name', 'excluded_tools', 'think', 'memory_enabled', 'preferred_name', 'trigger_word']) {
+  for (const key of ['name', 'system_prompt', 'model_name', 'excluded_tools', 'think', 'memory_enabled', 'persona_id']) {
     if (args[key] !== undefined) update[key] = args[key];
   }
 
@@ -188,6 +192,57 @@ async function handleDeleteSkill(args: Record<string, unknown>): Promise<ToolRes
   return ok({ status: 'ok', deleted: skillId });
 }
 
+// --- Personas ---
+
+async function handleGetPersonas(): Promise<ToolResult> {
+  const personas = await apiClient.listPersonas();
+  return ok(personas.map(p => ({
+    id: p.id,
+    name: p.name,
+    system_prompt: p.system_prompt?.substring(0, 200) + (p.system_prompt && p.system_prompt.length > 200 ? '...' : ''),
+    preferred_name: p.preferred_name,
+    trigger_word: p.trigger_word,
+    voice_reference: p.voice_reference,
+    has_avatar: !!p.avatar_uuid,
+    has_character: !!p.character_config,
+  })));
+}
+
+async function handleCreatePersona(args: Record<string, unknown>): Promise<ToolResult> {
+  const name = args.name as string;
+  if (!name) return err('name is required.');
+
+  const persona = await apiClient.createPersona({
+    name,
+    system_prompt: args.system_prompt as string | undefined,
+    preferred_name: args.preferred_name as string | undefined,
+    trigger_word: args.trigger_word as string | undefined,
+  });
+  return ok({ status: 'ok', persona: { id: persona.id, name: persona.name } });
+}
+
+async function handleUpdatePersona(args: Record<string, unknown>): Promise<ToolResult> {
+  const personaId = args.persona_id as number;
+  if (!personaId) return err('persona_id is required.');
+
+  const update: Record<string, unknown> = {};
+  for (const key of ['name', 'system_prompt', 'preferred_name', 'trigger_word']) {
+    if (args[key] !== undefined) update[key] = args[key];
+  }
+  if (Object.keys(update).length === 0) return err('No fields to update.');
+
+  const persona = await apiClient.updatePersona(personaId, update);
+  return ok({ status: 'ok', persona: { id: persona.id, name: persona.name } });
+}
+
+async function handleDeletePersona(args: Record<string, unknown>): Promise<ToolResult> {
+  const personaId = args.persona_id as number;
+  if (!personaId) return err('persona_id is required.');
+
+  await apiClient.deletePersona(personaId);
+  return ok({ status: 'ok', deleted: personaId });
+}
+
 // --- Tools ---
 
 async function handleListTools(): Promise<ToolResult> {
@@ -283,6 +338,10 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<To
     case 'app_create_agent': return handleCreateAgent(args);
     case 'app_update_agent': return handleUpdateAgent(args);
     case 'app_delete_agent': return handleDeleteAgent(args);
+    case 'app_get_personas': return handleGetPersonas();
+    case 'app_create_persona': return handleCreatePersona(args);
+    case 'app_update_persona': return handleUpdatePersona(args);
+    case 'app_delete_persona': return handleDeletePersona(args);
     case 'app_list_mcp_servers': return handleListMCPServers();
     case 'app_add_mcp_server': return handleAddMCPServer(args);
     case 'app_update_mcp_server': return handleUpdateMCPServer(args);

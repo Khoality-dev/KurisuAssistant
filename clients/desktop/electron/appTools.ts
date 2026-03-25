@@ -27,6 +27,10 @@ const APP_TOOL_NAMES = new Set([
   'app_create_agent',
   'app_update_agent',
   'app_delete_agent',
+  'app_get_personas',
+  'app_create_persona',
+  'app_update_persona',
+  'app_delete_persona',
   'app_list_mcp_servers',
   'app_add_mcp_server',
   'app_update_mcp_server',
@@ -64,7 +68,7 @@ function getAppToolSchemas(): ToolSchema[] {
       type: 'function',
       function: {
         name: 'app_create_agent',
-        description: 'Create a new agent with a name, system prompt, and model.',
+        description: 'Create a new agent with a name, system prompt, and model. Optionally link a persona.',
         parameters: {
           type: 'object',
           properties: {
@@ -73,8 +77,7 @@ function getAppToolSchemas(): ToolSchema[] {
             model_name: { type: 'string', description: 'LLM model name (e.g. "gemma3:4b").' },
             provider_type: { type: 'string', enum: ['ollama', 'gemini'], description: 'LLM provider (default: "ollama").' },
             think: { type: 'boolean', description: 'Enable extended reasoning.' },
-            preferred_name: { type: 'string', description: 'How the agent should address the user.' },
-            trigger_word: { type: 'string', description: 'Voice activation trigger word.' },
+            persona_id: { type: 'integer', description: 'ID of a persona to link (provides voice, avatar, trigger word, preferred name).' },
           },
           required: ['name', 'model_name'],
         },
@@ -100,8 +103,7 @@ function getAppToolSchemas(): ToolSchema[] {
             },
             think: { type: 'boolean', description: 'Enable extended reasoning.' },
             memory_enabled: { type: 'boolean', description: 'Enable memory injection + consolidation.' },
-            preferred_name: { type: 'string', description: 'How the user wants to be called.' },
-            trigger_word: { type: 'string', description: 'Voice activation trigger word.' },
+            persona_id: { type: 'integer', description: 'ID of a persona to link (provides voice, avatar, trigger word, preferred name). Use 0 or null to unlink.' },
           },
           required: ['agent_id'],
         },
@@ -118,6 +120,68 @@ function getAppToolSchemas(): ToolSchema[] {
             agent_id: { type: 'integer', description: 'ID of the agent to delete.' },
           },
           required: ['agent_id'],
+        },
+      },
+    },
+    // --- Personas ---
+    {
+      type: 'function',
+      function: {
+        name: 'app_get_personas',
+        description: 'List all personas. Personas hold identity fields (voice, avatar, trigger word, preferred name, character config) that can be shared across agents.',
+        parameters: {
+          type: 'object',
+          properties: {},
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'app_create_persona',
+        description: 'Create a new persona with identity fields.',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Display name for the persona.' },
+            system_prompt: { type: 'string', description: 'System prompt / personality.' },
+            preferred_name: { type: 'string', description: 'How agents with this persona should address the user.' },
+            trigger_word: { type: 'string', description: 'Voice activation trigger word.' },
+          },
+          required: ['name'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'app_update_persona',
+        description: 'Update a persona. Only provide fields you want to change.',
+        parameters: {
+          type: 'object',
+          properties: {
+            persona_id: { type: 'integer', description: 'ID of the persona to update.' },
+            name: { type: 'string', description: 'New display name.' },
+            system_prompt: { type: 'string', description: 'New system prompt / personality.' },
+            preferred_name: { type: 'string', description: 'How the user wants to be called.' },
+            trigger_word: { type: 'string', description: 'Voice activation trigger word.' },
+          },
+          required: ['persona_id'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'app_delete_persona',
+        description: 'Delete a persona by ID. Agents linked to it will have their persona_id cleared.',
+        parameters: {
+          type: 'object',
+          properties: {
+            persona_id: { type: 'integer', description: 'ID of the persona to delete.' },
+          },
+          required: ['persona_id'],
         },
       },
     },

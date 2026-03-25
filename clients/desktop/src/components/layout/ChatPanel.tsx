@@ -55,7 +55,7 @@ export const ChatPanel: React.FC = () => {
         {selectedAgent && (
           <>
             <Avatar
-              src={selectedAgent.avatar_uuid ? apiClient.getImageUrl(selectedAgent.avatar_uuid) : undefined}
+              src={selectedAgent.persona?.avatar_uuid ? apiClient.getImageUrl(selectedAgent.persona.avatar_uuid) : undefined}
               sx={{ width: 28, height: 28, fontSize: '0.75rem' }}
             >
               {selectedAgent.name.charAt(0)}

@@ -106,21 +106,43 @@ export interface TTSRequest {
   use_emo_text?: boolean;
 }
 
-export interface Agent {
+export interface Persona {
   id: number;
   name: string;
   system_prompt: string;
   voice_reference: string | null;
   avatar_uuid: string | null;
+  character_config: CharacterConfigDTO | null;
+  preferred_name: string | null;
+  trigger_word: string | null;
+}
+
+export interface PersonaCreate {
+  name: string;
+  system_prompt?: string;
+  preferred_name?: string;
+  trigger_word?: string;
+}
+
+export interface PersonaUpdate {
+  name?: string;
+  system_prompt?: string;
+  preferred_name?: string;
+  trigger_word?: string;
+}
+
+export interface Agent {
+  id: number;
+  name: string;
+  system_prompt: string;
   model_name: string | null;
   provider_type: string;
   excluded_tools: string[] | null;
   think: boolean;
-  character_config: CharacterConfigDTO | null;
   memory: string | null;
   memory_enabled: boolean;
-  preferred_name: string | null;
-  trigger_word: string | null;
+  persona_id: number | null;
+  persona: Persona | null;
 }
 
 // Character asset types (backend responses)
@@ -158,22 +180,19 @@ export interface AgentCreate {
   provider_type?: string;
   excluded_tools?: string[];
   think?: boolean;
-  preferred_name?: string;
-  trigger_word?: string;
+  persona_id?: number;
 }
 
 export interface AgentUpdate {
   name?: string;
   system_prompt?: string;
-  voice_reference?: string;
   model_name?: string;
   provider_type?: string;
   excluded_tools?: string[];
   think?: boolean;
   memory?: string;
   memory_enabled?: boolean;
-  preferred_name?: string;
-  trigger_word?: string;
+  persona_id?: number | null;
 }
 
 // MCP Server types

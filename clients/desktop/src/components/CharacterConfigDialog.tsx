@@ -43,7 +43,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { apiClient } from '../api/client';
-import type { Agent } from '../api/types';
+import type { Agent, CharacterConfigDTO } from '../api/types';
 import type { AnimationNode, AnimationEdge, PoseTree, PoseConfig } from '../videocall/types';
 import { migrateEdgeToTransitions, migratePoseTreeIds } from '../videocall/types';
 import PoseGraphNode from './PoseGraphNode';
@@ -400,7 +400,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
     if (!open) return;
     setError('');
 
-    const loadConfig = (cc: Agent['character_config']) => {
+    const loadConfig = (cc: CharacterConfigDTO | null) => {
       const nodesMap = new Map<string, AnimationNode>();
       const edgesMap = new Map<string, AnimationEdge>();
 
@@ -489,10 +489,10 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
 
     // Fetch fresh agent data from API to avoid stale cache
     apiClient.getAgent(agent.id).then((freshAgent) => {
-      loadConfig(freshAgent.character_config);
+      loadConfig(freshAgent.persona?.character_config ?? null);
     }).catch(() => {
       // Fallback to prop data if fetch fails
-      loadConfig(agent.character_config);
+      loadConfig(agent.persona?.character_config ?? null);
     });
   }, [open, agent.id]);
 

@@ -101,14 +101,14 @@ export const ConversationsPage: React.FC = () => {
             >
               <ListItemAvatar sx={{ minWidth: 0, mr: 1.5 }}>
                 <Avatar
-                  src={agent.avatar_uuid ? apiClient.getImageUrl(agent.avatar_uuid) : undefined}
+                  src={agent.persona?.avatar_uuid ? apiClient.getImageUrl(agent.persona.avatar_uuid) : undefined}
                   sx={{
                     width: 40,
                     height: 40,
                     bgcolor: (t) => t.palette.mode === 'light' ? '#F3F4F6' : '#262626',
                   }}
                 >
-                  {!agent.avatar_uuid && (
+                  {!agent.persona?.avatar_uuid && (
                     <AgentIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
                   )}
                 </Avatar>

@@ -14,6 +14,9 @@ import type {
   Agent,
   AgentCreate,
   AgentUpdate,
+  Persona,
+  PersonaCreate,
+  PersonaUpdate,
   ToolsResponse,
   MCPServer,
   MCPServerCreate,
@@ -431,32 +434,6 @@ class APIClient {
   }
 
   /**
-   * Update agent avatar
-   */
-  async updateAgentAvatar(id: number, avatar: File): Promise<Agent> {
-    const formData = new FormData();
-    formData.append('avatar', avatar);
-
-    const response = await this.client.patch<Agent>(`/agents/${id}/avatar`, formData, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  /**
-   * Update agent voice reference
-   */
-  async updateAgentVoice(id: number, voice: File): Promise<Agent> {
-    const formData = new FormData();
-    formData.append('voice', voice);
-
-    const response = await this.client.patch<Agent>(`/agents/${id}/voice`, formData, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  /**
    * Delete an agent
    */
   async deleteAgent(id: number): Promise<void> {
@@ -466,19 +443,18 @@ class APIClient {
   }
 
   /**
-   * Export an agent as a .zip archive (full) or .json (metadata only)
+   * Export an agent as JSON
    */
-  async exportAgent(id: number, format: 'zip' | 'json' = 'zip'): Promise<Blob> {
+  async exportAgent(id: number): Promise<Blob> {
     const response = await this.client.get(`/agents/${id}/export`, {
       headers: this.getHeaders(),
-      params: { format },
       responseType: 'blob',
     });
     return response.data;
   }
 
   /**
-   * Import an agent from a .zip archive
+   * Import an agent from a JSON file
    */
   async importAgent(file: File): Promise<Agent> {
     const formData = new FormData();
@@ -489,18 +465,95 @@ class APIClient {
     return response.data;
   }
 
+  // Persona Methods
+
   /**
-   * Get URL for playing an agent's voice reference audio
+   * List all personas for the current user
    */
-  getVoiceUrl(agentId: number): string {
-    return `${config.apiBaseUrl}/agents/${agentId}/voice?token=${this.token}`;
+  async listPersonas(): Promise<Persona[]> {
+    const response = await this.client.get<Persona[]>('/personas', {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Get a specific persona by ID
+   */
+  async getPersona(id: number): Promise<Persona> {
+    const response = await this.client.get<Persona>(`/personas/${id}`, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Create a new persona
+   */
+  async createPersona(data: PersonaCreate): Promise<Persona> {
+    const response = await this.client.post<Persona>('/personas', data, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Update an existing persona
+   */
+  async updatePersona(id: number, data: PersonaUpdate): Promise<Persona> {
+    const response = await this.client.patch<Persona>(`/personas/${id}`, data, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Delete a persona
+   */
+  async deletePersona(id: number): Promise<void> {
+    await this.client.delete(`/personas/${id}`, {
+      headers: this.getHeaders(),
+    });
+  }
+
+  /**
+   * Update persona avatar
+   */
+  async updatePersonaAvatar(id: number, avatar: File): Promise<Persona> {
+    const formData = new FormData();
+    formData.append('avatar', avatar);
+
+    const response = await this.client.patch<Persona>(`/personas/${id}/avatar`, formData, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Update persona voice reference
+   */
+  async updatePersonaVoice(id: number, voice: File): Promise<Persona> {
+    const formData = new FormData();
+    formData.append('voice', voice);
+
+    const response = await this.client.patch<Persona>(`/personas/${id}/voice`, formData, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Get URL for playing a persona's voice reference audio
+   */
+  getPersonaVoiceUrl(personaId: number): string {
+    return `${config.apiBaseUrl}/personas/${personaId}/voice?token=${this.token}`;
   }
 
   /**
    * Get avatar candidates detected from character pose base images
    */
-  async getAvatarCandidates(agentId: number): Promise<AvatarCandidate[]> {
-    const response = await this.client.get<AvatarCandidate[]>(`/agents/${agentId}/avatar-candidates`, {
+  async getAvatarCandidates(personaId: number): Promise<AvatarCandidate[]> {
+    const response = await this.client.get<AvatarCandidate[]>(`/personas/${personaId}/avatar-candidates`, {
       headers: this.getHeaders(),
       timeout: 60000,
     });
@@ -508,10 +561,33 @@ class APIClient {
   }
 
   /**
-   * Set agent avatar from an existing image UUID
+   * Set persona avatar from an existing image UUID
    */
-  async setAgentAvatarFromUuid(agentId: number, uuid: string): Promise<Agent> {
-    const response = await this.client.post<Agent>(`/agents/${agentId}/avatar-from-uuid`, { avatar_uuid: uuid }, {
+  async setPersonaAvatarFromUuid(personaId: number, uuid: string): Promise<Persona> {
+    const response = await this.client.post<Persona>(`/personas/${personaId}/avatar-from-uuid`, { avatar_uuid: uuid }, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Export a persona as a ZIP archive
+   */
+  async exportPersona(id: number): Promise<Blob> {
+    const response = await this.client.get(`/personas/${id}/export`, {
+      headers: this.getHeaders(),
+      responseType: 'blob',
+    });
+    return response.data;
+  }
+
+  /**
+   * Import a persona from a ZIP archive
+   */
+  async importPersona(file: File): Promise<Persona> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await this.client.post<Persona>('/personas/import', formData, {
       headers: this.getHeaders(),
     });
     return response.data;

@@ -22,10 +22,6 @@ import {
   Switch,
   Checkbox,
   Collapse,
-  Menu,
-  MenuItem,
-  ListItemIcon,
-  ListItemText,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -401,20 +397,18 @@ export const AgentsSection: React.FC = () => {
         provider_type: provider,
         think: formData.think,
         excluded_tools: formData.excluded_tools.length > 0 ? formData.excluded_tools : undefined,
-        preferred_name: formData.preferred_name.trim() || undefined,
-        trigger_word: formData.trigger_word.trim() || undefined,
       };
 
       const newAgent = await apiClient.createAgent(createData);
 
-      // Upload avatar if selected
-      if (avatarFile) {
-        await apiClient.updateAgentAvatar(newAgent.id, avatarFile);
-      }
-
-      // Upload voice if selected
-      if (voiceFile) {
-        await apiClient.updateAgentVoice(newAgent.id, voiceFile);
+      // Upload avatar/voice to the agent's persona (if it has one)
+      if (newAgent.persona_id) {
+        if (avatarFile) {
+          await apiClient.updatePersonaAvatar(newAgent.persona_id, avatarFile);
+        }
+        if (voiceFile) {
+          await apiClient.updatePersonaVoice(newAgent.persona_id, voiceFile);
+        }
       }
 
       setSuccessMessage(`Agent "${newAgent.name}" created successfully!`);
@@ -442,8 +436,6 @@ export const AgentsSection: React.FC = () => {
         excluded_tools: toolsChanged ? formData.excluded_tools : undefined,
         memory: formData.memory !== (selectedAgent.memory || '') ? formData.memory : undefined,
         memory_enabled: formData.memory_enabled !== selectedAgent.memory_enabled ? formData.memory_enabled : undefined,
-        preferred_name: formData.preferred_name !== (selectedAgent.preferred_name || '') ? (formData.preferred_name.trim() || '') : undefined,
-        trigger_word: formData.trigger_word !== (selectedAgent.trigger_word || '') ? (formData.trigger_word.trim() || '') : undefined,
       };
 
       // Only send fields that changed
@@ -452,14 +444,14 @@ export const AgentsSection: React.FC = () => {
         await apiClient.updateAgent(selectedAgent.id, updateData);
       }
 
-      // Upload avatar if selected
-      if (avatarFile) {
-        await apiClient.updateAgentAvatar(selectedAgent.id, avatarFile);
-      }
-
-      // Upload voice if selected
-      if (voiceFile) {
-        await apiClient.updateAgentVoice(selectedAgent.id, voiceFile);
+      // Upload avatar/voice to the agent's persona (if it has one)
+      if (selectedAgent.persona_id) {
+        if (avatarFile) {
+          await apiClient.updatePersonaAvatar(selectedAgent.persona_id, avatarFile);
+        }
+        if (voiceFile) {
+          await apiClient.updatePersonaVoice(selectedAgent.persona_id, voiceFile);
+        }
       }
 
       setSuccessMessage(`Agent "${formData.name}" updated successfully!`);
@@ -488,13 +480,13 @@ export const AgentsSection: React.FC = () => {
     }
   };
 
-  const handleExportAgent = async (agent: Agent, format: 'zip' | 'json' = 'zip') => {
+  const handleExportAgent = async (agent: Agent) => {
     try {
-      const blob = await apiClient.exportAgent(agent.id, format);
+      const blob = await apiClient.exportAgent(agent.id);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${agent.name.replace(/\s+/g, '_')}.${format}`;
+      a.download = `${agent.name.replace(/\s+/g, '_')}.json`;
       a.click();
       URL.revokeObjectURL(url);
       setSuccessMessage(`Agent "${agent.name}" exported as ${format.toUpperCase()}!`);
@@ -516,8 +508,6 @@ export const AgentsSection: React.FC = () => {
   };
 
   const importInputRef = useRef<HTMLInputElement>(null);
-  const [exportMenuAnchor, setExportMenuAnchor] = useState<null | HTMLElement>(null);
-  const [exportMenuAgent, setExportMenuAgent] = useState<Agent | null>(null);
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
   const [playingVoiceAgentId, setPlayingVoiceAgentId] = useState<number | null>(null);
 
@@ -532,7 +522,8 @@ export const AgentsSection: React.FC = () => {
       voiceAudioRef.current.pause();
       voiceAudioRef.current = null;
     }
-    const audio = new Audio(apiClient.getVoiceUrl(agent.id));
+    if (!agent.persona?.id) return;
+    const audio = new Audio(apiClient.getPersonaVoiceUrl(agent.persona.id));
     audio.onended = () => setPlayingVoiceAgentId(null);
     audio.onerror = () => {
       setPlayingVoiceAgentId(null);
@@ -573,10 +564,10 @@ export const AgentsSection: React.FC = () => {
       excluded_tools: agent.excluded_tools || [],
       memory: agent.memory || '',
       memory_enabled: agent.memory_enabled,
-      preferred_name: agent.preferred_name || '',
-      trigger_word: agent.trigger_word || '',
+      preferred_name: agent.persona?.preferred_name || '',
+      trigger_word: agent.persona?.trigger_word || '',
     });
-    setAvatarPreview(agent.avatar_uuid ? apiClient.getImageUrl(agent.avatar_uuid) : null);
+    setAvatarPreview(agent.persona?.avatar_uuid ? apiClient.getImageUrl(agent.persona.avatar_uuid) : null);
     setAvatarFile(null);
     setVoiceFile(null);
     setAvatarCandidates([]);
@@ -610,8 +601,8 @@ export const AgentsSection: React.FC = () => {
   };
 
   const getAgentAvatarUrl = (agent: Agent) => {
-    if (agent.avatar_uuid) {
-      return apiClient.getImageUrl(agent.avatar_uuid);
+    if (agent.persona?.avatar_uuid) {
+      return apiClient.getImageUrl(agent.persona.avatar_uuid);
     }
     return undefined;
   };
@@ -783,10 +774,10 @@ export const AgentsSection: React.FC = () => {
                       {agent.system_prompt || 'No system prompt set'}
                     </Typography>
                     <Box sx={{ mt: 2, display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
-                      {agent.voice_reference && (
+                      {agent.persona?.voice_reference && (
                         <Chip
                           icon={<MicIcon />}
-                          label={agent.voice_reference}
+                          label={agent.persona.voice_reference}
                           size="small"
                           variant="outlined"
                         />
@@ -817,7 +808,7 @@ export const AgentsSection: React.FC = () => {
                         )}
                       </Box>
                     )}
-                    {agent.character_config && (
+                    {agent.persona?.character_config && (
                       <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
                         <Chip
                           icon={<FaceIcon />}
@@ -845,8 +836,7 @@ export const AgentsSection: React.FC = () => {
                       <IconButton
                         onClick={(e) => {
                           e.stopPropagation();
-                          setExportMenuAnchor(e.currentTarget);
-                          setExportMenuAgent(agent);
+                          handleExportAgent(agent);
                         }}
                       >
                         <ExportIcon />
@@ -1096,7 +1086,7 @@ export const AgentsSection: React.FC = () => {
                   >
                     Change Avatar
                   </Button>
-                  {selectedAgent?.character_config && (
+                  {selectedAgent?.persona?.character_config && (
                     <Button
                       variant="outlined"
                       startIcon={isDetecting ? <CircularProgress size={16} /> : <AutoAwesomeIcon />}
@@ -1105,7 +1095,7 @@ export const AgentsSection: React.FC = () => {
                         setIsDetecting(true);
                         setAvatarCandidates([]);
                         try {
-                          const candidates = await apiClient.getAvatarCandidates(selectedAgent.id);
+                          const candidates = await apiClient.getAvatarCandidates(selectedAgent.persona!.id);
                           setAvatarCandidates(candidates);
                           if (candidates.length === 0) setError('No faces detected in pose images');
                         } catch (err: any) {
@@ -1144,7 +1134,7 @@ export const AgentsSection: React.FC = () => {
                           onClick={async () => {
                             if (!selectedAgent) return;
                             try {
-                              await apiClient.setAgentAvatarFromUuid(selectedAgent.id, candidate.uuid);
+                              await apiClient.setPersonaAvatarFromUuid(selectedAgent.persona!.id, candidate.uuid);
                               setAvatarPreview(apiClient.getImageUrl(candidate.uuid));
                               setAvatarCandidates([]);
                               setSuccessMessage('Avatar updated!');
@@ -1213,12 +1203,12 @@ export const AgentsSection: React.FC = () => {
                         Change Voice Reference
                       </Button>
                     </Box>
-                    {(voiceFile || selectedAgent?.voice_reference) && (
+                    {(voiceFile || selectedAgent?.persona?.voice_reference) && (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1.25 }}>
                         <Typography variant="caption" color="text.secondary">
-                          {voiceFile ? voiceFile.name : `Current: ${selectedAgent?.voice_reference}`}
+                          {voiceFile ? voiceFile.name : `Current: ${selectedAgent?.persona?.voice_reference}`}
                         </Typography>
-                        {!voiceFile && selectedAgent?.voice_reference && (
+                        {!voiceFile && selectedAgent?.persona?.voice_reference && (
                           <Tooltip title={playingVoiceAgentId === selectedAgent.id ? 'Stop' : 'Play'}>
                             <IconButton size="small" onClick={() => handlePlayVoice(selectedAgent)}>
                               {playingVoiceAgentId === selectedAgent.id ? <StopIcon fontSize="small" /> : <PlayIcon fontSize="small" />}
@@ -1247,7 +1237,7 @@ export const AgentsSection: React.FC = () => {
                       size="small"
                     >
                       Configure Character Animation
-                      {selectedAgent?.character_config ? ' (Configured)' : ''}
+                      {selectedAgent?.persona?.character_config ? ' (Configured)' : ''}
                     </Button>
                   </Box>
                 </Box>
@@ -1414,28 +1404,6 @@ export const AgentsSection: React.FC = () => {
           </Box>
         </DialogActions>
       </Dialog>
-
-      {/* Export Menu */}
-      <Menu
-        anchorEl={exportMenuAnchor}
-        open={Boolean(exportMenuAnchor)}
-        onClose={() => setExportMenuAnchor(null)}
-      >
-        <MenuItem onClick={() => {
-          if (exportMenuAgent) handleExportAgent(exportMenuAgent, 'zip');
-          setExportMenuAnchor(null);
-        }}>
-          <ListItemIcon><ExportIcon fontSize="small" /></ListItemIcon>
-          <ListItemText primary="Full backup (.zip)" secondary="Includes all assets" />
-        </MenuItem>
-        <MenuItem onClick={() => {
-          if (exportMenuAgent) handleExportAgent(exportMenuAgent, 'json');
-          setExportMenuAnchor(null);
-        }}>
-          <ListItemIcon><ExportIcon fontSize="small" /></ListItemIcon>
-          <ListItemText primary="Template (.json)" secondary="Metadata only, no assets" />
-        </MenuItem>
-      </Menu>
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>

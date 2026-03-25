@@ -501,7 +501,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     if (!forceRefresh && agentCacheRef.current.has(agentId)) return;
     agentCacheRef.current.add(agentId);
     apiClient.getAgent(agentId).then((agent) => {
-      const cc = agent.character_config;
+      const cc = agent.persona?.character_config;
       const poseTree = cc?.pose_tree ?? null;      // Migrate legacy video_url to video_urls on edges
       if (poseTree?.edges) {
         for (const e of poseTree.edges) {
@@ -620,7 +620,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     const state = useMicStore.getState();
 
     const selectedAgent = storeAgents.find(a => a.id === agentId);
-    const triggerWord = selectedAgent?.trigger_word?.trim();
+    const triggerWord = selectedAgent?.persona?.trigger_word?.trim();
     const hasTrigger = triggerWord && asrTranscript.toLowerCase().includes(triggerWord.toLowerCase());
 
     if (state.interactiveMode) {      // Interactive mode: always show transcript visually

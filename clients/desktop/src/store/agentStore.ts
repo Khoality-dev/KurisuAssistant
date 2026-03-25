@@ -4,8 +4,6 @@ import { storage } from '../utils/storage';
 import { useConversationStore } from './conversationStore';
 import type { Agent, ConversationLastMessage } from '../api/types';
 
-const ADMINISTRATOR_NAME = 'Administrator';
-
 export interface AgentPreview {
   conversationId: number;
   lastMessage: ConversationLastMessage | null;
