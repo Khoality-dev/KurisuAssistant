@@ -121,7 +121,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
 
   // Resolve display label
   let label: string;
-  let sublabel = '';
   if (isUser) {
     label = 'You';
   } else if (message.role === 'tool') {
@@ -137,15 +136,10 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
       label = message.name || 'Tool';
     }
   } else {
-    // Assistant: persona name as main label, agent role as sublabel
+    // Assistant: persona name as main label
     const personaName = message.persona_name || message.agent?.persona_name;
     const agentRole = message.agent?.name || message.name;
     label = personaName || agentRole || message.role.charAt(0).toUpperCase() + message.role.slice(1);
-    // Show agent role + model as sublabel
-    const parts: string[] = [];
-    if (agentRole && agentRole !== label) parts.push(agentRole);
-    if (message.model_name) parts.push(message.model_name);
-    sublabel = parts.join(' · ');
   }
 
   // Get avatar URL for agent
@@ -263,20 +257,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
             >
               {label}
             </Typography>
-            {sublabel && (
-              <Typography
-                variant="caption"
-                sx={{
-                  fontSize: '0.65rem',
-                  color: 'text.secondary',
-                  opacity: 0.6,
-                  ml: 0.5,
-                  flex: 1,
-                }}
-              >
-                {sublabel}
-              </Typography>
-            )}
+            <Box sx={{ flex: 1 }} />
             {isTool && (
               <ExpandMoreIcon
                 sx={{
@@ -554,6 +535,8 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
             hasRawData={!!message.id}
             copied={copied}
             localPlaying={localPlaying}
+            agentRole={message.role === 'assistant' ? (message.agent?.name || message.name) || undefined : undefined}
+            modelName={message.model_name || undefined}
             onCopy={handleCopy}
             onTTS={handleTTS}
             onShowRaw={handleShowRaw}

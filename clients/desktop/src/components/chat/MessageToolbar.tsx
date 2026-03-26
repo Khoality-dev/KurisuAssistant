@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, IconButton, Tooltip } from '@mui/material';
+import { Box, Chip, IconButton, Tooltip } from '@mui/material';
 import {
   CheckCircle as CheckCircleIcon,
   VolumeUp as VolumeUpIcon,
@@ -16,6 +16,8 @@ interface MessageToolbarProps {
   hasRawData: boolean;
   copied: boolean;
   localPlaying: boolean;
+  agentRole?: string;
+  modelName?: string;
   onCopy: () => void;
   onTTS: () => void;
   onShowRaw: () => void;
@@ -30,6 +32,8 @@ export const MessageToolbar: React.FC<MessageToolbarProps> = ({
   hasRawData,
   copied,
   localPlaying,
+  agentRole,
+  modelName,
   onCopy,
   onTTS,
   onShowRaw,
@@ -50,6 +54,14 @@ export const MessageToolbar: React.FC<MessageToolbarProps> = ({
         justifyContent: isUser ? 'flex-end' : 'flex-start',
       }}
     >
+      {/* Agent role chip */}
+      {!isUser && agentRole && (
+        <Chip label={agentRole} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
+      )}
+      {/* Model name chip */}
+      {!isUser && modelName && (
+        <Chip label={modelName} size="small" variant="outlined" color="info" sx={{ height: 20, fontSize: '0.65rem' }} />
+      )}
       {/* Copy */}
       <Tooltip title={copied ? 'Copied!' : 'Copy'}>
         <IconButton
