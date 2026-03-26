@@ -468,6 +468,7 @@ class ChatSessionHandler:
         current_images = []
         raw_input_json = None
         current_tool_args_json = None
+        current_tool_args = None
         route_result = None
         final_assistant_content = ""
 
@@ -508,6 +509,7 @@ class ChatSessionHandler:
                         "images": current_images if current_images else None,
                         "model_name": chunk.model_name if current_role == "assistant" else None,
                         "provider_type": chunk.provider_type if current_role == "assistant" else None,
+                        "tool_args": current_tool_args if current_role == "tool" else None,
                     }
                     self._save_message(completed_msg, frame_id)
                     # Add to conversation history so Administrator sees sub-agent responses
@@ -525,6 +527,7 @@ class ChatSessionHandler:
                 chunk_thinking = chunk.thinking or ""
                 current_images = []
                 current_tool_args_json = json.dumps(chunk.tool_args, ensure_ascii=False) if chunk.tool_args else None
+                current_tool_args = chunk.tool_args if chunk.tool_args else None
             else:
                 chunk_content += chunk.content
                 if chunk.thinking:
@@ -544,6 +547,7 @@ class ChatSessionHandler:
                 "images": current_images if current_images else None,
                 "model_name": chunk.model_name if current_role == "assistant" else None,
                 "provider_type": chunk.provider_type if current_role == "assistant" else None,
+                "tool_args": current_tool_args if current_role == "tool" else None,
             }
             self._save_message(completed_msg, frame_id)
             conversation_messages.append({
@@ -1013,4 +1017,5 @@ class ChatSessionHandler:
             images=msg.get("images"),
             model_name=msg.get("model_name"),
             provider_type=msg.get("provider_type"),
+            tool_args=msg.get("tool_args"),
         ))
