@@ -32,6 +32,7 @@ class MessageRepository(BaseRepository[Message]):
         images: Optional[List[str]] = None,
         model_name: Optional[str] = None,
         provider_type: Optional[str] = None,
+        tool_args: Optional[dict] = None,
     ) -> Message:
         """Create a new message.
 
@@ -72,6 +73,8 @@ class MessageRepository(BaseRepository[Message]):
             data["model_name"] = model_name
         if provider_type is not None:
             data["provider_type"] = provider_type
+        if tool_args is not None:
+            data["tool_args"] = tool_args
 
         return self.create(**data)
 

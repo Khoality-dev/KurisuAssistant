@@ -93,6 +93,8 @@ async def get_conversation(
                     message_dict["model_name"] = msg.model_name
                 if getattr(msg, 'provider_type', None):
                     message_dict["provider_type"] = msg.provider_type
+                if getattr(msg, 'tool_args', None):
+                    message_dict["tool_args"] = msg.tool_args
                 if msg.agent_id:
                     message_dict["agent_id"] = msg.agent_id
                     # Include agent info if available (eager loaded)

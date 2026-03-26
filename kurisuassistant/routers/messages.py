@@ -124,11 +124,16 @@ async def get_message_raw(
                 except json.JSONDecodeError:
                     raw_input = message.raw_input
 
-            return {
+            result = {
                 "id": message.id,
                 "raw_input": raw_input,
                 "raw_output": message.raw_output,
             }
+            if message.name:
+                result["name"] = message.name
+            if getattr(message, 'tool_args', None):
+                result["tool_args"] = message.tool_args
+            return result
 
         db = get_db_service()
         return await db.execute(_get_raw)

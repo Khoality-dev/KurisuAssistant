@@ -61,6 +61,7 @@ class Message(Base):
     name = Column(String, nullable=True)  # Display name (agent name or tool name)
     model_name = Column(String, nullable=True)  # LLM model that generated this message
     provider_type = Column(String, nullable=True)  # LLM provider (ollama, gemini)
+    tool_args = Column(JSON, nullable=True)  # Tool input arguments (for tool role messages)
     images = Column(JSON, nullable=True)  # List of image UUIDs attached to this message
     frame_id = Column(Integer, ForeignKey('frames.id', ondelete='CASCADE'), index=True)
     agent_id = Column(Integer, ForeignKey('agents.id', ondelete='SET NULL'), nullable=True)  # Which agent sent this message
