@@ -480,8 +480,9 @@ class ChatSessionHandler:
                     ensure_ascii=False, default=str,
                 )
 
-            # Attach agent voice reference for TTS
+            # Attach agent metadata for client display
             chunk.voice_reference = agent_config.voice_reference
+            chunk.persona_name = agent_config.persona_name or None
             await self.send_event(chunk)
 
             # Track tool images

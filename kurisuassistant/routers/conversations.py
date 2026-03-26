@@ -103,6 +103,7 @@ async def get_conversation(
                         message_dict["agent"] = {
                             "id": msg.agent.id,
                             "name": msg.agent.name,
+                            "persona_name": persona.name if persona else None,
                             "avatar_uuid": persona.avatar_uuid if persona else None,
                             "voice_reference": persona.voice_reference if persona else None,
                         }

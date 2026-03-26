@@ -148,6 +148,7 @@ class StreamChunkEvent(BaseEvent):
     role: str = "assistant"
     agent_id: Optional[int] = None
     name: Optional[str] = None  # Speaker identity (agent name, tool name, etc.)
+    persona_name: Optional[str] = None  # Persona display name
     voice_reference: Optional[str] = None
     conversation_id: int = 0
     frame_id: int = 0
