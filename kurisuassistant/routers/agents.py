@@ -25,7 +25,7 @@ ADMINISTRATOR_NAME = "Administrator"
 ADMINISTRATOR_PROMPT = """You are the Administrator, a system-level agent that routes conversations to the appropriate agents. You analyze user requests and agent responses to determine the best agent to handle each task."""
 
 # Reserved names that users cannot use for their agents
-RESERVED_AGENT_NAMES = {"Administrator", "User"}
+RESERVED_AGENT_NAMES = {"Administrator", "User", "App Guide"}
 
 # Default user agent
 DEFAULT_AGENT_NAME = "Assistant"
@@ -82,6 +82,7 @@ class AgentResponse(BaseModel):
     """Response body for agent."""
     id: int
     name: str
+    description: str = ""
     system_prompt: str
     model_name: Optional[str]
     provider_type: str = "ollama"
@@ -89,6 +90,8 @@ class AgentResponse(BaseModel):
     think: bool
     memory: Optional[str] = None
     memory_enabled: bool = True
+    enabled: bool = True
+    is_system: bool = False
     persona_id: Optional[int] = None
     persona: Optional[dict] = None
 
@@ -112,12 +115,15 @@ def _agent_to_response(agent) -> AgentResponse:
     return AgentResponse(
         id=agent.id,
         name=agent.name,
+        description=agent.description or "",
         system_prompt=agent.system_prompt or "",
         model_name=agent.model_name,
         excluded_tools=agent.excluded_tools,
         think=agent.think,
         memory=agent.memory,
         memory_enabled=agent.memory_enabled,
+        enabled=agent.enabled,
+        is_system=agent.is_system,
         persona_id=agent.persona_id,
         persona=persona_data,
     )
@@ -131,9 +137,10 @@ async def list_agents(
     """List all agents for the current user."""
     def _list(session):
         agent_repo = AgentRepository(session)
-        # Ensure default agents exist (Administrator + Assistant)
+        # Ensure default user agents exist
         ensure_default_agents(agent_repo, user.id, session)
-        agents = agent_repo.list_by_user(user.id)
+        # Return system agents + user's agents
+        agents = agent_repo.list_all_for_user(user.id)
         return [_agent_to_response(agent) for agent in agents]
 
     db = get_db_service()
@@ -148,7 +155,12 @@ async def get_agent(
 ) -> AgentResponse:
     """Get a specific agent by ID."""
     def _get(session):
-        agent = AgentRepository(session).get_by_user_and_id(user.id, agent_id)
+        agent_repo = AgentRepository(session)
+        agent = agent_repo.get_by_user_and_id(user.id, agent_id)
+        if not agent:
+            # Check if it's a system agent
+            from kurisuassistant.db.models import Agent as AgentModel
+            agent = session.query(AgentModel).filter_by(id=agent_id, is_system=True).first()
         if not agent:
             return None
         return _agent_to_response(agent)
@@ -214,10 +226,17 @@ async def update_agent(
 
     def _update(session):
         agent_repo = AgentRepository(session)
+        # Try user's agent first, then system agent
         agent = agent_repo.get_by_user_and_id(user.id, agent_id)
-
+        if not agent:
+            # Check if it's a system agent
+            from kurisuassistant.db.models import Agent as AgentModel
+            agent = session.query(AgentModel).filter_by(id=agent_id, is_system=True).first()
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
+        # System agents cannot be renamed
+        if agent.is_system and body.name is not None:
+            raise HTTPException(status_code=400, detail="System agent names cannot be changed")
 
         agent = agent_repo.update_agent(
             agent,
@@ -252,10 +271,14 @@ async def delete_agent(
     def _delete(session):
         agent_repo = AgentRepository(session)
 
-        # Check if agent exists and get its name
+        # Check if agent exists
         agent = agent_repo.get_by_user_and_id(user.id, agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
+
+        # System agents cannot be deleted
+        if agent.is_system:
+            raise HTTPException(status_code=400, detail="System agents cannot be deleted")
 
         deleted = agent_repo.delete_by_user_and_id(user.id, agent_id)
         if not deleted:
@@ -265,6 +288,30 @@ async def delete_agent(
 
     db = get_db_service()
     return await db.execute(_delete)
+
+
+class AgentToggleEnabled(BaseModel):
+    """Request body for toggling agent enabled state."""
+    enabled: bool
+
+
+@router.patch("/{agent_id}/enabled")
+async def toggle_agent_enabled(
+    agent_id: int,
+    body: AgentToggleEnabled,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+) -> AgentResponse:
+    """Toggle an agent's enabled state."""
+    def _toggle(session):
+        agent_repo = AgentRepository(session)
+        agent = agent_repo.toggle_enabled(agent_id, body.enabled)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        return _agent_to_response(agent)
+
+    db = get_db_service()
+    return await db.execute(_toggle)
 
 
 # ─── Export / Import ───

@@ -42,6 +42,7 @@ class AgentConfig:
     """Configuration for an agent."""
     id: Optional[int] = None  # Database ID (None for router)
     name: str = ""  # Role name
+    description: str = ""  # Short one-liner for routing
     system_prompt: str = ""  # Role instructions
     model_name: Optional[str] = None
     provider_type: str = "ollama"
@@ -49,6 +50,8 @@ class AgentConfig:
     think: bool = False
     memory: Optional[str] = None
     memory_enabled: bool = True
+    enabled: bool = True
+    is_system: bool = False
     # Persona fields (resolved from persona at load time)
     persona_id: Optional[int] = None
     persona_name: str = ""  # Character name

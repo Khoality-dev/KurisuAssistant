@@ -40,9 +40,8 @@ from .events import (
     parse_event,
 )
 from kurisuassistant.agents.base import AgentConfig, AgentContext, BaseAgent, SimpleAgent
-from kurisuassistant.agents.orchestration import OrchestrationSession
-from kurisuassistant.agents.administrator import AdministratorAgent
 from kurisuassistant.tools import tool_registry
+from kurisuassistant.tools.routing import RouteToTool, parse_route_result
 from kurisuassistant.media import get_media_player
 from kurisuassistant.vision import VisionProcessor
 from sqlalchemy import desc
@@ -88,9 +87,6 @@ class ChatSessionHandler:
         self.pending_approvals: Dict[str, asyncio.Future] = {}
         self.current_task: Optional[asyncio.Task] = None
         self._send_lock = asyncio.Lock()
-
-        # Administrator for routing decisions
-        self.administrator: Optional[AdministratorAgent] = None
 
         # Task metadata for ConnectedEvent state
         self._task_conversation_id: Optional[int] = None
@@ -217,17 +213,22 @@ class ChatSessionHandler:
             except asyncio.CancelledError:
                 pass
 
-        # Always use single agent mode (orchestration disabled)
         self.current_task = asyncio.create_task(
-            self._run_single_agent(event)
+            self._run_chat(event)
         )
 
-    async def _run_single_agent(self, event: ChatRequestEvent):
-        """Run a single agent directly, bypassing Administrator routing.
+    async def _run_chat(self, event: ChatRequestEvent):
+        """Run unified chat processing with Administrator routing.
 
-        This is a simplified path for single-agent conversations:
-        setup → agent.process() → save → DoneEvent.
-        No OrchestrationSession, no Administrator, no routing loop.
+        Flow:
+        1. Setup conversation/frame (same as before)
+        2. Load all enabled agents (system + user's)
+        3. Find Administrator agent (is_system=True, name="Administrator")
+        4. Start with Administrator, loop with routing:
+           - Administrator sees full history + route_to tool
+           - Sub-agents see their system prompt + route_to message only
+           - After sub-agent finishes, control returns to Administrator
+        5. Send DoneEvent
         """
         from fastapi import WebSocketDisconnect
         try:
@@ -239,17 +240,19 @@ class ChatSessionHandler:
             self._task_frame_id = frame_id
             self._task_done = False
 
-            # Load agents and find the target
-            all_agents = self._load_user_agents()
-            available_agents = [a for a in all_agents if a.name != 'Administrator']
-            target_agent = self._get_agent_config(event.agent_id, available_agents)
+            # Load all enabled agents (system + user's)
+            all_agents = self._load_enabled_agents()
 
-            # Default to first available agent if none specified
-            if not target_agent and available_agents:
-                target_agent = available_agents[0]
+            # Separate Administrator from sub-agents
+            admin_agent = None
+            sub_agents = []
+            for agent in all_agents:
+                if agent.is_system and agent.name == ADMINISTRATOR_NAME:
+                    admin_agent = agent
+                else:
+                    sub_agents.append(agent)
 
             # Submit background tasks for old/unsummarized frames
-            # (memory consolidation chains automatically after each summary completes)
             fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
             if summary_model and fids:
                 import kurisuassistant.workers as workers
@@ -257,10 +260,21 @@ class ChatSessionHandler:
                 for fid in fids:
                     workers.submit(workers.SummarizeFrameTask(frame_id=fid, model_name=summary_model, api_url=ollama_url, provider_type=summary_provider, api_key=summary_api_key))
 
-            if not target_agent:
+            if not admin_agent:
+                # No Administrator agent — fall back: if only one sub-agent, use it directly
+                if not sub_agents:
+                    await self.send_event(ErrorEvent(
+                        error="No agents available. Please create at least one agent.",
+                        code="NO_AGENTS",
+                    ))
+                    return
+                # Use first sub-agent (or the one specified by event.agent_id) directly
+                admin_agent = None  # Will skip routing loop
+
+            if not sub_agents:
                 await self.send_event(ErrorEvent(
-                    error=f"Agent not found: {event.agent_id}",
-                    code="AGENT_NOT_FOUND",
+                    error="No agents available. Please create at least one agent.",
+                    code="NO_AGENTS",
                 ))
                 return
 
@@ -281,7 +295,7 @@ class ChatSessionHandler:
             user_message = {"role": "user", "content": event.text}
             if image_uuids:
                 user_message["images"] = image_uuids
-            messages = system_messages + context_messages + [user_message]
+            conversation_messages = system_messages + context_messages + [user_message]
 
             # Save user message immediately
             self._save_message(user_message, frame_id)
@@ -292,14 +306,17 @@ class ChatSessionHandler:
                     content="", role="user", images=image_uuids,
                     conversation_id=conversation_id, frame_id=frame_id))
 
-            # Create agent context
+            # Build agent lookup (for routing)
+            agent_by_name = {a.name.lower(): a for a in sub_agents}
+
+            # Create base agent context (model_name updated per agent in loop)
             agent_context = AgentContext(
                 user_id=self.user_id,
                 conversation_id=conversation_id,
                 frame_id=frame_id,
-                model_name=target_agent.model_name or event.model_name or DEFAULT_ADMIN_MODEL,
+                model_name=DEFAULT_ADMIN_MODEL,  # Updated per agent
                 handler=self,
-                available_agents=available_agents,
+                available_agents=sub_agents,
                 user_system_prompt=user_system_prompt,
                 preferred_name=preferred_name,
                 api_url=ollama_url,
@@ -311,78 +328,106 @@ class ChatSessionHandler:
                 context_size=context_size,
             )
 
-            # Create and run the agent
-            agent = self._create_agent(target_agent)
+            # ========================================
+            # ROUTING LOOP
+            # ========================================
+            # If no Administrator, run single agent directly (no routing)
+            if not admin_agent:
+                target = self._get_agent_config(event.agent_id, sub_agents) or sub_agents[0]
+                await self._run_agent_turn(
+                    target, conversation_messages, conversation_messages,
+                    agent_context, frame_id, event,
+                )
+            else:
+                # Build route_to tool with available agent names + descriptions
+                route_tool_agents = [
+                    {"name": a.name, "description": a.description or a.system_prompt[:100] or "General assistant"}
+                    for a in sub_agents
+                ]
+                route_to_tool = RouteToTool(available_agents=route_tool_agents)
 
-            # Collect agent's response
-            current_role = "assistant"
-            current_name = target_agent.name
-            chunk_content = ""
-            chunk_thinking = ""
-            current_images = []
-            raw_input_json = None
-            current_tool_args_json = None
+                current_agent = admin_agent
+                route_message = None  # Message from route_to, or None for full history
 
-            async for chunk in agent.process(messages, agent_context):
-                # Capture raw input on first chunk
-                if raw_input_json is None:
-                    raw_input_json = json.dumps(
-                        getattr(agent, 'last_prepared_messages', messages),
-                        ensure_ascii=False, default=str,
-                    )
+                MAX_ROUTING_TURNS = 10
+                prev_agent_name = None
 
-                # Attach agent voice reference for TTS
-                chunk.voice_reference = target_agent.voice_reference
-                await self.send_event(chunk)
+                for _turn in range(MAX_ROUTING_TURNS):
+                    is_admin = (current_agent.is_system and current_agent.name == ADMINISTRATOR_NAME)
 
-                # Track tool images
-                if chunk.images:
-                    current_images.extend(chunk.images)
+                    # --- Build messages for this agent ---
+                    if is_admin:
+                        # Administrator sees full conversation history
+                        agent_messages = list(conversation_messages)
+                    else:
+                        # Sub-agent gets only the route_to message as a user message
+                        agent_messages = [{"role": "user", "content": route_message or event.text}]
 
-                # Save completed message on role change
-                if chunk.role != current_role:
-                    if chunk_content or chunk_thinking:
-                        raw_in = raw_input_json if current_role == "assistant" else current_tool_args_json
-                        completed_msg = {
-                            "role": current_role,
-                            "content": chunk_content,
-                            "thinking": chunk_thinking if chunk_thinking else None,
-                            "agent_id": target_agent.id if current_role == "assistant" else None,
-                            "name": current_name,
-                            "raw_input": raw_in,
-                            "raw_output": chunk_content if current_role == "assistant" else None,
-                            "images": current_images if current_images else None,
-                        }
-                        self._save_message(completed_msg, frame_id)
-                    current_role = chunk.role
-                    current_name = chunk.name or target_agent.name
-                    chunk_content = chunk.content
-                    chunk_thinking = chunk.thinking or ""
-                    current_images = []
-                    current_tool_args_json = json.dumps(chunk.tool_args, ensure_ascii=False) if chunk.tool_args else None
-                else:
-                    chunk_content += chunk.content
-                    if chunk.thinking:
-                        chunk_thinking += chunk.thinking
+                    # --- Register route_to tool for Administrator only ---
+                    if is_admin:
+                        tool_registry.register(route_to_tool)
 
-            # Save final message
-            if chunk_content or chunk_thinking:
-                raw_in = raw_input_json if current_role == "assistant" else current_tool_args_json
-                completed_msg = {
-                    "role": current_role,
-                    "content": chunk_content,
-                    "thinking": chunk_thinking if chunk_thinking else None,
-                    "agent_id": target_agent.id if current_role == "assistant" else None,
-                    "name": current_name,
-                    "raw_input": raw_in,
-                    "raw_output": chunk_content if current_role == "assistant" else None,
-                    "images": current_images if current_images else None,
-                }
-                self._save_message(completed_msg, frame_id)
+                    try:
+                        # Send agent switch event
+                        await self.send_event(AgentSwitchEvent(
+                            from_agent_id=None,
+                            from_agent_name=prev_agent_name,
+                            to_agent_id=current_agent.id,
+                            to_agent_name=current_agent.name,
+                            reason=f"Processing with {current_agent.name}",
+                        ))
 
+                        # Update context model for this agent
+                        agent_context.model_name = current_agent.model_name or event.model_name or DEFAULT_ADMIN_MODEL
+
+                        # Create and run agent
+                        agent = self._create_agent(current_agent)
+
+                        # Stream and collect response, save messages
+                        route_result, agent_final_content = await self._stream_and_save_agent(
+                            agent=agent,
+                            agent_config=current_agent,
+                            messages=agent_messages,
+                            context=agent_context,
+                            frame_id=frame_id,
+                            conversation_messages=conversation_messages,
+                            is_admin=is_admin,
+                        )
+                    finally:
+                        # Always unregister route_to after Administrator's turn
+                        if is_admin:
+                            tool_registry.unregister("route_to")
+
+                    prev_agent_name = current_agent.name
+
+                    # --- Check routing result ---
+                    if route_result:
+                        # route_to was called — switch to target agent
+                        target_name = route_result["agent_name"]
+                        target_agent = agent_by_name.get(target_name.lower())
+                        if not target_agent:
+                            logger.warning(f"Route target agent not found: {target_name}")
+                            break
+                        current_agent = target_agent
+                        route_message = route_result["message"]
+                        continue
+
+                    # No route_to called
+                    if is_admin:
+                        # Administrator responded directly without routing — done
+                        break
+                    else:
+                        # Sub-agent finished — return to Administrator
+                        # Add sub-agent's response to conversation history for Administrator to see
+                        current_agent = admin_agent
+                        route_message = None
+                        continue
+
+            # ========================================
+            # CLEANUP
+            # ========================================
             self._update_timestamps(frame_id, conversation_id)
 
-            # Mark task as done
             self._task_done = True
             await self.send_event(DoneEvent(
                 conversation_id=conversation_id,
@@ -390,398 +435,83 @@ class ChatSessionHandler:
             ))
 
         except asyncio.CancelledError:
-            logger.debug("Single agent task cancelled by user")
+            logger.debug("Chat task cancelled by user")
         except WebSocketDisconnect:
             raise
         except Exception as e:
-            logger.error(f"Single agent task failed: {e}", exc_info=True)
+            logger.error(f"Chat task failed: {e}", exc_info=True)
             await self.send_event(ErrorEvent(
                 error=str(e),
                 code="INTERNAL_ERROR",
             ))
 
-    async def _run_orchestration(self, event: ChatRequestEvent):
-        """Run the turn-based orchestration loop.
+    async def _stream_and_save_agent(
+        self,
+        agent: BaseAgent,
+        agent_config: AgentConfig,
+        messages: List[Dict],
+        context: AgentContext,
+        frame_id: int,
+        conversation_messages: List[Dict],
+        is_admin: bool,
+    ) -> tuple[Optional[Dict], str]:
+        """Stream an agent's response, save messages to DB, and detect route_to calls.
 
-        This is the main orchestration flow:
-        1. Setup conversation and session
-        2. Administrator selects initial agent
-        3. Loop: agent processes -> Administrator routes -> repeat until user
-        4. Persist messages and cleanup
+        Args:
+            agent: Agent instance to run
+            agent_config: Agent configuration
+            messages: Messages to pass to agent.process()
+            context: Agent context
+            frame_id: Current frame ID for message saving
+            conversation_messages: Full conversation history (mutated — sub-agent responses appended)
+            is_admin: Whether this is the Administrator agent
+
+        Returns:
+            Tuple of (route_result, final_content):
+            - route_result: Dict with 'agent_name' and 'message' if route_to was called, else None
+            - final_content: The full assistant text content from this agent turn
         """
-        try:
-            # Setup conversation/frame
-            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, summary_provider, unsummarized_ids, context_size = await self._setup_conversation(event)
+        current_role = "assistant"
+        current_name = agent_config.name
+        chunk_content = ""
+        chunk_thinking = ""
+        current_images = []
+        raw_input_json = None
+        current_tool_args_json = None
+        route_result = None
+        final_assistant_content = ""
 
-            # Submit background summarization tasks
-            fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
-            if summary_model and fids:
-                import kurisuassistant.workers as workers
-                summary_api_key = gemini_api_key if summary_provider == "gemini" else nvidia_api_key if summary_provider == "nvidia" else None
-                for fid in fids:
-                    workers.submit(workers.SummarizeFrameTask(frame_id=fid, model_name=summary_model, api_url=ollama_url, provider_type=summary_provider, api_key=summary_api_key))
-
-            # Reset task state
-            self._task_conversation_id = conversation_id
-            self._task_frame_id = frame_id
-            self._task_done = False
-
-            # Create orchestration session
-            session = OrchestrationSession(
-                conversation_id=conversation_id,
-                frame_id=frame_id,
-                user_id=self.user_id,
-                max_turns=DEFAULT_MAX_TURNS,
-            )
-
-            # Load all agents including Administrator
-            all_agents = self._load_user_agents()
-
-            # Find Administrator agent and get its model
-            admin_agent = None
-            available_agents = []
-            for agent in all_agents:
-                if agent.name == ADMINISTRATOR_NAME:
-                    admin_agent = agent
-                else:
-                    available_agents.append(agent)
-
-            # Initialize or update Administrator with model from database
-            admin_model = admin_agent.model_name if admin_agent and admin_agent.model_name else DEFAULT_ADMIN_MODEL
-            admin_id = admin_agent.id if admin_agent else None
-            admin_think = admin_agent.think if admin_agent else False
-            if (
-                self.administrator is None
-                or self.administrator.model_name != admin_model
-                or self.administrator.think != admin_think
-                or self.administrator.api_url != ollama_url
-            ):
-                self.administrator = AdministratorAgent(
-                    agent_id=admin_id,
-                    model_name=admin_model,
-                    api_url=ollama_url,
-                    think=admin_think,
+        async for chunk in agent.process(messages, context):
+            # Capture raw input on first chunk
+            if raw_input_json is None:
+                raw_input_json = json.dumps(
+                    getattr(agent, 'last_prepared_messages', messages),
+                    ensure_ascii=False, default=str,
                 )
 
-            if not available_agents:
-                # No non-Administrator agents available, send error
-                await self.send_event(ErrorEvent(
-                    error="No agents available. Please create at least one agent.",
-                    code="NO_AGENTS",
-                ))
-                return
+            # Attach agent voice reference for TTS
+            chunk.voice_reference = agent_config.voice_reference
+            await self.send_event(chunk)
 
-            # Save user images to disk
-            image_uuids = []
-            if event.images:
-                from kurisuassistant.utils.images import save_image_from_base64
-                for b64 in event.images:
-                    try:
-                        image_uuids.append(save_image_from_base64(b64, self.user_id))
-                    except Exception as e:
-                        logger.warning(f"Failed to save image: {e}")
+            # Track tool images
+            if chunk.images:
+                current_images.extend(chunk.images)
 
-            # Load context messages
-            context_messages = self._load_context_messages(conversation_id, frame_id)
+            # Check tool results for route_to
+            if chunk.role == "tool" and chunk.name == "route_to":
+                parsed = parse_route_result(chunk.content)
+                if parsed:
+                    route_result = parsed
 
-            # Build initial messages
-            user_message = {
-                "role": "user",
-                "content": event.text,
-            }
-            if image_uuids:
-                user_message["images"] = image_uuids
-
-            # Messages for context (system + context + user)
-            messages = system_messages + context_messages + [user_message]
-
-            # Save user message immediately
-            self._save_message(user_message, frame_id)
-
-            # Stream image UUIDs to client
-            if image_uuids:
-                await self.send_event(StreamChunkEvent(
-                    content="", role="user", images=image_uuids,
-                    conversation_id=conversation_id, frame_id=frame_id))
-
-            # Select initial agent
-            if event.agent_id:
-                # User explicitly selected an agent
-                selected_agent = self._get_agent_config(event.agent_id, available_agents)
-                if not selected_agent:
-                    selected_agent = available_agents[0]
-                # Send simple selection message
-                admin_selection_content = f"→ Using selected agent: {selected_agent.name}"
-                await self.send_event(StreamChunkEvent(
-                    content=admin_selection_content,
-                    role="assistant",
-                    agent_id=admin_id,
-                    name=ADMINISTRATOR_NAME,
-                    conversation_id=conversation_id,
-                    frame_id=frame_id,
-                ))
-                # Save Administrator selection message
-                admin_sel_msg = {
-                    "role": "assistant",
-                    "content": admin_selection_content,
-                    "thinking": None,
-                    "agent_id": admin_id,
-                    "name": ADMINISTRATOR_NAME,
-                }
-                self._save_message(admin_sel_msg, frame_id)
-                # Queue the selected agent
-                session.pending_routes = [{"action": "route_to_agent", "agent_name": selected_agent.name, "reason": "User selected"}]
-            else:
-                # Administrator selects agent(s) using routing tools - stream the process
-                admin_role = "assistant"
-                admin_name = ADMINISTRATOR_NAME
-                admin_content = ""
-                admin_thinking = ""
-
-                async for chunk in self.administrator.stream_initial_selection(
-                    user_message=event.text,
-                    available_agents=available_agents,
-                    session=session,
-                    conversation_history=messages,
-                ):
-                    await self.send_event(chunk)
-
-                    if chunk.role != admin_role:
-                        # Role changed (e.g. assistant → tool), save accumulated
-                        if admin_content or admin_thinking:
-                            msg = {
-                                "role": admin_role,
-                                "content": admin_content,
-                                "thinking": admin_thinking if admin_thinking else None,
-                                "agent_id": admin_id if admin_role == "assistant" else None,
-                                "name": admin_name,
-                                "raw_input": session.last_raw_input if admin_role == "assistant" else None,
-                                "raw_output": session.last_raw_output if admin_role == "assistant" else None,
-                            }
-                            self._save_message(msg, frame_id)
-                        admin_role = chunk.role
-                        admin_name = chunk.name or ADMINISTRATOR_NAME
-                        admin_content = chunk.content
-                        admin_thinking = chunk.thinking or ""
-                    else:
-                        admin_content += chunk.content
-                        if chunk.thinking:
-                            admin_thinking += chunk.thinking
-
-                # Save final accumulated content
-                if admin_content or admin_thinking:
-                    admin_sel_msg = {
-                        "role": admin_role,
-                        "content": admin_content,
-                        "thinking": admin_thinking if admin_thinking else None,
-                        "agent_id": admin_id if admin_role == "assistant" else None,
-                        "name": admin_name,
-                        "raw_input": session.last_raw_input if admin_role == "assistant" else None,
-                        "raw_output": session.last_raw_output if admin_role == "assistant" else None,
-                    }
-                    self._save_message(admin_sel_msg, frame_id)
-
-            # Create agent context
-            agent_context = AgentContext(
-                user_id=self.user_id,
-                conversation_id=conversation_id,
-                frame_id=frame_id,
-                model_name=event.model_name or DEFAULT_ADMIN_MODEL,
-                handler=self,
-                available_agents=available_agents,
-                user_system_prompt=user_system_prompt,
-                preferred_name=preferred_name,
-                api_url=ollama_url,
-                gemini_api_key=gemini_api_key,
-                nvidia_api_key=nvidia_api_key,
-                client_tools=self._client_tools,
-                client_tool_callback=self._execute_client_tool,
-                images=event.images if event.images else None,
-                context_size=context_size,
-            )
-
-            # Build agent lookup
-            agent_by_name = {a.name.lower(): a for a in available_agents}
-
-            # ========================================
-            # ORCHESTRATION LOOP
-            # ========================================
-            conversation_messages = list(messages)  # Copy for mutation
-
-            while session.increment_turn():
-                if session.is_cancelled:
-                    break
-
-                # Get next agent from pending routes
-                if not session.pending_routes:
-                    # No more routes queued — ask Administrator for routing decision
-                    latest_message = {
-                        "role": "assistant",
-                        "content": conversation_messages[-1].get("content", "") if conversation_messages else "",
-                        "agent_id": session.current_agent_id,
-                        "name": session.current_agent_name,
-                    }
-
-                    admin_role = "assistant"
-                    admin_name = ADMINISTRATOR_NAME
-                    routing_content = ""
-                    routing_thinking = ""
-                    async for chunk in self.administrator.stream_routing_decision(
-                        latest_message=latest_message,
-                        available_agents=available_agents,
-                        session=session,
-                        conversation_history=conversation_messages,
-                    ):
-                        await self.send_event(chunk)
-
-                        if chunk.role != admin_role:
-                            # Role changed (e.g. assistant → tool), save accumulated
-                            if routing_content or routing_thinking:
-                                msg = {
-                                    "role": admin_role,
-                                    "content": routing_content,
-                                    "thinking": routing_thinking if routing_thinking else None,
-                                    "agent_id": admin_id if admin_role == "assistant" else None,
-                                    "name": admin_name,
-                                    "raw_input": session.last_raw_input if admin_role == "assistant" else None,
-                                    "raw_output": session.last_raw_output if admin_role == "assistant" else None,
-                                }
-                                self._save_message(msg, frame_id)
-                            admin_role = chunk.role
-                            admin_name = chunk.name or ADMINISTRATOR_NAME
-                            routing_content = chunk.content
-                            routing_thinking = chunk.thinking or ""
-                        else:
-                            routing_content += chunk.content
-                            if chunk.thinking:
-                                routing_thinking += chunk.thinking
-
-                    # Save final accumulated content
-                    if routing_content or routing_thinking:
-                        admin_route_msg = {
-                            "role": admin_role,
-                            "content": routing_content,
-                            "thinking": routing_thinking if routing_thinking else None,
-                            "agent_id": admin_id if admin_role == "assistant" else None,
-                            "name": admin_name,
-                            "raw_input": session.last_raw_input if admin_role == "assistant" else None,
-                            "raw_output": session.last_raw_output if admin_role == "assistant" else None,
-                        }
-                        self._save_message(admin_route_msg, frame_id)
-
-                    # If still no routes after asking, break
-                    if not session.pending_routes:
-                        break
-
-                # Pop next route from queue
-                route = session.pending_routes.pop(0)
-
-                if route["action"] == "route_to_user":
-                    logger.debug(f"Routing to user: {route['reason']}")
-                    break
-
-                # Find the target agent
-                target_name = route.get("agent_name", "")
-                current_agent = agent_by_name.get(target_name.lower())
-                if not current_agent:
-                    logger.warning(f"Agent not found: {target_name}, skipping")
-                    continue
-
-                # Update session state
-                session.set_current_agent(current_agent.id, current_agent.name)
-
-                # Send agent switch event
-                await self.send_event(AgentSwitchEvent(
-                    from_agent_id=None,
-                    from_agent_name=None,
-                    to_agent_id=current_agent.id,
-                    to_agent_name=current_agent.name,
-                    reason=f"Turn {session.turn_count}: Processing with {current_agent.name}",
-                ))
-
-                # Create and run the agent
-                agent = self._create_agent(current_agent)
-
-                # Update context with agent's model
-                agent_context.model_name = current_agent.model_name or event.model_name or DEFAULT_ADMIN_MODEL
-
-                # Collect agent's response
-                agent_response = ""
-                agent_thinking = ""
-                current_role = "assistant"
-                current_name = current_agent.name  # Track name per group (agent name or tool name)
-                chunk_content = ""
-                chunk_thinking = ""
-                current_images = []
-                raw_input_json = None  # Captured from agent's prepared messages on first chunk
-                current_tool_args_json = None
-
-                # Stream agent response
-                async for chunk in agent.process(conversation_messages, agent_context):
-                    # Capture raw input on first chunk (prepared messages are set before first yield)
-                    if raw_input_json is None:
-                        raw_input_json = json.dumps(
-                            getattr(agent, 'last_prepared_messages', conversation_messages),
-                            ensure_ascii=False, default=str,
-                        )
-
-                    # Attach agent voice reference for TTS
-                    chunk.voice_reference = current_agent.voice_reference
-                    # Send to client immediately
-                    await self.send_event(chunk)
-
-                    # Track tool images
-                    if chunk.images:
-                        current_images.extend(chunk.images)
-
-                    # Save completed message on role change
-                    if chunk.role != current_role:
-                        if chunk_content or chunk_thinking:
-                            raw_in = raw_input_json if current_role == "assistant" else current_tool_args_json
-                            completed_msg = {
-                                "role": current_role,
-                                "content": chunk_content,
-                                "thinking": chunk_thinking if chunk_thinking else None,
-                                "agent_id": current_agent.id if current_role == "assistant" else None,
-                                "name": current_name,
-                                "raw_input": raw_in,
-                                "raw_output": chunk_content if current_role == "assistant" else None,
-                                "images": current_images if current_images else None,
-                                "model_name": chunk.model_name if current_role == "assistant" else None,
-                                "provider_type": chunk.provider_type if current_role == "assistant" else None,
-                            }
-                            self._save_message(completed_msg, frame_id)
-                            conversation_messages.append({
-                                "role": current_role,
-                                "content": chunk_content,
-                                "agent_id": current_agent.id if current_role == "assistant" else None,
-                                "name": current_name,
-                            })
-                        current_role = chunk.role
-                        current_name = chunk.name or current_agent.name
-                        chunk_content = chunk.content
-                        chunk_thinking = chunk.thinking or ""
-                        current_images = []
-                        current_tool_args_json = json.dumps(chunk.tool_args, ensure_ascii=False) if chunk.tool_args else None
-                    else:
-                        chunk_content += chunk.content
-                        if chunk.thinking:
-                            chunk_thinking += chunk.thinking
-
-                    # Track full response for routing
-                    if chunk.role == "assistant":
-                        agent_response += chunk.content
-                        if chunk.thinking:
-                            agent_thinking += chunk.thinking
-
-                # Save final message
+            # Save completed message on role change
+            if chunk.role != current_role:
                 if chunk_content or chunk_thinking:
                     raw_in = raw_input_json if current_role == "assistant" else current_tool_args_json
                     completed_msg = {
                         "role": current_role,
                         "content": chunk_content,
                         "thinking": chunk_thinking if chunk_thinking else None,
-                        "agent_id": current_agent.id if current_role == "assistant" else None,
+                        "agent_id": agent_config.id if current_role == "assistant" else None,
                         "name": current_name,
                         "raw_input": raw_in,
                         "raw_output": chunk_content if current_role == "assistant" else None,
@@ -790,37 +520,79 @@ class ChatSessionHandler:
                         "provider_type": chunk.provider_type if current_role == "assistant" else None,
                     }
                     self._save_message(completed_msg, frame_id)
+                    # Add to conversation history so Administrator sees sub-agent responses
                     conversation_messages.append({
                         "role": current_role,
                         "content": chunk_content,
-                        "agent_id": current_agent.id if current_role == "assistant" else None,
+                        "agent_id": agent_config.id if current_role == "assistant" else None,
                         "name": current_name,
                     })
+                    if current_role == "assistant":
+                        final_assistant_content += chunk_content
+                current_role = chunk.role
+                current_name = chunk.name or agent_config.name
+                chunk_content = chunk.content
+                chunk_thinking = chunk.thinking or ""
+                current_images = []
+                current_tool_args_json = json.dumps(chunk.tool_args, ensure_ascii=False) if chunk.tool_args else None
+            else:
+                chunk_content += chunk.content
+                if chunk.thinking:
+                    chunk_thinking += chunk.thinking
 
-            # ========================================
-            # CLEANUP AND PERSISTENCE
-            # ========================================
+        # Save final message
+        if chunk_content or chunk_thinking:
+            raw_in = raw_input_json if current_role == "assistant" else current_tool_args_json
+            completed_msg = {
+                "role": current_role,
+                "content": chunk_content,
+                "thinking": chunk_thinking if chunk_thinking else None,
+                "agent_id": agent_config.id if current_role == "assistant" else None,
+                "name": current_name,
+                "raw_input": raw_in,
+                "raw_output": chunk_content if current_role == "assistant" else None,
+                "images": current_images if current_images else None,
+                "model_name": chunk.model_name if current_role == "assistant" else None,
+                "provider_type": chunk.provider_type if current_role == "assistant" else None,
+            }
+            self._save_message(completed_msg, frame_id)
+            conversation_messages.append({
+                "role": current_role,
+                "content": chunk_content,
+                "agent_id": agent_config.id if current_role == "assistant" else None,
+                "name": current_name,
+            })
+            if current_role == "assistant":
+                final_assistant_content += chunk_content
 
-            # Update timestamps
-            self._update_timestamps(frame_id, conversation_id)
+        return route_result, final_assistant_content
 
-            # Mark task as done and send done event
-            self._task_done = True
-            await self.send_event(DoneEvent(
-                conversation_id=conversation_id,
-                frame_id=frame_id,
-            ))
+    async def _run_agent_turn(
+        self,
+        agent_config: AgentConfig,
+        messages: List[Dict],
+        conversation_messages: List[Dict],
+        context: AgentContext,
+        frame_id: int,
+        event: ChatRequestEvent,
+    ):
+        """Run a single agent turn (no routing, used as fallback when no Administrator).
 
-        except asyncio.CancelledError:
-            logger.debug("Orchestration cancelled by user")
-        except WebSocketDisconnect:
-            raise
-        except Exception as e:
-            logger.error(f"Orchestration failed: {e}", exc_info=True)
-            await self.send_event(ErrorEvent(
-                error=str(e),
-                code="INTERNAL_ERROR",
-            ))
+        This preserves the original single-agent behavior for when the Administrator
+        agent is not available.
+        """
+        context.model_name = agent_config.model_name or event.model_name or DEFAULT_ADMIN_MODEL
+        agent = self._create_agent(agent_config)
+
+        await self._stream_and_save_agent(
+            agent=agent,
+            agent_config=agent_config,
+            messages=messages,
+            context=context,
+            frame_id=frame_id,
+            conversation_messages=conversation_messages,
+            is_admin=False,
+        )
 
     async def _setup_conversation(self, event: ChatRequestEvent) -> tuple[int, int, list, str, str, int | None, str | None, str | None, list[int]]:
         """Setup conversation, frame, and system messages.
@@ -902,35 +674,40 @@ class ChatSessionHandler:
 
         return conversation_id, frame_id, system_messages, system_prompt, preferred_name or "", old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, summary_provider, unsummarized_ids, context_size
 
-    def _load_user_agents(self) -> List[AgentConfig]:
-        """Load all agents for the current user."""
+    def _load_enabled_agents(self) -> List[AgentConfig]:
+        """Load system agents + user's enabled agents."""
         db = get_db_service()
 
         def _query(session):
-            agents = AgentRepository(session).list_by_user(self.user_id)
-            return [
-                AgentConfig(
-                    id=agent.id,
-                    name=agent.name,
-                    system_prompt=agent.system_prompt or "",
-                    model_name=agent.model_name,
-                    provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
-                    excluded_tools=agent.excluded_tools,
-                    think=agent.think,
-                    memory=agent.memory,
-                    memory_enabled=agent.memory_enabled,
-                    persona_id=agent.persona.id if agent.persona else None,
-                    persona_name=agent.persona.name if agent.persona else agent.name,
-                    persona_system_prompt=agent.persona.system_prompt if agent.persona else "",
-                    voice_reference=agent.persona.voice_reference if agent.persona else None,
-                    avatar_uuid=agent.persona.avatar_uuid if agent.persona else None,
-                    preferred_name=agent.persona.preferred_name if agent.persona else None,
-                    trigger_word=agent.persona.trigger_word if agent.persona else None,
-                )
-                for agent in agents
-            ]
+            agents = AgentRepository(session).list_enabled_for_user(self.user_id)
+            return [self._agent_to_config(agent) for agent in agents]
 
         return db.execute_sync(_query)
+
+    @staticmethod
+    def _agent_to_config(agent) -> AgentConfig:
+        """Convert a DB Agent model to AgentConfig, resolving persona relationships."""
+        return AgentConfig(
+            id=agent.id,
+            name=agent.name,
+            description=agent.description or "",
+            system_prompt=agent.system_prompt or "",
+            model_name=agent.model_name,
+            provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
+            excluded_tools=agent.excluded_tools,
+            think=agent.think,
+            memory=agent.memory,
+            memory_enabled=agent.memory_enabled,
+            enabled=agent.enabled,
+            is_system=agent.is_system,
+            persona_id=agent.persona.id if agent.persona else None,
+            persona_name=agent.persona.name if agent.persona else agent.name,
+            persona_system_prompt=agent.persona.system_prompt if agent.persona else "",
+            voice_reference=agent.persona.voice_reference if agent.persona else None,
+            avatar_uuid=agent.persona.avatar_uuid if agent.persona else None,
+            preferred_name=agent.persona.preferred_name if agent.persona else None,
+            trigger_word=agent.persona.trigger_word if agent.persona else None,
+        )
 
     def _get_agent_config(self, agent_id: int, agents: List[AgentConfig]) -> Optional[AgentConfig]:
         """Get agent config by ID from list."""
@@ -1226,24 +1003,7 @@ class ChatSessionHandler:
             agent = AgentRepository(session).get_by_user_and_id(self.user_id, agent_id)
             if not agent:
                 raise ValueError(f"Agent not found: {agent_id}")
-            return AgentConfig(
-                id=agent.id,
-                name=agent.name,
-                system_prompt=agent.system_prompt or "",
-                model_name=agent.model_name,
-                provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
-                excluded_tools=agent.excluded_tools,
-                think=agent.think,
-                memory=agent.memory,
-                memory_enabled=agent.memory_enabled,
-                persona_id=agent.persona.id if agent.persona else None,
-                persona_name=agent.persona.name if agent.persona else agent.name,
-                persona_system_prompt=agent.persona.system_prompt if agent.persona else "",
-                voice_reference=agent.persona.voice_reference if agent.persona else None,
-                avatar_uuid=agent.persona.avatar_uuid if agent.persona else None,
-                preferred_name=agent.persona.preferred_name if agent.persona else None,
-                trigger_word=agent.persona.trigger_word if agent.persona else None,
-            )
+            return self._agent_to_config(agent)
 
         config = db.execute_sync(_query)
         return BaseAgent.create_from_config(config, tool_registry)

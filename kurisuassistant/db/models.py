@@ -96,9 +96,10 @@ class Agent(Base):
     __tablename__ = 'agents'
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # NULL for system agents
     persona_id = Column(Integer, ForeignKey('personas.id', ondelete='SET NULL'), nullable=True)
     name = Column(String, nullable=False)  # Role name (e.g., "Coding Assistant")
+    description = Column(String, default='', nullable=False)  # Short one-liner for route_to tool
     system_prompt = Column(Text, default='')  # Role instructions
     model_name = Column(String, nullable=True)  # LLM model override
     provider_type = Column(String, default='ollama', nullable=False)  # LLM provider
@@ -106,6 +107,8 @@ class Agent(Base):
     think = Column(Boolean, default=False, nullable=False)  # Enable extended reasoning
     memory = Column(Text, nullable=True)  # Free-form persistent memory (markdown)
     memory_enabled = Column(Boolean, default=True, nullable=False)  # Enable memory injection + consolidation
+    enabled = Column(Boolean, default=True, nullable=False)  # Whether agent is active
+    is_system = Column(Boolean, default=False, nullable=False)  # Built-in system agent
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_agent_user_id_name'),)

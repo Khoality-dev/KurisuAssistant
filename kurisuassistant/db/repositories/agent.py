@@ -122,6 +122,54 @@ class AgentRepository(BaseRepository[Agent]):
             return self.update(agent, **update_data)
         return agent
 
+    def list_system_agents(self) -> List[Agent]:
+        """List all system (built-in) agents."""
+        return (
+            self.session.query(Agent)
+            .filter_by(is_system=True)
+            .order_by(Agent.id)
+            .all()
+        )
+
+    def list_enabled_for_user(self, user_id: int) -> List[Agent]:
+        """List system agents + user's enabled agents."""
+        from sqlalchemy import or_
+        return (
+            self.session.query(Agent)
+            .filter(
+                or_(
+                    Agent.is_system == True,  # noqa: E712
+                    Agent.user_id == user_id,
+                ),
+                Agent.enabled == True,  # noqa: E712
+            )
+            .order_by(Agent.id)
+            .all()
+        )
+
+    def list_all_for_user(self, user_id: int) -> List[Agent]:
+        """List system agents + all user's agents (regardless of enabled)."""
+        from sqlalchemy import or_
+        return (
+            self.session.query(Agent)
+            .filter(
+                or_(
+                    Agent.is_system == True,  # noqa: E712
+                    Agent.user_id == user_id,
+                ),
+            )
+            .order_by(Agent.id)
+            .all()
+        )
+
+    def toggle_enabled(self, agent_id: int, enabled: bool) -> Optional[Agent]:
+        """Toggle agent enabled state."""
+        agent = self.session.query(Agent).filter_by(id=agent_id).first()
+        if agent:
+            agent.enabled = enabled
+            self.session.commit()
+        return agent
+
     def delete_by_user_and_id(self, user_id: int, agent_id: int) -> bool:
         """Delete an agent by user ID and agent ID.
 
