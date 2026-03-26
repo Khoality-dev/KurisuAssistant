@@ -403,19 +403,20 @@ export const AgentsSection: React.FC = () => {
                   onClick={() => openEditDialog(agent)}
                   sx={{
                     position: 'relative',
-                    border: agent.name === 'Administrator' ? '2px solid' : '1px solid',
-                    borderColor: agent.name === 'Administrator' ? 'secondary.main' : 'divider',
+                    border: agent.is_system ? '2px solid' : '1px solid',
+                    borderColor: agent.is_system ? 'secondary.main' : 'divider',
+                    opacity: agent.enabled ? 1 : 0.5,
                     cursor: 'pointer',
                     '&:hover': {
                       boxShadow: 3,
                       transform: 'translateY(-2px)',
                     },
-                    transition: 'box-shadow 0.2s, transform 0.2s',
+                    transition: 'box-shadow 0.2s, transform 0.2s, opacity 0.2s',
                   }}
                 >
-                  {agent.name === 'Administrator' && (
+                  {agent.is_system && (
                     <Chip
-                      label="System"
+                      label="Built-in"
                       color="secondary"
                       size="small"
                       icon={<SettingsIcon />}
@@ -454,30 +455,46 @@ export const AgentsSection: React.FC = () => {
                       )}
                     </Box>
                   </CardContent>
-                  <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
-                    <Tooltip title="Export">
-                      <IconButton
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleExportAgent(agent);
-                        }}
-                      >
-                        <ExportIcon />
-                      </IconButton>
-                    </Tooltip>
-                    {agent.name !== 'Administrator' && (
-                      <Tooltip title="Delete">
+                  <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 2 }}>
+                    <Switch
+                      size="small"
+                      checked={agent.enabled}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          await apiClient.toggleAgentEnabled(agent.id, !agent.enabled);
+                          loadAgents();
+                        } catch (err: any) {
+                          setError(err.response?.data?.detail || err.message);
+                        }
+                      }}
+                    />
+                    <Box>
+                      <Tooltip title="Export">
                         <IconButton
                           onClick={(e) => {
                             e.stopPropagation();
-                            openDeleteDialog(agent);
+                            handleExportAgent(agent);
                           }}
-                          color="error"
                         >
-                          <DeleteIcon />
+                          <ExportIcon />
                         </IconButton>
                       </Tooltip>
-                    )}
+                      {!agent.is_system && (
+                        <Tooltip title="Delete">
+                          <IconButton
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openDeleteDialog(agent);
+                            }}
+                            color="error"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </Box>
                   </CardActions>
                 </MotionCard>
               </Grid>

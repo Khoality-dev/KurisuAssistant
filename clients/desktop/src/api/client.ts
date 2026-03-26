@@ -443,6 +443,16 @@ class APIClient {
   }
 
   /**
+   * Toggle agent enabled state
+   */
+  async toggleAgentEnabled(id: number, enabled: boolean): Promise<Agent> {
+    const response = await this.client.patch(`/agents/${id}/enabled`, { enabled }, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
    * Export an agent as JSON
    */
   async exportAgent(id: number): Promise<Blob> {

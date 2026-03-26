@@ -134,6 +134,7 @@ export interface PersonaUpdate {
 export interface Agent {
   id: number;
   name: string;
+  description: string;
   system_prompt: string;
   model_name: string | null;
   provider_type: string;
@@ -141,6 +142,8 @@ export interface Agent {
   think: boolean;
   memory: string | null;
   memory_enabled: boolean;
+  enabled: boolean;
+  is_system: boolean;
   persona_id: number | null;
   persona: Persona | null;
 }
