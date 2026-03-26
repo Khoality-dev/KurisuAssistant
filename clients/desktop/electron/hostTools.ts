@@ -295,14 +295,15 @@ function getHostToolSchemas(): ToolSchema[] {
       function: {
         name: 'host_edit',
         description:
-          'Edit a file on the host machine by replacing text. ' +
+          'Edit a file by finding and replacing text. ' +
           'Must read the file first with host_read. ' +
-          'The old_text must match exactly one location in the file.',
+          'old_text must match exactly one location — include enough surrounding lines for uniqueness. ' +
+          'Fails if old_text matches zero or multiple locations.',
         parameters: {
           type: 'object',
           properties: {
             path: { type: 'string', description: 'Absolute path to the file.' },
-            old_text: { type: 'string', description: 'Exact text to find and replace.' },
+            old_text: { type: 'string', description: 'Exact text to find. Include surrounding lines for unique match.' },
             new_text: { type: 'string', description: 'Replacement text.' },
           },
           required: ['path', 'old_text', 'new_text'],
