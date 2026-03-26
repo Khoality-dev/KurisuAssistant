@@ -379,9 +379,23 @@ export function initAppToolsHandler(): void {
     window.electron.appTools.sendResult(data.callId, result);
   });
 
-  // Listen for diff review requests from host_edit
+  // Listen for diff view display from host_write/host_edit
+  let pageBeforeDiff: string | null = null;
   window.electron.hostTools?.onDiffReview?.((data) => {
+    const layout = useLayoutStore.getState();
+    if (layout.activePage !== 'workspace') {
+      pageBeforeDiff = layout.activePage;
+    }
     useExplorerStore.setState({ diffReview: data });
-    useLayoutStore.getState().setActivePage('workspace');
+    layout.setActivePage('workspace');
+  });
+
+  // Listen for diff view clear — restore previous page
+  window.electron.hostTools?.onDiffClear?.(() => {
+    useExplorerStore.setState({ diffReview: null });
+    if (pageBeforeDiff) {
+      useLayoutStore.getState().setActivePage(pageBeforeDiff as any);
+      pageBeforeDiff = null;
+    }
   });
 }

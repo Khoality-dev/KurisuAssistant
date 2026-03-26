@@ -6,6 +6,7 @@ import {
   Psychology as PsychologyIcon,
   ExpandMore as ExpandMoreIcon,
   SmartToy as SmartToyIcon,
+  Build as BuildIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
@@ -155,12 +156,22 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
       };
     }
     switch (message.role) {
-      case 'tool':
+      case 'tool': {
+        const lc = message.content.toLowerCase();
+        const isError = message.content.startsWith('Error:') || lc.includes('error') || lc.includes('rejected') || lc.includes('denied') || lc.includes('not available') || lc.includes('not found') || lc.includes('failed');
+        if (isError) {
+          return {
+            bg: isDark ? '#2A0000' : '#FFF0F0',
+            border: isDark ? '#660000' : '#EF5350',
+            label: isDark ? '#EF5350' : '#D32F2F'
+          };
+        }
         return {
-          bg: isDark ? '#2A2000' : '#FFF8E1',
-          border: isDark ? '#665200' : '#FFB74D',
-          label: isDark ? '#FFB74D' : '#F57C00'
+          bg: isDark ? '#002A00' : '#F0FFF0',
+          border: isDark ? '#006600' : '#66BB6A',
+          label: isDark ? '#66BB6A' : '#2E7D32'
         };
+      }
       case 'assistant':
       default:
         return {
@@ -197,19 +208,19 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
         },
       }}
     >
-      {/* Agent avatar for non-user messages */}
+      {/* Avatar for non-user messages */}
       {!isUser && (
         <Avatar
-          src={agentAvatarUrl}
+          src={isTool ? undefined : agentAvatarUrl}
           alt={label}
           sx={{
             width: 36,
             height: 36,
-            bgcolor: 'primary.main',
+            bgcolor: isTool ? 'action.selected' : 'primary.main',
             flexShrink: 0,
           }}
         >
-          {!agentAvatarUrl && <SmartToyIcon sx={{ fontSize: 20 }} />}
+          {isTool ? <BuildIcon sx={{ fontSize: 20, color: 'text.secondary' }} /> : !agentAvatarUrl && <SmartToyIcon sx={{ fontSize: 20 }} />}
         </Avatar>
       )}
       <Box sx={{ maxWidth: '80%' }}>

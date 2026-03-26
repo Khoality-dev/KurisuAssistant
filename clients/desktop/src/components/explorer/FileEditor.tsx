@@ -7,7 +7,6 @@ import {
 } from '@mui/icons-material';
 import Editor, { DiffEditor, type OnMount } from '@monaco-editor/react';
 import { useExplorerStore } from '../../store/explorerStore';
-import { ToolApprovalBar } from '../chat/ToolApprovalBar';
 
 export const FileEditor: React.FC = () => {
   const theme = useTheme();
@@ -145,12 +144,6 @@ export const FileEditor: React.FC = () => {
 
   // Diff review mode — agent wants to edit a file
   if (diffReview) {
-    const handleDiffResponse = (accepted: boolean) => {
-      window.electron?.hostTools?.sendDiffResult(diffReview.reviewId, accepted);
-      // Defer unmount so Monaco can clean up its models first
-      setTimeout(() => useExplorerStore.setState({ diffReview: null }), 0);
-    };
-
     // Detect language from file extension
     const ext = diffReview.fileName.split('.').pop() || '';
     const langMap: Record<string, string> = {
@@ -162,36 +155,23 @@ export const FileEditor: React.FC = () => {
     const language = langMap[ext] || 'plaintext';
 
     return (
-      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <Box sx={{ flex: 1 }}>
-          <DiffEditor
-            original={diffReview.originalContent}
-            modified={diffReview.modifiedContent}
-            language={language}
-            theme={isDark ? 'vs-dark' : 'light'}
-            keepCurrentOriginalModel
-            keepCurrentModifiedModel
-            options={{
-              readOnly: true,
-              renderSideBySide: true,
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              fontSize: 13,
-              lineHeight: 20,
-              automaticLayout: true,
-            }}
-          />
-        </Box>
-        <ToolApprovalBar
-          request={{
-            toolName: 'host_edit',
-            description: `Review edit: ${diffReview.fileName}`,
-            options: [
-              { label: 'Accept', value: 'accept', color: 'success' },
-              { label: 'Deny', value: 'deny', color: 'error' },
-            ],
+      <Box sx={{ flex: 1, overflow: 'hidden' }}>
+        <DiffEditor
+          original={diffReview.originalContent}
+          modified={diffReview.modifiedContent}
+          language={language}
+          theme={isDark ? 'vs-dark' : 'light'}
+          keepCurrentOriginalModel
+          keepCurrentModifiedModel
+          options={{
+            readOnly: true,
+            renderSideBySide: true,
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            fontSize: 13,
+            lineHeight: 20,
+            automaticLayout: true,
           }}
-          onRespond={(value) => handleDiffResponse(value === 'accept')}
         />
       </Box>
     );

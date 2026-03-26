@@ -401,16 +401,38 @@ async function executeHostRead(args: Record<string, unknown>): Promise<ToolResul
   } catch (e: any) { return err(e.message); }
 }
 
+/** Send diff view to renderer for display (non-blocking, just visual context). */
+function sendDiffView(filePath: string, originalContent: string, modifiedContent: string) {
+  const mainWindow = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+  if (!mainWindow) return;
+  mainWindow.webContents.send('host-tools:diff-review', {
+    reviewId: '', // Not used for approval — just display
+    filePath,
+    fileName: path.basename(filePath),
+    originalContent,
+    modifiedContent,
+  });
+}
+
+/** Clear diff view in renderer. */
+function clearDiffView() {
+  const mainWindow = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+  if (!mainWindow) return;
+  mainWindow.webContents.send('host-tools:diff-clear');
+}
+
 async function executeHostWrite(args: Record<string, unknown>): Promise<ToolResult> {
   try {
     const filePath = args.path as string;
     const content = args.content as string;
     if (!filePath) return err('path is required.');
     if (content === undefined || content === null) return err('content is required.');
+
     const result = fsOps.writeFile(filePath, content);
     readFiles.add(result.path);
+    clearDiffView();
     return ok({ status: 'ok', path: filePath, bytes: result.bytes });
-  } catch (e: any) { return err(e.message); }
+  } catch (e: any) { clearDiffView(); return err(e.message); }
 }
 
 async function executeHostEdit(args: Record<string, unknown>): Promise<ToolResult> {
@@ -429,34 +451,10 @@ async function executeHostEdit(args: Record<string, unknown>): Promise<ToolResul
     if (!fullContent.includes(oldText)) return err('old_text not found in file.');
     const newContent = fullContent.replace(oldText, newText);
 
-    // Send diff to renderer for approval
-    const mainWindow = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
-    if (!mainWindow) return err('No window available for diff review.');
-
-    const approved = await new Promise<boolean>((resolve) => {
-      const reviewId = `edit-${Date.now()}`;
-      const handler = (_event: any, id: string, accepted: boolean) => {
-        if (id === reviewId) {
-          ipcMain.removeListener('host-tools:diff-result', handler);
-          resolve(accepted);
-        }
-      };
-      ipcMain.on('host-tools:diff-result', handler);
-
-      mainWindow.webContents.send('host-tools:diff-review', {
-        reviewId,
-        filePath,
-        fileName: path.basename(filePath),
-        originalContent: fullContent,
-        modifiedContent: newContent,
-      });
-    });
-
-    if (!approved) return err('Edit rejected by user.');
-
     fs.writeFileSync(resolved, newContent, { encoding: 'utf-8' });
+    clearDiffView();
     return ok({ status: 'ok', path: filePath });
-  } catch (e: any) { return err(e.message); }
+  } catch (e: any) { clearDiffView(); return err(e.message); }
 }
 
 async function executeHostSearch(args: Record<string, unknown>, allowedPaths: string[]): Promise<ToolResult> {
@@ -506,8 +504,29 @@ async function executeHostTool(
 ): Promise<{ content: string; isError: boolean }> {
   const allowedPaths = getAllowedPaths();
 
-  // host_edit has its own diff approval dialog — skip the generic gate
-  const approved = name === 'host_edit' ? true : await gateToolCall(name, args, allowedPaths, () => {
+  // Show diff view before approval gate for write/edit operations
+  if (name === 'host_write' || name === 'host_edit') {
+    try {
+      const filePath = args.path as string;
+      if (filePath) {
+        const resolved = path.resolve(filePath);
+        if (name === 'host_write') {
+          const original = fs.existsSync(resolved) ? fs.readFileSync(resolved, { encoding: 'utf-8' }) : '';
+          sendDiffView(filePath, original, args.content as string || '');
+        } else {
+          // host_edit: compute the diff
+          const fullContent = fs.existsSync(resolved) ? fs.readFileSync(resolved, { encoding: 'utf-8' }) : '';
+          const oldText = args.old_text as string || '';
+          const newText = args.new_text as string || '';
+          if (fullContent.includes(oldText)) {
+            sendDiffView(filePath, fullContent, fullContent.replace(oldText, newText));
+          }
+        }
+      }
+    } catch { /* ignore diff display errors */ }
+  }
+
+  const approved = await gateToolCall(name, args, allowedPaths, () => {
     // Bash: never auto-approve (always goes to policy/session/dialog checks)
     if (name === 'host_bash') return false;
 
@@ -520,6 +539,7 @@ async function executeHostTool(
   });
 
   if (!approved) {
+    clearDiffView();
     return { content: JSON.stringify({ error: 'Denied by user.' }), isError: true };
   }
 

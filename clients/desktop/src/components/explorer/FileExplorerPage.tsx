@@ -8,8 +8,9 @@ import { useExplorerStore } from '../../store/explorerStore';
 
 export const FileExplorerPage: React.FC = () => {
   const hasOpenFiles = useExplorerStore((s) => s.openFiles.length > 0);
+  const hasDiffReview = useExplorerStore((s) => s.diffReview !== null);
 
-  if (!hasOpenFiles) {
+  if (!hasOpenFiles && !hasDiffReview) {
     // Full explorer mode — no files open yet
     return <FullExplorer />;
   }
