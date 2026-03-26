@@ -155,7 +155,12 @@ export const FileEditor: React.FC = () => {
     const language = langMap[ext] || 'plaintext';
 
     return (
-      <Box sx={{ flex: 1, overflow: 'hidden' }}>
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            {diffReview.filePath}
+          </Typography>
+        </Box>
         <DiffEditor
           original={diffReview.originalContent}
           modified={diffReview.modifiedContent}
