@@ -578,6 +578,7 @@ class SimpleAgent(BaseAgent):
                 messages.append(assistant_msg)
 
                 # Execute each tool and feed results back
+                tool_denied = False
                 for tc in all_tool_calls:
                     tool_name = tc.function.name
                     tool_args = tc.function.arguments
@@ -600,6 +601,15 @@ class SimpleAgent(BaseAgent):
 
                     # Append tool result for next LLM round
                     messages.append({"role": "tool", "content": result.content})
+
+                    # If tool was denied, stop executing remaining tools
+                    if "denied by user" in result.content.lower():
+                        tool_denied = True
+                        break
+
+                # If user denied a tool, stop the agent's tool loop entirely
+                if tool_denied:
+                    break
 
                 # Loop continues — LLM will see tool results and can call more tools or answer
 
