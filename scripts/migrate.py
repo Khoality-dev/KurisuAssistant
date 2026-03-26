@@ -3,7 +3,7 @@
 Run this before starting the application to ensure the database schema is up-to-date.
 
 Usage:
-    python migrate.py
+    python -m scripts.migrate
 """
 import logging
 import sys

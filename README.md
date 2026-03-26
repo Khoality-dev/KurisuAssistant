@@ -35,7 +35,7 @@ Default account: `admin` / `admin`
 ```bash
 python -m venv venv && venv\Scripts\activate
 pip install -r requirements.txt
-python migrate.py        # Run database migrations
+python -m scripts.migrate # Run database migrations
 ./run_dev.bat            # Start server (Windows)
 ```
 

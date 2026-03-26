@@ -22,18 +22,11 @@ def upgrade() -> None:
     """Upgrade schema."""
     # Agent columns: description, enabled, is_system
     op.add_column('agents', sa.Column('description', sa.String(), server_default='', nullable=False))
-    op.add_column('agents', sa.Column('provider_type', sa.String(), server_default='ollama', nullable=False))
     op.add_column('agents', sa.Column('enabled', sa.Boolean(), server_default=sa.text('true'), nullable=False))
     op.add_column('agents', sa.Column('is_system', sa.Boolean(), server_default=sa.text('false'), nullable=False))
     op.alter_column('agents', 'user_id',
                existing_type=sa.INTEGER(),
                nullable=True)
-
-    # Other columns detected from model changes
-    op.add_column('messages', sa.Column('model_name', sa.String(), nullable=True))
-    op.add_column('messages', sa.Column('provider_type', sa.String(), nullable=True))
-    op.add_column('users', sa.Column('gemini_api_key', sa.String(), nullable=True))
-    op.add_column('users', sa.Column('nvidia_api_key', sa.String(), nullable=True))
 
     # Seed system agents (Administrator and App Guide)
     agents = sa.table('agents',
@@ -65,7 +58,7 @@ def upgrade() -> None:
                 '4. If no agent is suitable, respond directly to the user\n\n'
                 'Keep your own responses brief. Your main job is delegation, not conversation.'
             ),
-            'model_name': None,
+            'model_name': 'qwen3.5:0.8b',
             'provider_type': 'ollama',
             'enabled': True,
             'is_system': True,
@@ -89,7 +82,7 @@ def upgrade() -> None:
                 'Be friendly and guide users step by step. '
                 'When making changes, confirm what you did and suggest next steps.'
             ),
-            'model_name': None,
+            'model_name': 'qwen3.5:0.8b',
             'provider_type': 'ollama',
             'enabled': True,
             'is_system': True,
@@ -104,14 +97,9 @@ def downgrade() -> None:
     # Remove seeded system agents
     op.execute("DELETE FROM agents WHERE is_system = true")
 
-    op.drop_column('users', 'nvidia_api_key')
-    op.drop_column('users', 'gemini_api_key')
-    op.drop_column('messages', 'provider_type')
-    op.drop_column('messages', 'model_name')
     op.alter_column('agents', 'user_id',
                existing_type=sa.INTEGER(),
                nullable=False)
     op.drop_column('agents', 'is_system')
     op.drop_column('agents', 'enabled')
-    op.drop_column('agents', 'provider_type')
     op.drop_column('agents', 'description')

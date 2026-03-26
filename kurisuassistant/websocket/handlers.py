@@ -62,7 +62,6 @@ logger = logging.getLogger(__name__)
 HEARTBEAT_INTERVAL = 30  # seconds between server pings
 HEARTBEAT_TIMEOUT = 10   # seconds to wait for pong before closing
 DEFAULT_MAX_TURNS = 10
-DEFAULT_ADMIN_MODEL = "gemma3:4b"  # Fallback if Administrator agent not found
 ADMINISTRATOR_NAME = "Administrator"  # Reserved agent name for routing
 FRAME_IDLE_THRESHOLD_MINUTES = int(os.getenv("FRAME_IDLE_THRESHOLD_MINUTES", "30"))
 
@@ -314,7 +313,7 @@ class ChatSessionHandler:
                 user_id=self.user_id,
                 conversation_id=conversation_id,
                 frame_id=frame_id,
-                model_name=DEFAULT_ADMIN_MODEL,  # Updated per agent
+                model_name=event.model_name,  # Updated per agent in routing loop
                 handler=self,
                 available_agents=sub_agents,
                 user_system_prompt=user_system_prompt,
@@ -378,7 +377,7 @@ class ChatSessionHandler:
                         ))
 
                         # Update context model for this agent
-                        agent_context.model_name = current_agent.model_name or event.model_name or DEFAULT_ADMIN_MODEL
+                        agent_context.model_name = current_agent.model_name or event.model_name
 
                         # Create and run agent
                         agent = self._create_agent(current_agent)
@@ -394,7 +393,6 @@ class ChatSessionHandler:
                             is_admin=is_admin,
                         )
                     finally:
-                        # Always unregister route_to after Administrator's turn
                         if is_admin:
                             tool_registry.unregister("route_to")
 
@@ -412,16 +410,8 @@ class ChatSessionHandler:
                         route_message = route_result["message"]
                         continue
 
-                    # No route_to called
-                    if is_admin:
-                        # Administrator responded directly without routing — done
-                        break
-                    else:
-                        # Sub-agent finished — return to Administrator
-                        # Add sub-agent's response to conversation history for Administrator to see
-                        current_agent = admin_agent
-                        route_message = None
-                        continue
+                    # No route_to called — done
+                    break
 
             # ========================================
             # CLEANUP
@@ -581,7 +571,7 @@ class ChatSessionHandler:
         This preserves the original single-agent behavior for when the Administrator
         agent is not available.
         """
-        context.model_name = agent_config.model_name or event.model_name or DEFAULT_ADMIN_MODEL
+        context.model_name = agent_config.model_name or event.model_name
         agent = self._create_agent(agent_config)
 
         await self._stream_and_save_agent(

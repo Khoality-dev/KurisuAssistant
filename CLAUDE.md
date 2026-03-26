@@ -31,7 +31,7 @@ KurisuAssistant is a voice-based AI assistant platform combining STT (faster-whi
 ```bash
 # Local
 python -m venv venv && venv\Scripts\activate && pip install -r requirements.txt
-python -m kurisuassistant.migrate   # Run migrations
+python -m scripts.migrate            # Run migrations
 ./run_dev.bat                       # Start server (Windows)
 
 # Docker

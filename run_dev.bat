@@ -24,7 +24,7 @@ set ACCESS_TOKEN_EXPIRE_DAYS=30
 
 REM Run migrations first
 echo Running database migrations...
-%VENV_PYTHON% -m kurisuassistant.migrate
+%VENV_PYTHON% -m scripts.migrate
 if %errorlevel% neq 0 (
     echo Migration failed!
     pause

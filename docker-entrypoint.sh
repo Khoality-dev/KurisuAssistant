@@ -8,7 +8,7 @@ until python -c "from kurisuassistant.db.session import engine; engine.connect()
 done
 
 echo "PostgreSQL is up - running migrations"
-if python -m kurisuassistant.migrate; then
+if python -m scripts.migrate; then
     echo "Migrations completed successfully"
 else
     echo "Migration failed with exit code $?"

@@ -18,40 +18,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 
-DEFAULT_MODEL = "gemma3:4b"
-
-# Administrator is a special system agent for routing decisions
-ADMINISTRATOR_NAME = "Administrator"
-ADMINISTRATOR_PROMPT = """You are the Administrator, a system-level agent that routes conversations to the appropriate agents. You analyze user requests and agent responses to determine the best agent to handle each task."""
-
 # Reserved names that users cannot use for their agents
 RESERVED_AGENT_NAMES = {"Administrator", "User", "App Guide"}
 
-# Default user agent
-DEFAULT_AGENT_NAME = "Assistant"
-DEFAULT_AGENT_PROMPT = """You are a helpful AI assistant. You are knowledgeable, friendly, and always try to provide accurate and useful information."""
-
-
-def ensure_default_agents(agent_repo: AgentRepository, user_id: int, session) -> None:
-    """Ensure a default Assistant agent exists for a user."""
-    agents = agent_repo.list_by_user(user_id)
-
-    # Create default Assistant if no agents exist
-    if not agents:
-        # Create default persona if none exist
-        persona_repo = PersonaRepository(session)
-        personas = persona_repo.list_by_user(user_id)
-        if not personas:
-            persona = persona_repo.create_persona(user_id=user_id, name=DEFAULT_AGENT_NAME, system_prompt=DEFAULT_AGENT_PROMPT)
-        else:
-            persona = personas[0]
-
-        agent_repo.create_agent(
-            user_id=user_id,
-            name=DEFAULT_AGENT_NAME,
-            model_name=DEFAULT_MODEL,
-            persona_id=persona.id,
-        )
 
 
 class AgentCreate(BaseModel):
@@ -137,8 +106,6 @@ async def list_agents(
     """List all agents for the current user."""
     def _list(session):
         agent_repo = AgentRepository(session)
-        # Ensure default user agents exist
-        ensure_default_agents(agent_repo, user.id, session)
         # Return system agents + user's agents
         agents = agent_repo.list_all_for_user(user.id)
         return [_agent_to_response(agent) for agent in agents]
@@ -188,6 +155,10 @@ async def create_agent(
 
     try:
         def _create(session):
+            # Check for duplicate name
+            existing = AgentRepository(session).get_by_user_and_name(user.id, body.name)
+            if existing:
+                raise HTTPException(status_code=400, detail=f"An agent named '{body.name}' already exists.")
             agent = AgentRepository(session).create_agent(
                 user_id=user.id,
                 name=body.name,
@@ -237,6 +208,11 @@ async def update_agent(
         # System agents cannot be renamed
         if agent.is_system and body.name is not None:
             raise HTTPException(status_code=400, detail="System agent names cannot be changed")
+        # Check for duplicate name
+        if body.name is not None and body.name != agent.name:
+            existing = agent_repo.get_by_user_and_name(user.id, body.name)
+            if existing:
+                raise HTTPException(status_code=400, detail=f"An agent named '{body.name}' already exists.")
 
         agent = agent_repo.update_agent(
             agent,

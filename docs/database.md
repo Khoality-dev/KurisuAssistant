@@ -27,7 +27,7 @@ Managed with Alembic. Auto-run on Docker container startup via `docker-entrypoin
 cd db && alembic revision --autogenerate -m "description"
 
 # Run migrations manually
-python migrate.py
+python -m scripts.migrate
 ```
 
 First migration seeds default `admin:admin` account.
