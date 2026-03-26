@@ -119,26 +119,33 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   // Determine message styling based on role
   const isUser = message.role === 'user';
 
-  // Resolve display name: name field → agent relationship → role
-  // For tool messages, skip agent?.name (it would show the calling agent, e.g. "Administrator")
-  const agentName = message.role === 'tool'
-    ? message.name
-    : (message.name || message.agent?.name);
-
-  // Format tool label as ToolName(arg1, arg2, ...)
+  // Resolve display label
   let label: string;
+  let sublabel = '';
   if (isUser) {
     label = 'You';
-  } else if (message.role === 'tool' && message.name && message.tool_args) {
-    const args = Object.entries(message.tool_args)
-      .map(([k, v]) => {
-        const str = typeof v === 'string' ? v : JSON.stringify(v);
-        return `${k}: ${str.length > 50 ? str.substring(0, 50) + '...' : str}`;
-      })
-      .join(', ');
-    label = `${message.name}(${args})`;
+  } else if (message.role === 'tool') {
+    if (message.name && message.tool_args) {
+      const args = Object.entries(message.tool_args)
+        .map(([k, v]) => {
+          const str = typeof v === 'string' ? v : JSON.stringify(v);
+          return `${k}: ${str.length > 50 ? str.substring(0, 50) + '...' : str}`;
+        })
+        .join(', ');
+      label = `${message.name}(${args})`;
+    } else {
+      label = message.name || 'Tool';
+    }
   } else {
-    label = agentName || message.role.charAt(0).toUpperCase() + message.role.slice(1);
+    // Assistant: persona name as main label, agent role as sublabel
+    const personaName = message.persona_name || message.agent?.persona_name;
+    const agentRole = message.agent?.name || message.name;
+    label = personaName || agentRole || message.role.charAt(0).toUpperCase() + message.role.slice(1);
+    // Show agent role + model as sublabel
+    const parts: string[] = [];
+    if (agentRole && agentRole !== label) parts.push(agentRole);
+    if (message.model_name) parts.push(message.model_name);
+    sublabel = parts.join(' · ');
   }
 
   // Get avatar URL for agent
@@ -256,7 +263,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
             >
               {label}
             </Typography>
-            {message.model_name && (
+            {sublabel && (
               <Typography
                 variant="caption"
                 sx={{
@@ -267,7 +274,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                   flex: 1,
                 }}
               >
-                {message.model_name}
+                {sublabel}
               </Typography>
             )}
             {isTool && (

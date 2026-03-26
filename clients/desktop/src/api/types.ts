@@ -8,6 +8,7 @@ export interface LoginResponse {
 export interface MessageAgent {
   id: number;
   name: string;
+  persona_name: string | null;
   avatar_uuid: string | null;
   voice_reference: string | null;
 }
@@ -22,6 +23,7 @@ export interface Message {
   created_at?: string;
   agent_id?: number; // Which agent sent this message
   name?: string; // Speaker identity (agent name, tool name, etc.)
+  persona_name?: string; // Persona display name (from streaming chunks)
   agent?: MessageAgent; // Embedded agent info (name, avatar)
   voice_reference?: string; // Voice reference for TTS (from streaming chunks)
   has_raw_data?: boolean; // Whether raw LLM input/output is available

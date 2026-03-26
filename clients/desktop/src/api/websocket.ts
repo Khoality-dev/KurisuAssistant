@@ -62,6 +62,7 @@ export interface StreamChunkEvent extends BaseEvent {
   role: string;
   agent_id: number | null;
   name: string | null;
+  persona_name: string | null;
   voice_reference: string | null;
   model_name: string | null;
   provider_type: string | null;
