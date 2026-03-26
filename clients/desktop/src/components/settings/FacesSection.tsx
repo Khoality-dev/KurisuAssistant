@@ -14,7 +14,6 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField,
   Alert,
   Chip,
   Tooltip,
@@ -35,19 +34,15 @@ import {
   Person as PersonIcon,
   Refresh as RefreshIcon,
   CameraAlt as CameraAltIcon,
-  Close as CloseIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiClient } from '../../api/client';
 import { useVisionStore } from '../../store/visionStore';
+import { useWebcamCapture } from '../../hooks/useWebcamCapture';
+import { FaceCreateDialog } from './FaceCreateDialog';
 import type { FaceIdentity, FaceIdentityDetail } from '../../api/types';
 
 const MotionCard = motion(Card);
-
-interface CapturedPhoto {
-  file: File;
-  preview: string;
-}
 
 export const FacesSection: React.FC = () => {
   const [faces, setFaces] = useState<FaceIdentity[]>([]);
@@ -57,15 +52,16 @@ export const FacesSection: React.FC = () => {
 
   // Create dialog
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [capturedPhotos, setCapturedPhotos] = useState<CapturedPhoto[]>([]);
-  const [scanning, setScanning] = useState(false);
-  const [creating, setCreating] = useState(false);
 
-  // Webcam (face registration scanning)
-  const [webcamStream, setWebcamStream] = useState<MediaStream | null>(null);
-  const webcamVideoRef = useRef<HTMLVideoElement>(null);
-  const webcamCanvasRef = useRef<HTMLCanvasElement>(null);
+  // Webcam (detail dialog scanning)
+  const {
+    webcamStream,
+    webcamVideoRef,
+    webcamCanvasRef,
+    startWebcam,
+    stopWebcam,
+    captureFrame,
+  } = useWebcamCapture();
 
   // Vision preview (detection overlay on store's stream)
   const visionVideoRef = useRef<HTMLVideoElement>(null);
@@ -179,98 +175,12 @@ export const FacesSection: React.FC = () => {
     }
   }, [latestResult, visionActive]);
 
-  const startWebcam = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
-      setWebcamStream(stream);
-    } catch (err) {
-      setError('Failed to access webcam. Check permissions.');
-    }
-  }, []);
-
-  const stopWebcam = useCallback(() => {
-    if (webcamStream) {
-      webcamStream.getTracks().forEach((t) => t.stop());
-      setWebcamStream(null);
-    }
-  }, [webcamStream]);
-
   // Attach stream to video element
   useEffect(() => {
     if (webcamVideoRef.current && webcamStream) {
       webcamVideoRef.current.srcObject = webcamStream;
     }
-  }, [webcamStream, scanning, detailScanning]);
-
-  const captureFrame = useCallback((): CapturedPhoto | null => {
-    const video = webcamVideoRef.current;
-    const canvas = webcamCanvasRef.current;
-    if (!video || !canvas || video.readyState < 2) return null;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    ctx.drawImage(video, 0, 0);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-    const arr = dataUrl.split(',');
-    const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
-    const bstr = atob(arr[1]);
-    const u8arr = new Uint8Array(bstr.length);
-    for (let i = 0; i < bstr.length; i++) u8arr[i] = bstr.charCodeAt(i);
-    const file = new File([u8arr], `capture_${Date.now()}.jpg`, { type: mime });
-    return { file, preview: dataUrl };
-  }, []);
-
-  // Create dialog: start/stop scanning
-  const handleStartScan = useCallback(() => {
-    setScanning(true);
-    startWebcam();
-  }, [startWebcam]);
-
-  const handleStopScan = useCallback(() => {
-    setScanning(false);
-    stopWebcam();
-  }, [stopWebcam]);
-
-  const handleCapture = useCallback(() => {
-    const photo = captureFrame();
-    if (photo) {
-      setCapturedPhotos((prev) => [...prev, photo]);
-    }
-  }, [captureFrame]);
-
-  const handleRemoveCapture = useCallback((index: number) => {
-    setCapturedPhotos((prev) => prev.filter((_, i) => i !== index));
-  }, []);
-
-  const handleCloseCreate = useCallback(() => {
-    setCreateDialogOpen(false);
-    setScanning(false);
-    stopWebcam();
-    setNewName('');
-    setCapturedPhotos([]);
-  }, [stopWebcam]);
-
-  const handleCreate = async () => {
-    if (!newName.trim() || capturedPhotos.length === 0) return;
-    setCreating(true);
-    try {
-      // Create face with first photo
-      const face = await apiClient.createFace(newName.trim(), capturedPhotos[0].file);
-      // Add remaining photos
-      for (let i = 1; i < capturedPhotos.length; i++) {
-        await apiClient.addFacePhoto(face.id, capturedPhotos[i].file);
-      }
-      setSuccessMessage(`Face "${newName}" registered with ${capturedPhotos.length} photo(s)`);
-      handleCloseCreate();
-      loadFaces();
-    } catch (err: any) {
-      const detail = err.response?.data?.detail || err.message;
-      setError(`Failed to register face: ${detail}`);
-    } finally {
-      setCreating(false);
-    }
-  };
+  }, [webcamStream, detailScanning]);
 
   // Detail dialog
   const handleOpenDetail = async (face: FaceIdentity) => {
@@ -283,9 +193,14 @@ export const FacesSection: React.FC = () => {
     }
   };
 
-  const handleDetailStartScan = useCallback(() => {
+  const handleDetailStartScan = useCallback(async () => {
     setDetailScanning(true);
-    startWebcam();
+    try {
+      await startWebcam();
+    } catch (err: any) {
+      setError(err.message);
+      setDetailScanning(false);
+    }
   }, [startWebcam]);
 
   const handleDetailStopScan = useCallback(() => {
@@ -362,11 +277,7 @@ export const FacesSection: React.FC = () => {
         <Button
           variant="contained"
           startIcon={<AddIcon />}
-          onClick={() => {
-            setNewName('');
-            setCapturedPhotos([]);
-            setCreateDialogOpen(true);
-          }}
+          onClick={() => setCreateDialogOpen(true)}
         >
           Register Face
         </Button>
@@ -543,11 +454,7 @@ export const FacesSection: React.FC = () => {
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => {
-              setNewName('');
-              setCapturedPhotos([]);
-              setCreateDialogOpen(true);
-            }}
+            onClick={() => setCreateDialogOpen(true)}
           >
             Register Face
           </Button>
@@ -615,126 +522,19 @@ export const FacesSection: React.FC = () => {
         </Grid>
       )}
 
-      {/* Hidden canvas for captures */}
+      {/* Hidden canvas for detail dialog captures */}
       <canvas ref={webcamCanvasRef} style={{ display: 'none' }} />
 
       {/* Create Dialog */}
-      <Dialog open={createDialogOpen} onClose={handleCloseCreate} maxWidth="sm" fullWidth>
-        <DialogTitle>Register New Face</DialogTitle>
-        <DialogContent>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
-            <TextField
-              label="Person's Name"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              fullWidth
-              required
-              helperText="A unique name for this person"
-            />
-
-            {scanning ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                <Box
-                  sx={{
-                    width: '100%',
-                    maxWidth: 400,
-                    aspectRatio: '4/3',
-                    bgcolor: 'black',
-                    borderRadius: 2,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <video
-                    ref={webcamVideoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }}
-                  />
-                </Box>
-                <Box sx={{ display: 'flex', gap: 2 }}>
-                  <Button
-                    variant="contained"
-                    startIcon={<CameraAltIcon />}
-                    onClick={handleCapture}
-                    disabled={!webcamStream}
-                  >
-                    Capture
-                  </Button>
-                  <Button variant="outlined" onClick={handleStopScan}>
-                    Stop Camera
-                  </Button>
-                </Box>
-              </Box>
-            ) : (
-              <Button
-                variant="outlined"
-                startIcon={<CameraAltIcon />}
-                onClick={handleStartScan}
-                sx={{ alignSelf: 'flex-start' }}
-              >
-                Scan Face
-              </Button>
-            )}
-
-            {/* Captured photos grid */}
-            {capturedPhotos.length > 0 && (
-              <Box>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  Captured photos ({capturedPhotos.length})
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                  {capturedPhotos.map((photo, i) => (
-                    <Box
-                      key={i}
-                      sx={{
-                        position: 'relative',
-                        width: 80,
-                        height: 80,
-                        borderRadius: 1,
-                        overflow: 'hidden',
-                        border: '1px solid',
-                        borderColor: 'divider',
-                      }}
-                    >
-                      <img
-                        src={photo.preview}
-                        alt={`Capture ${i + 1}`}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      />
-                      <IconButton
-                        size="small"
-                        onClick={() => handleRemoveCapture(i)}
-                        sx={{
-                          position: 'absolute',
-                          top: -4,
-                          right: -4,
-                          bgcolor: 'error.main',
-                          color: 'white',
-                          p: '2px',
-                          '&:hover': { bgcolor: 'error.dark' },
-                        }}
-                      >
-                        <CloseIcon sx={{ fontSize: 14 }} />
-                      </IconButton>
-                    </Box>
-                  ))}
-                </Box>
-              </Box>
-            )}
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseCreate}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleCreate}
-            disabled={!newName.trim() || capturedPhotos.length === 0 || creating}
-          >
-            {creating ? 'Registering...' : `Register (${capturedPhotos.length} photo${capturedPhotos.length !== 1 ? 's' : ''})`}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <FaceCreateDialog
+        open={createDialogOpen}
+        onClose={() => setCreateDialogOpen(false)}
+        onCreated={(name, photoCount) => {
+          setSuccessMessage(`Face "${name}" registered with ${photoCount} photo(s)`);
+          loadFaces();
+        }}
+        onError={(message) => setError(message)}
+      />
 
       {/* Detail Dialog */}
       <Dialog open={detailDialogOpen} onClose={handleCloseDetail} maxWidth="md" fullWidth>

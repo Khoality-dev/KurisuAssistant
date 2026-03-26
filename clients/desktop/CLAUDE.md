@@ -36,7 +36,9 @@ src/components/
     ResizeHandle.tsx       — DOM-based drag resize (no React re-renders during drag, sync on mouseup)
   explorer/
     FileExplorerPage.tsx   — Workspace page: FullExplorer (no files open) or FileTreeSidebar + EditorTabs + FileEditor
-    FullExplorer.tsx       — Full-page file browser: breadcrumb, list/grid views, multi-select (Ctrl/Shift/lasso), right-click context menu
+    FullExplorer.tsx       — Full-page file browser: breadcrumb, list/grid views, multi-select (Ctrl/Shift/lasso). Uses useFileOperations hook, ExplorerContextMenus, ExplorerDialogs.
+    ExplorerContextMenus.tsx — File context menu (rename/copy/cut/delete/open/add-to-chat) + background context menu (new file/folder/paste/open in VS Code)
+    ExplorerDialogs.tsx    — Rename dialog + New File/Folder dialog
     FileTreeSidebar.tsx    — Editor-mode tree: shows workspaceRoot folder, lazy-load children, resizable, right-click Open Folder/Add to Chat
     EditorTabs.tsx         — Tab bar: file icon + name, dirty dot, middle-click/X close, right-click Add to Chat, tooltip with full path
     FileEditor.tsx         — Monaco editor: Ctrl+S save, auto-detect language, binary detection with Open Anyway, image preview, selection→chat context
@@ -53,15 +55,28 @@ src/components/
     ToolsSection.tsx       — Available tools list with details dialog
     SkillsSection.tsx      — Skill CRUD + import/export
     HostAccessSection.tsx  — Per-agent allowed paths config
-    FacesSection.tsx       — Face identity CRUD + webcam capture
+    FacesSection.tsx       — Face identity CRUD, detail/delete dialogs, vision preview
+    FaceCreateDialog.tsx   — Face registration dialog: webcam capture, photo grid, name input. Uses useWebcamCapture hook.
     ExtensionsSection.tsx  — Companion app installer (Maestro, Chronicle)
   LoginWindow.tsx          — Login/Register tabs, Remember Me, Server URL field
-  ChatWidget.tsx           — Chat UI with streaming, TTS, image attach, pagination, voice mode, selection context chips
+  MessageBubble.tsx        — Re-exports from chat/ subfolder
   InteractiveCallBar.tsx   — Voice mode call bar: transcript, mic button with pulse, hang up
-  MessageBubble.tsx        — Individual bubble: role styling, thinking collapse, TTS, resend/delete
+  chat/
+    ChatWidget.tsx         — Chat UI with streaming, TTS, image attach, pagination, voice mode, selection context chips
+    ChatComposer.tsx       — Message input composer with file attach, voice input
+    SelectionChips.tsx     — File selection context chips
+    MessageBubble.tsx      — Individual bubble: role styling, thinking collapse, TTS, resend/delete
+    MessageToolbar.tsx     — Hover toolbar: copy, TTS play, raw data, resend/regenerate, delete
+    RawDataDialog.tsx      — Dialog showing raw LLM input/output JSON (self-contained fetch)
   MediaPlayerBar.tsx       — Bottom bar: track info, play/pause/skip/stop, volume slider
-  CharacterConfigDialog.tsx — React Flow graph editor: multi-pose nodes, edges with transition videos
-  PoseNodeEditor.tsx       — 3-step stepper for pose node editing
+  CharacterConfigDialog.tsx — Re-exports from character/ subfolder
+  character/
+    CharacterConfigDialog.tsx — React Flow graph editor: multi-pose nodes, edges with transition videos
+    graphHelpers.ts         — Pure helpers: poseTreeToReactFlow, reactFlowToPoseTree, getEdgeVisuals, getBestHandles, nextNodeId
+    OffsetEdge.tsx          — Custom React Flow edge component (straight, bidirectional offset, self-loop)
+    PreviewCanvas.tsx       — Self-contained canvas preview with CanvasCompositor (mouth/eye/breathing animations)
+    PoseNodeEditor.tsx      — 3-step stepper for pose node editing (base image, keyframes, preview)
+  PoseNodeEditor.tsx       — Re-exports from character/ subfolder
   EdgeEditor.tsx           — Transition edge editor: video upload, condition config
   PoseGraphNode.tsx        — Custom React Flow node component
   UpdateDialog.tsx         — Auto-update notification
@@ -69,6 +84,8 @@ src/hooks/
   useTTS.ts               — TTS synthesis/playback: speak(), queueText(), clearQueue(), onPlaybackStart subtitle callback, WAV duration parsing
   useAudioAmplitude.ts    — Web Audio API amplitude for lip sync (AudioBufferSourceNode + time-domain RMS)
   useConnectionStatus.ts  — Hook subscribing to wsManager.onStatusChange() for connection status (connected/connecting/disconnected)
+  useWebcamCapture.ts    — Webcam stream management: startWebcam(), stopWebcam(), captureFrame() → CapturedPhoto (File + preview). Refs for video/canvas elements. Cleanup on unmount.
+  useFileOperations.ts   — File operation hook for explorer: clipboard (cut/copy), rename, create file/folder, delete, paste + keyboard shortcuts (Ctrl+C/X/V/A, F2, F3, Delete)
 src/store/
   authStore.ts            — Auth state, login/register/logout, token persistence
   conversationStore.ts    — Current conversation + messages (paginated 20/page). No conversation list — agent selection drives conversation via localStorage mapping.

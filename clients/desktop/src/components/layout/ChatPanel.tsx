@@ -6,7 +6,7 @@ import {
 } from '@mui/icons-material';
 import { useAgentStore } from '../../store/agentStore';
 import { useConversationStore } from '../../store/conversationStore';
-import { ChatWidget } from '../ChatWidget';
+import { ChatWidget } from '../chat/ChatWidget';
 import { MediaPlayerBar } from '../MediaPlayerBar';
 import { apiClient } from '../../api/client';
 
