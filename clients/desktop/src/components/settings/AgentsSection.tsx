@@ -19,6 +19,10 @@ import {
   Tooltip,
   FormControlLabel,
   Switch,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -33,7 +37,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { apiClient } from '../../api/client';
 import { useAgentStore } from '../../store/agentStore';
 import { storage } from '../../utils/storage';
-import type { Agent, AgentCreate, AgentUpdate, Tool } from '../../api/types';
+import type { Agent, AgentCreate, AgentUpdate, Tool, Persona } from '../../api/types';
 import { ModelPicker } from '../ModelPicker';
 import { ToolGroupChecklist, buildToolGroups } from './ToolGroupChecklist';
 import { AgentEditDialog } from './AgentEditDialog';
@@ -51,6 +55,7 @@ interface AgentFormData {
   excluded_tools: string[];
   memory: string;
   memory_enabled: boolean;
+  persona_id: number | null;
 }
 
 export const AgentsSection: React.FC = () => {
@@ -78,7 +83,9 @@ export const AgentsSection: React.FC = () => {
     excluded_tools: [],
     memory: '',
     memory_enabled: true,
+    persona_id: null,
   });
+  const [personas, setPersonas] = useState<Persona[]>([]);
 
   const [isPromptEditorExpanded, setIsPromptEditorExpanded] = useState(false);
 
@@ -88,7 +95,17 @@ export const AgentsSection: React.FC = () => {
     loadAgents();
     loadModels();
     loadTools();
+    loadPersonas();
   }, []);
+
+  const loadPersonas = async () => {
+    try {
+      const data = await apiClient.listPersonas();
+      setPersonas(data);
+    } catch (err: any) {
+      console.error('Failed to load personas:', err);
+    }
+  };
 
   const loadModels = async () => {
     try {
@@ -158,6 +175,7 @@ export const AgentsSection: React.FC = () => {
         provider_type: provider,
         think: formData.think,
         excluded_tools: formData.excluded_tools.length > 0 ? formData.excluded_tools : undefined,
+        persona_id: formData.persona_id || undefined,
       };
 
       const newAgent = await apiClient.createAgent(createData);
@@ -187,6 +205,7 @@ export const AgentsSection: React.FC = () => {
         excluded_tools: toolsChanged ? formData.excluded_tools : undefined,
         memory: formData.memory !== (selectedAgent.memory || '') ? formData.memory : undefined,
         memory_enabled: formData.memory_enabled !== selectedAgent.memory_enabled ? formData.memory_enabled : undefined,
+        persona_id: formData.persona_id !== selectedAgent.persona_id ? formData.persona_id : undefined,
       };
 
       // Only send fields that changed
@@ -259,8 +278,7 @@ export const AgentsSection: React.FC = () => {
       excluded_tools: [],
       memory: '',
       memory_enabled: true,
-      preferred_name: '',
-      trigger_word: '',
+      persona_id: null,
     });
     setSelectedAgent(null);
     setIsPromptEditorExpanded(false);
@@ -276,6 +294,7 @@ export const AgentsSection: React.FC = () => {
       excluded_tools: agent.excluded_tools || [],
       memory: agent.memory || '',
       memory_enabled: agent.memory_enabled,
+      persona_id: agent.persona_id || null,
     });
     setIsPromptEditorExpanded(false);
     setEditDialogOpen(true);
@@ -518,6 +537,21 @@ export const AgentsSection: React.FC = () => {
               helperText="A unique name for this agent (e.g., 'Kurisu')"
             />
 
+            {/* Persona */}
+            <FormControl fullWidth>
+              <InputLabel>Persona</InputLabel>
+              <Select
+                value={formData.persona_id ?? ''}
+                label="Persona"
+                onChange={(e) => setFormData({ ...formData, persona_id: e.target.value === '' ? null : Number(e.target.value) })}
+              >
+                <MenuItem value="">None</MenuItem>
+                {personas.map((p) => (
+                  <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
             {/* System Prompt */}
             <TextField
               label="System Prompt"
@@ -589,11 +623,11 @@ export const AgentsSection: React.FC = () => {
         onClose={() => setEditDialogOpen(false)}
         formData={formData}
         setFormData={setFormData}
-        selectedAgent={selectedAgent}
         isAdministrator={isAdministrator}
         isPromptEditorExpanded={isPromptEditorExpanded}
         setIsPromptEditorExpanded={setIsPromptEditorExpanded}
         models={models}
+        personas={personas}
         toolGroups={toolGroups}
         onSave={handleUpdateAgent}
         onRefreshModels={loadModels}

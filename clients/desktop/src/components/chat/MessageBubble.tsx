@@ -123,9 +123,22 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   const agentName = message.role === 'tool'
     ? message.name
     : (message.name || message.agent?.name);
-  const label = isUser
-    ? 'You'
-    : agentName || message.role.charAt(0).toUpperCase() + message.role.slice(1);
+
+  // Format tool label as ToolName(arg1, arg2, ...)
+  let label: string;
+  if (isUser) {
+    label = 'You';
+  } else if (message.role === 'tool' && message.name && message.tool_args) {
+    const args = Object.entries(message.tool_args)
+      .map(([k, v]) => {
+        const str = typeof v === 'string' ? v : JSON.stringify(v);
+        return `${k}: ${str.length > 50 ? str.substring(0, 50) + '...' : str}`;
+      })
+      .join(', ');
+    label = `${message.name}(${args})`;
+  } else {
+    label = agentName || message.role.charAt(0).toUpperCase() + message.role.slice(1);
+  }
 
   // Get avatar URL for agent
   const agentAvatarUrl = message.agent?.avatar_uuid

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, ConnectedEvent } from '../api/websocket';
+import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, ConnectedEvent, ToolApprovalRequestEvent } from '../api/websocket';
 import { storage } from '../utils/storage';
 import { stripNarration, fileToBase64 } from '../utils/chat';
 import { useExplorerStore } from '../store/explorerStore';
@@ -48,6 +48,8 @@ export interface UseStreamingChatReturn {
   toggleThinking: (index: number) => void;
   handleDelete: (messageIndex: number) => Promise<void>;
   handleResend: (messageIndex: number) => Promise<void>;
+  pendingApproval: ToolApprovalRequestEvent | null;
+  respondToApproval: (approved: boolean) => void;
 }
 
 export function useStreamingChat({
@@ -77,6 +79,7 @@ export function useStreamingChat({
     currentConversation?.id || null
   );
   const [errorToast, setErrorToast] = useState<string | null>(null);
+  const [pendingApproval, setPendingApproval] = useState<ToolApprovalRequestEvent | null>(null);
 
   // Ref to track streaming state without stale closures
   const isStreamingRef = useRef(false);
@@ -273,6 +276,9 @@ export function useStreamingChat({
           name: agentName,
           agent_id: eventAgentId,
           voice_reference: event.voice_reference || undefined,
+          model_name: event.model_name || undefined,
+          provider_type: event.provider_type || undefined,
+          tool_args: event.tool_args || undefined,
         });
         return updated;
       });
@@ -313,6 +319,9 @@ export function useStreamingChat({
               name: agentName,
               agent_id: eventAgentId,
               voice_reference: event.voice_reference || undefined,
+              model_name: event.model_name || undefined,
+              provider_type: event.provider_type || undefined,
+              tool_args: event.tool_args || undefined,
             };
           }
           return updated;
@@ -325,6 +334,9 @@ export function useStreamingChat({
           name: agentName,
           agent_id: eventAgentId,
           voice_reference: event.voice_reference || undefined,
+          model_name: event.model_name || undefined,
+          provider_type: event.provider_type || undefined,
+          tool_args: event.tool_args || undefined,
         }]);
       }
 
@@ -476,16 +488,20 @@ export function useStreamingChat({
     const onError = (e: ErrorEvent) => handleErrorRef.current(e);
     const onConnected = (e: ConnectedEvent) => handleConnectedRef.current(e);
 
+    const onApproval = (e: ToolApprovalRequestEvent) => setPendingApproval(e);
+
     wsManager.on('stream_chunk', onChunk);
     wsManager.on('done', onDone);
     wsManager.on('error', onError);
     wsManager.on('connected', onConnected);
+    wsManager.on('tool_approval_request', onApproval);
 
     return () => {
       wsManager.off('stream_chunk', onChunk);
       wsManager.off('done', onDone);
       wsManager.off('error', onError);
       wsManager.off('connected', onConnected);
+      wsManager.off('tool_approval_request', onApproval);
     };
   }, []);
 
@@ -738,6 +754,12 @@ export function useStreamingChat({
     }
   }, [isStreaming, messages, streamingMessages, showAdministrator, activeConversationId, loadConversation, clearQueue, agentId]);
 
+  const respondToApproval = useCallback((approved: boolean) => {
+    if (!pendingApproval) return;
+    wsManager.sendToolApprovalResponse(pendingApproval.approval_id, approved);
+    setPendingApproval(null);
+  }, [pendingApproval]);
+
   return {
     isStreaming,
     streamingMessages,
@@ -760,5 +782,7 @@ export function useStreamingChat({
     toggleThinking,
     handleDelete,
     handleResend,
+    pendingApproval,
+    respondToApproval,
   };
 }

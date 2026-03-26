@@ -24,6 +24,7 @@ import { MessageBubble } from './MessageBubble';
 import { FrameSeparator } from '../FrameSeparator';
 import { SelectionChips } from './SelectionChips';
 import { ChatComposer } from './ChatComposer';
+import { ToolApprovalBar, ApprovalRequest } from './ToolApprovalBar';
 
 interface ChatWidgetProps {
   characterWindowOpen?: boolean;
@@ -129,6 +130,34 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       setCameraMenuAnchor(anchor);
     });
   }, [loadCameraWebcams]);
+
+  // Host tool approval (IPC from Electron main process)
+  const [hostApproval, setHostApproval] = useState<{ approvalId: string; request: ApprovalRequest } | null>(null);
+
+  useEffect(() => {
+    const cleanup = window.electron?.hostTools?.onApprovalRequest?.((data) => {
+      setHostApproval({
+        approvalId: data.approvalId,
+        request: {
+          toolName: data.ruleKey,
+          description: `An agent wants to use ${data.ruleKey}`,
+          detail: data.detail,
+          options: data.options.map((label) => ({
+            label,
+            value: label.toLowerCase().replace(/\s+/g, '_'),
+            color: (label === 'Deny' ? 'error' : label === 'Accept' ? 'success' : 'default') as any,
+          })),
+        },
+      });
+    });
+    return cleanup;
+  }, []);
+
+  const handleHostApprovalRespond = useCallback((value: string) => {
+    if (!hostApproval) return;
+    window.electron?.hostTools?.sendApprovalResponse(hostApproval.approvalId, value);
+    setHostApproval(null);
+  }, [hostApproval]);
 
   const toggleShowAdministrator = useCallback(() => {
     const newValue = !showAdministrator;
@@ -252,8 +281,28 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       {/* Selection context chips — above input */}
       <SelectionChips />
 
-      {/* Bottom area: interactive call bar or typing input */}
-      {asr.interactiveMode ? (
+      {/* Bottom area: approval bar, interactive call bar, or typing input */}
+      {(streaming.pendingApproval || hostApproval) ? (
+        <ToolApprovalBar
+          request={hostApproval ? hostApproval.request : {
+            toolName: streaming.pendingApproval!.tool_name,
+            description: streaming.pendingApproval!.description,
+            detail: Object.entries(streaming.pendingApproval!.tool_args)
+              .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+              .join('\n'),
+            riskLevel: streaming.pendingApproval!.risk_level,
+            agentName: streaming.pendingApproval!.name || undefined,
+            options: [
+              { label: 'Accept', value: 'approve', color: 'success' },
+              { label: 'Deny', value: 'deny', color: 'error' },
+            ],
+          }}
+          onRespond={hostApproval
+            ? handleHostApprovalRespond
+            : (value) => streaming.respondToApproval(value === 'approve')
+          }
+        />
+      ) : asr.interactiveMode ? (
         <InteractiveCallBar
           asrStatus={asr.asrStatus}
           interactionActive={asr.interactionActive}

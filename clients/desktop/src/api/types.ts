@@ -27,6 +27,7 @@ export interface Message {
   has_raw_data?: boolean; // Whether raw LLM input/output is available
   model_name?: string; // LLM model that generated this message
   provider_type?: string; // LLM provider (ollama, gemini)
+  tool_args?: Record<string, unknown>; // Tool input arguments (for tool role messages)
 }
 
 export interface MessageRawData {

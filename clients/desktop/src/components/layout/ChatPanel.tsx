@@ -1,20 +1,15 @@
 import React from 'react';
-import { Box, Typography, IconButton, Avatar, Tooltip } from '@mui/material';
+import { Box, Typography, IconButton, Tooltip } from '@mui/material';
 import {
   Refresh as RefreshIcon,
   Delete as DeleteIcon,
 } from '@mui/icons-material';
-import { useAgentStore } from '../../store/agentStore';
 import { useConversationStore } from '../../store/conversationStore';
 import { ChatWidget } from '../chat/ChatWidget';
 import { MediaPlayerBar } from '../MediaPlayerBar';
-import { apiClient } from '../../api/client';
 
 export const ChatPanel: React.FC = () => {
-  const { agents, selectedAgentId } = useAgentStore();
   const { currentConversation, deleteConversation } = useConversationStore();
-
-  const selectedAgent = agents.find(a => a.id === selectedAgentId);
 
   const handleRefresh = () => {
     if (currentConversation?.id) {
@@ -52,24 +47,9 @@ export const ChatPanel: React.FC = () => {
           flexShrink: 0,
         }}
       >
-        {selectedAgent && (
-          <>
-            <Avatar
-              src={selectedAgent.persona?.avatar_uuid ? apiClient.getImageUrl(selectedAgent.persona.avatar_uuid) : undefined}
-              sx={{ width: 28, height: 28, fontSize: '0.75rem' }}
-            >
-              {selectedAgent.name.charAt(0)}
-            </Avatar>
-            <Typography variant="body1" sx={{ fontWeight: 600, flex: 1 }}>
-              {selectedAgent.name}
-            </Typography>
-          </>
-        )}
-        {!selectedAgent && (
-          <Typography variant="body2" sx={{ color: 'text.secondary', flex: 1 }}>
-            No agent selected
-          </Typography>
-        )}
+        <Typography variant="body1" sx={{ fontWeight: 600, flex: 1 }}>
+          Chat
+        </Typography>
 
         <Tooltip title="Refresh">
           <IconButton size="small" onClick={handleRefresh} sx={{ color: 'text.secondary' }}>

@@ -7,6 +7,7 @@ import {
 } from '@mui/icons-material';
 import Editor, { DiffEditor, type OnMount } from '@monaco-editor/react';
 import { useExplorerStore } from '../../store/explorerStore';
+import { ToolApprovalBar } from '../chat/ToolApprovalBar';
 
 export const FileEditor: React.FC = () => {
   const theme = useTheme();
@@ -162,22 +163,6 @@ export const FileEditor: React.FC = () => {
 
     return (
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <Box sx={{
-          px: 2, py: 1, borderBottom: 1, borderColor: 'divider',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
-          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-            Review edit: {diffReview.fileName}
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button size="small" variant="outlined" color="error" onClick={() => handleDiffResponse(false)}>
-              Reject
-            </Button>
-            <Button size="small" variant="contained" color="success" onClick={() => handleDiffResponse(true)}>
-              Accept
-            </Button>
-          </Box>
-        </Box>
         <Box sx={{ flex: 1 }}>
           <DiffEditor
             original={diffReview.originalContent}
@@ -197,6 +182,17 @@ export const FileEditor: React.FC = () => {
             }}
           />
         </Box>
+        <ToolApprovalBar
+          request={{
+            toolName: 'host_edit',
+            description: `Review edit: ${diffReview.fileName}`,
+            options: [
+              { label: 'Accept', value: 'accept', color: 'success' },
+              { label: 'Deny', value: 'deny', color: 'error' },
+            ],
+          }}
+          onRespond={(value) => handleDiffResponse(value === 'accept')}
+        />
       </Box>
     );
   }

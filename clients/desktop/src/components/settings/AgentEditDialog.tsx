@@ -9,6 +9,10 @@ import {
   DialogContent,
   DialogActions,
   Switch,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import {
   Badge as BadgeIcon,
@@ -21,7 +25,7 @@ import {
 import { ModelPicker } from '../ModelPicker';
 import { ToolGroupChecklist } from './ToolGroupChecklist';
 import type { ToolGroup } from './ToolGroupChecklist';
-import type { Agent } from '../../api/types';
+import type { Persona } from '../../api/types';
 
 const formSectionSx = {
   p: 2.5,
@@ -40,6 +44,7 @@ interface AgentFormData {
   excluded_tools: string[];
   memory: string;
   memory_enabled: boolean;
+  persona_id: number | null;
 }
 
 interface AgentEditDialogProps {
@@ -47,11 +52,11 @@ interface AgentEditDialogProps {
   onClose: () => void;
   formData: AgentFormData;
   setFormData: (data: AgentFormData) => void;
-  selectedAgent: Agent | null;
   isAdministrator: boolean;
   isPromptEditorExpanded: boolean;
   setIsPromptEditorExpanded: (value: boolean | ((current: boolean) => boolean)) => void;
   models: Array<{ name: string; provider: string }>;
+  personas: Persona[];
   toolGroups: ToolGroup[];
   onSave: () => void;
   onRefreshModels: () => Promise<void>;
@@ -64,11 +69,11 @@ export const AgentEditDialog: React.FC<AgentEditDialogProps> = ({
   onClose,
   formData,
   setFormData,
-  selectedAgent,
   isAdministrator,
   isPromptEditorExpanded,
   setIsPromptEditorExpanded,
   models,
+  personas,
   toolGroups,
   onSave,
   onRefreshModels,
@@ -123,11 +128,19 @@ export const AgentEditDialog: React.FC<AgentEditDialogProps> = ({
                 disabled={isAdministrator}
                 helperText={isAdministrator ? 'Administrator name cannot be changed' : 'Display name used across the app'}
               />
-              {selectedAgent?.persona && (
-                <Typography variant="body2" color="text.secondary">
-                  Linked persona: {selectedAgent.persona.name}
-                </Typography>
-              )}
+              <FormControl fullWidth>
+                <InputLabel>Persona</InputLabel>
+                <Select
+                  value={formData.persona_id ?? ''}
+                  label="Persona"
+                  onChange={(e) => setFormData({ ...formData, persona_id: e.target.value === '' ? null : Number(e.target.value) })}
+                >
+                  <MenuItem value="">None</MenuItem>
+                  {personas.map((p) => (
+                    <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             </Box>
           </Box>
 

@@ -11,7 +11,7 @@
  * Cross-platform: Windows + Linux.
  */
 
-import { ipcMain, dialog, BrowserWindow } from 'electron';
+import { ipcMain, BrowserWindow } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { app } from 'electron';
@@ -150,21 +150,33 @@ function describeToolCall(name: string, args: Record<string, unknown>): string {
   return lines.join('\n');
 }
 
+// Pending approval requests waiting for renderer response
+const pendingApprovals = new Map<string, (decision: ApprovalDecision) => void>();
+
 async function showApprovalDialog(ruleKey: string, detail: string): Promise<ApprovalDecision> {
   const mainWindow = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
   if (!mainWindow) return 'deny';
 
-  const result = await dialog.showMessageBox(mainWindow, {
-    type: 'warning',
-    title: 'Tool Approval',
-    message: `An agent wants to use ${ruleKey}:`,
-    detail,
-    buttons: ['Deny', 'Once', 'This Session', 'Always'],
-    defaultId: 0,
-    cancelId: 0,
-  });
+  const approvalId = `host-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  return (['deny', 'once', 'session', 'always'] as const)[result.response];
+  return new Promise<ApprovalDecision>((resolve) => {
+    pendingApprovals.set(approvalId, resolve);
+
+    mainWindow.webContents.send('host-tool-approval-request', {
+      approvalId,
+      ruleKey,
+      detail,
+      options: ['Accept', 'Auto-Accept for this session', 'Always Accept', 'Deny'],
+    });
+
+    // 5 minute timeout
+    setTimeout(() => {
+      if (pendingApprovals.has(approvalId)) {
+        pendingApprovals.delete(approvalId);
+        resolve('deny');
+      }
+    }, 300_000);
+  });
 }
 
 /**
@@ -569,6 +581,21 @@ export function registerHostToolIPC(): void {
 
   ipcMain.handle('host-tools:is-host-tool', (_event, name: string) => {
     return HOST_TOOL_NAMES.has(name);
+  });
+
+  ipcMain.on('host-tool-approval-response', (_event, approvalId: string, decision: string) => {
+    const resolve = pendingApprovals.get(approvalId);
+    if (resolve) {
+      pendingApprovals.delete(approvalId);
+      // Map renderer values to internal ApprovalDecision
+      const mapping: Record<string, ApprovalDecision> = {
+        'accept': 'once',
+        'auto-accept_for_this_session': 'session',
+        'always_accept': 'always',
+        'deny': 'deny',
+      };
+      resolve(mapping[decision] || 'deny');
+    }
   });
 }
 

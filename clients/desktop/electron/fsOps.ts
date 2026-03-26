@@ -94,7 +94,10 @@ export function readFile(filePath: string, offset = 0, limit = 500): ReadResult 
 
 export function writeFile(filePath: string, content: string): { path: string; bytes: number } {
   const resolved = path.resolve(filePath);
-  fs.mkdirSync(path.dirname(resolved), { recursive: true });
+  const dir = path.dirname(resolved);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
   fs.writeFileSync(resolved, content, { encoding: 'utf-8' });
   return { path: resolved, bytes: Buffer.byteLength(content, 'utf-8') };
 }

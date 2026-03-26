@@ -53,6 +53,8 @@ export interface HostToolsAPI {
   clearSessionApprovals: () => Promise<void>;
   onDiffReview: (cb: (data: { reviewId: string; filePath: string; fileName: string; originalContent: string; modifiedContent: string }) => void) => () => void;
   sendDiffResult: (reviewId: string, accepted: boolean) => void;
+  onApprovalRequest: (cb: (data: { approvalId: string; ruleKey: string; detail: string; options: string[] }) => void) => () => void;
+  sendApprovalResponse: (approvalId: string, decision: string) => void;
 }
 
 export interface ExplorerAPI {

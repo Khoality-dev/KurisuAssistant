@@ -72,6 +72,13 @@ contextBridge.exposeInMainWorld('electron', {
     },
     sendDiffResult: (reviewId: string, accepted: boolean) =>
       ipcRenderer.send('host-tools:diff-result', reviewId, accepted),
+    onApprovalRequest: (cb: (data: { approvalId: string; ruleKey: string; detail: string; options: string[] }) => void) => {
+      const handler = (_event: any, data: any) => cb(data);
+      ipcRenderer.on('host-tool-approval-request', handler);
+      return () => ipcRenderer.removeListener('host-tool-approval-request', handler);
+    },
+    sendApprovalResponse: (approvalId: string, decision: string) =>
+      ipcRenderer.send('host-tool-approval-response', approvalId, decision),
   },
 
   explorer: {

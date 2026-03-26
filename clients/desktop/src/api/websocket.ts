@@ -63,6 +63,9 @@ export interface StreamChunkEvent extends BaseEvent {
   agent_id: number | null;
   name: string | null;
   voice_reference: string | null;
+  model_name: string | null;
+  provider_type: string | null;
+  tool_args: Record<string, unknown> | null;
   conversation_id: number;
   frame_id: number;
   images: string[] | null;
@@ -454,6 +457,15 @@ class WebSocketManager {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.send({ type: 'cancel' });
     }
+  }
+
+  sendToolApprovalResponse(approvalId: string, approved: boolean, modifiedArgs?: Record<string, unknown>) {
+    this.send({
+      type: 'tool_approval_response',
+      approval_id: approvalId,
+      approved,
+      modified_args: modifiedArgs || null,
+    });
   }
 
   // Client-side MCP tool methods
