@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Box,
   TextField,
@@ -11,8 +11,12 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  Popper,
+  Typography,
+  ClickAwayListener,
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
+import { getCommands } from '../../utils/commands';
 import {
   Send as SendIcon,
   AttachFile as AttachFileIcon,
@@ -77,7 +81,20 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
 }) => {
   const [input, setInput] = useState('');
   const [images, setImages] = useState<File[]>([]);
+  const [commandIdx, setCommandIdx] = useState(-1);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textFieldRef = useRef<HTMLDivElement>(null);
+
+  const allCommands = useMemo(() => getCommands(), []);
+
+  // Filter commands when input starts with /
+  const filteredCommands = useMemo(() => {
+    if (!input.startsWith('/')) return [];
+    const query = input.slice(1).toLowerCase();
+    return allCommands.filter((c) => c.name.startsWith(query));
+  }, [input, allCommands]);
+
+  const showCommands = filteredCommands.length > 0 && !isStreaming;
 
   useEffect(() => {
     setInput('');
@@ -107,12 +124,34 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
     await onSend(text, imageFiles);
   }, [images, input, isStreaming, onSend]);
 
+  const selectCommand = useCallback((name: string) => {
+    setInput(`/${name}`);
+    setCommandIdx(-1);
+  }, []);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (showCommands) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setCommandIdx((prev) => Math.min(prev + 1, filteredCommands.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setCommandIdx((prev) => Math.max(prev - 1, -1));
+        return;
+      }
+      if ((e.key === 'Tab' || e.key === 'Enter') && commandIdx >= 0) {
+        e.preventDefault();
+        selectCommand(filteredCommands[commandIdx].name);
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void handleSend();
     }
-  }, [handleSend]);
+  }, [handleSend, showCommands, filteredCommands, commandIdx, selectCommand]);
 
   return (
     <Paper
@@ -238,15 +277,40 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
         </Menu>
 
         <TextField
+          ref={textFieldRef}
           fullWidth
           multiline
           maxRows={4}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => { setInput(e.target.value); setCommandIdx(-1); }}
           onKeyDown={handleKeyDown}
           placeholder="Type your message..."
           disabled={isStreaming}
         />
+        <Popper
+          open={showCommands}
+          anchorEl={textFieldRef.current}
+          placement="top-start"
+          sx={{ zIndex: 1300, width: textFieldRef.current?.offsetWidth || 300 }}
+        >
+          <ClickAwayListener onClickAway={() => setCommandIdx(-1)}>
+            <Paper elevation={4} sx={{ py: 0.5, mb: 0.5 }}>
+              {filteredCommands.map((cmd, i) => (
+                <MenuItem
+                  key={cmd.name}
+                  selected={i === commandIdx}
+                  onClick={() => { selectCommand(cmd.name); }}
+                  sx={{ py: 0.5 }}
+                >
+                  <ListItemText
+                    primary={<Typography variant="body2" fontWeight={500}>/{cmd.name}</Typography>}
+                    secondary={<Typography variant="caption" color="text.secondary">{cmd.description}</Typography>}
+                  />
+                </MenuItem>
+              ))}
+            </Paper>
+          </ClickAwayListener>
+        </Popper>
 
         {isStreaming ? (
           <Button
