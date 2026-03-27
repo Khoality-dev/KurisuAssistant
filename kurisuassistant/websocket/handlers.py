@@ -363,6 +363,8 @@ class ChatSessionHandler:
             # ========================================
             # ROUTING LOOP
             # ========================================
+            self._response_word_count = 0
+
             # If no Administrator, run single agent directly (no routing)
             if not admin_agent:
                 target = self._get_agent_config(event.agent_id, sub_agents) or sub_agents[0]
@@ -457,6 +459,13 @@ class ChatSessionHandler:
             # ========================================
             self._update_timestamps(frame_id, conversation_id)
 
+            # Send updated token count (initial + response tokens accumulated during streaming)
+            await self.send_event(ContextInfoEvent(
+                token_count=token_count + int(self._response_word_count * 1.3),
+                token_limit=context_limit,
+                conversation_id=conversation_id,
+            ))
+
             self._task_done = True
             await self.send_event(DoneEvent(
                 conversation_id=conversation_id,
@@ -523,6 +532,10 @@ class ChatSessionHandler:
             chunk.voice_reference = agent_config.voice_reference
             chunk.persona_name = agent_config.persona_name or None
             await self.send_event(chunk)
+
+            # Accumulate response word count for token estimation
+            if chunk.content:
+                self._response_word_count += len(chunk.content.split())
 
             # Track tool images
             if chunk.images:
