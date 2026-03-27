@@ -410,7 +410,13 @@ class ChatSessionHandler:
                         route_message = route_result["message"]
                         continue
 
-                    # No route_to called — done
+                    if not is_admin:
+                        # Sub-agent finished — return to Administrator for final response
+                        current_agent = admin_agent
+                        route_message = None
+                        continue
+
+                    # Administrator finished without routing — done
                     break
 
             # ========================================
