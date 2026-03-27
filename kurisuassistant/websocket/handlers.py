@@ -314,7 +314,8 @@ class ChatSessionHandler:
                     conversation_id=conversation_id, compacting=True,
                 ))
                 summary_api_key_for_compact = gemini_api_key if summary_provider == "gemini" else nvidia_api_key if summary_provider == "nvidia" else None
-                compacted_context = self._compact_context(
+                compacted_context = await asyncio.to_thread(
+                    self._compact_context,
                     conversation_id, context_limit, conversation_messages,
                     summary_model, ollama_url, summary_provider, summary_api_key_for_compact,
                 )
@@ -826,7 +827,8 @@ class ChatSessionHandler:
         ))
 
         summary_api_key = gemini_api_key if summary_provider == "gemini" else nvidia_api_key if summary_provider == "nvidia" else None
-        self._compact_context(
+        await asyncio.to_thread(
+            self._compact_context,
             conversation_id, context_limit, conversation_messages,
             summary_model, ollama_url, summary_provider, summary_api_key,
         )
