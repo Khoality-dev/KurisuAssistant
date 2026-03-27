@@ -1,16 +1,11 @@
-"""Agent memory + notes consolidation from completed session frames.
+"""Agent memory consolidation from completed session frames.
 
-After a frame is summarized, this module:
-1. Updates Agent.memory (short essential text, always in system prompt)
-2. Writes/updates note files via the notes MCP server's filesystem
-   (catches details the agent missed during the conversation)
+After a frame is summarized, this module updates Agent.memory
+(short essential text, always in system prompt).
 """
 
 import asyncio
-import json
 import logging
-import os
-from pathlib import Path
 from typing import Optional
 
 from kurisuassistant.models.llm import create_llm_provider
@@ -32,28 +27,8 @@ MEMORY_SYSTEM_PROMPT = (
     "- If nothing new to remember, output the current memory unchanged"
 )
 
-NOTES_SYSTEM_PROMPT = (
-    "You are a notes manager for an AI agent. You are given the agent's existing notes "
-    "(files on disk) and a new conversation transcript.\n\n"
-    "Determine what new information from the conversation should be saved as notes. "
-    "Only save factual information worth remembering (user preferences, people, projects, "
-    "decisions, important facts). Do NOT save greetings, small talk, or transient information.\n\n"
-    "Output a JSON array of file operations. Each operation is an object with:\n"
-    '- "action": "write" (create/overwrite) or "edit" (modify existing)\n'
-    '- "path": relative file path (e.g. "people/family.md", "preferences.md")\n'
-    '- "content": full file content (for write) or null (for edit)\n'
-    '- "old_text": text to find (for edit only)\n'
-    '- "new_text": replacement text (for edit only)\n\n'
-    "Rules:\n"
-    "- Use descriptive file names and organize into folders\n"
-    "- Prefer editing existing files over creating new ones\n"
-    "- If nothing new to save, output an empty array: []\n"
-    "- Output ONLY the JSON array, no explanation"
-)
-
 MAX_TRANSCRIPT_CHARS = 8000
 MAX_MEMORY_CHARS = 4000
-NOTES_ROOT = os.getenv("NOTES_ROOT", os.path.join("data", "notes"))
 
 
 def _load_transcript(db, frame_ids: list[int]) -> str:
@@ -83,27 +58,6 @@ def _load_transcript(db, frame_ids: list[int]) -> str:
     return db.execute_sync(_query)
 
 
-def _list_notes_files(notes_dir: Path, max_files: int = 20) -> str:
-    """List existing note files with first-line previews."""
-    if not notes_dir.exists():
-        return "(no notes yet)"
-
-    entries = []
-    for f in sorted(notes_dir.rglob("*")):
-        if f.is_file() and not f.name.startswith("."):
-            rel = str(f.relative_to(notes_dir))
-            try:
-                first_line = f.read_text(encoding="utf-8").split("\n", 1)[0][:100]
-            except Exception:
-                first_line = ""
-            entries.append(f"- {rel}: {first_line}")
-            if len(entries) >= max_files:
-                entries.append("... (more files)")
-                break
-
-    return "\n".join(entries) if entries else "(no notes yet)"
-
-
 async def consolidate_agent_memory(
     user_id: int,
     agent_id: int,
@@ -113,7 +67,7 @@ async def consolidate_agent_memory(
     provider_type: str = "ollama",
     api_key: Optional[str] = None,
 ) -> None:
-    """Consolidate agent memory AND notes from completed session frames.
+    """Consolidate agent memory from completed session frames.
 
     Fire-and-forget — errors are logged, never raised.
     """
@@ -173,69 +127,6 @@ async def consolidate_agent_memory(
 
             db.execute_sync(_store_memory)
             logger.info("Consolidated memory for agent %d: %d chars", agent_id, len(new_memory))
-
-        # --- Step 2: Update notes files ---
-        notes_dir = Path(NOTES_ROOT) / str(user_id) / str(agent_id)
-        existing_notes = _list_notes_files(notes_dir)
-
-        notes_user_content = (
-            f"## Agent Description\n{agent_system_prompt}\n\n"
-            f"## Existing Notes\n{existing_notes}\n\n"
-            f"## Recent Conversation\n{transcript}"
-        )
-
-        response = await asyncio.to_thread(
-            llm.chat,
-            model=model_name,
-            messages=[
-                {"role": "system", "content": NOTES_SYSTEM_PROMPT},
-                {"role": "user", "content": notes_user_content},
-            ],
-            stream=False,
-            format="json",
-        )
-
-        raw = response.message.content.strip()
-        if not raw or raw == "[]":
-            return
-
-        try:
-            operations = json.loads(raw)
-            if not isinstance(operations, list):
-                operations = []
-        except json.JSONDecodeError:
-            logger.warning("Notes consolidation returned invalid JSON for agent %d", agent_id)
-            return
-
-        notes_dir.mkdir(parents=True, exist_ok=True)
-
-        for op in operations:
-            try:
-                action = op.get("action")
-                path = op.get("path", "")
-
-                # Path safety check
-                target = (notes_dir / path).resolve()
-                if not str(target).startswith(str(notes_dir.resolve())):
-                    continue
-
-                if action == "write":
-                    content = op.get("content", "")
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text(content, encoding="utf-8")
-                    logger.info("Notes: wrote %s for agent %d", path, agent_id)
-
-                elif action == "edit" and target.exists():
-                    old_text = op.get("old_text", "")
-                    new_text = op.get("new_text", "")
-                    if old_text:
-                        current = target.read_text(encoding="utf-8")
-                        if old_text in current:
-                            target.write_text(current.replace(old_text, new_text, 1), encoding="utf-8")
-                            logger.info("Notes: edited %s for agent %d", path, agent_id)
-
-            except Exception as e:
-                logger.warning("Notes operation failed for agent %d: %s", agent_id, e)
 
     except Exception as e:
         logger.error("Failed to consolidate memory for agent %d: %s", agent_id, e, exc_info=True)
