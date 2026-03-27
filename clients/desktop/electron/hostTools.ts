@@ -142,7 +142,7 @@ function getRuleKey(toolName: string, args: Record<string, unknown>, allowedPath
 }
 
 function describeToolCall(name: string, args: Record<string, unknown>): string {
-  const lines: string[] = [];
+  const lines: string[] = [name];
   for (const [key, value] of Object.entries(args)) {
     const str = typeof value === 'string' ? value : JSON.stringify(value);
     lines.push(`${key}: ${str.length > 300 ? str.substring(0, 300) + '...' : str}`);
@@ -464,7 +464,7 @@ async function executeHostSearch(args: Record<string, unknown>, allowedPaths: st
     if (!query) return err('query is required.');
     const searchPath = args.path as string || (allowedPaths.length > 0 ? allowedPaths[0] : null);
     if (!searchPath) return err('path is required when no allowed paths are configured.');
-    const result = await fsOps.search(query, searchPath, args.glob as string | undefined, 100);
+    const result = await fsOps.search(query, searchPath, { glob: args.glob as string | undefined }, 100);
     if (result.error) return err(result.error);
     return ok({ matches: result.matches });
   } catch (e: any) { return err(e.message); }

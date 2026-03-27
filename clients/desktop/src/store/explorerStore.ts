@@ -270,6 +270,8 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         fileName: file.name,
         startLine: 1,
         endLine: 0,
+        startColumn: 0,
+        endColumn: 0,
         isWholeFile: true,
       }] : [],
     });

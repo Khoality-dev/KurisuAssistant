@@ -69,15 +69,15 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
 
   const handleTTS = async () => {
     if (localPlaying) {
-      ttsRef.current.stopTTS();
-      ttsRef.current.setActiveAgentForTTS(null);
+      ttsRef.current?.stopTTS();
+      ttsRef.current?.setActiveAgentForTTS(null);
       setLocalPlaying(false);
     } else {
       try {
         setLocalPlaying(true);
         // Activate this agent's character panel for lip sync
         if (message.agent?.id) {
-          ttsRef.current.setActiveAgentForTTS(message.agent.id);
+          ttsRef.current?.setActiveAgentForTTS(message.agent.id);
         }
         const currentBackend = storage.getTTSBackend() || 'vixtts';
         const emotionParams =
@@ -89,12 +89,12 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
             : undefined;
 
         const voice = message.voice_reference || message.agent?.voice_reference || undefined;
-        await ttsRef.current.speak(message.content, voice, undefined, currentBackend, emotionParams);
+        await ttsRef.current?.speak(message.content, voice, undefined, currentBackend, emotionParams);
       } catch (error) {
         console.error('Failed to play TTS:', error);
       } finally {
         setLocalPlaying(false);
-        ttsRef.current.setActiveAgentForTTS(null);
+        ttsRef.current?.setActiveAgentForTTS(null);
       }
     }
   };
@@ -461,7 +461,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                         {children}
                       </a>
                     ),
-                    img: ({ node, ...props }) => (
+                    img: ({ node, ref: _ref, ...props }) => (
                       <Box
                         component="img"
                         {...props}

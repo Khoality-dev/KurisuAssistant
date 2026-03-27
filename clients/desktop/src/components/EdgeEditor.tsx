@@ -230,7 +230,7 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
         }
 
         finalTransitions.push({
-          conditions: ts.conditions as TransitionCondition[],
+          conditions: ts.conditions as unknown as TransitionCondition[],
           video_urls: finalUrls.length > 0 ? finalUrls : undefined,
           playback_rate: ts.playbackRate !== 1.0 ? ts.playbackRate : undefined,
         });

@@ -308,7 +308,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
       id: edgeId,
       from_node_id: source,
       to_node_id: target,
-      transitions: [{ condition: { type: 'random', min_interval_ms: 5000, max_interval_ms: 15000 } }],
+      transitions: [{ conditions: [{ type: 'random', min_interval_ms: 5000, max_interval_ms: 15000 }] }],
     };
     animationEdgesRef.current.set(edgeId, animEdge);
 

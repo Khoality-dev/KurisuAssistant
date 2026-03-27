@@ -1,19 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
-  IconButton,
   Typography,
-  Tooltip,
   Snackbar,
   Alert,
 } from '@mui/material';
-import {
-  Visibility as VisibilityIcon,
-  VisibilityOff as VisibilityOffIcon,
-} from '@mui/icons-material';
+
 import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '../../store/conversationStore';
-import { storage } from '../../utils/storage';
+
 import { useTTS } from '../../hooks/useTTS';
 import { useVisionStore } from '../../store/visionStore';
 import { useCharacterPanel } from '../../hooks/useCharacterPanel';
@@ -42,8 +37,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     loadConversation,
     setCurrentConversationId,
   } = useConversationStore();
-
-  const [showAdministrator, setShowAdministrator] = useState<boolean>(storage.getShowAdministrator());
 
   // Character panel hook
   const {
@@ -76,7 +69,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     loadMoreMessages,
     loadConversation,
     setCurrentConversationId,
-    showAdministrator,
     queueText,
     clearQueue,
     amplitudeRef,
@@ -159,30 +151,16 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     setHostApproval(null);
   }, [hostApproval]);
 
-  const toggleShowAdministrator = useCallback(() => {
-    const newValue = !showAdministrator;
-    setShowAdministrator(newValue);
-    storage.setShowAdministrator(newValue);
-  }, [showAdministrator]);
-
   // Message rendering
   const messageElements = useMemo(() => {
     const combined = [...messages, ...streaming.streamingMessages];
     const activeStreamingMsg = streaming.isStreaming && streaming.streamingMessages.length > 0
       ? streaming.streamingMessages[streaming.streamingMessages.length - 1]
       : null;
-    const filtered = combined.filter((message) => {
-      const speakerName = message.name || message.agent?.name;
-      if (speakerName === 'Administrator' && !showAdministrator) {
-        return false;
-      }
-      return true;
-    });
-
     const elements: React.ReactNode[] = [];
     let lastFrameId: number | undefined;
 
-    filtered.forEach((message, index) => {
+    combined.forEach((message, index) => {
       const currentFrameId = message.frame_id;
       if (currentFrameId && currentFrameId !== lastFrameId && lastFrameId !== undefined) {
         const frameInfo = frames[currentFrameId];
@@ -200,13 +178,13 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           key={message.id ? `msg-${message.id}` : `stream-${index}`}
           message={message}
           index={index}
-          isLast={index === filtered.length - 1}
+          isLast={index === combined.length - 1}
           isStreaming={isActiveStreaming}
           streamingThinking={isActiveStreaming ? streaming.streamingThinking : ''}
           streamingContent={isActiveStreaming ? streaming.streamingContent : ''}
           displayedThinking={isActiveStreaming ? streaming.streamingThinking : ''}
           displayedContent={isActiveStreaming ? streaming.streamingContent : ''}
-          justFinishedStreaming={index === filtered.length - 1 && streaming.justFinishedStreaming}
+          justFinishedStreaming={index === combined.length - 1 && streaming.justFinishedStreaming}
           expandedThinking={streaming.expandedThinking}
           onToggleThinking={streaming.toggleThinking}
           onResend={streaming.handleResend}
@@ -221,7 +199,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     messages,
     streaming.streamingMessages,
     streaming.isStreaming,
-    showAdministrator,
     frames,
     streaming.streamingThinking,
     streaming.streamingContent,
@@ -244,20 +221,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         minWidth: 0,
       }}
     >
-      {!agentId && (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
-          <Tooltip title={showAdministrator ? 'Hide Administrator messages' : 'Show Administrator messages'}>
-            <IconButton
-              size="small"
-              onClick={toggleShowAdministrator}
-              sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
-            >
-              {showAdministrator ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
-            </IconButton>
-          </Tooltip>
-        </Box>
-      )}
-
       {isLoadingMessages && (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
           <Typography variant="body2" color="text.secondary">
@@ -271,7 +234,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       </AnimatePresence>
       <div ref={streaming.messagesEndRef} />
     </Box>
-  ), [agentId, isLoadingMessages, messageElements, showAdministrator, toggleShowAdministrator]);
+  ), [isLoadingMessages, messageElements]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%' }}>

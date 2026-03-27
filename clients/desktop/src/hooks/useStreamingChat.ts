@@ -17,7 +17,6 @@ export interface UseStreamingChatParams {
   loadMoreMessages: () => void;
   loadConversation: (id: number) => Promise<void>;
   setCurrentConversationId: (id: number) => void;
-  showAdministrator: boolean;
   // TTS
   queueText: (text: string, voice?: string) => void;
   clearQueue: () => void;
@@ -61,7 +60,6 @@ export function useStreamingChat({
   loadMoreMessages,
   loadConversation,
   setCurrentConversationId,
-  showAdministrator,
   queueText,
   clearQueue,
   amplitudeRef,
@@ -692,11 +690,7 @@ export function useStreamingChat({
 
   const handleDelete = useCallback(async (messageIndex: number) => {
     const combined = [...messages, ...streamingMessages];
-    const filtered = combined.filter((message) => {
-      const speakerName = message.name || message.agent?.name;
-      return speakerName !== 'Administrator' || showAdministrator;
-    });
-    const message = filtered[messageIndex];
+    const message = combined[messageIndex];
     if (!message?.id || !activeConversationId) return;
 
     try {
@@ -705,17 +699,13 @@ export function useStreamingChat({
     } catch (e) {
       console.error('Failed to delete message:', e);
     }
-  }, [messages, streamingMessages, showAdministrator, activeConversationId, loadConversation]);
+  }, [messages, streamingMessages, activeConversationId, loadConversation]);
 
   const handleResend = useCallback(async (messageIndex: number) => {
     if (isStreaming) return;
 
     const combined = [...messages, ...streamingMessages];
-    const filtered = combined.filter((message) => {
-      const speakerName = message.name || message.agent?.name;
-      return speakerName !== 'Administrator' || showAdministrator;
-    });
-    const message = filtered[messageIndex];
+    const message = combined[messageIndex];
     if (!message?.id || message.role !== 'user' || !activeConversationId) return;
 
     const text = message.content;
@@ -754,7 +744,7 @@ export function useStreamingChat({
       console.error('Failed to resend message:', e);
       setIsStreaming(false);
     }
-  }, [isStreaming, messages, streamingMessages, showAdministrator, activeConversationId, loadConversation, clearQueue, agentId]);
+  }, [isStreaming, messages, streamingMessages, activeConversationId, loadConversation, clearQueue, agentId]);
 
   const respondToApproval = useCallback((approved: boolean) => {
     if (!pendingApproval) return;

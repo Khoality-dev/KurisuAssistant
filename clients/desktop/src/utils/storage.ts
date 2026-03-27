@@ -13,7 +13,7 @@ const STORAGE_KEYS = {
   TTS_AUTO_PLAY: 'kurisu_tts_auto_play',
   TTS_BACKEND: 'kurisu_tts_backend',
   BACKEND_URL: 'kurisu_backend_url',
-  SHOW_ADMINISTRATOR: 'kurisu_show_administrator',
+
   ASR_DEVICE_ID: 'kurisu_asr_device_id',
   SELECTED_AGENT_ID: 'kurisu_selected_agent_id',
   AGENT_CONVERSATIONS: 'kurisu_agent_conversations',
@@ -294,29 +294,6 @@ export const storage = {
     } catch (error) {
       console.error('Failed to get backend URL:', error);
       return 'http://localhost:15597';
-    }
-  },
-
-  /**
-   * Save show Administrator messages preference (default: false/hidden)
-   */
-  setShowAdministrator(show: boolean): void {
-    try {
-      localStorage.setItem(STORAGE_KEYS.SHOW_ADMINISTRATOR, show.toString());
-    } catch (error) {
-      console.error('Failed to save show Administrator preference:', error);
-    }
-  },
-
-  /**
-   * Get show Administrator messages preference (default: false/hidden)
-   */
-  getShowAdministrator(): boolean {
-    try {
-      return localStorage.getItem(STORAGE_KEYS.SHOW_ADMINISTRATOR) === 'true';
-    } catch (error) {
-      console.error('Failed to get show Administrator preference:', error);
-      return false; // Default: hide Administrator messages
     }
   },
 

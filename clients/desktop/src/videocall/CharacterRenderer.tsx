@@ -12,7 +12,7 @@ export interface AmplitudeState {
 interface CharacterRendererProps {
   poseTree: PoseTree | null;
   amplitudeRef: React.RefObject<AmplitudeState>;
-  gesturesRef?: React.RefObject<string[]>;
+  gesturesRef?: React.MutableRefObject<string[]>;
   facesRef?: React.RefObject<string[]>;
 }
 
