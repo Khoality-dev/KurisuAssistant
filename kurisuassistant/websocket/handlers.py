@@ -310,7 +310,6 @@ class ChatSessionHandler:
             if token_count > context_limit * 0.9 and summary_model:
                 # Notify client that compaction is in progress
                 await self.send_event(ContextInfoEvent(
-                    token_count=token_count, token_limit=context_limit,
                     conversation_id=conversation_id, compacting=True,
                 ))
                 summary_api_key_for_compact = gemini_api_key if summary_provider == "gemini" else nvidia_api_key if summary_provider == "nvidia" else None
@@ -323,13 +322,13 @@ class ChatSessionHandler:
                 _, context_messages = self._load_context_messages(conversation_id)
                 conversation_messages = system_messages + context_messages + [user_message]
                 token_count = self._estimate_tokens(conversation_messages)
+                # Notify client compaction done
+                await self.send_event(ContextInfoEvent(
+                    conversation_id=conversation_id,
+                ))
 
-            # Send context info to client
-            await self.send_event(ContextInfoEvent(
-                token_count=token_count,
-                token_limit=context_limit,
-                conversation_id=conversation_id,
-            ))
+            # Store for streaming token updates
+            self._initial_token_count = token_count
 
             # Stream image UUIDs to client
             if image_uuids:
@@ -459,13 +458,6 @@ class ChatSessionHandler:
             # ========================================
             self._update_timestamps(frame_id, conversation_id)
 
-            # Send updated token count (initial + response tokens accumulated during streaming)
-            await self.send_event(ContextInfoEvent(
-                token_count=token_count + int(self._response_word_count * 1.3),
-                token_limit=context_limit,
-                conversation_id=conversation_id,
-            ))
-
             self._task_done = True
             await self.send_event(DoneEvent(
                 conversation_id=conversation_id,
@@ -528,14 +520,17 @@ class ChatSessionHandler:
                     ensure_ascii=False, default=str,
                 )
 
-            # Attach agent metadata for client display
-            chunk.voice_reference = agent_config.voice_reference
-            chunk.persona_name = agent_config.persona_name or None
-            await self.send_event(chunk)
-
-            # Accumulate response word count for token estimation
+            # Accumulate response word count for token estimation (all content + thinking)
             if chunk.content:
                 self._response_word_count += len(chunk.content.split())
+            if chunk.thinking:
+                self._response_word_count += len(chunk.thinking.split())
+
+            # Attach agent metadata and running token count for client display
+            chunk.voice_reference = agent_config.voice_reference
+            chunk.persona_name = agent_config.persona_name or None
+            chunk.token_count = self._initial_token_count + int(self._response_word_count * 1.3)
+            await self.send_event(chunk)
 
             # Track tool images
             if chunk.images:
@@ -835,7 +830,6 @@ class ChatSessionHandler:
 
         # Signal compacting
         await self.send_event(ContextInfoEvent(
-            token_count=token_count, token_limit=context_limit,
             conversation_id=conversation_id, compacting=True,
         ))
 
@@ -846,11 +840,8 @@ class ChatSessionHandler:
             summary_model, ollama_url, summary_provider, summary_api_key,
         )
 
-        # Reload and send updated info
-        _, context_messages = self._load_context_messages(conversation_id)
-        token_count = self._estimate_tokens(context_messages)
+        # Signal compaction done
         await self.send_event(ContextInfoEvent(
-            token_count=token_count, token_limit=context_limit,
             conversation_id=conversation_id,
         ))
 

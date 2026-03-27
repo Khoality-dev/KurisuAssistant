@@ -165,6 +165,7 @@ class StreamChunkEvent(BaseEvent):
     images: Optional[List[str]] = None  # Image UUIDs
     model_name: Optional[str] = None  # LLM model used
     provider_type: Optional[str] = None  # LLM provider used
+    token_count: Optional[int] = None  # Running context token estimate
 
 
 @dataclass
@@ -210,10 +211,8 @@ class DoneEvent(BaseEvent):
 
 @dataclass
 class ContextInfoEvent(BaseEvent):
-    """Server sends context window usage info."""
+    """Server sends context compaction status."""
     type: EventType = field(default=EventType.CONTEXT_INFO)
-    token_count: int = 0
-    token_limit: int = 0
     conversation_id: int = 0
     compacting: bool = False
 
