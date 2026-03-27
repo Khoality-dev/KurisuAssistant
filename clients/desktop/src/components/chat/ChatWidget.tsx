@@ -303,6 +303,23 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           }}
         />
       )}
+      {streaming.contextLimit > 0 && (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ textAlign: 'right', px: 2, py: 0.5, fontSize: '0.7rem' }}
+        >
+          {streaming.isCompacting ? 'Compacting context... ' : ''}
+          {streaming.contextTokens >= 1000
+            ? `${(streaming.contextTokens / 1000).toFixed(1)}k`
+            : streaming.contextTokens}
+          {' / '}
+          {streaming.contextLimit >= 1000
+            ? `${(streaming.contextLimit / 1000).toFixed(1)}k`
+            : streaming.contextLimit}
+          {' tokens'}
+        </Typography>
+      )}
       <Snackbar
         open={!!streaming.errorToast}
         autoHideDuration={6000}

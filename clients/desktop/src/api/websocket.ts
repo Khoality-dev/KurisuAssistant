@@ -23,6 +23,7 @@ export type EventType =
   | 'media_state'
   | 'media_chunk'
   | 'media_error'
+  | 'context_info'
   | 'connected';
 
 // Base event interface
@@ -160,6 +161,14 @@ export interface ToolCallRequestEvent extends BaseEvent {
   tool_args: Record<string, unknown>;
 }
 
+export interface ContextInfoEvent extends BaseEvent {
+  type: 'context_info';
+  token_count: number;
+  token_limit: number;
+  conversation_id: number;
+  compacting: boolean;
+}
+
 export interface ConnectedEvent extends BaseEvent {
   type: 'connected';
   chat_active: boolean;
@@ -190,7 +199,8 @@ export type ServerEvent =
   | VisionResultEvent
   | MediaStateEvent
   | MediaChunkEvent
-  | MediaErrorEvent;
+  | MediaErrorEvent
+  | ContextInfoEvent;
 
 type EventHandler<T = ServerEvent> = (event: T) => void;
 

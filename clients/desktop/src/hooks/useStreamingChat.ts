@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, ConnectedEvent, ToolApprovalRequestEvent } from '../api/websocket';
+import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, ConnectedEvent, ToolApprovalRequestEvent, ContextInfoEvent } from '../api/websocket';
 import { storage } from '../utils/storage';
 import { stripNarration, fileToBase64 } from '../utils/chat';
 import { useExplorerStore } from '../store/explorerStore';
@@ -7,6 +7,7 @@ import { useAgentStore } from '../store/agentStore';
 import { apiClient } from '../api/client';
 import type { Message } from '../api/types';
 import type { AmplitudeState } from '../videocall/CharacterRenderer';
+import { handleCommand } from '../utils/commands';
 
 export interface UseStreamingChatParams {
   agentId: number | null;
@@ -49,6 +50,9 @@ export interface UseStreamingChatReturn {
   handleResend: (messageIndex: number) => Promise<void>;
   pendingApproval: ToolApprovalRequestEvent | null;
   respondToApproval: (approved: boolean) => void;
+  contextTokens: number;
+  contextLimit: number;
+  isCompacting: boolean;
 }
 
 export function useStreamingChat({
@@ -78,6 +82,9 @@ export function useStreamingChat({
   );
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<ToolApprovalRequestEvent | null>(null);
+  const [baseContextTokens, setBaseContextTokens] = useState(0);
+  const [contextLimit, setContextLimit] = useState(0);
+  const [isCompacting, setIsCompacting] = useState(false);
 
   // Ref to track streaming state without stale closures
   const isStreamingRef = useRef(false);
@@ -489,12 +496,18 @@ export function useStreamingChat({
     const onConnected = (e: ConnectedEvent) => handleConnectedRef.current(e);
 
     const onApproval = (e: ToolApprovalRequestEvent) => setPendingApproval(e);
+    const onContextInfo = (e: ContextInfoEvent) => {
+      setBaseContextTokens(e.token_count);
+      setContextLimit(e.token_limit);
+      setIsCompacting(e.compacting);
+    };
 
     wsManager.on('stream_chunk', onChunk);
     wsManager.on('done', onDone);
     wsManager.on('error', onError);
     wsManager.on('connected', onConnected);
     wsManager.on('tool_approval_request', onApproval);
+    wsManager.on('context_info', onContextInfo);
 
     return () => {
       wsManager.off('stream_chunk', onChunk);
@@ -502,6 +515,7 @@ export function useStreamingChat({
       wsManager.off('error', onError);
       wsManager.off('connected', onConnected);
       wsManager.off('tool_approval_request', onApproval);
+      wsManager.off('context_info', onContextInfo);
     };
   }, []);
 
@@ -643,8 +657,15 @@ export function useStreamingChat({
 
   const handleSend = useCallback(async (text: string, imageFiles: File[]) => {
     if (!text.trim() || isStreaming) return;
-    await _doSend(text.trim(), imageFiles);
-  }, [_doSend, isStreaming]);
+    const trimmed = text.trim();
+
+    // Handle slash commands (e.g. /compact)
+    if (trimmed.startsWith('/') && handleCommand(trimmed, { activeConversationId, agentId })) {
+      return;
+    }
+
+    await _doSend(trimmed, imageFiles);
+  }, [_doSend, isStreaming, activeConversationId, agentId]);
 
   const handleCancel = () => {
     wsManager.sendCancel();
@@ -776,5 +797,10 @@ export function useStreamingChat({
     handleResend,
     pendingApproval,
     respondToApproval,
+    contextTokens: baseContextTokens + (streamingStateRef.current.accumulatedContent
+      ? Math.round(streamingStateRef.current.accumulatedContent.split(/\s+/).length * 1.3)
+      : 0),
+    contextLimit,
+    isCompacting,
   };
 }
