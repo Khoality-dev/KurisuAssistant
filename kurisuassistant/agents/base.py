@@ -80,6 +80,7 @@ class AgentContext:
     client_tool_callback: Optional[Callable[[str, Dict], Coroutine[Any, Any, str]]] = None
     images: Optional[List[str]] = None  # base64 images for current user message
     context_size: Optional[int] = None  # Ollama num_ctx override
+    compacted_context: str = ""  # Rolling conversation summary (short-term memory)
 
 
 @dataclass
@@ -372,9 +373,13 @@ class SimpleAgent(BaseAgent):
                     "attempting any task that matches a skill name. Do NOT guess or improvise — "
                     "always read the skill first and follow its instructions exactly."
                 )
-        # Inject agent memory
+        # Inject agent memory (long-term)
         if self.config.memory_enabled and self.config.memory:
             system_parts.append("Your memory:\n" + self.config.memory)
+
+        # Inject compacted conversation context (short-term rolling summary)
+        if context.compacted_context:
+            system_parts.append("Conversation context:\n" + context.compacted_context)
 
         if agent_descriptions:
             system_parts.append(

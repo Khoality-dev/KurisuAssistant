@@ -203,6 +203,10 @@ class ConversationRepository(BaseRepository[Conversation]):
         """
         return self.update(conversation, updated_at=datetime.utcnow())
 
+    def update_compacted_context(self, conversation: Conversation, compacted_context: str, compacted_up_to_id: int) -> Conversation:
+        """Update conversation's compacted context and watermark."""
+        return self.update(conversation, compacted_context=compacted_context, compacted_up_to_id=compacted_up_to_id)
+
     def delete_by_user_and_id(self, user_id: int, conversation_id: int) -> bool:
         """Delete a conversation by user ID and conversation ID.
 

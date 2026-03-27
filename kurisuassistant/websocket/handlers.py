@@ -37,6 +37,8 @@ from .events import (
     MediaQueueRemoveEvent,
     MediaVolumeEvent,
     MediaErrorEvent,
+    ContextInfoEvent,
+    CompactContextEvent,
     parse_event,
 )
 from kurisuassistant.agents.base import AgentConfig, AgentContext, BaseAgent, SimpleAgent
@@ -45,7 +47,7 @@ from kurisuassistant.tools.routing import RouteToTool, parse_route_result
 from kurisuassistant.media import get_media_player
 from kurisuassistant.vision import VisionProcessor
 from sqlalchemy import desc
-from kurisuassistant.db.models import Frame
+from kurisuassistant.db.models import Conversation, Frame, Message
 from kurisuassistant.db.repositories import (
     AgentRepository,
     ConversationRepository,
@@ -197,6 +199,8 @@ class ChatSessionHandler:
             self._handle_client_tools_register(event)
         elif isinstance(event, ToolCallResponseEvent):
             self._handle_tool_call_response(event)
+        elif isinstance(event, CompactContextEvent):
+            await self._handle_compact_context(event)
         elif isinstance(event, (MediaPlayEvent, MediaPauseEvent, MediaResumeEvent,
                                 MediaSkipEvent, MediaStopEvent, MediaQueueAddEvent,
                                 MediaQueueRemoveEvent, MediaVolumeEvent)):
@@ -287,8 +291,8 @@ class ChatSessionHandler:
                     except Exception as e:
                         logger.warning(f"Failed to save image: {e}")
 
-            # Load context messages
-            context_messages = self._load_context_messages(conversation_id, frame_id)
+            # Load context messages (compacted context + messages after watermark)
+            compacted_context, context_messages = self._load_context_messages(conversation_id)
 
             # Build messages
             user_message = {"role": "user", "content": event.text}
@@ -298,6 +302,33 @@ class ChatSessionHandler:
 
             # Save user message immediately
             self._save_message(user_message, frame_id)
+
+            # Estimate tokens and compact if needed
+            context_limit = context_size or 8192
+            token_count = self._estimate_tokens(conversation_messages)
+
+            if token_count > context_limit * 0.9 and summary_model:
+                # Notify client that compaction is in progress
+                await self.send_event(ContextInfoEvent(
+                    token_count=token_count, token_limit=context_limit,
+                    conversation_id=conversation_id, compacting=True,
+                ))
+                summary_api_key_for_compact = gemini_api_key if summary_provider == "gemini" else nvidia_api_key if summary_provider == "nvidia" else None
+                compacted_context = self._compact_context(
+                    conversation_id, context_limit, conversation_messages,
+                    summary_model, ollama_url, summary_provider, summary_api_key_for_compact,
+                )
+                # Reload — now only the current user message remains as recent
+                _, context_messages = self._load_context_messages(conversation_id)
+                conversation_messages = system_messages + context_messages + [user_message]
+                token_count = self._estimate_tokens(conversation_messages)
+
+            # Send context info to client
+            await self.send_event(ContextInfoEvent(
+                token_count=token_count,
+                token_limit=context_limit,
+                conversation_id=conversation_id,
+            ))
 
             # Stream image UUIDs to client
             if image_uuids:
@@ -325,6 +356,7 @@ class ChatSessionHandler:
                 client_tool_callback=self._execute_client_tool,
                 images=event.images if event.images else None,
                 context_size=context_size,
+                compacted_context=compacted_context,
             )
 
             # ========================================
@@ -749,6 +781,64 @@ class ChatSessionHandler:
         if self.current_task and not self.current_task.done():
             self.current_task.cancel()
 
+    async def _handle_compact_context(self, event: CompactContextEvent):
+        """Handle manual /compact command."""
+        conversation_id = event.conversation_id
+        if not conversation_id:
+            return
+
+        # Load user preferences for summary model
+        db = get_db_service()
+        def _get_prefs(session):
+            user = UserRepository(session).get_by_id(self.user_id)
+            if not user:
+                return None, None, None, None, None
+            return (
+                user.summary_model,
+                getattr(user, 'summary_provider', 'ollama'),
+                user.ollama_url,
+                getattr(user, 'gemini_api_key', None),
+                getattr(user, 'nvidia_api_key', None),
+            )
+        summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key = db.execute_sync(_get_prefs)
+
+        if not summary_model:
+            await self.send_event(ErrorEvent(error="No summary model configured.", code="NO_SUMMARY_MODEL"))
+            return
+
+        # Load current context
+        compacted_context, context_messages = self._load_context_messages(conversation_id)
+        context_limit = 8192  # default
+        def _get_ctx(session):
+            user = UserRepository(session).get_by_id(self.user_id)
+            return getattr(user, 'context_size', None) or 8192
+        context_limit = db.execute_sync(_get_ctx)
+
+        system_messages = [{"role": "system", "content": ""}]
+        conversation_messages = system_messages + context_messages
+
+        token_count = self._estimate_tokens(conversation_messages)
+
+        # Signal compacting
+        await self.send_event(ContextInfoEvent(
+            token_count=token_count, token_limit=context_limit,
+            conversation_id=conversation_id, compacting=True,
+        ))
+
+        summary_api_key = gemini_api_key if summary_provider == "gemini" else nvidia_api_key if summary_provider == "nvidia" else None
+        self._compact_context(
+            conversation_id, context_limit, conversation_messages,
+            summary_model, ollama_url, summary_provider, summary_api_key,
+        )
+
+        # Reload and send updated info
+        _, context_messages = self._load_context_messages(conversation_id)
+        token_count = self._estimate_tokens(context_messages)
+        await self.send_event(ContextInfoEvent(
+            token_count=token_count, token_limit=context_limit,
+            conversation_id=conversation_id,
+        ))
+
     async def _handle_vision_start(self, event: VisionStartEvent):
         """Initialize vision processor for frame-by-frame processing."""
         await self._handle_vision_stop()
@@ -950,51 +1040,156 @@ class ChatSessionHandler:
             if request.approval_id in self.pending_approvals:
                 del self.pending_approvals[request.approval_id]
 
-    def _load_context_messages(self, conversation_id: int, frame_id: int) -> list:
-        """Load context messages from the last 2 frames.
+    def _load_context_messages(self, conversation_id: int) -> tuple[str, list]:
+        """Load compacted context and recent messages for a conversation.
 
-        Includes the previous frame's messages (prefixed with a summary separator)
-        plus the current frame's messages, giving the LLM more conversational context.
+        Returns:
+            Tuple of (compacted_context, messages_after_watermark).
+            compacted_context is the rolling summary (empty string if none).
+            messages are all messages with id > compacted_up_to_id.
         """
         db = get_db_service()
 
         def _query(session):
-            msg_repo = MessageRepository(session)
+            conv = session.query(Conversation).filter_by(id=conversation_id).first()
+            if not conv:
+                return "", []
 
-            frames = (
-                session.query(Frame)
-                .filter_by(conversation_id=conversation_id)
-                .filter(Frame.id <= frame_id)
-                .order_by(desc(Frame.created_at), desc(Frame.id))
-                .limit(2)
+            compacted_context = conv.compacted_context or ""
+            compacted_up_to_id = conv.compacted_up_to_id or 0
+
+            # Load messages after the compaction watermark, across all frames
+            messages = (
+                session.query(Message)
+                .join(Frame, Message.frame_id == Frame.id)
+                .filter(Frame.conversation_id == conversation_id)
+                .filter(Message.id > compacted_up_to_id)
+                .order_by(Message.created_at)
                 .all()
             )
-            frames.reverse()
 
             result = []
-            for frame in frames:
-                if frame.id != frame_id and frame.summary:
-                    result.append({
-                        "role": "system",
-                        "content": f"[Previous session summary]: {frame.summary}",
-                    })
-
-                messages = msg_repo.get_by_frame(frame.id, limit=1000)
-                for msg in messages:
-                    entry = {
-                        "role": msg.role,
-                        "content": msg.message,
-                    }
-                    if msg.name:
-                        entry["name"] = msg.name
-                    if msg.agent_id:
-                        entry["agent_id"] = msg.agent_id
-                    if msg.thinking:
-                        entry["thinking"] = msg.thinking
-                    result.append(entry)
-            return result
+            for msg in messages:
+                entry = {
+                    "role": msg.role,
+                    "content": msg.message,
+                }
+                if msg.name:
+                    entry["name"] = msg.name
+                if msg.agent_id:
+                    entry["agent_id"] = msg.agent_id
+                if msg.thinking:
+                    entry["thinking"] = msg.thinking
+                result.append(entry)
+            return compacted_context, result
 
         return db.execute_sync(_query)
+
+    @staticmethod
+    def _estimate_tokens(messages: list) -> int:
+        """Estimate token count from messages using word_count * 1.3."""
+        word_count = sum(len(m.get("content", "").split()) for m in messages)
+        return int(word_count * 1.3)
+
+    def _compact_context(
+        self,
+        conversation_id: int,
+        context_size: int,
+        conversation_messages: list,
+        model_name: str,
+        api_url: str | None = None,
+        provider_type: str = "ollama",
+        api_key: str | None = None,
+    ) -> str:
+        """Compact conversation messages into a short rolling summary.
+
+        Calls the LLM synchronously to summarize the conversation, then stores
+        the result on the conversation record.
+
+        Returns:
+            The new compacted context string.
+        """
+        from kurisuassistant.models.llm import create_llm_provider
+
+        target_chars = int(context_size * 0.1 * 4)
+
+        system_prompt = (
+            "You are compacting a conversation into a short-term context document.\n"
+            "Your output replaces the full message history in the AI's context window.\n\n"
+            "This is SHORT-TERM context — the current conversation's state and flow.\n"
+            "Do NOT include long-term knowledge (user preferences, personal facts, "
+            "learned information about the user) — those are stored separately in the "
+            "agent's persistent memory. Focus only on what is needed to continue "
+            "THIS conversation coherently.\n\n"
+            "PRIORITIES (in order):\n"
+            "1. Recent exchanges — preserve the latest messages with high fidelity, "
+            "including exact requests, decisions, and action items still in progress\n"
+            "2. Current task state — what is being worked on, what's done, what's next\n"
+            "3. Key decisions made in this conversation — what was decided and why\n"
+            "4. Tool call outcomes — what tools were used and their significant results\n"
+            "5. Older context — summarize early conversation broadly, keep only what "
+            "still matters for the current discussion\n\n"
+            "RULES:\n"
+            "- Write in third person narrative form (\"The user asked...\", \"It was decided...\")\n"
+            "- Preserve exact values still relevant: names, numbers, paths, code snippets\n"
+            "- Drop: greetings, small talk, repeated explanations, failed attempts that "
+            "were superseded, general knowledge the agent would already know\n"
+            "- When old and new information conflict, keep only the newer version\n"
+            "- Mark any unresolved questions or pending tasks clearly\n"
+            f"- Keep under {target_chars} characters\n\n"
+            "Output ONLY the compacted context. No preamble, no explanation."
+        )
+
+        # Format the conversation as a transcript for the compaction LLM
+        transcript_lines = []
+        for msg in conversation_messages:
+            role = msg.get("role", "user")
+            name = msg.get("name", role.capitalize())
+            content = msg.get("content", "")
+            if content:
+                transcript_lines.append(f"{name}: {content}")
+        transcript = "\n".join(transcript_lines)
+
+        try:
+            llm = create_llm_provider(provider_type, api_url=api_url, api_key=api_key)
+            response = llm.chat(
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": transcript},
+                ],
+                stream=False,
+            )
+            new_context = response.message.content.strip()
+            if len(new_context) > target_chars:
+                new_context = new_context[:target_chars]
+        except Exception as e:
+            logger.error("Context compaction failed: %s", e, exc_info=True)
+            return ""
+
+        # Find the last message ID in the conversation for the watermark
+        db = get_db_service()
+
+        def _update(session):
+            conv = session.query(Conversation).filter_by(id=conversation_id).first()
+            if not conv:
+                return
+            # Get the last message ID across all frames
+            last_msg = (
+                session.query(Message.id)
+                .join(Frame, Message.frame_id == Frame.id)
+                .filter(Frame.conversation_id == conversation_id)
+                .order_by(desc(Message.id))
+                .first()
+            )
+            compacted_up_to_id = last_msg[0] if last_msg else 0
+            ConversationRepository(session).update_compacted_context(
+                conv, new_context, compacted_up_to_id
+            )
+
+        db.execute_sync(_update)
+        logger.info("Compacted context for conversation %d: %d chars", conversation_id, len(new_context))
+        return new_context
 
     def _load_agent(self, agent_id: int) -> BaseAgent:
         """Load agent from database."""

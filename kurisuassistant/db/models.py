@@ -30,6 +30,8 @@ class Conversation(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     title = Column(Text, default='New conversation')
+    compacted_context = Column(Text, nullable=False, default="", server_default="")
+    compacted_up_to_id = Column(Integer, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
 

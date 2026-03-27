@@ -26,6 +26,7 @@ class EventType(str, Enum):
     MEDIA_VOLUME = "media_volume"
     CLIENT_TOOLS_REGISTER = "client_tools_register"
     TOOL_CALL_RESPONSE = "tool_call_response"
+    COMPACT_CONTEXT = "compact_context"
 
     # Server -> Client
     CONNECTED = "connected"
@@ -39,6 +40,7 @@ class EventType(str, Enum):
     MEDIA_STATE = "media_state"
     MEDIA_CHUNK = "media_chunk"
     MEDIA_ERROR = "media_error"
+    CONTEXT_INFO = "context_info"
 
 
 @dataclass
@@ -89,6 +91,13 @@ class ToolApprovalResponseEvent(BaseEvent):
     approval_id: str = ""
     approved: bool = False
     modified_args: Optional[Dict[str, Any]] = None  # User can modify args
+
+
+@dataclass
+class CompactContextEvent(BaseEvent):
+    """Client requests manual context compaction."""
+    type: EventType = field(default=EventType.COMPACT_CONTEXT)
+    conversation_id: Optional[int] = None
 
 
 @dataclass
@@ -197,6 +206,16 @@ class DoneEvent(BaseEvent):
     type: EventType = field(default=EventType.DONE)
     conversation_id: int = 0
     frame_id: int = 0
+
+
+@dataclass
+class ContextInfoEvent(BaseEvent):
+    """Server sends context window usage info."""
+    type: EventType = field(default=EventType.CONTEXT_INFO)
+    token_count: int = 0
+    token_limit: int = 0
+    conversation_id: int = 0
+    compacting: bool = False
 
 
 @dataclass
@@ -335,6 +354,13 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
         return CancelEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
             timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
+        )
+
+    elif event_type == EventType.COMPACT_CONTEXT.value:
+        return CompactContextEvent(
+            event_id=data.get("event_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
+            conversation_id=data.get("conversation_id"),
         )
 
     elif event_type == EventType.VISION_START.value:
