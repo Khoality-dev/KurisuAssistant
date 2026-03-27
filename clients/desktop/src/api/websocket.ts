@@ -71,6 +71,7 @@ export interface StreamChunkEvent extends BaseEvent {
   conversation_id: number;
   frame_id: number;
   images: string[] | null;
+  token_count: number | null;
 }
 
 export interface AgentSwitchEvent extends BaseEvent {
@@ -163,8 +164,6 @@ export interface ToolCallRequestEvent extends BaseEvent {
 
 export interface ContextInfoEvent extends BaseEvent {
   type: 'context_info';
-  token_count: number;
-  token_limit: number;
   conversation_id: number;
   compacting: boolean;
 }

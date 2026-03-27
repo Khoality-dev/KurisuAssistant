@@ -82,8 +82,7 @@ export function useStreamingChat({
   );
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<ToolApprovalRequestEvent | null>(null);
-  const [baseContextTokens, setBaseContextTokens] = useState(0);
-  const [contextLimit, setContextLimit] = useState(0);
+  const [contextTokens, setContextTokens] = useState(0);
   const [isCompacting, setIsCompacting] = useState(false);
 
   // Ref to track streaming state without stale closures
@@ -381,6 +380,11 @@ export function useStreamingChat({
       amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
     }
 
+    // Update running token count from server
+    if (event.token_count != null) {
+      setContextTokens(event.token_count);
+    }
+
     // Streaming TTS auto-play: feed complete sentences to TTS queue
     if (storage.getTTSAutoPlay() && event.content && event.role !== 'tool') {
       ttsVoiceRef.current = event.voice_reference || ttsVoiceRef.current;
@@ -497,8 +501,6 @@ export function useStreamingChat({
 
     const onApproval = (e: ToolApprovalRequestEvent) => setPendingApproval(e);
     const onContextInfo = (e: ContextInfoEvent) => {
-      setBaseContextTokens(e.token_count);
-      setContextLimit(e.token_limit);
       setIsCompacting(e.compacting);
     };
 
@@ -797,10 +799,8 @@ export function useStreamingChat({
     handleResend,
     pendingApproval,
     respondToApproval,
-    contextTokens: baseContextTokens + (streamingStateRef.current.accumulatedContent
-      ? Math.round(streamingStateRef.current.accumulatedContent.split(/\s+/).length * 1.3)
-      : 0),
-    contextLimit,
+    contextTokens,
+    contextLimit: 0,  // Frontend determines limit from model config
     isCompacting,
   };
 }
