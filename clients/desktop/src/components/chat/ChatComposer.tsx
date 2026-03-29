@@ -184,11 +184,16 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
       return;
     }
 
+    if (e.key === 'Escape' && isStreaming) {
+      e.preventDefault();
+      onCancel();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void handleSend();
     }
-  }, [handleSend, input, showCommands, filteredCommands, commandIdx, selectCommand]);
+  }, [handleSend, input, isStreaming, onCancel, showCommands, filteredCommands, commandIdx, selectCommand]);
 
   return (
     <Paper
