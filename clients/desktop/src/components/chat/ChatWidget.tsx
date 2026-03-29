@@ -95,6 +95,11 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     setContextBannerExpanded(false);
   }, [currentConversation?.id]);
 
+  // Scroll to bottom when switching display mode
+  useEffect(() => {
+    streaming.messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+  }, [displayMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Clear active speaker when TTS queue finishes playing
   useEffect(() => {
     if (!isQueueActive && !streaming.isStreaming) {
