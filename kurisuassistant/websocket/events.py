@@ -67,6 +67,7 @@ class ConnectedEvent(BaseEvent):
     media_state: Optional[Dict[str, Any]] = None
     vision_active: bool = False
     vision_config: Optional[Dict[str, Any]] = None
+    device_name: Optional[str] = None
 
 
 # =============================================================================
@@ -133,6 +134,7 @@ class ClientToolsRegisterEvent(BaseEvent):
     """Client registers its locally-available tools."""
     type: EventType = field(default=EventType.CLIENT_TOOLS_REGISTER)
     tools: List[Dict[str, Any]] = field(default_factory=list)  # Tool schemas
+    device_name: Optional[str] = None
 
 
 @dataclass
@@ -443,6 +445,7 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
             event_id=data.get("event_id", str(uuid.uuid4())),
             timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
             tools=data.get("tools", []),
+            device_name=data.get("device_name"),
         )
 
     elif event_type == EventType.TOOL_CALL_RESPONSE.value:

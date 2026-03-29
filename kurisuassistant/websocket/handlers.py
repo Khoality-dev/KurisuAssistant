@@ -68,6 +68,12 @@ ADMINISTRATOR_NAME = "Administrator"  # Reserved agent name for routing
 FRAME_IDLE_THRESHOLD_MINUTES = int(os.getenv("FRAME_IDLE_THRESHOLD_MINUTES", "30"))
 
 
+def _sanitize_device_prefix(name: str) -> str:
+    """Convert device name to a safe tool-name prefix (lowercase, alnum + underscore)."""
+    import re
+    return re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
+
+
 class ChatSessionHandler:
     """Handles a single WebSocket chat session with turn-based orchestration.
 
@@ -82,8 +88,7 @@ class ChatSessionHandler:
     5. If target is another agent, continue; if user, end turn cycle
     """
 
-    def __init__(self, websocket: WebSocket, user_id: int):
-        self.websocket = websocket
+    def __init__(self, user_id: int):
         self.user_id = user_id
         self.pending_approvals: Dict[str, asyncio.Future] = {}
         self.current_task: Optional[asyncio.Task] = None
@@ -94,14 +99,17 @@ class ChatSessionHandler:
         self._task_frame_id: Optional[int] = None
         self._task_done: bool = False
 
-        # Heartbeat
-        self._heartbeat_task: Optional[asyncio.Task] = None
-        self._last_pong_time: float = 0
+        # Multi-device connections
+        self._connections: Dict[str, WebSocket] = {}
+        self._device_tools: Dict[str, List[Dict]] = {}
+        self._device_tool_names: Dict[str, set] = {}
+        self._active_device: Optional[str] = None
 
-        # Client-side MCP tools
+        # Client-side MCP tools (combined, rebuilt on registration changes)
         self._client_tools: List[Dict] = []
         self._client_tool_names: set = set()
         self._pending_tool_calls: Dict[str, asyncio.Future] = {}
+        self._tool_device_map: Dict[str, tuple[str, str]] = {}
 
         # Message queue — new requests queued while agent is running
         self._message_queue: List[ChatRequestEvent] = []
@@ -110,81 +118,42 @@ class ChatSessionHandler:
         self._vision_processor: Optional[VisionProcessor] = None
         self._vision_config: Optional[dict] = None
 
-    async def run(self):
-        """Main handler loop - receives and processes events."""
-        from fastapi import WebSocketDisconnect
-        import time
+    def add_connection(self, device_name: str, ws: WebSocket):
+        self._connections[device_name] = ws
+        if self._active_device is None or len(self._connections) == 1:
+            self._active_device = device_name
+        get_media_player(self.user_id, self.send_event)
+        logger.info("Device '%s' connected for user %d (%d device(s))", device_name, self.user_id, len(self._connections))
 
-        ws = self.websocket
-        self._last_pong_time = time.monotonic()
-        my_heartbeat = asyncio.create_task(self._heartbeat_loop(ws))
-        self._heartbeat_task = my_heartbeat
+    def remove_connection(self, device_name: str):
+        self._connections.pop(device_name, None)
+        self._device_tools.pop(device_name, None)
+        self._device_tool_names.pop(device_name, None)
+        self._rebuild_client_tools()
+        for req_id, future in list(self._pending_tool_calls.items()):
+            if not future.done():
+                future.set_result(f"Device '{device_name}' disconnected")
+        if self._active_device == device_name:
+            self._active_device = next(iter(self._connections)) if self._connections else None
+        logger.info("Device '%s' disconnected for user %d (%d device(s) remaining)", device_name, self.user_id, len(self._connections))
 
+    def has_connections(self) -> bool:
+        return bool(self._connections)
+
+    def get_connected_device_names(self) -> List[str]:
+        return list(self._connections.keys())
+
+    async def handle_message(self, data: dict, device_name: str):
         try:
-            while True:
-                try:
-                    data = await ws.receive_json()
-                    msg_type = data.get("type")
-                    if msg_type == "pong":
-                        self._last_pong_time = time.monotonic()
-                        continue
-                    event = parse_event(data)
-                    await self._handle_event(event)
-                except WebSocketDisconnect:
-                    raise
-                except RuntimeError:
-                    # WebSocket closed (e.g. heartbeat timeout) — treat as disconnect
-                    raise WebSocketDisconnect()
-                except Exception as e:
-                    logger.error(f"Error handling WebSocket event: {e}", exc_info=True)
-                    await self.send_event(ErrorEvent(
-                        error=str(e),
-                        code="INTERNAL_ERROR",
-                    ))
-        finally:
-            my_heartbeat.cancel()
-            # Only clear the shared reference if it's still ours (not replaced by a newer run())
-            if self._heartbeat_task is my_heartbeat:
-                self._heartbeat_task = None
+            event = parse_event(data)
+            if isinstance(event, ChatRequestEvent) and device_name in self._connections:
+                self._active_device = device_name
+            await self._handle_event(event, device_name)
+        except Exception as e:
+            logger.error(f"Error handling WebSocket event: {e}", exc_info=True)
+            await self._send_to_device(device_name, ErrorEvent(error=str(e), code="INTERNAL_ERROR"))
 
-    async def _heartbeat_loop(self, ws: WebSocket):
-        """Periodically ping the client; close if no pong received in time.
-
-        Operates on the specific WebSocket passed at creation time.
-        Auto-stops if the handler's websocket has been replaced (reconnect).
-        """
-        import time
-        try:
-            while True:
-                await asyncio.sleep(HEARTBEAT_INTERVAL)
-                # Stop if websocket was replaced by a reconnect
-                if self.websocket is not ws:
-                    return
-                try:
-                    async with self._send_lock:
-                        state = ws.client_state.name
-                        if state == "CONNECTED":
-                            await ws.send_json({"type": "ping"})
-                        else:
-                            return
-                except Exception:
-                    return
-
-                # Wait for pong
-                await asyncio.sleep(HEARTBEAT_TIMEOUT)
-                if self.websocket is not ws:
-                    return
-                if time.monotonic() - self._last_pong_time > HEARTBEAT_INTERVAL + HEARTBEAT_TIMEOUT:
-                    logger.warning("Heartbeat timeout — closing WebSocket for user %d", self.user_id)
-                    try:
-                        await ws.close(code=4002, reason="Heartbeat timeout")
-                    except Exception:
-                        pass
-                    return
-        except asyncio.CancelledError:
-            pass
-
-    async def _handle_event(self, event: BaseEvent):
+    async def _handle_event(self, event: BaseEvent, device_name: str = ""):
         """Route event to appropriate handler."""
         if isinstance(event, ChatRequestEvent):
             await self._handle_chat_request(event)
@@ -199,7 +168,7 @@ class ChatSessionHandler:
         elif isinstance(event, VisionStopEvent):
             await self._handle_vision_stop()
         elif isinstance(event, ClientToolsRegisterEvent):
-            self._handle_client_tools_register(event)
+            self._handle_client_tools_register(event, device_name)
         elif isinstance(event, ToolCallResponseEvent):
             self._handle_tool_call_response(event)
         elif isinstance(event, CompactContextEvent):
@@ -946,19 +915,66 @@ class ChatSessionHandler:
     # Client-side tool management
     # =============================================
 
-    def _handle_client_tools_register(self, event: ClientToolsRegisterEvent):
-        """Store tool schemas registered by the client."""
-        self._client_tools = event.tools
-        self._client_tool_names = {
+    def _handle_client_tools_register(self, event: ClientToolsRegisterEvent, device_name: str = ""):
+        """Store tool schemas registered by a specific device and rebuild combined list."""
+        self._device_tools[device_name] = event.tools
+        self._device_tool_names[device_name] = {
             t.get("function", {}).get("name", "")
             for t in event.tools
             if t.get("function", {}).get("name")
         }
+        self._rebuild_client_tools()
         logger.info(
-            "Client registered %d tools for user %d: %s",
-            len(self._client_tools),
+            "Device '%s' registered %d tools for user %d: %s",
+            device_name,
+            len(event.tools),
             self.user_id,
-            ", ".join(sorted(self._client_tool_names)),
+            ", ".join(sorted(self._device_tool_names.get(device_name, set()))),
+        )
+
+    def _rebuild_client_tools(self):
+        """Rebuild the combined client tools list from all devices.
+
+        When only one device has tools, no prefix is added.
+        When multiple devices have tools, each tool name is prefixed with the device name.
+        """
+        devices_with_tools = {d: tools for d, tools in self._device_tools.items() if tools}
+
+        self._client_tools = []
+        self._client_tool_names = set()
+        self._tool_device_map = {}
+
+        if len(devices_with_tools) <= 1:
+            # Single device (or none) — no prefix
+            for device_name, tools in devices_with_tools.items():
+                for tool in tools:
+                    original_name = tool.get("function", {}).get("name", "")
+                    self._client_tools.append(tool)
+                    if original_name:
+                        self._client_tool_names.add(original_name)
+                        self._tool_device_map[original_name] = (device_name, original_name)
+        else:
+            # Multiple devices — prefix tool names with device name
+            for device_name, tools in devices_with_tools.items():
+                prefix = _sanitize_device_prefix(device_name)
+                for tool in tools:
+                    import copy
+                    prefixed_tool = copy.deepcopy(tool)
+                    original_name = tool.get("function", {}).get("name", "")
+                    if original_name:
+                        prefixed_name = f"{prefix}__{original_name}"
+                        prefixed_tool["function"]["name"] = prefixed_name
+                        if "description" in prefixed_tool.get("function", {}):
+                            prefixed_tool["function"]["description"] = (
+                                f"[{device_name}] {prefixed_tool['function']['description']}"
+                            )
+                        self._client_tools.append(prefixed_tool)
+                        self._client_tool_names.add(prefixed_name)
+                        self._tool_device_map[prefixed_name] = (device_name, original_name)
+
+        logger.debug(
+            "Rebuilt client tools for user %d: %d tools from %d device(s)",
+            self.user_id, len(self._client_tools), len(devices_with_tools),
         )
 
     def _handle_tool_call_response(self, event: ToolCallResponseEvent):
@@ -976,20 +992,25 @@ class ChatSessionHandler:
             )
 
     async def _execute_client_tool(self, tool_name: str, tool_args: Dict) -> str:
-        """Forward a tool call to the client and await the result.
+        """Forward a tool call to the correct device and await the result.
 
-        Creates an asyncio.Future, sends a ToolCallRequestEvent to the client,
-        and waits up to 120s for the client to respond with ToolCallResponseEvent.
+        Uses _tool_device_map to find which device owns the tool and what the
+        original (unprefixed) tool name is. Sends ToolCallRequestEvent to that
+        device and waits up to 120s for ToolCallResponseEvent.
         """
         import uuid as _uuid
+
+        device_name, original_name = self._tool_device_map.get(tool_name, (self._active_device, tool_name))
+        if not device_name or device_name not in self._connections:
+            return f"No connected device for tool '{tool_name}'"
 
         request_id = str(_uuid.uuid4())
         future = asyncio.get_event_loop().create_future()
         self._pending_tool_calls[request_id] = future
 
-        await self.send_event(ToolCallRequestEvent(
+        await self._send_to_device(device_name, ToolCallRequestEvent(
             request_id=request_id,
-            tool_name=tool_name,
+            tool_name=original_name,
             tool_args=tool_args,
         ))
 
@@ -997,7 +1018,7 @@ class ChatSessionHandler:
             result = await asyncio.wait_for(future, timeout=120.0)
             return result
         except asyncio.TimeoutError:
-            return f"Client tool '{tool_name}' timed out after 120s"
+            return f"Client tool '{tool_name}' on device '{device_name}' timed out after 120s"
         finally:
             self._pending_tool_calls.pop(request_id, None)
 
@@ -1027,20 +1048,29 @@ class ChatSessionHandler:
             await self.send_event(MediaErrorEvent(error=str(e)))
 
     async def send_event(self, event: BaseEvent):
-        """Send event to client (silently fails if disconnected)."""
+        """Send event to the active device (silently fails if disconnected)."""
+        if not self._active_device:
+            return
+        await self._send_to_device(self._active_device, event)
+
+    async def _send_to_device(self, device_name: str, event: BaseEvent):
+        """Send event to a specific device by name."""
+        ws = self._connections.get(device_name)
+        if not ws:
+            return
         event_type = event.type.value if hasattr(event.type, 'value') else event.type
         try:
             async with self._send_lock:
-                state = self.websocket.client_state.name
+                state = ws.client_state.name
                 if state == "CONNECTED":
-                    await self.websocket.send_json(event.to_dict())
+                    await ws.send_json(event.to_dict())
                 else:
                     logger.debug(f"WebSocket not connected (state={state}), dropping {event_type}")
         except Exception:
             logger.debug(f"Failed to send WebSocket event {event_type} (socket closed)")
 
-    async def send_connected_state(self):
-        """Send a ConnectedEvent with current server-side state snapshot."""
+    async def send_connected_state_to(self, ws: WebSocket, device_name: str = ""):
+        """Send a ConnectedEvent with current server-side state snapshot to a specific websocket."""
         from kurisuassistant.media.player import _players
 
         chat_active = self.current_task is not None and not self.current_task.done()
@@ -1051,26 +1081,25 @@ class ChatSessionHandler:
         if player:
             media_state = player.get_state()
 
-        await self.send_event(ConnectedEvent(
+        event = ConnectedEvent(
             chat_active=chat_active,
             conversation_id=self._task_conversation_id if chat_active or self._task_done else None,
             frame_id=self._task_frame_id if chat_active or self._task_done else None,
             media_state=media_state,
             vision_active=self._vision_processor is not None,
             vision_config=self._vision_config,
-        ))
-
-    async def replace_websocket(self, websocket: WebSocket):
-        """Replace WebSocket on reconnect (no replay — messages already in DB)."""
-        self.websocket = websocket
-
-        # Cancel old heartbeat (new run() will start a fresh one)
-        if self._heartbeat_task:
-            self._heartbeat_task.cancel()
-            self._heartbeat_task = None
-
-        # Update media player's send callback to route through new socket
-        get_media_player(self.user_id, self.send_event)
+            device_name=device_name,
+        )
+        event_type = event.type.value if hasattr(event.type, 'value') else event.type
+        try:
+            async with self._send_lock:
+                state = ws.client_state.name
+                if state == "CONNECTED":
+                    await ws.send_json(event.to_dict())
+                else:
+                    logger.debug(f"WebSocket not connected (state={state}), dropping {event_type}")
+        except Exception:
+            logger.debug(f"Failed to send WebSocket event {event_type} (socket closed)")
 
     async def request_tool_approval(
         self,

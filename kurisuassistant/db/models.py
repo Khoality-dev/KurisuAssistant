@@ -23,6 +23,7 @@ class User(Base):
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     personas = relationship("Persona", back_populates="user", cascade="all, delete-orphan")
     agents = relationship("Agent", back_populates="user", cascade="all, delete-orphan")
+    devices = relationship("Device", back_populates="user", cascade="all, delete-orphan")
 
 class Conversation(Base):
     __tablename__ = 'conversations'
@@ -154,6 +155,23 @@ class MCPServer(Base):
     __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_mcp_server_user_id_name'),)
 
     user = relationship("User")
+
+
+class Device(Base):
+    """Registered client device for multi-device tool access."""
+    __tablename__ = 'devices'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    name = Column(String, nullable=False)        # Display name (default: hostname, user-renameable)
+    hostname = Column(String, nullable=False)     # OS hostname (immutable, used for auto-matching)
+    platform = Column(String, nullable=False)     # "windows", "linux", "android", etc.
+    last_seen = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint('user_id', 'hostname', name='uq_device_user_hostname'),)
+
+    user = relationship("User", back_populates="devices")
 
 
 class FaceIdentity(Base):

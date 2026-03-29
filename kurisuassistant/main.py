@@ -25,6 +25,7 @@ from kurisuassistant.routers import (
     character_router,
     vision_router,
     skills_router,
+    devices_router,
 )
 from kurisuassistant.mcp_tools.orchestrator import init_orchestrator
 
@@ -124,6 +125,7 @@ app.include_router(character_router)
 app.include_router(vision_router)
 app.include_router(mcp_router)
 app.include_router(skills_router)
+app.include_router(devices_router)
 app.include_router(ws_router)
 
 
