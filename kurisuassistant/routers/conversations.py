@@ -124,6 +124,12 @@ async def get_conversation(
                         "updated_at": f.updated_at.isoformat() + "Z" if f.updated_at else None,
                     }
 
+            # Estimate system prompt tokens (word_count * 1.3)
+            from kurisuassistant.utils.prompts import build_system_messages
+            sys_msgs = build_system_messages(user.system_prompt or "", user.preferred_name)
+            sys_words = sum(len(m.get("content", "").split()) for m in sys_msgs)
+            system_prompt_token_count = int(sys_words * 1.3)
+
             return {
                 "id": conversation.id,
                 "messages": messages_array,
@@ -134,6 +140,9 @@ async def get_conversation(
                 "offset": offset,
                 "limit": limit,
                 "has_more": offset + len(messages_array) < total_messages,
+                "compacted_up_to_id": conversation.compacted_up_to_id or 0,
+                "compacted_context": conversation.compacted_context or "",
+                "system_prompt_token_count": system_prompt_token_count,
             }
 
         db = get_db_service()

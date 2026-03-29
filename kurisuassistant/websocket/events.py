@@ -215,6 +215,8 @@ class ContextInfoEvent(BaseEvent):
     type: EventType = field(default=EventType.CONTEXT_INFO)
     conversation_id: int = 0
     compacting: bool = False
+    compacted_up_to_id: int = 0
+    compacted_context: str = ""
 
 
 @dataclass

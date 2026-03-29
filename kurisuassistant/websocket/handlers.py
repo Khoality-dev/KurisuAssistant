@@ -292,7 +292,7 @@ class ChatSessionHandler:
                         logger.warning(f"Failed to save image: {e}")
 
             # Load context messages (compacted context + messages after watermark)
-            compacted_context, context_messages = self._load_context_messages(conversation_id)
+            compacted_context, compacted_up_to_id, context_messages = self._load_context_messages(conversation_id)
 
             # Build messages
             user_message = {"role": "user", "content": event.text}
@@ -319,12 +319,14 @@ class ChatSessionHandler:
                     summary_model, ollama_url, summary_provider, summary_api_key_for_compact,
                 )
                 # Reload — now only the current user message remains as recent
-                _, context_messages = self._load_context_messages(conversation_id)
+                compacted_context, compacted_up_to_id, context_messages = self._load_context_messages(conversation_id)
                 conversation_messages = system_messages + context_messages + [user_message]
                 token_count = self._estimate_tokens(conversation_messages)
-                # Notify client compaction done
+                # Notify client compaction done with updated watermark
                 await self.send_event(ContextInfoEvent(
                     conversation_id=conversation_id,
+                    compacted_up_to_id=compacted_up_to_id,
+                    compacted_context=compacted_context,
                 ))
 
             # Store for streaming token updates
@@ -513,13 +515,6 @@ class ChatSessionHandler:
         final_assistant_content = ""
 
         async for chunk in agent.process(messages, context):
-            # Capture raw input on first chunk
-            if raw_input_json is None:
-                raw_input_json = json.dumps(
-                    getattr(agent, 'last_prepared_messages', messages),
-                    ensure_ascii=False, default=str,
-                )
-
             # Accumulate response word count for token estimation (all content + thinking)
             if chunk.content:
                 self._response_word_count += len(chunk.content.split())
@@ -580,6 +575,13 @@ class ChatSessionHandler:
                 chunk_content += chunk.content
                 if chunk.thinking:
                     chunk_thinking += chunk.thinking
+
+        # Capture raw input after processing — includes all intermediate
+        # assistant + tool messages from the tool loop
+        raw_input_json = json.dumps(
+            getattr(agent, 'last_prepared_messages', messages),
+            ensure_ascii=False, default=str,
+        )
 
         # Save final message
         if chunk_content or chunk_thinking:
@@ -816,7 +818,7 @@ class ChatSessionHandler:
             return
 
         # Load current context
-        compacted_context, context_messages = self._load_context_messages(conversation_id)
+        compacted_context, compacted_up_to_id, context_messages = self._load_context_messages(conversation_id)
         context_limit = 8192  # default
         def _get_ctx(session):
             user = UserRepository(session).get_by_id(self.user_id)
@@ -840,9 +842,14 @@ class ChatSessionHandler:
             summary_model, ollama_url, summary_provider, summary_api_key,
         )
 
-        # Signal compaction done
+        # Reload to get updated watermark
+        compacted_context, compacted_up_to_id, _ = self._load_context_messages(conversation_id)
+
+        # Signal compaction done with updated watermark
         await self.send_event(ContextInfoEvent(
             conversation_id=conversation_id,
+            compacted_up_to_id=compacted_up_to_id,
+            compacted_context=compacted_context,
         ))
 
     async def _handle_vision_start(self, event: VisionStartEvent):
@@ -1046,12 +1053,13 @@ class ChatSessionHandler:
             if request.approval_id in self.pending_approvals:
                 del self.pending_approvals[request.approval_id]
 
-    def _load_context_messages(self, conversation_id: int) -> tuple[str, list]:
+    def _load_context_messages(self, conversation_id: int) -> tuple[str, int, list]:
         """Load compacted context and recent messages for a conversation.
 
         Returns:
-            Tuple of (compacted_context, messages_after_watermark).
+            Tuple of (compacted_context, compacted_up_to_id, messages_after_watermark).
             compacted_context is the rolling summary (empty string if none).
+            compacted_up_to_id is the message ID watermark.
             messages are all messages with id > compacted_up_to_id.
         """
         db = get_db_service()
@@ -1059,7 +1067,7 @@ class ChatSessionHandler:
         def _query(session):
             conv = session.query(Conversation).filter_by(id=conversation_id).first()
             if not conv:
-                return "", []
+                return "", 0, []
 
             compacted_context = conv.compacted_context or ""
             compacted_up_to_id = conv.compacted_up_to_id or 0
@@ -1087,7 +1095,7 @@ class ChatSessionHandler:
                 if msg.thinking:
                     entry["thinking"] = msg.thinking
                 result.append(entry)
-            return compacted_context, result
+            return compacted_context, compacted_up_to_id, result
 
         return db.execute_sync(_query)
 
