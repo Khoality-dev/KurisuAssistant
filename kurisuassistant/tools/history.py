@@ -1,6 +1,5 @@
 """Conversation history tools — read-only access to past sessions via DB."""
 
-import json
 import logging
 from typing import Dict, Any
 
@@ -58,7 +57,7 @@ class HistoryListTool(BaseTool):
 
         conversation_id = args.get("conversation_id")
         if not conversation_id:
-            return json.dumps({"error": "No conversation context available."})
+            return "Error: No conversation context available."
 
         limit = args.get("limit", 20)
 
@@ -80,24 +79,24 @@ class HistoryListTool(BaseTool):
                     .all()
                 )
 
-                return [
-                    {
-                        "frame_id": f.id,
-                        "summary": f.summary,
-                        "created_at": f.created_at.isoformat() + "Z" if f.created_at else None,
-                        "updated_at": f.updated_at.isoformat() + "Z" if f.updated_at else None,
-                        "message_count": f.message_count,
-                    }
-                    for f in frames
-                ]
+                if not frames:
+                    return "No past sessions found."
+
+                lines = []
+                for f in frames:
+                    created = f.created_at.strftime("%Y-%m-%d %H:%M") if f.created_at else "unknown"
+                    summary = f.summary or "(no summary)"
+                    lines.append(
+                        f"- **Session #{f.id}** ({created}, {f.message_count} messages): {summary}"
+                    )
+                return "\n".join(lines)
 
             db = get_db_service()
-            results = await db.execute(_query)
-            return json.dumps(results, ensure_ascii=False)
+            return await db.execute(_query)
 
         except Exception as e:
             logger.error("history_list failed: %s", e, exc_info=True)
-            return json.dumps({"error": f"Failed to list sessions: {e}"})
+            return f"Error: Failed to list sessions: {e}"
 
     def describe_call(self, args: Dict[str, Any]) -> str:
         limit = args.get("limit", 20)
@@ -146,29 +145,27 @@ class HistoryReadTool(BaseTool):
     async def execute(self, args: Dict[str, Any]) -> str:
         from kurisuassistant.db.service import get_db_service
         from kurisuassistant.db.models import Frame, Message
-        from kurisuassistant.db.repositories import MessageRepository
 
         conversation_id = args.get("conversation_id")
         if not conversation_id:
-            return json.dumps({"error": "No conversation context available."})
+            return "Error: No conversation context available."
 
         frame_id = args.get("frame_id")
         if not frame_id:
-            return json.dumps({"error": "frame_id is required."})
+            return "Error: frame_id is required."
 
         offset = args.get("offset", 0)
         limit = args.get("limit", 100)
 
         try:
             def _query(session):
-                # Verify frame belongs to this conversation
                 frame = (
                     session.query(Frame)
                     .filter(Frame.id == frame_id, Frame.conversation_id == conversation_id)
                     .first()
                 )
                 if not frame:
-                    return {"error": f"Session {frame_id} not found."}
+                    return f"Error: Session {frame_id} not found."
 
                 messages = (
                     session.query(Message)
@@ -181,32 +178,24 @@ class HistoryReadTool(BaseTool):
 
                 total = session.query(Message).filter(Message.frame_id == frame_id).count()
 
-                # Render as markdown-like text
                 lines = []
                 if frame.summary:
                     lines.append(f"**Summary**: {frame.summary}\n")
-
                 for msg in messages:
                     name = msg.name or msg.role.capitalize()
                     lines.append(f"**{name}**: {msg.message}")
 
-                result = {
-                    "content": "\n\n".join(lines),
-                    "total_messages": total,
-                }
+                result = "\n\n".join(lines)
                 if offset + limit < total:
-                    result["truncated"] = True
-                    result["next_offset"] = offset + limit
-
+                    result += f"\n\n*Showing {offset+1}–{offset+len(messages)} of {total} messages. Use offset={offset+limit} for more.*"
                 return result
 
             db = get_db_service()
-            result = await db.execute(_query)
-            return json.dumps(result, ensure_ascii=False)
+            return await db.execute(_query)
 
         except Exception as e:
             logger.error("history_read failed: %s", e, exc_info=True)
-            return json.dumps({"error": f"Failed to read session: {e}"})
+            return f"Error: Failed to read session: {e}"
 
     def describe_call(self, args: Dict[str, Any]) -> str:
         return f"Read session {args.get('frame_id')}"
@@ -261,7 +250,7 @@ class HistorySearchTool(BaseTool):
 
         conversation_id = args.get("conversation_id")
         if not conversation_id:
-            return json.dumps({"error": "No conversation context available."})
+            return "Error: No conversation context available."
 
         query = args.get("query", "")
         after = args.get("after")
@@ -269,7 +258,7 @@ class HistorySearchTool(BaseTool):
         limit = args.get("limit", 50)
 
         if not query:
-            return json.dumps({"error": "query is required."})
+            return "Error: query is required."
 
         try:
             def _search(session):
@@ -292,24 +281,23 @@ class HistorySearchTool(BaseTool):
 
                 messages = q.order_by(Message.created_at.desc()).limit(limit).all()
 
-                return [
-                    {
-                        "frame_id": msg.frame_id,
-                        "role": msg.role,
-                        "name": msg.name or msg.role.capitalize(),
-                        "snippet": msg.message[:200],
-                        "created_at": msg.created_at.isoformat() + "Z" if msg.created_at else None,
-                    }
-                    for msg in messages
-                ]
+                if not messages:
+                    return f"No results found for \"{query}\"."
+
+                lines = []
+                for msg in messages:
+                    name = msg.name or msg.role.capitalize()
+                    created = msg.created_at.strftime("%Y-%m-%d %H:%M") if msg.created_at else ""
+                    snippet = msg.message[:200]
+                    lines.append(f"- **{name}** (session #{msg.frame_id}, {created}): {snippet}")
+                return "\n".join(lines)
 
             db = get_db_service()
-            results = await db.execute(_search)
-            return json.dumps(results, ensure_ascii=False)
+            return await db.execute(_search)
 
         except Exception as e:
             logger.error("history_search failed: %s", e, exc_info=True)
-            return json.dumps({"error": f"Search failed: {e}"})
+            return f"Error: Search failed: {e}"
 
     def describe_call(self, args: Dict[str, Any]) -> str:
         parts = [f"query='{args.get('query')}'"]

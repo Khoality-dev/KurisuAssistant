@@ -103,40 +103,31 @@ class DeferredToolProxy:
         page = max(1, page)
 
         if page > total_pages:
-            return json.dumps({
-                "page": page,
-                "total_pages": total_pages,
-                "total_tools": total,
-                "tools": [],
-                "message": f"No more tools. Last page is {total_pages}.",
-            }, indent=2)
+            return f"No more tools. Last page is {total_pages}. ({total} tools total)"
 
         start = (page - 1) * PAGE_SIZE
         end = start + PAGE_SIZE
         items = catalog[start:end]
 
-        result = {
-            "page": page,
-            "total_pages": total_pages,
-            "total_tools": total,
-            "tools": [{"name": t["name"], "description": t["description"]} for t in items],
-        }
-        return json.dumps(result, indent=2)
+        lines = [f"**Tools** (page {page}/{total_pages}, {total} total)\n"]
+        for t in items:
+            lines.append(f"- **{t['name']}**: {t['description']}")
+        return "\n".join(lines)
 
     async def search_tools(self, query: str) -> str:
         """Search tools by keyword in name or description."""
         catalog = await self._build_catalog()
         query_lower = query.lower()
         matches = [
-            {"name": t["name"], "description": t["description"]}
-            for t in catalog
+            t for t in catalog
             if query_lower in t["name"].lower() or query_lower in t["description"].lower()
         ]
-        return json.dumps({
-            "query": query,
-            "count": len(matches),
-            "tools": matches,
-        }, indent=2)
+        if not matches:
+            return f"No tools found matching \"{query}\"."
+        lines = [f"**Search results for \"{query}\"** ({len(matches)} found)\n"]
+        for t in matches:
+            lines.append(f"- **{t['name']}**: {t['description']}")
+        return "\n".join(lines)
 
     async def get_tool_schema(self, name: str) -> str:
         """Return the full schema for a specific tool."""
@@ -167,7 +158,7 @@ class DeferredToolProxy:
             if fn.get("name") == name and _is_allowed(name):
                 return json.dumps(t, indent=2)
 
-        return json.dumps({"error": f"Tool not found: {name}"})
+        return f"Error: Tool not found: {name}"
 
     async def tool_exists(self, name: str) -> bool:
         """Check if a tool exists in the catalog."""
@@ -316,7 +307,7 @@ class CallToolTool(BaseTool):
 
     async def execute(self, args: Dict[str, Any]) -> str:
         # Execution is intercepted by BaseAgent.execute_tool() — this is a fallback
-        return json.dumps({"error": "call_tool must be executed through the agent"})
+        return "Error: call_tool must be executed through the agent"
 
 
 def create_deferred_tools(
