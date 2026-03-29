@@ -52,10 +52,11 @@ interface AgentFormData {
   system_prompt: string;
   model_name: string;
   think: boolean;
-  excluded_tools: string[];
+  available_tools: string[] | null;
   memory: string;
   memory_enabled: boolean;
   persona_id: number | null;
+  use_deferred_tools: boolean;
 }
 
 export const AgentsSection: React.FC = () => {
@@ -80,10 +81,11 @@ export const AgentsSection: React.FC = () => {
     system_prompt: '',
     model_name: '',
     think: false,
-    excluded_tools: [],
+    available_tools: null,
     memory: '',
     memory_enabled: true,
     persona_id: null,
+    use_deferred_tools: false,
   });
   const [personas, setPersonas] = useState<Persona[]>([]);
 
@@ -174,8 +176,9 @@ export const AgentsSection: React.FC = () => {
         model_name: modelName,
         provider_type: provider,
         think: formData.think,
-        excluded_tools: formData.excluded_tools.length > 0 ? formData.excluded_tools : undefined,
+        available_tools: formData.available_tools ?? undefined,
         persona_id: formData.persona_id || undefined,
+        use_deferred_tools: formData.use_deferred_tools || undefined,
       };
 
       const newAgent = await apiClient.createAgent(createData);
@@ -194,7 +197,7 @@ export const AgentsSection: React.FC = () => {
     if (!selectedAgent) return;
 
     try {
-      const toolsChanged = JSON.stringify(formData.excluded_tools) !== JSON.stringify(selectedAgent.excluded_tools || []);
+      const toolsChanged = JSON.stringify(formData.available_tools) !== JSON.stringify(selectedAgent.available_tools ?? null);
       const normalizedModelName = formData.model_name.trim();
       const updateData: AgentUpdate = {
         name: formData.name !== selectedAgent.name ? formData.name : undefined,
@@ -202,10 +205,11 @@ export const AgentsSection: React.FC = () => {
         model_name: normalizedModelName !== (selectedAgent.model_name || '') ? normalizedModelName : undefined,
         provider_type: models.find(m => m.name === normalizedModelName)?.provider || 'ollama',
         think: formData.think !== selectedAgent.think ? formData.think : undefined,
-        excluded_tools: toolsChanged ? formData.excluded_tools : undefined,
+        available_tools: toolsChanged ? formData.available_tools : undefined,
         memory: formData.memory !== (selectedAgent.memory || '') ? formData.memory : undefined,
         memory_enabled: formData.memory_enabled !== selectedAgent.memory_enabled ? formData.memory_enabled : undefined,
         persona_id: formData.persona_id !== selectedAgent.persona_id ? formData.persona_id : undefined,
+        use_deferred_tools: formData.use_deferred_tools !== selectedAgent.use_deferred_tools ? formData.use_deferred_tools : undefined,
       };
 
       // Only send fields that changed
@@ -275,10 +279,11 @@ export const AgentsSection: React.FC = () => {
       system_prompt: '',
       model_name: '',
       think: false,
-      excluded_tools: [],
+      available_tools: null,
       memory: '',
       memory_enabled: true,
       persona_id: null,
+      use_deferred_tools: false,
     });
     setSelectedAgent(null);
     setIsPromptEditorExpanded(false);
@@ -291,10 +296,11 @@ export const AgentsSection: React.FC = () => {
       system_prompt: agent.system_prompt || '',
       model_name: agent.model_name || '',
       think: agent.think,
-      excluded_tools: agent.excluded_tools || [],
+      available_tools: agent.available_tools ?? null,
       memory: agent.memory || '',
       memory_enabled: agent.memory_enabled,
       persona_id: agent.persona_id || null,
+      use_deferred_tools: agent.use_deferred_tools ?? false,
     });
     setIsPromptEditorExpanded(false);
     setEditDialogOpen(true);
@@ -594,8 +600,8 @@ export const AgentsSection: React.FC = () => {
               <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>Enabled Tools</Typography>
               <ToolGroupChecklist
                 groups={toolGroups}
-                excludedTools={formData.excluded_tools}
-                onChange={(excluded) => setFormData({ ...formData, excluded_tools: excluded })}
+                enabledTools={formData.available_tools}
+                onChange={(enabled) => setFormData({ ...formData, available_tools: enabled })}
               />
               <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
                 All tools enabled by default. Uncheck to disable for this agent.

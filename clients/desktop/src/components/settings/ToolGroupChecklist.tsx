@@ -94,13 +94,15 @@ export function buildToolGroups(tools: Tool[], mcpServerMap: Record<string, stri
 }
 
 // Grouped tool checklist component
+// enabledTools: allowlist of tool names (null = all enabled)
 export const ToolGroupChecklist: React.FC<{
   groups: ToolGroup[];
-  excludedTools: string[];
-  onChange: (excludedTools: string[]) => void;
-}> = ({ groups, excludedTools, onChange }) => {
+  enabledTools: string[] | null;
+  onChange: (enabledTools: string[] | null) => void;
+}> = ({ groups, enabledTools, onChange }) => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  const excludedSet = useMemo(() => new Set(excludedTools), [excludedTools]);
+  const allToolNames = useMemo(() => groups.flatMap(g => g.tools.map(t => t.function.name)), [groups]);
+  const enabledSet = useMemo(() => enabledTools ? new Set(enabledTools) : new Set(allToolNames), [enabledTools, allToolNames]);
 
   const toggleExpand = (groupName: string) => {
     setExpandedGroups(prev => {
@@ -112,30 +114,33 @@ export const ToolGroupChecklist: React.FC<{
   };
 
   const toggleTool = (toolName: string) => {
-    if (excludedSet.has(toolName)) {
-      onChange(excludedTools.filter(t => t !== toolName));
+    const current = new Set(enabledSet);
+    if (current.has(toolName)) {
+      current.delete(toolName);
     } else {
-      onChange([...excludedTools, toolName]);
+      current.add(toolName);
     }
+    // If all enabled, return null (= all)
+    onChange(current.size === allToolNames.length ? null : [...current]);
   };
 
   const toggleGroup = (group: ToolGroup) => {
     const toolNames = group.tools.map(t => t.function.name);
-    const allEnabled = toolNames.every(n => !excludedSet.has(n));
+    const allEnabled = toolNames.every(n => enabledSet.has(n));
+    const current = new Set(enabledSet);
     if (allEnabled) {
-      // Disable all in group
-      onChange([...excludedTools, ...toolNames.filter(n => !excludedSet.has(n))]);
+      toolNames.forEach(n => current.delete(n));
     } else {
-      // Enable all in group
-      onChange(excludedTools.filter(t => !toolNames.includes(t)));
+      toolNames.forEach(n => current.add(n));
     }
+    onChange(current.size === allToolNames.length ? null : [...current]);
   };
 
   return (
     <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
       {groups.map((group) => {
         const toolNames = group.tools.map(t => t.function.name);
-        const enabledCount = toolNames.filter(n => !excludedSet.has(n)).length;
+        const enabledCount = toolNames.filter(n => enabledSet.has(n)).length;
         const allEnabled = enabledCount === toolNames.length;
         const noneEnabled = enabledCount === 0;
         const isExpanded = expandedGroups.has(group.name);
@@ -174,7 +179,7 @@ export const ToolGroupChecklist: React.FC<{
             <Collapse in={isExpanded}>
               {group.tools.map((tool) => {
                 const name = tool.function.name;
-                const enabled = !excludedSet.has(name);
+                const enabled = enabledSet.has(name);
                 return (
                   <Box
                     key={name}

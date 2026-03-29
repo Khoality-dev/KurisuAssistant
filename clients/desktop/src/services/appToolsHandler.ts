@@ -45,7 +45,7 @@ async function handleGetAgents(): Promise<ToolResult> {
       preferred_name: a.persona.preferred_name,
       trigger_word: a.persona.trigger_word,
     } : null,
-    excluded_tools: a.excluded_tools,
+    available_tools: a.available_tools,
   })));
 }
 
@@ -71,7 +71,7 @@ async function handleUpdateAgent(args: Record<string, unknown>): Promise<ToolRes
   if (!agentId) return err('agent_id is required.');
 
   const update: Record<string, unknown> = {};
-  for (const key of ['name', 'system_prompt', 'model_name', 'excluded_tools', 'think', 'memory_enabled', 'persona_id']) {
+  for (const key of ['name', 'system_prompt', 'model_name', 'available_tools', 'think', 'memory_enabled', 'persona_id']) {
     if (args[key] !== undefined) update[key] = args[key];
   }
 

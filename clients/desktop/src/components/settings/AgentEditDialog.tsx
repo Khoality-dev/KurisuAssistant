@@ -41,10 +41,11 @@ interface AgentFormData {
   system_prompt: string;
   model_name: string;
   think: boolean;
-  excluded_tools: string[];
+  available_tools: string[] | null;
   memory: string;
   memory_enabled: boolean;
   persona_id: number | null;
+  use_deferred_tools: boolean;
 }
 
 interface AgentEditDialogProps {
@@ -248,12 +249,23 @@ export const AgentEditDialog: React.FC<AgentEditDialogProps> = ({
               <Box>
                 <ToolGroupChecklist
                   groups={toolGroups}
-                  excludedTools={formData.excluded_tools}
-                  onChange={(excluded) => setFormData({ ...formData, excluded_tools: excluded })}
+                  enabledTools={formData.available_tools}
+                  onChange={(enabled) => setFormData({ ...formData, available_tools: enabled })}
                 />
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
                   Uncheck tools this agent should not use.
                 </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, p: 2, borderRadius: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
+                <Box>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    Deferred Tools
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Only send tool names to the model. It discovers schemas on demand, preserving KV cache.
+                  </Typography>
+                </Box>
+                <Switch checked={formData.use_deferred_tools} onChange={(e) => setFormData({ ...formData, use_deferred_tools: e.target.checked })} />
               </Box>
               <Box sx={{ p: 2, borderRadius: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
