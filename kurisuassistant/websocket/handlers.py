@@ -103,6 +103,9 @@ class ChatSessionHandler:
         self._client_tool_names: set = set()
         self._pending_tool_calls: Dict[str, asyncio.Future] = {}
 
+        # Message queue — new requests queued while agent is running
+        self._message_queue: List[ChatRequestEvent] = []
+
         # Vision processing
         self._vision_processor: Optional[VisionProcessor] = None
         self._vision_config: Optional[dict] = None
@@ -207,18 +210,25 @@ class ChatSessionHandler:
             await self._handle_media_event(event)
 
     async def _handle_chat_request(self, event: ChatRequestEvent):
-        """Handle incoming chat request."""
-        # Cancel any existing task (force interrupt)
+        """Handle incoming chat request, queuing if agent is busy."""
         if self.current_task and not self.current_task.done():
-            self.current_task.cancel()
-            try:
-                await self.current_task
-            except asyncio.CancelledError:
-                pass
+            # Agent is busy — queue the message for later
+            self._message_queue.append(event)
+            logger.debug("Queued message (queue size: %d)", len(self._message_queue))
+            return
 
         self.current_task = asyncio.create_task(
             self._run_chat(event)
         )
+
+    def _process_queue(self):
+        """Start processing the next queued message, if any."""
+        if self._message_queue:
+            next_event = self._message_queue.pop(0)
+            logger.debug("Processing queued message (remaining: %d)", len(self._message_queue))
+            self.current_task = asyncio.create_task(
+                self._run_chat(next_event)
+            )
 
     async def _run_chat(self, event: ChatRequestEvent):
         """Run unified chat processing with Administrator routing.
@@ -466,6 +476,9 @@ class ChatSessionHandler:
                 frame_id=frame_id,
             ))
 
+            # Process next queued message if any
+            self._process_queue()
+
         except asyncio.CancelledError:
             logger.debug("Chat task cancelled by user")
         except WebSocketDisconnect:
@@ -476,6 +489,8 @@ class ChatSessionHandler:
                 error=str(e),
                 code="INTERNAL_ERROR",
             ))
+            # Process next queued message even after error
+            self._process_queue()
 
     async def _stream_and_save_agent(
         self,
@@ -788,7 +803,8 @@ class ChatSessionHandler:
                 future.set_result(event)
 
     async def _handle_cancel(self):
-        """Handle cancel request."""
+        """Handle cancel request — cancels current task and clears queue."""
+        self._message_queue.clear()
         if self.current_task and not self.current_task.done():
             self.current_task.cancel()
 
