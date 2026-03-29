@@ -195,7 +195,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     return Math.round((msgWords + contextWords) * 1.3);
   }, [messages, compactedUpToId, compactedContext]);
 
-  const tokenCount = streaming.contextTokens || estimatedTokens;
+  const tokenCount = estimatedTokens;
 
   // Message rendering
   const messageElements = useMemo(() => {
