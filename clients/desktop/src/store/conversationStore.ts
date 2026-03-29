@@ -13,6 +13,11 @@ interface ConversationState {
   messagesOffset: number;
   isLoadingMessages: boolean;
 
+  // Context window data
+  compactedUpToId: number;
+  compactedContext: string;
+  systemPromptTokenCount: number;
+
   loadConversation: (id: number) => Promise<void>;
   loadMoreMessages: () => Promise<void>;
   deleteConversation: (id: number) => Promise<void>;
@@ -20,6 +25,7 @@ interface ConversationState {
   addMessage: (message: Message) => void;
   updateLastMessage: (content: string, thinking?: string, role?: string, name?: string) => void;
   setCurrentConversationId: (id: number) => void;
+  updateCompactionData: (compactedUpToId: number, compactedContext: string) => void;
 }
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
@@ -33,6 +39,11 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   messagesOffset: 0,
   isLoadingMessages: false,
 
+  // Context window data
+  compactedUpToId: 0,
+  compactedContext: '',
+  systemPromptTokenCount: 0,
+
   loadConversation: async (id: number) => {
     const data = await apiClient.getConversation(id, 20, 0);
 
@@ -44,6 +55,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       hasMoreMessages: data.has_more,
       messagesOffset: data.limit,
       isLoadingMessages: false,
+      compactedUpToId: data.compacted_up_to_id ?? 0,
+      compactedContext: data.compacted_context ?? '',
+      systemPromptTokenCount: data.system_prompt_token_count ?? 0,
     });
   },
 
@@ -92,6 +106,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       hasMoreMessages: false,
       messagesOffset: 0,
       isLoadingMessages: false,
+      compactedUpToId: 0,
+      compactedContext: '',
+      systemPromptTokenCount: 0,
     });
   },
 
@@ -118,5 +135,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   setCurrentConversationId: (id: number) => {
     set({ currentConversation: { id, title: '', frame_count: 0, created_at: '', updated_at: '' } });
+  },
+
+  updateCompactionData: (compactedUpToId: number, compactedContext: string) => {
+    set({ compactedUpToId, compactedContext });
   },
 }));

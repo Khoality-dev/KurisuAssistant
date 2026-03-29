@@ -4,10 +4,18 @@ import {
   Typography,
   Snackbar,
   Alert,
+  ToggleButtonGroup,
+  ToggleButton,
+  Collapse,
+  Paper,
+  IconButton,
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 
 import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '../../store/conversationStore';
+import { useAuthStore } from '../../store/authStore';
 
 import { useTTS } from '../../hooks/useTTS';
 import { useVisionStore } from '../../store/visionStore';
@@ -37,6 +45,12 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     loadConversation,
     setCurrentConversationId,
   } = useConversationStore();
+  const { compactedUpToId, compactedContext, systemPromptTokenCount } = useConversationStore();
+  const contextSize = useAuthStore((s) => s.user?.context_size) || 8192;
+
+  // Display mode: "all" shows full history, "context" shows only LLM context window
+  const [displayMode, setDisplayMode] = useState<'all' | 'context'>('all');
+  const [contextBannerExpanded, setContextBannerExpanded] = useState(false);
 
   // Character panel hook
   const {
@@ -74,6 +88,12 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     amplitudeRef,
     pushAgentCharacterConfig,
   });
+
+  // Reset display mode on conversation change
+  useEffect(() => {
+    setDisplayMode('all');
+    setContextBannerExpanded(false);
+  }, [currentConversation?.id]);
 
   // Clear active speaker when TTS queue finishes playing
   useEffect(() => {
@@ -151,9 +171,27 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     setHostApproval(null);
   }, [hostApproval]);
 
+  // Filter messages based on display mode
+  const displayedMessages = useMemo(() => {
+    if (displayMode === 'context') {
+      return messages.filter(m => (m.id ?? Infinity) > compactedUpToId);
+    }
+    return messages;
+  }, [messages, displayMode, compactedUpToId]);
+
+  // Token count estimation (frontend-calculated)
+  const estimatedTokens = useMemo(() => {
+    const contextMsgs = messages.filter(m => (m.id ?? Infinity) > compactedUpToId);
+    const msgWords = contextMsgs.reduce((n, m) => n + (m.content?.split(/\s+/).length || 0), 0);
+    const contextWords = compactedContext ? compactedContext.split(/\s+/).length : 0;
+    return systemPromptTokenCount + Math.round((msgWords + contextWords) * 1.3);
+  }, [messages, compactedUpToId, compactedContext, systemPromptTokenCount]);
+
+  const tokenCount = streaming.contextTokens || estimatedTokens;
+
   // Message rendering
   const messageElements = useMemo(() => {
-    const combined = [...messages, ...streaming.streamingMessages];
+    const combined = [...displayedMessages, ...streaming.streamingMessages];
     const activeStreamingMsg = streaming.isStreaming && streaming.streamingMessages.length > 0
       ? streaming.streamingMessages[streaming.streamingMessages.length - 1]
       : null;
@@ -196,7 +234,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
     return elements;
   }, [
-    messages,
+    displayedMessages,
     streaming.streamingMessages,
     streaming.isStreaming,
     frames,
@@ -221,7 +259,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         minWidth: 0,
       }}
     >
-      {isLoadingMessages && (
+      {isLoadingMessages && displayMode === 'all' && (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
           <Typography variant="body2" color="text.secondary">
             Loading earlier messages...
@@ -229,17 +267,59 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         </Box>
       )}
 
+      {displayMode === 'context' && compactedContext && (
+        <Paper variant="outlined" sx={{ mx: 1, mb: 2, p: 1.5, bgcolor: 'action.hover', borderStyle: 'dashed' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>
+              Context Summary
+            </Typography>
+            <IconButton size="small" onClick={() => setContextBannerExpanded(v => !v)}>
+              {contextBannerExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+            </IconButton>
+          </Box>
+          <Collapse in={contextBannerExpanded}>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, whiteSpace: 'pre-wrap' }}>
+              {compactedContext}
+            </Typography>
+          </Collapse>
+          {!contextBannerExpanded && (
+            <Typography variant="body2" color="text.secondary" noWrap>
+              {compactedContext.slice(0, 150)}{compactedContext.length > 150 ? '...' : ''}
+            </Typography>
+          )}
+        </Paper>
+      )}
+
       <AnimatePresence>
         {messageElements}
       </AnimatePresence>
       <div ref={streaming.messagesEndRef} />
     </Box>
-  ), [isLoadingMessages, messageElements]);
+  ), [isLoadingMessages, messageElements, displayMode, compactedContext, contextBannerExpanded]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%' }}>
 
       {messagesPane}
+
+      {/* Display mode toggle + token usage */}
+      {currentConversation && (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 0.5 }}>
+          <ToggleButtonGroup
+            value={displayMode}
+            exclusive
+            onChange={(_, v) => v && setDisplayMode(v)}
+            size="small"
+            sx={{ '& .MuiToggleButton-root': { px: 1.5, py: 0.25, fontSize: '0.7rem', textTransform: 'none' } }}
+          >
+            <ToggleButton value="all">All</ToggleButton>
+            <ToggleButton value="context">Context</ToggleButton>
+          </ToggleButtonGroup>
+          <Typography variant="caption" color="text.secondary">
+            {tokenCount.toLocaleString()} / {contextSize.toLocaleString()} tokens
+          </Typography>
+        </Box>
+      )}
 
       {/* Selection context chips — above input */}
       <SelectionChips />

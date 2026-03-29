@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, ConnectedEvent, ToolApprovalRequestEvent, ContextInfoEvent } from '../api/websocket';
+import { useConversationStore } from '../store/conversationStore';
 import { storage } from '../utils/storage';
 import { stripNarration, fileToBase64 } from '../utils/chat';
 import { useExplorerStore } from '../store/explorerStore';
@@ -502,6 +503,12 @@ export function useStreamingChat({
     const onApproval = (e: ToolApprovalRequestEvent) => setPendingApproval(e);
     const onContextInfo = (e: ContextInfoEvent) => {
       setIsCompacting(e.compacting);
+      if (!e.compacting && e.compacted_up_to_id) {
+        useConversationStore.getState().updateCompactionData(
+          e.compacted_up_to_id,
+          e.compacted_context ?? '',
+        );
+      }
     };
 
     wsManager.on('stream_chunk', onChunk);
