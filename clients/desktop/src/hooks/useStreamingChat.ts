@@ -675,8 +675,9 @@ export function useStreamingChat({
     if (!text.trim() || isStreaming) return;
     const trimmed = text.trim();
 
-    // Handle slash commands (e.g. /compact)
-    if (trimmed.startsWith('/') && handleCommand(trimmed, { activeConversationId, agentId })) {
+    // Slash commands are always client-side — never send to backend
+    if (trimmed.startsWith('/')) {
+      handleCommand(trimmed, { activeConversationId, agentId });
       return;
     }
 
