@@ -7,16 +7,12 @@ import {
   ChatBubble as ChatFilledIcon,
   SettingsOutlined as SettingsIcon,
   Settings as SettingsFilledIcon,
-  Phone as PhoneIcon,
-  PhoneDisabled as PhoneDisabledIcon,
-  Face as FaceIcon,
   Logout as LogoutIcon,
 } from '@mui/icons-material';
 import { useLayoutStore, type ActivePage } from '../../store/layoutStore';
 import { useConnectionStatus } from '../../hooks/useConnectionStatus';
 import { wsManager } from '../../api/websocket';
 import { useAuthStore } from '../../store/authStore';
-import { useMicStore } from '../../store/micStore';
 
 interface NavItem {
   id: ActivePage;
@@ -31,14 +27,10 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'settings', label: 'Settings', icon: <SettingsIcon />, activeIcon: <SettingsFilledIcon /> },
 ];
 
-export const ActivityBar: React.FC<{
-  characterVisible: boolean;
-  onToggleCharacter: () => void;
-}> = ({ characterVisible, onToggleCharacter }) => {
+export const ActivityBar: React.FC = () => {
   const { activePage, setActivePage } = useLayoutStore();
   const connectionStatus = useConnectionStatus();
   const { logout } = useAuthStore();
-  const { interactiveMode, enableInteractiveMode, disableInteractiveMode } = useMicStore();
 
   const statusColor = connectionStatus === 'connected' ? 'success.main'
     : connectionStatus === 'connecting' ? 'warning.main' : 'error.main';
@@ -113,36 +105,6 @@ export const ActivityBar: React.FC<{
                 transition: 'all 300ms ease',
               }}
             />
-          </IconButton>
-        </Tooltip>
-
-        {/* Character toggle */}
-        <Tooltip title={characterVisible ? 'Hide Character' : 'Show Character'} placement="right">
-          <IconButton
-            size="small"
-            onClick={onToggleCharacter}
-            sx={{
-              color: characterVisible ? 'info.main' : 'text.secondary',
-              opacity: characterVisible ? 1 : 0.6,
-              '&:hover': { opacity: 1 },
-            }}
-          >
-            <FaceIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-
-        {/* Interactive mode toggle */}
-        <Tooltip title={interactiveMode ? 'End Call' : 'Start Call'} placement="right">
-          <IconButton
-            size="small"
-            onClick={() => interactiveMode ? disableInteractiveMode() : enableInteractiveMode()}
-            sx={{
-              color: interactiveMode ? 'error.main' : 'text.secondary',
-              opacity: interactiveMode ? 1 : 0.6,
-              '&:hover': { opacity: 1 },
-            }}
-          >
-            {interactiveMode ? <PhoneDisabledIcon fontSize="small" /> : <PhoneIcon fontSize="small" />}
           </IconButton>
         </Tooltip>
 

@@ -1,15 +1,21 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Box, Typography, IconButton, Tooltip } from '@mui/material';
 import {
   Refresh as RefreshIcon,
   Delete as DeleteIcon,
+  Face as FaceIcon,
+  Phone as PhoneIcon,
+  PhoneDisabled as PhoneDisabledIcon,
 } from '@mui/icons-material';
 import { useConversationStore } from '../../store/conversationStore';
+import { useMicStore } from '../../store/micStore';
 import { ChatWidget } from '../chat/ChatWidget';
 import { MediaPlayerBar } from '../MediaPlayerBar';
 
 export const ChatPanel: React.FC = () => {
   const { currentConversation, deleteConversation } = useConversationStore();
+  const { interactiveMode, enableInteractiveMode, disableInteractiveMode } = useMicStore();
+  const [characterVisible, setCharacterVisible] = useState(false);
 
   const handleRefresh = () => {
     if (currentConversation?.id) {
@@ -51,6 +57,24 @@ export const ChatPanel: React.FC = () => {
           Chat
         </Typography>
 
+        <Tooltip title={interactiveMode ? 'End Call' : 'Start Call'}>
+          <IconButton
+            size="small"
+            onClick={() => interactiveMode ? disableInteractiveMode() : enableInteractiveMode()}
+            sx={{ color: interactiveMode ? 'error.main' : 'text.secondary' }}
+          >
+            {interactiveMode ? <PhoneDisabledIcon fontSize="small" /> : <PhoneIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
+        <Tooltip title={characterVisible ? 'Hide Character' : 'Show Character'}>
+          <IconButton
+            size="small"
+            onClick={() => setCharacterVisible(v => !v)}
+            sx={{ color: characterVisible ? 'info.main' : 'text.secondary' }}
+          >
+            <FaceIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
         <Tooltip title="Refresh">
           <IconButton size="small" onClick={handleRefresh} sx={{ color: 'text.secondary' }}>
             <RefreshIcon fontSize="small" />
@@ -69,7 +93,7 @@ export const ChatPanel: React.FC = () => {
 
       {/* Chat */}
       <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', minWidth: 0 }}>
-        <ChatWidget />
+        <ChatWidget characterWindowOpen={characterVisible} />
       </Box>
 
       {/* Media player */}
