@@ -299,6 +299,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           onToggleThinking={streaming.toggleThinking}
           onResend={isCompacted ? undefined : streaming.handleResend}
           onDelete={streaming.handleDelete}
+          searchHighlight={isSearchMatch ? searchQuery : undefined}
           ttsRef={ttsRef}
         />
         </Box>

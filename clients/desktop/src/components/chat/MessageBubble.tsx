@@ -35,6 +35,7 @@ interface MessageBubbleProps {
   onRegenerate?: (messageIndex: number) => void;
   onResend?: (messageIndex: number) => void;
   onDelete?: (messageIndex: number) => void;
+  searchHighlight?: string;
   ttsRef: React.RefObject<{ speak: (text: string, voice?: string, language?: string, backend?: string, emotionParams?: { emo_audio?: string; emo_alpha?: number; use_emo_text?: boolean }) => Promise<void>; stopTTS: () => void; isTTSPlaying: boolean; setActiveAgentForTTS: (agentId: number | null) => void }>;
 }
 
@@ -54,6 +55,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   onRegenerate,
   onResend,
   onDelete,
+  searchHighlight,
   ttsRef,
 }) => {
   const isStreamingThisMessage = isLast && message.role !== 'user' && isStreaming;
@@ -419,6 +421,27 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
               <>
                 <ReactMarkdown
                   components={{
+                    text: ({ children }) => {
+                      if (!searchHighlight || typeof children !== 'string') return <>{children}</>;
+                      const text = children;
+                      const query = searchHighlight.toLowerCase();
+                      const parts: React.ReactNode[] = [];
+                      let lastIdx = 0;
+                      let lower = text.toLowerCase();
+                      let pos = lower.indexOf(query);
+                      while (pos !== -1) {
+                        if (pos > lastIdx) parts.push(text.slice(lastIdx, pos));
+                        parts.push(
+                          <Box component="mark" key={pos} sx={{ bgcolor: 'warning.light', color: 'warning.contrastText', borderRadius: 0.5, px: 0.25 }}>
+                            {text.slice(pos, pos + query.length)}
+                          </Box>
+                        );
+                        lastIdx = pos + query.length;
+                        pos = lower.indexOf(query, lastIdx);
+                      }
+                      if (lastIdx < text.length) parts.push(text.slice(lastIdx));
+                      return <>{parts}</>;
+                    },
                     pre: ({ children }) => (
                       <Box
                         component="pre"
@@ -580,6 +603,7 @@ function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubbl
     prev.onToggleThinking === next.onToggleThinking &&
     prev.onRegenerate === next.onRegenerate &&
     prev.consecutive === next.consecutive &&
+    prev.searchHighlight === next.searchHighlight &&
     prev.onResend === next.onResend &&
     prev.onDelete === next.onDelete &&
     prev.ttsRef === next.ttsRef
