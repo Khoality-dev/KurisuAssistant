@@ -68,6 +68,7 @@ export interface StreamChunkEvent extends BaseEvent {
   model_name: string | null;
   provider_type: string | null;
   tool_args: Record<string, unknown> | null;
+  tool_status: string | null;  // "success" | "error" | "denied"
   conversation_id: number;
   frame_id: number;
   images: string[] | null;

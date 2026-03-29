@@ -209,8 +209,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
     }
     switch (message.role) {
       case 'tool': {
-        const lc = message.content.toLowerCase();
-        const isError = message.content.startsWith('Error:') || lc.includes('error') || lc.includes('rejected') || lc.includes('denied') || lc.includes('not available') || lc.includes('not found') || lc.includes('failed');
+        const isError = message.tool_status === 'error' || message.tool_status === 'denied';
         if (isError) {
           return {
             bg: isDark ? '#2A0000' : '#FFF0F0',

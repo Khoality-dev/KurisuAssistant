@@ -294,6 +294,7 @@ export function useStreamingChat({
           model_name: event.model_name || undefined,
           provider_type: event.provider_type || undefined,
           tool_args: event.tool_args || undefined,
+          tool_status: event.tool_status || undefined,
         });
         return updated;
       });
@@ -337,6 +338,7 @@ export function useStreamingChat({
               model_name: event.model_name || undefined,
               provider_type: event.provider_type || undefined,
               tool_args: event.tool_args || undefined,
+              tool_status: event.tool_status || undefined,
             };
           }
           return updated;
@@ -353,6 +355,7 @@ export function useStreamingChat({
           model_name: event.model_name || undefined,
           provider_type: event.provider_type || undefined,
           tool_args: event.tool_args || undefined,
+          tool_status: event.tool_status || undefined,
         }]);
       }
 

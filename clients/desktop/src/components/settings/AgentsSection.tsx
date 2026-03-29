@@ -56,6 +56,7 @@ interface AgentFormData {
   memory: string;
   memory_enabled: boolean;
   persona_id: number | null;
+  use_deferred_tools: boolean;
 }
 
 export const AgentsSection: React.FC = () => {
@@ -84,6 +85,7 @@ export const AgentsSection: React.FC = () => {
     memory: '',
     memory_enabled: true,
     persona_id: null,
+    use_deferred_tools: false,
   });
   const [personas, setPersonas] = useState<Persona[]>([]);
 
@@ -176,6 +178,7 @@ export const AgentsSection: React.FC = () => {
         think: formData.think,
         excluded_tools: formData.excluded_tools.length > 0 ? formData.excluded_tools : undefined,
         persona_id: formData.persona_id || undefined,
+        use_deferred_tools: formData.use_deferred_tools || undefined,
       };
 
       const newAgent = await apiClient.createAgent(createData);
@@ -206,6 +209,7 @@ export const AgentsSection: React.FC = () => {
         memory: formData.memory !== (selectedAgent.memory || '') ? formData.memory : undefined,
         memory_enabled: formData.memory_enabled !== selectedAgent.memory_enabled ? formData.memory_enabled : undefined,
         persona_id: formData.persona_id !== selectedAgent.persona_id ? formData.persona_id : undefined,
+        use_deferred_tools: formData.use_deferred_tools !== selectedAgent.use_deferred_tools ? formData.use_deferred_tools : undefined,
       };
 
       // Only send fields that changed
@@ -279,6 +283,7 @@ export const AgentsSection: React.FC = () => {
       memory: '',
       memory_enabled: true,
       persona_id: null,
+      use_deferred_tools: false,
     });
     setSelectedAgent(null);
     setIsPromptEditorExpanded(false);
@@ -295,6 +300,7 @@ export const AgentsSection: React.FC = () => {
       memory: agent.memory || '',
       memory_enabled: agent.memory_enabled,
       persona_id: agent.persona_id || null,
+      use_deferred_tools: agent.use_deferred_tools ?? false,
     });
     setIsPromptEditorExpanded(false);
     setEditDialogOpen(true);

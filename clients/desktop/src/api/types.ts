@@ -30,6 +30,7 @@ export interface Message {
   model_name?: string; // LLM model that generated this message
   provider_type?: string; // LLM provider (ollama, gemini)
   tool_args?: Record<string, unknown>; // Tool input arguments (for tool role messages)
+  tool_status?: string; // "success" | "error" | "denied" (from backend)
   queued?: boolean; // Queued message waiting to be processed
 }
 
@@ -151,6 +152,7 @@ export interface Agent {
   memory_enabled: boolean;
   enabled: boolean;
   is_system: boolean;
+  use_deferred_tools: boolean;
   persona_id: number | null;
   persona: Persona | null;
 }
@@ -191,6 +193,7 @@ export interface AgentCreate {
   excluded_tools?: string[];
   think?: boolean;
   persona_id?: number;
+  use_deferred_tools?: boolean;
 }
 
 export interface AgentUpdate {
@@ -203,6 +206,7 @@ export interface AgentUpdate {
   memory?: string;
   memory_enabled?: boolean;
   persona_id?: number | null;
+  use_deferred_tools?: boolean;
 }
 
 // MCP Server types
