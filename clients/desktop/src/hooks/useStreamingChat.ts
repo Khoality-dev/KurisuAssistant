@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, ConnectedEvent, ToolApprovalRequestEvent, ContextInfoEvent } from '../api/websocket';
+import { useConversationStore } from '../store/conversationStore';
 import { storage } from '../utils/storage';
 import { stripNarration, fileToBase64 } from '../utils/chat';
 import { useExplorerStore } from '../store/explorerStore';
@@ -36,6 +37,8 @@ export interface UseStreamingChatReturn {
   activeConversationId: number | null;
   errorToast: string | null;
   setErrorToast: (v: string | null) => void;
+  infoToast: string | null;
+  setInfoToast: (v: string | null) => void;
   externalDraft: string;
   externalDraftVersion: number;
   pushExternalDraft: (text: string) => void;
@@ -81,6 +84,7 @@ export function useStreamingChat({
     currentConversation?.id || null
   );
   const [errorToast, setErrorToast] = useState<string | null>(null);
+  const [infoToast, setInfoToast] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<ToolApprovalRequestEvent | null>(null);
   const [contextTokens, setContextTokens] = useState(0);
   const [isCompacting, setIsCompacting] = useState(false);
@@ -380,9 +384,10 @@ export function useStreamingChat({
       amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
     }
 
-    // Update running token count from server
+    // Update running token count from server and persist to store
     if (event.token_count != null) {
       setContextTokens(event.token_count);
+      useConversationStore.getState().setLastTokenCount(event.token_count);
     }
 
     // Streaming TTS auto-play: feed complete sentences to TTS queue
@@ -502,6 +507,19 @@ export function useStreamingChat({
     const onApproval = (e: ToolApprovalRequestEvent) => setPendingApproval(e);
     const onContextInfo = (e: ContextInfoEvent) => {
       setIsCompacting(e.compacting);
+      if (!e.compacting) {
+        if (e.compacted_up_to_id) {
+          useConversationStore.getState().updateCompactionData(
+            e.compacted_up_to_id,
+            e.compacted_context ?? '',
+          );
+        }
+        // Reload conversation to refresh compaction data from API
+        const convId = useConversationStore.getState().currentConversation?.id;
+        if (convId) {
+          useConversationStore.getState().loadConversation(convId);
+        }
+      }
     };
 
     wsManager.on('stream_chunk', onChunk);
@@ -661,8 +679,10 @@ export function useStreamingChat({
     if (!text.trim() || isStreaming) return;
     const trimmed = text.trim();
 
-    // Handle slash commands (e.g. /compact)
-    if (trimmed.startsWith('/') && handleCommand(trimmed, { activeConversationId, agentId })) {
+    // Slash commands are always client-side — never send to backend
+    if (trimmed.startsWith('/')) {
+      const feedback = await handleCommand(trimmed, { activeConversationId, agentId });
+      if (feedback) setInfoToast(feedback);
       return;
     }
 
@@ -785,6 +805,8 @@ export function useStreamingChat({
     activeConversationId,
     errorToast,
     setErrorToast,
+    infoToast,
+    setInfoToast,
     externalDraft,
     externalDraftVersion,
     pushExternalDraft,

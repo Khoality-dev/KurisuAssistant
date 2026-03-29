@@ -15,7 +15,7 @@ export interface CommandContext {
 interface Command {
   name: string;
   description: string;
-  execute: (args: string, ctx: CommandContext) => void;
+  execute: (args: string, ctx: CommandContext) => Promise<string> | string;
 }
 
 const commands: Command[] = [
@@ -25,27 +25,47 @@ const commands: Command[] = [
     execute: (_args, ctx) => {
       if (ctx.activeConversationId) {
         wsManager.send({ type: 'compact_context', conversation_id: ctx.activeConversationId });
+        return 'Compacting context...';
       }
+      return 'No active conversation';
+    },
+  },
+  {
+    name: 'clear',
+    description: 'Clear the current conversation',
+    execute: async (_args, ctx) => {
+      if (ctx.activeConversationId) {
+        const { useConversationStore } = await import('../store/conversationStore');
+        const { storage } = await import('./storage');
+        const convStore = useConversationStore.getState();
+        await convStore.deleteConversation(ctx.activeConversationId);
+        if (ctx.agentId) {
+          storage.clearAgentConversationId(ctx.agentId);
+        } else {
+          storage.clearAgentConversationId('group');
+        }
+        return 'Conversation cleared';
+      }
+      return 'No active conversation';
     },
   },
 ];
 
 /**
  * Try to handle text as a slash command.
- * Returns true if the text was a command (handled), false otherwise.
+ * Returns feedback message if handled, null if not a command.
  */
-export function handleCommand(text: string, ctx: CommandContext): boolean {
-  if (!text.startsWith('/')) return false;
+export async function handleCommand(text: string, ctx: CommandContext): Promise<string | null> {
+  if (!text.startsWith('/')) return null;
 
   const spaceIdx = text.indexOf(' ');
   const name = (spaceIdx === -1 ? text.slice(1) : text.slice(1, spaceIdx)).toLowerCase();
   const args = spaceIdx === -1 ? '' : text.slice(spaceIdx + 1).trim();
 
   const cmd = commands.find((c) => c.name === name);
-  if (!cmd) return false;
+  if (!cmd) return null;
 
-  cmd.execute(args, ctx);
-  return true;
+  return await cmd.execute(args, ctx);
 }
 
 /** Get all registered commands (for autocomplete/help). */

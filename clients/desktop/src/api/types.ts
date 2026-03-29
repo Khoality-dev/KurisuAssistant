@@ -70,6 +70,9 @@ export interface ConversationDetail {
   offset: number;
   limit: number;
   has_more: boolean;
+  compacted_up_to_id: number;
+  compacted_context: string;
+  system_prompt_token_count: number;
 }
 
 export interface UserProfile {

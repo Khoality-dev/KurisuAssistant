@@ -82,6 +82,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
   const [input, setInput] = useState('');
   const [images, setImages] = useState<File[]>([]);
   const [commandIdx, setCommandIdx] = useState(-1);
+  const [commandSelected, setCommandSelected] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textFieldRef = useRef<HTMLDivElement>(null);
 
@@ -94,7 +95,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
     return allCommands.filter((c) => c.name.startsWith(query));
   }, [input, allCommands]);
 
-  const showCommands = filteredCommands.length > 0 && !isStreaming;
+  const showCommands = filteredCommands.length > 0 && !isStreaming && !commandSelected;
 
   useEffect(() => {
     setInput('');
@@ -127,6 +128,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
   const selectCommand = useCallback((name: string) => {
     setInput(`/${name}`);
     setCommandIdx(-1);
+    setCommandSelected(true);
   }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -141,9 +143,10 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
         setCommandIdx((prev) => Math.max(prev - 1, -1));
         return;
       }
-      if ((e.key === 'Tab' || e.key === 'Enter') && commandIdx >= 0) {
+      if (e.key === 'Tab' || e.key === 'Enter') {
         e.preventDefault();
-        selectCommand(filteredCommands[commandIdx].name);
+        const idx = commandIdx >= 0 ? commandIdx : 0;
+        selectCommand(filteredCommands[idx].name);
         return;
       }
     }
@@ -282,7 +285,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
           multiline
           maxRows={4}
           value={input}
-          onChange={(e) => { setInput(e.target.value); setCommandIdx(-1); }}
+          onChange={(e) => { setInput(e.target.value); setCommandIdx(-1); setCommandSelected(false); }}
           onKeyDown={handleKeyDown}
           placeholder="Type your message..."
           disabled={isStreaming}

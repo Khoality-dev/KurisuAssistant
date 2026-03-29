@@ -166,6 +166,8 @@ export interface ContextInfoEvent extends BaseEvent {
   type: 'context_info';
   conversation_id: number;
   compacting: boolean;
+  compacted_up_to_id: number;
+  compacted_context: string;
 }
 
 export interface ConnectedEvent extends BaseEvent {
