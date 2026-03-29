@@ -557,6 +557,7 @@ class ChatSessionHandler:
         raw_input_json = None
         current_tool_args_json = None
         current_tool_args = None
+        current_tool_status = None
         route_result = None
         final_assistant_content = ""
 
@@ -599,6 +600,7 @@ class ChatSessionHandler:
                         "model_name": chunk.model_name if current_role == "assistant" else None,
                         "provider_type": chunk.provider_type if current_role == "assistant" else None,
                         "tool_args": current_tool_args if current_role == "tool" else None,
+                        "tool_status": current_tool_status if current_role == "tool" else None,
                     }
                     self._save_message(completed_msg, frame_id)
                     # Add to conversation history so Administrator sees sub-agent responses
@@ -617,6 +619,7 @@ class ChatSessionHandler:
                 current_images = []
                 current_tool_args_json = json.dumps(chunk.tool_args, ensure_ascii=False) if chunk.tool_args else None
                 current_tool_args = chunk.tool_args if chunk.tool_args else None
+                current_tool_status = chunk.tool_status if chunk.tool_status else None
             else:
                 chunk_content += chunk.content
                 if chunk.thinking:
@@ -644,6 +647,7 @@ class ChatSessionHandler:
                 "model_name": chunk.model_name if current_role == "assistant" else None,
                 "provider_type": chunk.provider_type if current_role == "assistant" else None,
                 "tool_args": current_tool_args if current_role == "tool" else None,
+                "tool_status": current_tool_status if current_role == "tool" else None,
             }
             self._save_message(completed_msg, frame_id)
             conversation_messages.append({
@@ -784,12 +788,13 @@ class ChatSessionHandler:
             system_prompt=agent.system_prompt or "",
             model_name=agent.model_name,
             provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
-            excluded_tools=agent.excluded_tools,
+            available_tools=agent.available_tools,
             think=agent.think,
             memory=agent.memory,
             memory_enabled=agent.memory_enabled,
             enabled=agent.enabled,
             is_system=agent.is_system,
+            use_deferred_tools=getattr(agent, 'use_deferred_tools', False),
             persona_id=agent.persona.id if agent.persona else None,
             persona_name=agent.persona.name if agent.persona else agent.name,
             persona_system_prompt=agent.persona.system_prompt if agent.persona else "",
@@ -1287,4 +1292,5 @@ class ChatSessionHandler:
             model_name=msg.get("model_name"),
             provider_type=msg.get("provider_type"),
             tool_args=msg.get("tool_args"),
+            tool_status=msg.get("tool_status"),
         ))

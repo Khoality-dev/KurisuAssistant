@@ -44,11 +44,11 @@ class ToolRegistry:
         """
         return self._tools.get(name)
 
-    def get_schemas(self, excluded_tools: Optional[List[str]] = None) -> List[Dict]:
+    def get_schemas(self, available_tools: Optional[set] = None) -> List[Dict]:
         """Get Ollama-compatible schemas for native tools.
 
         Args:
-            excluded_tools: List of tool names to exclude, or None for all
+            available_tools: Set of allowed tool names, or None for all
 
         Returns:
             List of tool schemas
@@ -56,7 +56,7 @@ class ToolRegistry:
         schemas = []
 
         for name, tool in self._tools.items():
-            if excluded_tools and name in excluded_tools and not tool.built_in:
+            if available_tools is not None and name not in available_tools and not tool.built_in:
                 continue
             schemas.append(tool.get_schema())
 

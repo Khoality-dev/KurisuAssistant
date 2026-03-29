@@ -162,6 +162,7 @@ class StreamChunkEvent(BaseEvent):
     conversation_id: int = 0
     frame_id: int = 0
     tool_args: Optional[Dict[str, Any]] = None  # Tool input params (for tool role messages)
+    tool_status: Optional[str] = None  # "success" | "error" | "denied" (for tool role messages)
     images: Optional[List[str]] = None  # Image UUIDs
     model_name: Optional[str] = None  # LLM model used
     provider_type: Optional[str] = None  # LLM provider used

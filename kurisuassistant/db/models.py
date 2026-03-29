@@ -64,6 +64,7 @@ class Message(Base):
     model_name = Column(String, nullable=True)  # LLM model that generated this message
     provider_type = Column(String, nullable=True)  # LLM provider (ollama, gemini)
     tool_args = Column(JSON, nullable=True)  # Tool input arguments (for tool role messages)
+    tool_status = Column(String, nullable=True)  # "success" | "error" | "denied"
     images = Column(JSON, nullable=True)  # List of image UUIDs attached to this message
     frame_id = Column(Integer, ForeignKey('frames.id', ondelete='CASCADE'), index=True)
     agent_id = Column(Integer, ForeignKey('agents.id', ondelete='SET NULL'), nullable=True)  # Which agent sent this message
@@ -106,12 +107,13 @@ class Agent(Base):
     system_prompt = Column(Text, default='')  # Role instructions
     model_name = Column(String, nullable=True)  # LLM model override
     provider_type = Column(String, default='ollama', nullable=False)  # LLM provider
-    excluded_tools = Column(JSON, nullable=True)  # List of tool names to exclude
+    available_tools = Column(JSON, nullable=True)  # Allowlist of tool names (null = all)
     think = Column(Boolean, default=False, nullable=False)  # Enable extended reasoning
     memory = Column(Text, nullable=True)  # Free-form persistent memory (markdown)
     memory_enabled = Column(Boolean, default=True, nullable=False)  # Enable memory injection + consolidation
     enabled = Column(Boolean, default=True, nullable=False)  # Whether agent is active
     is_system = Column(Boolean, default=False, nullable=False)  # Built-in system agent
+    use_deferred_tools = Column(Boolean, default=False, nullable=False)  # Use meta-tools for KV cache stability
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_agent_user_id_name'),)
