@@ -82,6 +82,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
   const [input, setInput] = useState('');
   const [images, setImages] = useState<File[]>([]);
   const [commandIdx, setCommandIdx] = useState(-1);
+  const [commandSelected, setCommandSelected] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textFieldRef = useRef<HTMLDivElement>(null);
 
@@ -94,7 +95,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
     return allCommands.filter((c) => c.name.startsWith(query));
   }, [input, allCommands]);
 
-  const showCommands = filteredCommands.length > 0 && !isStreaming;
+  const showCommands = filteredCommands.length > 0 && !isStreaming && !commandSelected;
 
   useEffect(() => {
     setInput('');
@@ -127,6 +128,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
   const selectCommand = useCallback((name: string) => {
     setInput(`/${name}`);
     setCommandIdx(-1);
+    setCommandSelected(true);
   }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -282,7 +284,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
           multiline
           maxRows={4}
           value={input}
-          onChange={(e) => { setInput(e.target.value); setCommandIdx(-1); }}
+          onChange={(e) => { setInput(e.target.value); setCommandIdx(-1); setCommandSelected(false); }}
           onKeyDown={handleKeyDown}
           placeholder="Type your message..."
           disabled={isStreaming}
