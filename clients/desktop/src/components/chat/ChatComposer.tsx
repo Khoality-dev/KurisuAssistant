@@ -159,11 +159,9 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
         return;
       }
     }
-    // Prompt history navigation — only when input is empty or cursor is at position 0
+    // Prompt history navigation — only when input is empty or already browsing
     const history = promptHistoryRef.current;
-    const target = e.target as HTMLTextAreaElement;
-    const cursorAtStart = target.selectionStart === 0 && target.selectionEnd === 0;
-    const canBrowseHistory = !input.trim() || cursorAtStart || historyIdxRef.current >= 0;
+    const canBrowseHistory = !input || historyIdxRef.current >= 0;
 
     if (e.key === 'ArrowUp' && history.length > 0 && canBrowseHistory) {
       e.preventDefault();
