@@ -84,6 +84,13 @@ async def delete_message(
             conv_repo = ConversationRepository(session)
             message = _verify_message_ownership(msg_repo, conv_repo, message_id, user.id)
             conversation_id = message.frame.conversation_id
+
+            # Block deletion of compacted messages
+            from kurisuassistant.db.models import Conversation
+            conv = session.query(Conversation).filter_by(id=conversation_id).first()
+            if conv and conv.compacted_up_to_id and message_id <= conv.compacted_up_to_id:
+                raise HTTPException(status_code=400, detail="Cannot delete compacted messages")
+
             count = msg_repo.delete_from_message(message_id, conversation_id)
             session.commit()
             return count
