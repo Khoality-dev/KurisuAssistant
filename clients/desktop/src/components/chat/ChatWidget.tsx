@@ -9,9 +9,15 @@ import {
   Collapse,
   Paper,
   IconButton,
+  TextField,
+  InputAdornment,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import SearchIcon from '@mui/icons-material/Search';
+import CloseIcon from '@mui/icons-material/Close';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 
 import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '../../store/conversationStore';
@@ -51,6 +57,48 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   // Display mode: "all" shows full history, "context" shows only LLM context window
   const [displayMode, setDisplayMode] = useState<'all' | 'context'>('all');
   const [contextBannerExpanded, setContextBannerExpanded] = useState(false);
+
+  // Message search
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchMatchIdx, setSearchMatchIdx] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const searchMatches = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase();
+    const indices: number[] = [];
+    messages.forEach((m, i) => {
+      if (m.content?.toLowerCase().includes(q)) indices.push(i);
+    });
+    return indices;
+  }, [messages, searchQuery]);
+
+  // Ctrl+F to open search
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        setSearchOpen(true);
+        setTimeout(() => searchInputRef.current?.focus(), 50);
+      }
+      if (e.key === 'Escape' && searchOpen) {
+        setSearchOpen(false);
+        setSearchQuery('');
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [searchOpen]);
+
+  // Scroll to current match
+  useEffect(() => {
+    if (searchMatches.length > 0) {
+      const msgIdx = searchMatches[searchMatchIdx];
+      const el = document.querySelector(`[data-msg-index="${msgIdx}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [searchMatchIdx, searchMatches]);
 
   // Character panel hook
   const {
@@ -225,7 +273,16 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       const consecutive = prevMessage != null && prevMessage.role === message.role;
       // Stable key: DB messages use their ID, streaming messages use their position in streamingMessages
       const key = message.id ? `msg-${message.id}` : `stream-${index - displayedCount}`;
+      const isSearchMatch = searchQuery && searchMatches.includes(index);
+      const isActiveMatch = isSearchMatch && searchMatches[searchMatchIdx] === index;
       elements.push(
+        <Box
+          key={`wrap-${key}`}
+          data-msg-index={index}
+          sx={isActiveMatch ? { outline: '2px solid', outlineColor: 'info.main', borderRadius: 2 }
+            : isSearchMatch ? { outline: '1px solid', outlineColor: 'divider', borderRadius: 2 }
+            : undefined}
+        >
         <MessageBubble
           key={key}
           message={message}
@@ -244,6 +301,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           onDelete={streaming.handleDelete}
           ttsRef={ttsRef}
         />
+        </Box>
       );
     });
 
@@ -261,6 +319,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     streaming.handleResend,
     streaming.handleDelete,
     compactedUpToId,
+    searchQuery,
+    searchMatches,
+    searchMatchIdx,
   ]);
 
   const messagesPane = useMemo(() => (
@@ -351,6 +412,47 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           >
             {tokenCount.toLocaleString()} / {contextSize.toLocaleString()} tokens
           </Typography>
+        </Box>
+      )}
+
+      {/* Search bar */}
+      {searchOpen && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 2, py: 0.5, borderBottom: 1, borderColor: 'divider' }}>
+          <TextField
+            inputRef={searchInputRef}
+            size="small"
+            placeholder="Search messages..."
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setSearchMatchIdx(0); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (searchMatches.length > 0) {
+                  setSearchMatchIdx(prev => (prev + (e.shiftKey ? -1 : 1) + searchMatches.length) % searchMatches.length);
+                }
+              }
+              if (e.key === 'Escape') {
+                setSearchOpen(false);
+                setSearchQuery('');
+              }
+            }}
+            sx={{ flex: 1, '& .MuiInputBase-root': { height: 32, fontSize: '0.85rem' } }}
+            InputProps={{
+              startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18, color: 'text.secondary' }} /></InputAdornment>,
+            }}
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ minWidth: 40, textAlign: 'center' }}>
+            {searchMatches.length > 0 ? `${searchMatchIdx + 1}/${searchMatches.length}` : '0/0'}
+          </Typography>
+          <IconButton size="small" onClick={() => setSearchMatchIdx(prev => (prev - 1 + searchMatches.length) % searchMatches.length)} disabled={searchMatches.length === 0}>
+            <KeyboardArrowUpIcon fontSize="small" />
+          </IconButton>
+          <IconButton size="small" onClick={() => setSearchMatchIdx(prev => (prev + 1) % searchMatches.length)} disabled={searchMatches.length === 0}>
+            <KeyboardArrowDownIcon fontSize="small" />
+          </IconButton>
+          <IconButton size="small" onClick={() => { setSearchOpen(false); setSearchQuery(''); }}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
         </Box>
       )}
 
