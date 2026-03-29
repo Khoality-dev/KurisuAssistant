@@ -224,7 +224,6 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
         />
         <IconButton
           onClick={() => fileInputRef.current?.click()}
-          disabled={isStreaming}
         >
           <AttachFileIcon />
         </IconButton>
@@ -233,7 +232,6 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
           <IconButton
             onClick={onMicToggle}
             onContextMenu={onMicContext}
-            disabled={isStreaming}
             sx={{
               color: asrStatus === 'listening' ? 'error.main' : 'inherit',
             }}
@@ -275,7 +273,6 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
           <IconButton
             onClick={() => void onCameraToggle()}
             onContextMenu={onCameraContext}
-            disabled={isStreaming}
             sx={{
               color: cameraActive ? 'success.main' : 'inherit',
               animation: cameraActive ? 'pulse 1.5s infinite' : 'none',
