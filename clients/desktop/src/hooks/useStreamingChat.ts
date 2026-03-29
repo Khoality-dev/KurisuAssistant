@@ -803,19 +803,20 @@ export function useStreamingChat({
     if (!message?.id || message.role !== 'user' || !activeConversationId) return;
 
     const text = message.content;
+    const contextFiles = message.context_files || [];
 
     try {
       // Delete from this message onward
       await apiClient.deleteMessage(message.id);
       await loadConversation(activeConversationId);
 
-      // Re-send the same text
+      // Re-send the same text with original context files
       setIsStreaming(true);
       clearQueue();
       ttsBufferRef.current = '';
       ttsVoiceRef.current = undefined;
 
-      const userMessage: Message = { role: 'user', content: text, images: [] };
+      const userMessage: Message = { role: 'user', content: text, images: [], context_files: contextFiles.length > 0 ? contextFiles : undefined };
       setStreamingMessages([userMessage, { role: 'assistant', content: '' }]);
 
       streamingStateRef.current = {
@@ -833,7 +834,7 @@ export function useStreamingChat({
       setStreamingThinking('');
       setJustFinishedStreaming(false);
 
-      await wsManager.sendChatRequest(text, '', activeConversationId, agentId, []);
+      await wsManager.sendChatRequest(text, '', activeConversationId, agentId, [], contextFiles);
     } catch (e) {
       console.error('Failed to resend message:', e);
       setIsStreaming(false);
