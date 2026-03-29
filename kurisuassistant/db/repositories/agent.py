@@ -86,42 +86,18 @@ class AgentRepository(BaseRepository[Agent]):
             use_deferred_tools=use_deferred_tools,
         )
 
-    def update_agent(
-        self,
-        agent: Agent,
-        name: Optional[str] = None,
-        system_prompt: Optional[str] = None,
-        model_name: Optional[str] = None,
-        provider_type: Optional[str] = None,
-        available_tools: Optional[List[str]] = None,
-        think: Optional[bool] = None,
-        memory: Optional[str] = None,
-        memory_enabled: Optional[bool] = None,
-        persona_id: Optional[int] = None,
-        use_deferred_tools: Optional[bool] = None,
-    ) -> Agent:
-        """Update an agent."""
+    def update_agent(self, agent: Agent, **kwargs) -> Agent:
+        """Update an agent. Only keys present in kwargs with non-None values are applied.
+
+        Special case: available_tools=None is valid (means "all tools"),
+        so it's always applied when the key is present in kwargs.
+        """
         update_data = {}
-        if name is not None:
-            update_data["name"] = name
-        if system_prompt is not None:
-            update_data["system_prompt"] = system_prompt
-        if model_name is not None:
-            update_data["model_name"] = model_name
-        if provider_type is not None:
-            update_data["provider_type"] = provider_type
-        if available_tools is not None:
-            update_data["available_tools"] = available_tools
-        if think is not None:
-            update_data["think"] = think
-        if memory is not None:
-            update_data["memory"] = memory
-        if memory_enabled is not None:
-            update_data["memory_enabled"] = memory_enabled
-        if persona_id is not None:
-            update_data["persona_id"] = persona_id
-        if use_deferred_tools is not None:
-            update_data["use_deferred_tools"] = use_deferred_tools
+        for k, v in kwargs.items():
+            if k == "available_tools":
+                update_data[k] = v  # None is a valid value (= all tools)
+            elif v is not None:
+                update_data[k] = v
 
         if update_data:
             return self.update(agent, **update_data)

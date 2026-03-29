@@ -219,19 +219,23 @@ async def update_agent(
             if existing:
                 raise HTTPException(status_code=400, detail=f"An agent named '{body.name}' already exists.")
 
-        agent = agent_repo.update_agent(
-            agent,
+        # Build kwargs, using sentinel for available_tools to distinguish
+        # "not provided" (omit) from "explicitly null" (clear to all)
+        update_kwargs = dict(
             name=body.name,
             system_prompt=body.system_prompt,
             model_name=body.model_name,
             provider_type=body.provider_type,
-            available_tools=body.available_tools,
             think=body.think,
             memory=body.memory,
             memory_enabled=body.memory_enabled,
             persona_id=body.persona_id,
             use_deferred_tools=body.use_deferred_tools,
         )
+        if "available_tools" in body.model_fields_set:
+            update_kwargs["available_tools"] = body.available_tools
+
+        agent = agent_repo.update_agent(agent, **update_kwargs)
 
         return _agent_to_response(agent)
 
