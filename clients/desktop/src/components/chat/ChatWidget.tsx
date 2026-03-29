@@ -193,6 +193,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   // Message rendering
   const messageElements = useMemo(() => {
     const combined = [...displayedMessages, ...streaming.streamingMessages];
+    const displayedCount = displayedMessages.length;
     const activeStreamingMsg = streaming.isStreaming && streaming.streamingMessages.length > 0
       ? streaming.streamingMessages[streaming.streamingMessages.length - 1]
       : null;
@@ -213,9 +214,11 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
       const isActiveStreaming = message === activeStreamingMsg;
       const isCompacted = message.id != null && message.id <= compactedUpToId;
+      // Stable key: DB messages use their ID, streaming messages use their position in streamingMessages
+      const key = message.id ? `msg-${message.id}` : `stream-${index - displayedCount}`;
       elements.push(
         <MessageBubble
-          key={message.id ? `msg-${message.id}` : `stream-${index}`}
+          key={key}
           message={message}
           index={index}
           isLast={index === combined.length - 1}
@@ -311,7 +314,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
             exclusive
             onChange={(_, v) => v && setDisplayMode(v)}
             size="small"
-            disabled={streaming.isStreaming}
             sx={{ '& .MuiToggleButton-root': { px: 1.5, py: 0.25, fontSize: '0.7rem', textTransform: 'none' } }}
           >
             <ToggleButton value="all">All</ToggleButton>
