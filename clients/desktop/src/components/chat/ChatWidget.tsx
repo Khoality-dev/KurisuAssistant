@@ -311,6 +311,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
             exclusive
             onChange={(_, v) => v && setDisplayMode(v)}
             size="small"
+            disabled={streaming.isStreaming}
             sx={{ '& .MuiToggleButton-root': { px: 1.5, py: 0.25, fontSize: '0.7rem', textTransform: 'none' } }}
           >
             <ToggleButton value="all">All</ToggleButton>
