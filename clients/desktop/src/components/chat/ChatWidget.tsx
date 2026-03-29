@@ -179,13 +179,15 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     return messages;
   }, [messages, displayMode, compactedUpToId]);
 
-  // Token count estimation (frontend-calculated)
+  // Token count estimation (frontend-calculated, all context window content)
   const estimatedTokens = useMemo(() => {
     const contextMsgs = messages.filter(m => (m.id ?? Infinity) > compactedUpToId);
-    const msgWords = contextMsgs.reduce((n, m) => n + (m.content?.split(/\s+/).length || 0), 0);
-    const contextWords = compactedContext ? compactedContext.split(/\s+/).length : 0;
+    const allMsgs = [...contextMsgs, ...streaming.streamingMessages];
+    const wordCount = (text: string | undefined) => text ? text.split(/\s+/).length : 0;
+    const msgWords = allMsgs.reduce((n, m) => n + wordCount(m.content) + wordCount(m.thinking), 0);
+    const contextWords = wordCount(compactedContext);
     return systemPromptTokenCount + Math.round((msgWords + contextWords) * 1.3);
-  }, [messages, compactedUpToId, compactedContext, systemPromptTokenCount]);
+  }, [messages, compactedUpToId, compactedContext, systemPromptTokenCount, streaming.streamingMessages]);
 
   const tokenCount = streaming.contextTokens || estimatedTokens;
 
