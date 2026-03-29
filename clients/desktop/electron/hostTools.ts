@@ -298,13 +298,14 @@ function getHostToolSchemas(): ToolSchema[] {
           'Edit a file by finding and replacing text. ' +
           'Must read the file first with host_read. ' +
           'old_text must match exactly one location — include enough surrounding lines for uniqueness. ' +
-          'Fails if old_text matches zero or multiple locations.',
+          'Fails if old_text matches zero or multiple locations (unless replace_all is true).',
         parameters: {
           type: 'object',
           properties: {
             path: { type: 'string', description: 'Absolute path to the file.' },
             old_text: { type: 'string', description: 'Exact text to find. Include surrounding lines for unique match.' },
             new_text: { type: 'string', description: 'Replacement text.' },
+            replace_all: { type: 'boolean', description: 'Replace all occurrences instead of requiring uniqueness (default: false).' },
           },
           required: ['path', 'old_text', 'new_text'],
         },
@@ -386,7 +387,8 @@ async function executeHostRead(args: Record<string, unknown>): Promise<ToolResul
     if (!fs.existsSync(resolved)) return err(`File not found: ${filePath}`);
     if (fs.statSync(resolved).isDirectory()) return err('Cannot read a directory.');
 
-    const text = fs.readFileSync(resolved, { encoding: 'utf-8' });
+    const raw = fs.readFileSync(resolved, { encoding: 'utf-8' });
+    const text = raw.replace(/\r\n/g, '\n');
     readFiles.add(resolved);
 
     const lines = text.split('\n');
@@ -448,20 +450,54 @@ async function executeHostEdit(args: Record<string, unknown>): Promise<ToolResul
     const filePath = args.path as string;
     const oldText = args.old_text as string;
     const newText = args.new_text as string;
+    const replaceAll = args.replace_all as boolean | undefined;
     if (!filePath) return err('path is required.');
     if (!oldText) return err('old_text is required.');
     if (newText === undefined || newText === null) return err('new_text is required.');
+    if (oldText === newText) return err('old_text and new_text are identical.');
     if (!readFiles.has(path.resolve(filePath))) return err('Must read the file with host_read before editing.');
 
-    // Read the full file to build diff context
     const resolved = path.resolve(filePath);
     const fullContent = fs.readFileSync(resolved, { encoding: 'utf-8' });
-    if (!fullContent.includes(oldText)) return err('old_text not found in file.');
-    const newContent = fullContent.replace(oldText, newText);
+
+    // Normalize line endings for matching (handles CRLF files)
+    const normalizedContent = fullContent.replace(/\r\n/g, '\n');
+    const normalizedOld = oldText.replace(/\r\n/g, '\n');
+
+    // Count occurrences
+    let count = 0;
+    let idx = 0;
+    while ((idx = normalizedContent.indexOf(normalizedOld, idx)) !== -1) {
+      count++;
+      idx += normalizedOld.length;
+    }
+
+    if (count === 0) {
+      return err('old_text not found in file. Make sure it matches exactly — include enough surrounding context.');
+    }
+
+    if (count > 1 && !replaceAll) {
+      return err(
+        `old_text matches ${count} locations. Either include more surrounding lines to make it unique, or set replace_all=true to replace all occurrences.`
+      );
+    }
+
+    // Perform replacement on normalized content, then restore original line endings
+    const hasCRLF = fullContent.includes('\r\n');
+    let newContent: string;
+    if (replaceAll) {
+      newContent = normalizedContent.split(normalizedOld).join(newText.replace(/\r\n/g, '\n'));
+    } else {
+      newContent = normalizedContent.replace(normalizedOld, newText.replace(/\r\n/g, '\n'));
+    }
+    if (hasCRLF) {
+      newContent = newContent.replace(/\n/g, '\r\n');
+    }
 
     fs.writeFileSync(resolved, newContent, { encoding: 'utf-8' });
     clearDiffView();
-    return ok({ status: 'ok', path: filePath });
+    const msg = replaceAll ? `Replaced ${count} occurrences` : 'Edit applied';
+    return ok({ status: 'ok', path: filePath, message: msg });
   } catch (e: any) { clearDiffView(); return err(e.message); }
 }
 
@@ -522,14 +558,15 @@ async function executeHostTool(
           const original = fs.existsSync(resolved) ? fs.readFileSync(resolved, { encoding: 'utf-8' }) : '';
           sendDiffView(filePath, original, args.content as string || '');
         } else {
-          // host_edit: compute the diff
+          // host_edit: compute the diff (normalize line endings for matching)
           const fullContent = fs.existsSync(resolved) ? fs.readFileSync(resolved, { encoding: 'utf-8' }) : '';
-          const oldText = args.old_text as string || '';
-          const newText = args.new_text as string || '';
-          const modified = fullContent.includes(oldText)
-            ? fullContent.replace(oldText, newText)
-            : fullContent; // old_text not found — show original as-is
-          sendDiffView(filePath, fullContent, modified);
+          const normalized = fullContent.replace(/\r\n/g, '\n');
+          const oldText = (args.old_text as string || '').replace(/\r\n/g, '\n');
+          const newText = (args.new_text as string || '').replace(/\r\n/g, '\n');
+          const modified = normalized.includes(oldText)
+            ? normalized.replace(oldText, newText)
+            : normalized;
+          sendDiffView(filePath, normalized, modified);
         }
       }
     } catch { /* ignore diff display errors */ }
