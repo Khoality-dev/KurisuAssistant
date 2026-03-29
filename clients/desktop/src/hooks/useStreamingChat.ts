@@ -91,6 +91,7 @@ export function useStreamingChat({
 
   // Ref to track streaming state without stale closures
   const isStreamingRef = useRef(false);
+  const cancelledRef = useRef(false);
 
   // Refs for streaming state (to avoid stale closures in callbacks)
   const streamingStateRef = useRef({
@@ -220,6 +221,9 @@ export function useStreamingChat({
   // WebSocket event handlers
   const handleStreamChunk = useCallback((event: StreamChunkEvent) => {
     const state = streamingStateRef.current;
+
+    // Ignore late chunks after cancel
+    if (cancelledRef.current) return;
 
     // Ignore events for a different conversation (prevents cross-conversation leaks)
     if (event.conversation_id && state.conversationId && event.conversation_id !== state.conversationId) {
@@ -408,6 +412,7 @@ export function useStreamingChat({
   }, [setCurrentConversationId, scheduleStreamUpdate, queueText, pushAgentCharacterConfig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDone = useCallback((event: DoneEvent) => {
+    cancelledRef.current = false;
     const state = streamingStateRef.current;
 
     // Ignore done events for a different conversation
@@ -587,6 +592,7 @@ export function useStreamingChat({
   };
 
   const _doSend = useCallback(async (text: string, imageFiles: File[]) => {
+    cancelledRef.current = false;
     setIsStreaming(true);
 
     // Prepend file selection references if any (model reads content via tools)
@@ -711,6 +717,7 @@ export function useStreamingChat({
   }, [_doSend, activeConversationId, agentId]);
 
   const handleCancel = () => {
+    cancelledRef.current = true;
     wsManager.sendCancel();
 
     // Stop TTS auto-play
