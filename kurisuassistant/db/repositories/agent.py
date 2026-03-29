@@ -63,6 +63,7 @@ class AgentRepository(BaseRepository[Agent]):
         excluded_tools: Optional[List[str]] = None,
         think: bool = False,
         persona_id: Optional[int] = None,
+        use_deferred_tools: bool = False,
     ) -> Agent:
         """Create a new agent.
 
@@ -82,6 +83,7 @@ class AgentRepository(BaseRepository[Agent]):
             excluded_tools=excluded_tools,
             think=think,
             persona_id=persona_id,
+            use_deferred_tools=use_deferred_tools,
         )
 
     def update_agent(
@@ -96,6 +98,7 @@ class AgentRepository(BaseRepository[Agent]):
         memory: Optional[str] = None,
         memory_enabled: Optional[bool] = None,
         persona_id: Optional[int] = None,
+        use_deferred_tools: Optional[bool] = None,
     ) -> Agent:
         """Update an agent."""
         update_data = {}
@@ -117,6 +120,8 @@ class AgentRepository(BaseRepository[Agent]):
             update_data["memory_enabled"] = memory_enabled
         if persona_id is not None:
             update_data["persona_id"] = persona_id
+        if use_deferred_tools is not None:
+            update_data["use_deferred_tools"] = use_deferred_tools
 
         if update_data:
             return self.update(agent, **update_data)

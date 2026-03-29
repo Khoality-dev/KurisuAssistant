@@ -60,6 +60,7 @@ class AgentConfig:
     avatar_uuid: Optional[str] = None
     preferred_name: Optional[str] = None
     trigger_word: Optional[str] = None
+    use_deferred_tools: bool = False  # Use 3 meta-tools instead of flat schemas
 
 
 @dataclass
@@ -88,6 +89,31 @@ class ToolResult:
     """Result from a tool execution, optionally including images."""
     content: str
     images: List[str] = field(default_factory=list)
+    status: str = "success"  # "success" | "error" | "denied"
+
+    @staticmethod
+    def _detect_error(content: str) -> bool:
+        """Check if tool content indicates an error."""
+        import json as _json
+        stripped = content.strip()
+        # Detect JSON error responses: {"error": "..."}
+        if stripped.startswith("{"):
+            try:
+                parsed = _json.loads(stripped)
+                if isinstance(parsed, dict) and "error" in parsed:
+                    return True
+            except (_json.JSONDecodeError, ValueError):
+                pass
+        # Detect wrapped client/MCP tool errors
+        if stripped.startswith("Client tool error:") or stripped.startswith("MCP client not available"):
+            return True
+        return False
+
+    @staticmethod
+    def from_content(content: str, **kwargs) -> "ToolResult":
+        """Create a ToolResult, auto-detecting error status from content."""
+        status = "error" if ToolResult._detect_error(content) else "success"
+        return ToolResult(content=content, status=status, **kwargs)
 
 
 class BaseAgent(ABC):
@@ -132,6 +158,31 @@ class BaseAgent(ABC):
         Returns:
             ToolResult with content and optional images
         """
+        import json as _json
+
+        # Deferred tools: intercept call_tool and delegate to the inner tool
+        if tool_name == "call_tool":
+            inner_name = tool_args.get("name", "")
+            inner_args = tool_args.get("arguments", {})
+            if isinstance(inner_args, str):
+                inner_args = _json.loads(inner_args)
+            return await self.execute_tool(inner_name, inner_args, context, require_approval)
+
+        # Deferred tools: handle list_tools / search_tools / get_tool_schema via proxy
+        proxy = getattr(self, "_deferred_proxy", None)
+        if proxy and tool_name == "list_tools":
+            page = tool_args.get("page", 1)
+            content = await proxy.list_tools_page(page)
+            return ToolResult(content=content)
+        if proxy and tool_name == "search_tools":
+            query = tool_args.get("query", "")
+            content = await proxy.search_tools(query)
+            return ToolResult(content=content)
+        if proxy and tool_name == "get_tool_schema":
+            name = tool_args.get("name", "")
+            content = await proxy.get_tool_schema(name)
+            return ToolResult(content=content)
+
         tool = self.tool_registry.get(tool_name)
 
         # Enforce tool access: built-in tools always available,
@@ -139,7 +190,7 @@ class BaseAgent(ABC):
         if self.config.excluded_tools and tool_name in self.config.excluded_tools:
             if not (tool and tool.built_in):
                 logger.warning(f"Agent '{self.config.name}' tried to use excluded tool: {tool_name}")
-                return ToolResult(content=f"Tool not available: {tool_name}")
+                return ToolResult(content=f"Tool not available: {tool_name}", status="error")
 
         if require_approval and tool and tool.requires_approval:
             # Create approval request
@@ -157,7 +208,7 @@ class BaseAgent(ABC):
                 response = await context.handler.request_tool_approval(approval_request)
 
                 if not response.approved:
-                    return ToolResult(content=f"Tool execution denied by user: {tool_name}")
+                    return ToolResult(content=f"Tool execution denied by user: {tool_name}", status="denied")
 
                 # Use modified args if provided
                 if response.modified_args:
@@ -187,15 +238,15 @@ class BaseAgent(ABC):
         if tool:
             try:
                 result = await tool.execute(exec_args)
-                return ToolResult(content=result)
+                return ToolResult.from_content(result)
             except Exception as e:
                 logger.error(f"Tool execution failed: {e}", exc_info=True)
-                return ToolResult(content=f"Tool execution failed: {e}")
+                return ToolResult(content=f"Tool execution failed: {e}", status="error")
         elif context.user_id:
             # Try server-side MCP tool first, then client-side tool
             return await self._execute_mcp_tool(tool_name, tool_args, context)
         else:
-            return ToolResult(content=f"Unknown tool: {tool_name}")
+            return ToolResult(content=f"Unknown tool: {tool_name}", status="error")
 
     async def _execute_mcp_tool(
         self,
@@ -244,7 +295,7 @@ class BaseAgent(ABC):
                 content = results[0].get("content", "")
                 if content != "MCP client not available":
                     images = results[0].get("images") or []
-                    return ToolResult(content=content, images=images)
+                    return ToolResult.from_content(content, images=images)
 
         except Exception as e:
             logger.warning(f"Server MCP tool execution failed for '{tool_name}': {e}")
@@ -255,12 +306,12 @@ class BaseAgent(ABC):
         }:
             try:
                 result = await context.client_tool_callback(tool_name, tool_args)
-                return ToolResult(content=result)
+                return ToolResult.from_content(result)
             except Exception as e:
                 logger.error(f"Client tool execution failed: {e}", exc_info=True)
-                return ToolResult(content=f"Client tool execution failed: {e}")
+                return ToolResult(content=f"Client tool execution failed: {e}", status="error")
 
-        return ToolResult(content=f"Unknown tool: {tool_name}")
+        return ToolResult(content=f"Unknown tool: {tool_name}", status="error")
 
     async def delegate_to(
         self,
@@ -372,6 +423,19 @@ class SimpleAgent(BaseAgent):
                     "attempting any task that matches a skill name. Do NOT guess or improvise — "
                     "always read the skill first and follow its instructions exactly."
                 )
+        # Deferred tools: guide the LLM on the meta-tool workflow
+        if self.config.use_deferred_tools:
+            system_parts.append(
+                "## Tool Usage\n"
+                "You have access to tools through a discovery system. Use these functions:\n"
+                "1. list_tools(page?) — Browse available tools (name + description, paginated)\n"
+                "2. search_tools(query) — Search tools by keyword in name or description\n"
+                "3. get_tool_schema(name) — Get a tool's full parameter schema before calling it\n"
+                "4. call_tool(name, arguments) — Execute a tool\n\n"
+                "Workflow: list_tools or search_tools → get_tool_schema → call_tool.\n"
+                "You may skip discovery if you already know the tool name from context or a previous turn."
+            )
+
         # Inject agent memory (long-term)
         if self.config.memory_enabled and self.config.memory:
             system_parts.append("Your memory:\n" + self.config.memory)
@@ -453,28 +517,41 @@ class SimpleAgent(BaseAgent):
         # Expose prepared messages for raw_input logging
         self.last_prepared_messages = messages
 
-        # Get tools for this agent (all tools minus excluded)
-        tool_schemas = self.tool_registry.get_schemas(self.config.excluded_tools)
+        # Build tool schemas — deferred (3 meta-tools) or flat (all schemas)
+        if self.config.use_deferred_tools:
+            from kurisuassistant.tools.deferred import create_deferred_tools
+            proxy, meta_tools = create_deferred_tools(
+                tool_registry=self.tool_registry,
+                excluded_tools=self.config.excluded_tools,
+                user_id=context.user_id,
+                client_tools=context.client_tools or [],
+            )
+            self._deferred_proxy = proxy
+            tool_schemas = [mt.get_schema() for mt in meta_tools]
+        else:
+            self._deferred_proxy = None
+            # Get tools for this agent (all tools minus excluded)
+            tool_schemas = self.tool_registry.get_schemas(self.config.excluded_tools)
 
-        # Add user's server-side MCP tools (filtered by agent's exclusion list)
-        if context.user_id:
-            try:
-                from kurisuassistant.mcp_tools.orchestrator import get_user_orchestrator
-                mcp_tools = await get_user_orchestrator(context.user_id).get_tools()
+            # Add user's server-side MCP tools (filtered by agent's exclusion list)
+            if context.user_id:
+                try:
+                    from kurisuassistant.mcp_tools.orchestrator import get_user_orchestrator
+                    mcp_tools = await get_user_orchestrator(context.user_id).get_tools()
+                    if self.config.excluded_tools:
+                        excluded = set(self.config.excluded_tools)
+                        mcp_tools = [t for t in mcp_tools if t.get("function", {}).get("name") not in excluded]
+                    tool_schemas.extend(mcp_tools)
+                except Exception as e:
+                    logger.warning(f"Failed to load MCP tools for user {context.user_id}: {e}")
+
+            # Add client-side tools (filtered by agent's exclusion list)
+            if context.client_tools:
+                client_tools = context.client_tools
                 if self.config.excluded_tools:
                     excluded = set(self.config.excluded_tools)
-                    mcp_tools = [t for t in mcp_tools if t.get("function", {}).get("name") not in excluded]
-                tool_schemas.extend(mcp_tools)
-            except Exception as e:
-                logger.warning(f"Failed to load MCP tools for user {context.user_id}: {e}")
-
-        # Add client-side tools (filtered by agent's exclusion list)
-        if context.client_tools:
-            client_tools = context.client_tools
-            if self.config.excluded_tools:
-                excluded = set(self.config.excluded_tools)
-                client_tools = [t for t in client_tools if t.get("function", {}).get("name") not in excluded]
-            tool_schemas.extend(client_tools)
+                    client_tools = [t for t in client_tools if t.get("function", {}).get("name") not in excluded]
+                tool_schemas.extend(client_tools)
 
         # Attach base64 images to the last user message for vision models
         if context.images:
@@ -483,7 +560,8 @@ class SimpleAgent(BaseAgent):
                     msg["images"] = context.images
                     break
 
-        MAX_TOOL_ROUNDS = 10
+        # Deferred tools need extra rounds for discovery (list → schema → call)
+        MAX_TOOL_ROUNDS = 25 if self.config.use_deferred_tools else 10
 
         try:
             for _round in range(MAX_TOOL_ROUNDS):
@@ -568,15 +646,23 @@ class SimpleAgent(BaseAgent):
 
                     result = await self.execute_tool(tool_name, tool_args, context)
 
+                    # For deferred call_tool, show the inner tool name to the client
+                    display_name = tool_name
+                    display_args = tool_args
+                    if tool_name == "call_tool":
+                        display_name = tool_args.get("name", "call_tool")
+                        display_args = tool_args.get("arguments", {})
+
                     # Yield tool result (name=tool, no agent_id — tools aren't agents)
                     yield StreamChunkEvent(
                         content=result.content,
                         role="tool",
                         agent_id=None,
-                        name=tool_name,
+                        name=display_name,
                         conversation_id=context.conversation_id,
                         frame_id=context.frame_id,
-                        tool_args=tool_args,
+                        tool_args=display_args,
+                        tool_status=result.status,
                         images=result.images or None,
                     )
 
@@ -584,7 +670,7 @@ class SimpleAgent(BaseAgent):
                     messages.append({"role": "tool", "content": result.content})
 
                     # If tool was denied, stop executing remaining tools
-                    if "denied by user" in result.content.lower():
+                    if result.status == "denied":
                         tool_denied = True
                         break
 

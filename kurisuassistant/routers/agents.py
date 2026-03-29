@@ -32,6 +32,7 @@ class AgentCreate(BaseModel):
     excluded_tools: Optional[List[str]] = None
     think: bool = False
     persona_id: Optional[int] = None
+    use_deferred_tools: bool = False
 
 
 class AgentUpdate(BaseModel):
@@ -45,6 +46,7 @@ class AgentUpdate(BaseModel):
     memory: Optional[str] = None
     memory_enabled: Optional[bool] = None
     persona_id: Optional[int] = None
+    use_deferred_tools: Optional[bool] = None
 
 
 class AgentResponse(BaseModel):
@@ -61,6 +63,7 @@ class AgentResponse(BaseModel):
     memory_enabled: bool = True
     enabled: bool = True
     is_system: bool = False
+    use_deferred_tools: bool = False
     persona_id: Optional[int] = None
     persona: Optional[dict] = None
 
@@ -93,6 +96,7 @@ def _agent_to_response(agent) -> AgentResponse:
         memory_enabled=agent.memory_enabled,
         enabled=agent.enabled,
         is_system=agent.is_system,
+        use_deferred_tools=getattr(agent, 'use_deferred_tools', False),
         persona_id=agent.persona_id,
         persona=persona_data,
     )
@@ -168,6 +172,7 @@ async def create_agent(
                 excluded_tools=body.excluded_tools,
                 think=body.think,
                 persona_id=body.persona_id,
+                use_deferred_tools=body.use_deferred_tools,
             )
             return _agent_to_response(agent)
 
@@ -225,6 +230,7 @@ async def update_agent(
             memory=body.memory,
             memory_enabled=body.memory_enabled,
             persona_id=body.persona_id,
+            use_deferred_tools=body.use_deferred_tools,
         )
 
         return _agent_to_response(agent)
