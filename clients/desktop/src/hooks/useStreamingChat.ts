@@ -439,27 +439,28 @@ export function useStreamingChat({
       return updated;
     });
 
-    // Brief delay before showing "done" indicator
-    setTimeout(async () => {
-      cancelStreamUpdate();
-      setStreamingContent('');
-      setStreamingThinking('');
-      setJustFinishedStreaming(true);
-      setIsStreaming(false);
+    cancelStreamUpdate();
+    setStreamingContent('');
+    setStreamingThinking('');
+    setJustFinishedStreaming(true);
+    setIsStreaming(false);
 
-      // Reload conversation to get proper message IDs, agent info, and has_raw_data flags
-      if (event.conversation_id) {
-        try {
-          await loadConversation(event.conversation_id);
-        } catch (e) {
-          console.error(e);
-        }
+    // Move streaming messages into store, then clear streaming state
+    setStreamingMessages(prev => {
+      if (prev.length > 0) {
+        useConversationStore.getState().appendMessages(prev);
       }
-      // Clear streaming messages after store is updated with DB records
-      setStreamingMessages([]);
-      // Refresh sidebar previews
-      useAgentStore.getState().loadAgentPreviews();
-    }, 300);
+      return [];
+    });
+
+    // Background reload for proper message IDs, agent info, has_raw_data
+    if (event.conversation_id) {
+      const convId = event.conversation_id;
+      setTimeout(() => {
+        loadConversation(convId).catch(console.error);
+        useAgentStore.getState().loadAgentPreviews();
+      }, 500);
+    }
   }, [loadConversation, queueText]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleError = useCallback((event: ErrorEvent) => {

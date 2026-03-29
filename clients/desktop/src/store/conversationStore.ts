@@ -23,6 +23,7 @@ interface ConversationState {
   deleteConversation: (id: number) => Promise<void>;
   clearCurrentConversation: () => void;
   addMessage: (message: Message) => void;
+  appendMessages: (messages: Message[]) => void;
   updateLastMessage: (content: string, thinking?: string, role?: string, name?: string) => void;
   setCurrentConversationId: (id: number) => void;
   updateCompactionData: (compactedUpToId: number, compactedContext: string) => void;
@@ -114,6 +115,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   addMessage: (message: Message) => {
     set((state) => ({ messages: [...state.messages, message] }));
+  },
+
+  appendMessages: (newMessages: Message[]) => {
+    set((state) => ({ messages: [...state.messages, ...newMessages] }));
   },
 
   updateLastMessage: (content: string, thinking?: string, role?: string, name?: string) => {
