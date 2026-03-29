@@ -394,9 +394,12 @@ async function executeHostRead(args: Record<string, unknown>): Promise<ToolResul
     const endLine = typeof args.end_line === 'number' ? Math.min(args.end_line, lines.length) : lines.length;
     const selected = lines.slice(startLine - 1, endLine);
 
-    // Format with line numbers (like cat -n)
+    // Detect language from file extension
+    const ext = path.extname(resolved).replace('.', '');
+
+    // Format with line numbers inside a code block
     const numbered = selected.map((line, i) => `${startLine + i}\t${line}`);
-    let content = numbered.join('\n');
+    let content = `\`\`\`${ext}\n${numbered.join('\n')}\n\`\`\``;
 
     if (endLine < lines.length || startLine > 1) {
       content += `\n\n[Lines ${startLine}-${endLine} of ${lines.length}]`;
