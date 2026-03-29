@@ -601,26 +601,31 @@ export function useStreamingChat({
     cancelledRef.current = false;
     setIsStreaming(true);
 
-    // Prepend file selection references if any (model reads content via tools)
+    // Collect file selections as structured context_files
     const { selections, liveSelections, clearAllSelections } = useExplorerStore.getState();
-    const refs: string[] = [];
+    const contextFiles: Array<Record<string, unknown>> = [];
     const seen = new Set<string>();
     for (const sel of selections) {
-      const ref = sel.startLine > 0
-        ? `[${sel.filePath}:${sel.startLine}:${sel.startColumn}-${sel.endLine}:${sel.endColumn}]`
-        : `[${sel.filePath}]`;
-      if (!seen.has(ref)) { refs.push(ref); seen.add(ref); }
+      const key = sel.startLine > 0 ? `${sel.filePath}:${sel.startLine}-${sel.endLine}` : sel.filePath;
+      if (!seen.has(key)) {
+        seen.add(key);
+        contextFiles.push({
+          path: sel.filePath, fileName: sel.fileName,
+          ...(sel.startLine > 0 ? { startLine: sel.startLine, endLine: sel.endLine, startColumn: sel.startColumn, endColumn: sel.endColumn } : {}),
+        });
+      }
     }
     for (const ls of liveSelections) {
-      const ref = ls.isWholeFile
-        ? `[${ls.filePath}]`
-        : `[${ls.filePath}:${ls.startLine}:${ls.startColumn}-${ls.endLine}:${ls.endColumn}]`;
-      if (!seen.has(ref)) { refs.push(ref); seen.add(ref); }
+      const key = ls.isWholeFile ? ls.filePath : `${ls.filePath}:${ls.startLine}-${ls.endLine}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        contextFiles.push({
+          path: ls.filePath, fileName: ls.fileName,
+          ...(!ls.isWholeFile ? { startLine: ls.startLine, endLine: ls.endLine, startColumn: ls.startColumn, endColumn: ls.endColumn } : {}),
+        });
+      }
     }
-    if (refs.length > 0) {
-      text = refs.join(' ') + '\n' + text;
-      clearAllSelections();
-    }
+    if (contextFiles.length > 0) clearAllSelections();
 
     // Clear any previous TTS queue
     clearQueue();
@@ -638,6 +643,7 @@ export function useStreamingChat({
         role: 'user',
         content: text,
         images: [],
+        context_files: contextFiles.length > 0 ? contextFiles as Message['context_files'] : undefined,
       };
 
       // Send user text as subtitle
@@ -664,11 +670,12 @@ export function useStreamingChat({
 
       // Send via WebSocket
       await wsManager.sendChatRequest(
-        userMessage.content,
+        text,
         '', // Model determined by backend
         activeConversationId,
         agentId, // Single agent mode or null for Administrator routing
-        imageBase64
+        imageBase64,
+        contextFiles,
       );
     } catch (err: any) {
       console.error('Chat error:', err);

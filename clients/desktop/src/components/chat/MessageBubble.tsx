@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Box, Paper, Typography, Button, Avatar } from '@mui/material';
+import { Box, Paper, Typography, Button, Avatar, Chip } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import {
   CheckCircle as CheckCircleIcon,
@@ -16,6 +16,8 @@ import { storage } from '../../utils/storage';
 import type { Message } from '../../api/types';
 import { MessageToolbar } from './MessageToolbar';
 import { RawDataDialog } from './RawDataDialog';
+import { useExplorerStore } from '../../store/explorerStore';
+import { useLayoutStore } from '../../store/layoutStore';
 
 const MotionBox = motion(Box);
 
@@ -460,6 +462,41 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                     onClick={() => window.open(apiClient.getUserImageUrl(imageUuid), '_blank')}
                   />
                 ))}
+              </Box>
+            )}
+            {/* Show context files as clickable chips */}
+            {message.context_files && message.context_files.length > 0 && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 1 }}>
+                {message.context_files.map((cf, idx) => {
+                  const label = cf.startLine
+                    ? `${cf.fileName}:${cf.startLine}-${cf.endLine}`
+                    : cf.fileName;
+                  return (
+                    <Chip
+                      key={idx}
+                      label={label}
+                      size="small"
+                      variant="outlined"
+                      onClick={() => {
+                        const store = useExplorerStore.getState();
+                        const fileIdx = store.openFiles.findIndex(f => f.path === cf.path);
+                        if (fileIdx !== -1) {
+                          store.setActiveFile(fileIdx);
+                        } else {
+                          const ext = cf.fileName.includes('.') ? '.' + cf.fileName.split('.').pop() : '';
+                          store.openFile({ name: cf.fileName, fullPath: cf.path, type: 'file', size: 0, modified: null, extension: ext });
+                        }
+                        useLayoutStore.getState().setActivePage('workspace');
+                      }}
+                      sx={{
+                        fontSize: '0.75rem',
+                        height: 24,
+                        cursor: 'pointer',
+                        '&:hover': { bgcolor: 'action.hover' },
+                      }}
+                    />
+                  );
+                })}
               </Box>
             )}
             {/* Show content with typing effect */}

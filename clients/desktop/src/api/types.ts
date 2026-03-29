@@ -31,6 +31,7 @@ export interface Message {
   provider_type?: string; // LLM provider (ollama, gemini)
   tool_args?: Record<string, unknown>; // Tool input arguments (for tool role messages)
   tool_status?: string; // "success" | "error" | "denied" (from backend)
+  context_files?: Array<{ path: string; fileName: string; startLine?: number; endLine?: number; startColumn?: number; endColumn?: number }>;
   queued?: boolean; // Queued message waiting to be processed
 }
 

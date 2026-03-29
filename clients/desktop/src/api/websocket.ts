@@ -413,7 +413,8 @@ class WebSocketManager {
     modelName: string,
     conversationId: number | null = null,
     agentId: number | null = null,
-    images: string[] = []
+    images: string[] = [],
+    contextFiles: Array<Record<string, unknown>> = [],
   ): Promise<void> {
     // Ensure connected
     await this.connect();
@@ -425,6 +426,7 @@ class WebSocketManager {
       conversation_id: conversationId,
       agent_id: agentId,
       images,
+      context_files: contextFiles.length > 0 ? contextFiles : undefined,
     });
   }
 
