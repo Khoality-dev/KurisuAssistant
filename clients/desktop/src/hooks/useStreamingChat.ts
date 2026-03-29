@@ -721,7 +721,7 @@ export function useStreamingChat({
     // Clear subtitle
     window.electron?.characterWindow?.sendSubtitle({ text: '', isUser: false });
 
-    // Finalize streaming messages with partial content
+    // Finalize streaming messages and merge into store
     const state = streamingStateRef.current;
     setStreamingMessages(prev => {
       if (prev.length === 0) return prev;
@@ -731,13 +731,22 @@ export function useStreamingChat({
         content: state.accumulatedContent,
         thinking: state.accumulatedThinking || undefined,
       };
-      return updated;
+      useConversationStore.getState().appendMessages(updated);
+      return [];
     });
 
     setIsStreaming(false);
     cancelStreamUpdate();
     setStreamingContent('');
     setStreamingThinking('');
+
+    // Background reload for proper message IDs
+    const convId = streamingStateRef.current.conversationId;
+    if (convId) {
+      setTimeout(() => {
+        loadConversation(convId).catch(console.error);
+      }, 500);
+    }
   };
 
   const toggleThinking = useCallback((index: number) => {
