@@ -51,6 +51,7 @@ export interface UseStreamingChatReturn {
   toggleThinking: (index: number) => void;
   handleDelete: (messageIndex: number) => Promise<void>;
   handleResend: (messageIndex: number) => Promise<void>;
+  queuedMessages: Message[];
   pendingApproval: ToolApprovalRequestEvent | null;
   respondToApproval: (approved: boolean) => void;
   contextTokens: number;
@@ -88,6 +89,7 @@ export function useStreamingChat({
   const [pendingApproval, setPendingApproval] = useState<ToolApprovalRequestEvent | null>(null);
   const [contextTokens, setContextTokens] = useState(0);
   const [isCompacting, setIsCompacting] = useState(false);
+  const [queuedMessages, setQueuedMessages] = useState<Message[]>([]);
 
   // Ref to track streaming state without stale closures
   const isStreamingRef = useRef(false);
@@ -457,6 +459,8 @@ export function useStreamingChat({
       }
       return [];
     });
+    // Clear queued messages (they'll be reloaded from DB after backend processes them)
+    setQueuedMessages([]);
 
     // Background reload for proper message IDs, agent info, has_raw_data
     if (event.conversation_id) {
@@ -694,8 +698,8 @@ export function useStreamingChat({
     }
 
     if (isStreamingRef.current) {
-      // Already streaming — queue: show dimmed user bubble and send to backend (it will queue)
-      setStreamingMessages(prev => [...prev, { role: 'user', content: trimmed, images: [], queued: true }]);
+      // Already streaming — queue: show dimmed user bubble below streaming content
+      setQueuedMessages(prev => [...prev, { role: 'user', content: trimmed, images: [], queued: true }]);
 
       const imageBase64: string[] = [];
       for (const imageFile of imageFiles) {
@@ -746,6 +750,7 @@ export function useStreamingChat({
     cancelStreamUpdate();
     setStreamingContent('');
     setStreamingThinking('');
+    setQueuedMessages([]);
 
     // Background reload for proper message IDs
     const convId = streamingStateRef.current.conversationId;
@@ -856,6 +861,7 @@ export function useStreamingChat({
     toggleThinking,
     handleDelete,
     handleResend,
+    queuedMessages,
     pendingApproval,
     respondToApproval,
     contextTokens,

@@ -199,7 +199,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
   // Message rendering
   const messageElements = useMemo(() => {
-    const combined = [...displayedMessages, ...streaming.streamingMessages];
+    const combined = [...displayedMessages, ...streaming.streamingMessages, ...streaming.queuedMessages];
     const displayedCount = displayedMessages.length;
     const activeStreamingMsg = streaming.isStreaming && streaming.streamingMessages.length > 0
       ? streaming.streamingMessages[streaming.streamingMessages.length - 1]
@@ -251,6 +251,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   }, [
     displayedMessages,
     streaming.streamingMessages,
+    streaming.queuedMessages,
     streaming.isStreaming,
     frames,
     streaming.streamingThinking,
