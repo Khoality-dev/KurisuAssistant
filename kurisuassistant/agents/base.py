@@ -110,9 +110,20 @@ class ToolResult:
         return False
 
     @staticmethod
+    def _detect_denied(content: str) -> bool:
+        """Check if tool content indicates user denial."""
+        lc = content.lower()
+        return "denied by user" in lc or "denied by the user" in lc
+
+    @staticmethod
     def from_content(content: str, **kwargs) -> "ToolResult":
-        """Create a ToolResult, auto-detecting error status from content."""
-        status = "error" if ToolResult._detect_error(content) else "success"
+        """Create a ToolResult, auto-detecting error/denied status from content."""
+        if ToolResult._detect_denied(content):
+            status = "denied"
+        elif ToolResult._detect_error(content):
+            status = "error"
+        else:
+            status = "success"
         return ToolResult(content=content, status=status, **kwargs)
 
 
