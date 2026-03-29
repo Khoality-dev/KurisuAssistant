@@ -211,6 +211,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       lastFrameId = currentFrameId;
 
       const isActiveStreaming = message === activeStreamingMsg;
+      const isCompacted = message.id != null && message.id <= compactedUpToId;
       elements.push(
         <MessageBubble
           key={message.id ? `msg-${message.id}` : `stream-${index}`}
@@ -225,7 +226,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           justFinishedStreaming={index === combined.length - 1 && streaming.justFinishedStreaming}
           expandedThinking={streaming.expandedThinking}
           onToggleThinking={streaming.toggleThinking}
-          onResend={streaming.handleResend}
+          onResend={isCompacted ? undefined : streaming.handleResend}
           onDelete={streaming.handleDelete}
           ttsRef={ttsRef}
         />
@@ -245,6 +246,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     streaming.toggleThinking,
     streaming.handleResend,
     streaming.handleDelete,
+    compactedUpToId,
   ]);
 
   const messagesPane = useMemo(() => (
