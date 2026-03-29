@@ -393,10 +393,13 @@ async function executeHostRead(args: Record<string, unknown>): Promise<ToolResul
     const startLine = typeof args.start_line === 'number' ? Math.max(1, args.start_line) : 1;
     const endLine = typeof args.end_line === 'number' ? Math.min(args.end_line, lines.length) : lines.length;
     const selected = lines.slice(startLine - 1, endLine);
-    const content = selected.join('\n');
+
+    // Format with line numbers (like cat -n)
+    const numbered = selected.map((line, i) => `${startLine + i}\t${line}`);
+    let content = numbered.join('\n');
 
     if (endLine < lines.length || startLine > 1) {
-      return { content: content + `\n\n[Lines ${startLine}-${endLine} of ${lines.length}]`, isError: false };
+      content += `\n\n[Lines ${startLine}-${endLine} of ${lines.length}]`;
     }
     return { content, isError: false };
   } catch (e: any) { return err(e.message); }
