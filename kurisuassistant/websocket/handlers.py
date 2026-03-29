@@ -819,6 +819,10 @@ class ChatSessionHandler:
 
         # Load current context
         compacted_context, compacted_up_to_id, context_messages = self._load_context_messages(conversation_id)
+
+        if not context_messages:
+            return
+
         context_limit = 8192  # default
         def _get_ctx(session):
             user = UserRepository(session).get_by_id(self.user_id)
