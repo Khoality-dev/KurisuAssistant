@@ -41,7 +41,7 @@ interface AgentFormData {
   system_prompt: string;
   model_name: string;
   think: boolean;
-  excluded_tools: string[];
+  available_tools: string[] | null;
   memory: string;
   memory_enabled: boolean;
   persona_id: number | null;
@@ -249,8 +249,8 @@ export const AgentEditDialog: React.FC<AgentEditDialogProps> = ({
               <Box>
                 <ToolGroupChecklist
                   groups={toolGroups}
-                  excludedTools={formData.excluded_tools}
-                  onChange={(excluded) => setFormData({ ...formData, excluded_tools: excluded })}
+                  enabledTools={formData.available_tools}
+                  onChange={(enabled) => setFormData({ ...formData, available_tools: enabled })}
                 />
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
                   Uncheck tools this agent should not use.

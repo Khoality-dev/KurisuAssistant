@@ -96,10 +96,10 @@ function getAppToolSchemas(): ToolSchema[] {
             name: { type: 'string', description: 'New display name.' },
             system_prompt: { type: 'string', description: 'New system prompt / personality.' },
             model_name: { type: 'string', description: 'LLM model name (e.g. "gemma3:4b").' },
-            excluded_tools: {
+            available_tools: {
               type: 'array',
               items: { type: 'string' },
-              description: 'List of tool names to exclude.',
+              description: 'Allowlist of tool names (null = all tools available).',
             },
             think: { type: 'boolean', description: 'Enable extended reasoning.' },
             memory_enabled: { type: 'boolean', description: 'Enable memory injection + consolidation.' },
