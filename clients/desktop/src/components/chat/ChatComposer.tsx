@@ -55,6 +55,9 @@ export interface ChatComposerProps {
   onSelectCamera: (camera: string) => void;
 }
 
+// Module-level prompt history — survives component re-renders and remounts
+const promptHistory: string[] = [];
+
 export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
   scopeKey,
   externalDraft,
@@ -86,8 +89,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textFieldRef = useRef<HTMLDivElement>(null);
 
-  // Prompt history
-  const promptHistoryRef = useRef<string[]>([]);
+  // Prompt history (module-level so it survives component remounts)
   const historyIdxRef = useRef(-1); // -1 = not browsing history
   const draftRef = useRef(''); // saves current input when entering history
 
@@ -125,8 +127,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
     const text = input.trim();
     if (!text) return;
     // Save to prompt history
-    console.log('[history] pushing:', text, 'len before:', promptHistoryRef.current.length);
-    promptHistoryRef.current.push(text);
+    promptHistory.push(text);
     historyIdxRef.current = -1;
     draftRef.current = '';
     const imageFiles = [...images];
@@ -161,29 +162,24 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
       }
     }
     // Prompt history navigation — only when input is empty or already browsing
-    const history = promptHistoryRef.current;
     const canBrowseHistory = !input || historyIdxRef.current >= 0;
 
-    if (e.key === 'ArrowUp') {
-      console.log('[history] ArrowUp', { historyLen: history.length, input: JSON.stringify(input), canBrowse: canBrowseHistory, idx: historyIdxRef.current });
-    }
-
-    if (e.key === 'ArrowUp' && history.length > 0 && canBrowseHistory) {
+    if (e.key === 'ArrowUp' && promptHistory.length > 0 && canBrowseHistory) {
       e.preventDefault();
       if (historyIdxRef.current === -1) {
         draftRef.current = input;
-        historyIdxRef.current = history.length - 1;
+        historyIdxRef.current = promptHistory.length - 1;
       } else if (historyIdxRef.current > 0) {
         historyIdxRef.current--;
       }
-      setInput(history[historyIdxRef.current]);
+      setInput(promptHistory[historyIdxRef.current]);
       return;
     }
     if (e.key === 'ArrowDown' && historyIdxRef.current >= 0) {
       e.preventDefault();
-      if (historyIdxRef.current < history.length - 1) {
+      if (historyIdxRef.current < promptHistory.length - 1) {
         historyIdxRef.current++;
-        setInput(history[historyIdxRef.current]);
+        setInput(promptHistory[historyIdxRef.current]);
       } else {
         historyIdxRef.current = -1;
         setInput(draftRef.current);
