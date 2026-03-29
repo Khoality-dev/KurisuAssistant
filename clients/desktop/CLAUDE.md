@@ -62,8 +62,8 @@ src/components/
   MessageBubble.tsx        — Re-exports from chat/ subfolder
   InteractiveCallBar.tsx   — Voice mode call bar: transcript, mic button with pulse, hang up
   chat/
-    ChatWidget.tsx         — Chat UI with streaming, TTS, image attach, pagination, voice mode, selection context chips
-    ChatComposer.tsx       — Message input composer with file attach, voice input
+    ChatWidget.tsx         — Chat UI with streaming, TTS, image attach, pagination, voice mode, selection context chips, display mode toggle (All/Context), token usage bar
+    ChatComposer.tsx       — Message input composer with file attach, voice input, slash command autocomplete, prompt history (up/down arrows)
     SelectionChips.tsx     — File selection context chips
     MessageBubble.tsx      — Individual bubble: role styling, thinking collapse, TTS, resend/delete
     MessageToolbar.tsx     — Hover toolbar: copy, TTS play, raw data, resend/regenerate, delete
@@ -106,6 +106,7 @@ src/videocall/            — Character animation engine (rendered in separate E
     CanvasCompositor.ts   — 60fps render: blink + breathing + mouth + pose tree state machine (idle→transitioning→idle), edge timers, video transitions, configurable AnimationSettings
     ImageCache.ts         — URL→HTMLImageElement cache
 src/utils/storage.ts      — localStorage wrapper (auth token, model, TTS settings, agent-conversation mapping)
+src/utils/commands.ts     — Slash command system: /compact, /clear. Autocomplete via getCommands(). Async handleCommand() with feedback strings. Lazy imports to avoid circular deps.
 src/theme/theme.ts        — MUI theme: primary #10A37F, 8px/12px border-radius
 src/config.ts             — API URL config (reads dynamically from storage)
 ```
@@ -124,11 +125,13 @@ src/config.ts             — API URL config (reads dynamically from storage)
 ### Streaming Architecture (ChatWidget)
 - **Store `messages`** = DB-persisted only (never mutated during streaming)
 - **`streamingMessages`** = ephemeral local state (user msg + agent responses during stream)
-- Render: `[...messages, ...streamingMessages]`
-- Uses WebSocket via `wsManager` (StreamChunkEvent, DoneEvent, ErrorEvent)
+- Render: `[...displayedMessages, ...streamingMessages]` where `displayedMessages` is filtered by display mode
+- Uses WebSocket via `wsManager` (StreamChunkEvent, DoneEvent, ErrorEvent, ContextInfoEvent)
 - Same-role chunks accumulated into single bubble; role/agent change → new bubble
 - Display via `requestAnimationFrame` batching
-- On DoneEvent: `loadConversation()` refreshes store from DB, clears streamingMessages
+- On DoneEvent: streaming messages merged into store instantly (no flash), background `loadConversation()` after 500ms for DB IDs/metadata
+- On Cancel: streaming messages merged into store, late chunks ignored via `cancelledRef`
+- **Message queue**: Users can send messages during streaming. Frontend shows queued user bubbles immediately; backend queues the request and processes it after current response finishes. Cancel clears the queue.
 - **Reconnect**: Auto-reconnect with exponential backoff (1s→2s→4s...30s cap). On WebSocket 4001 (auth failure), auto-refreshes token via `POST /auth/refresh` then reconnects. Manual reconnect still available via status dot. On `ConnectedEvent` with `chat_active`, loads persisted messages from DB (incremental persistence — each message saved server-side on role boundary) and enters streaming mode.
 - Typing indicator: bouncing dots inside bubble before first chunk; "Done" checkmark after
 
@@ -183,8 +186,37 @@ Two-level state managed by `useMicStore` (Zustand, `src/store/micStore.ts`): `in
 - Tool images: MCP tools returning `ImageContent` produce image UUIDs streamed on tool-role chunks
 - Public images (avatars, faces): still use `apiClient.getImageUrl(uuid)` → `GET /images/{uuid}` (public)
 
+### Display Modes & Token Usage
+- **All Messages** (default): Full conversation history across all frames, paginated on scroll-up
+- **Context Window**: Only messages after compaction watermark (`id > compactedUpToId`) + collapsible compacted context summary banner
+- Toggle via `ToggleButtonGroup` above messages pane; scrolls to bottom on switch
+- **Token count**: Always visible as "used / cap". Frontend-calculated: `(compacted_context + context_window_messages) * 1.3` word estimate. During streaming, backend `StreamChunkEvent.token_count` overrides
+- Store tracks `compactedUpToId`, `compactedContext`, `systemPromptTokenCount` from `GET /conversations/{id}` response. `ContextInfoEvent` updates watermark live after compaction
+- Compacted messages: resend disabled (backend blocks deletion too)
+
+### Slash Commands (`src/utils/commands.ts`)
+- `/compact` — compact conversation context (sends `compact_context` WebSocket event)
+- `/clear` — delete current conversation + clear agent mapping (lazy imports to avoid circular deps)
+- Autocomplete dropdown in `ChatComposer`: filtered on `/` prefix, Enter auto-selects first match, closes dropdown after selection
+- All `/`-prefixed input intercepted client-side, never sent to backend
+- Commands return feedback strings shown as info toasts
+- `handleCommand()` is async, returns `Promise<string | null>`
+
+### Prompt History
+- Session-scoped prompt history tracked in `ChatComposer` via `promptHistoryRef`
+- Arrow Up: browse previous prompts (saves current draft in `draftRef`)
+- Arrow Down: browse forward or return to draft
+- Only active when command dropdown is closed
+
+### Keyboard Shortcuts
+- **Esc**: Cancel streaming (only during active stream)
+- **Enter**: Send message (or select command if dropdown open)
+- **Shift+Enter**: Newline
+- **Arrow Up/Down**: Prompt history (or command dropdown navigation)
+- **Tab**: Select command in dropdown
+
 ### Pagination
-- 50 messages/page, newest first. Scroll to top triggers `loadMoreMessages()`. Position preserved.
+- 20 messages/page, newest first. Scroll to top triggers `loadMoreMessages()`. Position preserved. Loading indicator hidden in Context display mode.
 
 ## Backend API Endpoints
 
