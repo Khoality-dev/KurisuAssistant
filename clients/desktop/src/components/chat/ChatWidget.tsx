@@ -199,7 +199,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
   // Message rendering
   const messageElements = useMemo(() => {
-    const combined = [...displayedMessages, ...streaming.streamingMessages, ...streaming.queuedMessages];
+    const combined = [...displayedMessages, ...streaming.streamingMessages];
     const displayedCount = displayedMessages.length;
     const activeStreamingMsg = streaming.isStreaming && streaming.streamingMessages.length > 0
       ? streaming.streamingMessages[streaming.streamingMessages.length - 1]
@@ -251,7 +251,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   }, [
     displayedMessages,
     streaming.streamingMessages,
-    streaming.queuedMessages,
     streaming.isStreaming,
     frames,
     streaming.streamingThinking,
@@ -310,9 +309,20 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       <AnimatePresence>
         {messageElements}
       </AnimatePresence>
+      {/* Queued messages rendered outside main memo to avoid disrupting streaming */}
+      {streaming.queuedMessages.map((msg, i) => (
+        <Box key={`queued-${i}`} sx={{ mb: 0.5, display: 'flex', justifyContent: 'flex-end', opacity: 0.5 }}>
+          <Box sx={{ maxWidth: '80%' }}>
+            <Paper elevation={0} sx={{ p: 2, backgroundColor: 'action.hover', border: '1px dashed', borderColor: 'divider' }}>
+              <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>Queued</Typography>
+              <Typography variant="body2">{msg.content}</Typography>
+            </Paper>
+          </Box>
+        </Box>
+      ))}
       <div ref={streaming.messagesEndRef} />
     </Box>
-  ), [isLoadingMessages, messageElements, displayMode, compactedContext, contextBannerExpanded]);
+  ), [isLoadingMessages, messageElements, displayMode, compactedContext, contextBannerExpanded, streaming.queuedMessages]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%' }}>
