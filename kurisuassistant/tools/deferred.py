@@ -48,9 +48,11 @@ class DeferredToolProxy:
 
         catalog = []
 
-        # Native tools
+        # Native tools (skip built-in — they're in the tools param directly)
         for name, tool in self._registry._tools.items():
-            if self._allowed is not None and name not in self._allowed and not tool.built_in:
+            if tool.built_in:
+                continue
+            if self._allowed is not None and name not in self._allowed:
                 continue
             if name in META_TOOL_NAMES:
                 continue

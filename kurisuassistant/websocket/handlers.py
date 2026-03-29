@@ -426,12 +426,13 @@ class ChatSessionHandler:
                     agent_context, frame_id, event,
                 )
             else:
-                # Build route_to tool with available agent names + descriptions
-                route_tool_agents = [
-                    {"name": a.name, "description": a.description or a.system_prompt[:100] or "General assistant"}
-                    for a in sub_agents
-                ]
-                route_to_tool = RouteToTool(available_agents=route_tool_agents)
+                # Update the global route_to tool with available agent names
+                route_to_tool = tool_registry.get("route_to")
+                if route_to_tool:
+                    route_to_tool.available_agents = [
+                        {"name": a.name, "description": a.description or a.system_prompt[:100] or "General assistant"}
+                        for a in sub_agents
+                    ]
 
                 current_agent = admin_agent
                 route_message = None  # Message from route_to, or None for full history
@@ -449,10 +450,6 @@ class ChatSessionHandler:
                     else:
                         # Sub-agent gets only the route_to message as a user message
                         agent_messages = [{"role": "user", "content": route_message or event.text}]
-
-                    # --- Register route_to tool for Administrator only ---
-                    if is_admin:
-                        tool_registry.register(route_to_tool)
 
                     try:
                         # Send agent switch event
@@ -481,8 +478,7 @@ class ChatSessionHandler:
                             is_admin=is_admin,
                         )
                     finally:
-                        if is_admin:
-                            tool_registry.unregister("route_to")
+                        pass
 
                     prev_agent_name = current_agent.name
 

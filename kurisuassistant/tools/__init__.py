@@ -4,12 +4,14 @@ from .base import BaseTool
 from .registry import ToolRegistry, tool_registry
 from .history import HistoryListTool, HistoryReadTool, HistorySearchTool
 from .skills import GetSkillInstructionsTool
+from .routing import RouteToTool
 
 # Register built-in tools
 tool_registry.register(HistoryListTool())
 tool_registry.register(HistoryReadTool())
 tool_registry.register(HistorySearchTool())
 tool_registry.register(GetSkillInstructionsTool())
+tool_registry.register(RouteToTool())
 
 __all__ = [
     "BaseTool",

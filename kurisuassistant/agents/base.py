@@ -532,7 +532,7 @@ class SimpleAgent(BaseAgent):
         allowed = set(self.config.available_tools) if self.config.available_tools is not None else None
 
         if self.config.use_deferred_tools:
-            from kurisuassistant.tools.deferred import create_deferred_tools
+            from kurisuassistant.tools.deferred import create_deferred_tools, META_TOOL_NAMES
             proxy, meta_tools = create_deferred_tools(
                 tool_registry=self.tool_registry,
                 available_tools=allowed,
@@ -541,6 +541,10 @@ class SimpleAgent(BaseAgent):
             )
             self._deferred_proxy = proxy
             tool_schemas = [mt.get_schema() for mt in meta_tools]
+            # Include built-in tools directly in the tools param (not behind deferred discovery)
+            for tool in self.tool_registry._tools.values():
+                if tool.built_in and tool.name not in META_TOOL_NAMES:
+                    tool_schemas.append(tool.get_schema())
         else:
             self._deferred_proxy = None
             tool_schemas = self.tool_registry.get_schemas(allowed)
