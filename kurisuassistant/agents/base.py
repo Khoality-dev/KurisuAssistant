@@ -46,7 +46,7 @@ class AgentConfig:
     system_prompt: str = ""  # Role instructions
     model_name: Optional[str] = None
     provider_type: str = "ollama"
-    excluded_tools: Optional[List[str]] = None
+    available_tools: Optional[List[str]] = None  # None = all tools, list = only these
     think: bool = False
     memory: Optional[str] = None
     memory_enabled: bool = True
@@ -186,10 +186,10 @@ class BaseAgent(ABC):
         tool = self.tool_registry.get(tool_name)
 
         # Enforce tool access: built-in tools always available,
-        # excluded_tools blocks specific non-built-in tools
-        if self.config.excluded_tools and tool_name in self.config.excluded_tools:
+        # available_tools allowlist restricts non-built-in tools
+        if self.config.available_tools is not None and tool_name not in self.config.available_tools:
             if not (tool and tool.built_in):
-                logger.warning(f"Agent '{self.config.name}' tried to use excluded tool: {tool_name}")
+                logger.warning(f"Agent '{self.config.name}' tried to use unavailable tool: {tool_name}")
                 return ToolResult(content=f"Tool not available: {tool_name}", status="error")
 
         if require_approval and tool and tool.requires_approval:
@@ -517,12 +517,14 @@ class SimpleAgent(BaseAgent):
         # Expose prepared messages for raw_input logging
         self.last_prepared_messages = messages
 
-        # Build tool schemas — deferred (3 meta-tools) or flat (all schemas)
+        # Build tool schemas — deferred (meta-tools) or flat (all schemas)
+        allowed = set(self.config.available_tools) if self.config.available_tools is not None else None
+
         if self.config.use_deferred_tools:
             from kurisuassistant.tools.deferred import create_deferred_tools
             proxy, meta_tools = create_deferred_tools(
                 tool_registry=self.tool_registry,
-                excluded_tools=self.config.excluded_tools,
+                available_tools=allowed,
                 user_id=context.user_id,
                 client_tools=context.client_tools or [],
             )
@@ -530,27 +532,24 @@ class SimpleAgent(BaseAgent):
             tool_schemas = [mt.get_schema() for mt in meta_tools]
         else:
             self._deferred_proxy = None
-            # Get tools for this agent (all tools minus excluded)
-            tool_schemas = self.tool_registry.get_schemas(self.config.excluded_tools)
+            tool_schemas = self.tool_registry.get_schemas(allowed)
 
-            # Add user's server-side MCP tools (filtered by agent's exclusion list)
+            # Add user's server-side MCP tools (filtered by allowlist)
             if context.user_id:
                 try:
                     from kurisuassistant.mcp_tools.orchestrator import get_user_orchestrator
                     mcp_tools = await get_user_orchestrator(context.user_id).get_tools()
-                    if self.config.excluded_tools:
-                        excluded = set(self.config.excluded_tools)
-                        mcp_tools = [t for t in mcp_tools if t.get("function", {}).get("name") not in excluded]
+                    if allowed is not None:
+                        mcp_tools = [t for t in mcp_tools if t.get("function", {}).get("name") in allowed]
                     tool_schemas.extend(mcp_tools)
                 except Exception as e:
                     logger.warning(f"Failed to load MCP tools for user {context.user_id}: {e}")
 
-            # Add client-side tools (filtered by agent's exclusion list)
+            # Add client-side tools (filtered by allowlist)
             if context.client_tools:
                 client_tools = context.client_tools
-                if self.config.excluded_tools:
-                    excluded = set(self.config.excluded_tools)
-                    client_tools = [t for t in client_tools if t.get("function", {}).get("name") not in excluded]
+                if allowed is not None:
+                    client_tools = [t for t in client_tools if t.get("function", {}).get("name") in allowed]
                 tool_schemas.extend(client_tools)
 
         # Attach base64 images to the last user message for vision models

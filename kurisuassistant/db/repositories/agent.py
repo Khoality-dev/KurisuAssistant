@@ -60,7 +60,7 @@ class AgentRepository(BaseRepository[Agent]):
         system_prompt: str = "",
         model_name: Optional[str] = None,
         provider_type: str = "ollama",
-        excluded_tools: Optional[List[str]] = None,
+        available_tools: Optional[List[str]] = None,
         think: bool = False,
         persona_id: Optional[int] = None,
         use_deferred_tools: bool = False,
@@ -80,7 +80,7 @@ class AgentRepository(BaseRepository[Agent]):
             system_prompt=system_prompt,
             model_name=model_name,
             provider_type=provider_type,
-            excluded_tools=excluded_tools,
+            available_tools=available_tools,
             think=think,
             persona_id=persona_id,
             use_deferred_tools=use_deferred_tools,
@@ -93,7 +93,7 @@ class AgentRepository(BaseRepository[Agent]):
         system_prompt: Optional[str] = None,
         model_name: Optional[str] = None,
         provider_type: Optional[str] = None,
-        excluded_tools: Optional[List[str]] = None,
+        available_tools: Optional[List[str]] = None,
         think: Optional[bool] = None,
         memory: Optional[str] = None,
         memory_enabled: Optional[bool] = None,
@@ -110,8 +110,8 @@ class AgentRepository(BaseRepository[Agent]):
             update_data["model_name"] = model_name
         if provider_type is not None:
             update_data["provider_type"] = provider_type
-        if excluded_tools is not None:
-            update_data["excluded_tools"] = excluded_tools
+        if available_tools is not None:
+            update_data["available_tools"] = available_tools
         if think is not None:
             update_data["think"] = think
         if memory is not None:

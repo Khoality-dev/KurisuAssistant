@@ -107,7 +107,7 @@ class Agent(Base):
     system_prompt = Column(Text, default='')  # Role instructions
     model_name = Column(String, nullable=True)  # LLM model override
     provider_type = Column(String, default='ollama', nullable=False)  # LLM provider
-    excluded_tools = Column(JSON, nullable=True)  # List of tool names to exclude
+    available_tools = Column(JSON, nullable=True)  # Allowlist of tool names (null = all)
     think = Column(Boolean, default=False, nullable=False)  # Enable extended reasoning
     memory = Column(Text, nullable=True)  # Free-form persistent memory (markdown)
     memory_enabled = Column(Boolean, default=True, nullable=False)  # Enable memory injection + consolidation

@@ -788,7 +788,7 @@ class ChatSessionHandler:
             system_prompt=agent.system_prompt or "",
             model_name=agent.model_name,
             provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
-            excluded_tools=agent.excluded_tools,
+            available_tools=agent.available_tools,
             think=agent.think,
             memory=agent.memory,
             memory_enabled=agent.memory_enabled,

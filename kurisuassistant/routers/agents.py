@@ -29,7 +29,7 @@ class AgentCreate(BaseModel):
     system_prompt: str = ""
     model_name: str  # Required - LLM model for this agent
     provider_type: str = "ollama"  # "ollama" or "gemini"
-    excluded_tools: Optional[List[str]] = None
+    available_tools: Optional[List[str]] = None
     think: bool = False
     persona_id: Optional[int] = None
     use_deferred_tools: bool = False
@@ -41,7 +41,7 @@ class AgentUpdate(BaseModel):
     system_prompt: Optional[str] = None
     model_name: Optional[str] = None
     provider_type: Optional[str] = None
-    excluded_tools: Optional[List[str]] = None
+    available_tools: Optional[List[str]] = None
     think: Optional[bool] = None
     memory: Optional[str] = None
     memory_enabled: Optional[bool] = None
@@ -57,7 +57,7 @@ class AgentResponse(BaseModel):
     system_prompt: str
     model_name: Optional[str]
     provider_type: str = "ollama"
-    excluded_tools: Optional[List[str]]
+    available_tools: Optional[List[str]]
     think: bool
     memory: Optional[str] = None
     memory_enabled: bool = True
@@ -90,7 +90,7 @@ def _agent_to_response(agent) -> AgentResponse:
         description=agent.description or "",
         system_prompt=agent.system_prompt or "",
         model_name=agent.model_name,
-        excluded_tools=agent.excluded_tools,
+        available_tools=agent.available_tools,
         think=agent.think,
         memory=agent.memory,
         memory_enabled=agent.memory_enabled,
@@ -169,7 +169,7 @@ async def create_agent(
                 system_prompt=body.system_prompt,
                 model_name=body.model_name,
                 provider_type=body.provider_type,
-                excluded_tools=body.excluded_tools,
+                available_tools=body.available_tools,
                 think=body.think,
                 persona_id=body.persona_id,
                 use_deferred_tools=body.use_deferred_tools,
@@ -225,7 +225,7 @@ async def update_agent(
             system_prompt=body.system_prompt,
             model_name=body.model_name,
             provider_type=body.provider_type,
-            excluded_tools=body.excluded_tools,
+            available_tools=body.available_tools,
             think=body.think,
             memory=body.memory,
             memory_enabled=body.memory_enabled,
@@ -314,7 +314,7 @@ def _get_agent_data(session, user_id: int, agent_id: int) -> Optional[dict]:
         "system_prompt": agent.system_prompt or "",
         "model_name": agent.model_name,
         "provider_type": agent.provider_type or "ollama",
-        "excluded_tools": agent.excluded_tools,
+        "available_tools": agent.available_tools,
         "think": agent.think,
         "memory": agent.memory,
         "memory_enabled": agent.memory_enabled,
@@ -383,7 +383,7 @@ async def _import_from_json(meta: dict, user: User) -> AgentResponse:
             system_prompt=meta.get("system_prompt", ""),
             model_name=meta.get("model_name"),
             provider_type=meta.get("provider_type", "ollama"),
-            excluded_tools=meta.get("excluded_tools"),
+            available_tools=meta.get("available_tools"),
             think=meta.get("think", False),
             persona_id=persona_id,
         )

@@ -30,12 +30,12 @@ class DeferredToolProxy:
     def __init__(
         self,
         tool_registry: "ToolRegistry",
-        excluded_tools: Optional[List[str]],
+        available_tools: Optional[set],
         user_id: Optional[int],
         client_tools: List[Dict],
     ):
         self._registry = tool_registry
-        self._excluded = set(excluded_tools) if excluded_tools else set()
+        self._allowed = available_tools  # None = all tools
         self._user_id = user_id
         self._client_tools = client_tools
         # Cache built once per agent turn
@@ -50,7 +50,7 @@ class DeferredToolProxy:
 
         # Native tools
         for name, tool in self._registry._tools.items():
-            if name in self._excluded and not tool.built_in:
+            if self._allowed is not None and name not in self._allowed and not tool.built_in:
                 continue
             if name in META_TOOL_NAMES:
                 continue
@@ -70,7 +70,7 @@ class DeferredToolProxy:
                 for t in mcp_tools:
                     fn = t.get("function", {})
                     tool_name = fn.get("name", "")
-                    if tool_name in self._excluded:
+                    if self._allowed is not None and tool_name not in self._allowed:
                         continue
                     catalog.append({
                         "name": tool_name,
@@ -84,7 +84,7 @@ class DeferredToolProxy:
         for t in self._client_tools:
             fn = t.get("function", {})
             tool_name = fn.get("name", "")
-            if tool_name in self._excluded:
+            if self._allowed is not None and tool_name not in self._allowed:
                 continue
             catalog.append({
                 "name": tool_name,
@@ -140,10 +140,13 @@ class DeferredToolProxy:
 
     async def get_tool_schema(self, name: str) -> str:
         """Return the full schema for a specific tool."""
+        def _is_allowed(tool_name: str, built_in: bool = False) -> bool:
+            return self._allowed is None or tool_name in self._allowed or built_in
+
         # Native tool
         tool = self._registry.get(name)
         if tool and name not in META_TOOL_NAMES:
-            if name not in self._excluded or tool.built_in:
+            if _is_allowed(name, tool.built_in):
                 return json.dumps(tool.get_schema(), indent=2)
 
         # MCP tools
@@ -153,7 +156,7 @@ class DeferredToolProxy:
                 mcp_tools = await get_user_orchestrator(self._user_id).get_tools()
                 for t in mcp_tools:
                     fn = t.get("function", {})
-                    if fn.get("name") == name and name not in self._excluded:
+                    if fn.get("name") == name and _is_allowed(name):
                         return json.dumps(t, indent=2)
             except Exception as e:
                 logger.warning(f"Failed to load MCP tool schema: {e}")
@@ -161,7 +164,7 @@ class DeferredToolProxy:
         # Client tools
         for t in self._client_tools:
             fn = t.get("function", {})
-            if fn.get("name") == name and name not in self._excluded:
+            if fn.get("name") == name and _is_allowed(name):
                 return json.dumps(t, indent=2)
 
         return json.dumps({"error": f"Tool not found: {name}"})
@@ -318,7 +321,7 @@ class CallToolTool(BaseTool):
 
 def create_deferred_tools(
     tool_registry: "ToolRegistry",
-    excluded_tools: Optional[List[str]],
+    available_tools: Optional[set],
     user_id: Optional[int],
     client_tools: List[Dict],
 ) -> tuple["DeferredToolProxy", List[BaseTool]]:
@@ -329,7 +332,7 @@ def create_deferred_tools(
     """
     proxy = DeferredToolProxy(
         tool_registry=tool_registry,
-        excluded_tools=excluded_tools,
+        available_tools=available_tools,
         user_id=user_id,
         client_tools=client_tools,
     )
