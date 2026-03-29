@@ -340,7 +340,15 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
             <ToggleButton value="all">All</ToggleButton>
             <ToggleButton value="context">Context</ToggleButton>
           </ToggleButtonGroup>
-          <Typography variant="caption" color="text.secondary">
+          <Typography
+            variant="caption"
+            sx={{
+              color: tokenCount > contextSize * 0.9 ? 'error.main'
+                : tokenCount > contextSize * 0.8 ? 'warning.main'
+                : 'text.secondary',
+              fontWeight: tokenCount > contextSize * 0.8 ? 600 : 400,
+            }}
+          >
             {tokenCount.toLocaleString()} / {contextSize.toLocaleString()} tokens
           </Typography>
         </Box>
