@@ -371,11 +371,11 @@ function getHostToolSchemas(): ToolSchema[] {
 
 type ToolResult = { content: string; isError: boolean };
 
-function ok(data: unknown): ToolResult {
-  return { content: JSON.stringify(data), isError: false };
+function ok(msg: string): ToolResult {
+  return { content: msg, isError: false };
 }
 function err(msg: string): ToolResult {
-  return { content: JSON.stringify({ error: msg }), isError: true };
+  return { content: `Error: ${msg}`, isError: true };
 }
 
 async function executeHostRead(args: Record<string, unknown>): Promise<ToolResult> {
@@ -441,7 +441,7 @@ async function executeHostWrite(args: Record<string, unknown>): Promise<ToolResu
     const result = fsOps.writeFile(filePath, content);
     readFiles.add(result.path);
     clearDiffView();
-    return ok({ status: 'ok', path: filePath, bytes: result.bytes });
+    return ok(`File written: ${filePath} (${result.bytes} bytes)`);
   } catch (e: any) { clearDiffView(); return err(e.message); }
 }
 
@@ -497,7 +497,7 @@ async function executeHostEdit(args: Record<string, unknown>): Promise<ToolResul
     fs.writeFileSync(resolved, newContent, { encoding: 'utf-8' });
     clearDiffView();
     const msg = replaceAll ? `Replaced ${count} occurrences` : 'Edit applied';
-    return ok({ status: 'ok', path: filePath, message: msg });
+    return ok(`${msg} in ${filePath}`);
   } catch (e: any) { clearDiffView(); return err(e.message); }
 }
 
@@ -509,7 +509,11 @@ async function executeHostSearch(args: Record<string, unknown>, allowedPaths: st
     if (!searchPath) return err('path is required when no allowed paths are configured.');
     const result = await fsOps.search(query, searchPath, { glob: args.glob as string | undefined }, 100);
     if (result.error) return err(result.error);
-    return ok({ matches: result.matches });
+    if (!result.matches || result.matches.length === 0) return ok(`No matches found for "${query}".`);
+    const lines = result.matches.map((m: { path: string; line: number; snippet: string }) =>
+      `${m.path}:${m.line}: ${m.snippet}`
+    );
+    return ok(lines.join('\n'));
   } catch (e: any) { return err(e.message); }
 }
 
@@ -518,12 +522,13 @@ async function executeHostList(args: Record<string, unknown>): Promise<ToolResul
     const dirPath = args.path as string;
     if (!dirPath) return err('path is required.');
     const entries = fsOps.listDirectory(dirPath, true);
-    const items = entries.map((e) => ({
-      name: e.name,
-      type: e.type,
-      ...(e.type === 'file' ? { size: e.size } : {}),
-    }));
-    return ok({ path: dirPath, entries: items, count: items.length });
+    if (entries.length === 0) return ok(`Directory is empty: ${dirPath}`);
+    const lines = entries.map((e) => {
+      const icon = e.type === 'directory' ? '/' : '';
+      const size = e.type === 'file' && e.size ? ` (${e.size} bytes)` : '';
+      return `- ${e.name}${icon}${size}`;
+    });
+    return ok(`**${dirPath}** (${entries.length} entries)\n\n${lines.join('\n')}`);
   } catch (e: any) { return err(e.message); }
 }
 
@@ -536,7 +541,15 @@ async function executeHostBash(args: Record<string, unknown>, allowedPaths: stri
       : (allowedPaths.length > 0 ? path.resolve(allowedPaths[0]) : undefined);
     const timeout = typeof args.timeout === 'number' ? args.timeout : 60;
     const result = await fsOps.bash(command, workdir, timeout);
-    return ok(result);
+    const parts: string[] = [];
+    if (result.stdout) parts.push(result.stdout);
+    if (result.stderr) parts.push(`**stderr:**\n${result.stderr}`);
+    if (result.timed_out) parts.push('*Command timed out.*');
+    if (result.exit_code !== 0) parts.push(`Exit code: ${result.exit_code}`);
+    const output = parts.join('\n\n') || '(no output)';
+    return result.exit_code === 0
+      ? ok(output)
+      : { content: output, isError: true };
   } catch (e: any) { return err(e.message); }
 }
 

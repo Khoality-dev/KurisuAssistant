@@ -19,34 +19,24 @@ interface AppToolCall {
 
 type ToolResult = { content: string; isError: boolean };
 
-function ok(data: unknown): ToolResult {
-  return { content: JSON.stringify(data), isError: false };
+function ok(msg: string): ToolResult {
+  return { content: msg, isError: false };
 }
 
 function err(message: string): ToolResult {
-  return { content: JSON.stringify({ error: message }), isError: true };
+  return { content: `Error: ${message}`, isError: true };
 }
 
 // --- Tool handlers ---
 
 async function handleGetAgents(): Promise<ToolResult> {
   const agents = await apiClient.listAgents();
-  return ok(agents.map(a => ({
-    id: a.id,
-    name: a.name,
-    model_name: a.model_name,
-    system_prompt: a.system_prompt?.substring(0, 200) + (a.system_prompt && a.system_prompt.length > 200 ? '...' : ''),
-    think: a.think,
-    memory_enabled: a.memory_enabled,
-    persona_id: a.persona_id,
-    persona: a.persona ? {
-      id: a.persona.id,
-      name: a.persona.name,
-      preferred_name: a.persona.preferred_name,
-      trigger_word: a.persona.trigger_word,
-    } : null,
-    available_tools: a.available_tools,
-  })));
+  if (agents.length === 0) return ok('No agents configured.');
+  const lines = agents.map(a => {
+    const persona = a.persona ? ` (persona: ${a.persona.name})` : '';
+    return `- **${a.name}** (#${a.id}) — ${a.model_name || 'no model'}${persona}`;
+  });
+  return ok(lines.join('\n'));
 }
 
 async function handleCreateAgent(args: Record<string, unknown>): Promise<ToolResult> {
@@ -63,7 +53,7 @@ async function handleCreateAgent(args: Record<string, unknown>): Promise<ToolRes
     think: args.think as boolean | undefined,
     persona_id: args.persona_id as number | undefined,
   });
-  return ok({ status: 'ok', agent: { id: agent.id, name: agent.name, model_name: agent.model_name } });
+  return ok(`Agent created: **${agent.name}** (#${agent.id})`);
 }
 
 async function handleUpdateAgent(args: Record<string, unknown>): Promise<ToolResult> {
@@ -78,7 +68,7 @@ async function handleUpdateAgent(args: Record<string, unknown>): Promise<ToolRes
   if (Object.keys(update).length === 0) return err('No fields to update.');
 
   const agent = await apiClient.updateAgent(agentId, update);
-  return ok({ status: 'ok', agent: { id: agent.id, name: agent.name, model_name: agent.model_name } });
+  return ok(`Agent updated: **${agent.name}** (#${agent.id})`);
 }
 
 async function handleDeleteAgent(args: Record<string, unknown>): Promise<ToolResult> {
@@ -86,21 +76,14 @@ async function handleDeleteAgent(args: Record<string, unknown>): Promise<ToolRes
   if (!agentId) return err('agent_id is required.');
 
   await apiClient.deleteAgent(agentId);
-  return ok({ status: 'ok', deleted: agentId });
+  return ok(`Agent #${agentId} deleted.`);
 }
 
 async function handleListMCPServers(): Promise<ToolResult> {
   const servers = await apiClient.listMCPServers();
-  return ok(servers.map(s => ({
-    id: s.id,
-    name: s.name,
-    transport_type: s.transport_type,
-    url: s.url,
-    command: s.command,
-    args: s.args,
-    enabled: s.enabled,
-    location: s.location,
-  })));
+  if (servers.length === 0) return ok('No MCP servers configured.');
+  const lines = servers.map(s => `- **${s.name}** (#${s.id}) — ${s.transport_type}, ${s.location}${s.enabled ? '' : ' (disabled)'}`);
+  return ok(lines.join('\n'));
 }
 
 async function handleAddMCPServer(args: Record<string, unknown>): Promise<ToolResult> {
@@ -124,7 +107,7 @@ async function handleAddMCPServer(args: Record<string, unknown>): Promise<ToolRe
     await refreshClientMCPServers();
   }
 
-  return ok({ status: 'ok', server: { id: server.id, name: server.name } });
+  return ok(`MCP server created: **${server.name}** (#${server.id})`);
 }
 
 async function handleUpdateMCPServer(args: Record<string, unknown>): Promise<ToolResult> {
@@ -140,7 +123,7 @@ async function handleUpdateMCPServer(args: Record<string, unknown>): Promise<Too
 
   const server = await apiClient.updateMCPServer(serverId, update);
   await refreshClientMCPServers();
-  return ok({ status: 'ok', server: { id: server.id, name: server.name } });
+  return ok(`MCP server updated: **${server.name}** (#${server.id})`);
 }
 
 async function handleDeleteMCPServer(args: Record<string, unknown>): Promise<ToolResult> {
@@ -149,14 +132,16 @@ async function handleDeleteMCPServer(args: Record<string, unknown>): Promise<Too
 
   await apiClient.deleteMCPServer(serverId);
   await refreshClientMCPServers();
-  return ok({ status: 'ok', deleted: serverId });
+  return ok(`MCP server #${serverId} deleted.`);
 }
 
 // --- Skills ---
 
 async function handleListSkills(): Promise<ToolResult> {
   const skills = await apiClient.listSkills();
-  return ok(skills.map(s => ({ id: s.id, name: s.name, instructions: s.instructions?.substring(0, 200) + (s.instructions && s.instructions.length > 200 ? '...' : '') })));
+  if (skills.length === 0) return ok('No skills configured.');
+  const lines = skills.map(s => `- **${s.name}** (#${s.id}): ${s.instructions?.substring(0, 100) || '(no instructions)'}${s.instructions && s.instructions.length > 100 ? '...' : ''}`);
+  return ok(lines.join('\n'));
 }
 
 async function handleCreateSkill(args: Record<string, unknown>): Promise<ToolResult> {
@@ -167,7 +152,7 @@ async function handleCreateSkill(args: Record<string, unknown>): Promise<ToolRes
     name,
     instructions: args.instructions as string | undefined,
   });
-  return ok({ status: 'ok', skill: { id: skill.id, name: skill.name } });
+  return ok(`Skill created: **${skill.name}** (#${skill.id})`);
 }
 
 async function handleUpdateSkill(args: Record<string, unknown>): Promise<ToolResult> {
@@ -181,7 +166,7 @@ async function handleUpdateSkill(args: Record<string, unknown>): Promise<ToolRes
   if (Object.keys(update).length === 0) return err('No fields to update.');
 
   const skill = await apiClient.updateSkill(skillId, update);
-  return ok({ status: 'ok', skill: { id: skill.id, name: skill.name } });
+  return ok(`Skill updated: **${skill.name}** (#${skill.id})`);
 }
 
 async function handleDeleteSkill(args: Record<string, unknown>): Promise<ToolResult> {
@@ -189,23 +174,23 @@ async function handleDeleteSkill(args: Record<string, unknown>): Promise<ToolRes
   if (!skillId) return err('skill_id is required.');
 
   await apiClient.deleteSkill(skillId);
-  return ok({ status: 'ok', deleted: skillId });
+  return ok(`Skill #${skillId} deleted.`);
 }
 
 // --- Personas ---
 
 async function handleGetPersonas(): Promise<ToolResult> {
   const personas = await apiClient.listPersonas();
-  return ok(personas.map(p => ({
-    id: p.id,
-    name: p.name,
-    system_prompt: p.system_prompt?.substring(0, 200) + (p.system_prompt && p.system_prompt.length > 200 ? '...' : ''),
-    preferred_name: p.preferred_name,
-    trigger_word: p.trigger_word,
-    voice_reference: p.voice_reference,
-    has_avatar: !!p.avatar_uuid,
-    has_character: !!p.character_config,
-  })));
+  if (personas.length === 0) return ok('No personas configured.');
+  const lines = personas.map(p => {
+    const details: string[] = [];
+    if (p.preferred_name) details.push(`calls user "${p.preferred_name}"`);
+    if (p.trigger_word) details.push(`trigger: "${p.trigger_word}"`);
+    if (p.voice_reference) details.push('has voice');
+    if (p.avatar_uuid) details.push('has avatar');
+    return `- **${p.name}** (#${p.id})${details.length ? ' — ' + details.join(', ') : ''}`;
+  });
+  return ok(lines.join('\n'));
 }
 
 async function handleCreatePersona(args: Record<string, unknown>): Promise<ToolResult> {
@@ -218,7 +203,7 @@ async function handleCreatePersona(args: Record<string, unknown>): Promise<ToolR
     preferred_name: args.preferred_name as string | undefined,
     trigger_word: args.trigger_word as string | undefined,
   });
-  return ok({ status: 'ok', persona: { id: persona.id, name: persona.name } });
+  return ok(`Persona created: **${persona.name}** (#${persona.id})`);
 }
 
 async function handleUpdatePersona(args: Record<string, unknown>): Promise<ToolResult> {
@@ -232,7 +217,7 @@ async function handleUpdatePersona(args: Record<string, unknown>): Promise<ToolR
   if (Object.keys(update).length === 0) return err('No fields to update.');
 
   const persona = await apiClient.updatePersona(personaId, update);
-  return ok({ status: 'ok', persona: { id: persona.id, name: persona.name } });
+  return ok(`Persona updated: **${persona.name}** (#${persona.id})`);
 }
 
 async function handleDeletePersona(args: Record<string, unknown>): Promise<ToolResult> {
@@ -240,20 +225,23 @@ async function handleDeletePersona(args: Record<string, unknown>): Promise<ToolR
   if (!personaId) return err('persona_id is required.');
 
   await apiClient.deletePersona(personaId);
-  return ok({ status: 'ok', deleted: personaId });
+  return ok(`Persona #${personaId} deleted.`);
 }
 
 // --- Tools ---
 
 async function handleListTools(): Promise<ToolResult> {
   const tools = await apiClient.listTools();
-  return ok({
-    builtin_tools: tools.builtin_tools.map(t => ({ name: t.function.name, built_in: t.built_in })),
-    mcp_tools: tools.mcp_tools.map(t => ({ name: t.function.name })),
-    mcp_servers: tools.mcp_servers
-      ? Object.fromEntries(Object.entries(tools.mcp_servers).map(([server, serverTools]) => [server, serverTools.map(t => t.function.name)]))
-      : undefined,
-  });
+  const lines: string[] = [];
+  if (tools.builtin_tools.length > 0) {
+    lines.push('**Built-in tools:**');
+    tools.builtin_tools.forEach(t => lines.push(`- ${t.function.name}`));
+  }
+  if (tools.mcp_tools.length > 0) {
+    lines.push('\n**MCP tools:**');
+    tools.mcp_tools.forEach(t => lines.push(`- ${t.function.name}`));
+  }
+  return ok(lines.join('\n') || 'No tools available.');
 }
 
 // --- Vision ---
@@ -266,12 +254,12 @@ async function handleVisionStart(args: Record<string, unknown>): Promise<ToolRes
   if (args.enable_hands !== undefined) store.setEnableHands(args.enable_hands as boolean);
 
   await store.startVision();
-  return ok({ status: 'ok', message: 'Vision pipeline started.' });
+  return ok('Vision pipeline started.');
 }
 
 async function handleVisionStop(): Promise<ToolResult> {
   useVisionStore.getState().stopVision();
-  return ok({ status: 'ok', message: 'Vision pipeline stopped.' });
+  return ok('Vision pipeline stopped.');
 }
 
 // --- UI control ---
@@ -295,7 +283,7 @@ async function handleOpenFile(args: Record<string, unknown>): Promise<ToolResult
   // Switch to workspace page so the file is visible
   useLayoutStore.getState().setActivePage('workspace');
 
-  return ok({ status: 'ok', opened: filePath });
+  return ok(`Opened file: ${filePath}`);
 }
 
 async function handleOpenFolder(args: Record<string, unknown>): Promise<ToolResult> {
@@ -305,20 +293,18 @@ async function handleOpenFolder(args: Record<string, unknown>): Promise<ToolResu
   useExplorerStore.setState({ workspaceRoot: folderPath });
   useLayoutStore.getState().setActivePage('workspace');
 
-  return ok({ status: 'ok', folder: folderPath });
+  return ok(`Opened folder: ${folderPath}`);
 }
 
 async function handleGetOpenFiles(): Promise<ToolResult> {
   const { openFiles, activeFileIndex } = useExplorerStore.getState();
-  return ok({
-    files: openFiles.map((f, i) => ({
-      path: f.path,
-      name: f.name,
-      active: i === activeFileIndex,
-      dirty: f.content !== f.originalContent,
-    })),
-    count: openFiles.length,
+  if (openFiles.length === 0) return ok('No files open.');
+  const lines = openFiles.map((f, i) => {
+    const active = i === activeFileIndex ? ' **(active)**' : '';
+    const dirty = f.content !== f.originalContent ? ' (modified)' : '';
+    return `- ${f.name}${active}${dirty} — ${f.path}`;
   });
+  return ok(lines.join('\n'));
 }
 
 async function handleNavigate(args: Record<string, unknown>): Promise<ToolResult> {
@@ -327,7 +313,7 @@ async function handleNavigate(args: Record<string, unknown>): Promise<ToolResult
     return err('page must be one of: workspace, conversations, settings');
   }
   useLayoutStore.getState().setActivePage(page as 'workspace' | 'conversations' | 'settings');
-  return ok({ status: 'ok', page });
+  return ok(`Navigated to ${page}.`);
 }
 
 // --- Dispatch ---
