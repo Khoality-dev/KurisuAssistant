@@ -125,6 +125,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
     const text = input.trim();
     if (!text) return;
     // Save to prompt history
+    console.log('[history] pushing:', text, 'len before:', promptHistoryRef.current.length);
     promptHistoryRef.current.push(text);
     historyIdxRef.current = -1;
     draftRef.current = '';
