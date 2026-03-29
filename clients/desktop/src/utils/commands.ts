@@ -6,6 +6,8 @@
  */
 
 import { wsManager } from '../api/websocket';
+import { useConversationStore } from '../store/conversationStore';
+import { storage } from './storage';
 
 export interface CommandContext {
   activeConversationId: number | null;
@@ -25,6 +27,21 @@ const commands: Command[] = [
     execute: (_args, ctx) => {
       if (ctx.activeConversationId) {
         wsManager.send({ type: 'compact_context', conversation_id: ctx.activeConversationId });
+      }
+    },
+  },
+  {
+    name: 'clear',
+    description: 'Clear the current conversation',
+    execute: async (_args, ctx) => {
+      if (ctx.activeConversationId) {
+        const convStore = useConversationStore.getState();
+        await convStore.deleteConversation(ctx.activeConversationId);
+        if (ctx.agentId) {
+          storage.clearAgentConversationId(ctx.agentId);
+        } else {
+          storage.clearAgentConversationId('group');
+        }
       }
     },
   },
