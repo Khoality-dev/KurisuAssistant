@@ -405,6 +405,7 @@ async function executeHostRead(args: Record<string, unknown>): Promise<ToolResul
 /** Send diff view to renderer for display (non-blocking, just visual context). */
 function sendDiffView(filePath: string, originalContent: string, modifiedContent: string) {
   const mainWindow = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+  console.log('[HostTools] sendDiffView called, mainWindow:', !!mainWindow, 'file:', filePath);
   if (!mainWindow) return;
   mainWindow.webContents.send('host-tools:diff-review', {
     reviewId: '', // Not used for approval — just display
@@ -519,9 +520,10 @@ async function executeHostTool(
           const fullContent = fs.existsSync(resolved) ? fs.readFileSync(resolved, { encoding: 'utf-8' }) : '';
           const oldText = args.old_text as string || '';
           const newText = args.new_text as string || '';
-          if (fullContent.includes(oldText)) {
-            sendDiffView(filePath, fullContent, fullContent.replace(oldText, newText));
-          }
+          const modified = fullContent.includes(oldText)
+            ? fullContent.replace(oldText, newText)
+            : fullContent; // old_text not found — show original as-is
+          sendDiffView(filePath, fullContent, modified);
         }
       }
     } catch { /* ignore diff display errors */ }

@@ -381,7 +381,9 @@ export function initAppToolsHandler(): void {
 
   // Listen for diff view display from host_write/host_edit
   let pageBeforeDiff: string | null = null;
+  console.log('[AppTools] Registering onDiffReview listener');
   window.electron.hostTools?.onDiffReview?.((data) => {
+    console.log('[AppTools] onDiffReview received:', data.filePath);
     const layout = useLayoutStore.getState();
     if (layout.activePage !== 'workspace') {
       pageBeforeDiff = layout.activePage;
