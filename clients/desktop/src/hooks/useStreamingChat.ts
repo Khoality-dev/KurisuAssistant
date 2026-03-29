@@ -37,6 +37,8 @@ export interface UseStreamingChatReturn {
   activeConversationId: number | null;
   errorToast: string | null;
   setErrorToast: (v: string | null) => void;
+  infoToast: string | null;
+  setInfoToast: (v: string | null) => void;
   externalDraft: string;
   externalDraftVersion: number;
   pushExternalDraft: (text: string) => void;
@@ -82,6 +84,7 @@ export function useStreamingChat({
     currentConversation?.id || null
   );
   const [errorToast, setErrorToast] = useState<string | null>(null);
+  const [infoToast, setInfoToast] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<ToolApprovalRequestEvent | null>(null);
   const [contextTokens, setContextTokens] = useState(0);
   const [isCompacting, setIsCompacting] = useState(false);
@@ -381,9 +384,10 @@ export function useStreamingChat({
       amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
     }
 
-    // Update running token count from server
+    // Update running token count from server and persist to store
     if (event.token_count != null) {
       setContextTokens(event.token_count);
+      useConversationStore.getState().setLastTokenCount(event.token_count);
     }
 
     // Streaming TTS auto-play: feed complete sentences to TTS queue
@@ -677,7 +681,8 @@ export function useStreamingChat({
 
     // Slash commands are always client-side — never send to backend
     if (trimmed.startsWith('/')) {
-      handleCommand(trimmed, { activeConversationId, agentId });
+      const feedback = await handleCommand(trimmed, { activeConversationId, agentId });
+      if (feedback) setInfoToast(feedback);
       return;
     }
 
@@ -800,6 +805,8 @@ export function useStreamingChat({
     activeConversationId,
     errorToast,
     setErrorToast,
+    infoToast,
+    setInfoToast,
     externalDraft,
     externalDraftVersion,
     pushExternalDraft,

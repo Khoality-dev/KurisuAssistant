@@ -396,6 +396,16 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           {streaming.errorToast}
         </Alert>
       </Snackbar>
+      <Snackbar
+        open={!!streaming.infoToast}
+        autoHideDuration={3000}
+        onClose={() => streaming.setInfoToast(null)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert onClose={() => streaming.setInfoToast(null)} severity="info" variant="filled" sx={{ width: '100%' }}>
+          {streaming.infoToast}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };
