@@ -300,8 +300,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%' }}>
 
-      {messagesPane}
-
       {/* Display mode toggle + token usage */}
       {currentConversation && (
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 0.5 }}>
@@ -320,6 +318,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           </Typography>
         </Box>
       )}
+
+      {messagesPane}
 
       {/* Selection context chips — above input */}
       <SelectionChips />
