@@ -159,9 +159,13 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
         return;
       }
     }
-    // Prompt history navigation (only when command dropdown is not open)
+    // Prompt history navigation — only when input is empty or cursor is at position 0
     const history = promptHistoryRef.current;
-    if (e.key === 'ArrowUp' && history.length > 0) {
+    const target = e.target as HTMLTextAreaElement;
+    const cursorAtStart = target.selectionStart === 0 && target.selectionEnd === 0;
+    const canBrowseHistory = !input.trim() || cursorAtStart || historyIdxRef.current >= 0;
+
+    if (e.key === 'ArrowUp' && history.length > 0 && canBrowseHistory) {
       e.preventDefault();
       if (historyIdxRef.current === -1) {
         draftRef.current = input;
