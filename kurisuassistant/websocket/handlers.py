@@ -486,7 +486,11 @@ class ChatSessionHandler:
 
                     # --- Check routing result ---
                     if route_result:
-                        # route_to was called — switch to target agent
+                        if route_result.get("action") == "end":
+                            # route_to_user — Administrator is done, end the loop
+                            break
+
+                        # route_to — switch to target agent
                         target_name = route_result["agent_name"]
                         target_agent = agent_by_name.get(target_name.lower())
                         if not target_agent:
@@ -503,8 +507,9 @@ class ChatSessionHandler:
                             "role": "user",
                             "content": (
                                 f"{prev_agent_name} has finished responding. "
-                                "Route to another agent if the task needs more work. "
-                                "Otherwise, only respond if you have something meaningful to add "
+                                "Use route_to to delegate to another agent if the task needs more work. "
+                                "Use route_to_user if the agent's response is sufficient and you have nothing to add. "
+                                "Only respond directly if you have something meaningful to add "
                                 "(e.g. correction, follow-up, or synthesis of multiple agents). "
                                 "Do NOT repeat or paraphrase what the agent already said."
                             ),
@@ -596,8 +601,8 @@ class ChatSessionHandler:
             if chunk.images:
                 current_images.extend(chunk.images)
 
-            # Check tool results for route_to
-            if chunk.role == "tool" and chunk.name == "route_to":
+            # Check tool results for route_to / route_to_user
+            if chunk.role == "tool" and chunk.name in ("route_to", "route_to_user"):
                 parsed = parse_route_result(chunk.content)
                 if parsed:
                     route_result = parsed

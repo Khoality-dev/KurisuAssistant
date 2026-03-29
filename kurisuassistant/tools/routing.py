@@ -59,12 +59,19 @@ class RouteToTool(BaseTool):
 
 
 def parse_route_result(result: str) -> Optional[Dict[str, str]]:
-    """Parse route_to tool result (used by handlers.py orchestration loop)."""
+    """Parse route_to / route_to_user tool result (used by handlers.py orchestration loop)."""
+    if result.startswith("ROUTE_TO_USER::"):
+        return {
+            "agent_name": "",
+            "message": result[len("ROUTE_TO_USER::"):],
+            "action": "end",
+        }
     if result.startswith("ROUTE_TO:"):
         parts = result[len("ROUTE_TO:"):].split(":", 1)
         return {
             "agent_name": parts[0] if parts else "",
             "message": parts[1] if len(parts) > 1 else "",
+            "action": "route",
         }
     return None
 

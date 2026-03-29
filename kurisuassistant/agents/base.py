@@ -688,8 +688,8 @@ class SimpleAgent(BaseAgent):
                         tool_denied = True
                         break
 
-                    # If route_to was called, stop immediately — don't loop back to LLM
-                    if display_name == "route_to":
+                    # If route_to or route_to_user was called, stop immediately
+                    if display_name in ("route_to", "route_to_user"):
                         tool_denied = True  # Reuse flag to break outer loop
                         break
 
