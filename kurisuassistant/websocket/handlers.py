@@ -585,6 +585,15 @@ class ChatSessionHandler:
         final_assistant_content = ""
 
         async for chunk in agent.process(messages, context):
+            # Intercept routing tool results
+            if chunk.role == "tool" and chunk.name in ("route_to", "route_to_user"):
+                parsed = parse_route_result(chunk.content)
+                if parsed:
+                    route_result = parsed
+                # route_to_user is internal — don't show or save
+                if chunk.name == "route_to_user":
+                    continue
+
             # Accumulate response word count for token estimation (all content + thinking)
             if chunk.content:
                 self._response_word_count += len(chunk.content.split())
@@ -600,12 +609,6 @@ class ChatSessionHandler:
             # Track tool images
             if chunk.images:
                 current_images.extend(chunk.images)
-
-            # Check tool results for route_to / route_to_user
-            if chunk.role == "tool" and chunk.name in ("route_to", "route_to_user"):
-                parsed = parse_route_result(chunk.content)
-                if parsed:
-                    route_result = parsed
 
             # Save completed message on role change
             if chunk.role != current_role:
