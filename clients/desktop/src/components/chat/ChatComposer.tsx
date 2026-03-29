@@ -163,6 +163,10 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
     const history = promptHistoryRef.current;
     const canBrowseHistory = !input || historyIdxRef.current >= 0;
 
+    if (e.key === 'ArrowUp') {
+      console.log('[history] ArrowUp', { historyLen: history.length, input: JSON.stringify(input), canBrowse: canBrowseHistory, idx: historyIdxRef.current });
+    }
+
     if (e.key === 'ArrowUp' && history.length > 0 && canBrowseHistory) {
       e.preventDefault();
       if (historyIdxRef.current === -1) {
