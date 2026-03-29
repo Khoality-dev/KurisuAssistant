@@ -274,14 +274,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       // Stable key: DB messages use their ID, streaming messages use their position in streamingMessages
       const key = message.id ? `msg-${message.id}` : `stream-${index - displayedCount}`;
       const isSearchMatch = searchQuery && searchMatches.includes(index);
-      const isActiveMatch = isSearchMatch && searchMatches[searchMatchIdx] === index;
       elements.push(
         <Box
           key={`wrap-${key}`}
           data-msg-index={index}
-          sx={isActiveMatch ? { outline: '2px solid', outlineColor: 'info.main', borderRadius: 2 }
-            : isSearchMatch ? { outline: '1px solid', outlineColor: 'divider', borderRadius: 2 }
-            : undefined}
         >
         <MessageBubble
           key={key}

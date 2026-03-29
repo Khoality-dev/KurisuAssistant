@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Box, Paper, Typography, Button, Avatar } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import {
@@ -18,6 +18,53 @@ import { MessageToolbar } from './MessageToolbar';
 import { RawDataDialog } from './RawDataDialog';
 
 const MotionBox = motion(Box);
+
+/** Wraps children and highlights text nodes matching `query` via DOM manipulation. */
+const HighlightWrapper: React.FC<{ query?: string; children: React.ReactNode }> = ({ query, children }) => {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Remove previous highlights
+    el.querySelectorAll('mark[data-search-hl]').forEach((mark) => {
+      const parent = mark.parentNode;
+      if (parent) {
+        parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
+        parent.normalize();
+      }
+    });
+    if (!query) return;
+    const q = query.toLowerCase();
+    // Walk text nodes and wrap matches
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+    for (const node of nodes) {
+      const text = node.textContent || '';
+      const lower = text.toLowerCase();
+      const idx = lower.indexOf(q);
+      if (idx === -1) continue;
+      const before = text.slice(0, idx);
+      const match = text.slice(idx, idx + q.length);
+      const after = text.slice(idx + q.length);
+      const mark = document.createElement('mark');
+      mark.setAttribute('data-search-hl', '');
+      mark.style.backgroundColor = '#FFD54F';
+      mark.style.color = '#000';
+      mark.style.borderRadius = '2px';
+      mark.style.padding = '0 2px';
+      mark.textContent = match;
+      const parent = node.parentNode!;
+      if (before) parent.insertBefore(document.createTextNode(before), node);
+      parent.insertBefore(mark, node);
+      if (after) parent.insertBefore(document.createTextNode(after), node);
+      parent.removeChild(node);
+    }
+  }, [query, children]);
+
+  return <div ref={ref}>{children}</div>;
+};
 
 interface MessageBubbleProps {
   message: Message;
@@ -419,29 +466,9 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
             {/* Show content with typing effect */}
             {displayContent && (
               <>
+                <HighlightWrapper query={searchHighlight}>
                 <ReactMarkdown
                   components={{
-                    text: ({ children }) => {
-                      if (!searchHighlight || typeof children !== 'string') return <>{children}</>;
-                      const text = children;
-                      const query = searchHighlight.toLowerCase();
-                      const parts: React.ReactNode[] = [];
-                      let lastIdx = 0;
-                      let lower = text.toLowerCase();
-                      let pos = lower.indexOf(query);
-                      while (pos !== -1) {
-                        if (pos > lastIdx) parts.push(text.slice(lastIdx, pos));
-                        parts.push(
-                          <Box component="mark" key={pos} sx={{ bgcolor: 'warning.light', color: 'warning.contrastText', borderRadius: 0.5, px: 0.25 }}>
-                            {text.slice(pos, pos + query.length)}
-                          </Box>
-                        );
-                        lastIdx = pos + query.length;
-                        pos = lower.indexOf(query, lastIdx);
-                      }
-                      if (lastIdx < text.length) parts.push(text.slice(lastIdx));
-                      return <>{parts}</>;
-                    },
                     pre: ({ children }) => (
                       <Box
                         component="pre"
@@ -510,6 +537,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                 >
                   {displayContent}
                 </ReactMarkdown>
+                </HighlightWrapper>
                 {isStreamingThisMessage &&
                  displayedThinking.length >= streamingThinking.length &&
                  displayedContent.length < streamingContent.length && (
