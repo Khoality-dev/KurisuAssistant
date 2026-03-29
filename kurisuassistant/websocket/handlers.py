@@ -486,11 +486,7 @@ class ChatSessionHandler:
 
                     # --- Check routing result ---
                     if route_result:
-                        if route_result.get("action") == "end":
-                            # route_to_user — Administrator is done, end the loop
-                            break
-
-                        # route_to — switch to target agent
+                        # route_to was called — switch to target agent
                         target_name = route_result["agent_name"]
                         target_agent = agent_by_name.get(target_name.lower())
                         if not target_agent:
@@ -501,19 +497,9 @@ class ChatSessionHandler:
                         continue
 
                     if not is_admin:
-                        # Sub-agent finished — return to Administrator with a prompt
+                        # Sub-agent finished — return to Administrator for final response
                         current_agent = admin_agent
-                        conversation_messages.append({
-                            "role": "user",
-                            "content": (
-                                f"{prev_agent_name} has finished responding. "
-                                "Use route_to to delegate to another agent if the task needs more work. "
-                                "Use route_to_user if the agent's response is sufficient and you have nothing to add. "
-                                "Only respond directly if you have something meaningful to add "
-                                "(e.g. correction, follow-up, or synthesis of multiple agents). "
-                                "Do NOT repeat or paraphrase what the agent already said."
-                            ),
-                        })
+                        route_message = None
                         continue
 
                     # Administrator finished without routing — done
@@ -585,14 +571,11 @@ class ChatSessionHandler:
         final_assistant_content = ""
 
         async for chunk in agent.process(messages, context):
-            # Intercept routing tool results
-            if chunk.role == "tool" and chunk.name in ("route_to", "route_to_user"):
+            # Check tool results for route_to
+            if chunk.role == "tool" and chunk.name == "route_to":
                 parsed = parse_route_result(chunk.content)
                 if parsed:
                     route_result = parsed
-                # route_to_user is internal — don't show or save
-                if chunk.name == "route_to_user":
-                    continue
 
             # Accumulate response word count for token estimation (all content + thinking)
             if chunk.content:
