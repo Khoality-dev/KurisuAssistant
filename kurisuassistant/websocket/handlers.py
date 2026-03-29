@@ -468,6 +468,7 @@ class ChatSessionHandler:
                         agent = self._create_agent(current_agent)
 
                         # Stream and collect response, save messages
+                        logger.info(f"[Routing] Turn {_turn}: running {current_agent.name} (is_admin={is_admin}), messages={len(agent_messages)}")
                         route_result, agent_final_content = await self._stream_and_save_agent(
                             agent=agent,
                             agent_config=current_agent,
@@ -477,6 +478,7 @@ class ChatSessionHandler:
                             conversation_messages=conversation_messages,
                             is_admin=is_admin,
                         )
+                        logger.info(f"[Routing] Turn {_turn}: {current_agent.name} done, route_result={route_result}, content_len={len(agent_final_content)}")
                     finally:
                         pass
 
@@ -495,9 +497,12 @@ class ChatSessionHandler:
                         continue
 
                     if not is_admin:
-                        # Sub-agent finished — return to Administrator for final response
+                        # Sub-agent finished — return to Administrator with a prompt
                         current_agent = admin_agent
-                        route_message = None
+                        conversation_messages.append({
+                            "role": "user",
+                            "content": f"{prev_agent_name} has finished responding. Route to another agent if needed, or provide your final response.",
+                        })
                         continue
 
                     # Administrator finished without routing — done
