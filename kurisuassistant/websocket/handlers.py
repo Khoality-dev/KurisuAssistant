@@ -501,7 +501,13 @@ class ChatSessionHandler:
                         current_agent = admin_agent
                         conversation_messages.append({
                             "role": "user",
-                            "content": f"{prev_agent_name} has finished responding. Route to another agent if needed, or provide your final response.",
+                            "content": (
+                                f"{prev_agent_name} has finished responding. "
+                                "Route to another agent if the task needs more work. "
+                                "Otherwise, only respond if you have something meaningful to add "
+                                "(e.g. correction, follow-up, or synthesis of multiple agents). "
+                                "Do NOT repeat or paraphrase what the agent already said."
+                            ),
                         })
                         continue
 

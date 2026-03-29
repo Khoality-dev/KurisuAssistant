@@ -39,6 +39,10 @@ class RouteToTool(BaseTool):
                             "type": "string",
                             "description": "Summary of the conversation context and the task for the target agent",
                         },
+                        "final_turn": {
+                            "type": "boolean",
+                            "description": "If true, you (Administrator) will get a final turn after the agent responds to summarize or follow up. If false (default), the agent's response ends the turn.",
+                        },
                     },
                     "required": ["agent_name", "message"],
                 },
