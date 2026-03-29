@@ -221,6 +221,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
       const isActiveStreaming = message === activeStreamingMsg;
       const isCompacted = message.id != null && message.id <= compactedUpToId;
+      const prevMessage = index > 0 ? combined[index - 1] : null;
+      const consecutive = prevMessage != null && prevMessage.role === message.role;
       // Stable key: DB messages use their ID, streaming messages use their position in streamingMessages
       const key = message.id ? `msg-${message.id}` : `stream-${index - displayedCount}`;
       elements.push(
@@ -228,6 +230,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           key={key}
           message={message}
           index={index}
+          consecutive={consecutive}
           isLast={index === combined.length - 1}
           isStreaming={isActiveStreaming}
           streamingThinking={isActiveStreaming ? streaming.streamingThinking : ''}

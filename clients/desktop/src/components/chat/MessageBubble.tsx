@@ -22,6 +22,7 @@ const MotionBox = motion(Box);
 interface MessageBubbleProps {
   message: Message;
   index: number;
+  consecutive?: boolean;
   isLast: boolean;
   isStreaming: boolean;
   streamingThinking: string;
@@ -40,6 +41,7 @@ interface MessageBubbleProps {
 const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   message,
   index,
+  consecutive,
   isLast,
   isStreaming,
   streamingThinking,
@@ -198,7 +200,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
       sx={{
-        mb: 2,
+        mb: consecutive ? 0.5 : 2,
         display: 'flex',
         justifyContent: isUser ? 'flex-end' : 'flex-start',
         alignItems: 'flex-start',
@@ -577,6 +579,7 @@ function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubbl
     prev.expandedThinking.has(prev.index) === next.expandedThinking.has(next.index) &&
     prev.onToggleThinking === next.onToggleThinking &&
     prev.onRegenerate === next.onRegenerate &&
+    prev.consecutive === next.consecutive &&
     prev.onResend === next.onResend &&
     prev.onDelete === next.onDelete &&
     prev.ttsRef === next.ttsRef
