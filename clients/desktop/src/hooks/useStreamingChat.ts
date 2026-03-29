@@ -393,7 +393,6 @@ export function useStreamingChat({
     // Update running token count from server and persist to store
     if (event.token_count != null) {
       setContextTokens(event.token_count);
-      useConversationStore.getState().setLastTokenCount(event.token_count);
     }
 
     // Streaming TTS auto-play: feed complete sentences to TTS queue
