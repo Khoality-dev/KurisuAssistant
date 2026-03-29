@@ -143,9 +143,10 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
         setCommandIdx((prev) => Math.max(prev - 1, -1));
         return;
       }
-      if ((e.key === 'Tab' || e.key === 'Enter') && commandIdx >= 0) {
+      if (e.key === 'Tab' || e.key === 'Enter') {
         e.preventDefault();
-        selectCommand(filteredCommands[commandIdx].name);
+        const idx = commandIdx >= 0 ? commandIdx : 0;
+        selectCommand(filteredCommands[idx].name);
         return;
       }
     }
