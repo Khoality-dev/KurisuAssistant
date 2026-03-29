@@ -317,10 +317,21 @@ class ChatSessionHandler:
             # Load context messages (compacted context + messages after watermark)
             compacted_context, compacted_up_to_id, context_messages = self._load_context_messages(conversation_id)
 
-            # Build messages
-            user_message = {"role": "user", "content": event.text}
+            # Build messages — inject context_files as text references for the LLM
+            content = event.text
+            if event.context_files:
+                refs = " ".join(
+                    f"[{cf['path']}:{cf.get('startLine', '')}:{cf.get('startColumn', '')}-{cf.get('endLine', '')}:{cf.get('endColumn', '')}]"
+                    if cf.get("startLine") else f"[{cf['path']}]"
+                    for cf in event.context_files
+                )
+                content = refs + "\n" + content
+
+            user_message = {"role": "user", "content": content}
             if image_uuids:
                 user_message["images"] = image_uuids
+            if event.context_files:
+                user_message["context_files"] = event.context_files
             conversation_messages = system_messages + context_messages + [user_message]
 
             # Save user message immediately
@@ -1293,4 +1304,5 @@ class ChatSessionHandler:
             provider_type=msg.get("provider_type"),
             tool_args=msg.get("tool_args"),
             tool_status=msg.get("tool_status"),
+            context_files=msg.get("context_files"),
         ))

@@ -34,6 +34,7 @@ class MessageRepository(BaseRepository[Message]):
         provider_type: Optional[str] = None,
         tool_args: Optional[dict] = None,
         tool_status: Optional[str] = None,
+        context_files: Optional[list] = None,
     ) -> Message:
         """Create a new message.
 
@@ -78,6 +79,8 @@ class MessageRepository(BaseRepository[Message]):
             data["tool_args"] = tool_args
         if tool_status is not None:
             data["tool_status"] = tool_status
+        if context_files is not None:
+            data["context_files"] = context_files
 
         return self.create(**data)
 

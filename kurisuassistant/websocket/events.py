@@ -82,6 +82,7 @@ class ChatRequestEvent(BaseEvent):
     conversation_id: Optional[int] = None
     agent_id: Optional[int] = None  # Which agent to use (None = router)
     images: List[str] = field(default_factory=list)  # base64 encoded
+    context_files: List[Dict[str, Any]] = field(default_factory=list)  # [{path, fileName, startLine, endLine, ...}]
 
 
 @dataclass
@@ -341,6 +342,7 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
             conversation_id=data.get("conversation_id"),
             agent_id=data.get("agent_id"),
             images=data.get("images", []),
+            context_files=data.get("context_files", []),
         )
 
     elif event_type == EventType.TOOL_APPROVAL_RESPONSE.value:

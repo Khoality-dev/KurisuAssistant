@@ -65,6 +65,7 @@ class Message(Base):
     provider_type = Column(String, nullable=True)  # LLM provider (ollama, gemini)
     tool_args = Column(JSON, nullable=True)  # Tool input arguments (for tool role messages)
     tool_status = Column(String, nullable=True)  # "success" | "error" | "denied"
+    context_files = Column(JSON, nullable=True)  # [{path, fileName, startLine, endLine, ...}]
     images = Column(JSON, nullable=True)  # List of image UUIDs attached to this message
     frame_id = Column(Integer, ForeignKey('frames.id', ondelete='CASCADE'), index=True)
     agent_id = Column(Integer, ForeignKey('agents.id', ondelete='SET NULL'), nullable=True)  # Which agent sent this message
