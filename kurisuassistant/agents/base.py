@@ -335,7 +335,6 @@ class SimpleAgent(BaseAgent):
         - Adds speaker name prefix to agent/tool messages
         """
         import datetime
-        from kurisuassistant.agents.administrator import ADMINISTRATOR_NAME
 
         # Build agent descriptions for context
         agent_descriptions = []
@@ -394,47 +393,24 @@ class SimpleAgent(BaseAgent):
         prepared = []
         prepared.append({"role": "system", "content": "\n\n".join(system_parts)})
 
-        # Track last assistant speaker to determine tool result ownership.
-        # Tool results always follow the assistant message that triggered them.
-        last_assistant = None
-
         for msg in messages:
             role = msg.get("role", "user")
-            speaker = msg.get("name", "")
 
             # Skip system messages — already incorporated into agent's system prompt
             if role == "system":
                 continue
 
-            # Track which agent last spoke
-            if role == "assistant":
-                last_assistant = speaker
-
-            # Filter Administrator: assistant msgs by name, tool msgs by ownership
-            if role == "assistant" and speaker == ADMINISTRATOR_NAME:
-                continue
-            if role == "tool" and last_assistant == ADMINISTRATOR_NAME:
-                continue
-
             content = msg.get("content", "")
 
-            # Ollama roles:
-            #   "assistant" = this agent's own messages
-            #   "tool"      = tool results from this agent's tool calls
-            #   "user"      = everyone else (user, other agents, their tool results)
-            if role == "assistant" and speaker == self.config.name:
+            # Preserve natural turn structure: user/assistant/tool keep their roles
+            if role == "assistant":
                 chat_role = "assistant"
-            elif role == "tool" and last_assistant == self.config.name:
+            elif role == "tool":
                 chat_role = "tool"
             else:
                 chat_role = "user"
-                if role == "user":
-                    content = f"[User]: {content}"
-                elif speaker:
-                    content = f"[{speaker}]: {content}"
 
             entry = {"role": chat_role, "content": content}
-            # Include thinking for this agent's own assistant messages
             if chat_role == "assistant" and "thinking" in msg:
                 entry["thinking"] = msg["thinking"]
             prepared.append(entry)
