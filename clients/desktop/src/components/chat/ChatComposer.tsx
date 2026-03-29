@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import { getCommands } from '../../utils/commands';
+import { useConversationStore } from '../../store/conversationStore';
 import {
   Send as SendIcon,
   AttachFile as AttachFileIcon,
@@ -107,6 +108,13 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
   useEffect(() => {
     setInput('');
     setImages([]);
+    // Pre-populate prompt history from conversation's user messages
+    promptHistory.length = 0;
+    historyIdxRef.current = -1;
+    const msgs = useConversationStore.getState().messages;
+    for (const m of msgs) {
+      if (m.role === 'user' && m.content) promptHistory.push(m.content);
+    }
   }, [scopeKey]);
 
   useEffect(() => {
