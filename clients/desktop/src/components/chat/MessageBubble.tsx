@@ -194,7 +194,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
     <MotionBox
       key={index}
       initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
+      animate={{ opacity: message.queued ? 0.5 : 1, y: 0 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
       sx={{
@@ -203,6 +203,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
         justifyContent: isUser ? 'flex-end' : 'flex-start',
         alignItems: 'flex-start',
         gap: 1.5,
+        ...(message.queued && { opacity: 0.5 }),
         // Hover group: show toolbar on hover
         '&:hover .message-toolbar': {
           opacity: 1,
@@ -257,6 +258,11 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
             >
               {label}
             </Typography>
+            {message.queued && (
+              <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic', ml: 0.5 }}>
+                Queued
+              </Typography>
+            )}
             <Box sx={{ flex: 1 }} />
             {isTool && (
               <ExpandMoreIcon

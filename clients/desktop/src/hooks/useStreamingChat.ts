@@ -694,8 +694,8 @@ export function useStreamingChat({
     }
 
     if (isStreamingRef.current) {
-      // Already streaming — queue: show user bubble and send to backend (it will queue)
-      setStreamingMessages(prev => [...prev, { role: 'user', content: trimmed, images: [] }]);
+      // Already streaming — queue: show dimmed user bubble and send to backend (it will queue)
+      setStreamingMessages(prev => [...prev, { role: 'user', content: trimmed, images: [], queued: true }]);
 
       const imageBase64: string[] = [];
       for (const imageFile of imageFiles) {

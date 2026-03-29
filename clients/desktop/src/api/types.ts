@@ -30,6 +30,7 @@ export interface Message {
   model_name?: string; // LLM model that generated this message
   provider_type?: string; // LLM provider (ollama, gemini)
   tool_args?: Record<string, unknown>; // Tool input arguments (for tool role messages)
+  queued?: boolean; // Queued message waiting to be processed
 }
 
 export interface MessageRawData {
