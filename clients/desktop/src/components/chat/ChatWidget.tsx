@@ -179,15 +179,16 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     return messages;
   }, [messages, displayMode, compactedUpToId]);
 
-  // Token count: compacted context + context window messages (including streaming)
+  // Token count: compacted context + context window messages + live streaming content
   const tokenCount = useMemo(() => {
     const contextMsgs = messages.filter(m => (m.id ?? Infinity) > compactedUpToId);
     const allMsgs = [...contextMsgs, ...streaming.streamingMessages];
     const wc = (t: string | undefined) => t ? t.split(/\s+/).length : 0;
     const msgWords = allMsgs.reduce((n, m) => n + wc(m.content) + wc(m.thinking), 0);
+    const liveWords = wc(streaming.streamingContent) + wc(streaming.streamingThinking);
     const contextWords = wc(compactedContext);
-    return Math.round((msgWords + contextWords) * 1.3);
-  }, [messages, compactedUpToId, compactedContext, streaming.streamingMessages]);
+    return Math.round((msgWords + liveWords + contextWords) * 1.3);
+  }, [messages, compactedUpToId, compactedContext, streaming.streamingMessages, streaming.streamingContent, streaming.streamingThinking]);
 
   // Message rendering
   const messageElements = useMemo(() => {
