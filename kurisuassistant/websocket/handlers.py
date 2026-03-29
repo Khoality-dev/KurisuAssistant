@@ -222,16 +222,29 @@ class ChatSessionHandler:
         )
 
     def _process_queue(self):
-        """Start processing the next queued message, if any."""
-        if self._message_queue:
-            next_event = self._message_queue.pop(0)
-            logger.debug("Processing queued message (remaining: %d)", len(self._message_queue))
-            self.current_task = asyncio.create_task(
-                self._run_chat(next_event)
-            )
+        """Process all queued messages as a single agent turn.
 
-    async def _run_chat(self, event: ChatRequestEvent):
+        Each message is saved as a separate user bubble in the DB,
+        but the agent sees them all in one turn.
+        """
+        if not self._message_queue:
+            return
+        queued = list(self._message_queue)
+        self._message_queue.clear()
+        # First event drives the turn; extra messages are added to context
+        primary = queued[0]
+        extra = queued[1:] if len(queued) > 1 else []
+        logger.debug("Processing %d queued messages as single turn", len(queued))
+        self.current_task = asyncio.create_task(
+            self._run_chat(primary, extra_messages=extra)
+        )
+
+    async def _run_chat(self, event: ChatRequestEvent, extra_messages: Optional[List] = None):
         """Run unified chat processing with Administrator routing.
+
+        Args:
+            event: Primary chat request event
+            extra_messages: Additional queued ChatRequestEvents to include as user messages
 
         Flow:
         1. Setup conversation/frame (same as before)
@@ -312,6 +325,24 @@ class ChatSessionHandler:
 
             # Save user message immediately
             self._save_message(user_message, frame_id)
+
+            # Add extra queued messages (each saved as separate bubble)
+            if extra_messages:
+                for extra_event in extra_messages:
+                    extra_msg = {"role": "user", "content": extra_event.text}
+                    # Save extra images
+                    if extra_event.images:
+                        from kurisuassistant.utils.images import save_image_from_base64
+                        extra_imgs = []
+                        for b64 in extra_event.images:
+                            try:
+                                extra_imgs.append(save_image_from_base64(b64, self.user_id))
+                            except Exception as e:
+                                logger.warning(f"Failed to save image: {e}")
+                        if extra_imgs:
+                            extra_msg["images"] = extra_imgs
+                    self._save_message(extra_msg, frame_id)
+                    conversation_messages.append(extra_msg)
 
             # Estimate tokens and compact if needed
             context_limit = context_size or 8192
