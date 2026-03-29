@@ -503,11 +503,18 @@ export function useStreamingChat({
     const onApproval = (e: ToolApprovalRequestEvent) => setPendingApproval(e);
     const onContextInfo = (e: ContextInfoEvent) => {
       setIsCompacting(e.compacting);
-      if (!e.compacting && e.compacted_up_to_id) {
-        useConversationStore.getState().updateCompactionData(
-          e.compacted_up_to_id,
-          e.compacted_context ?? '',
-        );
+      if (!e.compacting) {
+        if (e.compacted_up_to_id) {
+          useConversationStore.getState().updateCompactionData(
+            e.compacted_up_to_id,
+            e.compacted_context ?? '',
+          );
+        }
+        // Reload conversation to refresh compaction data from API
+        const convId = useConversationStore.getState().currentConversation?.id;
+        if (convId) {
+          useConversationStore.getState().loadConversation(convId);
+        }
       }
     };
 
