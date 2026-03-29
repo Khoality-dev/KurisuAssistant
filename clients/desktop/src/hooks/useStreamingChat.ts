@@ -676,7 +676,7 @@ export function useStreamingChat({
   }, [activeConversationId, agentId, clearQueue, setCurrentConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = useCallback(async (text: string, imageFiles: File[]) => {
-    if (!text.trim() || isStreaming) return;
+    if (!text.trim()) return;
     const trimmed = text.trim();
 
     // Slash commands are always client-side — never send to backend
@@ -686,8 +686,28 @@ export function useStreamingChat({
       return;
     }
 
+    if (isStreamingRef.current) {
+      // Already streaming — queue: show user bubble and send to backend (it will queue)
+      setStreamingMessages(prev => [...prev, { role: 'user', content: trimmed, images: [] }]);
+
+      const imageBase64: string[] = [];
+      for (const imageFile of imageFiles) {
+        const base64 = await fileToBase64(imageFile);
+        imageBase64.push(base64);
+      }
+
+      await wsManager.sendChatRequest(
+        trimmed,
+        '',
+        activeConversationId,
+        agentId,
+        imageBase64,
+      );
+      return;
+    }
+
     await _doSend(trimmed, imageFiles);
-  }, [_doSend, isStreaming, activeConversationId, agentId]);
+  }, [_doSend, activeConversationId, agentId]);
 
   const handleCancel = () => {
     wsManager.sendCancel();

@@ -118,12 +118,12 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || isStreaming) return;
+    if (!text) return;
     const imageFiles = [...images];
     setInput('');
     setImages([]);
     await onSend(text, imageFiles);
-  }, [images, input, isStreaming, onSend]);
+  }, [images, input, onSend]);
 
   const selectCommand = useCallback((name: string) => {
     setInput(`/${name}`);
@@ -288,7 +288,6 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
           onChange={(e) => { setInput(e.target.value); setCommandIdx(-1); setCommandSelected(false); }}
           onKeyDown={handleKeyDown}
           placeholder="Type your message..."
-          disabled={isStreaming}
         />
         <Popper
           open={showCommands}
@@ -315,27 +314,25 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
           </ClickAwayListener>
         </Popper>
 
-        {isStreaming ? (
-          <Button
-            variant="contained"
+        {isStreaming && (
+          <IconButton
             color="error"
-            endIcon={<StopIcon />}
             onClick={onCancel}
-            sx={{ minWidth: 100 }}
+            size="small"
+            title="Stop"
           >
-            Stop
-          </Button>
-        ) : (
-          <Button
-            variant="contained"
-            endIcon={<SendIcon />}
-            onClick={() => void handleSend()}
-            disabled={!input.trim()}
-            sx={{ minWidth: 100 }}
-          >
-            Send
-          </Button>
+            <StopIcon />
+          </IconButton>
         )}
+        <Button
+          variant="contained"
+          endIcon={<SendIcon />}
+          onClick={() => void handleSend()}
+          disabled={!input.trim()}
+          sx={{ minWidth: 100 }}
+        >
+          Send
+        </Button>
       </Box>
     </Paper>
   );
