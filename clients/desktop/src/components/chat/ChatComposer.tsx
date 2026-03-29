@@ -86,6 +86,11 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textFieldRef = useRef<HTMLDivElement>(null);
 
+  // Prompt history
+  const promptHistoryRef = useRef<string[]>([]);
+  const historyIdxRef = useRef(-1); // -1 = not browsing history
+  const draftRef = useRef(''); // saves current input when entering history
+
   const allCommands = useMemo(() => getCommands(), []);
 
   // Filter commands when input starts with /
@@ -119,6 +124,10 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text) return;
+    // Save to prompt history
+    promptHistoryRef.current.push(text);
+    historyIdxRef.current = -1;
+    draftRef.current = '';
     const imageFiles = [...images];
     setInput('');
     setImages([]);
@@ -150,11 +159,36 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
         return;
       }
     }
+    // Prompt history navigation (only when command dropdown is not open)
+    const history = promptHistoryRef.current;
+    if (e.key === 'ArrowUp' && history.length > 0) {
+      e.preventDefault();
+      if (historyIdxRef.current === -1) {
+        draftRef.current = input;
+        historyIdxRef.current = history.length - 1;
+      } else if (historyIdxRef.current > 0) {
+        historyIdxRef.current--;
+      }
+      setInput(history[historyIdxRef.current]);
+      return;
+    }
+    if (e.key === 'ArrowDown' && historyIdxRef.current >= 0) {
+      e.preventDefault();
+      if (historyIdxRef.current < history.length - 1) {
+        historyIdxRef.current++;
+        setInput(history[historyIdxRef.current]);
+      } else {
+        historyIdxRef.current = -1;
+        setInput(draftRef.current);
+      }
+      return;
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void handleSend();
     }
-  }, [handleSend, showCommands, filteredCommands, commandIdx, selectCommand]);
+  }, [handleSend, input, showCommands, filteredCommands, commandIdx, selectCommand]);
 
   return (
     <Paper
