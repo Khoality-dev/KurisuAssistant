@@ -24,7 +24,7 @@ class AuthRepository @Inject constructor(
             username = username.toPlainBody(),
             password = password.toPlainBody(),
         )
-        applyToken(response.accessToken, rememberMe)
+        applyToken(response.accessToken, response.refreshToken, rememberMe)
         return api.getUserProfile()
     }
 
@@ -34,13 +34,14 @@ class AuthRepository @Inject constructor(
             password = password.toPlainBody(),
             email = email?.toPlainBody(),
         )
-        applyToken(response.accessToken, rememberMe)
+        applyToken(response.accessToken, response.refreshToken, rememberMe)
         return api.getUserProfile()
     }
 
     suspend fun logout() {
         authInterceptor.clearToken()
         encryptedPrefs.clearToken()
+        encryptedPrefs.clearRefreshToken()
         prefs.setRememberMe(false)
         prefs.clearAllAgentConversations()
         wsManager.clearToken()
@@ -51,15 +52,26 @@ class AuthRepository @Inject constructor(
         val token = encryptedPrefs.getToken()
         val rememberMe = prefs.getRememberMe()
         if (token != null && rememberMe) {
+            authInterceptor.setToken(token)
+            wsManager.setToken(token)
             return try {
-                authInterceptor.setToken(token)
-                wsManager.setToken(token)
                 api.getUserProfile()
             } catch (_: Exception) {
-                encryptedPrefs.clearToken()
-                prefs.setRememberMe(false)
-                authInterceptor.clearToken()
-                null
+                // Access token may be expired — try refresh
+                val refreshToken = encryptedPrefs.getRefreshToken()
+                if (refreshToken != null) {
+                    try {
+                        val response = api.refreshToken(mapOf("refresh_token" to refreshToken))
+                        applyToken(response.accessToken, response.refreshToken, rememberMe)
+                        api.getUserProfile()
+                    } catch (_: Exception) {
+                        clearAllTokens()
+                        null
+                    }
+                } else {
+                    clearAllTokens()
+                    null
+                }
             }
         }
         return null
@@ -70,16 +82,24 @@ class AuthRepository @Inject constructor(
     suspend fun updateUserProfile(profile: UserProfile): UserProfile =
         api.updateUserProfile(profile)
 
-    private suspend fun applyToken(token: String, rememberMe: Boolean) {
-        authInterceptor.setToken(token)
-        wsManager.setToken(token)
+    private suspend fun applyToken(accessToken: String, refreshToken: String?, rememberMe: Boolean) {
+        authInterceptor.setToken(accessToken)
+        wsManager.setToken(accessToken)
         if (rememberMe) {
-            encryptedPrefs.setToken(token)
+            encryptedPrefs.setToken(accessToken)
+            refreshToken?.let { encryptedPrefs.setRefreshToken(it) }
             prefs.setRememberMe(true)
         } else {
             encryptedPrefs.clearToken()
+            encryptedPrefs.clearRefreshToken()
             prefs.setRememberMe(false)
         }
+    }
+
+    private fun clearAllTokens() {
+        encryptedPrefs.clearToken()
+        encryptedPrefs.clearRefreshToken()
+        authInterceptor.clearToken()
     }
 
     private fun String.toPlainBody() =

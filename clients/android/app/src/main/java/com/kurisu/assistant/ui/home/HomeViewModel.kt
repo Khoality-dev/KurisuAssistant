@@ -13,9 +13,6 @@ import com.kurisu.assistant.data.repository.UpdateRepository
 import com.kurisu.assistant.service.CoreService
 import com.kurisu.assistant.service.CoreState
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.File
@@ -101,29 +98,25 @@ class HomeViewModel @Inject constructor(
                 val baseUrl = prefs.getBackendUrl()
                 val agents = agentRepository.loadAgents()
 
-                val conversations = coroutineScope {
-                    agents.map { agent ->
-                        async {
-                            try {
-                                val convId = agentRepository.getConversationIdForAgent(agent.id)
-                                if (convId != null) {
-                                    val detail = conversationRepository.getConversation(convId, limit = 1, offset = 0)
-                                    val lastMsg = detail.messages.lastOrNull()
-                                    AgentConversation(
-                                        agent = agent,
-                                        lastMessage = lastMsg?.content,
-                                        lastMessageTime = lastMsg?.createdAt,
-                                        conversationId = convId,
-                                    )
-                                } else {
-                                    AgentConversation(agent = agent)
-                                }
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Failed to fetch conversation for agent ${agent.id}", e)
-                                AgentConversation(agent = agent)
-                            }
-                        }
-                    }.awaitAll()
+                // Fetch all conversations in one call — each includes last_message
+                val allConversations = conversationRepository.getConversations()
+                // Build agent→conversation mapping from local storage
+                val agentConvMap = mutableMapOf<Int, Int>()
+                for (agent in agents) {
+                    val convId = agentRepository.getConversationIdForAgent(agent.id)
+                    if (convId != null) agentConvMap[agent.id] = convId
+                }
+
+                val conversations = agents.map { agent ->
+                    val convId = agentConvMap[agent.id]
+                    val conv = if (convId != null) allConversations.find { it.id == convId } else null
+                    val lastMsg = conv?.lastMessage
+                    AgentConversation(
+                        agent = agent,
+                        lastMessage = lastMsg?.content,
+                        lastMessageTime = lastMsg?.createdAt,
+                        conversationId = convId,
+                    )
                 }
 
                 // Sort: agents with recent messages first (by timestamp desc), then agents without

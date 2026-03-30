@@ -119,6 +119,7 @@ class VoiceInteractionManager @Inject constructor(
             if (resId != 0) {
                 MediaPlayer.create(context, resId)?.apply {
                     setOnCompletionListener { release() }
+                    setOnErrorListener { mp, _, _ -> mp.release(); true }
                     start()
                 }
             }

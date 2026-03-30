@@ -26,6 +26,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import com.kurisu.assistant.data.model.Agent
+import com.kurisu.assistant.data.model.Persona
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -123,9 +124,11 @@ fun AgentsScreen(
             think = state.editorThink,
             tools = state.editorTools,
             memory = state.editorMemory,
+            personaId = state.editorPersonaId,
             availableModels = state.availableModels,
             availableVoices = state.availableVoices,
             availableTools = state.availableTools.map { it.function.name },
+            availablePersonas = state.availablePersonas,
             isSaving = state.isSaving,
             onNameChange = viewModel::setEditorName,
             onModelNameChange = viewModel::setEditorModelName,
@@ -135,6 +138,7 @@ fun AgentsScreen(
             onThinkChange = viewModel::setEditorThink,
             onToggleTool = viewModel::toggleEditorTool,
             onMemoryChange = viewModel::setEditorMemory,
+            onPersonaIdChange = viewModel::setEditorPersonaId,
             onSave = viewModel::saveAgent,
             onDismiss = viewModel::dismissEditor,
         )
@@ -246,9 +250,11 @@ private fun AgentEditorDialog(
     think: Boolean,
     tools: List<String>,
     memory: String,
+    personaId: Int?,
     availableModels: List<String>,
     availableVoices: List<String>,
     availableTools: List<String>,
+    availablePersonas: List<Persona>,
     isSaving: Boolean,
     onNameChange: (String) -> Unit,
     onModelNameChange: (String) -> Unit,
@@ -258,6 +264,7 @@ private fun AgentEditorDialog(
     onThinkChange: (Boolean) -> Unit,
     onToggleTool: (String) -> Unit,
     onMemoryChange: (String) -> Unit,
+    onPersonaIdChange: (Int?) -> Unit,
     onSave: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -288,6 +295,43 @@ private fun AgentEditorDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                // Persona selector
+                if (availablePersonas.isNotEmpty()) {
+                    var personaExpanded by remember { mutableStateOf(false) }
+                    val selectedPersonaName = if (personaId != null) {
+                        availablePersonas.find { it.id == personaId }?.name ?: "Unknown"
+                    } else "None"
+
+                    ExposedDropdownMenuBox(
+                        expanded = personaExpanded,
+                        onExpandedChange = { personaExpanded = it },
+                    ) {
+                        OutlinedTextField(
+                            value = selectedPersonaName,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Persona") },
+                            modifier = Modifier.fillMaxWidth().menuAnchor(),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = personaExpanded) },
+                        )
+                        ExposedDropdownMenu(
+                            expanded = personaExpanded,
+                            onDismissRequest = { personaExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("None") },
+                                onClick = { onPersonaIdChange(null); personaExpanded = false },
+                            )
+                            availablePersonas.forEach { persona ->
+                                DropdownMenuItem(
+                                    text = { Text(persona.name) },
+                                    onClick = { onPersonaIdChange(persona.id); personaExpanded = false },
+                                )
+                            }
+                        }
+                    }
+                }
 
                 // Model selector
                 ExposedDropdownMenuBox(

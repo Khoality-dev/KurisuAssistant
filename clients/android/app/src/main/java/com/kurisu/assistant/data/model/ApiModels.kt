@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonObject
 @Serializable
 data class LoginResponse(
     @SerialName("access_token") val accessToken: String,
+    @SerialName("refresh_token") val refreshToken: String? = null,
     @SerialName("token_type") val tokenType: String,
 )
 
@@ -15,6 +16,7 @@ data class LoginResponse(
 data class MessageAgent(
     val id: Int,
     val name: String,
+    @SerialName("persona_name") val personaName: String? = null,
     @SerialName("avatar_uuid") val avatarUuid: String? = null,
     @SerialName("voice_reference") val voiceReference: String? = null,
 )
@@ -33,6 +35,20 @@ data class Message(
     val agent: MessageAgent? = null,
     @SerialName("voice_reference") val voiceReference: String? = null,
     @SerialName("has_raw_data") val hasRawData: Boolean? = null,
+    @SerialName("persona_name") val personaName: String? = null,
+    @SerialName("model_name") val modelName: String? = null,
+    @SerialName("provider_type") val providerType: String? = null,
+    @SerialName("tool_args") val toolArgs: JsonObject? = null,
+    @SerialName("tool_status") val toolStatus: String? = null,
+    @SerialName("context_files") val contextFiles: JsonArray? = null,
+    val queued: Boolean? = null,
+)
+
+@Serializable
+data class ConversationLastMessage(
+    val content: String,
+    val role: String,
+    @SerialName("created_at") val createdAt: String? = null,
 )
 
 @Serializable
@@ -42,6 +58,7 @@ data class Conversation(
     @SerialName("frame_count") val frameCount: Int = 0,
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("updated_at") val updatedAt: String = "",
+    @SerialName("last_message") val lastMessage: ConversationLastMessage? = null,
 )
 
 @Serializable
@@ -63,6 +80,9 @@ data class ConversationDetail(
     val offset: Int,
     val limit: Int,
     @SerialName("has_more") val hasMore: Boolean,
+    @SerialName("compacted_up_to_id") val compactedUpToId: Int = 0,
+    @SerialName("compacted_context") val compactedContext: String = "",
+    @SerialName("system_prompt_token_count") val systemPromptTokenCount: Int = 0,
 )
 
 @Serializable
@@ -76,6 +96,9 @@ data class UserProfile(
     @SerialName("assistant_avatar_uuid") val assistantAvatarUuid: String? = null,
     @SerialName("ollama_url") val ollamaUrl: String? = null,
     @SerialName("summary_model") val summaryModel: String? = null,
+    @SerialName("gemini_api_key") val geminiApiKey: String? = null,
+    @SerialName("nvidia_api_key") val nvidiaApiKey: String? = null,
+    @SerialName("context_size") val contextSize: Int? = null,
 )
 
 @Serializable
@@ -96,18 +119,55 @@ data class TTSRequest(
 )
 
 @Serializable
+data class Persona(
+    val id: Int,
+    val name: String,
+    @SerialName("system_prompt") val systemPrompt: String = "",
+    @SerialName("voice_reference") val voiceReference: String? = null,
+    @SerialName("avatar_uuid") val avatarUuid: String? = null,
+    @SerialName("character_config") val characterConfig: JsonObject? = null,
+    @SerialName("preferred_name") val preferredName: String? = null,
+    @SerialName("trigger_word") val triggerWord: String? = null,
+)
+
+@Serializable
+data class PersonaCreate(
+    val name: String,
+    @SerialName("system_prompt") val systemPrompt: String? = null,
+    @SerialName("preferred_name") val preferredName: String? = null,
+    @SerialName("trigger_word") val triggerWord: String? = null,
+)
+
+@Serializable
+data class PersonaUpdate(
+    val name: String? = null,
+    @SerialName("system_prompt") val systemPrompt: String? = null,
+    @SerialName("preferred_name") val preferredName: String? = null,
+    @SerialName("trigger_word") val triggerWord: String? = null,
+)
+
+@Serializable
 data class Agent(
     val id: Int,
     val name: String,
+    val description: String = "",
     @SerialName("system_prompt") val systemPrompt: String,
     @SerialName("voice_reference") val voiceReference: String? = null,
     @SerialName("avatar_uuid") val avatarUuid: String? = null,
     @SerialName("model_name") val modelName: String? = null,
+    @SerialName("provider_type") val providerType: String = "ollama",
     val tools: List<String>? = null,
+    @SerialName("available_tools") val availableTools: List<String>? = null,
     val think: Boolean = false,
     @SerialName("character_config") val characterConfig: JsonObject? = null,
     val memory: String? = null,
+    @SerialName("memory_enabled") val memoryEnabled: Boolean = false,
+    val enabled: Boolean = true,
+    @SerialName("is_system") val isSystem: Boolean = false,
+    @SerialName("use_deferred_tools") val useDeferredTools: Boolean = false,
     @SerialName("trigger_word") val triggerWord: String? = null,
+    @SerialName("persona_id") val personaId: Int? = null,
+    val persona: Persona? = null,
 )
 
 @Serializable
@@ -116,9 +176,13 @@ data class AgentCreate(
     @SerialName("system_prompt") val systemPrompt: String? = null,
     @SerialName("voice_reference") val voiceReference: String? = null,
     @SerialName("model_name") val modelName: String,
+    @SerialName("provider_type") val providerType: String? = null,
     val tools: List<String>? = null,
+    @SerialName("available_tools") val availableTools: List<String>? = null,
     val think: Boolean? = null,
     @SerialName("trigger_word") val triggerWord: String? = null,
+    @SerialName("persona_id") val personaId: Int? = null,
+    @SerialName("use_deferred_tools") val useDeferredTools: Boolean? = null,
 )
 
 @Serializable
@@ -127,10 +191,15 @@ data class AgentUpdate(
     @SerialName("system_prompt") val systemPrompt: String? = null,
     @SerialName("voice_reference") val voiceReference: String? = null,
     @SerialName("model_name") val modelName: String? = null,
+    @SerialName("provider_type") val providerType: String? = null,
     val tools: List<String>? = null,
+    @SerialName("available_tools") val availableTools: List<String>? = null,
     val think: Boolean? = null,
     val memory: String? = null,
+    @SerialName("memory_enabled") val memoryEnabled: Boolean? = null,
     @SerialName("trigger_word") val triggerWord: String? = null,
+    @SerialName("persona_id") val personaId: Int? = null,
+    @SerialName("use_deferred_tools") val useDeferredTools: Boolean? = null,
 )
 
 @Serializable
@@ -169,7 +238,38 @@ data class MCPServer(
     val args: List<String>? = null,
     val env: Map<String, String>? = null,
     val enabled: Boolean = true,
+    val location: String = "server",
     @SerialName("created_at") val createdAt: String? = null,
+)
+
+@Serializable
+data class MCPServerCreate(
+    val name: String,
+    @SerialName("transport_type") val transportType: String,
+    val url: String? = null,
+    val command: String? = null,
+    val args: List<String>? = null,
+    val env: Map<String, String>? = null,
+    val location: String? = null,
+)
+
+@Serializable
+data class MCPServerUpdate(
+    val name: String? = null,
+    @SerialName("transport_type") val transportType: String? = null,
+    val url: String? = null,
+    val command: String? = null,
+    val args: List<String>? = null,
+    val env: Map<String, String>? = null,
+    val enabled: Boolean? = null,
+    val location: String? = null,
+)
+
+@Serializable
+data class MCPServerTestResult(
+    val status: String,
+    @SerialName("tool_count") val toolCount: Int? = null,
+    val error: String? = null,
 )
 
 @Serializable
@@ -190,6 +290,7 @@ data class Tool(
 data class ToolsResponse(
     @SerialName("mcp_tools") val mcpTools: List<Tool>,
     @SerialName("builtin_tools") val builtinTools: List<Tool>,
+    @SerialName("mcp_servers") val mcpServers: Map<String, List<Tool>>? = null,
 )
 
 @Serializable

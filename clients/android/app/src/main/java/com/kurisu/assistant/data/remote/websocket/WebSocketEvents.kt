@@ -101,3 +101,11 @@ data class MediaVolumePayload(
     val timestamp: String,
     val volume: Float,
 )
+
+@Serializable
+data class CompactContextPayload(
+    val type: String = "compact_context",
+    @SerialName("event_id") val eventId: String,
+    val timestamp: String,
+    @SerialName("conversation_id") val conversationId: Int,
+)

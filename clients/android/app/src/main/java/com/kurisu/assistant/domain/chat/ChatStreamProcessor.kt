@@ -7,11 +7,18 @@ import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
+data class QueuedMessage(
+    val text: String,
+    val images: List<String> = emptyList(),
+)
+
 data class StreamingState(
     val isStreaming: Boolean = false,
     val streamingMessages: List<Message> = emptyList(),
     val streamError: String? = null,
     val typingAgentName: String? = null,
+    val tokenCount: Int? = null,
+    val queuedMessages: List<QueuedMessage> = emptyList(),
 )
 
 @Singleton
@@ -25,12 +32,15 @@ class ChatStreamProcessor @Inject constructor(
     var onSentenceBoundary: ((text: String, voice: String?) -> Unit)? = null
     var onStreamDone: (() -> Unit)? = null
     var onConversationId: ((conversationId: Int) -> Unit)? = null
+    var onConnected: ((ConnectedEvent) -> Unit)? = null
+    var onContextInfo: ((ContextInfoEvent) -> Unit)? = null
 
     private var currentRole: String? = null
     private var currentContent = StringBuilder()
     private var currentThinking = StringBuilder()
     private var currentName: String? = null
     private var currentVoice: String? = null
+    private var currentImages: MutableList<String> = mutableListOf()
     private var ttsBuffer = StringBuilder()
 
     private var collectJob: Job? = null
@@ -44,6 +54,8 @@ class ChatStreamProcessor @Inject constructor(
                     is StreamChunkEvent -> handleChunk(event)
                     is DoneEvent -> handleDone(event)
                     is ErrorEvent -> handleError(event)
+                    is ConnectedEvent -> onConnected?.invoke(event)
+                    is ContextInfoEvent -> onContextInfo?.invoke(event)
                     is AgentSwitchEvent -> { /* handled in UI */ }
                     else -> { /* media, vision, etc. handled elsewhere */ }
                 }
@@ -71,10 +83,24 @@ class ChatStreamProcessor @Inject constructor(
         _state.update { it.copy(streamingMessages = it.streamingMessages + userMsg) }
     }
 
+    fun queueMessage(text: String, images: List<String> = emptyList()) {
+        _state.update { it.copy(
+            queuedMessages = it.queuedMessages + QueuedMessage(text, images),
+        ) }
+    }
+
+    fun dequeueMessage(): QueuedMessage? {
+        val queue = _state.value.queuedMessages
+        if (queue.isEmpty()) return null
+        val first = queue.first()
+        _state.update { it.copy(queuedMessages = it.queuedMessages.drop(1)) }
+        return first
+    }
+
     fun cancelStream() {
         wsManager.sendCancel()
         flushTTSBuffer()
-        _state.update { it.copy(isStreaming = false, typingAgentName = null) }
+        _state.update { it.copy(isStreaming = false, typingAgentName = null, queuedMessages = emptyList()) }
     }
 
     fun setError(error: String) {
@@ -93,6 +119,11 @@ class ChatStreamProcessor @Inject constructor(
         // Notify conversation ID on first chunk
         onConversationId?.invoke(event.conversationId)
 
+        // Update token count if provided
+        if (event.tokenCount != null) {
+            _state.update { it.copy(tokenCount = event.tokenCount) }
+        }
+
         val isNewBubble = event.role != currentRole || event.name != currentName
 
         if (isNewBubble) {
@@ -106,13 +137,20 @@ class ChatStreamProcessor @Inject constructor(
             currentThinking = StringBuilder(event.thinking ?: "")
             currentName = event.name
             currentVoice = event.voiceReference
+            currentImages = event.images?.toMutableList() ?: mutableListOf()
 
             val newMsg = Message(
                 role = event.role,
                 content = event.content,
                 thinking = event.thinking,
                 name = event.name,
+                personaName = event.personaName,
                 voiceReference = event.voiceReference,
+                modelName = event.modelName,
+                providerType = event.providerType,
+                toolArgs = event.toolArgs,
+                toolStatus = event.toolStatus,
+                images = event.images,
                 agentId = event.agentId,
             )
             _state.update { it.copy(
@@ -124,6 +162,7 @@ class ChatStreamProcessor @Inject constructor(
             currentContent.append(event.content)
             if (event.thinking != null) currentThinking.append(event.thinking)
             if (event.voiceReference != null) currentVoice = event.voiceReference
+            if (!event.images.isNullOrEmpty()) currentImages.addAll(event.images)
 
             _state.update { s ->
                 val msgs = s.streamingMessages.toMutableList()
@@ -132,6 +171,8 @@ class ChatStreamProcessor @Inject constructor(
                     msgs[msgs.lastIndex] = last.copy(
                         content = currentContent.toString(),
                         thinking = currentThinking.toString().ifEmpty { null },
+                        images = currentImages.ifEmpty { null },
+                        toolStatus = event.toolStatus ?: last.toolStatus,
                     )
                 }
                 s.copy(streamingMessages = msgs)
@@ -180,6 +221,7 @@ class ChatStreamProcessor @Inject constructor(
         currentThinking = StringBuilder()
         currentName = null
         currentVoice = null
+        currentImages = mutableListOf()
         ttsBuffer = StringBuilder()
         _state.update { StreamingState() }
     }

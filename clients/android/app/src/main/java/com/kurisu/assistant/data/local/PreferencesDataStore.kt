@@ -127,4 +127,15 @@ class PreferencesDataStore @Inject constructor(
     // ASR Language (empty = auto-detect)
     suspend fun getAsrLanguage(): String = ds.data.first()[KEY_ASR_LANGUAGE] ?: ""
     suspend fun setAsrLanguage(language: String) { ds.edit { it[KEY_ASR_LANGUAGE] = language } }
+
+    // Theme Mode ("light", "dark", "system")
+    private val KEY_THEME_MODE = stringPreferencesKey(StorageKeys.THEME_MODE)
+    suspend fun getThemeMode(): String = ds.data.first()[KEY_THEME_MODE] ?: "system"
+    fun themeModeFlow(): Flow<String> = ds.data.map { it[KEY_THEME_MODE] ?: "system" }
+    suspend fun setThemeMode(mode: String) { ds.edit { it[KEY_THEME_MODE] = mode } }
+
+    // TTS Auto-play
+    private val KEY_TTS_AUTO_PLAY_SETTING = booleanPreferencesKey(StorageKeys.TTS_AUTO_PLAY_SETTING)
+    suspend fun getTTSAutoPlay(): Boolean = ds.data.first()[KEY_TTS_AUTO_PLAY_SETTING] ?: true
+    suspend fun setTTSAutoPlay(enabled: Boolean) { ds.edit { it[KEY_TTS_AUTO_PLAY_SETTING] = enabled } }
 }

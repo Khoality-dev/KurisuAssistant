@@ -76,7 +76,7 @@ class VoiceActivityDetector @Inject constructor(
         for (i in 0 until minOf(samples.size, WINDOW_SIZE)) {
             floatSamples[i] = samples[i].toFloat() / 32767f
         }
-        lastMaxInput = floatSamples.max()
+        lastMaxInput = floatSamples.maxOrNull() ?: 0f
 
         return try {
             // Prepend context to input: [context(64) + samples(512)] = [576]

@@ -280,6 +280,16 @@ class WebSocketManager @Inject constructor(
         send(json.encodeToString(MediaVolumePayload.serializer(), payload))
     }
 
+    suspend fun sendCompactContext(conversationId: Int) {
+        ensureConnected()
+        val payload = CompactContextPayload(
+            eventId = generateEventId(),
+            timestamp = nowTimestamp(),
+            conversationId = conversationId,
+        )
+        send(json.encodeToString(CompactContextPayload.serializer(), payload))
+    }
+
     private suspend fun ensureConnected() {
         if (!isConnected) {
             Log.d(TAG, "ensureConnected: not connected, calling connect()")
@@ -301,7 +311,8 @@ class WebSocketManager @Inject constructor(
             "media_state" -> json.decodeFromString<MediaStateEvent>(text)
             "media_chunk" -> json.decodeFromString<MediaChunkEvent>(text)
             "media_error" -> json.decodeFromString<MediaErrorEvent>(text)
-            "reconnected" -> json.decodeFromString<ReconnectedEvent>(text)
+            "connected" -> json.decodeFromString<ConnectedEvent>(text)
+            "context_info" -> json.decodeFromString<ContextInfoEvent>(text)
             else -> {
                 Log.w(TAG, "Unknown event type: $type")
                 null
@@ -331,10 +342,7 @@ class WebSocketManager @Inject constructor(
             if (token != null && !isConnected && !intentionalClose) {
                 try {
                     connect()
-                    _events.tryEmit(ReconnectedEvent(
-                        eventId = "",
-                        timestamp = nowTimestamp(),
-                    ))
+                    // Backend sends a ConnectedEvent on successful WS handshake
                 } catch (_: Exception) {
                     attemptReconnect()
                 }

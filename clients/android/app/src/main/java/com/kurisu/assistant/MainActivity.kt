@@ -36,7 +36,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            KurisuTheme {
+            val themeMode by prefs.themeModeFlow().collectAsState(initial = "system")
+
+            KurisuTheme(themeMode = themeMode) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
@@ -44,14 +46,12 @@ class MainActivity : ComponentActivity() {
                     var startDestination by remember { mutableStateOf<String?>(null) }
 
                     LaunchedEffect(Unit) {
-                        // Initialize base URL
                         val url = prefs.getBackendUrl()
                         dynamicBaseUrlInterceptor.setCachedBaseUrl(url)
 
-                        // Validate stored token (with fallback to login on any failure)
                         startDestination = try {
                             val user = authRepository.initializeAuth()
-                            if (user != null) Routes.HOME else Routes.LOGIN
+                            if (user != null) Routes.CHAT else Routes.LOGIN
                         } catch (_: Exception) {
                             Routes.LOGIN
                         }
@@ -59,7 +59,6 @@ class MainActivity : ComponentActivity() {
 
                     val dest = startDestination
                     if (dest == null) {
-                        // Splash / loading
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
                         }

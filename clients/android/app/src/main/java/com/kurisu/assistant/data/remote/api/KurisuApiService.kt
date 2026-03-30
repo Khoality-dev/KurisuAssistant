@@ -24,6 +24,13 @@ interface KurisuApiService {
         @Part("email") email: RequestBody? = null,
     ): LoginResponse
 
+    @POST("/auth/refresh")
+    suspend fun refreshToken(@Body body: Map<String, String>): LoginResponse
+
+    // API Key Validation
+    @POST("/models/validate-key")
+    suspend fun validateApiKey(@Body body: Map<String, String>): Map<String, @JvmSuppressWildcards Any>
+
     // Conversations
     @GET("/conversations")
     suspend fun getConversations(
@@ -117,12 +124,48 @@ interface KurisuApiService {
     @DELETE("/agents/{id}")
     suspend fun deleteAgent(@Path("id") id: Int)
 
+    // Personas
+    @GET("/personas")
+    suspend fun listPersonas(): List<Persona>
+
+    @GET("/personas/{id}")
+    suspend fun getPersona(@Path("id") id: Int): Persona
+
+    @POST("/personas")
+    suspend fun createPersona(@Body data: PersonaCreate): Persona
+
+    @PATCH("/personas/{id}")
+    suspend fun updatePersona(@Path("id") id: Int, @Body data: PersonaUpdate): Persona
+
+    @DELETE("/personas/{id}")
+    suspend fun deletePersona(@Path("id") id: Int)
+
+    @Multipart
+    @PATCH("/personas/{id}/avatar")
+    suspend fun updatePersonaAvatar(@Path("id") id: Int, @Part avatar: MultipartBody.Part): Persona
+
+    @Multipart
+    @PATCH("/personas/{id}/voice")
+    suspend fun updatePersonaVoice(@Path("id") id: Int, @Part voice: MultipartBody.Part): Persona
+
     // Tools & MCP
     @GET("/tools")
     suspend fun listTools(): ToolsResponse
 
     @GET("/mcp-servers")
     suspend fun listMCPServers(): List<MCPServer>
+
+    @POST("/mcp-servers")
+    suspend fun createMCPServer(@Body data: MCPServerCreate): MCPServer
+
+    @PATCH("/mcp-servers/{id}")
+    suspend fun updateMCPServer(@Path("id") id: Int, @Body data: MCPServerUpdate): MCPServer
+
+    @DELETE("/mcp-servers/{id}")
+    suspend fun deleteMCPServer(@Path("id") id: Int)
+
+    @POST("/mcp-servers/{id}/test")
+    suspend fun testMCPServer(@Path("id") id: Int): MCPServerTestResult
 
     // Character Assets
     @Multipart

@@ -7,6 +7,7 @@ import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.repository.TtsRepository
 import com.kurisu.assistant.domain.chat.stripNarration
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlin.coroutines.resume
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -123,14 +124,14 @@ class TtsQueueManager @Inject constructor(
                     player.release()
                     mediaPlayer = null
                     tempFile.delete()
-                    if (cont.isActive) cont.resume(Unit) {}
+                    if (cont.isActive) cont.resume(Unit)
                 }
                 player.setOnErrorListener { _, _, _ ->
                     amplitudeJob?.cancel()
                     player.release()
                     mediaPlayer = null
                     tempFile.delete()
-                    if (cont.isActive) cont.resume(Unit) {}
+                    if (cont.isActive) cont.resume(Unit)
                     true
                 }
 

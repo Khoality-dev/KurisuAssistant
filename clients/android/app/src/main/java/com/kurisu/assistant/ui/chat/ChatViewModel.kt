@@ -3,7 +3,6 @@ package com.kurisu.assistant.ui.chat
 import android.app.Application
 import android.net.Uri
 import android.util.Log
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kurisu.assistant.data.local.PreferencesDataStore
@@ -11,6 +10,7 @@ import com.kurisu.assistant.data.model.Agent
 import com.kurisu.assistant.data.model.FrameInfo
 import com.kurisu.assistant.data.model.Message
 import com.kurisu.assistant.data.model.MessageRawData
+import com.kurisu.assistant.data.model.ToolApprovalRequestEvent
 import com.kurisu.assistant.data.remote.websocket.WebSocketManager
 import com.kurisu.assistant.data.repository.AgentRepository
 import com.kurisu.assistant.data.repository.AuthRepository
@@ -25,8 +25,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class ChatUiState(
-    val agents: List<Agent> = emptyList(),
-    val selectedAgent: Agent? = null,
+    val agent: Agent? = null,
     val messages: List<Message> = emptyList(),
     val hasMore: Boolean = false,
     val isLoadingMore: Boolean = false,
@@ -36,12 +35,12 @@ data class ChatUiState(
     val selectedImages: List<Uri> = emptyList(),
     val userAvatarUuid: String? = null,
     val frames: Map<String, FrameInfo> = emptyMap(),
+    val pendingApproval: ToolApprovalRequestEvent? = null,
 )
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val application: Application,
-    private val savedStateHandle: SavedStateHandle,
     private val agentRepository: AgentRepository,
     private val authRepository: AuthRepository,
     private val conversationRepository: ConversationRepository,
@@ -53,6 +52,10 @@ class ChatViewModel @Inject constructor(
     private val coreState: CoreState,
 ) : ViewModel() {
 
+    companion object {
+        private const val TAG = "ChatViewModel"
+    }
+
     private val _state = MutableStateFlow(ChatUiState())
     val state: StateFlow<ChatUiState> = _state
 
@@ -61,35 +64,24 @@ class ChatViewModel @Inject constructor(
     val voiceState = voiceInteractionManager.state
     val coreServiceState = coreState.state
 
-    // Nav args
-    private val navAgentId: Int = savedStateHandle["agentId"] ?: -1
-    private val navTriggerText: String? = savedStateHandle["triggerText"]
-
     init {
-        // Safety net: ensure event collection is active even if service hasn't started yet
+        // Ensure event collection is active
         streamProcessor.startCollecting()
 
-        // Initial load
+        // Load the default agent and its conversation
         viewModelScope.launch {
             val baseUrl = prefs.getBackendUrl()
             _state.update { it.copy(baseUrl = baseUrl) }
 
-            // Load user avatar
             try {
                 val profile = authRepository.loadUserProfile()
                 _state.update { it.copy(userAvatarUuid = profile.userAvatarUuid) }
             } catch (_: Exception) {}
 
-            loadAgentAndConversation()
-
-            // After loading, handle trigger text (auto-start voice interaction)
-            if (navTriggerText != null) {
-                voiceInteractionManager.enterMode()
-                sendMessage(navTriggerText)
-            }
+            loadAgent()
         }
 
-        // Observe service state for conversation ID sync (when service creates a new conversation via voice)
+        // Observe service state for conversation ID sync
         viewModelScope.launch {
             coreState.state.collect { svcState ->
                 val currentConvId = _state.value.conversationId
@@ -97,6 +89,15 @@ class ChatViewModel @Inject constructor(
                 if (serviceConvId != null && serviceConvId != currentConvId) {
                     _state.update { it.copy(conversationId = serviceConvId) }
                     loadConversation(serviceConvId)
+                }
+            }
+        }
+
+        // Observe tool approval requests
+        viewModelScope.launch {
+            wsManager.events.collect { event ->
+                if (event is ToolApprovalRequestEvent) {
+                    _state.update { it.copy(pendingApproval = event) }
                 }
             }
         }
@@ -109,28 +110,34 @@ class ChatViewModel @Inject constructor(
                     try {
                         loadConversation(convId)
                     } catch (e: Exception) {
-                        Log.e("ChatViewModel", "Failed to reload on stream done", e)
+                        Log.e(TAG, "Failed to reload on stream done", e)
                     }
                 }
                 streamProcessor.clearStreamingMessages()
+                processQueue()
             }
         }
     }
 
-    /** Load the specific agent from nav args + its conversation. Also load all agents for dropdown. */
-    private suspend fun loadAgentAndConversation() {
+    /** Load the first available agent and its conversation. */
+    private suspend fun loadAgent() {
         try {
             val agents = agentRepository.loadAgents()
-            val selectedAgent = agents.find { it.id == navAgentId } ?: agents.firstOrNull()
+            // Use previously selected agent, or fall back to first
+            val selectedId = agentRepository.getSelectedAgentId()
+            val agent = (if (selectedId != null) agents.find { it.id == selectedId } else null)
+                ?: agents.firstOrNull()
 
-            _state.update { it.copy(agents = agents, selectedAgent = selectedAgent) }
+            _state.update { it.copy(agent = agent) }
 
-            if (selectedAgent != null) {
-                agentRepository.setSelectedAgentId(selectedAgent.id)
-                voiceInteractionManager.setTriggerWord(selectedAgent.triggerWord)
-                coreState.setSelectedAgentId(selectedAgent.id)
+            if (agent != null) {
+                agentRepository.setSelectedAgentId(agent.id)
+                voiceInteractionManager.setTriggerWord(
+                    agent.persona?.triggerWord ?: agent.triggerWord,
+                )
+                coreState.setSelectedAgentId(agent.id)
 
-                val convId = agentRepository.getConversationIdForAgent(selectedAgent.id)
+                val convId = agentRepository.getConversationIdForAgent(agent.id)
                 if (convId != null) {
                     loadConversation(convId)
                 } else {
@@ -138,31 +145,7 @@ class ChatViewModel @Inject constructor(
                 }
             }
         } catch (e: Exception) {
-            Log.e("ChatViewModel", "Failed to load agents/conversation", e)
-        }
-    }
-
-    fun selectAgent(agentId: Int) {
-        viewModelScope.launch {
-            val agent = _state.value.agents.find { it.id == agentId } ?: return@launch
-            _state.update { it.copy(selectedAgent = agent) }
-            agentRepository.setSelectedAgentId(agentId)
-            voiceInteractionManager.setTriggerWord(agent.triggerWord)
-            coreState.setSelectedAgentId(agentId)
-
-            ttsQueueManager.clearQueue()
-
-            val convId = agentRepository.getConversationIdForAgent(agentId)
-            if (convId != null) {
-                try {
-                    loadConversation(convId)
-                } catch (_: Exception) {
-                    agentRepository.clearConversationIdForAgent(agentId)
-                    _state.update { it.copy(messages = emptyList(), conversationId = null, hasMore = false) }
-                }
-            } else {
-                _state.update { it.copy(messages = emptyList(), conversationId = null, hasMore = false) }
-            }
+            Log.e(TAG, "Failed to load agent/conversation", e)
         }
     }
 
@@ -209,26 +192,35 @@ class ChatViewModel @Inject constructor(
     }
 
     fun sendMessage(text: String? = null) {
-        if (streamProcessor.state.value.isStreaming) return
         val s = _state.value
         val messageText = text ?: s.inputText.trim()
         if (messageText.isBlank() && s.selectedImages.isEmpty()) return
 
-        // TODO: Upload images and get UUIDs. For now, send text only.
         val images = emptyList<String>()
-
-        streamProcessor.startStreaming()
-        streamProcessor.addUserMessage(messageText, images)
         _state.update { it.copy(inputText = "", selectedImages = emptyList()) }
+
+        // If currently streaming, queue the message
+        if (streamProcessor.state.value.isStreaming) {
+            streamProcessor.queueMessage(messageText, images)
+            return
+        }
+
+        doSend(messageText, images)
+    }
+
+    private fun doSend(text: String, images: List<String>) {
+        val s = _state.value
+        streamProcessor.startStreaming()
+        streamProcessor.addUserMessage(text, images)
 
         viewModelScope.launch {
             try {
                 val modelName = prefs.getSelectedModel() ?: ""
                 wsManager.sendChatRequest(
-                    text = messageText,
+                    text = text,
                     modelName = modelName,
                     conversationId = s.conversationId,
-                    agentId = s.selectedAgent?.id,
+                    agentId = s.agent?.id,
                     images = images,
                 )
             } catch (e: Exception) {
@@ -237,22 +229,37 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** Called after stream done + DB reload — process queued messages. */
+    private fun processQueue() {
+        val queued = streamProcessor.dequeueMessage() ?: return
+        doSend(queued.text, queued.images)
+    }
+
     fun resendMessage(messageId: Int, text: String) {
         val s = _state.value
         if (s.conversationId == null) return
 
         viewModelScope.launch {
             try {
-                // Delete from this message onward
                 conversationRepository.deleteMessage(messageId)
                 loadConversation(s.conversationId)
-
-                // Re-send the same text
                 sendMessage(text)
             } catch (e: Exception) {
-                Log.e("ChatViewModel", "Failed to resend message", e)
+                Log.e(TAG, "Failed to resend message", e)
             }
         }
+    }
+
+    fun approveToolCall() {
+        val approval = _state.value.pendingApproval ?: return
+        wsManager.sendToolApprovalResponse(approval.approvalId, approved = true)
+        _state.update { it.copy(pendingApproval = null) }
+    }
+
+    fun denyToolCall() {
+        val approval = _state.value.pendingApproval ?: return
+        wsManager.sendToolApprovalResponse(approval.approvalId, approved = false)
+        _state.update { it.copy(pendingApproval = null) }
     }
 
     fun cancelStream() {
@@ -260,12 +267,23 @@ class ChatViewModel @Inject constructor(
         ttsQueueManager.clearQueue()
     }
 
+    fun refreshConversation() {
+        val convId = _state.value.conversationId ?: return
+        viewModelScope.launch {
+            try {
+                loadConversation(convId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to refresh conversation", e)
+            }
+        }
+    }
+
     fun deleteConversation() {
         val convId = _state.value.conversationId ?: return
         viewModelScope.launch {
             try {
                 conversationRepository.deleteConversation(convId)
-                val agentId = _state.value.selectedAgent?.id
+                val agentId = _state.value.agent?.id
                 if (agentId != null) agentRepository.clearConversationIdForAgent(agentId)
                 _state.update { it.copy(messages = emptyList(), conversationId = null, hasMore = false) }
                 coreState.setConversationId(null)
@@ -280,7 +298,7 @@ class ChatViewModel @Inject constructor(
                 conversationRepository.deleteMessage(messageId)
                 loadConversation(convId)
             } catch (e: Exception) {
-                Log.e("ChatViewModel", "Failed to delete message", e)
+                Log.e(TAG, "Failed to delete message", e)
             }
         }
     }
@@ -289,18 +307,22 @@ class ChatViewModel @Inject constructor(
         return try {
             conversationRepository.getMessageRaw(messageId)
         } catch (e: Exception) {
-            Log.e("ChatViewModel", "Failed to fetch raw data", e)
+            Log.e(TAG, "Failed to fetch raw data", e)
             null
         }
     }
 
-    fun refreshAgents() {
-        viewModelScope.launch { loadAgentAndConversation() }
+    fun logout(onLogout: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                authRepository.logout()
+            } catch (_: Exception) {}
+            onLogout()
+        }
     }
 
     override fun onCleared() {
         super.onCleared()
-        // Exit interaction mode and clear trigger word when leaving chat
         if (voiceInteractionManager.state.value.isInteractionMode) {
             voiceInteractionManager.exitMode()
         }

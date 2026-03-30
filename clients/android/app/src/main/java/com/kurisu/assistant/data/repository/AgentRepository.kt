@@ -14,14 +14,7 @@ class AgentRepository @Inject constructor(
     private val prefs: PreferencesDataStore,
     private val conversationRepository: ConversationRepository,
 ) {
-    companion object {
-        private const val ADMINISTRATOR_NAME = "Administrator"
-    }
-
-    suspend fun loadAgents(): List<Agent> {
-        val all = api.listAgents()
-        return all.filter { it.name != ADMINISTRATOR_NAME }
-    }
+    suspend fun loadAgents(): List<Agent> = api.listAgents()
 
     suspend fun getSelectedAgentId(): Int? = prefs.getSelectedAgentId()
 

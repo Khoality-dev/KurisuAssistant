@@ -35,4 +35,14 @@ class EncryptedPreferences @Inject constructor(
     fun clearToken() {
         prefs.edit().remove(StorageKeys.AUTH_TOKEN).apply()
     }
+
+    fun getRefreshToken(): String? = prefs.getString(StorageKeys.REFRESH_TOKEN, null)
+
+    fun setRefreshToken(token: String) {
+        prefs.edit().putString(StorageKeys.REFRESH_TOKEN, token).apply()
+    }
+
+    fun clearRefreshToken() {
+        prefs.edit().remove(StorageKeys.REFRESH_TOKEN).apply()
+    }
 }

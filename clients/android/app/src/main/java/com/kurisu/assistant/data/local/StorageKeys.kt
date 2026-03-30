@@ -17,4 +17,7 @@ object StorageKeys {
     const val MEDIA_VOLUME = "kurisu_media_volume"
     const val AUDIO_INPUT_DEVICE_TYPE = "kurisu_audio_input_device_type"
     const val ASR_LANGUAGE = "kurisu_asr_language"
+    const val REFRESH_TOKEN = "kurisu_refresh_token"
+    const val THEME_MODE = "kurisu_theme_mode"
+    const val TTS_AUTO_PLAY_SETTING = "kurisu_tts_auto_play_setting"
 }
