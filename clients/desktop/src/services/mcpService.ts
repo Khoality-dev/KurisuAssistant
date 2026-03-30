@@ -12,7 +12,6 @@
  * 2. Sends result back via WebSocket
  */
 
-import { apiClient } from '../api/client';
 import { wsManager, type ToolCallRequestEvent } from '../api/websocket';
 import { initAppToolsHandler } from './appToolsHandler';
 
@@ -58,31 +57,7 @@ export async function initClientMCPServers(): Promise<void> {
   }
 
   try {
-    // Fetch all MCP server configs
-    const servers = await apiClient.listMCPServers();
-
-    // Filter to client-side servers only
-    const clientServers = servers.filter(
-      (s) => s.location === 'client' && s.enabled,
-    );
-
-    // Start client-side MCP servers one by one (don't use startServers which kills all)
-    for (const s of clientServers) {
-      try {
-        await window.electron.mcp.startServer({
-          name: s.name,
-          transport_type: s.transport_type,
-          url: s.url || undefined,
-          command: s.command || undefined,
-          args: s.args || undefined,
-          env: s.env || undefined,
-        });
-      } catch (e) {
-        console.warn(`[MCP] Failed to start "${s.name}":`, e);
-      }
-    }
-
-    // Discover tools from ALL connected MCP servers (includes Playwright + client servers)
+    // Discover tools from all locally running MCP servers (Playwright + any started by settings UI)
     const mcpTools = window.electron.mcp
       ? await window.electron.mcp.listTools()
       : [];

@@ -82,40 +82,24 @@ export const MCPServersSection: React.FC = () => {
   const mcpAutoRegistered = useRef<Set<string>>(new Set());
 
   const registerLocalServer = useCallback(async (svc: LocalServer): Promise<boolean> => {
-    if (!svc.mcpUrl) return false; // stdio servers don't need API registration
+    // Local companion servers are started directly via Electron IPC — not saved to backend DB
     try {
-      const servers = await apiClient.listMCPServers();
-      // Match both localhost and 127.0.0.1 variants, and both server/client locations
-      const normalizeUrl = (u: string) => u.replace('://localhost:', '://127.0.0.1:');
-      const normalizedMcpUrl = normalizeUrl(svc.mcpUrl);
-      const existing = servers.find((s) => s.url && normalizeUrl(s.url) === normalizedMcpUrl);
-      if (!existing) {
-        console.log(`[LocalServers] Registering client MCP server for ${svc.name} at ${svc.mcpUrl}`);
-        await apiClient.createMCPServer({
+      if (svc.mcpUrl && window.electron?.mcp?.startServer) {
+        const result = await window.electron.mcp.startServer({
           name: svc.name,
           transport_type: 'sse',
           url: svc.mcpUrl,
-          location: 'client',
         });
-      } else {
-        // Fix URL or location if needed
-        const updates: Record<string, string> = {};
-        if (svc.mcpUrl && existing.url !== svc.mcpUrl) updates.url = svc.mcpUrl;
-        if (existing.location !== 'client') updates.location = 'client';
-        if (Object.keys(updates).length > 0) {
-          console.log(`[LocalServers] Updating ${svc.name}:`, updates);
-          await apiClient.updateMCPServer(existing.id, updates);
-        } else {
-          console.log(`[LocalServers] ${svc.name} already registered`);
+        if (!result.ok) {
+          console.warn(`[LocalServers] Failed to start ${svc.name}:`, result.error);
+          return false;
         }
       }
       mcpAutoRegistered.current.add(svc.id);
-      // Refresh client MCP connections so Electron connects and registers tools via WebSocket
       await refreshClientMCPServers();
-      loadData();
       return true;
     } catch (err) {
-      console.error(`[LocalServers] Failed to register ${svc.name}:`, err);
+      console.error(`[LocalServers] Failed to start ${svc.name}:`, err);
       return false;
     }
   }, []);

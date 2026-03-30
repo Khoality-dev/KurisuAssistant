@@ -131,32 +131,24 @@ export const ToolsSection: React.FC = () => {
 
   const registerLocalServer = useCallback(async (svc: LocalServer): Promise<boolean> => {
     if (!svc.mcpUrl) return false;
+    // Local companion servers started directly via Electron IPC — not saved to backend DB
     try {
-      const servers = await apiClient.listMCPServers();
-      const normalizeUrl = (u: string) => u.replace('://localhost:', '://127.0.0.1:');
-      const normalizedMcpUrl = normalizeUrl(svc.mcpUrl);
-      const existing = servers.find((s) => s.url && normalizeUrl(s.url) === normalizedMcpUrl);
-      if (!existing) {
-        await apiClient.createMCPServer({
+      if (window.electron?.mcp?.startServer) {
+        const result = await window.electron.mcp.startServer({
           name: svc.name,
           transport_type: 'sse',
           url: svc.mcpUrl,
-          location: 'client',
         });
-      } else {
-        const updates: Record<string, string> = {};
-        if (svc.mcpUrl && existing.url !== svc.mcpUrl) updates.url = svc.mcpUrl;
-        if (existing.location !== 'client') updates.location = 'client';
-        if (Object.keys(updates).length > 0) {
-          await apiClient.updateMCPServer(existing.id, updates);
+        if (!result.ok) {
+          console.warn(`[LocalServers] Failed to start ${svc.name}:`, result.error);
+          return false;
         }
       }
       mcpAutoRegistered.current.add(svc.id);
       await refreshClientMCPServers();
-      loadData();
       return true;
     } catch (err) {
-      console.error(`[LocalServers] Failed to register ${svc.name}:`, err);
+      console.error(`[LocalServers] Failed to start ${svc.name}:`, err);
       return false;
     }
   }, []);
