@@ -1,18 +1,18 @@
-"""ASR routes: /asr."""
+"""ASR routes: /asr — proxies to universal-asr service."""
 
 import logging
+import os
 
-import numpy as np
+import requests as http_requests
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
-from kurisuassistant.models.asr import transcribe
 from kurisuassistant.core.deps import get_authenticated_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["asr"])
 
-SAMPLE_RATE = 16_000
+ASR_API_URL = os.environ.get("ASR_API_URL", "http://universal-asr:14213").rstrip("/")
 
 
 @router.post("/asr")
@@ -22,14 +22,23 @@ async def asr_endpoint(
     mode: str | None = Query(None),
     _user=Depends(get_authenticated_user),
 ):
-    """Convert audio to text. Accepts raw Int16 PCM at 16kHz."""
+    """Proxy raw PCM audio to universal-asr service."""
     try:
-        pcm = np.frombuffer(audio, dtype=np.int16)
-        waveform = pcm.astype(np.float32) / 32768.0
-        text, detected_language = transcribe(waveform, language=language, mode=mode)
-        return {"text": text, "language": detected_language}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error processing ASR request: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        params = {}
+        if language:
+            params["language"] = language
+        if mode:
+            params["mode"] = mode
+
+        r = http_requests.post(
+            f"{ASR_API_URL}/asr",
+            data=audio,
+            params=params,
+            headers={"Content-Type": "application/octet-stream"},
+            timeout=30,
+        )
+        r.raise_for_status()
+        return r.json()
+    except http_requests.RequestException as e:
+        logger.error("ASR service error: %s", e, exc_info=True)
+        raise HTTPException(status_code=502, detail=f"ASR service error: {e}")
