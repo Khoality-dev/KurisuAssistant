@@ -128,8 +128,8 @@ export const TTSSection: React.FC = () => {
         </Typography>
       </Box>
 
-      {/* Language → Model Mapping */}
-      <Box sx={{ mb: 3 }}>
+      {/* Language → Model Mapping — only shown for auto-route */}
+      {asrLanguage === 'auto-route' && <Box sx={{ mb: 3 }}>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>
           Language → Model Mapping
         </Typography>
@@ -207,7 +207,7 @@ export const TTSSection: React.FC = () => {
         >
           Add mapping
         </Button>
-      </Box>
+      </Box>}
 
       <Divider sx={{ mb: 3 }} />
 
