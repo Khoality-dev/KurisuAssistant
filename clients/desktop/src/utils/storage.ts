@@ -18,6 +18,7 @@ const STORAGE_KEYS = {
   SELECTED_AGENT_ID: 'kurisu_selected_agent_id',
   AGENT_CONVERSATIONS: 'kurisu_agent_conversations',
   ASR_LANGUAGE: 'kurisu_asr_language',
+  ASR_MODEL_MAP: 'kurisu_asr_model_map',
 } as const;
 
 export const storage = {
@@ -405,5 +406,30 @@ export const storage = {
     } catch (error) {
       console.error('Failed to clear ASR language:', error);
     }
+  },
+
+  /** Language → ASR model mapping. Each entry: { language, model } */
+  getASRModelMap(): Array<{ language: string; model: string }> {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.ASR_MODEL_MAP);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  setASRModelMap(map: Array<{ language: string; model: string }>): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ASR_MODEL_MAP, JSON.stringify(map));
+    } catch (error) {
+      console.error('Failed to save ASR model map:', error);
+    }
+  },
+
+  /** Look up the model for a given language code. Returns undefined if no mapping. */
+  getASRModelForLanguage(language: string): string | undefined {
+    const map = this.getASRModelMap();
+    const entry = map.find((e) => e.language === language);
+    return entry?.model;
   },
 };

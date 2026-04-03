@@ -105,14 +105,27 @@ export const useMicStore = create<MicState>((set, get) => ({
           set({ status: 'processing' });
 
           try {
-            const language = storage.getASRLanguage() || undefined;
+            const langSetting = storage.getASRLanguage() || undefined;
             const { interactiveMode, interactionActive } = get();
             const mode = interactiveMode && !interactionActive ? 'fast' : undefined;
 
-            const response = await apiClient.transcribe(int16.buffer, { language, mode });
+            let language: string | undefined;
+            let model: string | undefined;
+
+            if (langSetting === 'auto-route') {
+              // Detect language first, then route to the mapped model
+              const detected = await apiClient.detectLanguage(int16.buffer);
+              language = detected.language || undefined;
+              model = language ? storage.getASRModelForLanguage(language) : undefined;
+            } else {
+              language = langSetting;
+              model = language ? storage.getASRModelForLanguage(language) : undefined;
+            }
+
+            const response = await apiClient.transcribe(int16.buffer, { language, mode, model });
 
             // Cache detected language on first auto-detect
-            if (!storage.getASRLanguage() && response.language) {
+            if (!langSetting && response.language) {
               storage.setASRLanguage(response.language);
             }
 
