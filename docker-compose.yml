@@ -61,6 +61,37 @@ services:
     stdin_open: true
     tty: true
     restart: unless-stopped
+  universal-asr:
+    build:
+      context: ${UASR_ROOT:-/home/khoa/application/universal-asr}
+      dockerfile: Dockerfile
+    container_name: universal-asr
+    volumes:
+      - ${UASR_ROOT:-/home/khoa/application/universal-asr}/data:/app/data
+    environment:
+      - UASR_HOST=0.0.0.0
+      - UASR_PORT=9000
+      - UASR_DEVICE=auto
+      - UASR_COMPUTE_TYPE=auto
+      - UASR_DEFAULT_MODEL=base
+      - UASR_DATA_DIR=/app/data
+    ports:
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
   api:
     build:
       context: .
