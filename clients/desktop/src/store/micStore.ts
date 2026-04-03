@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { MicVAD } from '@ricky0123/vad-web';
 import { apiClient } from '../api/client';
 import { storage } from '../utils/storage';
+import { useAgentStore } from './agentStore';
 
 export type ASRStatus = 'idle' | 'listening' | 'processing';
 
@@ -113,17 +114,25 @@ export const useMicStore = create<MicState>((set, get) => ({
             let model: string | undefined;
 
             if (asrMode === 'routing') {
-              // Detect language first, then route to the mapped model
               const detected = await apiClient.detectLanguage(int16.buffer);
               language = detected.language || undefined;
               model = language ? storage.getASRModelForLanguage(language) : undefined;
             } else {
-              // Fixed model mode
               const fixedModel = storage.getASRFixedModel();
               if (fixedModel) model = fixedModel;
             }
 
-            const response = await apiClient.transcribe(int16.buffer, { language, mode, model });
+            // Collect trigger words from all agents to bias recognition
+            const agents = useAgentStore.getState().agents;
+            const triggerWords = agents
+              .map((a) => a.persona?.trigger_word)
+              .filter((w): w is string => !!w?.trim())
+              .map((w) => w.trim());
+            const initial_prompt = triggerWords.length > 0
+              ? triggerWords.join(', ')
+              : undefined;
+
+            const response = await apiClient.transcribe(int16.buffer, { language, mode, model, initial_prompt });
 
             if (response.text.trim()) {
               _seq += 1;
