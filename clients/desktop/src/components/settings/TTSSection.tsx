@@ -48,9 +48,16 @@ export const TTSSection: React.FC = () => {
   const { backends, loadBackends } = useTTS();
 
   // ASR settings
+  const [asrMode, setAsrModeState] = useState(storage.getASRMode());
   const [asrLanguage, setAsrLanguageState] = useState(storage.getASRLanguage() || '');
+  const [asrFixedModel, setAsrFixedModelState] = useState(storage.getASRFixedModel());
   const [modelMap, setModelMapState] = useState(storage.getASRModelMap());
   const [availableModels, setAvailableModels] = useState<ModelEntry[]>([]);
+
+  const setAsrMode = (v: 'fixed' | 'routing') => {
+    setAsrModeState(v);
+    storage.setASRMode(v);
+  };
 
   const setAsrLanguage = (v: string) => {
     setAsrLanguageState(v);
@@ -58,12 +65,15 @@ export const TTSSection: React.FC = () => {
     else storage.clearASRLanguage();
   };
 
+  const setAsrFixedModel = (v: string) => {
+    setAsrFixedModelState(v);
+    storage.setASRFixedModel(v);
+  };
+
   const setModelMap = (map: Array<{ language: string; model: string }>) => {
     setModelMapState(map);
     storage.setASRModelMap(map);
   };
-
-  const handleLanguageChange = (e: SelectChangeEvent) => setAsrLanguage(e.target.value);
 
   // TTS settings
   const [ttsBackend, setTtsBackendState] = useState(storage.getTTSBackend() || 'vixtts');
@@ -101,113 +111,131 @@ export const TTSSection: React.FC = () => {
     <Box sx={{ maxWidth: 700 }}>
       <Typography variant="h3" sx={{ mb: 3 }}>TTS & ASR</Typography>
 
-      {/* ASR Settings */}
+      {/* ASR Mode */}
       <Box sx={{ mb: 3 }}>
         <FormControl fullWidth size="small">
-          <InputLabel>ASR Language</InputLabel>
+          <InputLabel>ASR Mode</InputLabel>
           <Select
-            value={asrLanguage}
-            label="ASR Language"
-            onChange={handleLanguageChange}
+            value={asrMode}
+            label="ASR Mode"
+            onChange={(e: SelectChangeEvent) => setAsrMode(e.target.value as 'fixed' | 'routing')}
           >
-            <MenuItem value="">
-              <em>Auto-detect</em>
-            </MenuItem>
-            <MenuItem value="auto-route">
-              <em>Auto (detect &amp; route to model)</em>
-            </MenuItem>
-            {COMMON_LANGUAGES.map((lang) => (
-              <MenuItem key={lang.code} value={lang.code}>
-                {lang.label} ({lang.code})
-              </MenuItem>
-            ))}
+            <MenuItem value="fixed">Fixed model</MenuItem>
+            <MenuItem value="routing">Auto routing</MenuItem>
           </Select>
         </FormControl>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-          Auto-detect: let the model guess. Auto (detect &amp; route): detect language first, then use the mapped model for that language.
+          {asrMode === 'fixed'
+            ? 'Use one model for all transcription.'
+            : 'Detect language first, then route to the best model for that language.'}
         </Typography>
       </Box>
 
-      {/* Language → Model Mapping — only shown for auto-route */}
-      {asrLanguage === 'auto-route' && <Box sx={{ mb: 3 }}>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>
-          Language → Model Mapping
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-          Assign a specific ASR model per language. When a language matches, its mapped model is used for transcription.
-        </Typography>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Language</TableCell>
-              <TableCell>Model</TableCell>
-              <TableCell width={48}></TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {modelMap.map((entry, i) => (
-              <TableRow key={i}>
-                <TableCell sx={{ py: 0.5 }}>
-                  <FormControl fullWidth size="small" variant="standard">
-                    <Select
-                      value={entry.language}
-                      onChange={(e) => updateMapping(i, 'language', e.target.value)}
-                      displayEmpty
-                    >
-                      <MenuItem value="">
-                        <em>Select...</em>
-                      </MenuItem>
-                      {COMMON_LANGUAGES.map((lang) => (
-                        <MenuItem key={lang.code} value={lang.code}>
-                          {lang.label} ({lang.code})
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </TableCell>
-                <TableCell sx={{ py: 0.5 }}>
-                  <FormControl fullWidth size="small" variant="standard">
-                    <Select
-                      value={entry.model}
-                      onChange={(e) => updateMapping(i, 'model', e.target.value)}
-                      displayEmpty
-                    >
-                      <MenuItem value="">
-                        <em>Default</em>
-                      </MenuItem>
-                      {availableModels.map((m) => (
-                        <MenuItem key={m.id} value={m.name}>
-                          {m.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </TableCell>
-                <TableCell sx={{ py: 0.5 }}>
-                  <IconButton size="small" onClick={() => removeMapping(i)}>
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
-            {modelMap.length === 0 && (
+      {/* Fixed model settings */}
+      {asrMode === 'fixed' && (
+        <Box sx={{ mb: 3 }}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Model</InputLabel>
+            <Select
+              value={asrFixedModel}
+              label="Model"
+              onChange={(e: SelectChangeEvent) => setAsrFixedModel(e.target.value)}
+            >
+              <MenuItem value="">
+                <em>Default (server)</em>
+              </MenuItem>
+              {availableModels.map((m) => (
+                <MenuItem key={m.id} value={m.name}>
+                  {m.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Box>
+      )}
+
+      {/* Auto routing settings */}
+      {asrMode === 'routing' && (
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            Language → Model Mapping
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+            Each language routes to a specific model. Unmatched languages use the server default.
+          </Typography>
+          <Table size="small">
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={3} sx={{ color: 'text.secondary', textAlign: 'center' }}>
-                  No mappings. All languages use the default model.
-                </TableCell>
+                <TableCell>Language</TableCell>
+                <TableCell>Model</TableCell>
+                <TableCell width={48}></TableCell>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
-        <Button
-          size="small"
-          startIcon={<AddIcon />}
-          onClick={addMapping}
-          sx={{ mt: 1 }}
-        >
-          Add mapping
-        </Button>
-      </Box>}
+            </TableHead>
+            <TableBody>
+              {modelMap.map((entry, i) => (
+                <TableRow key={i}>
+                  <TableCell sx={{ py: 0.5 }}>
+                    <FormControl fullWidth size="small" variant="standard">
+                      <Select
+                        value={entry.language}
+                        onChange={(e) => updateMapping(i, 'language', e.target.value)}
+                        displayEmpty
+                      >
+                        <MenuItem value="">
+                          <em>Select...</em>
+                        </MenuItem>
+                        {COMMON_LANGUAGES.map((lang) => (
+                          <MenuItem key={lang.code} value={lang.code}>
+                            {lang.label} ({lang.code})
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </TableCell>
+                  <TableCell sx={{ py: 0.5 }}>
+                    <FormControl fullWidth size="small" variant="standard">
+                      <Select
+                        value={entry.model}
+                        onChange={(e) => updateMapping(i, 'model', e.target.value)}
+                        displayEmpty
+                      >
+                        <MenuItem value="">
+                          <em>Default</em>
+                        </MenuItem>
+                        {availableModels.map((m) => (
+                          <MenuItem key={m.id} value={m.name}>
+                            {m.name}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </TableCell>
+                  <TableCell sx={{ py: 0.5 }}>
+                    <IconButton size="small" onClick={() => removeMapping(i)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {modelMap.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={3} sx={{ color: 'text.secondary', textAlign: 'center' }}>
+                    No mappings configured.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+          <Button
+            size="small"
+            startIcon={<AddIcon />}
+            onClick={addMapping}
+            sx={{ mt: 1 }}
+          >
+            Add mapping
+          </Button>
+        </Box>
+      )}
 
       <Divider sx={{ mb: 3 }} />
 

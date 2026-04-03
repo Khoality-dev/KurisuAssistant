@@ -18,6 +18,8 @@ const STORAGE_KEYS = {
   SELECTED_AGENT_ID: 'kurisu_selected_agent_id',
   AGENT_CONVERSATIONS: 'kurisu_agent_conversations',
   ASR_LANGUAGE: 'kurisu_asr_language',
+  ASR_MODE: 'kurisu_asr_mode',
+  ASR_FIXED_MODEL: 'kurisu_asr_fixed_model',
   ASR_MODEL_MAP: 'kurisu_asr_model_map',
 } as const;
 
@@ -405,6 +407,41 @@ export const storage = {
       localStorage.removeItem(STORAGE_KEYS.ASR_LANGUAGE);
     } catch (error) {
       console.error('Failed to clear ASR language:', error);
+    }
+  },
+
+  /** ASR mode: 'fixed' or 'routing'. Default 'fixed'. */
+  getASRMode(): 'fixed' | 'routing' {
+    try {
+      const v = localStorage.getItem(STORAGE_KEYS.ASR_MODE);
+      return v === 'routing' ? 'routing' : 'fixed';
+    } catch {
+      return 'fixed';
+    }
+  },
+
+  setASRMode(mode: 'fixed' | 'routing'): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ASR_MODE, mode);
+    } catch (error) {
+      console.error('Failed to save ASR mode:', error);
+    }
+  },
+
+  /** Fixed model name for fixed mode. Empty = server default. */
+  getASRFixedModel(): string {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.ASR_FIXED_MODEL) || '';
+    } catch {
+      return '';
+    }
+  },
+
+  setASRFixedModel(model: string): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ASR_FIXED_MODEL, model);
+    } catch (error) {
+      console.error('Failed to save ASR fixed model:', error);
     }
   },
 
