@@ -3,7 +3,7 @@ import { apiClient } from '../api/client';
 import { storage } from '../utils/storage';
 import { useAudioAmplitude } from './useAudioAmplitude';
 
-const TTS_BACKENDS = ['vixtts', 'gpt-sovits'] as const;
+const TTS_FALLBACK_MODELS = ['vixtts', 'gpt-sovits'];
 
 /**
  * Parse WAV header to get audio duration in seconds.
@@ -40,7 +40,7 @@ export function useTTS(
 ) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [voices, setVoices] = useState<string[]>([]);
-  const [backends, setBackends] = useState<string[]>([...TTS_BACKENDS]);
+  const [backends, setBackends] = useState<string[]>([...TTS_FALLBACK_MODELS]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
 
@@ -68,9 +68,17 @@ export function useTTS(
   }, []);
 
   const loadBackends = useCallback(async () => {
-    const backendList = [...TTS_BACKENDS];
-    setBackends(backendList);
-    return backendList;
+    try {
+      const models = await apiClient.listTTSModels();
+      if (models.length > 0) {
+        setBackends(models);
+        return models;
+      }
+    } catch (error) {
+      console.error('Failed to load TTS models:', error);
+    }
+    setBackends([...TTS_FALLBACK_MODELS]);
+    return [...TTS_FALLBACK_MODELS];
   }, []);
 
   /**

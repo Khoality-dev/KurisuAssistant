@@ -361,13 +361,13 @@ class APIClient {
   }
 
   /**
-   * List available TTS backends
+   * List available TTS models
    */
-  async listBackends(): Promise<string[]> {
+  async listTTSModels(): Promise<string[]> {
     const response = await this.client.get<BackendsResponse>('/tts/backends', {
       headers: this.getHeaders(),
     });
-    return response.data.backends;
+    return response.data.backends.map((b) => (typeof b === 'string' ? b : b.id));
   }
 
   // ASR Methods

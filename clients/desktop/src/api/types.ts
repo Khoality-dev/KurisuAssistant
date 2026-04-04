@@ -95,8 +95,15 @@ export interface VoicesResponse {
   voices: string[];
 }
 
+export interface TTSModelInfo {
+  id: string;
+  object?: string;
+  type?: string;
+  loaded?: boolean | null;
+}
+
 export interface BackendsResponse {
-  backends: string[];
+  backends: TTSModelInfo[];
 }
 
 export interface PullModelResponse {

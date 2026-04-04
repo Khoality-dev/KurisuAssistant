@@ -295,13 +295,13 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ onBack }) => {
 
           <Divider sx={{ mb: 3 }} />
 
-          {/* TTS Backend */}
+          {/* TTS Model */}
           <Box sx={{ mb: 3 }}>
             <FormControl fullWidth>
-              <InputLabel>TTS Backend</InputLabel>
+              <InputLabel>TTS Model</InputLabel>
               <Select
                 value={ttsBackend}
-                label="TTS Backend"
+                label="TTS Model"
                 onChange={(e) => setTtsBackend(e.target.value)}
               >
                 {backends.map((backend) => (
