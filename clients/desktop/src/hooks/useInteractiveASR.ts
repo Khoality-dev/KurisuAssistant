@@ -42,11 +42,10 @@ export function useInteractiveASR({
     const asrTranscript = asrResult.text;
     const state = useMicStore.getState();
 
-    const selectedAgent = storeAgents.find(a => a.id === agentId);
-    const triggerWord = selectedAgent?.persona?.trigger_word?.trim();
+    // Use Administrator agent's persona trigger word
+    const adminAgent = storeAgents.find(a => a.is_system);
+    const triggerWord = adminAgent?.persona?.trigger_word?.trim();
     const hasTrigger = triggerWord && asrTranscript.toLowerCase().includes(triggerWord.toLowerCase());
-
-    console.log('[ASR]', { text: asrTranscript, agentId, triggerWord, hasTrigger, interactionActive: state.interactionActive });
 
     if (state.interactionActive || hasTrigger) {
       // Show transcript
