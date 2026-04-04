@@ -8,7 +8,7 @@ import type {
   MessageRawData,
   UserProfile,
   VoicesResponse,
-  BackendsResponse,
+  TTSModelsResponse,
   PullModelResponse,
   TTSRequest,
   Agent,
@@ -361,13 +361,13 @@ class APIClient {
   }
 
   /**
-   * List available TTS backends
+   * List available TTS models
    */
-  async listBackends(): Promise<string[]> {
-    const response = await this.client.get<BackendsResponse>('/tts/backends', {
+  async listTTSModels(): Promise<string[]> {
+    const response = await this.client.get<TTSModelsResponse>('/tts/models', {
       headers: this.getHeaders(),
     });
-    return response.data.backends;
+    return response.data.models.map((m) => (typeof m === 'string' ? m : m.id));
   }
 
   // ASR Methods

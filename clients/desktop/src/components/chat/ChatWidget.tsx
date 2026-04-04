@@ -331,6 +331,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           onDelete={streaming.handleDelete}
           searchHighlight={isSearchMatch ? searchQuery : undefined}
           ttsRef={ttsRef}
+          isQueueActive={isQueueActive}
         />
         </Box>
       );

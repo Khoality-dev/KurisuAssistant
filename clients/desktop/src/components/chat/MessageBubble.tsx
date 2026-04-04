@@ -86,6 +86,7 @@ interface MessageBubbleProps {
   onDelete?: (messageIndex: number) => void;
   searchHighlight?: string;
   ttsRef: React.RefObject<{ speak: (text: string, voice?: string, language?: string, backend?: string, emotionParams?: { emo_audio?: string; emo_alpha?: number; use_emo_text?: boolean }) => Promise<void>; stopTTS: () => void; isTTSPlaying: boolean; setActiveAgentForTTS: (agentId: number | null) => void }>;
+  isQueueActive?: boolean;
 }
 
 const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
@@ -106,10 +107,13 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   onDelete,
   searchHighlight,
   ttsRef,
+  isQueueActive,
 }) => {
   const isStreamingThisMessage = isLast && message.role !== 'user' && isStreaming;
   const showFinishedIndicator = isLast && message.role !== 'user' && justFinishedStreaming && !isStreaming;
   const [localPlaying, setLocalPlaying] = useState(false);
+  // Show TTS active on the last assistant bubble during auto-play
+  const autoPlaying = !!(isQueueActive && isLast && message.role !== 'user' && !localPlaying);
 
   // Raw data dialog state
   const [rawDialogOpen, setRawDialogOpen] = useState(false);
@@ -629,7 +633,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
             hasMessageId={!!message.id}
             hasRawData={!!message.id}
             copied={copied}
-            localPlaying={localPlaying}
+            localPlaying={localPlaying || autoPlaying}
             agentRole={message.role === 'assistant' ? (message.agent?.name || message.name) || undefined : undefined}
             modelName={message.model_name || undefined}
             onCopy={handleCopy}
