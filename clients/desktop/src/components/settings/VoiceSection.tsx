@@ -54,12 +54,14 @@ export const VoiceSection: React.FC = () => {
 
   useEffect(() => {
     const loadDevices = async () => {
-      // Request mic permission to get device labels (may already be granted)
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach((t) => t.stop());
-      } catch {
-        // Permission may already be granted or denied — continue to enumerate
+      // Request mic permission for device labels — skip if already listening (permission granted)
+      if (useMicStore.getState().status === 'idle') {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach((t) => t.stop());
+        } catch {
+          // Permission may already be granted or denied
+        }
       }
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
