@@ -53,6 +53,7 @@ interface MicState {
 // Module-level VAD state (not in Zustand to avoid re-renders)
 let _vad: MicVAD | null = null;
 let _seq = 0;
+let _processing = false;
 let _audioCtx: AudioContext | null = null;
 let _analyser: AnalyserNode | null = null;
 let _amplitudeRaf = 0;
@@ -131,6 +132,9 @@ export const useMicStore = create<MicState>((set, get) => ({
         onSpeechEnd: async (audio: Float32Array) => {
           // Skip audio too short to contain a trigger word (< 0.5s at 16kHz)
           if (audio.length < 8000) return;
+          // Prevent concurrent processing (React StrictMode can double-fire)
+          if (_processing) return;
+          _processing = true;
 
           const int16 = new Int16Array(audio.length);
           for (let i = 0; i < audio.length; i++) {
@@ -177,6 +181,7 @@ export const useMicStore = create<MicState>((set, get) => ({
             set({ error: err.message || 'Transcription failed' });
           }
 
+          _processing = false;
           if (get().status !== 'idle') {
             set({ status: 'listening' });
           }
