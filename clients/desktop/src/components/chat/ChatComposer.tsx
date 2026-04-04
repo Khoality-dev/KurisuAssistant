@@ -37,10 +37,14 @@ const MicIndicator: React.FC = () => {
   useEffect(() => {
     if (status === 'idle') return;
     let raf = 0;
+    let smoothed = 0;
     const update = () => {
       if (iconRef.current) {
-        const active = getMicAmplitude() > 0.15;
-        iconRef.current.style.color = active ? '#4caf50' : '';
+        const raw = getMicAmplitude();
+        // EMA smoothing: fast attack, slow decay
+        smoothed += (raw - smoothed) * (raw > smoothed ? 0.3 : 0.08);
+        const opacity = Math.min(1, smoothed / 0.15);
+        iconRef.current.style.color = `rgba(76, 175, 80, ${opacity})`;
       }
       raf = requestAnimationFrame(update);
     };
