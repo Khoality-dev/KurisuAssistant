@@ -171,6 +171,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     isQueueActive,
     handleSendText: streaming.handleSendText,
     pushExternalDraft: streaming.pushExternalDraft,
+    stopTTSPlayback: () => { stopTTS(); clearQueue(); },
   });
 
   // Always-listen: auto-start mic on mount + send PTT keycode to main process

@@ -9,6 +9,7 @@ interface UseInteractiveASRParams {
   isQueueActive: boolean;
   handleSendText: (text: string) => Promise<void>;
   pushExternalDraft: (text: string) => void;
+  stopTTSPlayback: () => void;
 }
 
 export function useInteractiveASR({
@@ -18,6 +19,7 @@ export function useInteractiveASR({
   isQueueActive,
   handleSendText,
   pushExternalDraft,
+  stopTTSPlayback,
 }: UseInteractiveASRParams) {
   const {
     status: asrStatus, result: asrResult,
@@ -26,7 +28,6 @@ export function useInteractiveASR({
   } = useMicStore();
   const storeAgents = useAgentStore(state => state.agents);
   const interactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingAutoSendRef = useRef<string | null>(null);
   const INTERACTION_IDLE_MS = 30_000;
   const [lastTranscript, setLastTranscript] = useState('');
   const lastTranscriptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -35,6 +36,11 @@ export function useInteractiveASR({
   useEffect(() => {
     isStreamingRef.current = isStreaming;
   }, [isStreaming]);
+
+  const isQueueActiveRef = useRef(false);
+  useEffect(() => {
+    isQueueActiveRef.current = isQueueActive;
+  }, [isQueueActive]);
 
   // Guard: skip already-processed results (React StrictMode double-fires effects)
   const lastProcessedSeq = useRef(0);
@@ -53,24 +59,26 @@ export function useInteractiveASR({
     const hasTrigger = triggerWord && asrTranscript.toLowerCase().includes(triggerWord.toLowerCase());
 
     if (state.interactionActive || hasTrigger) {
+      // Activate interaction if trigger word detected
+      if (!state.interactionActive) activateInteraction();
+
+      // During agent generation: drop speech (don't queue)
+      if (isStreamingRef.current) return;
+
+      // During TTS playback: interrupt and send
+      if (isQueueActiveRef.current) stopTTSPlayback();
+
       // Show transcript
       setLastTranscript(asrTranscript);
       if (lastTranscriptTimerRef.current) clearTimeout(lastTranscriptTimerRef.current);
       lastTranscriptTimerRef.current = setTimeout(() => setLastTranscript(''), 3000);
 
-      // Activate interaction if trigger word detected
-      if (!state.interactionActive) activateInteraction();
-
-      // Auto-send
-      if (isStreamingRef.current) {
-        pendingAutoSendRef.current = asrTranscript;
-      } else {
-        if (interactionTimerRef.current) {
-          clearTimeout(interactionTimerRef.current);
-          interactionTimerRef.current = null;
-        }
-        handleSendText(asrTranscript);
+      // Send
+      if (interactionTimerRef.current) {
+        clearTimeout(interactionTimerRef.current);
+        interactionTimerRef.current = null;
       }
+      handleSendText(asrTranscript);
     } else {
       // Not in interaction and no trigger word: fill chat input as dictation
       pushExternalDraft(asrTranscript);
@@ -86,7 +94,6 @@ export function useInteractiveASR({
         clearTimeout(interactionTimerRef.current);
         interactionTimerRef.current = null;
       }
-      pendingAutoSendRef.current = null;
     }
   }, [agentId, currentConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -99,7 +106,6 @@ export function useInteractiveASR({
       interactionTimerRef.current = setTimeout(() => {
         deactivateInteraction();
         interactionTimerRef.current = null;
-        pendingAutoSendRef.current = null;
       }, INTERACTION_IDLE_MS);
     } else {
       if (interactionTimerRef.current) {
@@ -108,15 +114,6 @@ export function useInteractiveASR({
       }
     }
   }, [interactionActive, pttActive, isStreaming, isQueueActive, deactivateInteraction]);
-
-  // Handle pending auto-send when streaming finishes
-  useEffect(() => {
-    if (!isStreaming && pendingAutoSendRef.current) {
-      const text = pendingAutoSendRef.current;
-      pendingAutoSendRef.current = null;
-      handleSendText(text);
-    }
-  }, [isStreaming]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Clear transcript when interaction ends
   useEffect(() => {
