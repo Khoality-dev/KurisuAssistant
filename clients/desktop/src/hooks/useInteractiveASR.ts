@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useMicStore } from '../store/micStore';
 import { useAgentStore } from '../store/agentStore';
 
@@ -23,12 +23,9 @@ export function useInteractiveASR({
 }: UseInteractiveASRParams) {
   const {
     status: asrStatus, result: asrResult,
-    devices: asrDevices, loadDevices: loadAsrDevices, selectedDeviceId: asrDeviceId, selectDevice: selectAsrDevice,
-    startListening, stopListening,
     interactiveMode, enableInteractiveMode, disableInteractiveMode,
     interactionActive, activateInteraction, deactivateInteraction,
   } = useMicStore();
-  const [micMenuAnchor, setMicMenuAnchor] = useState<HTMLElement | null>(null);
   const storeAgents = useAgentStore(state => state.agents);
   const interactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingAutoSendRef = useRef<string | null>(null);
@@ -149,44 +146,12 @@ export function useInteractiveASR({
     };
   }, []);
 
-  const handleMicToggle = useCallback(() => {
-    if (asrStatus === 'idle') {
-      startListening();
-    } else {
-      stopListening();
-    }
-  }, [asrStatus, startListening, stopListening]);
-
-  const handleMicContext = useCallback((e: React.MouseEvent<HTMLElement>) => {
-    e.preventDefault();
-    const anchor = e.currentTarget;
-    loadAsrDevices().then(() => {
-      setMicMenuAnchor(anchor);
-    });
-  }, [loadAsrDevices]);
-
-  const closeMicMenu = useCallback(() => {
-    setMicMenuAnchor(null);
-  }, []);
-
-  const selectAsrDeviceAndClose = useCallback((deviceId: string) => {
-    selectAsrDevice(deviceId);
-    setMicMenuAnchor(null);
-  }, [selectAsrDevice]);
-
   return {
     asrStatus,
-    asrDevices,
-    asrDeviceId,
-    micMenuAnchor,
     interactiveMode,
     interactionActive,
     lastTranscript,
     disableInteractiveMode,
     isQueueActive,
-    handleMicToggle,
-    handleMicContext,
-    closeMicMenu,
-    selectAsrDevice: selectAsrDeviceAndClose,
   };
 }

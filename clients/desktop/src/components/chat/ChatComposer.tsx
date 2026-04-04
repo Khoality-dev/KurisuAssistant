@@ -23,33 +23,21 @@ import {
   AttachFile as AttachFileIcon,
   Close as CloseIcon,
   Stop as StopIcon,
-  Mic as MicIcon,
-  MicOff as MicOffIcon,
   Videocam as VideocamIcon,
   VideocamOff as VideocamOffIcon,
 } from '@mui/icons-material';
-import CircularProgress from '@mui/material/CircularProgress';
-import type { useMicStore } from '../../store/micStore';
 
 export interface ChatComposerProps {
   scopeKey: string;
   externalDraft: string;
   externalDraftVersion: number;
   isStreaming: boolean;
-  asrStatus: ReturnType<typeof useMicStore.getState>['status'];
-  asrDevices: ReturnType<typeof useMicStore.getState>['devices'];
-  asrDeviceId: ReturnType<typeof useMicStore.getState>['selectedDeviceId'];
-  micMenuAnchor: HTMLElement | null;
   cameraActive: boolean;
   cameraWebcams: string[];
   cameraSelectedWebcam: string | null;
   cameraMenuAnchor: HTMLElement | null;
   onSend: (text: string, imageFiles: File[]) => Promise<void>;
   onCancel: () => void;
-  onMicToggle: () => void;
-  onMicContext: (e: React.MouseEvent<HTMLElement>) => void;
-  onCloseMicMenu: () => void;
-  onSelectAsrDevice: (deviceId: string) => void;
   onCameraToggle: () => Promise<void>;
   onCameraContext: (e: React.MouseEvent<HTMLElement>) => void;
   onCloseCameraMenu: () => void;
@@ -64,20 +52,12 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
   externalDraft,
   externalDraftVersion,
   isStreaming,
-  asrStatus,
-  asrDevices,
-  asrDeviceId,
-  micMenuAnchor,
   cameraActive,
   cameraWebcams,
   cameraSelectedWebcam,
   cameraMenuAnchor,
   onSend,
   onCancel,
-  onMicToggle,
-  onMicContext,
-  onCloseMicMenu,
-  onSelectAsrDevice,
   onCameraToggle,
   onCameraContext,
   onCloseCameraMenu,
@@ -243,47 +223,6 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
         >
           <AttachFileIcon />
         </IconButton>
-
-        <Tooltip title={asrStatus === 'idle' ? 'Start dictation (right-click: select mic)' : 'Stop dictation'}>
-          <IconButton
-            onClick={onMicToggle}
-            onContextMenu={onMicContext}
-            sx={{
-              color: asrStatus === 'listening' ? 'error.main' : 'inherit',
-            }}
-          >
-            {asrStatus === 'processing' ? (
-              <CircularProgress size={24} />
-            ) : asrStatus === 'listening' ? (
-              <MicIcon />
-            ) : (
-              <MicOffIcon />
-            )}
-          </IconButton>
-        </Tooltip>
-        <Menu
-          anchorEl={micMenuAnchor}
-          open={Boolean(micMenuAnchor)}
-          onClose={onCloseMicMenu}
-        >
-          {asrDevices.map((device) => (
-            <MenuItem
-              key={device.deviceId}
-              onClick={() => onSelectAsrDevice(device.deviceId)}
-              selected={device.deviceId === asrDeviceId}
-            >
-              {device.deviceId === asrDeviceId && (
-                <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
-              )}
-              <ListItemText inset={device.deviceId !== asrDeviceId}>
-                {device.label}
-              </ListItemText>
-            </MenuItem>
-          ))}
-          {asrDevices.length === 0 && (
-            <MenuItem disabled>No microphones found</MenuItem>
-          )}
-        </Menu>
 
         <Tooltip title={cameraActive ? 'Stop camera (right-click: select webcam)' : 'Start camera (right-click: select webcam)'}>
           <IconButton

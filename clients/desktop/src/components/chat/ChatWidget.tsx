@@ -493,20 +493,12 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           externalDraft={streaming.externalDraft}
           externalDraftVersion={streaming.externalDraftVersion}
           isStreaming={streaming.isStreaming}
-          asrStatus={asr.asrStatus}
-          asrDevices={asr.asrDevices}
-          asrDeviceId={asr.asrDeviceId}
-          micMenuAnchor={asr.micMenuAnchor}
           cameraActive={cameraActive}
           cameraWebcams={cameraWebcams}
           cameraSelectedWebcam={cameraSelectedWebcam}
           cameraMenuAnchor={cameraMenuAnchor}
           onSend={streaming.handleSend}
           onCancel={streaming.handleCancel}
-          onMicToggle={asr.handleMicToggle}
-          onMicContext={asr.handleMicContext}
-          onCloseMicMenu={asr.closeMicMenu}
-          onSelectAsrDevice={asr.selectAsrDevice}
           onCameraToggle={handleCameraToggle}
           onCameraContext={handleCameraContext}
           onCloseCameraMenu={() => setCameraMenuAnchor(null)}
