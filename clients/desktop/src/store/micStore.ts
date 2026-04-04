@@ -47,6 +47,8 @@ interface MicState {
   deactivateInteraction: () => void;
   activatePTT: () => void;
   deactivatePTT: () => void;
+  pauseListening: () => void;
+  resumeListening: () => void;
   initAlwaysListen: () => void;
 }
 
@@ -273,6 +275,14 @@ export const useMicStore = create<MicState>((set, get) => ({
     if (!get().pttActive) return;
     set({ interactionActive: false, pttActive: false });
     playStopSound();
+  },
+
+  pauseListening: () => {
+    if (_vad) _vad.pause();
+  },
+
+  resumeListening: () => {
+    if (_vad) _vad.start();
   },
 
   initAlwaysListen: () => {

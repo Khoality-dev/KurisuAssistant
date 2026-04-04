@@ -35,7 +35,16 @@ export function useInteractiveASR({
   const isStreamingRef = useRef(false);
   useEffect(() => {
     isStreamingRef.current = isStreaming;
-  }, [isStreaming]);
+    // Pause/resume VAD during streaming in interaction mode
+    if (interactionActive) {
+      const mic = useMicStore.getState();
+      if (isStreaming) {
+        mic.pauseListening();
+      } else {
+        mic.resumeListening();
+      }
+    }
+  }, [isStreaming, interactionActive]);
 
   const isQueueActiveRef = useRef(false);
   useEffect(() => {
@@ -44,9 +53,6 @@ export function useInteractiveASR({
 
   // Guard: skip already-processed results (React StrictMode double-fires effects)
   const lastProcessedSeq = useRef(0);
-  // Cooldown: prevent rapid-fire sends (wait for streaming state to propagate)
-  const lastSendTime = useRef(0);
-  const SEND_COOLDOWN_MS = 2000;
 
   // ASR transcript handling
   useEffect(() => {
@@ -65,12 +71,6 @@ export function useInteractiveASR({
       // Activate interaction if trigger word detected
       if (!state.interactionActive) activateInteraction();
 
-      // During agent generation: drop speech
-      if (isStreamingRef.current) return;
-
-      // Cooldown: drop if sent too recently (streaming state may not have propagated)
-      if (Date.now() - lastSendTime.current < SEND_COOLDOWN_MS) return;
-
       // During TTS playback: interrupt and send
       if (isQueueActiveRef.current) stopTTSPlayback();
 
@@ -84,7 +84,6 @@ export function useInteractiveASR({
         clearTimeout(interactionTimerRef.current);
         interactionTimerRef.current = null;
       }
-      lastSendTime.current = Date.now();
       handleSendText(asrTranscript);
     } else {
       // Not in interaction and no trigger word: fill chat input as dictation
