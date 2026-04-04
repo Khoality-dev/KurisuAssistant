@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, protocol, shell, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, Tray, Menu, nativeImage } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import https from 'https';
@@ -440,6 +440,22 @@ app.whenReady().then(() => {
 
   createTray();
   createWindow();
+
+  // Global PTT shortcut — double-press MediaPlayPause to toggle (avoids accidental triggers)
+  let lastMediaPress = 0;
+  globalShortcut.register('MediaPlayPause', () => {
+    const now = Date.now();
+    if (now - lastMediaPress < 500) {
+      // Double-press detected
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('ptt:toggle');
+      }
+      lastMediaPress = 0; // Reset to prevent triple-press counting as another double
+    } else {
+      lastMediaPress = now;
+    }
+  });
+
   registerMCPHandlers();
   registerHostToolIPC();
   registerAppToolIPC();
@@ -485,6 +501,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  globalShortcut.unregisterAll();
   cleanupMCP();
   stopMcpServer();
 });

@@ -24,6 +24,14 @@ contextBridge.exposeInMainWorld('electron', {
     installUpdate: () => ipcRenderer.send('updater:install'),
   },
 
+  ptt: {
+    onToggle: (cb: () => void) => {
+      const handler = () => cb();
+      ipcRenderer.on('ptt:toggle', handler);
+      return () => { ipcRenderer.removeListener('ptt:toggle', handler); };
+    },
+  },
+
   extensions: {
     checkHealth: (url: string) => ipcRenderer.invoke('extensions:check-health', url),
     checkInstalled: (appName: string) => ipcRenderer.invoke('extensions:check-installed', appName),

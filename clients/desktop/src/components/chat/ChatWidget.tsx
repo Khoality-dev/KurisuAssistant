@@ -199,31 +199,19 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       }
     };
 
-    // Media Session API for headset buttons
-    let mediaSessionActive = false;
-    const handlePlay = () => {
-      if (!mediaSessionActive) {
-        mediaSessionActive = true;
-        activatePTT();
-      }
-    };
-    const handlePause = () => {
-      if (mediaSessionActive) {
-        mediaSessionActive = false;
-        deactivatePTT();
-      }
-    };
-    if (navigator.mediaSession) {
-      // Create a silent audio context to activate media session
-      try {
-        const audio = new Audio();
-        audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
-        audio.loop = true;
-        audio.volume = 0;
-        audio.play().catch(() => {});
-      } catch {}
-      navigator.mediaSession.setActionHandler('play', handlePlay);
-      navigator.mediaSession.setActionHandler('pause', handlePause);
+    // Headset button via Electron global shortcut (double-press MediaPlayPause)
+    // Uses activateInteraction (not PTT) so the 30s idle timer applies
+    const electron = (window as any).electron;
+    let cleanupPTT: (() => void) | undefined;
+    if (electron?.ptt?.onToggle) {
+      cleanupPTT = electron.ptt.onToggle(() => {
+        const mic = useMicStore.getState();
+        if (mic.interactionActive) {
+          mic.deactivateInteraction();
+        } else {
+          mic.activateInteraction();
+        }
+      });
     }
 
     window.addEventListener('keydown', handleKeyDown);
@@ -231,10 +219,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
-      if (navigator.mediaSession) {
-        navigator.mediaSession.setActionHandler('play', null);
-        navigator.mediaSession.setActionHandler('pause', null);
-      }
+      cleanupPTT?.();
     };
   }, []);
 
