@@ -19,7 +19,6 @@ ASR_API_URL = os.environ.get("ASR_API_URL", "http://universal-asr:14213").rstrip
 async def asr_endpoint(
     audio: bytes = Body(..., media_type="application/octet-stream"),
     language: str | None = Query(None),
-    mode: str | None = Query(None),
     model: str | None = Query(None),
     initial_prompt: str | None = Query(None),
     _user=Depends(get_authenticated_user),
@@ -29,8 +28,6 @@ async def asr_endpoint(
         params = {}
         if language:
             params["language"] = language
-        if mode:
-            params["mode"] = mode
         if model:
             params["model"] = model
         if initial_prompt:
