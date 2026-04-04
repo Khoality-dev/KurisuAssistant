@@ -28,6 +28,7 @@ import { useVisionStore } from '../../store/visionStore';
 import { useCharacterPanel } from '../../hooks/useCharacterPanel';
 import { useInteractiveASR } from '../../hooks/useInteractiveASR';
 import { useMicStore } from '../../store/micStore';
+import { useAgentStore } from '../../store/agentStore';
 import { useStreamingChat } from '../../hooks/useStreamingChat';
 import { InteractiveCallBar } from '../InteractiveCallBar';
 import { MessageBubble } from './MessageBubble';
@@ -41,7 +42,9 @@ interface ChatWidgetProps {
   agentId?: number | null;
 }
 
-export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = false, agentId = null }) => {
+export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = false, agentId: agentIdProp = null }) => {
+  const storeAgentId = useAgentStore((s) => s.selectedAgentId);
+  const agentId = agentIdProp ?? storeAgentId;
   const {
     messages,
     frames,
