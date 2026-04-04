@@ -53,13 +53,16 @@ export const VoiceSection: React.FC = () => {
   };
 
   useEffect(() => {
-    // Request mic permission to get device labels, then enumerate
-    navigator.mediaDevices.getUserMedia({ audio: true })
-      .then((stream) => {
+    const loadDevices = async () => {
+      // Request mic permission to get device labels (may already be granted)
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         stream.getTracks().forEach((t) => t.stop());
-        return navigator.mediaDevices.enumerateDevices();
-      })
-      .then((devices) => {
+      } catch {
+        // Permission may already be granted or denied — continue to enumerate
+      }
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
         setMicDevices(
           devices
             .filter((d) => d.kind === 'audioinput')
@@ -70,8 +73,11 @@ export const VoiceSection: React.FC = () => {
             .filter((d) => d.kind === 'audiooutput')
             .map((d) => ({ deviceId: d.deviceId, label: d.label || `Speaker ${d.deviceId.slice(0, 8)}` }))
         );
-      })
-      .catch(() => {});
+      } catch (err) {
+        console.error('Failed to enumerate devices:', err);
+      }
+    };
+    loadDevices();
   }, []);
 
   return (
