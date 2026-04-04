@@ -122,15 +122,11 @@ export const useMicStore = create<MicState>((set, get) => ({
               if (fixedModel) model = fixedModel;
             }
 
-            // Collect trigger words from all agents to bias recognition
-            const agents = useAgentStore.getState().agents;
-            const triggerWords = agents
-              .map((a) => a.persona?.trigger_word)
-              .filter((w): w is string => !!w?.trim())
-              .map((w) => w.trim());
-            const initial_prompt = triggerWords.length > 0
-              ? triggerWords.join(', ')
-              : undefined;
+            // Pass selected persona's trigger word to bias recognition
+            const { agents, selectedAgentId } = useAgentStore.getState();
+            const selectedAgent = agents.find((a) => a.id === selectedAgentId);
+            const triggerWord = selectedAgent?.persona?.trigger_word?.trim();
+            const initial_prompt = triggerWord || undefined;
 
             const response = await apiClient.transcribe(int16.buffer, { language, mode, model, initial_prompt });
 
