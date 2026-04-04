@@ -124,8 +124,7 @@ export const useMicStore = create<MicState>((set, get) => ({
                 mappedLanguages.length > 0 ? { languages: mappedLanguages } : undefined,
               );
               language = detected.language || undefined;
-              const mappedModel = language ? storage.getASRModelForLanguage(language) : undefined;
-              model = mappedModel || storage.getASRFallbackModel() || undefined;
+              model = language ? storage.getASRModelForLanguage(language) : undefined;
             } else {
               const fixedModel = storage.getASRFixedModel();
               if (fixedModel) model = fixedModel;

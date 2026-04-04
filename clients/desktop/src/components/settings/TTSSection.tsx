@@ -51,7 +51,6 @@ export const TTSSection: React.FC = () => {
   const [asrMode, setAsrModeState] = useState(storage.getASRMode());
   const [asrLanguage, setAsrLanguageState] = useState(storage.getASRLanguage() || '');
   const [asrFixedModel, setAsrFixedModelState] = useState(storage.getASRFixedModel());
-  const [asrFallbackModel, setAsrFallbackModelState] = useState(storage.getASRFallbackModel());
   const [modelMap, setModelMapState] = useState(storage.getASRModelMap());
   const [availableModels, setAvailableModels] = useState<ModelEntry[]>([]);
 
@@ -71,10 +70,6 @@ export const TTSSection: React.FC = () => {
     storage.setASRFixedModel(v);
   };
 
-  const setAsrFallbackModel = (v: string) => {
-    setAsrFallbackModelState(v);
-    storage.setASRFallbackModel(v);
-  };
 
   const setModelMap = (map: Array<{ language: string; model: string }>) => {
     setModelMapState(map);
@@ -240,26 +235,6 @@ export const TTSSection: React.FC = () => {
           >
             Add mapping
           </Button>
-          <FormControl fullWidth size="small" sx={{ mt: 2 }}>
-            <InputLabel>Fallback model (other languages)</InputLabel>
-            <Select
-              value={asrFallbackModel}
-              label="Fallback model (other languages)"
-              onChange={(e: SelectChangeEvent) => setAsrFallbackModel(e.target.value)}
-            >
-              <MenuItem value="">
-                <em>Default (server)</em>
-              </MenuItem>
-              {availableModels.map((m) => (
-                <MenuItem key={m.id} value={m.name}>
-                  {m.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-            Used when the detected language doesn't match any mapping above.
-          </Typography>
         </Box>
       )}
 
