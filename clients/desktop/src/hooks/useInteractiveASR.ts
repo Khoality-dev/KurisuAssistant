@@ -30,7 +30,7 @@ export function useInteractiveASR({
   const interactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const INTERACTION_IDLE_MS = 30_000;
-  const RESUME_DELAY_MS = 5000;
+  const RESUME_DELAY_MS = 10000;
   const [lastTranscript, setLastTranscript] = useState('');
   const lastTranscriptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
