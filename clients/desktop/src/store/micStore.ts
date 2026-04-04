@@ -142,8 +142,6 @@ export const useMicStore = create<MicState>((set, get) => ({
 
           try {
             const asrMode = storage.getASRMode();
-            const { interactiveMode, interactionActive } = get();
-            const mode = interactiveMode && !interactionActive ? 'fast' : undefined;
 
             let language: string | undefined;
             let model: string | undefined;
@@ -171,7 +169,7 @@ export const useMicStore = create<MicState>((set, get) => ({
             const triggerWord = selectedAgent?.persona?.trigger_word?.trim();
             const initial_prompt = triggerWord || undefined;
 
-            const response = await apiClient.transcribe(int16.buffer, { language, mode, model, initial_prompt });
+            const response = await apiClient.transcribe(int16.buffer, { language, model, initial_prompt });
 
             if (response.text.trim()) {
               _seq += 1;

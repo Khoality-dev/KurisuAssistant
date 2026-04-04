@@ -377,11 +377,10 @@ class APIClient {
    */
   async transcribe(
     audio: ArrayBuffer,
-    options?: { language?: string; mode?: string; model?: string; initial_prompt?: string },
+    options?: { language?: string; model?: string; initial_prompt?: string },
   ): Promise<{ text: string; language: string }> {
     const params: Record<string, string> = {};
     if (options?.language) params.language = options.language;
-    if (options?.mode) params.mode = options.mode;
     if (options?.model) params.model = options.model;
     if (options?.initial_prompt) params.initial_prompt = options.initial_prompt;
 
