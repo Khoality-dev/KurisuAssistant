@@ -19,6 +19,8 @@ export interface AudioDevice {
 export interface ASRResult {
   text: string;
   seq: number;
+  audio?: ArrayBuffer; // Raw PCM for re-transcription
+  fast?: boolean;      // Whether this was a fast-mode result
 }
 
 interface MicState {
@@ -178,7 +180,12 @@ export const useMicStore = create<MicState>((set, get) => ({
 
             if (response.text.trim()) {
               _seq += 1;
-              set({ result: { text: response.text.trim(), seq: _seq } });
+              set({ result: {
+                text: response.text.trim(),
+                seq: _seq,
+                audio: fast ? int16.buffer.slice(0) : undefined,
+                fast,
+              } });
             }
           } catch (err: any) {
             console.error('ASR transcription error:', err);
