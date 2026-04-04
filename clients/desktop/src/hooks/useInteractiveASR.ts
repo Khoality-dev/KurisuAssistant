@@ -8,6 +8,7 @@ interface UseInteractiveASRParams {
   isStreaming: boolean;
   isQueueActive: boolean;
   handleSendText: (text: string) => Promise<void>;
+  pushExternalDraft: (text: string) => void;
 }
 
 export function useInteractiveASR({
@@ -16,6 +17,7 @@ export function useInteractiveASR({
   isStreaming,
   isQueueActive,
   handleSendText,
+  pushExternalDraft,
 }: UseInteractiveASRParams) {
   const {
     status: asrStatus, result: asrResult,
@@ -63,8 +65,10 @@ export function useInteractiveASR({
         }
         handleSendText(asrTranscript);
       }
+    } else {
+      // Not in interaction and no trigger word: fill chat input as dictation
+      pushExternalDraft(asrTranscript);
     }
-    // If not active and no trigger word: ignore (background listening)
   }, [asrResult]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Deactivate interaction when agent or conversation changes

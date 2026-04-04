@@ -166,6 +166,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     isStreaming: streaming.isStreaming,
     isQueueActive,
     handleSendText: streaming.handleSendText,
+    pushExternalDraft: streaming.pushExternalDraft,
   });
 
   // Always-listen: auto-start mic on mount
