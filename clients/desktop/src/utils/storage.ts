@@ -20,6 +20,7 @@ const STORAGE_KEYS = {
   ASR_LANGUAGE: 'kurisu_asr_language',
   ASR_MODE: 'kurisu_asr_mode',
   ASR_FIXED_MODEL: 'kurisu_asr_fixed_model',
+  ASR_FALLBACK_MODEL: 'kurisu_asr_fallback_model',
   ASR_MODEL_MAP: 'kurisu_asr_model_map',
 } as const;
 
@@ -442,6 +443,23 @@ export const storage = {
       localStorage.setItem(STORAGE_KEYS.ASR_FIXED_MODEL, model);
     } catch (error) {
       console.error('Failed to save ASR fixed model:', error);
+    }
+  },
+
+  /** Fallback model for routing mode when detected language has no mapping. */
+  getASRFallbackModel(): string {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.ASR_FALLBACK_MODEL) || '';
+    } catch {
+      return '';
+    }
+  },
+
+  setASRFallbackModel(model: string): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ASR_FALLBACK_MODEL, model);
+    } catch (error) {
+      console.error('Failed to save ASR fallback model:', error);
     }
   },
 
