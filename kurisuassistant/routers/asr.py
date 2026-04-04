@@ -21,17 +21,20 @@ async def asr_endpoint(
     language: str | None = Query(None),
     model: str | None = Query(None),
     initial_prompt: str | None = Query(None),
+    fast: bool = Query(False),
     _user=Depends(get_authenticated_user),
 ):
     """Proxy raw PCM audio to universal-asr service."""
     try:
-        params = {}
+        params: dict = {}
         if language:
             params["language"] = language
         if model:
             params["model"] = model
         if initial_prompt:
             params["initial_prompt"] = initial_prompt
+        if fast:
+            params["fast"] = "true"
 
         r = http_requests.post(
             f"{ASR_API_URL}/asr",
