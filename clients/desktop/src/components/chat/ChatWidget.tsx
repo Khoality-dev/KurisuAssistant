@@ -199,11 +199,42 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       }
     };
 
+    // Media Session API for headset buttons
+    let mediaSessionActive = false;
+    const handlePlay = () => {
+      if (!mediaSessionActive) {
+        mediaSessionActive = true;
+        activatePTT();
+      }
+    };
+    const handlePause = () => {
+      if (mediaSessionActive) {
+        mediaSessionActive = false;
+        deactivatePTT();
+      }
+    };
+    if (navigator.mediaSession) {
+      // Create a silent audio context to activate media session
+      try {
+        const audio = new Audio();
+        audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+        audio.loop = true;
+        audio.volume = 0;
+        audio.play().catch(() => {});
+      } catch {}
+      navigator.mediaSession.setActionHandler('play', handlePlay);
+      navigator.mediaSession.setActionHandler('pause', handlePause);
+    }
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      if (navigator.mediaSession) {
+        navigator.mediaSession.setActionHandler('play', null);
+        navigator.mediaSession.setActionHandler('pause', null);
+      }
     };
   }, []);
 
