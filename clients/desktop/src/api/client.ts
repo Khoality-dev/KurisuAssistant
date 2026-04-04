@@ -393,9 +393,13 @@ class APIClient {
     return response.data;
   }
 
-  async detectLanguage(audio: ArrayBuffer): Promise<{ language: string }> {
+  async detectLanguage(audio: ArrayBuffer, options?: { languages?: string[] }): Promise<{ language: string }> {
+    const params: Record<string, string> = {};
+    if (options?.languages?.length) params.languages = options.languages.join(',');
+
     const response = await this.client.post<{ language: string }>('/asr/detect-language', audio, {
       headers: { ...this.getHeaders(), 'Content-Type': 'application/octet-stream' },
+      params,
       timeout: 15000,
     });
     return response.data;

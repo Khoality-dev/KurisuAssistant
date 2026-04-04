@@ -114,7 +114,15 @@ export const useMicStore = create<MicState>((set, get) => ({
             let model: string | undefined;
 
             if (asrMode === 'routing') {
-              const detected = await apiClient.detectLanguage(int16.buffer);
+              // Only detect among languages that have a model mapping
+              const modelMap = storage.getASRModelMap();
+              const mappedLanguages = modelMap
+                .map((e) => e.language)
+                .filter((l) => !!l);
+              const detected = await apiClient.detectLanguage(
+                int16.buffer,
+                mappedLanguages.length > 0 ? { languages: mappedLanguages } : undefined,
+              );
               language = detected.language || undefined;
               model = language ? storage.getASRModelForLanguage(language) : undefined;
             } else {
