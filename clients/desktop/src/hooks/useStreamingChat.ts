@@ -399,18 +399,21 @@ export function useStreamingChat({
     }
 
     // Streaming TTS auto-play: feed complete sentences to TTS queue
+    // Only queue when we have full sentences AND enough words (min 10)
     if (storage.getTTSAutoPlay() && event.content && event.role !== 'tool') {
       ttsVoiceRef.current = event.voice_reference || ttsVoiceRef.current;
       ttsBufferRef.current += event.content;
       // Split on sentence-ending punctuation; all but the last segment are complete
-      const parts = ttsBufferRef.current.split(/(?<=[.!?\n])\s*/);
+      const parts = ttsBufferRef.current.split(/(?<=[.!?。！？\n])\s*/);
       if (parts.length > 1) {
-        const batch = parts.slice(0, -1).join(' ');
-        ttsBufferRef.current = parts[parts.length - 1];
-        if (batch.trim()) {
-          const cleaned = stripNarration(batch);
+        const completeSentences = parts.slice(0, -1).join(' ');
+        const wordCount = completeSentences.trim().split(/\s+/).length;
+        if (wordCount >= 10) {
+          ttsBufferRef.current = parts[parts.length - 1];
+          const cleaned = stripNarration(completeSentences);
           if (cleaned) queueText(cleaned, ttsVoiceRef.current);
         }
+        // If < 10 words, keep accumulating — don't update buffer
       }
     }
   }, [setCurrentConversationId, scheduleStreamUpdate, queueText, pushAgentCharacterConfig]); // eslint-disable-line react-hooks/exhaustive-deps
