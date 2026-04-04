@@ -36,9 +36,14 @@ export function useInteractiveASR({
     isStreamingRef.current = isStreaming;
   }, [isStreaming]);
 
+  // Guard: skip already-processed results (React StrictMode double-fires effects)
+  const lastProcessedSeq = useRef(0);
+
   // ASR transcript handling
   useEffect(() => {
     if (!asrResult) return;
+    if (asrResult.seq <= lastProcessedSeq.current) return;
+    lastProcessedSeq.current = asrResult.seq;
     const asrTranscript = asrResult.text;
     const state = useMicStore.getState();
 
