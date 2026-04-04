@@ -277,12 +277,12 @@ export const useMicStore = create<MicState>((set, get) => ({
     playStopSound();
   },
 
-  pauseListening: () => {
-    if (_vad) _vad.pause();
+  pauseListening: async () => {
+    if (_vad) await _vad.pause();
   },
 
-  resumeListening: () => {
-    if (_vad) _vad.start();
+  resumeListening: async () => {
+    if (_vad) await _vad.start();
   },
 
   initAlwaysListen: () => {
