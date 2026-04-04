@@ -42,6 +42,7 @@ const APP_TOOL_NAMES = new Set([
   'app_list_tools',
   'app_vision_start',
   'app_vision_stop',
+  'app_end_interaction',
   'app_launch_browser',
   'app_open_file',
   'app_open_folder',
@@ -347,6 +348,19 @@ function getAppToolSchemas(): ToolSchema[] {
       function: {
         name: 'app_vision_stop',
         description: 'Stop the camera/vision pipeline.',
+        parameters: {
+          type: 'object',
+          properties: {},
+          required: [],
+        },
+      },
+    },
+    // --- Voice interaction ---
+    {
+      type: 'function',
+      function: {
+        name: 'app_end_interaction',
+        description: 'End the current voice interaction session. Call this when the user indicates they are done — e.g. "that\'s all", "nothing else", "bye", "I\'ll call you later", "talk to you later", or similar farewell/dismissal phrases.',
         parameters: {
           type: 'object',
           properties: {},

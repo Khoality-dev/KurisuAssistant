@@ -7,6 +7,7 @@
 
 import { apiClient } from '../api/client';
 import { useVisionStore } from '../store/visionStore';
+import { useMicStore } from '../store/micStore';
 import { useExplorerStore } from '../store/explorerStore';
 import { useLayoutStore } from '../store/layoutStore';
 import { refreshClientMCPServers } from './mcpService';
@@ -262,6 +263,15 @@ async function handleVisionStop(): Promise<ToolResult> {
   return ok('Vision pipeline stopped.');
 }
 
+// --- Voice interaction ---
+
+async function handleEndInteraction(): Promise<ToolResult> {
+  const mic = useMicStore.getState();
+  if (!mic.interactionActive) return ok('No active voice interaction.');
+  mic.deactivateInteraction();
+  return ok('Voice interaction ended.');
+}
+
 // --- UI control ---
 
 async function handleOpenFile(args: Record<string, unknown>): Promise<ToolResult> {
@@ -339,6 +349,7 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<To
     case 'app_list_tools': return handleListTools();
     case 'app_vision_start': return handleVisionStart(args);
     case 'app_vision_stop': return handleVisionStop();
+    case 'app_end_interaction': return handleEndInteraction();
     case 'app_open_file': return handleOpenFile(args);
     case 'app_open_folder': return handleOpenFolder(args);
     case 'app_get_open_files': return handleGetOpenFiles();
