@@ -49,6 +49,8 @@ export const TTSSection: React.FC = () => {
   const { backends, loadBackends } = useTTS();
 
   // ASR settings
+  const [micDevices, setMicDevices] = useState<Array<{ deviceId: string; label: string }>>([]);
+  const [selectedMicId, setSelectedMicIdState] = useState(storage.getASRDeviceId() || '');
   const [alwaysListen, setAlwaysListenState] = useState(storage.getASRAlwaysListen());
   const [asrMode, setAsrModeState] = useState(storage.getASRMode());
   const [asrLanguage, setAsrLanguageState] = useState(storage.getASRLanguage() || '');
@@ -100,10 +102,32 @@ export const TTSSection: React.FC = () => {
   const setTtsEmotionAlpha = (v: number) => { setTtsEmotionAlphaState(v); storage.setTTSEmotionAlpha(v); };
   const setTtsUseEmotionText = (v: boolean) => { setTtsUseEmotionTextState(v); storage.setTTSUseEmotionText(v); };
 
+  const setSelectedMicId = (deviceId: string) => {
+    setSelectedMicIdState(deviceId);
+    if (deviceId) {
+      storage.setASRDeviceId(deviceId);
+      useMicStore.getState().selectDevice(deviceId);
+    }
+  };
+
   useEffect(() => {
     loadBackends();
     apiClient.getASRModels()
       .then((models) => setAvailableModels(models.map((m) => ({ id: m.id, name: m.name }))))
+      .catch(() => {});
+    // Load mic devices
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then((stream) => {
+        stream.getTracks().forEach((t) => t.stop());
+        return navigator.mediaDevices.enumerateDevices();
+      })
+      .then((devices) => {
+        setMicDevices(
+          devices
+            .filter((d) => d.kind === 'audioinput')
+            .map((d) => ({ deviceId: d.deviceId, label: d.label || `Microphone ${d.deviceId.slice(0, 8)}` }))
+        );
+      })
       .catch(() => {});
   }, [loadBackends]);
 
@@ -139,6 +163,27 @@ export const TTSSection: React.FC = () => {
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
           Keep microphone active to detect trigger words or push-to-talk (Ctrl+Space). Disable to save resources.
         </Typography>
+      </Box>
+
+      {/* Microphone Selection */}
+      <Box sx={{ mb: 3 }}>
+        <FormControl fullWidth size="small">
+          <InputLabel>Microphone</InputLabel>
+          <Select
+            value={selectedMicId}
+            label="Microphone"
+            onChange={(e: SelectChangeEvent) => setSelectedMicId(e.target.value)}
+          >
+            <MenuItem value="">
+              <em>Default</em>
+            </MenuItem>
+            {micDevices.map((d) => (
+              <MenuItem key={d.deviceId} value={d.deviceId}>
+                {d.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
       </Box>
 
       {/* ASR Mode */}

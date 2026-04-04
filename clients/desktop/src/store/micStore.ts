@@ -30,6 +30,7 @@ interface MicState {
   interactiveMode: boolean;
   interactionActive: boolean;
   pttActive: boolean;
+  speechProbability: number;
 
   // Actions
   startListening: () => Promise<void>;
@@ -74,6 +75,7 @@ export const useMicStore = create<MicState>((set, get) => ({
   interactiveMode: false,
   interactionActive: false,
   pttActive: false,
+  speechProbability: 0,
 
   startListening: async () => {
     // Guard: skip if already listening or initializing
@@ -98,6 +100,9 @@ export const useMicStore = create<MicState>((set, get) => ({
               noiseSuppression: true,
             },
           }),
+        onFrameProcessed: (probs: { isSpeech: number }) => {
+          set({ speechProbability: probs.isSpeech });
+        },
         onSpeechEnd: async (audio: Float32Array) => {
           // Skip audio too short to contain a trigger word (< 0.5s at 16kHz)
           if (audio.length < 8000) return;
@@ -171,7 +176,7 @@ export const useMicStore = create<MicState>((set, get) => ({
       await _vad.destroy();
       _vad = null;
     }
-    set({ status: 'idle' });
+    set({ status: 'idle', speechProbability: 0 });
   },
 
   loadDevices: async () => {
