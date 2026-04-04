@@ -252,11 +252,13 @@ export const useMicStore = create<MicState>((set, get) => ({
   activateInteraction: () => {
     if (get().interactionActive) return;
     set({ interactionActive: true });
+    playStartSound();
   },
 
   deactivateInteraction: () => {
     if (!get().interactionActive) return;
     set({ interactionActive: false, pttActive: false });
+    playStopSound();
   },
 
   activatePTT: () => {
