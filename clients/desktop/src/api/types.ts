@@ -102,8 +102,8 @@ export interface TTSModelInfo {
   loaded?: boolean | null;
 }
 
-export interface BackendsResponse {
-  backends: TTSModelInfo[];
+export interface TTSModelsResponse {
+  models: TTSModelInfo[];
 }
 
 export interface PullModelResponse {
