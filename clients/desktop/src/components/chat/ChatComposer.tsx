@@ -52,10 +52,12 @@ const MicIndicator: React.FC = () => {
 
   return (
     <Tooltip title={status === 'processing' ? 'Processing...' : 'Listening'}>
-      <MicIcon
-        ref={iconRef}
-        sx={{ fontSize: 18, color: 'text.secondary' }}
-      />
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 40 }}>
+        <MicIcon
+          ref={iconRef}
+          sx={{ fontSize: 20, color: 'text.secondary' }}
+        />
+      </Box>
     </Tooltip>
   );
 };
