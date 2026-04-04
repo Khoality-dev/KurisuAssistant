@@ -1,18 +1,31 @@
-"""Text-to-speech routes."""
+"""TTS routes: /tts — proxies to universal-voice service."""
 
 import logging
+import os
+from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+import requests as http_requests
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import Response
-from sqlalchemy.orm import Session
 
-from kurisuassistant.core.deps import get_db, get_authenticated_user
-from kurisuassistant.db.models import User
-from kurisuassistant.models.tts import synthesize, list_voices, list_backends, check_health
+from kurisuassistant.core.deps import get_authenticated_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tts", tags=["tts"])
+
+UVOICE_URL = os.environ.get("UVOICE_URL", "http://universal-voice:14213").rstrip("/")
+VOICE_STORAGE_DIR = Path("data") / "voice_storage"
+AUDIO_EXTENSIONS = (".wav", ".mp3", ".flac", ".ogg")
+
+
+def _find_voice_file(voice_name: str) -> Path | None:
+    """Find a voice file by stem name in voice_storage."""
+    for ext in AUDIO_EXTENSIONS:
+        path = VOICE_STORAGE_DIR / f"{voice_name}{ext}"
+        if path.exists():
+            return path
+    return None
 
 
 @router.post("")
@@ -21,68 +34,96 @@ async def synthesize_speech(
     voice: str = Body(None, embed=True),
     language: str = Body(None, embed=True),
     provider: str = Body(None, embed=True),
-    api_url: str = Body(None, embed=True),
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
+    _user=Depends(get_authenticated_user),
 ):
-    """Synthesize speech from text."""
+    """Proxy TTS synthesis to universal-voice.
+
+    Reads voice reference from local voice_storage and forwards
+    as ref_audio upload to universal-voice.
+    """
     try:
-        audio_data = synthesize(
-            text=text,
-            voice=voice,
-            language=language,
-            provider=provider,
-            api_url=api_url,
-        )
+        data: dict = {"text": text}
+        if provider:
+            data["model"] = provider
+        if language:
+            data["language"] = language
+
+        files = {}
+        voice_file = _find_voice_file(voice) if voice else None
+
+        if voice_file:
+            files["ref_audio"] = open(voice_file, "rb")
+        elif voice:
+            # No local file — treat as preset voice_id
+            data["voice_id"] = voice
+
+        try:
+            r = http_requests.post(
+                f"{UVOICE_URL}/tts/synthesize",
+                data=data,
+                files=files or None,
+                timeout=120,
+            )
+            r.raise_for_status()
+        finally:
+            for f in files.values():
+                if hasattr(f, "close"):
+                    f.close()
 
         return Response(
-            content=audio_data,
+            content=r.content,
             media_type="audio/wav",
-            headers={
-                "Content-Disposition": "attachment; filename=speech.wav"
-            }
+            headers={"Content-Disposition": "attachment; filename=speech.wav"},
         )
-    except Exception as e:
-        logger.error(f"Error synthesizing speech for user {user.username}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    except http_requests.RequestException as e:
+        logger.error("TTS service error: %s", e, exc_info=True)
+        raise HTTPException(status_code=502, detail=f"TTS service error: {e}")
 
 
 @router.get("/voices")
 async def list_tts_voices(
     provider: str = None,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
+    _user=Depends(get_authenticated_user),
 ):
-    """List available TTS voices."""
+    """Proxy voice listing to universal-voice."""
     try:
-        voices = list_voices(provider=provider)
-        return {"voices": voices}
-    except Exception as e:
-        logger.error(f"Error listing TTS voices for user {user.username}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        params = {}
+        if provider:
+            params["model"] = provider
+        r = http_requests.get(f"{UVOICE_URL}/tts/voices", params=params, timeout=10)
+        r.raise_for_status()
+        return {"voices": r.json()}
+    except http_requests.RequestException as e:
+        logger.error("TTS voices error: %s", e, exc_info=True)
+        raise HTTPException(status_code=502, detail=f"TTS service error: {e}")
 
 
 @router.post("/check")
 async def check_tts_health(
     provider: str = Body(None, embed=True),
-    api_url: str = Body(None, embed=True),
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
+    _user=Depends(get_authenticated_user),
 ):
-    """Check if a TTS server is reachable."""
-    result = check_health(provider=provider, api_url=api_url)
-    return result
+    """Proxy health check to universal-voice."""
+    try:
+        r = http_requests.get(f"{UVOICE_URL}/health", timeout=5)
+        r.raise_for_status()
+        return r.json()
+    except http_requests.RequestException as e:
+        logger.error("TTS health error: %s", e, exc_info=True)
+        return {"ok": False, "message": str(e)}
 
 
 @router.get("/backends")
 async def list_tts_backends(
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
+    _user=Depends(get_authenticated_user),
 ):
-    """List available TTS backends."""
+    """Proxy model listing to universal-voice, filtered to TTS models."""
     try:
-        backends = list_backends()
-        return {"backends": backends}
-    except Exception as e:
-        logger.error(f"Error listing TTS backends for user {user.username}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        r = http_requests.get(f"{UVOICE_URL}/v1/models", timeout=10)
+        r.raise_for_status()
+        models = r.json().get("data", [])
+        tts_models = [m for m in models if m.get("type") == "tts"]
+        return {"backends": tts_models}
+    except http_requests.RequestException as e:
+        logger.error("TTS backends error: %s", e, exc_info=True)
+        raise HTTPException(status_code=502, detail=f"TTS service error: {e}")

@@ -1,4 +1,4 @@
-"""ASR routes: /asr — proxies to universal-asr service."""
+"""ASR routes: /asr — proxies to universal-voice service."""
 
 import logging
 import os
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["asr"])
 
-ASR_API_URL = os.environ.get("ASR_API_URL", "http://universal-asr:14213").rstrip("/")
+ASR_API_URL = os.environ.get("ASR_API_URL", "http://universal-voice:14213").rstrip("/")
 
 
 @router.post("/asr")
@@ -23,7 +23,7 @@ async def asr_endpoint(
     initial_prompt: str | None = Query(None),
     _user=Depends(get_authenticated_user),
 ):
-    """Proxy raw PCM audio to universal-asr service."""
+    """Proxy raw PCM audio to universal-voice service."""
     try:
         params: dict = {}
         if language:
@@ -75,7 +75,7 @@ async def asr_detect_language(
 
 @router.get("/asr/models")
 async def asr_models(_user=Depends(get_authenticated_user)):
-    """Proxy model list from universal-asr service."""
+    """Proxy model list from universal-voice service."""
     try:
         r = http_requests.get(f"{ASR_API_URL}/v1/models", timeout=10)
         r.raise_for_status()
