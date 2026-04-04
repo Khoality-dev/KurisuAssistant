@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useMicStore } from '../store/micStore';
 import { useAgentStore } from '../store/agentStore';
-import { apiClient } from '../api/client';
-import { storage } from '../utils/storage';
 
 interface UseInteractiveASRParams {
   agentId: number | null;
@@ -44,7 +42,6 @@ export function useInteractiveASR({
   // ASR transcript handling
   useEffect(() => {
     if (!asrResult) return;
-    const processResult = async () => {
     if (asrResult.seq <= lastProcessedSeq.current) return;
     lastProcessedSeq.current = asrResult.seq;
     const asrTranscript = asrResult.text;
@@ -56,57 +53,28 @@ export function useInteractiveASR({
     const hasTrigger = triggerWord && asrTranscript.toLowerCase().includes(triggerWord.toLowerCase());
 
     if (state.interactionActive || hasTrigger) {
-      // Activate interaction if trigger word detected
-      if (!state.interactionActive) activateInteraction();
-
-      // If fast mode detected trigger word, re-transcribe with full quality
-      let finalText = asrTranscript;
-      if (asrResult.fast && asrResult.audio && hasTrigger) {
-        try {
-          let language: string | undefined;
-          let model: string | undefined;
-          const asrMode = storage.getASRMode();
-          if (asrMode === 'routing') {
-            const modelMap = storage.getASRModelMap();
-            const mappedLanguages = modelMap.map((e) => e.language).filter((l) => !!l);
-            const detected = await apiClient.detectLanguage(
-              asrResult.audio,
-              mappedLanguages.length > 0 ? { languages: mappedLanguages } : undefined,
-            );
-            language = detected.language || undefined;
-            model = language ? storage.getASRModelForLanguage(language) : undefined;
-          } else {
-            const fixedModel = storage.getASRFixedModel();
-            if (fixedModel) model = fixedModel;
-          }
-          const full = await apiClient.transcribe(asrResult.audio, { language, model });
-          if (full.text.trim()) finalText = full.text.trim();
-        } catch {
-          // Fall back to fast-mode text
-        }
-      }
-
       // Show transcript
-      setLastTranscript(finalText);
+      setLastTranscript(asrTranscript);
       if (lastTranscriptTimerRef.current) clearTimeout(lastTranscriptTimerRef.current);
       lastTranscriptTimerRef.current = setTimeout(() => setLastTranscript(''), 3000);
 
+      // Activate interaction if trigger word detected
+      if (!state.interactionActive) activateInteraction();
+
       // Auto-send
       if (isStreamingRef.current) {
-        pendingAutoSendRef.current = finalText;
+        pendingAutoSendRef.current = asrTranscript;
       } else {
         if (interactionTimerRef.current) {
           clearTimeout(interactionTimerRef.current);
           interactionTimerRef.current = null;
         }
-        handleSendText(finalText);
+        handleSendText(asrTranscript);
       }
     } else {
       // Not in interaction and no trigger word: fill chat input as dictation
       pushExternalDraft(asrTranscript);
     }
-    };
-    processResult();
   }, [asrResult]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Deactivate interaction when agent or conversation changes

@@ -19,8 +19,6 @@ export interface AudioDevice {
 export interface ASRResult {
   text: string;
   seq: number;
-  audio?: ArrayBuffer; // Raw PCM for re-transcription
-  fast?: boolean;      // Whether this was a fast-mode result
 }
 
 interface MicState {
@@ -143,49 +141,36 @@ export const useMicStore = create<MicState>((set, get) => ({
           set({ status: 'processing' });
 
           try {
-            const { interactionActive } = get();
-
+            const asrMode = storage.getASRMode();
             let language: string | undefined;
             let model: string | undefined;
-            let initial_prompt: string | undefined;
-            let fast = false;
 
-            if (interactionActive) {
-              // Full quality: language detection + routing, no initial_prompt
-              const asrMode = storage.getASRMode();
-              if (asrMode === 'routing') {
-                const modelMap = storage.getASRModelMap();
-                const mappedLanguages = modelMap
-                  .map((e) => e.language)
-                  .filter((l) => !!l);
-                const detected = await apiClient.detectLanguage(
-                  int16.buffer,
-                  mappedLanguages.length > 0 ? { languages: mappedLanguages } : undefined,
-                );
-                language = detected.language || undefined;
-                model = language ? storage.getASRModelForLanguage(language) : undefined;
-              } else {
-                const fixedModel = storage.getASRFixedModel();
-                if (fixedModel) model = fixedModel;
-              }
+            if (asrMode === 'routing') {
+              const modelMap = storage.getASRModelMap();
+              const mappedLanguages = modelMap
+                .map((e) => e.language)
+                .filter((l) => !!l);
+              const detected = await apiClient.detectLanguage(
+                int16.buffer,
+                mappedLanguages.length > 0 ? { languages: mappedLanguages } : undefined,
+              );
+              language = detected.language || undefined;
+              model = language ? storage.getASRModelForLanguage(language) : undefined;
             } else {
-              // Background listening: fast mode + initial_prompt for trigger word detection
-              fast = true;
-              const { agents, selectedAgentId } = useAgentStore.getState();
-              const selectedAgent = agents.find((a) => a.id === selectedAgentId);
-              initial_prompt = selectedAgent?.persona?.trigger_word?.trim() || undefined;
+              const fixedModel = storage.getASRFixedModel();
+              if (fixedModel) model = fixedModel;
             }
 
-            const response = await apiClient.transcribe(int16.buffer, { language, model, initial_prompt, fast });
+            // Always send trigger word as initial_prompt to bias recognition
+            const { agents, selectedAgentId } = useAgentStore.getState();
+            const selectedAgent = agents.find((a) => a.id === selectedAgentId);
+            const initial_prompt = selectedAgent?.persona?.trigger_word?.trim() || undefined;
+
+            const response = await apiClient.transcribe(int16.buffer, { language, model, initial_prompt });
 
             if (response.text.trim()) {
               _seq += 1;
-              set({ result: {
-                text: response.text.trim(),
-                seq: _seq,
-                audio: fast ? int16.buffer.slice(0) : undefined,
-                fast,
-              } });
+              set({ result: { text: response.text.trim(), seq: _seq } });
             }
           } catch (err: any) {
             console.error('ASR transcription error:', err);
