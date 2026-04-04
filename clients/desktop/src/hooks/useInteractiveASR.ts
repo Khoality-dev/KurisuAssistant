@@ -28,22 +28,45 @@ export function useInteractiveASR({
   } = useMicStore();
   const storeAgents = useAgentStore(state => state.agents);
   const interactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const INTERACTION_IDLE_MS = 30_000;
+  const RESUME_DELAY_MS = 5000;
   const [lastTranscript, setLastTranscript] = useState('');
   const lastTranscriptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Track whether VAD is paused by us
+  const vadPausedRef = useRef(false);
+
+  const pauseVAD = () => {
+    if (resumeTimerRef.current) { clearTimeout(resumeTimerRef.current); resumeTimerRef.current = null; }
+    if (!vadPausedRef.current) {
+      useMicStore.getState().pauseListening();
+      vadPausedRef.current = true;
+    }
+  };
+
+  const resumeVADDelayed = () => {
+    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+    resumeTimerRef.current = setTimeout(() => {
+      useMicStore.getState().resumeListening();
+      vadPausedRef.current = false;
+      resumeTimerRef.current = null;
+    }, RESUME_DELAY_MS);
+  };
+
   const isStreamingRef = useRef(false);
   useEffect(() => {
+    const wasStreaming = isStreamingRef.current;
     isStreamingRef.current = isStreaming;
-    // Pause/resume VAD during streaming in interaction mode
-    if (interactionActive) {
-      const mic = useMicStore.getState();
-      if (isStreaming) {
-        mic.pauseListening();
-      } else {
-        // Delay resume so TTS audio doesn't get picked up by VAD
-        setTimeout(() => mic.resumeListening(), 5000);
-      }
+
+    if (!interactionActive) return;
+
+    if (isStreaming && !wasStreaming) {
+      // Streaming just started — ensure VAD is paused
+      pauseVAD();
+    } else if (!isStreaming && wasStreaming) {
+      // Streaming just ended — resume VAD after delay
+      resumeVADDelayed();
     }
   }, [isStreaming, interactionActive]);
 
@@ -80,13 +103,13 @@ export function useInteractiveASR({
       if (lastTranscriptTimerRef.current) clearTimeout(lastTranscriptTimerRef.current);
       lastTranscriptTimerRef.current = setTimeout(() => setLastTranscript(''), 3000);
 
-      // Send, then pause VAD so no more speech is captured
+      // Send, then pause VAD
       if (interactionTimerRef.current) {
         clearTimeout(interactionTimerRef.current);
         interactionTimerRef.current = null;
       }
       handleSendText(asrTranscript);
-      useMicStore.getState().pauseListening();
+      pauseVAD();
     } else {
       // Not in interaction and no trigger word: fill chat input as dictation
       pushExternalDraft(asrTranscript);
@@ -123,9 +146,14 @@ export function useInteractiveASR({
     }
   }, [interactionActive, pttActive, isStreaming, isQueueActive, deactivateInteraction]);
 
-  // Clear transcript when interaction ends
+  // Resume VAD when interaction ends (in case it was paused)
   useEffect(() => {
     if (!interactionActive) {
+      if (vadPausedRef.current) {
+        if (resumeTimerRef.current) { clearTimeout(resumeTimerRef.current); resumeTimerRef.current = null; }
+        useMicStore.getState().resumeListening();
+        vadPausedRef.current = false;
+      }
       setLastTranscript('');
     }
   }, [interactionActive]);
@@ -135,6 +163,7 @@ export function useInteractiveASR({
     return () => {
       if (interactionTimerRef.current) clearTimeout(interactionTimerRef.current);
       if (lastTranscriptTimerRef.current) clearTimeout(lastTranscriptTimerRef.current);
+      if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
     };
   }, []);
 
