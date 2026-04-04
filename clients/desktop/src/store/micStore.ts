@@ -163,11 +163,14 @@ export const useMicStore = create<MicState>((set, get) => ({
               if (fixedModel) model = fixedModel;
             }
 
-            // Pass selected persona's trigger word to bias recognition
-            const { agents, selectedAgentId } = useAgentStore.getState();
-            const selectedAgent = agents.find((a) => a.id === selectedAgentId);
-            const triggerWord = selectedAgent?.persona?.trigger_word?.trim();
-            const initial_prompt = triggerWord || undefined;
+            // Only bias with trigger word during active interaction (not background listening)
+            const { interactionActive } = get();
+            let initial_prompt: string | undefined;
+            if (interactionActive) {
+              const { agents, selectedAgentId } = useAgentStore.getState();
+              const selectedAgent = agents.find((a) => a.id === selectedAgentId);
+              initial_prompt = selectedAgent?.persona?.trigger_word?.trim() || undefined;
+            }
 
             const response = await apiClient.transcribe(int16.buffer, { language, model, initial_prompt });
 
