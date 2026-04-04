@@ -27,6 +27,9 @@ import { useTTS } from '../../hooks/useTTS';
 import { useVisionStore } from '../../store/visionStore';
 import { useCharacterPanel } from '../../hooks/useCharacterPanel';
 import { useInteractiveASR } from '../../hooks/useInteractiveASR';
+import { useMicStore } from '../../store/micStore';
+import { storage } from '../../utils/storage';
+import { useAgentStore } from '../../store/agentStore';
 import { useStreamingChat } from '../../hooks/useStreamingChat';
 import { InteractiveCallBar } from '../InteractiveCallBar';
 import { MessageBubble } from './MessageBubble';
@@ -40,7 +43,9 @@ interface ChatWidgetProps {
   agentId?: number | null;
 }
 
-export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = false, agentId = null }) => {
+export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = false, agentId: agentIdProp = null }) => {
+  const storeAgentId = useAgentStore((s) => s.selectedAgentId);
+  const agentId = agentIdProp ?? storeAgentId;
   const {
     messages,
     frames,
@@ -166,8 +171,58 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     isQueueActive,
     handleSendText: streaming.handleSendText,
     pushExternalDraft: streaming.pushExternalDraft,
-    clearExternalDraft: streaming.clearExternalDraft,
   });
+
+  // Always-listen: auto-start mic on mount + send PTT keycode to main process
+  useEffect(() => {
+    useMicStore.getState().initAlwaysListen();
+    const electron = (window as any).electron;
+    const keycode = storage.getPTTKeycode();
+    if (keycode !== null) electron?.ptt?.setKeycode(keycode);
+  }, []);
+
+  // Push-to-talk: Ctrl+Space or headset MediaPlayPause
+  useEffect(() => {
+    const { activatePTT, deactivatePTT } = useMicStore.getState();
+
+    // Ctrl+Space: hold-to-talk
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      if (e.ctrlKey && e.code === 'Space') {
+        e.preventDefault();
+        activatePTT();
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        deactivatePTT();
+      }
+    };
+
+
+    // Headset button via Electron global shortcut (double-press MediaPlayPause)
+    // Uses activateInteraction (not PTT) so the 30s idle timer applies
+    const electron = (window as any).electron;
+    let cleanupPTT: (() => void) | undefined;
+    if (electron?.ptt?.onToggle) {
+      cleanupPTT = electron.ptt.onToggle(() => {
+        const mic = useMicStore.getState();
+        if (mic.interactionActive) {
+          mic.deactivateInteraction();
+        } else {
+          mic.activateInteraction();
+        }
+      });
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      cleanupPTT?.();
+    };
+  }, []);
 
   // Vision (camera toggle)
   const {
@@ -478,14 +533,14 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
             : (value) => streaming.respondToApproval(value === 'approve')
           }
         />
-      ) : asr.interactiveMode ? (
+      ) : asr.interactionActive ? (
         <InteractiveCallBar
           asrStatus={asr.asrStatus}
           interactionActive={asr.interactionActive}
           lastTranscript={asr.lastTranscript}
           isStreaming={streaming.isStreaming}
           isTTSPlaying={isQueueActive}
-          onHangUp={asr.disableInteractiveMode}
+          onHangUp={() => useMicStore.getState().deactivateInteraction()}
         />
       ) : (
         <ChatComposer
@@ -493,20 +548,12 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           externalDraft={streaming.externalDraft}
           externalDraftVersion={streaming.externalDraftVersion}
           isStreaming={streaming.isStreaming}
-          asrStatus={asr.asrStatus}
-          asrDevices={asr.asrDevices}
-          asrDeviceId={asr.asrDeviceId}
-          micMenuAnchor={asr.micMenuAnchor}
           cameraActive={cameraActive}
           cameraWebcams={cameraWebcams}
           cameraSelectedWebcam={cameraSelectedWebcam}
           cameraMenuAnchor={cameraMenuAnchor}
           onSend={streaming.handleSend}
           onCancel={streaming.handleCancel}
-          onMicToggle={asr.handleMicToggle}
-          onMicContext={asr.handleMicContext}
-          onCloseMicMenu={asr.closeMicMenu}
-          onSelectAsrDevice={asr.selectAsrDevice}
           onCameraToggle={handleCameraToggle}
           onCameraContext={handleCameraContext}
           onCloseCameraMenu={() => setCameraMenuAnchor(null)}

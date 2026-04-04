@@ -24,6 +24,22 @@ contextBridge.exposeInMainWorld('electron', {
     installUpdate: () => ipcRenderer.send('updater:install'),
   },
 
+  ptt: {
+    onToggle: (cb: () => void) => {
+      const handler = () => cb();
+      ipcRenderer.on('ptt:toggle', handler);
+      return () => { ipcRenderer.removeListener('ptt:toggle', handler); };
+    },
+    setKeycode: (keycode: number | null) => ipcRenderer.send('ptt:set-keycode', keycode),
+    startCapture: () => ipcRenderer.send('ptt:capture-start'),
+    stopCapture: () => ipcRenderer.send('ptt:capture-stop'),
+    onKeyCaptured: (cb: (keycode: number) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, keycode: number) => cb(keycode);
+      ipcRenderer.on('ptt:key-captured', handler);
+      return () => { ipcRenderer.removeListener('ptt:key-captured', handler); };
+    },
+  },
+
   extensions: {
     checkHealth: (url: string) => ipcRenderer.invoke('extensions:check-health', url),
     checkInstalled: (appName: string) => ipcRenderer.invoke('extensions:check-installed', appName),

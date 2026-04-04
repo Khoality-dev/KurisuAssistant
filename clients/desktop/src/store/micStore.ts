@@ -6,6 +6,11 @@ import { useAgentStore } from './agentStore';
 
 export type ASRStatus = 'idle' | 'listening' | 'processing';
 
+/** Read real-time mic amplitude (0-1) outside of React state to avoid re-renders. */
+export function getMicAmplitude(): number {
+  return _amplitudeData.current;
+}
+
 export interface AudioDevice {
   deviceId: string;
   label: string;
@@ -29,6 +34,7 @@ interface MicState {
   // Interactive mode (call bar UI) + interaction active (auto-send without trigger word)
   interactiveMode: boolean;
   interactionActive: boolean;
+  pttActive: boolean;
 
   // Actions
   startListening: () => Promise<void>;
@@ -39,11 +45,19 @@ interface MicState {
   disableInteractiveMode: () => void;
   activateInteraction: () => void;
   deactivateInteraction: () => void;
+  activatePTT: () => void;
+  deactivatePTT: () => void;
+  initAlwaysListen: () => void;
 }
 
 // Module-level VAD state (not in Zustand to avoid re-renders)
 let _vad: MicVAD | null = null;
 let _seq = 0;
+let _processing = false;
+let _audioCtx: AudioContext | null = null;
+let _analyser: AnalyserNode | null = null;
+let _amplitudeRaf = 0;
+const _amplitudeData = { current: 0 }; // Module-level, read by components via getAmplitude()
 
 // Reusable audio elements for sound effects (avoids WebMediaPlayer leak)
 let _startSound: HTMLAudioElement | null = null;
@@ -69,6 +83,7 @@ export const useMicStore = create<MicState>((set, get) => ({
   selectedDeviceId: storage.getASRDeviceId(),
   interactiveMode: false,
   interactionActive: false,
+  pttActive: false,
 
   startListening: async () => {
     // Guard: skip if already listening or initializing
@@ -83,8 +98,8 @@ export const useMicStore = create<MicState>((set, get) => ({
         onnxWASMBasePath: './vad/',
         model: 'legacy',
         startOnLoad: true,
-        getStream: async () =>
-          navigator.mediaDevices.getUserMedia({
+        getStream: async () => {
+          const stream = await navigator.mediaDevices.getUserMedia({
             audio: {
               deviceId: deviceId ? { exact: deviceId } : undefined,
               channelCount: 1,
@@ -92,10 +107,34 @@ export const useMicStore = create<MicState>((set, get) => ({
               autoGainControl: true,
               noiseSuppression: true,
             },
-          }),
+          });
+          // Attach analyser for amplitude indicator
+          _audioCtx = new AudioContext();
+          const source = _audioCtx.createMediaStreamSource(stream);
+          _analyser = _audioCtx.createAnalyser();
+          _analyser.fftSize = 256;
+          source.connect(_analyser);
+          const dataArray = new Uint8Array(_analyser.fftSize);
+          const updateAmplitude = () => {
+            if (!_analyser) return;
+            _analyser.getByteTimeDomainData(dataArray);
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+              const v = (dataArray[i] - 128) / 128;
+              sum += v * v;
+            }
+            _amplitudeData.current = Math.min(1, Math.sqrt(sum / dataArray.length) * 4);
+            _amplitudeRaf = requestAnimationFrame(updateAmplitude);
+          };
+          _amplitudeRaf = requestAnimationFrame(updateAmplitude);
+          return stream;
+        },
         onSpeechEnd: async (audio: Float32Array) => {
           // Skip audio too short to contain a trigger word (< 0.5s at 16kHz)
           if (audio.length < 8000) return;
+          // Prevent concurrent processing (React StrictMode can double-fire)
+          if (_processing) return;
+          _processing = true;
 
           const int16 = new Int16Array(audio.length);
           for (let i = 0; i < audio.length; i++) {
@@ -107,14 +146,10 @@ export const useMicStore = create<MicState>((set, get) => ({
 
           try {
             const asrMode = storage.getASRMode();
-            const { interactiveMode, interactionActive } = get();
-            const mode = interactiveMode && !interactionActive ? 'fast' : undefined;
-
             let language: string | undefined;
             let model: string | undefined;
 
             if (asrMode === 'routing') {
-              // Only detect among languages that have a model mapping
               const modelMap = storage.getASRModelMap();
               const mappedLanguages = modelMap
                 .map((e) => e.language)
@@ -130,13 +165,12 @@ export const useMicStore = create<MicState>((set, get) => ({
               if (fixedModel) model = fixedModel;
             }
 
-            // Pass selected persona's trigger word to bias recognition
+            // Always send trigger word as initial_prompt to bias recognition
             const { agents, selectedAgentId } = useAgentStore.getState();
             const selectedAgent = agents.find((a) => a.id === selectedAgentId);
-            const triggerWord = selectedAgent?.persona?.trigger_word?.trim();
-            const initial_prompt = triggerWord || undefined;
+            const initial_prompt = selectedAgent?.persona?.trigger_word?.trim() || undefined;
 
-            const response = await apiClient.transcribe(int16.buffer, { language, mode, model, initial_prompt });
+            const response = await apiClient.transcribe(int16.buffer, { language, model, initial_prompt });
 
             if (response.text.trim()) {
               _seq += 1;
@@ -147,6 +181,7 @@ export const useMicStore = create<MicState>((set, get) => ({
             set({ error: err.message || 'Transcription failed' });
           }
 
+          _processing = false;
           if (get().status !== 'idle') {
             set({ status: 'listening' });
           }
@@ -162,6 +197,9 @@ export const useMicStore = create<MicState>((set, get) => ({
   },
 
   stopListening: async () => {
+    if (_amplitudeRaf) { cancelAnimationFrame(_amplitudeRaf); _amplitudeRaf = 0; }
+    _amplitudeData.current = 0;
+    if (_audioCtx) { _audioCtx.close().catch(() => {}); _audioCtx = null; _analyser = null; }
     if (_vad) {
       await _vad.destroy();
       _vad = null;
@@ -221,7 +259,25 @@ export const useMicStore = create<MicState>((set, get) => ({
 
   deactivateInteraction: () => {
     if (!get().interactionActive) return;
-    set({ interactionActive: false });
+    set({ interactionActive: false, pttActive: false });
     playStopSound();
+  },
+
+  activatePTT: () => {
+    if (get().pttActive) return;
+    set({ interactionActive: true, pttActive: true });
+    playStartSound();
+  },
+
+  deactivatePTT: () => {
+    if (!get().pttActive) return;
+    set({ interactionActive: false, pttActive: false });
+    playStopSound();
+  },
+
+  initAlwaysListen: () => {
+    if (!storage.getASRAlwaysListen()) return;
+    if (get().status !== 'idle') return;
+    get().startListening();
   },
 }));

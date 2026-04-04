@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useMicStore } from '../store/micStore';
 import { useAgentStore } from '../store/agentStore';
 
@@ -9,7 +9,6 @@ interface UseInteractiveASRParams {
   isQueueActive: boolean;
   handleSendText: (text: string) => Promise<void>;
   pushExternalDraft: (text: string) => void;
-  clearExternalDraft: () => void;
 }
 
 export function useInteractiveASR({
@@ -19,79 +18,70 @@ export function useInteractiveASR({
   isQueueActive,
   handleSendText,
   pushExternalDraft,
-  clearExternalDraft,
 }: UseInteractiveASRParams) {
   const {
     status: asrStatus, result: asrResult,
-    devices: asrDevices, loadDevices: loadAsrDevices, selectedDeviceId: asrDeviceId, selectDevice: selectAsrDevice,
-    startListening, stopListening,
-    interactiveMode, enableInteractiveMode, disableInteractiveMode,
     interactionActive, activateInteraction, deactivateInteraction,
+    pttActive,
   } = useMicStore();
-  const [micMenuAnchor, setMicMenuAnchor] = useState<HTMLElement | null>(null);
   const storeAgents = useAgentStore(state => state.agents);
   const interactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingAutoSendRef = useRef<string | null>(null);
-  const ttsPlayedForResponseRef = useRef(false);
   const INTERACTION_IDLE_MS = 30_000;
   const [lastTranscript, setLastTranscript] = useState('');
   const lastTranscriptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Keep a ref to isStreaming to avoid stale closures
   const isStreamingRef = useRef(false);
   useEffect(() => {
     isStreamingRef.current = isStreaming;
   }, [isStreaming]);
 
-  // ASR transcript handling: branch on interactive mode and interaction state
+  // Guard: skip already-processed results (React StrictMode double-fires effects)
+  const lastProcessedSeq = useRef(0);
+
+  // ASR transcript handling
   useEffect(() => {
     if (!asrResult) return;
+    if (asrResult.seq <= lastProcessedSeq.current) return;
+    lastProcessedSeq.current = asrResult.seq;
     const asrTranscript = asrResult.text;
     const state = useMicStore.getState();
 
-    const selectedAgent = storeAgents.find(a => a.id === agentId);
-    const triggerWord = selectedAgent?.persona?.trigger_word?.trim();
+    // Use Administrator agent's persona trigger word
+    const adminAgent = storeAgents.find(a => a.is_system);
+    const triggerWord = adminAgent?.persona?.trigger_word?.trim();
     const hasTrigger = triggerWord && asrTranscript.toLowerCase().includes(triggerWord.toLowerCase());
 
-    if (state.interactiveMode) {
-      // Interactive mode: always show transcript visually
+    if (state.interactionActive || hasTrigger) {
+      // Show transcript
       setLastTranscript(asrTranscript);
       if (lastTranscriptTimerRef.current) clearTimeout(lastTranscriptTimerRef.current);
       lastTranscriptTimerRef.current = setTimeout(() => setLastTranscript(''), 3000);
 
-      if (state.interactionActive || hasTrigger) {
-        // Interaction active or trigger word detected: auto-send
-        if (!state.interactionActive) activateInteraction();
+      // Activate interaction if trigger word detected
+      if (!state.interactionActive) activateInteraction();
 
-        if (isStreamingRef.current) {
-          pendingAutoSendRef.current = asrTranscript;
-        } else {
-          if (interactionTimerRef.current) {
-            clearTimeout(interactionTimerRef.current);
-            interactionTimerRef.current = null;
-          }
-          ttsPlayedForResponseRef.current = false;
-          handleSendText(asrTranscript);
+      // Auto-send
+      if (isStreamingRef.current) {
+        pendingAutoSendRef.current = asrTranscript;
+      } else {
+        if (interactionTimerRef.current) {
+          clearTimeout(interactionTimerRef.current);
+          interactionTimerRef.current = null;
         }
+        handleSendText(asrTranscript);
       }
-      // If not active and no trigger word, show transcript without sending
     } else {
-      // Typing mode: put text in input field (dictation)
+      // Not in interaction and no trigger word: fill chat input as dictation
       pushExternalDraft(asrTranscript);
-      // Check trigger word, then enable interaction mode and auto-send
-      if (hasTrigger) {
-        enableInteractiveMode();
-        activateInteraction();
-        ttsPlayedForResponseRef.current = false;
-        handleSendText(asrTranscript).finally(() => clearExternalDraft());
-      }
     }
-  }, [asrResult, clearExternalDraft, pushExternalDraft]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [asrResult]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Disable interactive mode when agent or conversation changes
+  // Deactivate interaction when agent or conversation changes
   useEffect(() => {
-    if (useMicStore.getState().interactiveMode) {
-      disableInteractiveMode();
+    const state = useMicStore.getState();
+    if (state.interactionActive) {
+      deactivateInteraction();
       if (interactionTimerRef.current) {
         clearTimeout(interactionTimerRef.current);
         interactionTimerRef.current = null;
@@ -100,46 +90,40 @@ export function useInteractiveASR({
     }
   }, [agentId, currentConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Start a 30s idle timer after streaming and TTS finish; keep interactive mode enabled
+  // 30s idle timer — only for trigger word flow (not PTT)
   useEffect(() => {
-    if (!interactiveMode || !interactionActive) return;
-    // Timer starts when: not streaming AND TTS queue not active
+    if (!interactionActive || pttActive) return;
+
     if (!isStreaming && !isQueueActive) {
-      if (interactionTimerRef.current) {
-        clearTimeout(interactionTimerRef.current);
-      }
+      if (interactionTimerRef.current) clearTimeout(interactionTimerRef.current);
       interactionTimerRef.current = setTimeout(() => {
         deactivateInteraction();
         interactionTimerRef.current = null;
         pendingAutoSendRef.current = null;
       }, INTERACTION_IDLE_MS);
     } else {
-      // Still streaming or playing TTS, so clear the idle timer
       if (interactionTimerRef.current) {
         clearTimeout(interactionTimerRef.current);
         interactionTimerRef.current = null;
       }
     }
-  }, [interactiveMode, interactionActive, isStreaming, isQueueActive, deactivateInteraction]);
+  }, [interactionActive, pttActive, isStreaming, isQueueActive, deactivateInteraction]);
 
   // Handle pending auto-send when streaming finishes
   useEffect(() => {
     if (!isStreaming && pendingAutoSendRef.current) {
       const text = pendingAutoSendRef.current;
       pendingAutoSendRef.current = null;
-      ttsPlayedForResponseRef.current = false;
       handleSendText(text);
     }
   }, [isStreaming]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Clear UI state on interactive mode transitions
+  // Clear transcript when interaction ends
   useEffect(() => {
-    if (interactiveMode) {
-      clearExternalDraft();
-    } else {
+    if (!interactionActive) {
       setLastTranscript('');
     }
-  }, [interactiveMode, clearExternalDraft]);
+  }, [interactionActive]);
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -149,44 +133,11 @@ export function useInteractiveASR({
     };
   }, []);
 
-  const handleMicToggle = useCallback(() => {
-    if (asrStatus === 'idle') {
-      startListening();
-    } else {
-      stopListening();
-    }
-  }, [asrStatus, startListening, stopListening]);
-
-  const handleMicContext = useCallback((e: React.MouseEvent<HTMLElement>) => {
-    e.preventDefault();
-    const anchor = e.currentTarget;
-    loadAsrDevices().then(() => {
-      setMicMenuAnchor(anchor);
-    });
-  }, [loadAsrDevices]);
-
-  const closeMicMenu = useCallback(() => {
-    setMicMenuAnchor(null);
-  }, []);
-
-  const selectAsrDeviceAndClose = useCallback((deviceId: string) => {
-    selectAsrDevice(deviceId);
-    setMicMenuAnchor(null);
-  }, [selectAsrDevice]);
-
   return {
     asrStatus,
-    asrDevices,
-    asrDeviceId,
-    micMenuAnchor,
-    interactiveMode,
     interactionActive,
+    pttActive,
     lastTranscript,
-    disableInteractiveMode,
     isQueueActive,
-    handleMicToggle,
-    handleMicContext,
-    closeMicMenu,
-    selectAsrDevice: selectAsrDeviceAndClose,
   };
 }
