@@ -3,7 +3,7 @@ import { apiClient } from '../api/client';
 import { storage } from '../utils/storage';
 import { useAudioAmplitude } from './useAudioAmplitude';
 
-const TTS_FALLBACK_MODELS = ['vixtts', 'gpt-sovits'];
+const TTS_FALLBACK_MODELS = ['vixtts', 'gpt-sovits', 'vieneu:turbo'];
 
 /**
  * Parse WAV header to get audio duration in seconds.
