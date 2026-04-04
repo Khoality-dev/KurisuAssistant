@@ -23,6 +23,7 @@ import AddIcon from '@mui/icons-material/Add';
 import { useTTS } from '../../hooks/useTTS';
 import { storage } from '../../utils/storage';
 import { apiClient } from '../../api/client';
+import { useMicStore } from '../../store/micStore';
 
 interface ModelEntry {
   id: string;
@@ -48,11 +49,23 @@ export const TTSSection: React.FC = () => {
   const { backends, loadBackends } = useTTS();
 
   // ASR settings
+  const [alwaysListen, setAlwaysListenState] = useState(storage.getASRAlwaysListen());
   const [asrMode, setAsrModeState] = useState(storage.getASRMode());
   const [asrLanguage, setAsrLanguageState] = useState(storage.getASRLanguage() || '');
   const [asrFixedModel, setAsrFixedModelState] = useState(storage.getASRFixedModel());
   const [modelMap, setModelMapState] = useState(storage.getASRModelMap());
   const [availableModels, setAvailableModels] = useState<ModelEntry[]>([]);
+
+  const setAlwaysListen = (v: boolean) => {
+    setAlwaysListenState(v);
+    storage.setASRAlwaysListen(v);
+    const mic = useMicStore.getState();
+    if (v && mic.status === 'idle') {
+      mic.startListening();
+    } else if (!v && mic.status !== 'idle') {
+      mic.stopListening();
+    }
+  };
 
   const setAsrMode = (v: 'fixed' | 'routing') => {
     setAsrModeState(v);
@@ -111,6 +124,22 @@ export const TTSSection: React.FC = () => {
   return (
     <Box sx={{ maxWidth: 700 }}>
       <Typography variant="h3" sx={{ mb: 3 }}>TTS & ASR</Typography>
+
+      {/* Always Listen */}
+      <Box sx={{ mb: 3 }}>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={alwaysListen}
+              onChange={(e) => setAlwaysListen(e.target.checked)}
+            />
+          }
+          label="Always listen"
+        />
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+          Keep microphone active to detect trigger words or push-to-talk (Ctrl+Space). Disable to save resources.
+        </Typography>
+      </Box>
 
       {/* ASR Mode */}
       <Box sx={{ mb: 3 }}>

@@ -29,6 +29,7 @@ interface MicState {
   // Interactive mode (call bar UI) + interaction active (auto-send without trigger word)
   interactiveMode: boolean;
   interactionActive: boolean;
+  pttActive: boolean;
 
   // Actions
   startListening: () => Promise<void>;
@@ -39,6 +40,9 @@ interface MicState {
   disableInteractiveMode: () => void;
   activateInteraction: () => void;
   deactivateInteraction: () => void;
+  activatePTT: () => void;
+  deactivatePTT: () => void;
+  initAlwaysListen: () => void;
 }
 
 // Module-level VAD state (not in Zustand to avoid re-renders)
@@ -69,6 +73,7 @@ export const useMicStore = create<MicState>((set, get) => ({
   selectedDeviceId: storage.getASRDeviceId(),
   interactiveMode: false,
   interactionActive: false,
+  pttActive: false,
 
   startListening: async () => {
     // Guard: skip if already listening or initializing
@@ -221,7 +226,25 @@ export const useMicStore = create<MicState>((set, get) => ({
 
   deactivateInteraction: () => {
     if (!get().interactionActive) return;
-    set({ interactionActive: false });
+    set({ interactionActive: false, pttActive: false });
     playStopSound();
+  },
+
+  activatePTT: () => {
+    if (get().pttActive) return;
+    set({ interactionActive: true, pttActive: true });
+    playStartSound();
+  },
+
+  deactivatePTT: () => {
+    if (!get().pttActive) return;
+    set({ interactionActive: false, pttActive: false });
+    playStopSound();
+  },
+
+  initAlwaysListen: () => {
+    if (!storage.getASRAlwaysListen()) return;
+    if (get().status !== 'idle') return;
+    get().startListening();
   },
 }));

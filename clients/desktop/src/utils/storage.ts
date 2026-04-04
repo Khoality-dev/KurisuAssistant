@@ -18,6 +18,7 @@ const STORAGE_KEYS = {
   SELECTED_AGENT_ID: 'kurisu_selected_agent_id',
   AGENT_CONVERSATIONS: 'kurisu_agent_conversations',
   ASR_LANGUAGE: 'kurisu_asr_language',
+  ASR_ALWAYS_LISTEN: 'kurisu_asr_always_listen',
   ASR_MODE: 'kurisu_asr_mode',
   ASR_FIXED_MODEL: 'kurisu_asr_fixed_model',
   ASR_MODEL_MAP: 'kurisu_asr_model_map',
@@ -407,6 +408,24 @@ export const storage = {
       localStorage.removeItem(STORAGE_KEYS.ASR_LANGUAGE);
     } catch (error) {
       console.error('Failed to clear ASR language:', error);
+    }
+  },
+
+  /** Always-listen: keep mic active for trigger word detection. Default true. */
+  getASRAlwaysListen(): boolean {
+    try {
+      const v = localStorage.getItem(STORAGE_KEYS.ASR_ALWAYS_LISTEN);
+      return v === 'true';
+    } catch {
+      return true;
+    }
+  },
+
+  setASRAlwaysListen(enabled: boolean): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ASR_ALWAYS_LISTEN, enabled.toString());
+    } catch (error) {
+      console.error('Failed to save ASR always-listen:', error);
     }
   },
 

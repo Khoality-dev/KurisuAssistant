@@ -165,9 +165,42 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     isStreaming: streaming.isStreaming,
     isQueueActive,
     handleSendText: streaming.handleSendText,
-    pushExternalDraft: streaming.pushExternalDraft,
-    clearExternalDraft: streaming.clearExternalDraft,
   });
+
+  // Always-listen: auto-start mic on mount
+  useEffect(() => {
+    useMicStore.getState().initAlwaysListen();
+  }, []);
+
+  // Push-to-talk: Ctrl+Space or headset MediaPlayPause
+  useEffect(() => {
+    const { activatePTT, deactivatePTT } = useMicStore.getState();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      const isCtrlSpace = e.ctrlKey && e.code === 'Space';
+      const isMediaPlay = e.key === 'MediaPlayPause';
+      if (isCtrlSpace || isMediaPlay) {
+        e.preventDefault();
+        activatePTT();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const isCtrlSpace = e.code === 'Space';
+      const isMediaPlay = e.key === 'MediaPlayPause';
+      if (isCtrlSpace || isMediaPlay) {
+        deactivatePTT();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
 
   // Vision (camera toggle)
   const {
@@ -478,14 +511,14 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
             : (value) => streaming.respondToApproval(value === 'approve')
           }
         />
-      ) : asr.interactiveMode ? (
+      ) : asr.interactionActive ? (
         <InteractiveCallBar
           asrStatus={asr.asrStatus}
           interactionActive={asr.interactionActive}
           lastTranscript={asr.lastTranscript}
           isStreaming={streaming.isStreaming}
           isTTSPlaying={isQueueActive}
-          onHangUp={asr.disableInteractiveMode}
+          onHangUp={() => useMicStore.getState().deactivateInteraction()}
         />
       ) : (
         <ChatComposer
