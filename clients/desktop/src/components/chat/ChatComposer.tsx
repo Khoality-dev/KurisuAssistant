@@ -40,7 +40,7 @@ const MicIndicator: React.FC = () => {
     const update = () => {
       if (iconRef.current) {
         const active = getMicAmplitude() > 0.15;
-        iconRef.current.style.color = active ? '#f44336' : '';
+        iconRef.current.style.color = active ? '#4caf50' : '';
       }
       raf = requestAnimationFrame(update);
     };
