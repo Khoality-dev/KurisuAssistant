@@ -46,6 +46,8 @@ export function useInteractiveASR({
     const triggerWord = selectedAgent?.persona?.trigger_word?.trim();
     const hasTrigger = triggerWord && asrTranscript.toLowerCase().includes(triggerWord.toLowerCase());
 
+    console.log('[ASR]', { text: asrTranscript, agentId, triggerWord, hasTrigger, interactionActive: state.interactionActive });
+
     if (state.interactionActive || hasTrigger) {
       // Show transcript
       setLastTranscript(asrTranscript);
