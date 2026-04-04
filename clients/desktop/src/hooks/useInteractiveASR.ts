@@ -75,6 +75,9 @@ export function useInteractiveASR({
       // During TTS playback: interrupt and send
       if (isQueueActiveRef.current) stopTTSPlayback();
 
+      // Pause VAD immediately so no more speech is captured while we wait for streaming
+      useMicStore.getState().pauseListening();
+
       // Show transcript
       setLastTranscript(asrTranscript);
       if (lastTranscriptTimerRef.current) clearTimeout(lastTranscriptTimerRef.current);
