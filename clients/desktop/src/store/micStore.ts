@@ -49,7 +49,9 @@ interface MicState {
 // Module-level VAD state (not in Zustand to avoid re-renders)
 let _vad: MicVAD | null = null;
 let _seq = 0;
-let _lastProbUpdate = 0;
+let _audioCtx: AudioContext | null = null;
+let _analyser: AnalyserNode | null = null;
+let _amplitudeInterval: ReturnType<typeof setInterval> | null = null;
 
 // Reusable audio elements for sound effects (avoids WebMediaPlayer leak)
 let _startSound: HTMLAudioElement | null = null;
@@ -91,8 +93,8 @@ export const useMicStore = create<MicState>((set, get) => ({
         onnxWASMBasePath: './vad/',
         model: 'legacy',
         startOnLoad: true,
-        getStream: async () =>
-          navigator.mediaDevices.getUserMedia({
+        getStream: async () => {
+          const stream = await navigator.mediaDevices.getUserMedia({
             audio: {
               deviceId: deviceId ? { exact: deviceId } : undefined,
               channelCount: 1,
@@ -100,14 +102,26 @@ export const useMicStore = create<MicState>((set, get) => ({
               autoGainControl: true,
               noiseSuppression: true,
             },
-          }),
-        onFrameProcessed: (probs: { isSpeech: number }) => {
-          // Throttle to ~5fps to avoid excessive re-renders
-          const now = Date.now();
-          if (now - _lastProbUpdate > 200) {
-            _lastProbUpdate = now;
-            set({ speechProbability: probs.isSpeech });
-          }
+          });
+          // Attach analyser for amplitude indicator
+          _audioCtx = new AudioContext();
+          const source = _audioCtx.createMediaStreamSource(stream);
+          _analyser = _audioCtx.createAnalyser();
+          _analyser.fftSize = 256;
+          source.connect(_analyser);
+          const dataArray = new Uint8Array(_analyser.fftSize);
+          _amplitudeInterval = setInterval(() => {
+            if (!_analyser) return;
+            _analyser.getByteTimeDomainData(dataArray);
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+              const v = (dataArray[i] - 128) / 128;
+              sum += v * v;
+            }
+            const rms = Math.sqrt(sum / dataArray.length);
+            set({ speechProbability: Math.min(1, rms * 4) });
+          }, 200);
+          return stream;
         },
         onSpeechEnd: async (audio: Float32Array) => {
           // Skip audio too short to contain a trigger word (< 0.5s at 16kHz)
@@ -178,6 +192,8 @@ export const useMicStore = create<MicState>((set, get) => ({
   },
 
   stopListening: async () => {
+    if (_amplitudeInterval) { clearInterval(_amplitudeInterval); _amplitudeInterval = null; }
+    if (_audioCtx) { _audioCtx.close().catch(() => {}); _audioCtx = null; _analyser = null; }
     if (_vad) {
       await _vad.destroy();
       _vad = null;
