@@ -297,10 +297,11 @@ class WebSocketManager {
 
       this.ws.onmessage = (event) => {
         try {
+          // Any server message proves the connection is alive
+          this._lastPingTime = Date.now();
+
           const data = JSON.parse(event.data);
-          // Respond to server heartbeat pings
           if (data.type === 'ping') {
-            this._lastPingTime = Date.now();
             this.ws?.send(JSON.stringify({ type: 'pong' }));
             return;
           }
