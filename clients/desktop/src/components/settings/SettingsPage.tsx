@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, List, ListItemButton, ListItemIcon, ListItemText, Typography } from '@mui/material';
 import {
   Person as AccountIcon,
+  Mic as VoiceIcon,
   RecordVoiceOver as TTSIcon,
   Palette as AppearanceIcon,
   EmojiPeople as PersonasIcon,
@@ -16,6 +17,7 @@ import { useLayoutStore } from '../../store/layoutStore';
 
 // Lazy imports for settings sections
 const AccountSection = React.lazy(() => import('./AccountSection').then(m => ({ default: m.AccountSection })));
+const VoiceSection = React.lazy(() => import('./VoiceSection').then(m => ({ default: m.VoiceSection })));
 const TTSSection = React.lazy(() => import('./TTSSection').then(m => ({ default: m.TTSSection })));
 const AppearanceSection = React.lazy(() => import('./AppearanceSection').then(m => ({ default: m.AppearanceSection })));
 const PersonasSection = React.lazy(() => import('./PersonasSection').then(m => ({ default: m.PersonasSection })));
@@ -34,6 +36,7 @@ interface SettingsItem {
 
 const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'account', label: 'Account', icon: <AccountIcon /> },
+  { id: 'voice', label: 'Voice', icon: <VoiceIcon /> },
   { id: 'tts', label: 'TTS & ASR', icon: <TTSIcon /> },
   { id: 'appearance', label: 'Appearance', icon: <AppearanceIcon /> },
   { id: 'personas', label: 'Personas', icon: <PersonasIcon /> },
@@ -48,6 +51,7 @@ const SETTINGS_ITEMS: SettingsItem[] = [
 function renderSection(sectionId: string) {
   switch (sectionId) {
     case 'account': return <AccountSection />;
+    case 'voice': return <VoiceSection />;
     case 'tts': return <TTSSection />;
     case 'appearance': return <AppearanceSection />;
     case 'personas': return <PersonasSection />;
