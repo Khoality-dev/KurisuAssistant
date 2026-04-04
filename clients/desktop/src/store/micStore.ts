@@ -6,6 +6,11 @@ import { useAgentStore } from './agentStore';
 
 export type ASRStatus = 'idle' | 'listening' | 'processing';
 
+/** Read real-time mic amplitude (0-1) outside of React state to avoid re-renders. */
+export function getMicAmplitude(): number {
+  return _amplitudeData.current;
+}
+
 export interface AudioDevice {
   deviceId: string;
   label: string;
@@ -30,7 +35,6 @@ interface MicState {
   interactiveMode: boolean;
   interactionActive: boolean;
   pttActive: boolean;
-  speechProbability: number;
 
   // Actions
   startListening: () => Promise<void>;
@@ -51,7 +55,8 @@ let _vad: MicVAD | null = null;
 let _seq = 0;
 let _audioCtx: AudioContext | null = null;
 let _analyser: AnalyserNode | null = null;
-let _amplitudeInterval: ReturnType<typeof setInterval> | null = null;
+let _amplitudeRaf = 0;
+const _amplitudeData = { current: 0 }; // Module-level, read by components via getAmplitude()
 
 // Reusable audio elements for sound effects (avoids WebMediaPlayer leak)
 let _startSound: HTMLAudioElement | null = null;
@@ -78,7 +83,6 @@ export const useMicStore = create<MicState>((set, get) => ({
   interactiveMode: false,
   interactionActive: false,
   pttActive: false,
-  speechProbability: 0,
 
   startListening: async () => {
     // Guard: skip if already listening or initializing
@@ -110,7 +114,7 @@ export const useMicStore = create<MicState>((set, get) => ({
           _analyser.fftSize = 256;
           source.connect(_analyser);
           const dataArray = new Uint8Array(_analyser.fftSize);
-          _amplitudeInterval = setInterval(() => {
+          const updateAmplitude = () => {
             if (!_analyser) return;
             _analyser.getByteTimeDomainData(dataArray);
             let sum = 0;
@@ -118,9 +122,10 @@ export const useMicStore = create<MicState>((set, get) => ({
               const v = (dataArray[i] - 128) / 128;
               sum += v * v;
             }
-            const rms = Math.sqrt(sum / dataArray.length);
-            set({ speechProbability: Math.min(1, rms * 4) });
-          }, 200);
+            _amplitudeData.current = Math.min(1, Math.sqrt(sum / dataArray.length) * 4);
+            _amplitudeRaf = requestAnimationFrame(updateAmplitude);
+          };
+          _amplitudeRaf = requestAnimationFrame(updateAmplitude);
           return stream;
         },
         onSpeechEnd: async (audio: Float32Array) => {
@@ -192,13 +197,14 @@ export const useMicStore = create<MicState>((set, get) => ({
   },
 
   stopListening: async () => {
-    if (_amplitudeInterval) { clearInterval(_amplitudeInterval); _amplitudeInterval = null; }
+    if (_amplitudeRaf) { cancelAnimationFrame(_amplitudeRaf); _amplitudeRaf = 0; }
+    _amplitudeData.current = 0;
     if (_audioCtx) { _audioCtx.close().catch(() => {}); _audioCtx = null; _analyser = null; }
     if (_vad) {
       await _vad.destroy();
       _vad = null;
     }
-    set({ status: 'idle', speechProbability: 0 });
+    set({ status: 'idle' });
   },
 
   loadDevices: async () => {

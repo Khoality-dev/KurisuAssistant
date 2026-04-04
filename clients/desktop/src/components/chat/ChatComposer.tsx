@@ -27,44 +27,35 @@ import {
   VideocamOff as VideocamOffIcon,
   Mic as MicIcon,
 } from '@mui/icons-material';
-import { useMicStore } from '../../store/micStore';
+import { useMicStore, getMicAmplitude } from '../../store/micStore';
 
-/** Compact mic status indicator with speech probability bar */
+/** Mic icon that lights up when sound is detected */
 const MicIndicator: React.FC = () => {
   const status = useMicStore((s) => s.status);
-  const prob = useMicStore((s) => s.speechProbability);
+  const iconRef = useRef<SVGSVGElement | null>(null);
+
+  useEffect(() => {
+    if (status === 'idle') return;
+    let raf = 0;
+    const update = () => {
+      if (iconRef.current) {
+        const active = getMicAmplitude() > 0.15;
+        iconRef.current.style.color = active ? '#f44336' : '';
+      }
+      raf = requestAnimationFrame(update);
+    };
+    raf = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(raf);
+  }, [status]);
 
   if (status === 'idle') return null;
 
-  const isProcessing = status === 'processing';
-  const barHeight = Math.max(4, prob * 20);
-
   return (
-    <Tooltip title={isProcessing ? 'Processing speech...' : 'Listening'}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 0.5 }}>
-        <MicIcon
-          sx={{
-            fontSize: 18,
-            color: isProcessing ? 'warning.main' : prob > 0.5 ? 'error.main' : 'text.secondary',
-            transition: 'color 0.15s',
-          }}
-        />
-        {/* Amplitude bars */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: '2px', height: 20 }}>
-          {[0.2, 0.4, 0.6, 0.8].map((threshold) => (
-            <Box
-              key={threshold}
-              sx={{
-                width: 3,
-                height: prob > threshold ? barHeight : 4,
-                borderRadius: 1,
-                bgcolor: prob > threshold ? 'error.main' : 'action.disabled',
-                transition: 'height 0.1s, background-color 0.1s',
-              }}
-            />
-          ))}
-        </Box>
-      </Box>
+    <Tooltip title={status === 'processing' ? 'Processing...' : 'Listening'}>
+      <MicIcon
+        ref={iconRef}
+        sx={{ fontSize: 18, color: 'text.secondary' }}
+      />
     </Tooltip>
   );
 };
