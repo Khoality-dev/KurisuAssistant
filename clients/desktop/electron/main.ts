@@ -441,54 +441,6 @@ app.whenReady().then(() => {
   createTray();
   createWindow();
 
-  // Global PTT via uiohook-napi — captures any key globally including media keys
-  try {
-    const { uIOhook } = require('uiohook-napi');
-
-    let pttKeycode: number | null = null;
-    let lastPttPress = 0;
-
-    // IPC: renderer tells main which keycode to use for PTT
-    ipcMain.on('ptt:set-keycode', (_event: any, keycode: number | null) => {
-      pttKeycode = keycode;
-      console.log('PTT keycode set to:', keycode);
-    });
-
-    // IPC: renderer requests key capture mode (next key press is sent back)
-    let capturingKey = false;
-    ipcMain.on('ptt:capture-start', () => { capturingKey = true; });
-    ipcMain.on('ptt:capture-stop', () => { capturingKey = false; });
-
-    uIOhook.on('keydown', (e: any) => {
-      // Key capture mode: send the keycode back to renderer
-      if (capturingKey) {
-        capturingKey = false;
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('ptt:key-captured', e.keycode);
-        }
-        return;
-      }
-
-      // PTT double-press toggle
-      if (pttKeycode !== null && e.keycode === pttKeycode) {
-        const now = Date.now();
-        if (now - lastPttPress < 500) {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('ptt:toggle');
-          }
-          lastPttPress = 0;
-        } else {
-          lastPttPress = now;
-        }
-      }
-    });
-
-    uIOhook.start();
-    console.log('uiohook started for global PTT');
-  } catch (err) {
-    console.error('Failed to start uiohook:', err);
-  }
-
   registerMCPHandlers();
   registerHostToolIPC();
   registerAppToolIPC();
@@ -534,7 +486,6 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
-  try { require('uiohook-napi').uIOhook.stop(); } catch {}
   cleanupMCP();
   stopMcpServer();
 });

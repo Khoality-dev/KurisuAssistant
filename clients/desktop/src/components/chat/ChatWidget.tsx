@@ -28,7 +28,6 @@ import { useVisionStore } from '../../store/visionStore';
 import { useCharacterPanel } from '../../hooks/useCharacterPanel';
 import { useInteractiveASR } from '../../hooks/useInteractiveASR';
 import { useMicStore } from '../../store/micStore';
-import { storage } from '../../utils/storage';
 import { useAgentStore } from '../../store/agentStore';
 import { useStreamingChat } from '../../hooks/useStreamingChat';
 import { InteractiveCallBar } from '../InteractiveCallBar';
@@ -174,12 +173,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     stopTTSPlayback: () => { stopTTS(); clearQueue(); },
   });
 
-  // Always-listen: auto-start mic on mount + send PTT keycode to main process
+  // Always-listen: auto-start mic on mount
   useEffect(() => {
     useMicStore.getState().initAlwaysListen();
-    const electron = (window as any).electron;
-    const keycode = storage.getPTTKeycode();
-    if (keycode !== null) electron?.ptt?.setKeycode(keycode);
   }, []);
 
   // Push-to-talk: Ctrl+Space or headset MediaPlayPause
@@ -200,28 +196,11 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       }
     };
 
-
-    // Headset button via Electron global shortcut (double-press MediaPlayPause)
-    // Uses activateInteraction (not PTT) so the 30s idle timer applies
-    const electron = (window as any).electron;
-    let cleanupPTT: (() => void) | undefined;
-    if (electron?.ptt?.onToggle) {
-      cleanupPTT = electron.ptt.onToggle(() => {
-        const mic = useMicStore.getState();
-        if (mic.interactionActive) {
-          mic.deactivateInteraction();
-        } else {
-          mic.activateInteraction();
-        }
-      });
-    }
-
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
-      cleanupPTT?.();
     };
   }, []);
 

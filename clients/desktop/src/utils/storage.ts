@@ -19,8 +19,6 @@ const STORAGE_KEYS = {
   AGENT_CONVERSATIONS: 'kurisu_agent_conversations',
   ASR_LANGUAGE: 'kurisu_asr_language',
   ASR_ALWAYS_LISTEN: 'kurisu_asr_always_listen',
-  PTT_KEYCODE: 'kurisu_ptt_keycode',
-  PTT_KEY_LABEL: 'kurisu_ptt_key_label',
   ASR_MODE: 'kurisu_asr_mode',
   ASR_FIXED_MODEL: 'kurisu_asr_fixed_model',
   ASR_MODEL_MAP: 'kurisu_asr_model_map',
@@ -411,40 +409,6 @@ export const storage = {
     } catch (error) {
       console.error('Failed to clear ASR language:', error);
     }
-  },
-
-  /** PTT keycode (uiohook keycode number) */
-  getPTTKeycode(): number | null {
-    try {
-      const v = localStorage.getItem(STORAGE_KEYS.PTT_KEYCODE);
-      return v ? parseInt(v, 10) : null;
-    } catch {
-      return null;
-    }
-  },
-
-  setPTTKeycode(keycode: number | null): void {
-    try {
-      if (keycode !== null) {
-        localStorage.setItem(STORAGE_KEYS.PTT_KEYCODE, keycode.toString());
-      } else {
-        localStorage.removeItem(STORAGE_KEYS.PTT_KEYCODE);
-      }
-    } catch {}
-  },
-
-  getPTTKeyLabel(): string {
-    try {
-      return localStorage.getItem(STORAGE_KEYS.PTT_KEY_LABEL) || '';
-    } catch {
-      return '';
-    }
-  },
-
-  setPTTKeyLabel(label: string): void {
-    try {
-      localStorage.setItem(STORAGE_KEYS.PTT_KEY_LABEL, label);
-    } catch {}
   },
 
   /** Always-listen: keep mic active for trigger word detection. Default true. */
