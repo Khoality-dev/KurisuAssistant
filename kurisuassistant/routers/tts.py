@@ -41,6 +41,9 @@ async def synthesize_speech(
     Reads voice reference from local voice_storage and forwards
     as ref_audio upload to universal-voice.
     """
+    logger.info("TTS request: text=%d chars, voice=%s, provider=%s, language=%s",
+                len(text), voice, provider, language)
+
     try:
         data: dict = {"text": text}
         if provider:
@@ -53,11 +56,16 @@ async def synthesize_speech(
 
         if voice_file:
             files["ref_audio"] = open(voice_file, "rb")
+            logger.info("TTS: uploading ref_audio from %s", voice_file)
         elif voice:
-            # No local file — treat as preset voice_id
             data["voice_id"] = voice
+            logger.info("TTS: using preset voice_id=%s (no local file found)", voice)
+        else:
+            logger.info("TTS: no voice specified, using model default")
 
         try:
+            logger.debug("TTS: POST %s/tts/synthesize data=%s files=%s",
+                         UVOICE_URL, {k: v for k, v in data.items() if k != "text"}, list(files.keys()))
             r = http_requests.post(
                 f"{UVOICE_URL}/tts/synthesize",
                 data=data,
@@ -65,6 +73,7 @@ async def synthesize_speech(
                 timeout=120,
             )
             r.raise_for_status()
+            logger.info("TTS: synthesized %d bytes", len(r.content))
         finally:
             for f in files.values():
                 if hasattr(f, "close"):
