@@ -113,17 +113,27 @@ async def check_tts_health(
         return {"ok": False, "message": str(e)}
 
 
-@router.get("/backends")
-async def list_tts_backends(
+# Returned when universal-voice is unreachable
+_FALLBACK_TTS_MODELS = [
+    {"id": "vixtts", "object": "model", "type": "tts", "loaded": None},
+    {"id": "gpt-sovits", "object": "model", "type": "tts", "loaded": None},
+    {"id": "vieneu:turbo", "object": "model", "type": "tts", "loaded": None},
+]
+
+
+@router.get("/models")
+async def list_tts_models(
     _user=Depends(get_authenticated_user),
 ):
-    """Proxy model listing to universal-voice, filtered to TTS models."""
+    """List available TTS models from universal-voice, with fallback."""
     try:
-        r = http_requests.get(f"{UVOICE_URL}/v1/models", timeout=10)
+        r = http_requests.get(f"{UVOICE_URL}/v1/models", timeout=5)
         r.raise_for_status()
         models = r.json().get("data", [])
         tts_models = [m for m in models if m.get("type") == "tts"]
-        return {"backends": tts_models}
+        if tts_models:
+            return {"models": tts_models}
     except http_requests.RequestException as e:
-        logger.error("TTS backends error: %s", e, exc_info=True)
-        raise HTTPException(status_code=502, detail=f"TTS service error: {e}")
+        logger.warning("TTS service unavailable, returning fallback models: %s", e)
+
+    return {"models": _FALLBACK_TTS_MODELS}

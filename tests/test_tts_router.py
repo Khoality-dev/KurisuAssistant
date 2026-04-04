@@ -170,10 +170,10 @@ class TestListVoices:
 
 
 # ---------------------------------------------------------------------------
-# GET /tts/backends
+# GET /tts/models
 # ---------------------------------------------------------------------------
 
-class TestListBackends:
+class TestListModels:
     @patch("kurisuassistant.routers.tts.http_requests.get")
     def test_list_backends_filters_tts(self, mock_get, client):
         mock_resp = MagicMock()
@@ -189,22 +189,44 @@ class TestListBackends:
         mock_resp.raise_for_status = MagicMock()
         mock_get.return_value = mock_resp
 
-        resp = client.get("/tts/backends")
+        resp = client.get("/tts/models")
 
         assert resp.status_code == 200
         body = resp.json()
-        backends = body["backends"]
+        backends = body["models"]
         assert len(backends) == 3
         assert all(b["type"] == "tts" for b in backends)
         # ASR model should be filtered out
         assert not any(b["id"] == "whisper:base" for b in backends)
 
     @patch("kurisuassistant.routers.tts.http_requests.get")
-    def test_list_backends_upstream_error(self, mock_get, client):
+    def test_list_backends_returns_fallback_when_service_down(self, mock_get, client):
+        """When universal-voice is unreachable, return fallback models instead of 502."""
         mock_get.side_effect = requests.ConnectionError("refused")
 
-        resp = client.get("/tts/backends")
-        assert resp.status_code == 502
+        resp = client.get("/tts/models")
+        assert resp.status_code == 200
+        backends = resp.json()["models"]
+        assert len(backends) == 3
+        ids = [b["id"] for b in backends]
+        assert "vixtts" in ids
+        assert "gpt-sovits" in ids
+        assert "vieneu:turbo" in ids
+
+    @patch("kurisuassistant.routers.tts.http_requests.get")
+    def test_list_backends_returns_fallback_when_empty(self, mock_get, client):
+        """When universal-voice returns no TTS models, return fallback."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"object": "list", "data": [
+            {"id": "whisper:base", "type": "asr", "loaded": True},
+        ]}
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/tts/models")
+        assert resp.status_code == 200
+        backends = resp.json()["models"]
+        assert len(backends) == 3  # fallback models
 
 
 # ---------------------------------------------------------------------------
