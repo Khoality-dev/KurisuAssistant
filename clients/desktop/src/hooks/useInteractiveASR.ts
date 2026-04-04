@@ -75,20 +75,18 @@ export function useInteractiveASR({
       // During TTS playback: interrupt and send
       if (isQueueActiveRef.current) stopTTSPlayback();
 
-      // Pause VAD immediately so no more speech is captured while we wait for streaming
-      useMicStore.getState().pauseListening();
-
       // Show transcript
       setLastTranscript(asrTranscript);
       if (lastTranscriptTimerRef.current) clearTimeout(lastTranscriptTimerRef.current);
       lastTranscriptTimerRef.current = setTimeout(() => setLastTranscript(''), 3000);
 
-      // Send
+      // Send, then pause VAD so no more speech is captured
       if (interactionTimerRef.current) {
         clearTimeout(interactionTimerRef.current);
         interactionTimerRef.current = null;
       }
       handleSendText(asrTranscript);
+      useMicStore.getState().pauseListening();
     } else {
       // Not in interaction and no trigger word: fill chat input as dictation
       pushExternalDraft(asrTranscript);
