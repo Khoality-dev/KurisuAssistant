@@ -53,20 +53,24 @@ async def asr_endpoint(
 @router.post("/asr/detect-language")
 async def asr_detect_language(
     audio: bytes = Body(..., media_type="application/octet-stream"),
+    languages: str | None = Query(None),
     _user=Depends(get_authenticated_user),
 ):
-    """Detect language from raw PCM audio via universal-asr."""
+    """Detect language from raw PCM audio. Optional: constrain to comma-separated codes."""
     try:
+        params: dict = {}
+        if languages:
+            params["languages"] = languages
+
         r = http_requests.post(
-            f"{ASR_API_URL}/asr",
+            f"{ASR_API_URL}/asr/detect-language",
             data=audio,
-            params={"mode": "fast"},
+            params=params,
             headers={"Content-Type": "application/octet-stream"},
             timeout=15,
         )
         r.raise_for_status()
-        data = r.json()
-        return {"language": data.get("language", "")}
+        return r.json()
     except http_requests.RequestException as e:
         logger.error("ASR detect-language error: %s", e, exc_info=True)
         raise HTTPException(status_code=502, detail=f"ASR service error: {e}")
