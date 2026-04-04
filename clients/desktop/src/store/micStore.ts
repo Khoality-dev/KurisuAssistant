@@ -149,7 +149,7 @@ export const useMicStore = create<MicState>((set, get) => ({
             let fast = false;
 
             if (interactionActive) {
-              // Full quality: language detection + routing + initial_prompt
+              // Full quality: language detection + routing, no initial_prompt
               const asrMode = storage.getASRMode();
               if (asrMode === 'routing') {
                 const modelMap = storage.getASRModelMap();
@@ -166,12 +166,12 @@ export const useMicStore = create<MicState>((set, get) => ({
                 const fixedModel = storage.getASRFixedModel();
                 if (fixedModel) model = fixedModel;
               }
+            } else {
+              // Background listening: fast mode + initial_prompt for trigger word detection
+              fast = true;
               const { agents, selectedAgentId } = useAgentStore.getState();
               const selectedAgent = agents.find((a) => a.id === selectedAgentId);
               initial_prompt = selectedAgent?.persona?.trigger_word?.trim() || undefined;
-            } else {
-              // Background listening: fast mode, default model, just detect trigger word
-              fast = true;
             }
 
             const response = await apiClient.transcribe(int16.buffer, { language, model, initial_prompt, fast });
