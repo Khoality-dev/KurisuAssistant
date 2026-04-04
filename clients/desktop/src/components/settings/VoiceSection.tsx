@@ -52,16 +52,27 @@ export const VoiceSection: React.FC = () => {
     localStorage.setItem('kurisu_speaker_device_id', deviceId);
   };
 
+  // Pause listening while on this page to free the mic for device enumeration
+  useEffect(() => {
+    const mic = useMicStore.getState();
+    const wasListening = mic.status !== 'idle';
+    if (wasListening) mic.stopListening();
+    return () => {
+      // Restart if always-listen is enabled
+      if (storage.getASRAlwaysListen()) {
+        useMicStore.getState().startListening();
+      }
+    };
+  }, []);
+
   useEffect(() => {
     const loadDevices = async () => {
-      // Request mic permission for device labels — skip if already listening (permission granted)
-      if (useMicStore.getState().status === 'idle') {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          stream.getTracks().forEach((t) => t.stop());
-        } catch {
-          // Permission may already be granted or denied
-        }
+      // Request mic permission to get device labels
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((t) => t.stop());
+      } catch {
+        // Permission may already be granted or denied
       }
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();

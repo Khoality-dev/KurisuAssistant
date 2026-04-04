@@ -49,6 +49,7 @@ interface MicState {
 // Module-level VAD state (not in Zustand to avoid re-renders)
 let _vad: MicVAD | null = null;
 let _seq = 0;
+let _lastProbUpdate = 0;
 
 // Reusable audio elements for sound effects (avoids WebMediaPlayer leak)
 let _startSound: HTMLAudioElement | null = null;
@@ -101,7 +102,12 @@ export const useMicStore = create<MicState>((set, get) => ({
             },
           }),
         onFrameProcessed: (probs: { isSpeech: number }) => {
-          set({ speechProbability: probs.isSpeech });
+          // Throttle to ~5fps to avoid excessive re-renders
+          const now = Date.now();
+          if (now - _lastProbUpdate > 200) {
+            _lastProbUpdate = now;
+            set({ speechProbability: probs.isSpeech });
+          }
         },
         onSpeechEnd: async (audio: Float32Array) => {
           // Skip audio too short to contain a trigger word (< 0.5s at 16kHz)
