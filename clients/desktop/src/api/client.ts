@@ -377,11 +377,13 @@ class APIClient {
    */
   async transcribe(
     audio: ArrayBuffer,
-    options?: { language?: string; mode?: string },
+    options?: { language?: string; mode?: string; model?: string; initial_prompt?: string },
   ): Promise<{ text: string; language: string }> {
     const params: Record<string, string> = {};
     if (options?.language) params.language = options.language;
     if (options?.mode) params.mode = options.mode;
+    if (options?.model) params.model = options.model;
+    if (options?.initial_prompt) params.initial_prompt = options.initial_prompt;
 
     const response = await this.client.post<{ text: string; language: string }>('/asr', audio, {
       headers: { ...this.getHeaders(), 'Content-Type': 'application/octet-stream' },
@@ -389,6 +391,26 @@ class APIClient {
       timeout: 30000,
     });
     return response.data;
+  }
+
+  async detectLanguage(audio: ArrayBuffer, options?: { languages?: string[] }): Promise<{ language: string }> {
+    const params: Record<string, string> = {};
+    if (options?.languages?.length) params.languages = options.languages.join(',');
+
+    const response = await this.client.post<{ language: string }>('/asr/detect-language', audio, {
+      headers: { ...this.getHeaders(), 'Content-Type': 'application/octet-stream' },
+      params,
+      timeout: 15000,
+    });
+    return response.data;
+  }
+
+  async getASRModels(): Promise<Array<{ id: string; name: string; size_mb: number | null; loaded: boolean }>> {
+    const response = await this.client.get<{ data: Array<{ id: string; name: string; size_mb: number | null; loaded: boolean }> }>(
+      '/asr/models',
+      { headers: this.getHeaders() },
+    );
+    return response.data.data || [];
   }
 
   // Agent Methods

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { MicVAD } from '@ricky0123/vad-web';
 import { apiClient } from '../api/client';
 import { storage } from '../utils/storage';
+import { useAgentStore } from './agentStore';
 
 export type ASRStatus = 'idle' | 'listening' | 'processing';
 
@@ -105,16 +106,37 @@ export const useMicStore = create<MicState>((set, get) => ({
           set({ status: 'processing' });
 
           try {
-            const language = storage.getASRLanguage() || undefined;
+            const asrMode = storage.getASRMode();
             const { interactiveMode, interactionActive } = get();
             const mode = interactiveMode && !interactionActive ? 'fast' : undefined;
 
-            const response = await apiClient.transcribe(int16.buffer, { language, mode });
+            let language: string | undefined;
+            let model: string | undefined;
 
-            // Cache detected language on first auto-detect
-            if (!storage.getASRLanguage() && response.language) {
-              storage.setASRLanguage(response.language);
+            if (asrMode === 'routing') {
+              // Only detect among languages that have a model mapping
+              const modelMap = storage.getASRModelMap();
+              const mappedLanguages = modelMap
+                .map((e) => e.language)
+                .filter((l) => !!l);
+              const detected = await apiClient.detectLanguage(
+                int16.buffer,
+                mappedLanguages.length > 0 ? { languages: mappedLanguages } : undefined,
+              );
+              language = detected.language || undefined;
+              model = language ? storage.getASRModelForLanguage(language) : undefined;
+            } else {
+              const fixedModel = storage.getASRFixedModel();
+              if (fixedModel) model = fixedModel;
             }
+
+            // Pass selected persona's trigger word to bias recognition
+            const { agents, selectedAgentId } = useAgentStore.getState();
+            const selectedAgent = agents.find((a) => a.id === selectedAgentId);
+            const triggerWord = selectedAgent?.persona?.trigger_word?.trim();
+            const initial_prompt = triggerWord || undefined;
+
+            const response = await apiClient.transcribe(int16.buffer, { language, mode, model, initial_prompt });
 
             if (response.text.trim()) {
               _seq += 1;
