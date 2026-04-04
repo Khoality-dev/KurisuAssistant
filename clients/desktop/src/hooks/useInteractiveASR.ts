@@ -41,7 +41,8 @@ export function useInteractiveASR({
       if (isStreaming) {
         mic.pauseListening();
       } else {
-        mic.resumeListening();
+        // Delay resume so TTS audio doesn't get picked up by VAD
+        setTimeout(() => mic.resumeListening(), 5000);
       }
     }
   }, [isStreaming, interactionActive]);
