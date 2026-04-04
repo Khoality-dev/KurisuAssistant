@@ -9,6 +9,7 @@ import {
   FormControlLabel,
   Switch,
   Divider,
+  Button,
   SelectChangeEvent,
 } from '@mui/material';
 import { storage } from '../../utils/storage';
@@ -27,6 +28,8 @@ export const VoiceSection: React.FC = () => {
     localStorage.getItem('kurisu_speaker_device_id') || ''
   );
   const [alwaysListen, setAlwaysListenState] = useState(storage.getASRAlwaysListen());
+  const [pttKeyLabel, setPttKeyLabel] = useState(storage.getPTTKeyLabel() || 'Not set');
+  const [capturing, setCapturing] = useState(false);
 
   const setAlwaysListen = (v: boolean) => {
     setAlwaysListenState(v);
@@ -50,6 +53,42 @@ export const VoiceSection: React.FC = () => {
   const setSelectedSpeakerId = (deviceId: string) => {
     setSelectedSpeakerIdState(deviceId);
     localStorage.setItem('kurisu_speaker_device_id', deviceId);
+  };
+
+  const electron = (window as any).electron;
+
+  // Send stored PTT keycode to main process on mount
+  useEffect(() => {
+    const keycode = storage.getPTTKeycode();
+    electron?.ptt?.setKeycode(keycode);
+  }, []);
+
+  // Listen for captured key from main process
+  useEffect(() => {
+    if (!electron?.ptt?.onKeyCaptured) return;
+    const cleanup = electron.ptt.onKeyCaptured((keycode: number) => {
+      setCapturing(false);
+      setPttKeyLabel(`Key ${keycode}`);
+      storage.setPTTKeycode(keycode);
+      storage.setPTTKeyLabel(`Key ${keycode}`);
+      electron.ptt.setKeycode(keycode);
+    });
+    return cleanup;
+  }, []);
+
+  const startCapture = () => {
+    setCapturing(true);
+    setPttKeyLabel('Press any key...');
+    electron?.ptt?.startCapture();
+  };
+
+  const clearShortcut = () => {
+    setCapturing(false);
+    setPttKeyLabel('Not set');
+    storage.setPTTKeycode(null);
+    storage.setPTTKeyLabel('');
+    electron?.ptt?.setKeycode(null);
+    electron?.ptt?.stopCapture();
   };
 
   // Pause listening while on this page to free the mic for device enumeration
@@ -131,7 +170,34 @@ export const VoiceSection: React.FC = () => {
           label="Always listen"
         />
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-          Keep microphone active to detect trigger words or push-to-talk (Ctrl+Space).
+          Keep microphone active to detect trigger words or push-to-talk.
+        </Typography>
+      </Box>
+
+      {/* PTT Shortcut */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>Push-to-talk shortcut</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Box sx={{
+            px: 2, py: 1, borderRadius: 1,
+            border: '1px solid',
+            borderColor: capturing ? 'primary.main' : 'divider',
+            bgcolor: capturing ? 'action.selected' : 'background.paper',
+            minWidth: 120, textAlign: 'center',
+          }}>
+            <Typography variant="body2" color={capturing ? 'primary.main' : 'text.secondary'}>
+              {pttKeyLabel}
+            </Typography>
+          </Box>
+          <Button size="small" variant="outlined" onClick={startCapture} disabled={capturing}>
+            {capturing ? 'Listening...' : 'Set key'}
+          </Button>
+          <Button size="small" color="error" onClick={clearShortcut}>
+            Clear
+          </Button>
+        </Box>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+          Double-press this key to toggle voice interaction. Works even when the app is not focused.
         </Typography>
       </Box>
 

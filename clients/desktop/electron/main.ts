@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, protocol, shell, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, shell, Tray, Menu, nativeImage } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import https from 'https';
@@ -441,20 +441,53 @@ app.whenReady().then(() => {
   createTray();
   createWindow();
 
-  // Global PTT shortcut — double-press MediaPlayPause to toggle (avoids accidental triggers)
-  let lastMediaPress = 0;
-  globalShortcut.register('MediaPlayPause', () => {
-    const now = Date.now();
-    if (now - lastMediaPress < 500) {
-      // Double-press detected
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('ptt:toggle');
+  // Global PTT via uiohook-napi — captures any key globally including media keys
+  try {
+    const { uIOhook } = require('uiohook-napi');
+
+    let pttKeycode: number | null = null;
+    let lastPttPress = 0;
+
+    // IPC: renderer tells main which keycode to use for PTT
+    ipcMain.on('ptt:set-keycode', (_event: any, keycode: number | null) => {
+      pttKeycode = keycode;
+      console.log('PTT keycode set to:', keycode);
+    });
+
+    // IPC: renderer requests key capture mode (next key press is sent back)
+    let capturingKey = false;
+    ipcMain.on('ptt:capture-start', () => { capturingKey = true; });
+    ipcMain.on('ptt:capture-stop', () => { capturingKey = false; });
+
+    uIOhook.on('keydown', (e: any) => {
+      // Key capture mode: send the keycode back to renderer
+      if (capturingKey) {
+        capturingKey = false;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('ptt:key-captured', e.keycode);
+        }
+        return;
       }
-      lastMediaPress = 0; // Reset to prevent triple-press counting as another double
-    } else {
-      lastMediaPress = now;
-    }
-  });
+
+      // PTT double-press toggle
+      if (pttKeycode !== null && e.keycode === pttKeycode) {
+        const now = Date.now();
+        if (now - lastPttPress < 500) {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('ptt:toggle');
+          }
+          lastPttPress = 0;
+        } else {
+          lastPttPress = now;
+        }
+      }
+    });
+
+    uIOhook.start();
+    console.log('uiohook started for global PTT');
+  } catch (err) {
+    console.error('Failed to start uiohook:', err);
+  }
 
   registerMCPHandlers();
   registerHostToolIPC();
@@ -501,7 +534,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
-  globalShortcut.unregisterAll();
+  try { require('uiohook-napi').uIOhook.stop(); } catch {}
   cleanupMCP();
   stopMcpServer();
 });

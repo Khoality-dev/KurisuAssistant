@@ -28,6 +28,7 @@ import { useVisionStore } from '../../store/visionStore';
 import { useCharacterPanel } from '../../hooks/useCharacterPanel';
 import { useInteractiveASR } from '../../hooks/useInteractiveASR';
 import { useMicStore } from '../../store/micStore';
+import { storage } from '../../utils/storage';
 import { useAgentStore } from '../../store/agentStore';
 import { useStreamingChat } from '../../hooks/useStreamingChat';
 import { InteractiveCallBar } from '../InteractiveCallBar';
@@ -172,32 +173,32 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     pushExternalDraft: streaming.pushExternalDraft,
   });
 
-  // Always-listen: auto-start mic on mount
+  // Always-listen: auto-start mic on mount + send PTT keycode to main process
   useEffect(() => {
     useMicStore.getState().initAlwaysListen();
+    const electron = (window as any).electron;
+    const keycode = storage.getPTTKeycode();
+    if (keycode !== null) electron?.ptt?.setKeycode(keycode);
   }, []);
 
   // Push-to-talk: Ctrl+Space or headset MediaPlayPause
   useEffect(() => {
     const { activatePTT, deactivatePTT } = useMicStore.getState();
 
+    // Ctrl+Space: hold-to-talk
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.repeat) return;
-      const isCtrlSpace = e.ctrlKey && e.code === 'Space';
-      const isMediaPlay = e.key === 'MediaPlayPause';
-      if (isCtrlSpace || isMediaPlay) {
+      if (e.ctrlKey && e.code === 'Space') {
         e.preventDefault();
         activatePTT();
       }
     };
-
     const handleKeyUp = (e: KeyboardEvent) => {
-      const isCtrlSpace = e.code === 'Space';
-      const isMediaPlay = e.key === 'MediaPlayPause';
-      if (isCtrlSpace || isMediaPlay) {
+      if (e.code === 'Space') {
         deactivatePTT();
       }
     };
+
 
     // Headset button via Electron global shortcut (double-press MediaPlayPause)
     // Uses activateInteraction (not PTT) so the 30s idle timer applies
