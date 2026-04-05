@@ -16,6 +16,7 @@ import { wsManager, type ToolCallRequestEvent } from '../api/websocket';
 import { initAppToolsHandler } from './appToolsHandler';
 
 let initialized = false;
+let initializing = false;
 let toolCallHandler: ((event: ToolCallRequestEvent) => void) | null = null;
 let clientTools: Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }> = [];
 
@@ -25,9 +26,15 @@ let clientTools: Array<{ type: string; function: { name: string; description: st
  */
 export async function initClientMCPServers(): Promise<void> {
   if (!window.electron) {
-    // Not running in Electron — skip
     return;
   }
+
+  // Prevent concurrent initialization (rapid reconnects, StrictMode double-mount)
+  if (initializing) {
+    console.log('[MCP] Already initializing, skipping duplicate call');
+    return;
+  }
+  initializing = true;
 
   // Always collect built-in tools (host, app) regardless of MCP state
   const hostTools = window.electron.hostTools
@@ -72,6 +79,7 @@ export async function initClientMCPServers(): Promise<void> {
 
     initAppToolsHandler();
     initialized = true;
+    initializing = false;
     console.log(`[MCP] Initialized ${clientTools.length} tools (${builtinTools.length} built-in + ${mcpTools.length} MCP)`);
   } catch (e) {
     console.error('[MCP] Failed to initialize client MCP servers:', e);
@@ -82,8 +90,8 @@ export async function initClientMCPServers(): Promise<void> {
       setupToolCallHandler();
       initAppToolsHandler();
       initialized = true;
-      console.log(`[MCP] Registered ${builtinTools.length} built-in tools (MCP failed)`);
     }
+    initializing = false;
   }
 }
 
@@ -101,6 +109,7 @@ export async function stopClientMCPServers(): Promise<void> {
   // initClientMCPServers uses startServer (singular) which replaces by name.
 
   initialized = false;
+  initializing = false;
 }
 
 /**

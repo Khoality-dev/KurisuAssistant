@@ -318,6 +318,7 @@ class WebSocketManager {
       };
 
       this.ws.onclose = (event) => {
+        console.warn(`[WebSocket] Closed: code=${event.code} reason="${event.reason}" wasClean=${event.wasClean}`);
         this.isConnecting = false;
         this.ws = null;
         this.connectionPromise = null;
