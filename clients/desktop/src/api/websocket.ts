@@ -222,9 +222,6 @@ class WebSocketManager {
   private _reconnectAttempt = 0;
   private _maxReconnectDelay = 30000; // 30s cap
   private _intentionalClose = false;
-  private _lastPingTime = 0; // When we last received a server ping
-  private _heartbeatCheckTimer: ReturnType<typeof setInterval> | null = null;
-  private static readonly HEARTBEAT_STALE_MS = 60000; // Expect ping within 60s (server sends every 30s)
 
   /**
    * Set the authentication token.
@@ -279,8 +276,6 @@ class WebSocketManager {
         this.isConnecting = false;
         this._reconnectAttempt = 0;
         this.setStatus('connected');
-        this._lastPingTime = Date.now();
-        this._startHeartbeatCheck();
 
         // Flush queued messages
         for (const msg of this._pendingMessages) {
@@ -297,9 +292,6 @@ class WebSocketManager {
 
       this.ws.onmessage = (event) => {
         try {
-          // Any server message proves the connection is alive
-          this._lastPingTime = Date.now();
-
           const data = JSON.parse(event.data);
           if (data.type === 'ping') {
             this.ws?.send(JSON.stringify({ type: 'pong' }));
@@ -322,7 +314,6 @@ class WebSocketManager {
         this.isConnecting = false;
         this.ws = null;
         this.connectionPromise = null;
-        this._stopHeartbeatCheck();
         this.setStatus('disconnected');
 
         if (event.code === 4001) {
@@ -339,26 +330,6 @@ class WebSocketManager {
     });
 
     return this.connectionPromise;
-  }
-
-  private _startHeartbeatCheck() {
-    this._stopHeartbeatCheck();
-    this._heartbeatCheckTimer = setInterval(() => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-      const elapsed = Date.now() - this._lastPingTime;
-      if (elapsed > WebSocketManager.HEARTBEAT_STALE_MS) {
-        console.warn(`[WebSocket] No server ping for ${Math.round(elapsed / 1000)}s, connection stale — forcing reconnect`);
-        this._stopHeartbeatCheck();
-        this.ws.close(4000, 'Heartbeat timeout');
-      }
-    }, 15000); // Check every 15s
-  }
-
-  private _stopHeartbeatCheck() {
-    if (this._heartbeatCheckTimer) {
-      clearInterval(this._heartbeatCheckTimer);
-      this._heartbeatCheckTimer = null;
-    }
   }
 
   private _scheduleReconnect() {
@@ -389,7 +360,6 @@ class WebSocketManager {
    */
   disconnect() {
     this._intentionalClose = true;
-    this._stopHeartbeatCheck();
     if (this._reconnectTimer) {
       clearTimeout(this._reconnectTimer);
       this._reconnectTimer = null;
