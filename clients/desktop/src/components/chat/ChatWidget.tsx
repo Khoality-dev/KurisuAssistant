@@ -122,8 +122,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   const setActiveAgentForTTS = useCallback((agentIdVal: number | null) => {
     setActiveAgentId(agentIdVal);
   }, [setActiveAgentId]);
-  const ttsRef = useRef({ speak, stopTTS, isTTSPlaying, setActiveAgentForTTS });
-  ttsRef.current = { speak, stopTTS, isTTSPlaying, setActiveAgentForTTS };
+  const ttsRef = useRef({ speak, stopTTS, clearQueue, isTTSPlaying, setActiveAgentForTTS });
+  ttsRef.current = { speak, stopTTS, clearQueue, isTTSPlaying, setActiveAgentForTTS };
 
   // Streaming chat hook
   const streaming = useStreamingChat({

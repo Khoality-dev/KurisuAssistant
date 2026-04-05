@@ -85,7 +85,7 @@ interface MessageBubbleProps {
   onResend?: (messageIndex: number) => void;
   onDelete?: (messageIndex: number) => void;
   searchHighlight?: string;
-  ttsRef: React.RefObject<{ speak: (text: string, voice?: string, language?: string, backend?: string, emotionParams?: { emo_audio?: string; emo_alpha?: number; use_emo_text?: boolean }) => Promise<void>; stopTTS: () => void; isTTSPlaying: boolean; setActiveAgentForTTS: (agentId: number | null) => void }>;
+  ttsRef: React.RefObject<{ speak: (text: string, voice?: string, language?: string, backend?: string, emotionParams?: { emo_audio?: string; emo_alpha?: number; use_emo_text?: boolean }) => Promise<void>; stopTTS: () => void; clearQueue: () => void; isTTSPlaying: boolean; setActiveAgentForTTS: (agentId: number | null) => void }>;
   isQueueActive?: boolean;
 }
 
@@ -125,8 +125,10 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   };
 
   const handleTTS = async () => {
-    if (localPlaying) {
+    if (localPlaying || autoPlaying) {
+      // Stop both manual playback and streaming auto-play queue
       ttsRef.current?.stopTTS();
+      ttsRef.current?.clearQueue();
       ttsRef.current?.setActiveAgentForTTS(null);
       setLocalPlaying(false);
     } else {
