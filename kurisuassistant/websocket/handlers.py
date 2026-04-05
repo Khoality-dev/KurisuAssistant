@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 
 # Default configuration
 HEARTBEAT_INTERVAL = 30  # seconds between server pings
-HEARTBEAT_TIMEOUT = 30   # seconds to wait for pong before closing
+HEARTBEAT_TIMEOUT = 10   # seconds to wait for pong before closing
 DEFAULT_MAX_TURNS = 10
 ADMINISTRATOR_NAME = "Administrator"  # Reserved agent name for routing
 FRAME_IDLE_THRESHOLD_MINUTES = int(os.getenv("FRAME_IDLE_THRESHOLD_MINUTES", "30"))
