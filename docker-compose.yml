@@ -126,6 +126,8 @@ services:
       - ./kurisuassistant:/app/kurisuassistant
       - ./scripts:/app/scripts
       - ./data:/app/data
+      - ./tests:/app/tests
+      - ./pytest.ini:/app/pytest.ini
     tty: true
     restart: unless-stopped
 
