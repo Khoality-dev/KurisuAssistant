@@ -814,6 +814,7 @@ export function useStreamingChat({
       await loadConversation(activeConversationId);
 
       // Re-send the same text with original context files
+      cancelledRef.current = false;
       setIsStreaming(true);
       clearQueue();
       ttsBufferRef.current = '';
