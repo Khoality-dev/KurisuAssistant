@@ -42,8 +42,10 @@ from .events import (
     parse_event,
 )
 from kurisuassistant.agents.base import AgentConfig, AgentContext, BaseAgent, SimpleAgent
+from kurisuassistant.agents.selection import select_agent_for_frame
 from kurisuassistant.tools import tool_registry
-from kurisuassistant.tools.routing import RouteToTool, parse_route_result
+from kurisuassistant.tools.handoff import HandoffToTool, parse_handoff_result
+from kurisuassistant.tools.subagent import SubAgentTool
 from kurisuassistant.media import get_media_player
 from kurisuassistant.vision import VisionProcessor
 from sqlalchemy import desc
@@ -64,7 +66,7 @@ logger = logging.getLogger(__name__)
 HEARTBEAT_INTERVAL = 30  # seconds between server pings
 HEARTBEAT_TIMEOUT = 10   # seconds to wait for pong before closing
 DEFAULT_MAX_TURNS = 10
-ADMINISTRATOR_NAME = "Administrator"  # Reserved agent name for routing
+MAX_HANDOFFS = 5  # Max agent handoffs per user message
 FRAME_IDLE_THRESHOLD_MINUTES = int(os.getenv("FRAME_IDLE_THRESHOLD_MINUTES", "30"))
 
 
@@ -240,20 +242,17 @@ class ChatSessionHandler:
         )
 
     async def _run_chat(self, event: ChatRequestEvent, extra_messages: Optional[List] = None):
-        """Run unified chat processing with Administrator routing.
+        """Run chat processing with frame-based agent selection.
 
         Args:
             event: Primary chat request event
             extra_messages: Additional queued ChatRequestEvents to include as user messages
 
         Flow:
-        1. Setup conversation/frame (same as before)
-        2. Load all enabled agents (system + user's)
-        3. Find Administrator agent (is_system=True, name="Administrator")
-        4. Start with Administrator, loop with routing:
-           - Administrator sees full history + route_to tool
-           - Sub-agents see their system prompt + route_to message only
-           - After sub-agent finishes, control returns to Administrator
+        1. Setup conversation/frame
+        2. Load main agents (agent_type='main') and sub-agents (agent_type='sub')
+        3. Select agent: use frame's active_agent_id, or routing LLM picks one
+        4. Run selected agent with handoff support
         5. Send DoneEvent
         """
         from fastapi import WebSocketDisconnect
@@ -266,17 +265,10 @@ class ChatSessionHandler:
             self._task_frame_id = frame_id
             self._task_done = False
 
-            # Load all enabled agents (system + user's)
+            # Load all enabled agents and separate by type
             all_agents = self._load_enabled_agents()
-
-            # Separate Administrator from sub-agents
-            admin_agent = None
-            sub_agents = []
-            for agent in all_agents:
-                if agent.is_system and agent.name == ADMINISTRATOR_NAME:
-                    admin_agent = agent
-                else:
-                    sub_agents.append(agent)
+            main_agents = [a for a in all_agents if a.agent_type == 'main' and not a.is_system]
+            sub_agents = [a for a in all_agents if a.agent_type == 'sub']
 
             # Submit background tasks for old/unsummarized frames
             fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
@@ -286,18 +278,7 @@ class ChatSessionHandler:
                 for fid in fids:
                     workers.submit(workers.SummarizeFrameTask(frame_id=fid, model_name=summary_model, api_url=ollama_url, provider_type=summary_provider, api_key=summary_api_key))
 
-            if not admin_agent:
-                # No Administrator agent — fall back: if only one sub-agent, use it directly
-                if not sub_agents:
-                    await self.send_event(ErrorEvent(
-                        error="No agents available. Please create at least one agent.",
-                        code="NO_AGENTS",
-                    ))
-                    return
-                # Use first sub-agent (or the one specified by event.agent_id) directly
-                admin_agent = None  # Will skip routing loop
-
-            if not sub_agents:
+            if not main_agents:
                 await self.send_event(ErrorEvent(
                     error="No agents available. Please create at least one agent.",
                     code="NO_AGENTS",
@@ -414,96 +395,93 @@ class ChatSessionHandler:
             )
 
             # ========================================
-            # ROUTING LOOP
+            # AGENT SELECTION AND PROCESSING
             # ========================================
             self._response_word_count = 0
 
-            # If no Administrator, run single agent directly (no routing)
-            if not admin_agent:
-                target = self._get_agent_config(event.agent_id, sub_agents) or sub_agents[0]
-                await self._run_agent_turn(
-                    target, conversation_messages, conversation_messages,
-                    agent_context, frame_id, event,
-                )
+            # Build agent lookup for handoffs
+            agent_by_name = {a.name.lower(): a for a in main_agents}
+
+            # Build sub-agent tools (LLM-powered tools)
+            sub_agent_tools = [SubAgentTool(sa) for sa in sub_agents]
+
+            # Build handoff tool with available main agents
+            handoff_tool = HandoffToTool([
+                {"name": a.name, "description": a.description or "General assistant"}
+                for a in main_agents
+            ])
+
+            # Select agent for this frame
+            # Check if frame already has an active agent
+            active_agent_id = self._get_frame_active_agent(frame_id)
+
+            if active_agent_id:
+                # Continue with the same agent
+                current_agent = next((a for a in main_agents if a.id == active_agent_id), None)
+                if not current_agent:
+                    current_agent = main_agents[0]
+                logger.info(f"Frame has active agent: {current_agent.name}")
             else:
-                # Update the global route_to tool with available agent names
-                route_to_tool = tool_registry.get("route_to")
-                if route_to_tool:
-                    route_to_tool.available_agents = [
-                        {"name": a.name, "description": a.description or a.system_prompt[:100] or "General assistant"}
-                        for a in sub_agents
-                    ]
+                # New frame or no active agent: routing LLM picks one
+                from kurisuassistant.models.llm import create_llm_provider
+                llm_provider = create_llm_provider("ollama", api_url=ollama_url)
+                current_agent = await select_agent_for_frame(
+                    first_message=event.text,
+                    agents=main_agents,
+                    llm_provider=llm_provider,
+                    model_name="gemma3:1b",  # Fast routing model
+                )
+                logger.info(f"Routing LLM selected: {current_agent.name}")
+                # Save active agent to frame
+                self._set_frame_active_agent(frame_id, current_agent.id)
 
-                current_agent = admin_agent
-                route_message = None  # Message from route_to, or None for full history
+            # Send initial agent switch event
+            await self.send_event(AgentSwitchEvent(
+                from_agent_id=None,
+                from_agent_name=None,
+                to_agent_id=current_agent.id,
+                to_agent_name=current_agent.name,
+                reason=f"Selected {current_agent.name}",
+            ))
 
-                MAX_ROUTING_TURNS = 10
-                prev_agent_name = None
+            # Process with handoff support
+            for _turn in range(MAX_HANDOFFS):
+                # Update context model for this agent
+                agent_context.model_name = current_agent.model_name or event.model_name
 
-                for _turn in range(MAX_ROUTING_TURNS):
-                    is_admin = (current_agent.is_system and current_agent.name == ADMINISTRATOR_NAME)
+                # Create and run agent with extra tools
+                agent = self._create_agent(current_agent)
 
-                    # --- Build messages for this agent ---
-                    if is_admin:
-                        # Administrator sees full conversation history
-                        agent_messages = list(conversation_messages)
-                    else:
-                        # Sub-agent gets only the route_to message as a user message
-                        agent_messages = [{"role": "user", "content": route_message or event.text}]
+                # Inject sub-agent tools and handoff tool
+                extra_tools = sub_agent_tools + [handoff_tool]
 
-                    try:
-                        # Send agent switch event
-                        await self.send_event(AgentSwitchEvent(
-                            from_agent_id=None,
-                            from_agent_name=prev_agent_name,
-                            to_agent_id=current_agent.id,
-                            to_agent_name=current_agent.name,
-                            reason=f"Processing with {current_agent.name}",
-                        ))
+                logger.info(f"[Chat] Turn {_turn}: running {current_agent.name}, messages={len(conversation_messages)}")
+                handoff_result, agent_final_content = await self._stream_and_save_agent(
+                    agent=agent,
+                    agent_config=current_agent,
+                    messages=conversation_messages,
+                    context=agent_context,
+                    frame_id=frame_id,
+                    conversation_messages=conversation_messages,
+                    extra_tools=extra_tools,
+                )
+                logger.info(f"[Chat] Turn {_turn}: {current_agent.name} done, handoff={handoff_result is not None}")
 
-                        # Update context model for this agent
-                        agent_context.model_name = current_agent.model_name or event.model_name
+                # Check for handoff
+                if handoff_result:
+                    target_name = handoff_result["agent_name"]
+                    target_agent = agent_by_name.get(target_name.lower())
+                    if not target_agent:
+                        logger.warning(f"Handoff target not found: {target_name}")
+                        break
+                    # Switch to target agent (silently, no event to frontend)
+                    current_agent = target_agent
+                    self._set_frame_active_agent(frame_id, current_agent.id)
+                    logger.info(f"[Chat] Handoff to {current_agent.name}")
+                    continue
 
-                        # Create and run agent
-                        agent = self._create_agent(current_agent)
-
-                        # Stream and collect response, save messages
-                        logger.info(f"[Routing] Turn {_turn}: running {current_agent.name} (is_admin={is_admin}), messages={len(agent_messages)}")
-                        route_result, agent_final_content = await self._stream_and_save_agent(
-                            agent=agent,
-                            agent_config=current_agent,
-                            messages=agent_messages,
-                            context=agent_context,
-                            frame_id=frame_id,
-                            conversation_messages=conversation_messages,
-                            is_admin=is_admin,
-                        )
-                        logger.info(f"[Routing] Turn {_turn}: {current_agent.name} done, route_result={route_result}, content_len={len(agent_final_content)}")
-                    finally:
-                        pass
-
-                    prev_agent_name = current_agent.name
-
-                    # --- Check routing result ---
-                    if route_result:
-                        # route_to was called — switch to target agent
-                        target_name = route_result["agent_name"]
-                        target_agent = agent_by_name.get(target_name.lower())
-                        if not target_agent:
-                            logger.warning(f"Route target agent not found: {target_name}")
-                            break
-                        current_agent = target_agent
-                        route_message = route_result["message"]
-                        continue
-
-                    if not is_admin:
-                        # Sub-agent finished — return to Administrator for final response
-                        current_agent = admin_agent
-                        route_message = None
-                        continue
-
-                    # Administrator finished without routing — done
-                    break
+                # No handoff, done
+                break
 
             # ========================================
             # CLEANUP
@@ -540,9 +518,9 @@ class ChatSessionHandler:
         context: AgentContext,
         frame_id: int,
         conversation_messages: List[Dict],
-        is_admin: bool,
+        extra_tools: Optional[List] = None,
     ) -> tuple[Optional[Dict], str]:
-        """Stream an agent's response, save messages to DB, and detect route_to calls.
+        """Stream an agent's response, save messages to DB, and detect handoff calls.
 
         Args:
             agent: Agent instance to run
@@ -550,12 +528,12 @@ class ChatSessionHandler:
             messages: Messages to pass to agent.process()
             context: Agent context
             frame_id: Current frame ID for message saving
-            conversation_messages: Full conversation history (mutated — sub-agent responses appended)
-            is_admin: Whether this is the Administrator agent
+            conversation_messages: Full conversation history (mutated — responses appended)
+            extra_tools: Additional tools to inject (sub-agent tools, handoff tool)
 
         Returns:
-            Tuple of (route_result, final_content):
-            - route_result: Dict with 'agent_name' and 'message' if route_to was called, else None
+            Tuple of (handoff_result, final_content):
+            - handoff_result: Dict with 'agent_name' and 'context' if handoff was called, else None
             - final_content: The full assistant text content from this agent turn
         """
         current_role = "assistant"
@@ -567,15 +545,19 @@ class ChatSessionHandler:
         current_tool_args_json = None
         current_tool_args = None
         current_tool_status = None
-        route_result = None
+        handoff_result = None
         final_assistant_content = ""
 
+        # Inject extra tools into agent if provided
+        if extra_tools:
+            agent.extra_tools = extra_tools
+
         async for chunk in agent.process(messages, context):
-            # Check tool results for route_to
-            if chunk.role == "tool" and chunk.name == "route_to":
-                parsed = parse_route_result(chunk.content)
+            # Check tool results for handoff_to
+            if chunk.role == "tool" and chunk.name == "handoff_to":
+                parsed = parse_handoff_result(chunk.content)
                 if parsed:
-                    route_result = parsed
+                    handoff_result = parsed
 
             # Accumulate response word count for token estimation (all content + thinking)
             if chunk.content:
@@ -585,7 +567,7 @@ class ChatSessionHandler:
 
             # Attach agent metadata and running token count for client display
             chunk.voice_reference = agent_config.voice_reference
-            chunk.persona_name = agent_config.persona_name or None
+            chunk.persona_name = agent_config.name  # Agent name is now the persona name
             chunk.token_count = self._initial_token_count + int(self._response_word_count * 1.3)
             await self.send_event(chunk)
 
@@ -668,7 +650,7 @@ class ChatSessionHandler:
             if current_role == "assistant":
                 final_assistant_content += chunk_content
 
-        return route_result, final_assistant_content
+        return handoff_result, final_assistant_content
 
     async def _run_agent_turn(
         self,
@@ -789,7 +771,7 @@ class ChatSessionHandler:
 
     @staticmethod
     def _agent_to_config(agent) -> AgentConfig:
-        """Convert a DB Agent model to AgentConfig, resolving persona relationships."""
+        """Convert a DB Agent model to AgentConfig."""
         return AgentConfig(
             id=agent.id,
             name=agent.name,
@@ -804,13 +786,13 @@ class ChatSessionHandler:
             enabled=agent.enabled,
             is_system=agent.is_system,
             use_deferred_tools=getattr(agent, 'use_deferred_tools', False),
-            persona_id=agent.persona.id if agent.persona else None,
-            persona_name=agent.persona.name if agent.persona else agent.name,
-            persona_system_prompt=agent.persona.system_prompt if agent.persona else "",
-            voice_reference=agent.persona.voice_reference if agent.persona else None,
-            avatar_uuid=agent.persona.avatar_uuid if agent.persona else None,
-            preferred_name=agent.persona.preferred_name if agent.persona else None,
-            trigger_word=agent.persona.trigger_word if agent.persona else None,
+            # Identity fields (merged from former Persona)
+            voice_reference=getattr(agent, 'voice_reference', None),
+            avatar_uuid=getattr(agent, 'avatar_uuid', None),
+            character_config=getattr(agent, 'character_config', None),
+            preferred_name=getattr(agent, 'preferred_name', None),
+            # Agent type
+            agent_type=getattr(agent, 'agent_type', 'main'),
         )
 
     def _get_agent_config(self, agent_id: int, agents: List[AgentConfig]) -> Optional[AgentConfig]:
@@ -1117,6 +1099,28 @@ class ChatSessionHandler:
         finally:
             if request.approval_id in self.pending_approvals:
                 del self.pending_approvals[request.approval_id]
+
+    def _get_frame_active_agent(self, frame_id: int) -> Optional[int]:
+        """Get the active agent ID for a frame."""
+        db = get_db_service()
+
+        def _query(session):
+            frame = session.query(Frame).filter_by(id=frame_id).first()
+            return frame.active_agent_id if frame else None
+
+        return db.execute(_query)
+
+    def _set_frame_active_agent(self, frame_id: int, agent_id: int) -> None:
+        """Set the active agent ID for a frame."""
+        db = get_db_service()
+
+        def _update(session):
+            frame = session.query(Frame).filter_by(id=frame_id).first()
+            if frame:
+                frame.active_agent_id = agent_id
+                session.commit()
+
+        db.execute(_update)
 
     def _load_context_messages(self, conversation_id: int) -> tuple[str, int, list]:
         """Load compacted context and recent messages for a conversation.

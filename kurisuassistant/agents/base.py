@@ -39,28 +39,35 @@ async def async_iterate(sync_iterator):
 
 @dataclass
 class AgentConfig:
-    """Configuration for an agent."""
-    id: Optional[int] = None  # Database ID (None for router)
-    name: str = ""  # Role name
-    description: str = ""  # Short one-liner for routing
-    system_prompt: str = ""  # Role instructions
+    """Configuration for an agent with identity and capabilities.
+
+    Main agents (agent_type='main') have personality: voice, avatar, character config.
+    Sub-agents (agent_type='sub') are tools with no personality.
+    """
+    id: Optional[int] = None
+    name: str = ""  # Agent/character name
+    description: str = ""  # Short description for routing LLM
+    system_prompt: str = ""  # Role + personality instructions
+
+    # Identity (merged from former Persona model)
+    voice_reference: Optional[str] = None
+    avatar_uuid: Optional[str] = None
+    character_config: Optional[Dict] = None  # Animation tree config
+    preferred_name: Optional[str] = None  # How user wants to be called
+
+    # Inference config
     model_name: Optional[str] = None
     provider_type: str = "ollama"
     available_tools: Optional[List[str]] = None  # None = all tools, list = only these
     think: bool = False
+    use_deferred_tools: bool = False
+
+    # Agent type and state
+    agent_type: str = "main"  # 'main' (personality) or 'sub' (tool)
     memory: Optional[str] = None
     memory_enabled: bool = True
     enabled: bool = True
     is_system: bool = False
-    # Persona fields (resolved from persona at load time)
-    persona_id: Optional[int] = None
-    persona_name: str = ""  # Character name
-    persona_system_prompt: str = ""  # Personality prompt
-    voice_reference: Optional[str] = None
-    avatar_uuid: Optional[str] = None
-    preferred_name: Optional[str] = None
-    trigger_word: Optional[str] = None
-    use_deferred_tools: bool = False  # Use 3 meta-tools instead of flat schemas
 
 
 @dataclass
@@ -196,6 +203,13 @@ class BaseAgent(ABC):
 
         tool = self.tool_registry.get(tool_name)
 
+        # Check extra_tools if not found in registry (sub-agent tools, handoff tool)
+        if tool is None and hasattr(self, 'extra_tools') and self.extra_tools:
+            for extra_tool in self.extra_tools:
+                if extra_tool.name == tool_name:
+                    tool = extra_tool
+                    break
+
         # Enforce tool access: built-in tools always available,
         # available_tools allowlist restricts non-built-in tools
         if self.config.available_tools is not None and tool_name not in self.config.available_tools:
@@ -244,6 +258,9 @@ class BaseAgent(ABC):
         # Inject handler for tools that need WebSocket access (e.g. media player)
         if context.handler:
             exec_args["_handler"] = context.handler
+
+        # Inject full context for sub-agent tools
+        exec_args["_context"] = context
 
         # Execute the tool
         if tool:
@@ -567,6 +584,11 @@ class SimpleAgent(BaseAgent):
                     client_tools = [t for t in client_tools if t.get("function", {}).get("name") in allowed]
                 tool_schemas.extend(client_tools)
 
+        # Add extra tools (sub-agent tools, handoff tool) - injected by handler
+        if hasattr(self, 'extra_tools') and self.extra_tools:
+            for extra_tool in self.extra_tools:
+                tool_schemas.append(extra_tool.get_schema())
+
         # Attach base64 images to the last user message for vision models
         if context.images:
             for msg in reversed(messages):
@@ -688,12 +710,12 @@ class SimpleAgent(BaseAgent):
                         tool_denied = True
                         break
 
-                    # If route_to was called, stop immediately — don't loop back to LLM
-                    if display_name == "route_to":
+                    # If handoff_to was called, stop immediately — don't loop back to LLM
+                    if display_name == "handoff_to":
                         tool_denied = True  # Reuse flag to break outer loop
                         break
 
-                # If user denied a tool or route_to was called, stop the agent's tool loop
+                # If user denied a tool or handoff_to was called, stop the agent's tool loop
                 if tool_denied:
                     break
 

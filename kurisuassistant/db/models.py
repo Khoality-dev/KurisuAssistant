@@ -45,11 +45,13 @@ class Frame(Base):
     id = Column(Integer, primary_key=True)
     conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), nullable=False, index=True)
     summary = Column(Text, nullable=True)
+    active_agent_id = Column(Integer, ForeignKey('agents.id', ondelete='SET NULL'), nullable=True)  # Which agent is active for this frame
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
     conversation = relationship("Conversation", back_populates="frames")
     messages = relationship("Message", back_populates="frame", cascade="all, delete-orphan")
+    active_agent = relationship("Agent", foreign_keys=[active_agent_id])
 
 class Message(Base):
     __tablename__ = 'messages'
@@ -76,51 +78,59 @@ class Message(Base):
 
 
 class Persona(Base):
-    """Reusable character identity — personality, voice, avatar, animation."""
+    """DEPRECATED: Persona data has been merged into Agent. This table is kept for migration rollback."""
     __tablename__ = 'personas'
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    name = Column(String, nullable=False)  # Character name (e.g., "Kurisu")
-    system_prompt = Column(Text, default='')  # Personality prompt
-    voice_reference = Column(String, nullable=True)  # Voice file for TTS
-    avatar_uuid = Column(String, nullable=True)  # Avatar image UUID
-    character_config = Column(JSON, nullable=True)  # Animation tree config
-    preferred_name = Column(Text, nullable=True)  # How user wants to be called
-    trigger_word = Column(String, nullable=True)  # Voice activation trigger word
+    name = Column(String, nullable=False)
+    system_prompt = Column(Text, default='')
+    voice_reference = Column(String, nullable=True)
+    avatar_uuid = Column(String, nullable=True)
+    character_config = Column(JSON, nullable=True)
+    preferred_name = Column(Text, nullable=True)
+    trigger_word = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_persona_user_id_name'),)
 
     user = relationship("User", back_populates="personas")
-    agents = relationship("Agent", back_populates="persona")
 
 
 class Agent(Base):
-    """Agent role — inference config, tools, and memory. References a Persona for identity."""
+    """Agent with identity and capabilities - main agents have personality, sub-agents are tools."""
     __tablename__ = 'agents'
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # NULL for system agents
-    persona_id = Column(Integer, ForeignKey('personas.id', ondelete='SET NULL'), nullable=True)
-    name = Column(String, nullable=False)  # Role name (e.g., "Coding Assistant")
-    description = Column(String, default='', nullable=False)  # Short one-liner for route_to tool
-    system_prompt = Column(Text, default='')  # Role instructions
+    name = Column(String, nullable=False)  # Agent/character name
+    description = Column(String, default='', nullable=False)  # Short description for routing LLM
+    system_prompt = Column(Text, default='')  # Role + personality instructions
+
+    # Identity (merged from Persona)
+    voice_reference = Column(String, nullable=True)  # Voice file for TTS
+    avatar_uuid = Column(String, nullable=True)  # Avatar image UUID
+    character_config = Column(JSON, nullable=True)  # Animation tree config
+    preferred_name = Column(Text, nullable=True)  # How user wants to be called by this agent
+
+    # Inference config
     model_name = Column(String, nullable=True)  # LLM model override
     provider_type = Column(String, default='ollama', nullable=False)  # LLM provider
     available_tools = Column(JSON, nullable=True)  # Allowlist of tool names (null = all)
     think = Column(Boolean, default=False, nullable=False)  # Enable extended reasoning
+    use_deferred_tools = Column(Boolean, default=False, nullable=False)  # Use meta-tools for KV cache stability
+
+    # Agent type and state
+    agent_type = Column(String, default='main', nullable=False)  # 'main' (personality) or 'sub' (tool)
     memory = Column(Text, nullable=True)  # Free-form persistent memory (markdown)
     memory_enabled = Column(Boolean, default=True, nullable=False)  # Enable memory injection + consolidation
     enabled = Column(Boolean, default=True, nullable=False)  # Whether agent is active
     is_system = Column(Boolean, default=False, nullable=False)  # Built-in system agent
-    use_deferred_tools = Column(Boolean, default=False, nullable=False)  # Use meta-tools for KV cache stability
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_agent_user_id_name'),)
 
     user = relationship("User", back_populates="agents")
-    persona = relationship("Persona", back_populates="agents")
 
 
 class Skill(Base):
