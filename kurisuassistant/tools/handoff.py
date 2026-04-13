@@ -15,8 +15,6 @@ class HandoffToTool(BaseTool):
 
     name = "handoff_to"
     description = "Transfer this conversation to another agent who is better suited to help"
-    requires_approval = False
-    risk_level = "low"
     built_in = True
 
     def __init__(self, available_agents: Optional[List[Dict[str, str]]] = None):

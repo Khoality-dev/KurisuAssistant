@@ -27,8 +27,6 @@ class HistoryListTool(BaseTool):
         "List past conversation sessions with their summaries, dates, and message counts. "
         "Returns most recent sessions first. Use to find which session to read in detail."
     )
-    requires_approval = False
-    risk_level = "low"
     built_in = True
 
     def get_schema(self) -> Dict[str, Any]:
@@ -111,8 +109,6 @@ class HistoryReadTool(BaseTool):
         "Read messages from a specific past conversation session. "
         "Use history_list first to find the frame_id, then read the session in detail."
     )
-    requires_approval = False
-    risk_level = "low"
     built_in = True
 
     def get_schema(self) -> Dict[str, Any]:
@@ -209,8 +205,6 @@ class HistorySearchTool(BaseTool):
         "Search past conversation messages by text content and/or date range. "
         "Searches across all sessions. Use to find when something was discussed."
     )
-    requires_approval = False
-    risk_level = "low"
     built_in = True
 
     def get_schema(self) -> Dict[str, Any]:

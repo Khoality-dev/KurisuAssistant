@@ -10,8 +10,6 @@ class RouteToTool(BaseTool):
 
     name = "route_to"
     description = "Route the conversation to another agent"
-    requires_approval = False
-    risk_level = "low"
     built_in = True
 
     def __init__(self, available_agents: Optional[List[Dict[str, str]]] = None):
@@ -74,8 +72,6 @@ class RouteToAgentTool(BaseTool):
 
     name = "route_to_agent"
     description = "Route the conversation to a specific agent"
-    requires_approval = False
-    risk_level = "low"
     built_in = True
 
     def __init__(self, agent_names: List[str]):
@@ -119,8 +115,6 @@ class RouteToUserTool(BaseTool):
 
     name = "route_to_user"
     description = "Return the conversation to the user (it's their turn to speak)"
-    requires_approval = False
-    risk_level = "low"
     built_in = True
 
     def get_schema(self) -> Dict[str, Any]:

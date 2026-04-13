@@ -172,15 +172,17 @@ class BaseAgent(ABC):
         tool_name: str,
         tool_args: Dict[str, Any],
         context: AgentContext,
-        require_approval: bool = True,
     ) -> ToolResult:
-        """Execute a tool, optionally requesting approval first.
+        """Execute a tool after requesting approval from frontend.
+
+        All tool calls go through frontend for permission check. Frontend
+        decides whether to auto-approve based on user's policies or show
+        approval dialog.
 
         Args:
             tool_name: Name of the tool to execute
             tool_args: Arguments for the tool
             context: Agent context
-            require_approval: Whether to request user approval
 
         Returns:
             ToolResult with content and optional images
@@ -193,9 +195,10 @@ class BaseAgent(ABC):
             inner_args = tool_args.get("arguments", {})
             if isinstance(inner_args, str):
                 inner_args = _json.loads(inner_args)
-            return await self.execute_tool(inner_name, inner_args, context, require_approval)
+            return await self.execute_tool(inner_name, inner_args, context)
 
         # Deferred tools: handle list_tools / search_tools / get_tool_schema via proxy
+        # These are meta-tools that don't require approval
         proxy = getattr(self, "_deferred_proxy", None)
         if proxy and tool_name == "list_tools":
             page = tool_args.get("page", 1)
@@ -210,7 +213,9 @@ class BaseAgent(ABC):
             content = await proxy.get_tool_schema(name)
             return ToolResult(content=content)
 
+        # Determine tool location and get tool object if available
         tool = self.tool_registry.get(tool_name)
+        execution_location = "backend"
 
         # Check extra_tools if not found in registry (sub-agent tools, handoff tool)
         if tool is None and hasattr(self, 'extra_tools') and self.extra_tools:
@@ -219,6 +224,13 @@ class BaseAgent(ABC):
                     tool = extra_tool
                     break
 
+        # Check if this is a client-side tool
+        client_tool_names = {
+            t.get("function", {}).get("name", "") for t in (context.client_tools or [])
+        }
+        if tool is None and tool_name in client_tool_names:
+            execution_location = "frontend"
+
         # Enforce tool access: built-in tools always available,
         # available_tools allowlist restricts non-built-in tools
         if self.config.available_tools is not None and tool_name not in self.config.available_tools:
@@ -226,27 +238,32 @@ class BaseAgent(ABC):
                 logger.warning(f"Agent '{self.config.name}' tried to use unavailable tool: {tool_name}")
                 return ToolResult(content=f"Tool not available: {tool_name}", status="error")
 
-        if require_approval and tool and tool.requires_approval:
-            # Create approval request
+        # Get human-readable description
+        if tool:
+            description = tool.describe_call(tool_args)
+        else:
+            description = f"Execute {tool_name} with args: {tool_args}"
+
+        # ALWAYS request approval from frontend
+        # Frontend decides whether to auto-approve or show dialog based on user's policies
+        if context.handler:
             approval_request = ToolApprovalRequestEvent(
                 tool_name=tool_name,
                 tool_args=tool_args,
                 agent_id=self.config.id,
                 name=self.config.name,
-                description=tool.describe_call(tool_args),
-                risk_level=tool.risk_level,
+                description=description,
+                execution_location=execution_location,
             )
 
-            # Request approval from handler
-            if context.handler:
-                response = await context.handler.request_tool_approval(approval_request)
+            response = await context.handler.request_tool_approval(approval_request)
 
-                if not response.approved:
-                    return ToolResult(content=f"Tool execution denied by user: {tool_name}", status="denied")
+            if not response.approved:
+                return ToolResult(content=f"Tool execution denied by user: {tool_name}", status="denied")
 
-                # Use modified args if provided
-                if response.modified_args:
-                    tool_args = response.modified_args
+            # Use modified args if provided
+            if response.modified_args:
+                tool_args = response.modified_args
 
         # Copy args before injecting internal keys to avoid mutating the
         # caller's dict (which may be referenced by tool_calls in messages
@@ -271,7 +288,20 @@ class BaseAgent(ABC):
         # Inject full context for sub-agent tools
         exec_args["_context"] = context
 
-        # Execute the tool
+        # Execute based on location
+        if execution_location == "frontend":
+            # Client-side tool - execute via callback
+            if context.client_tool_callback:
+                try:
+                    result = await context.client_tool_callback(tool_name, tool_args)
+                    return ToolResult.from_content(result)
+                except Exception as e:
+                    logger.error(f"Client tool execution failed: {e}", exc_info=True)
+                    return ToolResult(content=f"Client tool execution failed: {e}", status="error")
+            else:
+                return ToolResult(content=f"No client tool callback for: {tool_name}", status="error")
+
+        # Backend execution
         if tool:
             try:
                 result = await tool.execute(exec_args)
@@ -280,7 +310,7 @@ class BaseAgent(ABC):
                 logger.error(f"Tool execution failed: {e}", exc_info=True)
                 return ToolResult(content=f"Tool execution failed: {e}", status="error")
         elif context.user_id:
-            # Try server-side MCP tool first, then client-side tool
+            # Try server-side MCP tool
             return await self._execute_mcp_tool(tool_name, tool_args, context)
         else:
             return ToolResult(content=f"Unknown tool: {tool_name}", status="error")
@@ -291,7 +321,7 @@ class BaseAgent(ABC):
         tool_args: Dict[str, Any],
         context: AgentContext,
     ) -> ToolResult:
-        """Execute an MCP tool (server-side), falling back to client-side tools.
+        """Execute a server-side MCP tool.
 
         Args:
             tool_name: MCP tool name
@@ -336,17 +366,6 @@ class BaseAgent(ABC):
 
         except Exception as e:
             logger.warning(f"Server MCP tool execution failed for '{tool_name}': {e}")
-
-        # Fall back to client-side tool
-        if context.client_tool_callback and tool_name in {
-            t.get("function", {}).get("name", "") for t in context.client_tools
-        }:
-            try:
-                result = await context.client_tool_callback(tool_name, tool_args)
-                return ToolResult.from_content(result)
-            except Exception as e:
-                logger.error(f"Client tool execution failed: {e}", exc_info=True)
-                return ToolResult(content=f"Client tool execution failed: {e}", status="error")
 
         return ToolResult(content=f"Unknown tool: {tool_name}", status="error")
 

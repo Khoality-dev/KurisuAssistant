@@ -181,7 +181,7 @@ class ToolApprovalRequestEvent(BaseEvent):
     agent_id: Optional[int] = None
     name: Optional[str] = None  # Which agent is requesting approval
     description: str = ""  # Human-readable description
-    risk_level: str = "low"  # low, medium, high
+    execution_location: str = "backend"  # "backend" or "frontend" - where tool runs after approval
 
 
 @dataclass

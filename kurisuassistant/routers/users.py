@@ -121,3 +121,93 @@ async def update_user_avatars(
     except Exception as e:
         logger.error(f"Error updating avatars for {user.username}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/me/tool-policies")
+async def get_tool_policies(
+    user: User = Depends(get_authenticated_user),
+):
+    """Get user's tool permission policies."""
+    return user.tool_policies or {"tools": {}}
+
+
+@router.put("/me/tool-policies")
+async def update_tool_policies(
+    request: Request,
+    user: User = Depends(get_authenticated_user),
+):
+    """Update user's tool permission policies."""
+    try:
+        body = await request.json()
+        tools = body.get("tools", {})
+
+        # Validate: each tool policy must be "allow" or "deny"
+        for tool_name, policy in tools.items():
+            if policy not in ("allow", "deny"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid policy for {tool_name}: must be 'allow' or 'deny'"
+                )
+
+        def _update_policies(session):
+            user_repo = UserRepository(session)
+            db_user = user_repo.get_by_id(user.id)
+            if not db_user:
+                raise HTTPException(status_code=404, detail="User not found")
+            db_user.tool_policies = {"tools": tools}
+
+        db = get_db_service()
+        await db.execute(_update_policies)
+        return {"status": "ok"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating tool policies for {user.username}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/me/tool-policies")
+async def patch_tool_policy(
+    request: Request,
+    user: User = Depends(get_authenticated_user),
+):
+    """Update a single tool's permission policy (incremental update)."""
+    try:
+        body = await request.json()
+        tool_name = body.get("tool_name")
+        policy = body.get("policy")  # "allow", "deny", or null to remove
+
+        if not tool_name:
+            raise HTTPException(status_code=400, detail="tool_name is required")
+
+        if policy is not None and policy not in ("allow", "deny"):
+            raise HTTPException(status_code=400, detail="policy must be 'allow', 'deny', or null")
+
+        def _patch_policy(session):
+            user_repo = UserRepository(session)
+            db_user = user_repo.get_by_id(user.id)
+            if not db_user:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            current = db_user.tool_policies or {"tools": {}}
+            tools = dict(current.get("tools", {}))  # Copy to ensure mutation detection
+
+            if policy is None:
+                # Remove the policy
+                tools.pop(tool_name, None)
+            else:
+                tools[tool_name] = policy
+
+            # Assign new dict to trigger SQLAlchemy change detection
+            db_user.tool_policies = {"tools": tools}
+
+        db = get_db_service()
+        await db.execute(_patch_policy)
+        return {"status": "ok"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error patching tool policy for {user.username}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

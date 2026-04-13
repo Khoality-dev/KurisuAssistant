@@ -21,8 +21,6 @@ class SubAgentTool(BaseTool):
     4. Main agent continues with the result
     """
 
-    requires_approval = False
-    risk_level = "low"
     built_in = False
 
     def __init__(self, agent_config: "AgentConfig"):
