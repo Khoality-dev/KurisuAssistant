@@ -38,6 +38,7 @@ from .events import (
     MediaVolumeEvent,
     MediaErrorEvent,
     ContextInfoEvent,
+    ContextBreakdownEvent,
     CompactContextEvent,
     parse_event,
 )
@@ -541,18 +542,33 @@ class ChatSessionHandler:
         chunk_content = ""
         chunk_thinking = ""
         current_images = []
-        raw_input_json = None
+        current_turn_raw_input = None  # Captured at start of each LLM turn
         current_tool_args_json = None
         current_tool_args = None
         current_tool_status = None
         handoff_result = None
         final_assistant_content = ""
+        last_model_name = None
+        last_provider_type = None
 
         # Inject extra tools into agent if provided
         if extra_tools:
             agent.extra_tools = extra_tools
 
-        async for chunk in agent.process(messages, context):
+        async for event in agent.process(messages, context):
+            # Handle ContextBreakdownEvent - send to client and capture raw_input
+            if isinstance(event, ContextBreakdownEvent):
+                await self.send_event(event)
+                # Capture raw_input at this turn for the next assistant message
+                current_turn_raw_input = json.dumps(
+                    getattr(agent, 'last_prepared_messages', messages),
+                    ensure_ascii=False, default=str,
+                )
+                continue
+
+            # Otherwise it's a StreamChunkEvent
+            chunk = event
+
             # Check tool results for handoff_to
             if chunk.role == "tool" and chunk.name == "handoff_to":
                 parsed = parse_handoff_result(chunk.content)
@@ -564,6 +580,12 @@ class ChatSessionHandler:
                 self._response_word_count += len(chunk.content.split())
             if chunk.thinking:
                 self._response_word_count += len(chunk.thinking.split())
+
+            # Track model info for message saving
+            if chunk.model_name:
+                last_model_name = chunk.model_name
+            if chunk.provider_type:
+                last_provider_type = chunk.provider_type
 
             # Attach agent metadata and running token count for client display
             chunk.voice_reference = agent_config.voice_reference
@@ -578,7 +600,7 @@ class ChatSessionHandler:
             # Save completed message on role change
             if chunk.role != current_role:
                 if chunk_content or chunk_thinking:
-                    raw_in = raw_input_json if current_role == "assistant" else current_tool_args_json
+                    raw_in = current_turn_raw_input if current_role == "assistant" else current_tool_args_json
                     completed_msg = {
                         "role": current_role,
                         "content": chunk_content,
@@ -588,8 +610,8 @@ class ChatSessionHandler:
                         "raw_input": raw_in,
                         "raw_output": chunk_content if current_role == "assistant" else None,
                         "images": current_images if current_images else None,
-                        "model_name": chunk.model_name if current_role == "assistant" else None,
-                        "provider_type": chunk.provider_type if current_role == "assistant" else None,
+                        "model_name": last_model_name if current_role == "assistant" else None,
+                        "provider_type": last_provider_type if current_role == "assistant" else None,
                         "tool_args": current_tool_args if current_role == "tool" else None,
                         "tool_status": current_tool_status if current_role == "tool" else None,
                     }
@@ -616,16 +638,9 @@ class ChatSessionHandler:
                 if chunk.thinking:
                     chunk_thinking += chunk.thinking
 
-        # Capture raw input after processing — includes all intermediate
-        # assistant + tool messages from the tool loop
-        raw_input_json = json.dumps(
-            getattr(agent, 'last_prepared_messages', messages),
-            ensure_ascii=False, default=str,
-        )
-
-        # Save final message
+        # Save final message (uses per-turn raw_input captured from ContextBreakdownEvent)
         if chunk_content or chunk_thinking:
-            raw_in = raw_input_json if current_role == "assistant" else current_tool_args_json
+            raw_in = current_turn_raw_input if current_role == "assistant" else current_tool_args_json
             completed_msg = {
                 "role": current_role,
                 "content": chunk_content,
@@ -635,8 +650,8 @@ class ChatSessionHandler:
                 "raw_input": raw_in,
                 "raw_output": chunk_content if current_role == "assistant" else None,
                 "images": current_images if current_images else None,
-                "model_name": chunk.model_name if current_role == "assistant" else None,
-                "provider_type": chunk.provider_type if current_role == "assistant" else None,
+                "model_name": last_model_name if current_role == "assistant" else None,
+                "provider_type": last_provider_type if current_role == "assistant" else None,
                 "tool_args": current_tool_args if current_role == "tool" else None,
                 "tool_status": current_tool_status if current_role == "tool" else None,
             }
