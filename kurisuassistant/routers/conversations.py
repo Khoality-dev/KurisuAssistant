@@ -238,3 +238,178 @@ async def list_frames(
     except Exception as e:
         logger.error(f"Error listing frames for conversation {conversation_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{conversation_id}/context-breakdown")
+async def get_context_breakdown(
+    conversation_id: int,
+    agent_id: Optional[int] = Query(None, description="Agent ID (uses first enabled agent if not provided)"),
+    user: User = Depends(get_authenticated_user),
+):
+    """Get context breakdown showing token usage for each component.
+
+    Returns estimated token counts for system prompt, memory, skills,
+    tools, message history, etc.
+    """
+    from kurisuassistant.db.repositories import AgentRepository
+    from kurisuassistant.tools import tool_registry
+    from kurisuassistant.agents.base import estimate_tokens
+    import json
+
+    try:
+        def _get_breakdown(session):
+            conv_repo = ConversationRepository(session)
+            msg_repo = MessageRepository(session)
+            agent_repo = AgentRepository(session)
+
+            # Verify conversation belongs to user
+            conversation = conv_repo.get_by_user_and_id(user.id, conversation_id)
+            if not conversation:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+
+            # Get agent
+            if agent_id:
+                agent = agent_repo.get_by_user_and_id(user.id, agent_id)
+                if not agent:
+                    # Try system agent
+                    agent = agent_repo.get_by_id(agent_id)
+                    if not agent or not agent.is_system:
+                        raise HTTPException(status_code=404, detail="Agent not found")
+            else:
+                # Get first enabled main agent
+                agents = agent_repo.list_enabled_for_user(user.id)
+                main_agents = [a for a in agents if a.agent_type == 'main' and not a.is_system]
+                if not main_agents:
+                    raise HTTPException(status_code=404, detail="No agents available")
+                agent = main_agents[0]
+
+            # Build system prompt estimate
+            import datetime
+            base_prompt = f"You are {agent.name}."
+            if agent.system_prompt:
+                base_prompt += "\n\n" + agent.system_prompt
+            if user.system_prompt:
+                base_prompt += "\n\n" + user.system_prompt
+            if agent.preferred_name or user.preferred_name:
+                pref = agent.preferred_name or user.preferred_name
+                base_prompt += f"\n\nThe user prefers to be called: {pref}"
+            base_prompt += f"\n\nCurrent time: {datetime.datetime.utcnow().isoformat()}"
+            system_prompt_tokens = estimate_tokens(base_prompt)
+
+            # Memory tokens
+            memory_tokens = 0
+            if agent.memory_enabled and agent.memory:
+                memory_text = "Your memory:\n" + agent.memory
+                memory_tokens = estimate_tokens(memory_text)
+
+            # Compacted context tokens
+            compacted_context_tokens = 0
+            if conversation.compacted_context:
+                compacted_text = "Conversation context:\n" + conversation.compacted_context
+                compacted_context_tokens = estimate_tokens(compacted_text)
+
+            # Skills tokens
+            skills_tokens = 0
+            loaded_skills = []
+            try:
+                from kurisuassistant.tools.skills import get_skill_names_for_user
+                skill_names = get_skill_names_for_user(user.id)
+                if skill_names:
+                    loaded_skills = skill_names
+                    skills_text = (
+                        "## Skills\n"
+                        "You have the following skills: " + ", ".join(skill_names) + ".\n"
+                        "Skills contain detailed instructions on HOW to perform specific tasks."
+                    )
+                    skills_tokens = estimate_tokens(skills_text)
+            except Exception:
+                pass
+
+            # Tools guidance (for deferred tools mode)
+            tools_guidance_tokens = 0
+            if agent.use_deferred_tools:
+                tools_guidance = (
+                    "## Tool Usage\n"
+                    "You have access to tools through a discovery system..."
+                )
+                tools_guidance_tokens = estimate_tokens(tools_guidance)
+
+            # Message history
+            watermark = conversation.compacted_up_to_id or 0
+            messages = msg_repo.list_by_conversation_after(conversation_id, watermark)
+            message_history_tokens = 0
+            for msg in messages:
+                message_history_tokens += estimate_tokens(msg.content or "")
+                if msg.thinking:
+                    message_history_tokens += estimate_tokens(msg.thinking)
+
+            # Tool schemas (local tools only - MCP tools added outside sync block)
+            allowed = set(agent.available_tools) if agent.available_tools else None
+            tool_schemas = tool_registry.get_schemas(allowed)
+
+            tool_schemas_json = json.dumps(tool_schemas, ensure_ascii=False)
+            tool_schemas_tokens = estimate_tokens(tool_schemas_json)
+            loaded_tools = [t.get("function", {}).get("name", "unknown") for t in tool_schemas]
+
+            # Total
+            total_tokens = (
+                system_prompt_tokens +
+                memory_tokens +
+                compacted_context_tokens +
+                skills_tokens +
+                tools_guidance_tokens +
+                message_history_tokens +
+                tool_schemas_tokens
+            )
+
+            return {
+                "conversation_id": conversation_id,
+                "agent_id": agent.id,
+                "agent_name": agent.name,
+                "system_prompt_tokens": system_prompt_tokens,
+                "memory_tokens": memory_tokens,
+                "compacted_context_tokens": compacted_context_tokens,
+                "skills_tokens": skills_tokens,
+                "tools_guidance_tokens": tools_guidance_tokens,
+                "other_agents_tokens": 0,  # Not calculated in HTTP context
+                "message_history_tokens": message_history_tokens,
+                "message_count": len(messages),
+                "tool_schemas_tokens": tool_schemas_tokens,
+                "tool_count": len(tool_schemas),
+                "total_tokens": total_tokens,
+                "context_limit": user.context_size or 8192,
+                "loaded_tools": loaded_tools,
+                "loaded_skills": loaded_skills,
+                "_allowed_tools": list(allowed) if allowed else None,  # For MCP filtering
+            }
+
+        db = get_db_service()
+        result = await db.execute(_get_breakdown)
+
+        # Add MCP tools asynchronously (outside sync block)
+        allowed = result.pop("_allowed_tools", None)  # Remove internal key
+        try:
+            from kurisuassistant.mcp_tools.orchestrator import get_user_orchestrator
+            mcp_tools = await get_user_orchestrator(user.id).get_tools()
+            if mcp_tools:
+                if allowed is not None:
+                    allowed_set = set(allowed)
+                    mcp_tools = [t for t in mcp_tools if t.get("function", {}).get("name") in allowed_set]
+                # Add MCP tool names to loaded_tools
+                mcp_tool_names = [t.get("function", {}).get("name", "unknown") for t in mcp_tools]
+                result["loaded_tools"].extend(mcp_tool_names)
+                result["tool_count"] = len(result["loaded_tools"])
+                # Add MCP tools token count
+                mcp_tokens = estimate_tokens(json.dumps(mcp_tools, ensure_ascii=False))
+                result["tool_schemas_tokens"] += mcp_tokens
+                result["total_tokens"] += mcp_tokens
+        except Exception:
+            pass  # MCP tools are optional
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting context breakdown for conversation {conversation_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
