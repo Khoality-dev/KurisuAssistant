@@ -22,7 +22,6 @@ class User(Base):
     tool_policies = Column(JSON, nullable=True)  # {"tools": {"tool_name": "allow"|"deny"}}
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
-    personas = relationship("Persona", back_populates="user", cascade="all, delete-orphan")
     agents = relationship("Agent", back_populates="user", cascade="all, delete-orphan")
 
 class Conversation(Base):
@@ -76,26 +75,6 @@ class Message(Base):
 
     frame = relationship("Frame", back_populates="messages")
     agent = relationship("Agent")
-
-
-class Persona(Base):
-    """DEPRECATED: Persona data has been merged into Agent. This table is kept for migration rollback."""
-    __tablename__ = 'personas'
-
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    name = Column(String, nullable=False)
-    system_prompt = Column(Text, default='')
-    voice_reference = Column(String, nullable=True)
-    avatar_uuid = Column(String, nullable=True)
-    character_config = Column(JSON, nullable=True)
-    preferred_name = Column(Text, nullable=True)
-    trigger_word = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_persona_user_id_name'),)
-
-    user = relationship("User", back_populates="personas")
 
 
 class Agent(Base):
