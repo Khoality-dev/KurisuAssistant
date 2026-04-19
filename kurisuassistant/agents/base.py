@@ -11,7 +11,6 @@ from kurisuassistant.websocket.events import (
     StreamChunkEvent,
     ToolApprovalRequestEvent,
     ToolApprovalResponseEvent,
-    AgentSwitchEvent,
     ContextBreakdownEvent,
 )
 from kurisuassistant.tools import ToolRegistry
@@ -369,63 +368,6 @@ class BaseAgent(ABC):
 
         return ToolResult(content=f"Unknown tool: {tool_name}", status="error")
 
-    async def delegate_to(
-        self,
-        agent_config: AgentConfig,
-        messages: List[Dict],
-        context: AgentContext,
-        reason: str = "",
-    ) -> AsyncGenerator[StreamChunkEvent, None]:
-        """Delegate to another agent.
-
-        Args:
-            agent_config: Configuration for the sub-agent
-            messages: Messages to pass to sub-agent
-            context: Agent context
-            reason: Reason for delegation
-
-        Yields:
-            StreamChunkEvent from sub-agent
-        """
-        # Notify client of agent switch
-        if context.handler:
-            switch_event = AgentSwitchEvent(
-                from_agent_id=self.config.id,
-                from_agent_name=self.config.name,
-                to_agent_id=agent_config.id,
-                to_agent_name=agent_config.name,
-                reason=reason,
-            )
-            await context.handler.send_event(switch_event)
-
-        # Create sub-agent and run it
-        sub_agent = BaseAgent.create_from_config(agent_config, self.tool_registry)
-
-        async for chunk in sub_agent.process(messages, context):
-            yield chunk
-
-    @staticmethod
-    def create_from_config(config: AgentConfig, tool_registry: ToolRegistry) -> "BaseAgent":
-        """Create an agent from config.
-
-        Args:
-            config: Agent configuration
-            tool_registry: Tool registry
-
-        Returns:
-            Agent instance
-        """
-        # Import here to avoid circular import
-        from .router import RouterAgent
-
-        # For now, all user-created agents use the same base implementation
-        # The router is special and has delegation logic
-        if config.name == "router" or config.id is None:
-            return RouterAgent(config, tool_registry)
-        else:
-            return SimpleAgent(config, tool_registry)
-
-
 class SimpleAgent(BaseAgent):
     """Simple agent that just processes with LLM - no delegation."""
 
@@ -445,7 +387,6 @@ class SimpleAgent(BaseAgent):
 
         - Builds a unified system prompt with agent persona + user preferences
         - Filters out system messages from conversation history (already incorporated)
-        - Filters out Administrator routing messages
         - Tracks token counts for context breakdown
         """
         import datetime
@@ -618,7 +559,6 @@ class SimpleAgent(BaseAgent):
             api_key=api_key,
         )
 
-        # Prepare messages: filter Administrator, add speaker names, inject agent descriptions
         messages = self._prepare_messages(messages, context)
 
         # Expose prepared messages for raw_input logging

@@ -265,11 +265,7 @@ async def delete_agent(
     user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db),
 ):
-    """Delete an agent.
-
-    Note: The Administrator agent cannot be deleted as it is required
-    for the orchestration system.
-    """
+    """Delete an agent. System agents (is_system=True) cannot be deleted."""
     def _delete(session):
         agent_repo = AgentRepository(session)
 

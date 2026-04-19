@@ -1,4 +1,4 @@
-"""WebSocket session handlers with turn-based orchestration."""
+"""WebSocket session handlers — frame-scoped agent routing with handoff."""
 
 import asyncio
 import json
@@ -72,17 +72,14 @@ FRAME_IDLE_THRESHOLD_MINUTES = int(os.getenv("FRAME_IDLE_THRESHOLD_MINUTES", "30
 
 
 class ChatSessionHandler:
-    """Handles a single WebSocket chat session with turn-based orchestration.
+    """Handles a single WebSocket chat session with frame-scoped agent routing.
 
-    The handler uses an Administrator agent to route messages between
-    user-created agents, enabling agent-to-agent communication.
-
-    Turn Flow:
+    Flow:
     1. User sends message
-    2. Administrator selects initial agent
-    3. Agent processes and responds
-    4. Administrator analyzes response to determine next target
-    5. If target is another agent, continue; if user, end turn cycle
+    2. Frame's active agent is used, or a routing LLM picks one on new frames
+    3. Selected agent streams its response
+    4. If the agent calls `handoff_to`, switch active agent and continue
+    5. After up to MAX_HANDOFFS transfers, end the turn cycle
     """
 
     def __init__(self, websocket: WebSocket, user_id: int):
@@ -372,9 +369,6 @@ class ChatSessionHandler:
                     content="", role="user", images=image_uuids,
                     conversation_id=conversation_id, frame_id=frame_id))
 
-            # Build agent lookup (for routing)
-            agent_by_name = {a.name.lower(): a for a in sub_agents}
-
             # Create base agent context (model_name updated per agent in loop)
             agent_context = AgentContext(
                 user_id=self.user_id,
@@ -616,7 +610,7 @@ class ChatSessionHandler:
                         "tool_status": current_tool_status if current_role == "tool" else None,
                     }
                     self._save_message(completed_msg, frame_id)
-                    # Add to conversation history so Administrator sees sub-agent responses
+                    # Append to conversation so the next agent in the handoff chain sees prior turns
                     conversation_messages.append({
                         "role": current_role,
                         "content": chunk_content,
@@ -667,34 +661,7 @@ class ChatSessionHandler:
 
         return handoff_result, final_assistant_content
 
-    async def _run_agent_turn(
-        self,
-        agent_config: AgentConfig,
-        messages: List[Dict],
-        conversation_messages: List[Dict],
-        context: AgentContext,
-        frame_id: int,
-        event: ChatRequestEvent,
-    ):
-        """Run a single agent turn (no routing, used as fallback when no Administrator).
-
-        This preserves the original single-agent behavior for when the Administrator
-        agent is not available.
-        """
-        context.model_name = agent_config.model_name or event.model_name
-        agent = self._create_agent(agent_config)
-
-        await self._stream_and_save_agent(
-            agent=agent,
-            agent_config=agent_config,
-            messages=messages,
-            context=context,
-            frame_id=frame_id,
-            conversation_messages=conversation_messages,
-            is_admin=False,
-        )
-
-    async def _setup_conversation(self, event: ChatRequestEvent) -> tuple[int, int, list, str, str, int | None, str | None, str | None, list[int]]:
+    async def _setup_conversation(self, event: ChatRequestEvent) -> tuple:
         """Setup conversation, frame, and system messages.
 
         If the latest frame has been idle longer than FRAME_IDLE_THRESHOLD_MINUTES,
@@ -1290,19 +1257,6 @@ class ChatSessionHandler:
         db.execute_sync(_update)
         logger.info("Compacted context for conversation %d: %d chars", conversation_id, len(new_context))
         return new_context
-
-    def _load_agent(self, agent_id: int) -> BaseAgent:
-        """Load agent from database."""
-        db = get_db_service()
-
-        def _query(session):
-            agent = AgentRepository(session).get_by_user_and_id(self.user_id, agent_id)
-            if not agent:
-                raise ValueError(f"Agent not found: {agent_id}")
-            return self._agent_to_config(agent)
-
-        config = db.execute_sync(_query)
-        return BaseAgent.create_from_config(config, tool_registry)
 
     def _save_message(self, msg: dict, frame_id: int):
         """Save a single message to database immediately."""
