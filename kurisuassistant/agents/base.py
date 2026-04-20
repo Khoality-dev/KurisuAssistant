@@ -3,7 +3,6 @@
 import asyncio
 import json
 import logging
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import AsyncGenerator, Callable, Coroutine, Dict, List, Any, Optional, TYPE_CHECKING
 
@@ -142,29 +141,21 @@ class ToolResult:
         return ToolResult(content=content, status=status, **kwargs)
 
 
-class BaseAgent(ABC):
-    """Base class for all agents."""
+class ChatAgent:
+    """Conversational agent — streams an LLM, loops on tool calls, yields context breakdowns.
+
+    Exposes tool approval through the handler (frontend decides via tool_policies),
+    injects agent identity / memory / skills / compacted context into the system
+    prompt, and emits ``ContextBreakdownEvent`` at the start of each LLM round.
+    """
 
     def __init__(self, config: AgentConfig, tool_registry: ToolRegistry):
         self.config = config
         self.tool_registry = tool_registry
-
-    @abstractmethod
-    async def process(
-        self,
-        messages: List[Dict],
-        context: AgentContext,
-    ) -> AsyncGenerator[StreamChunkEvent, None]:
-        """Process messages and yield response chunks.
-
-        Args:
-            messages: Full conversation history
-            context: Agent context with metadata
-
-        Yields:
-            StreamChunkEvent for each content chunk
-        """
-        pass
+        # Per-turn tracking for accurate raw_input/raw_output
+        self.turn_data: List[Dict[str, Any]] = []
+        self.context_breakdown: Dict[str, Any] = {}
+        self.loaded_skills: List[str] = []
 
     async def execute_tool(
         self,
@@ -367,16 +358,6 @@ class BaseAgent(ABC):
             logger.warning(f"Server MCP tool execution failed for '{tool_name}': {e}")
 
         return ToolResult(content=f"Unknown tool: {tool_name}", status="error")
-
-class SimpleAgent(BaseAgent):
-    """Simple agent that just processes with LLM - no delegation."""
-
-    def __init__(self, config: AgentConfig, tool_registry: ToolRegistry):
-        super().__init__(config, tool_registry)
-        # Per-turn tracking for accurate raw_input/raw_output
-        self.turn_data: List[Dict[str, Any]] = []
-        self.context_breakdown: Dict[str, Any] = {}
-        self.loaded_skills: List[str] = []
 
     def _prepare_messages(
         self,

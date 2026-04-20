@@ -42,7 +42,7 @@ from .events import (
     CompactContextEvent,
     parse_event,
 )
-from kurisuassistant.agents.base import AgentConfig, AgentContext, BaseAgent, SimpleAgent
+from kurisuassistant.agents.base import AgentConfig, AgentContext, ChatAgent
 from kurisuassistant.agents.selection import select_agent_for_frame
 from kurisuassistant.tools import tool_registry
 from kurisuassistant.tools.handoff import HandoffToTool, parse_handoff_result
@@ -507,7 +507,7 @@ class ChatSessionHandler:
 
     async def _stream_and_save_agent(
         self,
-        agent: BaseAgent,
+        agent: ChatAgent,
         agent_config: AgentConfig,
         messages: List[Dict],
         context: AgentContext,
@@ -784,9 +784,9 @@ class ChatSessionHandler:
                 return agent
         return None
 
-    def _create_agent(self, config: AgentConfig) -> BaseAgent:
+    def _create_agent(self, config: AgentConfig) -> ChatAgent:
         """Create an agent instance from config."""
-        return SimpleAgent(config, tool_registry)
+        return ChatAgent(config, tool_registry)
 
     def _update_timestamps(self, frame_id: int, conversation_id: int):
         """Update frame and conversation timestamps."""

@@ -75,7 +75,7 @@ class SubAgentTool(BaseTool):
         Returns:
             The sub-agent's response as a string
         """
-        from kurisuassistant.agents.base import SimpleAgent, AgentContext
+        from kurisuassistant.agents.base import ChatAgent, AgentContext
         from kurisuassistant.tools import tool_registry
 
         task = args.get("task", "")
@@ -91,7 +91,7 @@ class SubAgentTool(BaseTool):
 
         try:
             # Create sub-agent instance
-            sub_agent = SimpleAgent(self.agent_config, tool_registry)
+            sub_agent = ChatAgent(self.agent_config, tool_registry)
 
             # Build messages for sub-agent (just the task, no history)
             messages = [{"role": "user", "content": task}]

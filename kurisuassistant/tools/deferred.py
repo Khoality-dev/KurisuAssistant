@@ -304,7 +304,7 @@ class CallToolTool(BaseTool):
         }
 
     async def execute(self, args: Dict[str, Any]) -> str:
-        # Execution is intercepted by BaseAgent.execute_tool() — this is a fallback
+        # Execution is intercepted by ChatAgent.execute_tool() — this is a fallback
         return "Error: call_tool must be executed through the agent"
 
 

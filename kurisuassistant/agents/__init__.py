@@ -1,10 +1,9 @@
 """Agent system — frame-scoped agent selection with handoff support."""
 
-from .base import BaseAgent, AgentConfig, AgentContext, SimpleAgent
+from .base import ChatAgent, AgentConfig, AgentContext
 
 __all__ = [
-    "BaseAgent",
+    "ChatAgent",
     "AgentConfig",
     "AgentContext",
-    "SimpleAgent",
 ]
