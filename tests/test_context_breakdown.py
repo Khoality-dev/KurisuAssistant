@@ -15,12 +15,15 @@ BASE_URL = "https://localhost:15597"
 
 @pytest.fixture
 def auth_headers():
-    """Get auth token for test user."""
+    """Get auth token for test user. Skips if the backend isn't reachable."""
     with httpx.Client(verify=False) as client:
-        response = client.post(
-            f"{BASE_URL}/login",
-            data={"username": "testuser", "password": "testpass123"}
-        )
+        try:
+            response = client.post(
+                f"{BASE_URL}/login",
+                data={"username": "testuser", "password": "testpass123"},
+            )
+        except httpx.ConnectError:
+            pytest.skip(f"Backend not reachable at {BASE_URL}")
         if response.status_code != 200:
             pytest.skip("Test user not available")
         token = response.json()["access_token"]
