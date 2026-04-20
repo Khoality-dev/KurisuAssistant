@@ -85,11 +85,10 @@ class TestRapidReconnection:
         ws_initial = make_mock_ws()
         handler = ChatSessionHandler(ws_initial, user_id=1)
 
-        with patch("kurisuassistant.websocket.handlers.get_media_player"):
-            for i in range(10):
-                new_ws = make_mock_ws()
-                await handler.replace_websocket(new_ws)
-                assert handler.websocket is new_ws
+        for i in range(10):
+            new_ws = make_mock_ws()
+            await handler.replace_websocket(new_ws)
+            assert handler.websocket is new_ws
 
         # Final socket receives events
         await handler.send_event(StreamChunkEvent(
@@ -103,16 +102,15 @@ class TestRapidReconnection:
         handler = ChatSessionHandler(make_mock_ws(), user_id=1)
         sockets = []
 
-        with patch("kurisuassistant.websocket.handlers.get_media_player"):
-            for i in range(5):
-                ws = make_mock_ws()
-                sockets.append(ws)
-                await handler.replace_websocket(ws)
+        for i in range(5):
+            ws = make_mock_ws()
+            sockets.append(ws)
+            await handler.replace_websocket(ws)
 
-                # Send event on each new socket
-                await handler.send_event(StreamChunkEvent(
-                    content=f"msg_{i}", role="assistant", conversation_id=1, frame_id=1,
-                ))
+            # Send event on each new socket
+            await handler.send_event(StreamChunkEvent(
+                content=f"msg_{i}", role="assistant", conversation_id=1, frame_id=1,
+            ))
 
         # Each socket should have received exactly one event
         for i, ws in enumerate(sockets):
@@ -305,8 +303,7 @@ class TestMidStreamDisconnect:
 
         # Reconnect
         ws2 = make_mock_ws()
-        with patch("kurisuassistant.websocket.handlers.get_media_player"):
-            await handler.replace_websocket(ws2)
+        await handler.replace_websocket(ws2)
 
         # New chunks go to ws2
         for i in range(3):

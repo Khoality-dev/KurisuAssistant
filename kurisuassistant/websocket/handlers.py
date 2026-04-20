@@ -28,15 +28,6 @@ from .events import (
     VisionResultEvent,
     ClientToolsRegisterEvent,
     ToolCallResponseEvent,
-    MediaPlayEvent,
-    MediaPauseEvent,
-    MediaResumeEvent,
-    MediaSkipEvent,
-    MediaStopEvent,
-    MediaQueueAddEvent,
-    MediaQueueRemoveEvent,
-    MediaVolumeEvent,
-    MediaErrorEvent,
     ContextInfoEvent,
     ContextBreakdownEvent,
     CompactContextEvent,
@@ -47,7 +38,6 @@ from kurisuassistant.agents.selection import select_agent_for_frame
 from kurisuassistant.tools import tool_registry
 from kurisuassistant.tools.handoff import HandoffToTool, parse_handoff_result
 from kurisuassistant.tools.subagent import SubAgentTool
-from kurisuassistant.media import get_media_player
 from kurisuassistant.vision import VisionProcessor
 from sqlalchemy import desc
 from kurisuassistant.db.models import Conversation, Frame, Message
@@ -204,10 +194,6 @@ class ChatSessionHandler:
             self._handle_tool_call_response(event)
         elif isinstance(event, CompactContextEvent):
             await self._handle_compact_context(event)
-        elif isinstance(event, (MediaPlayEvent, MediaPauseEvent, MediaResumeEvent,
-                                MediaSkipEvent, MediaStopEvent, MediaQueueAddEvent,
-                                MediaQueueRemoveEvent, MediaVolumeEvent)):
-            await self._handle_media_event(event)
 
     async def _handle_chat_request(self, event: ChatRequestEvent):
         """Handle incoming chat request, queuing if agent is busy."""
@@ -979,31 +965,6 @@ class ChatSessionHandler:
         finally:
             self._pending_tool_calls.pop(request_id, None)
 
-    async def _handle_media_event(self, event: BaseEvent):
-        """Handle media control events using the player registry."""
-        try:
-            player = get_media_player(self.user_id, self.send_event)
-
-            if isinstance(event, MediaPlayEvent):
-                await player.play(event.query)
-            elif isinstance(event, MediaPauseEvent):
-                await player.pause()
-            elif isinstance(event, MediaResumeEvent):
-                await player.resume()
-            elif isinstance(event, MediaSkipEvent):
-                await player.skip()
-            elif isinstance(event, MediaStopEvent):
-                await player.stop()
-            elif isinstance(event, MediaQueueAddEvent):
-                await player.add_to_queue(event.query)
-            elif isinstance(event, MediaQueueRemoveEvent):
-                player.remove_from_queue(event.index)
-            elif isinstance(event, MediaVolumeEvent):
-                player.set_volume(event.volume)
-        except Exception as e:
-            logger.error(f"Media event error: {e}", exc_info=True)
-            await self.send_event(MediaErrorEvent(error=str(e)))
-
     async def send_event(self, event: BaseEvent):
         """Send event to client (silently fails if disconnected)."""
         event_type = event.type.value if hasattr(event.type, 'value') else event.type
@@ -1019,21 +980,12 @@ class ChatSessionHandler:
 
     async def send_connected_state(self):
         """Send a ConnectedEvent with current server-side state snapshot."""
-        from kurisuassistant.media.player import _players
-
         chat_active = self.current_task is not None and not self.current_task.done()
-
-        # Media state
-        media_state = None
-        player = _players.get(self.user_id)
-        if player:
-            media_state = player.get_state()
 
         await self.send_event(ConnectedEvent(
             chat_active=chat_active,
             conversation_id=self._task_conversation_id if chat_active or self._task_done else None,
             frame_id=self._task_frame_id if chat_active or self._task_done else None,
-            media_state=media_state,
             vision_active=self._vision_processor is not None,
             vision_config=self._vision_config,
         ))
@@ -1046,9 +998,6 @@ class ChatSessionHandler:
         if self._heartbeat_task:
             self._heartbeat_task.cancel()
             self._heartbeat_task = None
-
-        # Update media player's send callback to route through new socket
-        get_media_player(self.user_id, self.send_event)
 
     async def request_tool_approval(
         self,

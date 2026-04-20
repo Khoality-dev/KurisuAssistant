@@ -14,7 +14,6 @@ KurisuAssistant is a voice-based AI assistant platform combining STT (faster-whi
 - [Tools & Skills](docs/tools.md) — built-in/opt-in tools, MCP tools (server + client), skills system
 - [Skills Format](docs/skills.md) — skill format, export/import, writing guide, API
 - [Vision Pipeline](docs/vision.md) — face recognition, gesture detection, character animation
-- [Media Player](docs/media.md) — yt-dlp streaming, player registry, WebSocket events
 - [Database](docs/database.md) — schema, session management, migrations
 - [Development](docs/development.md) — local setup, Docker, env vars, volumes
 - [API Reference](docs/API.md) — comprehensive endpoint documentation

@@ -154,8 +154,7 @@ class TestConnectedState:
         ws = make_mock_ws()
         handler = ChatSessionHandler(ws, user_id=1)
 
-        with patch("kurisuassistant.websocket.handlers.get_media_player", return_value=MagicMock(get_state=MagicMock(return_value=None))):
-            await handler.send_connected_state()
+        await handler.send_connected_state()
 
         ws.send_json.assert_called_once()
         sent = ws.send_json.call_args[0][0]
@@ -170,8 +169,7 @@ class TestConnectedState:
         handler.current_task.done.return_value = False
         handler._task_conversation_id = 42
 
-        with patch("kurisuassistant.websocket.handlers.get_media_player", return_value=MagicMock(get_state=MagicMock(return_value=None))):
-            await handler.send_connected_state()
+        await handler.send_connected_state()
 
         sent = ws.send_json.call_args[0][0]
         assert sent["chat_active"] is True
@@ -189,8 +187,7 @@ class TestReconnection:
         ws2 = make_mock_ws()
         handler = ChatSessionHandler(ws1, user_id=1)
 
-        with patch("kurisuassistant.websocket.handlers.get_media_player"):
-            await handler.replace_websocket(ws2)
+        await handler.replace_websocket(ws2)
 
         assert handler.websocket is ws2
 
@@ -202,8 +199,7 @@ class TestReconnection:
         fake_task = MagicMock()
         handler._heartbeat_task = fake_task
 
-        with patch("kurisuassistant.websocket.handlers.get_media_player"):
-            await handler.replace_websocket(make_mock_ws())
+        await handler.replace_websocket(make_mock_ws())
 
         fake_task.cancel.assert_called_once()
         assert handler._heartbeat_task is None
@@ -514,8 +510,7 @@ class TestConnectionRetention:
 
         # Reconnect with new socket
         ws2 = make_mock_ws()
-        with patch("kurisuassistant.websocket.handlers.get_media_player"):
-            await handler.replace_websocket(ws2)
+        await handler.replace_websocket(ws2)
 
         assert handler.websocket is ws2
         assert mgr.get_handler(1) is handler  # Same handler
@@ -527,8 +522,7 @@ class TestConnectionRetention:
         ws2 = make_mock_ws()
         handler = ChatSessionHandler(ws1, user_id=1)
 
-        with patch("kurisuassistant.websocket.handlers.get_media_player"):
-            await handler.replace_websocket(ws2)
+        await handler.replace_websocket(ws2)
 
         await handler.send_event(StreamChunkEvent(
             content="hello", role="assistant", conversation_id=1, frame_id=1,
@@ -547,8 +541,7 @@ class TestConnectionRetention:
         handler.current_task = MagicMock()
         handler.current_task.done.return_value = False
 
-        with patch("kurisuassistant.websocket.handlers.get_media_player"):
-            await handler.replace_websocket(make_mock_ws())
+        await handler.replace_websocket(make_mock_ws())
 
         # Task state preserved
         assert handler._task_conversation_id == 42
@@ -636,8 +629,7 @@ class TestIdleConnection:
 
         # Reconnect
         ws2 = make_mock_ws()
-        with patch("kurisuassistant.websocket.handlers.get_media_player"):
-            await handler.replace_websocket(ws2)
+        await handler.replace_websocket(ws2)
 
         # Events to ws2 work
         await handler.send_event(StreamChunkEvent(
