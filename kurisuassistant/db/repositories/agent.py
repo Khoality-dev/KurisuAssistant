@@ -69,6 +69,7 @@ class AgentRepository(BaseRepository[Agent]):
         avatar_uuid: Optional[str] = None,
         character_config: Optional[dict] = None,
         preferred_name: Optional[str] = None,
+        trigger_word: Optional[str] = None,
     ) -> Agent:
         """Create a new agent.
 
@@ -94,6 +95,7 @@ class AgentRepository(BaseRepository[Agent]):
             avatar_uuid=avatar_uuid,
             character_config=character_config,
             preferred_name=preferred_name,
+            trigger_word=trigger_word,
         )
 
     def update_agent(self, agent: Agent, **kwargs) -> Agent:

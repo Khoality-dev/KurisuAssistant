@@ -28,17 +28,18 @@ class AgentCreate(BaseModel):
     name: str
     description: str = ""
     system_prompt: str = ""
-    model_name: str  # Required - LLM model for this agent
-    provider_type: str = "ollama"  # "ollama" or "gemini"
+    model_name: str
+    provider_type: str = "ollama"
     available_tools: Optional[List[str]] = None
     think: bool = False
     use_deferred_tools: bool = False
     agent_type: str = "main"  # "main" or "sub"
-    # Personality fields (merged from Persona)
+    # MainAgent-only identity fields
     voice_reference: Optional[str] = None
     avatar_uuid: Optional[str] = None
     character_config: Optional[dict] = None
     preferred_name: Optional[str] = None
+    trigger_word: Optional[str] = None
 
 
 class AgentUpdate(BaseModel):
@@ -54,11 +55,12 @@ class AgentUpdate(BaseModel):
     memory_enabled: Optional[bool] = None
     use_deferred_tools: Optional[bool] = None
     agent_type: Optional[str] = None
-    # Personality fields (merged from Persona)
+    # MainAgent-only identity fields
     voice_reference: Optional[str] = None
     avatar_uuid: Optional[str] = None
     character_config: Optional[dict] = None
     preferred_name: Optional[str] = None
+    trigger_word: Optional[str] = None
 
 
 class AgentResponse(BaseModel):
@@ -77,11 +79,12 @@ class AgentResponse(BaseModel):
     is_system: bool = False
     use_deferred_tools: bool = False
     agent_type: str = "main"
-    # Personality fields (merged from Persona)
+    # MainAgent-only identity fields
     voice_reference: Optional[str] = None
     avatar_uuid: Optional[str] = None
     character_config: Optional[dict] = None
     preferred_name: Optional[str] = None
+    trigger_word: Optional[str] = None
 
 
 def _agent_to_response(agent) -> AgentResponse:
@@ -105,6 +108,7 @@ def _agent_to_response(agent) -> AgentResponse:
         avatar_uuid=getattr(agent, 'avatar_uuid', None),
         character_config=getattr(agent, 'character_config', None),
         preferred_name=getattr(agent, 'preferred_name', None),
+        trigger_word=getattr(agent, 'trigger_word', None),
     )
 
 
@@ -184,6 +188,7 @@ async def create_agent(
                 avatar_uuid=body.avatar_uuid,
                 character_config=body.character_config,
                 preferred_name=body.preferred_name,
+                trigger_word=body.trigger_word,
             )
             return _agent_to_response(agent)
 
@@ -247,6 +252,7 @@ async def update_agent(
             avatar_uuid=body.avatar_uuid,
             character_config=body.character_config,
             preferred_name=body.preferred_name,
+            trigger_word=body.trigger_word,
         )
         if "available_tools" in body.model_fields_set:
             update_kwargs["available_tools"] = body.available_tools
