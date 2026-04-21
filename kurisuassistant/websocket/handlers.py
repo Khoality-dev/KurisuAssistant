@@ -33,11 +33,10 @@ from .events import (
     CompactContextEvent,
     parse_event,
 )
-from kurisuassistant.agents.base import AgentConfig, AgentContext, ChatAgent
+from kurisuassistant.agents import AgentConfig, AgentContext, MainAgent, SubAgent, SubAgentTool
 from kurisuassistant.agents.selection import select_agent_for_frame
 from kurisuassistant.tools import tool_registry
 from kurisuassistant.tools.handoff import HandoffToTool, parse_handoff_result
-from kurisuassistant.tools.subagent import SubAgentTool
 from kurisuassistant.vision import VisionProcessor
 from sqlalchemy import desc
 from kurisuassistant.db.models import Conversation, Frame, Message
@@ -383,8 +382,8 @@ class ChatSessionHandler:
             # Build agent lookup for handoffs
             agent_by_name = {a.name.lower(): a for a in main_agents}
 
-            # Build sub-agent tools (LLM-powered tools)
-            sub_agent_tools = [SubAgentTool(sa) for sa in sub_agents]
+            # Build sub-agent tools — each SubAgent wrapped as a callable tool
+            sub_agent_tools = [SubAgentTool(SubAgent(sa, tool_registry)) for sa in sub_agents]
 
             # Build handoff tool with available main agents
             handoff_tool = HandoffToTool([
@@ -493,7 +492,7 @@ class ChatSessionHandler:
 
     async def _stream_and_save_agent(
         self,
-        agent: ChatAgent,
+        agent: MainAgent,
         agent_config: AgentConfig,
         messages: List[Dict],
         context: AgentContext,
@@ -770,9 +769,9 @@ class ChatSessionHandler:
                 return agent
         return None
 
-    def _create_agent(self, config: AgentConfig) -> ChatAgent:
-        """Create an agent instance from config."""
-        return ChatAgent(config, tool_registry)
+    def _create_agent(self, config: AgentConfig) -> MainAgent:
+        """Create a MainAgent instance from config."""
+        return MainAgent(config, tool_registry)
 
     def _update_timestamps(self, frame_id: int, conversation_id: int):
         """Update frame and conversation timestamps."""

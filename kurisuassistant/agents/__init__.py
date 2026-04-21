@@ -1,9 +1,19 @@
-"""Agent system — frame-scoped agent selection with handoff support."""
+"""Agent system — two concrete agents with distinct roles.
 
-from .base import ChatAgent, AgentConfig, AgentContext
+MainAgent: has identity, streams to the user, can delegate to SubAgents.
+SubAgent: task-only, invisible to the user, returns a single string to its caller.
+"""
+
+from .base import BaseAgent, AgentConfig, AgentContext, ToolResult
+from .main import MainAgent
+from .sub import SubAgent, SubAgentTool
 
 __all__ = [
-    "ChatAgent",
+    "BaseAgent",
     "AgentConfig",
     "AgentContext",
+    "ToolResult",
+    "MainAgent",
+    "SubAgent",
+    "SubAgentTool",
 ]
