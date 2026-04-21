@@ -10,13 +10,12 @@ Usage::
 """
 
 from .service import BackgroundService
-from .tasks import ConsolidateMemoryTask, SummarizeFrameTask
+from .tasks import ConsolidateMemoryTask
 
 __all__ = [
     "start",
     "stop",
     "submit",
-    "SummarizeFrameTask",
     "ConsolidateMemoryTask",
 ]
 

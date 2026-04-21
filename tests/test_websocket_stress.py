@@ -35,7 +35,7 @@ class TestHighVolumeStreaming:
 
         for i in range(1000):
             await handler.send_event(StreamChunkEvent(
-                content=f"chunk_{i}", role="assistant", conversation_id=1, frame_id=1,
+                content=f"chunk_{i}", role="assistant", conversation_id=1,
             ))
 
         assert ws.send_json.call_count == 1000
@@ -51,7 +51,7 @@ class TestHighVolumeStreaming:
 
         tasks = [
             asyncio.create_task(handler.send_event(StreamChunkEvent(
-                content=f"c_{i}", role="assistant", conversation_id=1, frame_id=1,
+                content=f"c_{i}", role="assistant", conversation_id=1,
             )))
             for i in range(100)
         ]
@@ -68,7 +68,7 @@ class TestHighVolumeStreaming:
         large_text = "x" * 10_000
         for i in range(50):
             await handler.send_event(StreamChunkEvent(
-                content=large_text, role="assistant", conversation_id=1, frame_id=1,
+                content=large_text, role="assistant", conversation_id=1,
             ))
 
         assert ws.send_json.call_count == 50
@@ -92,7 +92,7 @@ class TestRapidReconnection:
 
         # Final socket receives events
         await handler.send_event(StreamChunkEvent(
-            content="final", role="assistant", conversation_id=1, frame_id=1,
+            content="final", role="assistant", conversation_id=1,
         ))
         handler.websocket.send_json.assert_called_once()
 
@@ -109,7 +109,7 @@ class TestRapidReconnection:
 
             # Send event on each new socket
             await handler.send_event(StreamChunkEvent(
-                content=f"msg_{i}", role="assistant", conversation_id=1, frame_id=1,
+                content=f"msg_{i}", role="assistant", conversation_id=1,
             ))
 
         # Each socket should have received exactly one event
@@ -198,7 +198,7 @@ class TestHeartbeatUnderLoad:
             # Stream 50 chunks while heartbeat is running
             for i in range(50):
                 await handler.send_event(StreamChunkEvent(
-                    content=f"c_{i}", role="assistant", conversation_id=1, frame_id=1,
+                    content=f"c_{i}", role="assistant", conversation_id=1,
                 ))
                 handler._last_pong_time = time.monotonic()
                 if i % 10 == 0:
@@ -243,7 +243,7 @@ class TestHeartbeatUnderLoad:
             # Send events while heartbeat runs
             for _ in range(10):
                 await handler.send_event(StreamChunkEvent(
-                    content="x", role="assistant", conversation_id=1, frame_id=1,
+                    content="x", role="assistant", conversation_id=1,
                 ))
                 handler._last_pong_time = time.monotonic()
 
@@ -272,7 +272,7 @@ class TestMidStreamDisconnect:
         # Send 5 chunks successfully
         for i in range(5):
             await handler.send_event(StreamChunkEvent(
-                content=f"ok_{i}", role="assistant", conversation_id=1, frame_id=1,
+                content=f"ok_{i}", role="assistant", conversation_id=1,
             ))
 
         assert ws.send_json.call_count == 5
@@ -283,7 +283,7 @@ class TestMidStreamDisconnect:
         # Next 5 chunks are silently dropped
         for i in range(5):
             await handler.send_event(StreamChunkEvent(
-                content=f"lost_{i}", role="assistant", conversation_id=1, frame_id=1,
+                content=f"lost_{i}", role="assistant", conversation_id=1,
             ))
 
         assert ws.send_json.call_count == 5  # Still 5
@@ -297,7 +297,7 @@ class TestMidStreamDisconnect:
         # Send chunks on ws1
         for i in range(3):
             await handler.send_event(StreamChunkEvent(
-                content=f"ws1_{i}", role="assistant", conversation_id=1, frame_id=1,
+                content=f"ws1_{i}", role="assistant", conversation_id=1,
             ))
         assert ws1.send_json.call_count == 3
 
@@ -308,7 +308,7 @@ class TestMidStreamDisconnect:
         # New chunks go to ws2
         for i in range(3):
             await handler.send_event(StreamChunkEvent(
-                content=f"ws2_{i}", role="assistant", conversation_id=1, frame_id=1,
+                content=f"ws2_{i}", role="assistant", conversation_id=1,
             ))
 
         assert ws1.send_json.call_count == 3  # Unchanged
@@ -323,7 +323,7 @@ class TestMidStreamDisconnect:
         # Sending stream chunks fails
         ws.send_json.side_effect = RuntimeError("broken pipe")
         await handler.send_event(StreamChunkEvent(
-            content="fail", role="assistant", conversation_id=1, frame_id=1,
+            content="fail", role="assistant", conversation_id=1,
         ))
 
         # Reset — socket recovers (or new socket)

@@ -1,7 +1,7 @@
 from typing import List, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session, defer
-from sqlalchemy import desc, func
+from sqlalchemy import desc
 
 from ..models import Message
 from .base import BaseRepository
@@ -11,18 +11,13 @@ class MessageRepository(BaseRepository[Message]):
     """Repository for Message model operations."""
 
     def __init__(self, session: Session):
-        """Initialize MessageRepository with session.
-
-        Args:
-            session: SQLAlchemy session instance
-        """
         super().__init__(Message, session)
 
     def create_message(
         self,
         role: str,
         message: str,
-        frame_id: int,
+        conversation_id: int,
         created_at: Optional[datetime] = None,
         thinking: Optional[str] = None,
         agent_id: Optional[int] = None,
@@ -36,26 +31,11 @@ class MessageRepository(BaseRepository[Message]):
         tool_status: Optional[str] = None,
         context_files: Optional[list] = None,
     ) -> Message:
-        """Create a new message.
-
-        Args:
-            role: Message role (user/assistant/tool)
-            message: Message content
-            frame_id: Frame ID this message belongs to
-            created_at: Creation timestamp (optional)
-            thinking: Thinking content (optional, for assistant messages)
-            agent_id: Agent ID that sent this message (optional)
-            name: Display name - agent name or tool name (optional)
-            raw_input: JSON string of messages array sent to LLM (optional)
-            raw_output: Full concatenated LLM response text (optional)
-
-        Returns:
-            Created Message instance
-        """
+        """Create a new message."""
         data = {
             "role": role,
             "message": message,
-            "frame_id": frame_id,
+            "conversation_id": conversation_id,
         }
         if created_at is not None:
             data["created_at"] = created_at
@@ -84,132 +64,63 @@ class MessageRepository(BaseRepository[Message]):
 
         return self.create(**data)
 
-    def get_by_frame(
-        self,
-        frame_id: int,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> List[Message]:
-        """Get messages for a specific frame with pagination.
-
-        Args:
-            frame_id: Frame ID
-            limit: Maximum number of messages to return
-            offset: Number of messages to skip
-
-        Returns:
-            List of Message instances ordered by creation time
-        """
-        return (
-            self.session.query(Message)
-            .filter_by(frame_id=frame_id)
-            .order_by(Message.created_at)
-            .limit(limit)
-            .offset(offset)
-            .all()
-        )
-
     def get_by_conversation(
         self,
         conversation_id: int,
         limit: int = 20,
         offset: int = 0,
     ) -> List[Message]:
-        """Get messages for a conversation (across all frames) with pagination.
+        """Get messages for a conversation with pagination.
 
-        Messages are fetched in reverse chronological order (newest first) for pagination,
-        then reversed to return in chronological order (oldest first) for display.
-
-        Heavy columns (raw_input, raw_output) are deferred to avoid loading large
-        text blobs that are only needed for the /messages/{id}/raw endpoint.
-
-        Args:
-            conversation_id: Conversation ID
-            limit: Maximum number of messages to return
-            offset: Number of messages to skip from the newest messages
-
-        Returns:
-            List of Message instances ordered by creation time (oldest first within the page)
+        Newest first for pagination, returned oldest first for display.
+        Heavy columns (raw_input/raw_output) are deferred.
         """
-        from ..models import Frame
-        # Fetch in reverse order (newest first) with offset, then reverse for display
-        # Defer raw_input/raw_output to avoid loading large text blobs
         messages = (
             self.session.query(Message)
             .options(defer(Message.raw_input), defer(Message.raw_output))
-            .join(Frame, Message.frame_id == Frame.id)
-            .filter(Frame.conversation_id == conversation_id)
+            .filter(Message.conversation_id == conversation_id)
             .order_by(desc(Message.created_at))
             .limit(limit)
             .offset(offset)
             .all()
         )
-        # Reverse to get chronological order (oldest first) for display
         return list(reversed(messages))
 
-    def get_latest_by_frame(self, frame_id: int) -> Optional[Message]:
-        """Get the most recent message in a frame.
-
-        Args:
-            frame_id: Frame ID
-
-        Returns:
-            Most recent Message or None if no messages exist
-        """
+    def list_by_conversation_after(self, conversation_id: int, message_id: int) -> List[Message]:
+        """All messages in a conversation with id > message_id, ordered by creation time."""
         return (
             self.session.query(Message)
-            .filter_by(frame_id=frame_id)
-            .order_by(desc(Message.created_at), desc(Message.id))
-            .first()
+            .filter(
+                Message.conversation_id == conversation_id,
+                Message.id > message_id,
+            )
+            .order_by(Message.created_at)
+            .all()
         )
 
     def get_latest_by_conversation(self, conversation_id: int) -> Optional[Message]:
-        """Get the most recent message in a conversation (across all frames).
-
-        Args:
-            conversation_id: Conversation ID
-
-        Returns:
-            Most recent Message or None if no messages exist
-        """
-        from ..models import Frame
+        """Most recent message in a conversation."""
         return (
             self.session.query(Message)
-            .join(Frame, Message.frame_id == Frame.id)
-            .filter(Frame.conversation_id == conversation_id)
+            .filter(Message.conversation_id == conversation_id)
             .order_by(desc(Message.created_at), desc(Message.id))
             .first()
         )
 
-    def count_by_frame(self, frame_id: int) -> int:
-        """Count messages in a frame.
-
-        Args:
-            frame_id: Frame ID
-
-        Returns:
-            Number of messages
-        """
-        return self.count(frame_id=frame_id)
+    def count_by_conversation(self, conversation_id: int) -> int:
+        """Count messages in a conversation."""
+        return (
+            self.session.query(Message)
+            .filter(Message.conversation_id == conversation_id)
+            .count()
+        )
 
     def delete_from_message(self, message_id: int, conversation_id: int) -> int:
-        """Delete a message and all subsequent messages in the conversation.
-
-        Args:
-            message_id: ID of the message to start deleting from
-            conversation_id: Conversation ID for scoping
-
-        Returns:
-            Number of deleted messages
-        """
-        from ..models import Frame
-
-        # Message IDs are auto-incrementing, so id >= target_id captures all later messages
+        """Delete a message and all subsequent messages in the conversation."""
         subquery = (
             self.session.query(Message.id)
-            .join(Frame, Message.frame_id == Frame.id)
             .filter(
-                Frame.conversation_id == conversation_id,
+                Message.conversation_id == conversation_id,
                 Message.id >= message_id,
             )
             .subquery()
@@ -221,20 +132,3 @@ class MessageRepository(BaseRepository[Message]):
             .delete(synchronize_session="fetch")
         )
         return count
-
-    def count_by_conversation(self, conversation_id: int) -> int:
-        """Count messages in a conversation (across all frames).
-
-        Args:
-            conversation_id: Conversation ID
-
-        Returns:
-            Number of messages
-        """
-        from ..models import Frame
-        return (
-            self.session.query(Message)
-            .join(Frame, Message.frame_id == Frame.id)
-            .filter(Frame.conversation_id == conversation_id)
-            .count()
-        )

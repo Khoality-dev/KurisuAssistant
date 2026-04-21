@@ -4,6 +4,7 @@ from datetime import datetime
 from pgvector.sqlalchemy import Vector
 from .base import Base
 
+
 class User(Base):
     __tablename__ = 'users'
 
@@ -13,16 +14,17 @@ class User(Base):
     system_prompt = Column(Text, default='')
     preferred_name = Column(Text, default='')
     agent_avatar_uuid = Column(String, nullable=True)
-    ollama_url = Column(String, nullable=True)  # Custom Ollama server URL (None = use default env var)
-    summary_model = Column(String, nullable=True)  # Model for frame summarization (None = use chat model)
-    summary_provider = Column(String, default='ollama', nullable=False)  # Provider for summary model ("ollama", "gemini", "nvidia")
-    context_size = Column(Integer, nullable=True)  # Ollama num_ctx override (None = default 8192)
-    gemini_api_key = Column(String, nullable=True)  # Google Gemini API key
-    nvidia_api_key = Column(String, nullable=True)  # NVIDIA NIM API key
+    ollama_url = Column(String, nullable=True)
+    summary_model = Column(String, nullable=True)  # Model for context compaction + memory consolidation
+    summary_provider = Column(String, default='ollama', nullable=False)
+    context_size = Column(Integer, nullable=True)
+    gemini_api_key = Column(String, nullable=True)
+    nvidia_api_key = Column(String, nullable=True)
     tool_policies = Column(JSON, nullable=True)  # {"tools": {"tool_name": "allow"|"deny"}}
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     agents = relationship("Agent", back_populates="user", cascade="all, delete-orphan")
+
 
 class Conversation(Base):
     __tablename__ = 'conversations'
@@ -30,28 +32,18 @@ class Conversation(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     title = Column(Text, default='New conversation')
+    # Main agent for this conversation. Null = not yet picked; gets picked on the next
+    # incoming message via trigger-word-then-random selection and then persisted.
+    main_agent_id = Column(Integer, ForeignKey('agents.id', ondelete='SET NULL'), nullable=True)
     compacted_context = Column(Text, nullable=False, default="", server_default="")
     compacted_up_to_id = Column(Integer, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="conversations")
-    frames = relationship("Frame", back_populates="conversation", cascade="all, delete-orphan")
+    messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
+    main_agent = relationship("Agent", foreign_keys=[main_agent_id])
 
-class Frame(Base):
-    """Context frame (formerly Chunk) - segments conversations into context windows."""
-    __tablename__ = 'frames'
-
-    id = Column(Integer, primary_key=True)
-    conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), nullable=False, index=True)
-    summary = Column(Text, nullable=True)
-    active_agent_id = Column(Integer, ForeignKey('agents.id', ondelete='SET NULL'), nullable=True)  # Which agent is active for this frame
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
-
-    conversation = relationship("Conversation", back_populates="frames")
-    messages = relationship("Message", back_populates="frame", cascade="all, delete-orphan")
-    active_agent = relationship("Agent", foreign_keys=[active_agent_id])
 
 class Message(Base):
     __tablename__ = 'messages'
@@ -60,52 +52,57 @@ class Message(Base):
     role = Column(Text, nullable=False)
     message = Column(Text, nullable=False)
     thinking = Column(Text, nullable=True)
-    raw_input = Column(Text, nullable=True)   # JSON: messages array sent to LLM
-    raw_output = Column(Text, nullable=True)  # Full concatenated LLM response
-    name = Column(String, nullable=True)  # Display name (agent name or tool name)
-    model_name = Column(String, nullable=True)  # LLM model that generated this message
-    provider_type = Column(String, nullable=True)  # LLM provider (ollama, gemini)
-    tool_args = Column(JSON, nullable=True)  # Tool input arguments (for tool role messages)
-    tool_status = Column(String, nullable=True)  # "success" | "error" | "denied"
-    context_files = Column(JSON, nullable=True)  # [{path, fileName, startLine, endLine, ...}]
-    images = Column(JSON, nullable=True)  # List of image UUIDs attached to this message
-    frame_id = Column(Integer, ForeignKey('frames.id', ondelete='CASCADE'), index=True)
-    agent_id = Column(Integer, ForeignKey('agents.id', ondelete='SET NULL'), nullable=True)  # Which agent sent this message
+    raw_input = Column(Text, nullable=True)
+    raw_output = Column(Text, nullable=True)
+    name = Column(String, nullable=True)
+    model_name = Column(String, nullable=True)
+    provider_type = Column(String, nullable=True)
+    tool_args = Column(JSON, nullable=True)
+    tool_status = Column(String, nullable=True)
+    context_files = Column(JSON, nullable=True)
+    images = Column(JSON, nullable=True)
+    conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), nullable=False, index=True)
+    agent_id = Column(Integer, ForeignKey('agents.id', ondelete='SET NULL'), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    frame = relationship("Frame", back_populates="messages")
+    conversation = relationship("Conversation", back_populates="messages")
     agent = relationship("Agent")
 
 
 class Agent(Base):
-    """Agent with identity and capabilities - main agents have personality, sub-agents are tools."""
+    """Agent with identity and capabilities.
+
+    MainAgent (agent_type='main') has identity fields + trigger_word.
+    SubAgent (agent_type='sub') ignores identity fields.
+    """
     __tablename__ = 'agents'
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # NULL for system agents
-    name = Column(String, nullable=False)  # Agent/character name
-    description = Column(String, default='', nullable=False)  # Short description for routing LLM
-    system_prompt = Column(Text, default='')  # Role + personality instructions
+    name = Column(String, nullable=False)
+    description = Column(String, default='', nullable=False)
+    system_prompt = Column(Text, default='')
 
-    # Identity (merged from Persona)
-    voice_reference = Column(String, nullable=True)  # Voice file for TTS
-    avatar_uuid = Column(String, nullable=True)  # Avatar image UUID
-    character_config = Column(JSON, nullable=True)  # Animation tree config
-    preferred_name = Column(Text, nullable=True)  # How user wants to be called by this agent
+    # Identity — MainAgent only
+    voice_reference = Column(String, nullable=True)
+    avatar_uuid = Column(String, nullable=True)
+    character_config = Column(JSON, nullable=True)
+    preferred_name = Column(Text, nullable=True)
+    trigger_word = Column(String, nullable=True)  # First-message selection hint for MainAgents
 
     # Inference config
-    model_name = Column(String, nullable=True)  # LLM model override
-    provider_type = Column(String, default='ollama', nullable=False)  # LLM provider
-    available_tools = Column(JSON, nullable=True)  # Allowlist of tool names (null = all)
-    think = Column(Boolean, default=False, nullable=False)  # Enable extended reasoning
-    use_deferred_tools = Column(Boolean, default=False, nullable=False)  # Use meta-tools for KV cache stability
+    model_name = Column(String, nullable=True)
+    provider_type = Column(String, default='ollama', nullable=False)
+    available_tools = Column(JSON, nullable=True)
+    think = Column(Boolean, default=False, nullable=False)
+    use_deferred_tools = Column(Boolean, default=False, nullable=False)
 
-    # Agent type and state
-    agent_type = Column(String, default='main', nullable=False)  # 'main' (personality) or 'sub' (tool)
-    memory = Column(Text, nullable=True)  # Free-form persistent memory (markdown)
-    memory_enabled = Column(Boolean, default=True, nullable=False)  # Enable memory injection + consolidation
-    enabled = Column(Boolean, default=True, nullable=False)  # Whether agent is active
-    is_system = Column(Boolean, default=False, nullable=False)  # Built-in system agent
+    # State
+    agent_type = Column(String, default='main', nullable=False)  # 'main' | 'sub'
+    memory = Column(Text, nullable=True)
+    memory_enabled = Column(Boolean, default=True, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    is_system = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_agent_user_id_name'),)
@@ -135,13 +132,13 @@ class MCPServer(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     name = Column(String, nullable=False)
-    transport_type = Column(String, nullable=False)  # "sse" or "stdio"
+    transport_type = Column(String, nullable=False)
     url = Column(String, nullable=True)
     command = Column(String, nullable=True)
     args = Column(JSON, nullable=True)
     env = Column(JSON, nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
-    location = Column(String, default='server', nullable=False)  # "server" (backend) or "client" (Electron)
+    location = Column(String, default='server', nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_mcp_server_user_id_name'),)

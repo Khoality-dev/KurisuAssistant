@@ -65,6 +65,7 @@ class AgentConfig:
     avatar_uuid: Optional[str] = None
     character_config: Optional[Dict] = None
     preferred_name: Optional[str] = None
+    trigger_word: Optional[str] = None  # First-message selection hint
 
     # Inference config
     model_name: Optional[str] = None
@@ -86,7 +87,6 @@ class AgentContext:
     """Context passed to agent during processing."""
     user_id: int = 0
     conversation_id: int = 0
-    frame_id: int = 0
     model_name: str = ""
     handler: Optional["ChatSessionHandler"] = None
     available_agents: List[AgentConfig] = field(default_factory=list)

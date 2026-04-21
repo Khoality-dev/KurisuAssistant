@@ -274,7 +274,6 @@ class MainAgent(BaseAgent):
 
                 yield ContextBreakdownEvent(
                     conversation_id=context.conversation_id,
-                    frame_id=context.frame_id,
                     turn=turn,
                     system_prompt_tokens=self.context_breakdown.get("system_prompt_tokens", 0),
                     memory_tokens=self.context_breakdown.get("memory_tokens", 0),
@@ -318,7 +317,6 @@ class MainAgent(BaseAgent):
                             agent_id=self.config.id,
                             name=self.config.name,
                             conversation_id=context.conversation_id,
-                            frame_id=context.frame_id,
                             model_name=model,
                             provider_type=self.config.provider_type,
                         )
@@ -331,7 +329,6 @@ class MainAgent(BaseAgent):
                             agent_id=self.config.id,
                             name=self.config.name,
                             conversation_id=context.conversation_id,
-                            frame_id=context.frame_id,
                             model_name=model,
                             provider_type=self.config.provider_type,
                         )
@@ -375,7 +372,6 @@ class MainAgent(BaseAgent):
                         agent_id=None,
                         name=display_name,
                         conversation_id=context.conversation_id,
-                        frame_id=context.frame_id,
                         tool_args=display_args,
                         tool_status=result.status,
                         images=result.images or None,
@@ -398,5 +394,4 @@ class MainAgent(BaseAgent):
                 agent_id=self.config.id,
                 name=self.config.name,
                 conversation_id=context.conversation_id,
-                frame_id=context.frame_id,
             )

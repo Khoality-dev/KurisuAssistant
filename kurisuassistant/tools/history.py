@@ -1,4 +1,11 @@
-"""Conversation history tools — read-only access to past sessions via DB."""
+"""Conversation history tools — read-only access to past conversations via DB.
+
+Frame-based segmentation was removed; these tools now operate at the
+conversation level. ``history_list`` enumerates the user's conversations
+with their titles and compacted context. ``history_read`` reads messages
+from a specific conversation by ID. ``history_search`` searches all of
+the user's messages across conversations.
+"""
 
 import logging
 from typing import Dict, Any
@@ -9,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_date(date_str: str):
-    """Parse ISO date string to datetime."""
     from datetime import datetime
     for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
         try:
@@ -20,12 +26,13 @@ def _parse_date(date_str: str):
 
 
 class HistoryListTool(BaseTool):
-    """List past conversation sessions (frames) with summaries."""
+    """List the user's past conversations with summaries."""
 
     name = "history_list"
     description = (
-        "List past conversation sessions with their summaries, dates, and message counts. "
-        "Returns most recent sessions first. Use to find which session to read in detail."
+        "List past conversations with titles, compacted summaries, message counts, "
+        "and timestamps. Returns most recent first. Use to find which conversation "
+        "to read in detail."
     )
     built_in = True
 
@@ -40,7 +47,7 @@ class HistoryListTool(BaseTool):
                     "properties": {
                         "limit": {
                             "type": "integer",
-                            "description": "Maximum number of sessions to return (default: 20).",
+                            "description": "Maximum number of conversations to return (default: 20).",
                         },
                     },
                     "required": [],
@@ -50,42 +57,48 @@ class HistoryListTool(BaseTool):
 
     async def execute(self, args: Dict[str, Any]) -> str:
         from kurisuassistant.db.service import get_db_service
-        from kurisuassistant.db.models import Frame, Message
+        from kurisuassistant.db.models import Conversation, Message
         from sqlalchemy import func, desc
 
-        conversation_id = args.get("conversation_id")
-        if not conversation_id:
-            return "Error: No conversation context available."
+        user_id = args.get("user_id")
+        if not user_id:
+            return "Error: No user context available."
 
         limit = args.get("limit", 20)
 
         try:
             def _query(session):
-                frames = (
+                rows = (
                     session.query(
-                        Frame.id,
-                        Frame.summary,
-                        Frame.created_at,
-                        Frame.updated_at,
+                        Conversation.id,
+                        Conversation.title,
+                        Conversation.compacted_context,
+                        Conversation.created_at,
+                        Conversation.updated_at,
                         func.count(Message.id).label("message_count"),
                     )
-                    .outerjoin(Message, Frame.id == Message.frame_id)
-                    .filter(Frame.conversation_id == conversation_id)
-                    .group_by(Frame.id)
-                    .order_by(desc(Frame.created_at))
+                    .outerjoin(Message, Conversation.id == Message.conversation_id)
+                    .filter(Conversation.user_id == user_id)
+                    .group_by(Conversation.id)
+                    .order_by(desc(Conversation.updated_at))
                     .limit(limit)
                     .all()
                 )
 
-                if not frames:
-                    return "No past sessions found."
+                if not rows:
+                    return "No past conversations found."
 
                 lines = []
-                for f in frames:
-                    created = f.created_at.strftime("%Y-%m-%d %H:%M") if f.created_at else "unknown"
-                    summary = f.summary or "(no summary)"
+                for c in rows:
+                    updated = c.updated_at.strftime("%Y-%m-%d %H:%M") if c.updated_at else "unknown"
+                    title = c.title or "Untitled"
+                    summary_preview = (c.compacted_context or "").strip()
+                    if summary_preview:
+                        summary_preview = summary_preview[:200] + ("…" if len(summary_preview) > 200 else "")
+                    else:
+                        summary_preview = "(no summary yet)"
                     lines.append(
-                        f"- **Session #{f.id}** ({created}, {f.message_count} messages): {summary}"
+                        f"- **#{c.id} {title}** ({updated}, {c.message_count} messages): {summary_preview}"
                     )
                 return "\n".join(lines)
 
@@ -94,20 +107,20 @@ class HistoryListTool(BaseTool):
 
         except Exception as e:
             logger.error("history_list failed: %s", e, exc_info=True)
-            return f"Error: Failed to list sessions: {e}"
+            return f"Error: Failed to list conversations: {e}"
 
     def describe_call(self, args: Dict[str, Any]) -> str:
         limit = args.get("limit", 20)
-        return f"List past sessions (limit={limit})"
+        return f"List past conversations (limit={limit})"
 
 
 class HistoryReadTool(BaseTool):
-    """Read messages from a specific conversation session."""
+    """Read messages from a specific past conversation by ID."""
 
     name = "history_read"
     description = (
-        "Read messages from a specific past conversation session. "
-        "Use history_list first to find the frame_id, then read the session in detail."
+        "Read messages from a specific past conversation. Use history_list first "
+        "to find the conversation_id, then read it in detail."
     )
     built_in = True
 
@@ -120,9 +133,9 @@ class HistoryReadTool(BaseTool):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "frame_id": {
+                        "target_conversation_id": {
                             "type": "integer",
-                            "description": "The frame/session ID to read.",
+                            "description": "The conversation ID to read.",
                         },
                         "offset": {
                             "type": "integer",
@@ -133,57 +146,60 @@ class HistoryReadTool(BaseTool):
                             "description": "Maximum number of messages to return (default: 100).",
                         },
                     },
-                    "required": ["frame_id"],
+                    "required": ["target_conversation_id"],
                 },
             },
         }
 
     async def execute(self, args: Dict[str, Any]) -> str:
         from kurisuassistant.db.service import get_db_service
-        from kurisuassistant.db.models import Frame, Message
+        from kurisuassistant.db.models import Conversation, Message
 
-        conversation_id = args.get("conversation_id")
-        if not conversation_id:
-            return "Error: No conversation context available."
+        user_id = args.get("user_id")
+        if not user_id:
+            return "Error: No user context available."
 
-        frame_id = args.get("frame_id")
-        if not frame_id:
-            return "Error: frame_id is required."
+        target = args.get("target_conversation_id")
+        if not target:
+            return "Error: target_conversation_id is required."
 
         offset = args.get("offset", 0)
         limit = args.get("limit", 100)
 
         try:
             def _query(session):
-                frame = (
-                    session.query(Frame)
-                    .filter(Frame.id == frame_id, Frame.conversation_id == conversation_id)
+                conv = (
+                    session.query(Conversation)
+                    .filter(Conversation.id == target, Conversation.user_id == user_id)
                     .first()
                 )
-                if not frame:
-                    return f"Error: Session {frame_id} not found."
+                if not conv:
+                    return f"Error: Conversation {target} not found."
 
                 messages = (
                     session.query(Message)
-                    .filter(Message.frame_id == frame_id)
+                    .filter(Message.conversation_id == target)
                     .order_by(Message.created_at.asc())
                     .offset(offset)
                     .limit(limit)
                     .all()
                 )
 
-                total = session.query(Message).filter(Message.frame_id == frame_id).count()
+                total = session.query(Message).filter(Message.conversation_id == target).count()
 
                 lines = []
-                if frame.summary:
-                    lines.append(f"**Summary**: {frame.summary}\n")
+                if conv.compacted_context:
+                    lines.append(f"**Summary**: {conv.compacted_context}\n")
                 for msg in messages:
                     name = msg.name or msg.role.capitalize()
                     lines.append(f"**{name}**: {msg.message}")
 
                 result = "\n\n".join(lines)
                 if offset + limit < total:
-                    result += f"\n\n*Showing {offset+1}–{offset+len(messages)} of {total} messages. Use offset={offset+limit} for more.*"
+                    result += (
+                        f"\n\n*Showing {offset + 1}–{offset + len(messages)} of {total} messages. "
+                        f"Use offset={offset + limit} for more.*"
+                    )
                 return result
 
             db = get_db_service()
@@ -191,19 +207,19 @@ class HistoryReadTool(BaseTool):
 
         except Exception as e:
             logger.error("history_read failed: %s", e, exc_info=True)
-            return f"Error: Failed to read session: {e}"
+            return f"Error: Failed to read conversation: {e}"
 
     def describe_call(self, args: Dict[str, Any]) -> str:
-        return f"Read session {args.get('frame_id')}"
+        return f"Read conversation {args.get('target_conversation_id')}"
 
 
 class HistorySearchTool(BaseTool):
-    """Search past conversation messages by text and/or date range."""
+    """Search past messages across all of the user's conversations."""
 
     name = "history_search"
     description = (
-        "Search past conversation messages by text content and/or date range. "
-        "Searches across all sessions. Use to find when something was discussed."
+        "Search past messages across all of the user's conversations by text "
+        "content and/or date range. Use to find when something was discussed."
     )
     built_in = True
 
@@ -240,11 +256,11 @@ class HistorySearchTool(BaseTool):
 
     async def execute(self, args: Dict[str, Any]) -> str:
         from kurisuassistant.db.service import get_db_service
-        from kurisuassistant.db.models import Frame, Message
+        from kurisuassistant.db.models import Conversation, Message
 
-        conversation_id = args.get("conversation_id")
-        if not conversation_id:
-            return "Error: No conversation context available."
+        user_id = args.get("user_id")
+        if not user_id:
+            return "Error: No user context available."
 
         query = args.get("query", "")
         after = args.get("after")
@@ -257,9 +273,9 @@ class HistorySearchTool(BaseTool):
         try:
             def _search(session):
                 q = (
-                    session.query(Message)
-                    .join(Frame, Message.frame_id == Frame.id)
-                    .filter(Frame.conversation_id == conversation_id)
+                    session.query(Message, Conversation.title)
+                    .join(Conversation, Message.conversation_id == Conversation.id)
+                    .filter(Conversation.user_id == user_id)
                     .filter(Message.message.ilike(f"%{query}%"))
                 )
 
@@ -267,23 +283,23 @@ class HistorySearchTool(BaseTool):
                     parsed = _parse_date(after)
                     if parsed:
                         q = q.filter(Message.created_at >= parsed)
-
                 if before:
                     parsed = _parse_date(before)
                     if parsed:
                         q = q.filter(Message.created_at <= parsed)
 
-                messages = q.order_by(Message.created_at.desc()).limit(limit).all()
+                rows = q.order_by(Message.created_at.desc()).limit(limit).all()
 
-                if not messages:
+                if not rows:
                     return f"No results found for \"{query}\"."
 
                 lines = []
-                for msg in messages:
+                for msg, title in rows:
                     name = msg.name or msg.role.capitalize()
                     created = msg.created_at.strftime("%Y-%m-%d %H:%M") if msg.created_at else ""
                     snippet = msg.message[:200]
-                    lines.append(f"- **{name}** (session #{msg.frame_id}, {created}): {snippet}")
+                    conv_label = f"conv #{msg.conversation_id}" + (f" \"{title}\"" if title else "")
+                    lines.append(f"- **{name}** ({conv_label}, {created}): {snippet}")
                 return "\n".join(lines)
 
             db = get_db_service()

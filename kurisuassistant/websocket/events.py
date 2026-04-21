@@ -53,7 +53,6 @@ class ConnectedEvent(BaseEvent):
     type: EventType = field(default=EventType.CONNECTED)
     chat_active: bool = False
     conversation_id: Optional[int] = None
-    frame_id: Optional[int] = None
     vision_active: bool = False
     vision_config: Optional[Dict[str, Any]] = None
 
@@ -69,7 +68,6 @@ class ChatRequestEvent(BaseEvent):
     text: str = ""
     model_name: str = ""
     conversation_id: Optional[int] = None
-    agent_id: Optional[int] = None  # Which agent to use (None = router)
     images: List[str] = field(default_factory=list)  # base64 encoded
     context_files: List[Dict[str, Any]] = field(default_factory=list)  # [{path, fileName, startLine, endLine, ...}]
 
@@ -150,7 +148,6 @@ class StreamChunkEvent(BaseEvent):
     persona_name: Optional[str] = None  # Persona display name
     voice_reference: Optional[str] = None
     conversation_id: int = 0
-    frame_id: int = 0
     tool_args: Optional[Dict[str, Any]] = None  # Tool input params (for tool role messages)
     tool_status: Optional[str] = None  # "success" | "error" | "denied" (for tool role messages)
     images: Optional[List[str]] = None  # Image UUIDs
@@ -197,7 +194,6 @@ class DoneEvent(BaseEvent):
     """Server signals streaming complete."""
     type: EventType = field(default=EventType.DONE)
     conversation_id: int = 0
-    frame_id: int = 0
 
 
 @dataclass
@@ -218,7 +214,6 @@ class ContextBreakdownEvent(BaseEvent):
     """
     type: EventType = field(default=EventType.CONTEXT_BREAKDOWN)
     conversation_id: int = 0
-    frame_id: int = 0
     turn: int = 0  # Which LLM turn (0-indexed, increments on tool loops)
 
     # Token counts for each component (estimated: words * 1.3)
@@ -277,7 +272,6 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
             text=data.get("text", ""),
             model_name=data.get("model_name", ""),
             conversation_id=data.get("conversation_id"),
-            agent_id=data.get("agent_id"),
             images=data.get("images", []),
             context_files=data.get("context_files", []),
         )
