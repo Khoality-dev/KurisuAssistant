@@ -61,7 +61,16 @@ com.kurisu.assistant/
 
 - Build: `./gradlew assembleDebug` (requires `JAVA_HOME` set to Android Studio JBR, e.g. `export JAVA_HOME="/c/Program Files/Android/Android Studio/jbr"`)
 - Install: `./gradlew installDebug`
+- Unit tests (JVM): `./gradlew :app:testDebugUnitTest` — Robolectric + MockK + Turbine + Truth, no emulator needed
+- E2E UI tests (instrumented): `./gradlew :app:connectedDebugAndroidTest` — Compose UI tests, needs an emulator/device
 - Note: `gradle-wrapper.jar` is gitignored — builds must run from an environment where it has been generated (e.g. Android Studio)
+
+## Testing
+
+- **Unit tests** live in `app/src/test/`. Use Robolectric (`@RunWith(AndroidJUnit4::class)`) only when you need a Context; pure logic should stay plain JVM. Existing coverage: `SentenceSplitter`, `NarrationStripper`, `WavParser`, `AmplitudeCurveComputer`, `AnimationMigration`, `ChatStreamProcessor`, `VoiceInteractionManager`, `HomeViewModel`
+- **E2E tests** live in `app/src/androidTest/`. Prefer composable-level tests (`createComposeRule()`) with test-owned state over full-Activity tests, unless navigation/Hilt wiring is the thing under test. Existing coverage: `ChatInputTest`
+- `ChatStreamProcessor` exposes an `internal var collectDispatcher` so tests can swap the default `Dispatchers.Default` for `UnconfinedTestDispatcher()` — keep this seam when touching that class
+- Robolectric **must** be 4.14+ to match `targetSdk = 35`
 
 ## Navigation Flow
 

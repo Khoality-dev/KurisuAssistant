@@ -45,10 +45,16 @@ class ChatStreamProcessor @Inject constructor(
 
     private var collectJob: Job? = null
 
+    /**
+     * Dispatcher used for collecting WebSocket events. Overridable for tests that need a
+     * deterministic scheduler (e.g. [kotlinx.coroutines.test.UnconfinedTestDispatcher]).
+     */
+    internal var collectDispatcher: CoroutineDispatcher = Dispatchers.Default
+
     /** Start collecting WebSocket events in an internal scope. Idempotent. */
     fun startCollecting() {
         if (collectJob?.isActive == true) return
-        collectJob = CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+        collectJob = CoroutineScope(SupervisorJob() + collectDispatcher).launch {
             wsManager.events.collect { event ->
                 when (event) {
                     is StreamChunkEvent -> handleChunk(event)
