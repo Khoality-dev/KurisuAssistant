@@ -30,7 +30,6 @@ class EventType(str, Enum):
     ERROR = "error"
     VISION_RESULT = "vision_result"
     CONTEXT_INFO = "context_info"
-    CONTEXT_BREAKDOWN = "context_breakdown"
 
 
 @dataclass
@@ -206,39 +205,6 @@ class ContextInfoEvent(BaseEvent):
     compacted_context: str = ""
 
 
-@dataclass
-class ContextBreakdownEvent(BaseEvent):
-    """Server sends detailed context breakdown with token counts.
-
-    Sent at the start of each LLM turn to show what's in the context.
-    """
-    type: EventType = field(default=EventType.CONTEXT_BREAKDOWN)
-    conversation_id: int = 0
-    turn: int = 0  # Which LLM turn (0-indexed, increments on tool loops)
-
-    # Token counts for each component (estimated: words * 1.3)
-    system_prompt_tokens: int = 0
-    memory_tokens: int = 0
-    compacted_context_tokens: int = 0
-    skills_tokens: int = 0
-    tools_guidance_tokens: int = 0
-    other_agents_tokens: int = 0
-
-    # Message history
-    message_history_tokens: int = 0
-    message_count: int = 0
-
-    # Tool schemas
-    tool_schemas_tokens: int = 0
-    tool_count: int = 0
-
-    # Total
-    total_tokens: int = 0
-    context_limit: int = 0  # Model's context window size
-
-    # Lists of what's loaded
-    loaded_tools: List[str] = field(default_factory=list)
-    loaded_skills: List[str] = field(default_factory=list)
 
 
 @dataclass

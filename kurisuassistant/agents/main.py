@@ -2,19 +2,16 @@
 
 Owns the persona (voice, avatar, character config, preferred_name,
 trigger_word) and runs the LLM tool-loop. Emits StreamChunkEvents for
-the user and ContextBreakdownEvents per turn.
+the user.
 """
 
 import json
 import logging
 from typing import AsyncGenerator, Dict, List
 
-from kurisuassistant.websocket.events import (
-    StreamChunkEvent,
-    ContextBreakdownEvent,
-)
+from kurisuassistant.websocket.events import StreamChunkEvent
 
-from .base import BaseAgent, AgentContext, async_iterate, estimate_tokens
+from .base import BaseAgent, AgentContext, async_iterate
 
 logger = logging.getLogger(__name__)
 
@@ -26,29 +23,25 @@ class MainAgent(BaseAgent):
       system prompt by ``_prepare_messages``.
     - ``extra_tools`` is a handler-injected list (SubAgentTool adapters,
       etc.) mixed into the tool schemas presented to the LLM.
-    - ``process`` yields ContextBreakdownEvent at the start of each LLM
-      round and StreamChunkEvent for every content/thinking/tool chunk.
+    - ``process`` yields StreamChunkEvent for every content/thinking/tool
+      chunk produced during the LLM loop.
     """
 
     def __init__(self, config, tool_registry):
         super().__init__(config, tool_registry)
-        # Per-turn tracking for accurate raw_input/raw_output
         self.turn_data: List[Dict] = []
-        self.context_breakdown: Dict = {}
-        self.loaded_skills: List[str] = []
 
     def _prepare_messages(
         self,
         messages: List[Dict],
         context: AgentContext,
     ) -> List[Dict]:
-        """Prepare messages for LLM: build system prompt, track token breakdown."""
+        """Prepare messages for LLM: build the system prompt."""
         import datetime
 
         # Build dynamic sub-agent delegation guide from injected SubAgentTool
-        # adapters. This replaces any hard-coded sub-agent references in the
-        # base system prompt — the set of sub-agents is per-user and changes
-        # at runtime, so it must be assembled here rather than baked in.
+        # adapters. The set of sub-agents is per-user and runtime-mutable, so
+        # it must be assembled here rather than baked into stored prompts.
         from .sub import SubAgentTool
         sub_agent_lines = []
         if hasattr(self, "extra_tools") and self.extra_tools:
@@ -62,17 +55,6 @@ class MainAgent(BaseAgent):
                 desc = desc.strip() or "specialized worker"
                 sub_agent_lines.append(f"- `{extra_tool.name}` — {sub_cfg.name}: {desc}")
 
-        breakdown = {
-            "system_prompt_tokens": 0,
-            "memory_tokens": 0,
-            "compacted_context_tokens": 0,
-            "skills_tokens": 0,
-            "tools_guidance_tokens": 0,
-            "other_agents_tokens": 0,
-            "message_history_tokens": 0,
-            "message_count": 0,
-        }
-
         system_parts = []
 
         base_prompt = f"You are {self.config.name}."
@@ -85,15 +67,12 @@ class MainAgent(BaseAgent):
             base_prompt += f"\n\nThe user prefers to be called: {preferred_name}"
         base_prompt += f"\n\nCurrent time: {datetime.datetime.utcnow().isoformat()}"
         system_parts.append(base_prompt)
-        breakdown["system_prompt_tokens"] = estimate_tokens(base_prompt)
 
-        # Skills
-        skill_names = []
         if context.user_id:
             from kurisuassistant.tools.skills import get_skill_names_for_user
             skill_names = get_skill_names_for_user(context.user_id)
             if skill_names:
-                skills_text = (
+                system_parts.append(
                     "## Skills\n"
                     "You have the following skills: " + ", ".join(skill_names) + ".\n"
                     "Skills contain detailed instructions on HOW to perform specific tasks. "
@@ -101,13 +80,9 @@ class MainAgent(BaseAgent):
                     "attempting any task that matches a skill name. Do NOT guess or improvise — "
                     "always read the skill first and follow its instructions exactly."
                 )
-                system_parts.append(skills_text)
-                breakdown["skills_tokens"] = estimate_tokens(skills_text)
-        self.loaded_skills = skill_names
 
-        # Deferred tools guidance
         if self.config.use_deferred_tools:
-            tools_guidance = (
+            system_parts.append(
                 "## Tool Usage\n"
                 "You have access to tools through a discovery system. Use these functions:\n"
                 "1. list_tools(page?) — Browse available tools (name + description, paginated)\n"
@@ -117,34 +92,24 @@ class MainAgent(BaseAgent):
                 "Workflow: list_tools or search_tools → get_tool_schema → call_tool.\n"
                 "You may skip discovery if you already know the tool name from context or a previous turn."
             )
-            system_parts.append(tools_guidance)
-            breakdown["tools_guidance_tokens"] = estimate_tokens(tools_guidance)
 
         if self.config.memory_enabled and self.config.memory:
-            memory_text = "Your memory:\n" + self.config.memory
-            system_parts.append(memory_text)
-            breakdown["memory_tokens"] = estimate_tokens(memory_text)
+            system_parts.append("Your memory:\n" + self.config.memory)
 
         if context.compacted_context:
-            compacted_text = "Conversation context:\n" + context.compacted_context
-            system_parts.append(compacted_text)
-            breakdown["compacted_context_tokens"] = estimate_tokens(compacted_text)
+            system_parts.append("Conversation context:\n" + context.compacted_context)
 
         if sub_agent_lines:
-            sub_agents_text = (
+            system_parts.append(
                 "## Available Sub-Agents\n"
                 "You can delegate specialized tasks by calling these sub-agent tools:\n"
                 + "\n".join(sub_agent_lines)
                 + "\n\nDelegate when a sub-agent is clearly suited to the task; "
                 "otherwise handle it yourself."
             )
-            system_parts.append(sub_agents_text)
-            breakdown["other_agents_tokens"] = estimate_tokens(sub_agents_text)
 
         prepared = [{"role": "system", "content": "\n\n".join(system_parts)}]
 
-        msg_count = 0
-        msg_tokens = 0
         for msg in messages:
             role = msg.get("role", "user")
             if role == "system":
@@ -163,14 +128,6 @@ class MainAgent(BaseAgent):
                 entry["thinking"] = msg["thinking"]
             prepared.append(entry)
 
-            msg_count += 1
-            msg_tokens += estimate_tokens(content)
-            if "thinking" in msg:
-                msg_tokens += estimate_tokens(msg["thinking"])
-
-        breakdown["message_history_tokens"] = msg_tokens
-        breakdown["message_count"] = msg_count
-        self.context_breakdown = breakdown
         return prepared
 
     async def process(
@@ -180,9 +137,7 @@ class MainAgent(BaseAgent):
     ) -> AsyncGenerator:
         """Stream an LLM conversation, looping on tool calls.
 
-        Yields:
-            ContextBreakdownEvent at the start of each LLM round.
-            StreamChunkEvent for every content/thinking chunk and tool result.
+        Yields StreamChunkEvent for every content/thinking chunk and tool result.
         """
         from kurisuassistant.models.llm import create_llm_provider
 
@@ -240,10 +195,6 @@ class MainAgent(BaseAgent):
             for extra_tool in self.extra_tools:
                 tool_schemas.append(extra_tool.get_schema())
 
-        tool_schemas_json = json.dumps(tool_schemas, ensure_ascii=False)
-        tool_schemas_tokens = estimate_tokens(tool_schemas_json)
-        loaded_tool_names = [t.get("function", {}).get("name", "unknown") for t in tool_schemas]
-
         if context.images:
             for msg in reversed(messages):
                 if msg.get("role") == "user":
@@ -251,53 +202,12 @@ class MainAgent(BaseAgent):
                     break
 
         MAX_TOOL_ROUNDS = 25 if self.config.use_deferred_tools else 10
-        context_limit = context.context_size or 8192
         self.turn_data = []
 
         try:
             for turn in range(MAX_TOOL_ROUNDS):
                 raw_input_messages = [dict(m) for m in messages]
                 self.last_prepared_messages = raw_input_messages
-
-                msg_tokens = 0
-                msg_count = 0
-                for msg in messages[1:]:  # skip system
-                    msg_tokens += estimate_tokens(msg.get("content", ""))
-                    if "thinking" in msg:
-                        msg_tokens += estimate_tokens(msg["thinking"])
-                    msg_count += 1
-                self.context_breakdown["message_history_tokens"] = msg_tokens
-                self.context_breakdown["message_count"] = msg_count
-
-                total_tokens = (
-                    self.context_breakdown.get("system_prompt_tokens", 0) +
-                    self.context_breakdown.get("memory_tokens", 0) +
-                    self.context_breakdown.get("compacted_context_tokens", 0) +
-                    self.context_breakdown.get("skills_tokens", 0) +
-                    self.context_breakdown.get("tools_guidance_tokens", 0) +
-                    self.context_breakdown.get("other_agents_tokens", 0) +
-                    msg_tokens +
-                    tool_schemas_tokens
-                )
-
-                yield ContextBreakdownEvent(
-                    conversation_id=context.conversation_id,
-                    turn=turn,
-                    system_prompt_tokens=self.context_breakdown.get("system_prompt_tokens", 0),
-                    memory_tokens=self.context_breakdown.get("memory_tokens", 0),
-                    compacted_context_tokens=self.context_breakdown.get("compacted_context_tokens", 0),
-                    skills_tokens=self.context_breakdown.get("skills_tokens", 0),
-                    tools_guidance_tokens=self.context_breakdown.get("tools_guidance_tokens", 0),
-                    other_agents_tokens=self.context_breakdown.get("other_agents_tokens", 0),
-                    message_history_tokens=msg_tokens,
-                    message_count=msg_count,
-                    tool_schemas_tokens=tool_schemas_tokens,
-                    tool_count=len(tool_schemas),
-                    total_tokens=total_tokens,
-                    context_limit=context_limit,
-                    loaded_tools=loaded_tool_names,
-                    loaded_skills=self.loaded_skills,
-                )
 
                 stream = llm.chat(
                     model=model,

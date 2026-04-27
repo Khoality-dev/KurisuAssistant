@@ -27,7 +27,6 @@ from .events import (
     ClientToolsRegisterEvent,
     ToolCallResponseEvent,
     ContextInfoEvent,
-    ContextBreakdownEvent,
     CompactContextEvent,
     parse_event,
 )
@@ -381,7 +380,6 @@ class ChatSessionHandler:
         chunk_content = ""
         chunk_thinking = ""
         current_images: List[str] = []
-        current_turn_raw_input: Optional[str] = None
         current_tool_args_json: Optional[str] = None
         current_tool_args: Optional[Dict] = None
         current_tool_status: Optional[str] = None
@@ -390,14 +388,6 @@ class ChatSessionHandler:
         last_provider_type: Optional[str] = None
 
         async for event in agent.process(messages, context):
-            if isinstance(event, ContextBreakdownEvent):
-                await self.send_event(event)
-                current_turn_raw_input = json.dumps(
-                    getattr(agent, 'last_prepared_messages', messages),
-                    ensure_ascii=False, default=str,
-                )
-                continue
-
             chunk = event
 
             if chunk.content:
@@ -420,7 +410,14 @@ class ChatSessionHandler:
 
             if chunk.role != current_role:
                 if chunk_content or chunk_thinking:
-                    raw_in = current_turn_raw_input if current_role == "assistant" else current_tool_args_json
+                    raw_in = (
+                        json.dumps(
+                            getattr(agent, 'last_prepared_messages', messages),
+                            ensure_ascii=False, default=str,
+                        )
+                        if current_role == "assistant"
+                        else current_tool_args_json
+                    )
                     completed_msg = {
                         "role": current_role,
                         "content": chunk_content,
