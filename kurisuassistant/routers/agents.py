@@ -226,9 +226,6 @@ async def update_agent(
             agent = session.query(AgentModel).filter_by(id=agent_id, is_system=True).first()
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
-        # System agents cannot be renamed
-        if agent.is_system and body.name is not None:
-            raise HTTPException(status_code=400, detail="System agent names cannot be changed")
         # Check for duplicate name
         if body.name is not None and body.name != agent.name:
             existing = agent_repo.get_by_user_and_name(user.id, body.name)
