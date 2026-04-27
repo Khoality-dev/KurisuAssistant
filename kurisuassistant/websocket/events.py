@@ -30,6 +30,7 @@ class EventType(str, Enum):
     ERROR = "error"
     VISION_RESULT = "vision_result"
     CONTEXT_INFO = "context_info"
+    CONVERSATION_SWITCHED = "conversation_switched"
 
 
 @dataclass
@@ -205,6 +206,14 @@ class ContextInfoEvent(BaseEvent):
     compacted_context: str = ""
 
 
+@dataclass
+class ConversationSwitchedEvent(BaseEvent):
+    """After compaction, the chat moves to a new conversation seeded with the summary."""
+    type: EventType = field(default=EventType.CONVERSATION_SWITCHED)
+    old_conversation_id: int = 0
+    new_conversation_id: int = 0
+    compacted_context: str = ""
+    agent_id: int = 0
 
 
 @dataclass

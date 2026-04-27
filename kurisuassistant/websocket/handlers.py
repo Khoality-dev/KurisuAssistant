@@ -27,6 +27,7 @@ from .events import (
     ClientToolsRegisterEvent,
     ToolCallResponseEvent,
     ContextInfoEvent,
+    ConversationSwitchedEvent,
     CompactContextEvent,
     parse_event,
 )
@@ -261,10 +262,8 @@ class ChatSessionHandler:
                 user_message["images"] = image_uuids
             if event.context_files:
                 user_message["context_files"] = event.context_files
-            conversation_messages = system_messages + context_messages + [user_message]
 
-            self._save_message(user_message, conversation_id)
-
+            extra_msgs_prepared = []
             if extra_messages:
                 for extra_event in extra_messages:
                     extra_msg = {"role": "user", "content": extra_event.text}
@@ -278,12 +277,14 @@ class ChatSessionHandler:
                                 logger.warning(f"Failed to save image: {e}")
                         if extra_imgs:
                             extra_msg["images"] = extra_imgs
-                    self._save_message(extra_msg, conversation_id)
-                    conversation_messages.append(extra_msg)
+                    extra_msgs_prepared.append(extra_msg)
 
-            # Context compaction if near context-window limit
+            # Context compaction if near context-window limit. The pending user
+            # message + extras are NOT included in the summary — they land as
+            # the first messages of the new conversation that gets created.
             context_limit = context_size or 8192
-            token_count = self._estimate_tokens(conversation_messages)
+            pre_check_messages = system_messages + context_messages + [user_message] + extra_msgs_prepared
+            token_count = self._estimate_tokens(pre_check_messages)
 
             if token_count > context_limit * 0.9 and summary_model:
                 await self.send_event(ContextInfoEvent(
@@ -294,19 +295,36 @@ class ChatSessionHandler:
                     else nvidia_api_key if summary_provider == "nvidia"
                     else None
                 )
-                compacted_context = await asyncio.to_thread(
-                    self._compact_context,
-                    conversation_id, context_limit, conversation_messages,
+                summary_input = system_messages + context_messages
+                summary = await asyncio.to_thread(
+                    self._generate_summary,
+                    context_limit, summary_input,
                     summary_model, ollama_url, summary_provider, summary_api_key,
                 )
-                compacted_context, compacted_up_to_id, context_messages = self._load_context_messages(conversation_id)
-                conversation_messages = system_messages + context_messages + [user_message]
-                token_count = self._estimate_tokens(conversation_messages)
-                await self.send_event(ContextInfoEvent(
-                    conversation_id=conversation_id,
-                    compacted_up_to_id=compacted_up_to_id,
-                    compacted_context=compacted_context,
-                ))
+                if summary:
+                    new_conversation_id = await asyncio.to_thread(
+                        self._create_summary_conversation,
+                        current_agent.id, summary,
+                    )
+                    old_conversation_id = conversation_id
+                    conversation_id = new_conversation_id
+                    self._task_conversation_id = new_conversation_id
+                    compacted_context = summary
+                    compacted_up_to_id = 0
+                    context_messages = []
+                    await self.send_event(ConversationSwitchedEvent(
+                        old_conversation_id=old_conversation_id,
+                        new_conversation_id=new_conversation_id,
+                        compacted_context=summary,
+                        agent_id=current_agent.id or 0,
+                    ))
+
+            # Save the pending user message + extras to the (possibly new) conversation
+            self._save_message(user_message, conversation_id)
+            for extra_msg in extra_msgs_prepared:
+                self._save_message(extra_msg, conversation_id)
+            conversation_messages = system_messages + context_messages + [user_message] + extra_msgs_prepared
+            token_count = self._estimate_tokens(conversation_messages)
 
             self._initial_token_count = token_count
             self._response_word_count = 0
@@ -625,22 +643,25 @@ class ChatSessionHandler:
         def _get_prefs(session):
             user = UserRepository(session).get_by_id(self.user_id)
             if not user:
-                return None, None, None, None, None
+                return None, None, None, None, None, None
+            conv = ConversationRepository(session).get_by_user_and_id(self.user_id, conversation_id)
+            agent_id = conv.main_agent_id if conv else None
             return (
                 user.summary_model,
                 getattr(user, 'summary_provider', 'ollama'),
                 user.ollama_url,
                 getattr(user, 'gemini_api_key', None),
                 getattr(user, 'nvidia_api_key', None),
+                agent_id,
             )
 
-        summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key = db.execute_sync(_get_prefs)
+        summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key, agent_id = db.execute_sync(_get_prefs)
 
         if not summary_model:
             await self.send_event(ErrorEvent(error="No summary model configured.", code="NO_SUMMARY_MODEL"))
             return
 
-        compacted_context, compacted_up_to_id, context_messages = self._load_context_messages(conversation_id)
+        _, _, context_messages = self._load_context_messages(conversation_id)
         if not context_messages:
             return
 
@@ -650,9 +671,6 @@ class ChatSessionHandler:
 
         context_limit = db.execute_sync(_get_ctx)
 
-        system_messages = [{"role": "system", "content": ""}]
-        conversation_messages = system_messages + context_messages
-
         await self.send_event(ContextInfoEvent(conversation_id=conversation_id, compacting=True))
 
         summary_api_key = (
@@ -660,18 +678,25 @@ class ChatSessionHandler:
             else nvidia_api_key if summary_provider == "nvidia"
             else None
         )
-        await asyncio.to_thread(
-            self._compact_context,
-            conversation_id, context_limit, conversation_messages,
+        summary = await asyncio.to_thread(
+            self._generate_summary,
+            context_limit, [{"role": "system", "content": ""}] + context_messages,
             summary_model, ollama_url, summary_provider, summary_api_key,
         )
 
-        compacted_context, compacted_up_to_id, _ = self._load_context_messages(conversation_id)
+        if not summary:
+            await self.send_event(ErrorEvent(error="Compaction produced empty output.", code="COMPACT_EMPTY"))
+            return
 
-        await self.send_event(ContextInfoEvent(
-            conversation_id=conversation_id,
-            compacted_up_to_id=compacted_up_to_id,
-            compacted_context=compacted_context,
+        new_conversation_id = await asyncio.to_thread(
+            self._create_summary_conversation, agent_id, summary,
+        )
+
+        await self.send_event(ConversationSwitchedEvent(
+            old_conversation_id=conversation_id,
+            new_conversation_id=new_conversation_id,
+            compacted_context=summary,
+            agent_id=agent_id or 0,
         ))
 
     async def _handle_vision_start(self, event: VisionStartEvent):
@@ -843,9 +868,28 @@ class ChatSessionHandler:
         word_count = sum(len(m.get("content", "").split()) for m in messages)
         return int(word_count * 1.3)
 
-    def _compact_context(
+    def _create_summary_conversation(self, agent_id: Optional[int], summary: str) -> int:
+        """Create a new conversation seeded with ``summary`` as compacted_context.
+
+        Used after manual /compact or auto-compaction so the next message
+        starts in a fresh conversation with the summary visible at the top.
+        """
+        db = get_db_service()
+
+        def _create(session):
+            conv_repo = ConversationRepository(session)
+            conv = conv_repo.create_conversation(
+                user_id=self.user_id,
+                title="Continued conversation",
+                main_agent_id=agent_id,
+            )
+            conv_repo.update_compacted_context(conv, summary, 0)
+            return conv.id
+
+        return db.execute_sync(_create)
+
+    def _generate_summary(
         self,
-        conversation_id: int,
         context_size: int,
         conversation_messages: list,
         model_name: str,
@@ -853,6 +897,7 @@ class ChatSessionHandler:
         provider_type: str = "ollama",
         api_key: str | None = None,
     ) -> str:
+        """LLM-only summary generation. No DB writes."""
         from kurisuassistant.models.llm import create_llm_provider
 
         target_chars = int(context_size * 0.1 * 4)
@@ -908,30 +953,10 @@ class ChatSessionHandler:
             new_context = response.message.content.strip()
             if len(new_context) > target_chars:
                 new_context = new_context[:target_chars]
+            return new_context
         except Exception as e:
             logger.error("Context compaction failed: %s", e, exc_info=True)
             return ""
-
-        db = get_db_service()
-
-        def _update(session):
-            conv = session.query(Conversation).filter_by(id=conversation_id).first()
-            if not conv:
-                return
-            last_msg = (
-                session.query(Message.id)
-                .filter(Message.conversation_id == conversation_id)
-                .order_by(desc(Message.id))
-                .first()
-            )
-            compacted_up_to_id = last_msg[0] if last_msg else 0
-            ConversationRepository(session).update_compacted_context(
-                conv, new_context, compacted_up_to_id,
-            )
-
-        db.execute_sync(_update)
-        logger.info("Compacted context for conversation %d: %d chars", conversation_id, len(new_context))
-        return new_context
 
     def _save_message(self, msg: dict, conversation_id: int):
         db = get_db_service()
