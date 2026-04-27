@@ -455,7 +455,14 @@ class ChatSessionHandler:
                     chunk_thinking += chunk.thinking
 
         if chunk_content or chunk_thinking:
-            raw_in = current_turn_raw_input if current_role == "assistant" else current_tool_args_json
+            raw_in = (
+                json.dumps(
+                    getattr(agent, 'last_prepared_messages', messages),
+                    ensure_ascii=False, default=str,
+                )
+                if current_role == "assistant"
+                else current_tool_args_json
+            )
             completed_msg = {
                 "role": current_role,
                 "content": chunk_content,
