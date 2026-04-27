@@ -278,6 +278,30 @@ async def get_context_breakdown(
                     "## Tool Usage\nYou have access to tools through a discovery system..."
                 )
 
+            # Sub-agent delegation guide — mirrors agents/main.py
+            sub_agents_tokens = 0
+            if agent.agent_type == 'main':
+                user_agents = agent_repo.list_enabled_for_user(user.id)
+                sub_agent_cfgs = [a for a in user_agents if a.agent_type == 'sub']
+                if sub_agent_cfgs:
+                    from kurisuassistant.agents.sub import SubAgentTool
+                    lines = []
+                    for sa in sub_agent_cfgs:
+                        tool_name = SubAgentTool._to_tool_name(sa.name)
+                        desc = sa.description or (
+                            (sa.system_prompt or "")[:150] if sa.system_prompt else ""
+                        )
+                        desc = desc.strip() or "specialized worker"
+                        lines.append(f"- `{tool_name}` — {sa.name}: {desc}")
+                    sub_agents_text = (
+                        "## Available Sub-Agents\n"
+                        "You can delegate specialized tasks by calling these sub-agent tools:\n"
+                        + "\n".join(lines)
+                        + "\n\nDelegate when a sub-agent is clearly suited to the task; "
+                        "otherwise handle it yourself."
+                    )
+                    sub_agents_tokens = estimate_tokens(sub_agents_text)
+
             watermark = conversation.compacted_up_to_id or 0
             messages = msg_repo.list_by_conversation_after(conversation_id, watermark)
             message_history_tokens = 0
@@ -293,8 +317,8 @@ async def get_context_breakdown(
 
             total_tokens = (
                 system_prompt_tokens + memory_tokens + compacted_context_tokens +
-                skills_tokens + tools_guidance_tokens + message_history_tokens +
-                tool_schemas_tokens
+                skills_tokens + tools_guidance_tokens + sub_agents_tokens +
+                message_history_tokens + tool_schemas_tokens
             )
 
             return {
@@ -306,7 +330,7 @@ async def get_context_breakdown(
                 "compacted_context_tokens": compacted_context_tokens,
                 "skills_tokens": skills_tokens,
                 "tools_guidance_tokens": tools_guidance_tokens,
-                "other_agents_tokens": 0,
+                "other_agents_tokens": sub_agents_tokens,
                 "message_history_tokens": message_history_tokens,
                 "message_count": len(messages),
                 "tool_schemas_tokens": tool_schemas_tokens,

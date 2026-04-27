@@ -45,13 +45,22 @@ class MainAgent(BaseAgent):
         """Prepare messages for LLM: build system prompt, track token breakdown."""
         import datetime
 
-        # Build descriptions of other agents in this conversation (for "other agents" context)
-        agent_descriptions = []
-        for agent in context.available_agents:
-            if agent.name == self.config.name:
-                continue
-            desc = agent.system_prompt[:150] if agent.system_prompt else "General assistant"
-            agent_descriptions.append(f"- {agent.name}: {desc}")
+        # Build dynamic sub-agent delegation guide from injected SubAgentTool
+        # adapters. This replaces any hard-coded sub-agent references in the
+        # base system prompt — the set of sub-agents is per-user and changes
+        # at runtime, so it must be assembled here rather than baked in.
+        from .sub import SubAgentTool
+        sub_agent_lines = []
+        if hasattr(self, "extra_tools") and self.extra_tools:
+            for extra_tool in self.extra_tools:
+                if not isinstance(extra_tool, SubAgentTool):
+                    continue
+                sub_cfg = extra_tool.sub.config
+                desc = sub_cfg.description or (
+                    (sub_cfg.system_prompt or "")[:150] if sub_cfg.system_prompt else ""
+                )
+                desc = desc.strip() or "specialized worker"
+                sub_agent_lines.append(f"- `{extra_tool.name}` — {sub_cfg.name}: {desc}")
 
         breakdown = {
             "system_prompt_tokens": 0,
@@ -121,17 +130,16 @@ class MainAgent(BaseAgent):
             system_parts.append(compacted_text)
             breakdown["compacted_context_tokens"] = estimate_tokens(compacted_text)
 
-        if agent_descriptions:
-            other_agents_text = (
-                "Other agents in this conversation:\n"
-                + "\n".join(agent_descriptions)
-                + "\n\nYou may see messages from these agents. "
-                "Just focus on your own response — "
-                "do not direct others to speak, ask them to chime in, "
-                "or manage the conversation flow. A separate system handles turn-taking."
+        if sub_agent_lines:
+            sub_agents_text = (
+                "## Available Sub-Agents\n"
+                "You can delegate specialized tasks by calling these sub-agent tools:\n"
+                + "\n".join(sub_agent_lines)
+                + "\n\nDelegate when a sub-agent is clearly suited to the task; "
+                "otherwise handle it yourself."
             )
-            system_parts.append(other_agents_text)
-            breakdown["other_agents_tokens"] = estimate_tokens(other_agents_text)
+            system_parts.append(sub_agents_text)
+            breakdown["other_agents_tokens"] = estimate_tokens(sub_agents_text)
 
         prepared = [{"role": "system", "content": "\n\n".join(system_parts)}]
 
