@@ -32,8 +32,6 @@ class GetSkillInstructionsTool(BaseTool):
         "Get the full instructions for a skill by name. "
         "Call this before performing a task when a relevant skill is listed in the system prompt."
     )
-    requires_approval = False
-    risk_level = "low"
     built_in = True
 
     def get_schema(self) -> Dict[str, Any]:

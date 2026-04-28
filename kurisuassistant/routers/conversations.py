@@ -1,7 +1,6 @@
 """Conversation management routes."""
 
 import logging
-
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -10,7 +9,7 @@ from sqlalchemy.orm import Session
 from kurisuassistant.core.deps import get_db, get_authenticated_user
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
-from kurisuassistant.db.repositories import ConversationRepository, MessageRepository, FrameRepository
+from kurisuassistant.db.repositories import ConversationRepository, MessageRepository
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +19,16 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 @router.get("")
 async def list_conversations(
     limit: int = 50,
-    agent_id: Optional[int] = Query(None, description="Filter by agent ID (returns latest conversation with messages from this agent)"),
+    agent_id: Optional[int] = Query(
+        None,
+        description="Filter by main_agent_id (returns latest conversation with this main agent)",
+    ),
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """List user's conversations. If agent_id is provided, returns the latest conversation containing messages from that agent."""
+    """List user's conversations. If agent_id is provided, returns the latest
+    conversation whose ``main_agent_id`` matches.
+    """
     try:
         def _list(session):
             conv_repo = ConversationRepository(session)
@@ -34,6 +38,7 @@ async def list_conversations(
                     return [{
                         "id": conversation.id,
                         "title": conversation.title or "New conversation",
+                        "main_agent_id": conversation.main_agent_id,
                         "created_at": conversation.created_at.isoformat() + "Z",
                         "updated_at": (
                             conversation.updated_at.isoformat() + "Z"
@@ -57,7 +62,7 @@ async def get_conversation(
     limit: int = 20,
     offset: int = 0,
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Get conversation details with messages."""
     try:
@@ -73,13 +78,11 @@ async def get_conversation(
             messages = msg_repo.get_by_conversation(conversation_id, limit, offset)
 
             messages_array = []
-            frame_ids = set()
             for msg in messages:
                 message_dict = {
                     "id": msg.id,
                     "role": msg.role,
                     "content": msg.message,
-                    "frame_id": msg.frame_id,
                     "created_at": msg.created_at.isoformat() + "Z",
                     "has_raw_data": bool(msg.raw_input or msg.raw_output),
                 }
@@ -101,34 +104,15 @@ async def get_conversation(
                     message_dict["context_files"] = msg.context_files
                 if msg.agent_id:
                     message_dict["agent_id"] = msg.agent_id
-                    # Include agent info if available (eager loaded)
                     if msg.agent:
-                        persona = msg.agent.persona
                         message_dict["agent"] = {
                             "id": msg.agent.id,
                             "name": msg.agent.name,
-                            "persona_name": persona.name if persona else None,
-                            "avatar_uuid": persona.avatar_uuid if persona else None,
-                            "voice_reference": persona.voice_reference if persona else None,
+                            "avatar_uuid": msg.agent.avatar_uuid,
+                            "voice_reference": msg.agent.voice_reference,
                         }
                 messages_array.append(message_dict)
-                if msg.frame_id:
-                    frame_ids.add(msg.frame_id)
 
-            # Build frames map for frame IDs referenced by returned messages
-            from kurisuassistant.db.models import Frame
-            frames_map = {}
-            if frame_ids:
-                frames = session.query(Frame).filter(Frame.id.in_(frame_ids)).all()
-                for f in frames:
-                    frames_map[f.id] = {
-                        "id": f.id,
-                        "summary": f.summary,
-                        "created_at": f.created_at.isoformat() + "Z" if f.created_at else None,
-                        "updated_at": f.updated_at.isoformat() + "Z" if f.updated_at else None,
-                    }
-
-            # Estimate system prompt tokens (word_count * 1.3)
             from kurisuassistant.utils.prompts import build_system_messages
             sys_msgs = build_system_messages(user.system_prompt or "", user.preferred_name)
             sys_words = sum(len(m.get("content", "").split()) for m in sys_msgs)
@@ -137,7 +121,7 @@ async def get_conversation(
             return {
                 "id": conversation.id,
                 "messages": messages_array,
-                "frames": frames_map,
+                "main_agent_id": conversation.main_agent_id,
                 "created_at": conversation.created_at.isoformat() + "Z",
                 "title": conversation.title or "",
                 "total_messages": total_messages,
@@ -164,7 +148,7 @@ async def update_conversation(
     conversation_id: int,
     request: Request,
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Update conversation title."""
     try:
@@ -191,7 +175,7 @@ async def update_conversation(
 async def delete_conversation(
     conversation_id: int,
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Delete conversation and all its messages."""
     try:
@@ -211,30 +195,3 @@ async def delete_conversation(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{conversation_id}/frames")
-async def list_frames(
-    conversation_id: int,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
-):
-    """List all frames in a conversation with metadata."""
-    try:
-        def _list_frames(session):
-            conv_repo = ConversationRepository(session)
-            frame_repo = FrameRepository(session)
-
-            conversation = conv_repo.get_by_user_and_id(user.id, conversation_id)
-            if not conversation:
-                raise HTTPException(status_code=404, detail="Conversation not found")
-
-            frames = frame_repo.list_by_conversation(conversation_id)
-            return {"frames": frames}
-
-        db = get_db_service()
-        return await db.execute(_list_frames)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error listing frames for conversation {conversation_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))

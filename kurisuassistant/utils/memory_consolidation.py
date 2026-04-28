@@ -1,7 +1,8 @@
-"""Agent memory consolidation from completed session frames.
+"""Agent memory consolidation from an idle conversation.
 
-After a frame is summarized, this module updates Agent.memory
-(short essential text, always in system prompt).
+After a conversation has been idle past the threshold, this module
+updates ``Agent.memory`` for each agent that participated. Reads from
+``Conversation.compacted_context`` + recent messages (no frames).
 """
 
 import asyncio
@@ -31,29 +32,39 @@ MAX_TRANSCRIPT_CHARS = 8000
 MAX_MEMORY_CHARS = 4000
 
 
-def _load_transcript(db, frame_ids: list[int]) -> str:
-    """Load conversation transcript from frame IDs."""
-    from kurisuassistant.db.repositories import MessageRepository
+def _load_transcript(db, conversation_id: int) -> tuple[str, str]:
+    """Load (compacted_context, transcript) from a conversation.
+
+    Transcript is the concatenation of messages in chronological order,
+    truncated to ``MAX_TRANSCRIPT_CHARS``. Compacted context is the
+    rolling summary already stored on the conversation (may be empty).
+    """
+    from kurisuassistant.db.models import Conversation, Message
 
     def _query(session):
-        msg_repo = MessageRepository(session)
+        conv = session.query(Conversation).filter_by(id=conversation_id).first()
+        if not conv:
+            return ("", "")
+        compacted = conv.compacted_context or ""
+
+        messages = (
+            session.query(Message)
+            .filter(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at)
+            .all()
+        )
         lines = []
         total_chars = 0
-        for fid in frame_ids:
-            messages = msg_repo.get_by_frame(fid, limit=500)
-            for msg in messages:
-                role = msg.role.capitalize()
-                name = msg.name or role
-                line = f"{name}: {msg.message}"
-                if total_chars + len(line) > MAX_TRANSCRIPT_CHARS:
-                    lines.append("... (truncated)")
-                    break
-                lines.append(line)
-                total_chars += len(line)
-            else:
-                continue
-            break
-        return "\n".join(lines)
+        for msg in messages:
+            role = (msg.role or "user").capitalize()
+            name = msg.name or role
+            line = f"{name}: {msg.message}"
+            if total_chars + len(line) > MAX_TRANSCRIPT_CHARS:
+                lines.append("... (truncated)")
+                break
+            lines.append(line)
+            total_chars += len(line)
+        return (compacted, "\n".join(lines))
 
     return db.execute_sync(_query)
 
@@ -61,15 +72,16 @@ def _load_transcript(db, frame_ids: list[int]) -> str:
 async def consolidate_agent_memory(
     user_id: int,
     agent_id: int,
-    frame_ids: list[int],
+    conversation_id: int,
     model_name: str,
     api_url: Optional[str] = None,
     provider_type: str = "ollama",
     api_key: Optional[str] = None,
 ) -> None:
-    """Consolidate agent memory from completed session frames.
+    """Consolidate an agent's memory from a single idle conversation.
 
-    Fire-and-forget — errors are logged, never raised.
+    Fire-and-forget — errors are logged, never raised. Empty LLM output
+    is logged (so missing updates are visible), not silently dropped.
     """
     try:
         from kurisuassistant.db.repositories import AgentRepository
@@ -77,33 +89,41 @@ async def consolidate_agent_memory(
 
         db = get_db_service()
 
-        # Load agent data
         def _load_agent(session):
             agent = AgentRepository(session).get_by_id(agent_id)
             if not agent:
+                return None
+            if not agent.memory_enabled:
                 return None
             return agent.system_prompt or "", agent.memory or ""
 
         agent_data = db.execute_sync(_load_agent)
         if agent_data is None:
-            logger.warning("Agent %d not found for memory consolidation", agent_id)
+            logger.info(
+                "Skipping memory consolidation: agent %d not found or memory disabled",
+                agent_id,
+            )
             return
 
         agent_system_prompt, current_memory = agent_data
 
-        # Load transcript
-        transcript = _load_transcript(db, frame_ids)
-        if not transcript.strip():
+        compacted, transcript = _load_transcript(db, conversation_id)
+        if not transcript.strip() and not compacted.strip():
+            logger.info(
+                "Skipping memory consolidation: empty transcript for conversation %d",
+                conversation_id,
+            )
             return
 
         llm = create_llm_provider(provider_type, api_url=api_url, api_key=api_key)
 
-        # --- Step 1: Update Agent.memory (short essential text) ---
-        memory_user_content = (
-            f"## Agent Description\n{agent_system_prompt}\n\n"
-            f"## Current Memory\n{current_memory or '(empty)'}\n\n"
-            f"## Recent Conversation\n{transcript}"
-        )
+        parts = [f"## Agent Description\n{agent_system_prompt}"]
+        parts.append(f"## Current Memory\n{current_memory or '(empty)'}")
+        if compacted.strip():
+            parts.append(f"## Earlier Context (summary)\n{compacted}")
+        if transcript.strip():
+            parts.append(f"## Recent Conversation\n{transcript}")
+        memory_user_content = "\n\n".join(parts)
 
         response = await asyncio.to_thread(
             llm.chat,
@@ -116,17 +136,33 @@ async def consolidate_agent_memory(
         )
 
         new_memory = response.message.content.strip()
-        if new_memory:
-            if len(new_memory) > MAX_MEMORY_CHARS:
-                new_memory = new_memory[:MAX_MEMORY_CHARS]
+        if not new_memory:
+            logger.warning(
+                "Memory consolidation for agent %d produced empty output — skipping write",
+                agent_id,
+            )
+            return
 
-            def _store_memory(session):
-                agent = AgentRepository(session).get_by_id(agent_id)
-                if agent:
-                    AgentRepository(session).update_agent(agent, memory=new_memory)
+        if len(new_memory) > MAX_MEMORY_CHARS:
+            new_memory = new_memory[:MAX_MEMORY_CHARS]
 
-            db.execute_sync(_store_memory)
-            logger.info("Consolidated memory for agent %d: %d chars", agent_id, len(new_memory))
+        if new_memory == (current_memory or ""):
+            logger.info("Memory consolidation for agent %d: no changes", agent_id)
+            return
+
+        def _store_memory(session):
+            agent = AgentRepository(session).get_by_id(agent_id)
+            if agent:
+                AgentRepository(session).update_agent(agent, memory=new_memory)
+
+        db.execute_sync(_store_memory)
+        logger.info(
+            "Consolidated memory for agent %d from conversation %d: %d chars",
+            agent_id, conversation_id, len(new_memory),
+        )
 
     except Exception as e:
-        logger.error("Failed to consolidate memory for agent %d: %s", agent_id, e, exc_info=True)
+        logger.error(
+            "Failed to consolidate memory for agent %d (conversation %d): %s",
+            agent_id, conversation_id, e, exc_info=True,
+        )

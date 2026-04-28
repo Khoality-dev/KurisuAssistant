@@ -1207,8 +1207,6 @@ Persistent connection for real-time chat, vision, and media control. All events 
 }
 ```
 
-**Media events:** `media_state` (state, current_track, queue, volume), `media_chunk` (data, chunk_index, is_last, format, sample_rate), `media_error` (error)
-
 #### Reconnection
 
 Chat WebSocket supports replay: `_accumulated_messages` (complete messages) replayed on reconnect. Client filters by conversation ID.

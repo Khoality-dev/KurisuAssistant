@@ -1,16 +1,14 @@
-"""WebSocket session handlers with turn-based orchestration."""
+"""WebSocket session handler — one conversation, one main agent, optional sub-agent delegation."""
 
 import asyncio
 import json
 import logging
-import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional
 
 from fastapi import WebSocket
 
 from .events import (
-    EventType,
     BaseEvent,
     ConnectedEvent,
     ChatRequestEvent,
@@ -28,30 +26,20 @@ from .events import (
     VisionResultEvent,
     ClientToolsRegisterEvent,
     ToolCallResponseEvent,
-    MediaPlayEvent,
-    MediaPauseEvent,
-    MediaResumeEvent,
-    MediaSkipEvent,
-    MediaStopEvent,
-    MediaQueueAddEvent,
-    MediaQueueRemoveEvent,
-    MediaVolumeEvent,
-    MediaErrorEvent,
     ContextInfoEvent,
+    ConversationSwitchedEvent,
     CompactContextEvent,
     parse_event,
 )
-from kurisuassistant.agents.base import AgentConfig, AgentContext, BaseAgent, SimpleAgent
+from kurisuassistant.agents import AgentConfig, AgentContext, MainAgent, SubAgent, SubAgentTool
+from kurisuassistant.agents.selection import pick_main_agent
 from kurisuassistant.tools import tool_registry
-from kurisuassistant.tools.routing import RouteToTool, parse_route_result
-from kurisuassistant.media import get_media_player
 from kurisuassistant.vision import VisionProcessor
 from sqlalchemy import desc
-from kurisuassistant.db.models import Conversation, Frame, Message
+from kurisuassistant.db.models import Conversation, Message
 from kurisuassistant.db.repositories import (
     AgentRepository,
     ConversationRepository,
-    FrameRepository,
     MessageRepository,
     UserRepository,
 )
@@ -60,26 +48,20 @@ from kurisuassistant.utils.prompts import build_system_messages
 
 logger = logging.getLogger(__name__)
 
-# Default configuration
-HEARTBEAT_INTERVAL = 30  # seconds between server pings
-HEARTBEAT_TIMEOUT = 10   # seconds to wait for pong before closing
-DEFAULT_MAX_TURNS = 10
-ADMINISTRATOR_NAME = "Administrator"  # Reserved agent name for routing
-FRAME_IDLE_THRESHOLD_MINUTES = int(os.getenv("FRAME_IDLE_THRESHOLD_MINUTES", "30"))
+HEARTBEAT_INTERVAL = 30
+HEARTBEAT_TIMEOUT = 10
 
 
 class ChatSessionHandler:
-    """Handles a single WebSocket chat session with turn-based orchestration.
+    """Handles a single WebSocket chat session.
 
-    The handler uses an Administrator agent to route messages between
-    user-created agents, enabling agent-to-agent communication.
-
-    Turn Flow:
-    1. User sends message
-    2. Administrator selects initial agent
-    3. Agent processes and responds
-    4. Administrator analyzes response to determine next target
-    5. If target is another agent, continue; if user, end turn cycle
+    Flow:
+    1. User sends a message
+    2. Resolve/create conversation. If ``main_agent_id`` is null, pick one
+       (trigger-word scan → random) and persist.
+    3. Run MainAgent with SubAgentTool adapters for each enabled SubAgent.
+    4. Stream response; save messages with ``conversation_id`` as they complete.
+    5. On idle, background worker consolidates agent memory from the conversation.
     """
 
     def __init__(self, websocket: WebSocket, user_id: int):
@@ -89,29 +71,22 @@ class ChatSessionHandler:
         self.current_task: Optional[asyncio.Task] = None
         self._send_lock = asyncio.Lock()
 
-        # Task metadata for ConnectedEvent state
         self._task_conversation_id: Optional[int] = None
-        self._task_frame_id: Optional[int] = None
         self._task_done: bool = False
 
-        # Heartbeat
         self._heartbeat_task: Optional[asyncio.Task] = None
         self._last_pong_time: float = 0
 
-        # Client-side MCP tools
         self._client_tools: List[Dict] = []
         self._client_tool_names: set = set()
         self._pending_tool_calls: Dict[str, asyncio.Future] = {}
 
-        # Message queue — new requests queued while agent is running
         self._message_queue: List[ChatRequestEvent] = []
 
-        # Vision processing
         self._vision_processor: Optional[VisionProcessor] = None
         self._vision_config: Optional[dict] = None
 
     async def run(self):
-        """Main handler loop - receives and processes events."""
         from fastapi import WebSocketDisconnect
         import time
 
@@ -133,31 +108,20 @@ class ChatSessionHandler:
                 except WebSocketDisconnect:
                     raise
                 except RuntimeError:
-                    # WebSocket closed (e.g. heartbeat timeout) — treat as disconnect
                     raise WebSocketDisconnect()
                 except Exception as e:
                     logger.error(f"Error handling WebSocket event: {e}", exc_info=True)
-                    await self.send_event(ErrorEvent(
-                        error=str(e),
-                        code="INTERNAL_ERROR",
-                    ))
+                    await self.send_event(ErrorEvent(error=str(e), code="INTERNAL_ERROR"))
         finally:
             my_heartbeat.cancel()
-            # Only clear the shared reference if it's still ours (not replaced by a newer run())
             if self._heartbeat_task is my_heartbeat:
                 self._heartbeat_task = None
 
     async def _heartbeat_loop(self, ws: WebSocket):
-        """Periodically ping the client; close if no pong received in time.
-
-        Operates on the specific WebSocket passed at creation time.
-        Auto-stops if the handler's websocket has been replaced (reconnect).
-        """
         import time
         try:
             while True:
                 await asyncio.sleep(HEARTBEAT_INTERVAL)
-                # Stop if websocket was replaced by a reconnect
                 if self.websocket is not ws:
                     return
                 try:
@@ -170,7 +134,6 @@ class ChatSessionHandler:
                 except Exception:
                     return
 
-                # Wait for pong
                 await asyncio.sleep(HEARTBEAT_TIMEOUT)
                 if self.websocket is not ws:
                     return
@@ -185,7 +148,6 @@ class ChatSessionHandler:
             pass
 
     async def _handle_event(self, event: BaseEvent):
-        """Route event to appropriate handler."""
         if isinstance(event, ChatRequestEvent):
             await self._handle_chat_request(event)
         elif isinstance(event, ToolApprovalResponseEvent):
@@ -204,108 +166,78 @@ class ChatSessionHandler:
             self._handle_tool_call_response(event)
         elif isinstance(event, CompactContextEvent):
             await self._handle_compact_context(event)
-        elif isinstance(event, (MediaPlayEvent, MediaPauseEvent, MediaResumeEvent,
-                                MediaSkipEvent, MediaStopEvent, MediaQueueAddEvent,
-                                MediaQueueRemoveEvent, MediaVolumeEvent)):
-            await self._handle_media_event(event)
 
     async def _handle_chat_request(self, event: ChatRequestEvent):
-        """Handle incoming chat request, queuing if agent is busy."""
         if self.current_task and not self.current_task.done():
-            # Agent is busy — queue the message for later
             self._message_queue.append(event)
             logger.debug("Queued message (queue size: %d)", len(self._message_queue))
             return
-
-        self.current_task = asyncio.create_task(
-            self._run_chat(event)
-        )
+        self.current_task = asyncio.create_task(self._run_chat(event))
 
     def _process_queue(self):
-        """Process all queued messages as a single agent turn.
-
-        Each message is saved as a separate user bubble in the DB,
-        but the agent sees them all in one turn.
-        """
         if not self._message_queue:
             return
         queued = list(self._message_queue)
         self._message_queue.clear()
-        # First event drives the turn; extra messages are added to context
         primary = queued[0]
         extra = queued[1:] if len(queued) > 1 else []
         logger.debug("Processing %d queued messages as single turn", len(queued))
-        self.current_task = asyncio.create_task(
-            self._run_chat(primary, extra_messages=extra)
-        )
+        self.current_task = asyncio.create_task(self._run_chat(primary, extra_messages=extra))
+
+    # ------------------------------------------------------------------
+    # Chat orchestration
+    # ------------------------------------------------------------------
 
     async def _run_chat(self, event: ChatRequestEvent, extra_messages: Optional[List] = None):
-        """Run unified chat processing with Administrator routing.
-
-        Args:
-            event: Primary chat request event
-            extra_messages: Additional queued ChatRequestEvents to include as user messages
-
-        Flow:
-        1. Setup conversation/frame (same as before)
-        2. Load all enabled agents (system + user's)
-        3. Find Administrator agent (is_system=True, name="Administrator")
-        4. Start with Administrator, loop with routing:
-           - Administrator sees full history + route_to tool
-           - Sub-agents see their system prompt + route_to message only
-           - After sub-agent finishes, control returns to Administrator
-        5. Send DoneEvent
-        """
+        """Pick main agent if needed, then run it with sub-agent tools."""
         from fastapi import WebSocketDisconnect
         try:
-            # Setup conversation/frame
-            conversation_id, frame_id, system_messages, user_system_prompt, preferred_name, old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, summary_provider, unsummarized_ids, context_size = await self._setup_conversation(event)
+            setup = await self._setup_conversation(event)
+            (conversation_id, system_messages, user_system_prompt, preferred_name,
+             ollama_url, gemini_api_key, nvidia_api_key,
+             summary_model, summary_provider, context_size,
+             existing_main_agent_id) = setup
 
-            # Reset task state
             self._task_conversation_id = conversation_id
-            self._task_frame_id = frame_id
             self._task_done = False
 
-            # Load all enabled agents (system + user's)
             all_agents = self._load_enabled_agents()
+            main_agents = [a for a in all_agents if a.agent_type == 'main']
+            sub_agents = [a for a in all_agents if a.agent_type == 'sub']
 
-            # Separate Administrator from sub-agents
-            admin_agent = None
-            sub_agents = []
-            for agent in all_agents:
-                if agent.is_system and agent.name == ADMINISTRATOR_NAME:
-                    admin_agent = agent
-                else:
-                    sub_agents.append(agent)
-
-            # Submit background tasks for old/unsummarized frames
-            fids = ([old_frame_id] if old_frame_id else []) + unsummarized_ids
-            if summary_model and fids:
-                import kurisuassistant.workers as workers
-                summary_api_key = gemini_api_key if summary_provider == "gemini" else nvidia_api_key if summary_provider == "nvidia" else None
-                for fid in fids:
-                    workers.submit(workers.SummarizeFrameTask(frame_id=fid, model_name=summary_model, api_url=ollama_url, provider_type=summary_provider, api_key=summary_api_key))
-
-            if not admin_agent:
-                # No Administrator agent — fall back: if only one sub-agent, use it directly
-                if not sub_agents:
-                    await self.send_event(ErrorEvent(
-                        error="No agents available. Please create at least one agent.",
-                        code="NO_AGENTS",
-                    ))
-                    return
-                # Use first sub-agent (or the one specified by event.agent_id) directly
-                admin_agent = None  # Will skip routing loop
-
-            if not sub_agents:
+            if not main_agents:
                 await self.send_event(ErrorEvent(
-                    error="No agents available. Please create at least one agent.",
-                    code="NO_AGENTS",
+                    error="No main agents available. Please create at least one main agent.",
+                    code="NO_MAIN_AGENTS",
                 ))
                 return
 
-            # Save user images to disk
-            image_uuids = []
+            # Resolve current main agent (persisted on conversation, or pick now).
+            current_agent: Optional[AgentConfig] = None
+            if existing_main_agent_id is not None:
+                current_agent = next(
+                    (a for a in main_agents if a.id == existing_main_agent_id),
+                    None,
+                )
+                if current_agent is None:
+                    logger.warning(
+                        "Conversation %d main_agent_id=%d not in enabled main agents — re-picking",
+                        conversation_id, existing_main_agent_id,
+                    )
+            if current_agent is None:
+                current_agent = pick_main_agent(event.text, main_agents)
+                self._persist_main_agent(conversation_id, current_agent.id)
+
+            await self.send_event(AgentSwitchEvent(
+                from_agent_id=None,
+                from_agent_name=None,
+                to_agent_id=current_agent.id,
+                to_agent_name=current_agent.name,
+                reason=f"Selected {current_agent.name}",
+            ))
+
+            # Save user's images to disk
+            image_uuids: List[str] = []
             if event.images:
                 from kurisuassistant.utils.images import save_image_from_base64
                 for b64 in event.images:
@@ -314,10 +246,8 @@ class ChatSessionHandler:
                     except Exception as e:
                         logger.warning(f"Failed to save image: {e}")
 
-            # Load context messages (compacted context + messages after watermark)
             compacted_context, compacted_up_to_id, context_messages = self._load_context_messages(conversation_id)
 
-            # Build messages — inject context_files as text references for the LLM
             content = event.text
             if event.context_files:
                 refs = " ".join(
@@ -332,16 +262,11 @@ class ChatSessionHandler:
                 user_message["images"] = image_uuids
             if event.context_files:
                 user_message["context_files"] = event.context_files
-            conversation_messages = system_messages + context_messages + [user_message]
 
-            # Save user message immediately
-            self._save_message(user_message, frame_id)
-
-            # Add extra queued messages (each saved as separate bubble)
+            extra_msgs_prepared = []
             if extra_messages:
                 for extra_event in extra_messages:
                     extra_msg = {"role": "user", "content": extra_event.text}
-                    # Save extra images
                     if extra_event.images:
                         from kurisuassistant.utils.images import save_image_from_base64
                         extra_imgs = []
@@ -352,53 +277,71 @@ class ChatSessionHandler:
                                 logger.warning(f"Failed to save image: {e}")
                         if extra_imgs:
                             extra_msg["images"] = extra_imgs
-                    self._save_message(extra_msg, frame_id)
-                    conversation_messages.append(extra_msg)
+                    extra_msgs_prepared.append(extra_msg)
 
-            # Estimate tokens and compact if needed
+            # Context compaction if near context-window limit. The pending user
+            # message + extras are NOT included in the summary — they land as
+            # the first messages of the new conversation that gets created.
             context_limit = context_size or 8192
-            token_count = self._estimate_tokens(conversation_messages)
+            pre_check_messages = system_messages + context_messages + [user_message] + extra_msgs_prepared
+            token_count = self._estimate_tokens(pre_check_messages)
 
             if token_count > context_limit * 0.9 and summary_model:
-                # Notify client that compaction is in progress
                 await self.send_event(ContextInfoEvent(
                     conversation_id=conversation_id, compacting=True,
                 ))
-                summary_api_key_for_compact = gemini_api_key if summary_provider == "gemini" else nvidia_api_key if summary_provider == "nvidia" else None
-                compacted_context = await asyncio.to_thread(
-                    self._compact_context,
-                    conversation_id, context_limit, conversation_messages,
-                    summary_model, ollama_url, summary_provider, summary_api_key_for_compact,
+                summary_api_key = (
+                    gemini_api_key if summary_provider == "gemini"
+                    else nvidia_api_key if summary_provider == "nvidia"
+                    else None
                 )
-                # Reload — now only the current user message remains as recent
-                compacted_context, compacted_up_to_id, context_messages = self._load_context_messages(conversation_id)
-                conversation_messages = system_messages + context_messages + [user_message]
-                token_count = self._estimate_tokens(conversation_messages)
-                # Notify client compaction done with updated watermark
-                await self.send_event(ContextInfoEvent(
-                    conversation_id=conversation_id,
-                    compacted_up_to_id=compacted_up_to_id,
-                    compacted_context=compacted_context,
-                ))
+                summary_input = system_messages + context_messages
+                summary = await asyncio.to_thread(
+                    self._generate_summary,
+                    context_limit, summary_input,
+                    summary_model, ollama_url, summary_provider, summary_api_key,
+                )
+                if summary:
+                    new_conversation_id = await asyncio.to_thread(
+                        self._create_summary_conversation,
+                        current_agent.id, summary,
+                    )
+                    old_conversation_id = conversation_id
+                    conversation_id = new_conversation_id
+                    self._task_conversation_id = new_conversation_id
+                    compacted_context = summary
+                    compacted_up_to_id = 0
+                    context_messages = []
+                    await self.send_event(ConversationSwitchedEvent(
+                        old_conversation_id=old_conversation_id,
+                        new_conversation_id=new_conversation_id,
+                        compacted_context=summary,
+                        agent_id=current_agent.id or 0,
+                    ))
 
-            # Store for streaming token updates
+            # Save the pending user message + extras to the (possibly new) conversation
+            self._save_message(user_message, conversation_id)
+            for extra_msg in extra_msgs_prepared:
+                self._save_message(extra_msg, conversation_id)
+            conversation_messages = system_messages + context_messages + [user_message] + extra_msgs_prepared
+            token_count = self._estimate_tokens(conversation_messages)
+
             self._initial_token_count = token_count
+            self._response_word_count = 0
 
-            # Stream image UUIDs to client
             if image_uuids:
                 await self.send_event(StreamChunkEvent(
                     content="", role="user", images=image_uuids,
-                    conversation_id=conversation_id, frame_id=frame_id))
+                    conversation_id=conversation_id,
+                ))
 
-            # Build agent lookup (for routing)
-            agent_by_name = {a.name.lower(): a for a in sub_agents}
+            # SubAgent tool adapters injected as extra_tools on the MainAgent
+            sub_agent_tools = [SubAgentTool(SubAgent(sa, tool_registry)) for sa in sub_agents]
 
-            # Create base agent context (model_name updated per agent in loop)
             agent_context = AgentContext(
                 user_id=self.user_id,
                 conversation_id=conversation_id,
-                frame_id=frame_id,
-                model_name=event.model_name,  # Updated per agent in routing loop
+                model_name=current_agent.model_name or event.model_name,
                 handler=self,
                 available_agents=sub_agents,
                 user_system_prompt=user_system_prompt,
@@ -413,110 +356,22 @@ class ChatSessionHandler:
                 compacted_context=compacted_context,
             )
 
-            # ========================================
-            # ROUTING LOOP
-            # ========================================
-            self._response_word_count = 0
+            agent = MainAgent(current_agent, tool_registry)
+            agent.extra_tools = sub_agent_tools
 
-            # If no Administrator, run single agent directly (no routing)
-            if not admin_agent:
-                target = self._get_agent_config(event.agent_id, sub_agents) or sub_agents[0]
-                await self._run_agent_turn(
-                    target, conversation_messages, conversation_messages,
-                    agent_context, frame_id, event,
-                )
-            else:
-                # Update the global route_to tool with available agent names
-                route_to_tool = tool_registry.get("route_to")
-                if route_to_tool:
-                    route_to_tool.available_agents = [
-                        {"name": a.name, "description": a.description or a.system_prompt[:100] or "General assistant"}
-                        for a in sub_agents
-                    ]
-
-                current_agent = admin_agent
-                route_message = None  # Message from route_to, or None for full history
-
-                MAX_ROUTING_TURNS = 10
-                prev_agent_name = None
-
-                for _turn in range(MAX_ROUTING_TURNS):
-                    is_admin = (current_agent.is_system and current_agent.name == ADMINISTRATOR_NAME)
-
-                    # --- Build messages for this agent ---
-                    if is_admin:
-                        # Administrator sees full conversation history
-                        agent_messages = list(conversation_messages)
-                    else:
-                        # Sub-agent gets only the route_to message as a user message
-                        agent_messages = [{"role": "user", "content": route_message or event.text}]
-
-                    try:
-                        # Send agent switch event
-                        await self.send_event(AgentSwitchEvent(
-                            from_agent_id=None,
-                            from_agent_name=prev_agent_name,
-                            to_agent_id=current_agent.id,
-                            to_agent_name=current_agent.name,
-                            reason=f"Processing with {current_agent.name}",
-                        ))
-
-                        # Update context model for this agent
-                        agent_context.model_name = current_agent.model_name or event.model_name
-
-                        # Create and run agent
-                        agent = self._create_agent(current_agent)
-
-                        # Stream and collect response, save messages
-                        logger.info(f"[Routing] Turn {_turn}: running {current_agent.name} (is_admin={is_admin}), messages={len(agent_messages)}")
-                        route_result, agent_final_content = await self._stream_and_save_agent(
-                            agent=agent,
-                            agent_config=current_agent,
-                            messages=agent_messages,
-                            context=agent_context,
-                            frame_id=frame_id,
-                            conversation_messages=conversation_messages,
-                            is_admin=is_admin,
-                        )
-                        logger.info(f"[Routing] Turn {_turn}: {current_agent.name} done, route_result={route_result}, content_len={len(agent_final_content)}")
-                    finally:
-                        pass
-
-                    prev_agent_name = current_agent.name
-
-                    # --- Check routing result ---
-                    if route_result:
-                        # route_to was called — switch to target agent
-                        target_name = route_result["agent_name"]
-                        target_agent = agent_by_name.get(target_name.lower())
-                        if not target_agent:
-                            logger.warning(f"Route target agent not found: {target_name}")
-                            break
-                        current_agent = target_agent
-                        route_message = route_result["message"]
-                        continue
-
-                    if not is_admin:
-                        # Sub-agent finished — return to Administrator for final response
-                        current_agent = admin_agent
-                        route_message = None
-                        continue
-
-                    # Administrator finished without routing — done
-                    break
-
-            # ========================================
-            # CLEANUP
-            # ========================================
-            self._update_timestamps(frame_id, conversation_id)
-
-            self._task_done = True
-            await self.send_event(DoneEvent(
+            await self._stream_and_save_agent(
+                agent=agent,
+                agent_config=current_agent,
+                messages=conversation_messages,
+                context=agent_context,
                 conversation_id=conversation_id,
-                frame_id=frame_id,
-            ))
+                conversation_messages=conversation_messages,
+            )
 
-            # Process next queued message if any
+            self._update_timestamps(conversation_id)
+            self._task_done = True
+            await self.send_event(DoneEvent(conversation_id=conversation_id))
+
             self._process_queue()
 
         except asyncio.CancelledError:
@@ -525,78 +380,62 @@ class ChatSessionHandler:
             raise
         except Exception as e:
             logger.error(f"Chat task failed: {e}", exc_info=True)
-            await self.send_event(ErrorEvent(
-                error=str(e),
-                code="INTERNAL_ERROR",
-            ))
-            # Process next queued message even after error
+            await self.send_event(ErrorEvent(error=str(e), code="INTERNAL_ERROR"))
             self._process_queue()
 
     async def _stream_and_save_agent(
         self,
-        agent: BaseAgent,
+        agent: MainAgent,
         agent_config: AgentConfig,
         messages: List[Dict],
         context: AgentContext,
-        frame_id: int,
+        conversation_id: int,
         conversation_messages: List[Dict],
-        is_admin: bool,
-    ) -> tuple[Optional[Dict], str]:
-        """Stream an agent's response, save messages to DB, and detect route_to calls.
-
-        Args:
-            agent: Agent instance to run
-            agent_config: Agent configuration
-            messages: Messages to pass to agent.process()
-            context: Agent context
-            frame_id: Current frame ID for message saving
-            conversation_messages: Full conversation history (mutated — sub-agent responses appended)
-            is_admin: Whether this is the Administrator agent
-
-        Returns:
-            Tuple of (route_result, final_content):
-            - route_result: Dict with 'agent_name' and 'message' if route_to was called, else None
-            - final_content: The full assistant text content from this agent turn
-        """
+    ) -> str:
+        """Stream a MainAgent's response and persist messages as role boundaries cross."""
         current_role = "assistant"
         current_name = agent_config.name
         chunk_content = ""
         chunk_thinking = ""
-        current_images = []
-        raw_input_json = None
-        current_tool_args_json = None
-        current_tool_args = None
-        current_tool_status = None
-        route_result = None
+        current_images: List[str] = []
+        current_tool_args_json: Optional[str] = None
+        current_tool_args: Optional[Dict] = None
+        current_tool_status: Optional[str] = None
         final_assistant_content = ""
+        last_model_name: Optional[str] = None
+        last_provider_type: Optional[str] = None
 
-        async for chunk in agent.process(messages, context):
-            # Check tool results for route_to
-            if chunk.role == "tool" and chunk.name == "route_to":
-                parsed = parse_route_result(chunk.content)
-                if parsed:
-                    route_result = parsed
+        async for event in agent.process(messages, context):
+            chunk = event
 
-            # Accumulate response word count for token estimation (all content + thinking)
             if chunk.content:
                 self._response_word_count += len(chunk.content.split())
             if chunk.thinking:
                 self._response_word_count += len(chunk.thinking.split())
 
-            # Attach agent metadata and running token count for client display
+            if chunk.model_name:
+                last_model_name = chunk.model_name
+            if chunk.provider_type:
+                last_provider_type = chunk.provider_type
+
             chunk.voice_reference = agent_config.voice_reference
-            chunk.persona_name = agent_config.persona_name or None
+            chunk.persona_name = agent_config.name
             chunk.token_count = self._initial_token_count + int(self._response_word_count * 1.3)
             await self.send_event(chunk)
 
-            # Track tool images
             if chunk.images:
                 current_images.extend(chunk.images)
 
-            # Save completed message on role change
             if chunk.role != current_role:
                 if chunk_content or chunk_thinking:
-                    raw_in = raw_input_json if current_role == "assistant" else current_tool_args_json
+                    raw_in = (
+                        json.dumps(
+                            getattr(agent, 'last_prepared_messages', messages),
+                            ensure_ascii=False, default=str,
+                        )
+                        if current_role == "assistant"
+                        else current_tool_args_json
+                    )
                     completed_msg = {
                         "role": current_role,
                         "content": chunk_content,
@@ -606,13 +445,12 @@ class ChatSessionHandler:
                         "raw_input": raw_in,
                         "raw_output": chunk_content if current_role == "assistant" else None,
                         "images": current_images if current_images else None,
-                        "model_name": chunk.model_name if current_role == "assistant" else None,
-                        "provider_type": chunk.provider_type if current_role == "assistant" else None,
+                        "model_name": last_model_name if current_role == "assistant" else None,
+                        "provider_type": last_provider_type if current_role == "assistant" else None,
                         "tool_args": current_tool_args if current_role == "tool" else None,
                         "tool_status": current_tool_status if current_role == "tool" else None,
                     }
-                    self._save_message(completed_msg, frame_id)
-                    # Add to conversation history so Administrator sees sub-agent responses
+                    self._save_message(completed_msg, conversation_id)
                     conversation_messages.append({
                         "role": current_role,
                         "content": chunk_content,
@@ -634,16 +472,15 @@ class ChatSessionHandler:
                 if chunk.thinking:
                     chunk_thinking += chunk.thinking
 
-        # Capture raw input after processing — includes all intermediate
-        # assistant + tool messages from the tool loop
-        raw_input_json = json.dumps(
-            getattr(agent, 'last_prepared_messages', messages),
-            ensure_ascii=False, default=str,
-        )
-
-        # Save final message
         if chunk_content or chunk_thinking:
-            raw_in = raw_input_json if current_role == "assistant" else current_tool_args_json
+            raw_in = (
+                json.dumps(
+                    getattr(agent, 'last_prepared_messages', messages),
+                    ensure_ascii=False, default=str,
+                )
+                if current_role == "assistant"
+                else current_tool_args_json
+            )
             completed_msg = {
                 "role": current_role,
                 "content": chunk_content,
@@ -653,12 +490,12 @@ class ChatSessionHandler:
                 "raw_input": raw_in,
                 "raw_output": chunk_content if current_role == "assistant" else None,
                 "images": current_images if current_images else None,
-                "model_name": chunk.model_name if current_role == "assistant" else None,
-                "provider_type": chunk.provider_type if current_role == "assistant" else None,
+                "model_name": last_model_name if current_role == "assistant" else None,
+                "provider_type": last_provider_type if current_role == "assistant" else None,
                 "tool_args": current_tool_args if current_role == "tool" else None,
                 "tool_status": current_tool_status if current_role == "tool" else None,
             }
-            self._save_message(completed_msg, frame_id)
+            self._save_message(completed_msg, conversation_id)
             conversation_messages.append({
                 "role": current_role,
                 "content": chunk_content,
@@ -668,55 +505,21 @@ class ChatSessionHandler:
             if current_role == "assistant":
                 final_assistant_content += chunk_content
 
-        return route_result, final_assistant_content
+        return final_assistant_content
 
-    async def _run_agent_turn(
-        self,
-        agent_config: AgentConfig,
-        messages: List[Dict],
-        conversation_messages: List[Dict],
-        context: AgentContext,
-        frame_id: int,
-        event: ChatRequestEvent,
-    ):
-        """Run a single agent turn (no routing, used as fallback when no Administrator).
+    # ------------------------------------------------------------------
+    # Setup helpers
+    # ------------------------------------------------------------------
 
-        This preserves the original single-agent behavior for when the Administrator
-        agent is not available.
-        """
-        context.model_name = agent_config.model_name or event.model_name
-        agent = self._create_agent(agent_config)
-
-        await self._stream_and_save_agent(
-            agent=agent,
-            agent_config=agent_config,
-            messages=messages,
-            context=context,
-            frame_id=frame_id,
-            conversation_messages=conversation_messages,
-            is_admin=False,
-        )
-
-    async def _setup_conversation(self, event: ChatRequestEvent) -> tuple[int, int, list, str, str, int | None, str | None, str | None, list[int]]:
-        """Setup conversation, frame, and system messages.
-
-        If the latest frame has been idle longer than FRAME_IDLE_THRESHOLD_MINUTES,
-        a new frame is created and the old frame ID is returned for summarization.
-        Also finds older frames missing summaries for backfill.
-
-        Returns:
-            Tuple of (conversation_id, frame_id, system_messages, user_system_prompt,
-                       preferred_name, old_frame_id, ollama_url, summary_model, unsummarized_ids, context_size)
+    async def _setup_conversation(self, event: ChatRequestEvent):
+        """Return (conversation_id, system_messages, user_sys_prompt, preferred_name,
+        ollama_url, gemini_api_key, nvidia_api_key, summary_model, summary_provider,
+        context_size, main_agent_id).
         """
         db = get_db_service()
 
         def _do_setup(session):
-            from kurisuassistant.db.models import Message
-            from sqlalchemy import func
-
             conv_repo = ConversationRepository(session)
-            frame_repo = FrameRepository(session)
-            msg_repo = MessageRepository(session)
             user_repo = UserRepository(session)
 
             user = user_repo.get_by_id(self.user_id)
@@ -734,51 +537,44 @@ class ChatSessionHandler:
                 title = (event.text[:80] + "...") if len(event.text) > 80 else event.text
                 conversation = conv_repo.create_conversation(self.user_id, title=title)
                 conversation_id = conversation.id
+                main_agent_id = None
             else:
                 conversation_id = event.conversation_id
-
-            old_frame_id = None
-            frame = frame_repo.get_latest_by_conversation(conversation_id)
-            if not frame:
-                frame = frame_repo.create_frame(conversation_id)
-            else:
-                idle_threshold = timedelta(minutes=FRAME_IDLE_THRESHOLD_MINUTES)
-                last_activity = frame.updated_at or frame.created_at
-                if datetime.utcnow() - last_activity > idle_threshold:
-                    msg_count = msg_repo.count_by_frame(frame.id)
-                    if msg_count > 0:
-                        old_frame_id = frame.id
-                    frame = frame_repo.create_frame(conversation_id)
-            frame_id = frame.id
-
-            unsummarized = (
-                session.query(Frame.id)
-                .outerjoin(Message, Frame.id == Message.frame_id)
-                .filter(
-                    Frame.conversation_id == conversation_id,
-                    Frame.id != frame_id,
-                    Frame.summary.is_(None),
-                )
-                .group_by(Frame.id)
-                .having(func.count(Message.id) > 0)
-                .all()
-            )
-            unsummarized_ids = [row.id for row in unsummarized]
+                conv = conv_repo.get_by_user_and_id(self.user_id, conversation_id)
+                main_agent_id = conv.main_agent_id if conv else None
 
             system_prompt, preferred_name = user_repo.get_preferences(user)
 
-            return (conversation_id, frame_id, system_prompt, preferred_name,
-                    old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, summary_provider, unsummarized_ids, context_size)
+            return (conversation_id, system_prompt, preferred_name,
+                    ollama_url, gemini_api_key, nvidia_api_key,
+                    summary_model, summary_provider, context_size,
+                    main_agent_id)
 
-        (conversation_id, frame_id, system_prompt, preferred_name,
-         old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, summary_provider, unsummarized_ids, context_size) = await db.execute(_do_setup)
+        (conversation_id, system_prompt, preferred_name,
+         ollama_url, gemini_api_key, nvidia_api_key,
+         summary_model, summary_provider, context_size,
+         main_agent_id) = await db.execute(_do_setup)
 
         system_messages = build_system_messages(system_prompt, preferred_name)
 
-        return conversation_id, frame_id, system_messages, system_prompt, preferred_name or "", old_frame_id, ollama_url, gemini_api_key, nvidia_api_key, summary_model, summary_provider, unsummarized_ids, context_size
+        return (conversation_id, system_messages, system_prompt, preferred_name or "",
+                ollama_url, gemini_api_key, nvidia_api_key,
+                summary_model, summary_provider, context_size,
+                main_agent_id)
+
+    def _persist_main_agent(self, conversation_id: int, agent_id: int) -> None:
+        """Save the picked main agent on the conversation (one-time at first message)."""
+        db = get_db_service()
+
+        def _update(session):
+            conv_repo = ConversationRepository(session)
+            conv = conv_repo.get_by_id(conversation_id)
+            if conv:
+                conv_repo.update_main_agent(conv, agent_id)
+
+        db.execute_sync(_update)
 
     def _load_enabled_agents(self) -> List[AgentConfig]:
-        """Load system agents + user's enabled agents."""
         db = get_db_service()
 
         def _query(session):
@@ -789,7 +585,6 @@ class ChatSessionHandler:
 
     @staticmethod
     def _agent_to_config(agent) -> AgentConfig:
-        """Convert a DB Agent model to AgentConfig, resolving persona relationships."""
         return AgentConfig(
             id=agent.id,
             name=agent.name,
@@ -804,123 +599,108 @@ class ChatSessionHandler:
             enabled=agent.enabled,
             is_system=agent.is_system,
             use_deferred_tools=getattr(agent, 'use_deferred_tools', False),
-            persona_id=agent.persona.id if agent.persona else None,
-            persona_name=agent.persona.name if agent.persona else agent.name,
-            persona_system_prompt=agent.persona.system_prompt if agent.persona else "",
-            voice_reference=agent.persona.voice_reference if agent.persona else None,
-            avatar_uuid=agent.persona.avatar_uuid if agent.persona else None,
-            preferred_name=agent.persona.preferred_name if agent.persona else None,
-            trigger_word=agent.persona.trigger_word if agent.persona else None,
+            voice_reference=getattr(agent, 'voice_reference', None),
+            avatar_uuid=getattr(agent, 'avatar_uuid', None),
+            character_config=getattr(agent, 'character_config', None),
+            preferred_name=getattr(agent, 'preferred_name', None),
+            trigger_word=getattr(agent, 'trigger_word', None),
+            agent_type=getattr(agent, 'agent_type', 'main'),
         )
 
-    def _get_agent_config(self, agent_id: int, agents: List[AgentConfig]) -> Optional[AgentConfig]:
-        """Get agent config by ID from list."""
-        for agent in agents:
-            if agent.id == agent_id:
-                return agent
-        return None
-
-    def _create_agent(self, config: AgentConfig) -> BaseAgent:
-        """Create an agent instance from config."""
-        return SimpleAgent(config, tool_registry)
-
-    def _update_timestamps(self, frame_id: int, conversation_id: int):
-        """Update frame and conversation timestamps."""
+    def _update_timestamps(self, conversation_id: int):
         db = get_db_service()
 
         def _update(session):
-            frame_repo = FrameRepository(session)
             conv_repo = ConversationRepository(session)
-            frame = frame_repo.get_by_id(frame_id)
-            if frame:
-                frame_repo.update_timestamp(frame)
             conversation = conv_repo.get_by_id(conversation_id)
             if conversation:
                 conv_repo.update_timestamp(conversation)
 
         db.execute_sync(_update)
 
+    # ------------------------------------------------------------------
+    # Tool approval / cancel / vision / client-tools — unchanged plumbing
+    # ------------------------------------------------------------------
+
     async def _handle_approval_response(self, event: ToolApprovalResponseEvent):
-        """Handle tool approval response from client."""
         if event.approval_id in self.pending_approvals:
             future = self.pending_approvals[event.approval_id]
             if not future.done():
                 future.set_result(event)
 
     async def _handle_cancel(self):
-        """Handle cancel request — cancels current task and clears queue."""
         self._message_queue.clear()
         if self.current_task and not self.current_task.done():
             self.current_task.cancel()
 
     async def _handle_compact_context(self, event: CompactContextEvent):
-        """Handle manual /compact command."""
         conversation_id = event.conversation_id
         if not conversation_id:
             return
 
-        # Load user preferences for summary model
         db = get_db_service()
+
         def _get_prefs(session):
             user = UserRepository(session).get_by_id(self.user_id)
             if not user:
-                return None, None, None, None, None
+                return None, None, None, None, None, None
+            conv = ConversationRepository(session).get_by_user_and_id(self.user_id, conversation_id)
+            agent_id = conv.main_agent_id if conv else None
             return (
                 user.summary_model,
                 getattr(user, 'summary_provider', 'ollama'),
                 user.ollama_url,
                 getattr(user, 'gemini_api_key', None),
                 getattr(user, 'nvidia_api_key', None),
+                agent_id,
             )
-        summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key = db.execute_sync(_get_prefs)
+
+        summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key, agent_id = db.execute_sync(_get_prefs)
 
         if not summary_model:
             await self.send_event(ErrorEvent(error="No summary model configured.", code="NO_SUMMARY_MODEL"))
             return
 
-        # Load current context
-        compacted_context, compacted_up_to_id, context_messages = self._load_context_messages(conversation_id)
-
+        _, _, context_messages = self._load_context_messages(conversation_id)
         if not context_messages:
             return
 
-        context_limit = 8192  # default
         def _get_ctx(session):
             user = UserRepository(session).get_by_id(self.user_id)
             return getattr(user, 'context_size', None) or 8192
+
         context_limit = db.execute_sync(_get_ctx)
 
-        system_messages = [{"role": "system", "content": ""}]
-        conversation_messages = system_messages + context_messages
+        await self.send_event(ContextInfoEvent(conversation_id=conversation_id, compacting=True))
 
-        token_count = self._estimate_tokens(conversation_messages)
-
-        # Signal compacting
-        await self.send_event(ContextInfoEvent(
-            conversation_id=conversation_id, compacting=True,
-        ))
-
-        summary_api_key = gemini_api_key if summary_provider == "gemini" else nvidia_api_key if summary_provider == "nvidia" else None
-        await asyncio.to_thread(
-            self._compact_context,
-            conversation_id, context_limit, conversation_messages,
+        summary_api_key = (
+            gemini_api_key if summary_provider == "gemini"
+            else nvidia_api_key if summary_provider == "nvidia"
+            else None
+        )
+        summary = await asyncio.to_thread(
+            self._generate_summary,
+            context_limit, [{"role": "system", "content": ""}] + context_messages,
             summary_model, ollama_url, summary_provider, summary_api_key,
         )
 
-        # Reload to get updated watermark
-        compacted_context, compacted_up_to_id, _ = self._load_context_messages(conversation_id)
+        if not summary:
+            await self.send_event(ErrorEvent(error="Compaction produced empty output.", code="COMPACT_EMPTY"))
+            return
 
-        # Signal compaction done with updated watermark
-        await self.send_event(ContextInfoEvent(
-            conversation_id=conversation_id,
-            compacted_up_to_id=compacted_up_to_id,
-            compacted_context=compacted_context,
+        new_conversation_id = await asyncio.to_thread(
+            self._create_summary_conversation, agent_id, summary,
+        )
+
+        await self.send_event(ConversationSwitchedEvent(
+            old_conversation_id=conversation_id,
+            new_conversation_id=new_conversation_id,
+            compacted_context=summary,
+            agent_id=agent_id or 0,
         ))
 
     async def _handle_vision_start(self, event: VisionStartEvent):
-        """Initialize vision processor for frame-by-frame processing."""
         await self._handle_vision_stop()
-
         self._vision_config = {
             "enable_face": event.enable_face,
             "enable_pose": event.enable_pose,
@@ -935,15 +715,10 @@ class ChatSessionHandler:
         logger.info("Vision processing started for user %d", self.user_id)
 
     async def _handle_vision_frame(self, event: VisionFrameEvent):
-        """Process a single webcam frame from the frontend."""
         if not self._vision_processor:
             return
-
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None, self._vision_processor.process_frame, event.frame
-        )
-
+        result = await loop.run_in_executor(None, self._vision_processor.process_frame, event.frame)
         if result:
             await self.send_event(VisionResultEvent(
                 faces=result.get("faces", []),
@@ -951,17 +726,11 @@ class ChatSessionHandler:
             ))
 
     async def _handle_vision_stop(self):
-        """Stop vision processing."""
         self._vision_processor = None
         self._vision_config = None
         logger.debug("Vision processing stopped for user %d", self.user_id)
 
-    # =============================================
-    # Client-side tool management
-    # =============================================
-
     def _handle_client_tools_register(self, event: ClientToolsRegisterEvent):
-        """Store tool schemas registered by the client."""
         self._client_tools = event.tools
         self._client_tool_names = {
             t.get("function", {}).get("name", "")
@@ -970,13 +739,11 @@ class ChatSessionHandler:
         }
         logger.info(
             "Client registered %d tools for user %d: %s",
-            len(self._client_tools),
-            self.user_id,
+            len(self._client_tools), self.user_id,
             ", ".join(sorted(self._client_tool_names)),
         )
 
     def _handle_tool_call_response(self, event: ToolCallResponseEvent):
-        """Resolve a pending client tool call Future."""
         future = self._pending_tool_calls.pop(event.request_id, None)
         if future and not future.done():
             if event.is_error:
@@ -984,17 +751,9 @@ class ChatSessionHandler:
             else:
                 future.set_result(event.content)
         else:
-            logger.warning(
-                "Received tool_call_response for unknown/completed request_id=%s",
-                event.request_id,
-            )
+            logger.warning("Received tool_call_response for unknown request_id=%s", event.request_id)
 
     async def _execute_client_tool(self, tool_name: str, tool_args: Dict) -> str:
-        """Forward a tool call to the client and await the result.
-
-        Creates an asyncio.Future, sends a ToolCallRequestEvent to the client,
-        and waits up to 120s for the client to respond with ToolCallResponseEvent.
-        """
         import uuid as _uuid
 
         request_id = str(_uuid.uuid4())
@@ -1015,33 +774,11 @@ class ChatSessionHandler:
         finally:
             self._pending_tool_calls.pop(request_id, None)
 
-    async def _handle_media_event(self, event: BaseEvent):
-        """Handle media control events using the player registry."""
-        try:
-            player = get_media_player(self.user_id, self.send_event)
-
-            if isinstance(event, MediaPlayEvent):
-                await player.play(event.query)
-            elif isinstance(event, MediaPauseEvent):
-                await player.pause()
-            elif isinstance(event, MediaResumeEvent):
-                await player.resume()
-            elif isinstance(event, MediaSkipEvent):
-                await player.skip()
-            elif isinstance(event, MediaStopEvent):
-                await player.stop()
-            elif isinstance(event, MediaQueueAddEvent):
-                await player.add_to_queue(event.query)
-            elif isinstance(event, MediaQueueRemoveEvent):
-                player.remove_from_queue(event.index)
-            elif isinstance(event, MediaVolumeEvent):
-                player.set_volume(event.volume)
-        except Exception as e:
-            logger.error(f"Media event error: {e}", exc_info=True)
-            await self.send_event(MediaErrorEvent(error=str(e)))
+    # ------------------------------------------------------------------
+    # Send / state / reconnect
+    # ------------------------------------------------------------------
 
     async def send_event(self, event: BaseEvent):
-        """Send event to client (silently fails if disconnected)."""
         event_type = event.type.value if hasattr(event.type, 'value') else event.type
         try:
             async with self._send_lock:
@@ -1054,60 +791,30 @@ class ChatSessionHandler:
             logger.debug(f"Failed to send WebSocket event {event_type} (socket closed)")
 
     async def send_connected_state(self):
-        """Send a ConnectedEvent with current server-side state snapshot."""
-        from kurisuassistant.media.player import _players
-
         chat_active = self.current_task is not None and not self.current_task.done()
-
-        # Media state
-        media_state = None
-        player = _players.get(self.user_id)
-        if player:
-            media_state = player.get_state()
-
         await self.send_event(ConnectedEvent(
             chat_active=chat_active,
             conversation_id=self._task_conversation_id if chat_active or self._task_done else None,
-            frame_id=self._task_frame_id if chat_active or self._task_done else None,
-            media_state=media_state,
             vision_active=self._vision_processor is not None,
             vision_config=self._vision_config,
         ))
 
     async def replace_websocket(self, websocket: WebSocket):
-        """Replace WebSocket on reconnect (no replay — messages already in DB)."""
         self.websocket = websocket
-
-        # Cancel old heartbeat (new run() will start a fresh one)
         if self._heartbeat_task:
             self._heartbeat_task.cancel()
             self._heartbeat_task = None
-
-        # Update media player's send callback to route through new socket
-        get_media_player(self.user_id, self.send_event)
 
     async def request_tool_approval(
         self,
         request: ToolApprovalRequestEvent,
     ) -> ToolApprovalResponseEvent:
-        """Request tool approval and wait for response.
-
-        Args:
-            request: Approval request event
-
-        Returns:
-            Approval response event
-        """
-        # Create future for this approval
         future = asyncio.get_event_loop().create_future()
         self.pending_approvals[request.approval_id] = future
-
-        # Send approval request
         await self.send_event(request)
 
-        # Wait for response (with timeout)
         try:
-            response = await asyncio.wait_for(future, timeout=300.0)  # 5 min timeout
+            response = await asyncio.wait_for(future, timeout=300.0)
             return response
         except asyncio.TimeoutError:
             return ToolApprovalResponseEvent(
@@ -1118,15 +825,12 @@ class ChatSessionHandler:
             if request.approval_id in self.pending_approvals:
                 del self.pending_approvals[request.approval_id]
 
-    def _load_context_messages(self, conversation_id: int) -> tuple[str, int, list]:
-        """Load compacted context and recent messages for a conversation.
+    # ------------------------------------------------------------------
+    # Context loading + compaction
+    # ------------------------------------------------------------------
 
-        Returns:
-            Tuple of (compacted_context, compacted_up_to_id, messages_after_watermark).
-            compacted_context is the rolling summary (empty string if none).
-            compacted_up_to_id is the message ID watermark.
-            messages are all messages with id > compacted_up_to_id.
-        """
+    def _load_context_messages(self, conversation_id: int) -> tuple[str, int, list]:
+        """Load (compacted_context, compacted_up_to_id, messages_after_watermark)."""
         db = get_db_service()
 
         def _query(session):
@@ -1137,11 +841,9 @@ class ChatSessionHandler:
             compacted_context = conv.compacted_context or ""
             compacted_up_to_id = conv.compacted_up_to_id or 0
 
-            # Load messages after the compaction watermark, across all frames
             messages = (
                 session.query(Message)
-                .join(Frame, Message.frame_id == Frame.id)
-                .filter(Frame.conversation_id == conversation_id)
+                .filter(Message.conversation_id == conversation_id)
                 .filter(Message.id > compacted_up_to_id)
                 .order_by(Message.created_at)
                 .all()
@@ -1149,10 +851,7 @@ class ChatSessionHandler:
 
             result = []
             for msg in messages:
-                entry = {
-                    "role": msg.role,
-                    "content": msg.message,
-                }
+                entry = {"role": msg.role, "content": msg.message}
                 if msg.name:
                     entry["name"] = msg.name
                 if msg.agent_id:
@@ -1166,13 +865,31 @@ class ChatSessionHandler:
 
     @staticmethod
     def _estimate_tokens(messages: list) -> int:
-        """Estimate token count from messages using word_count * 1.3."""
         word_count = sum(len(m.get("content", "").split()) for m in messages)
         return int(word_count * 1.3)
 
-    def _compact_context(
+    def _create_summary_conversation(self, agent_id: Optional[int], summary: str) -> int:
+        """Create a new conversation seeded with ``summary`` as compacted_context.
+
+        Used after manual /compact or auto-compaction so the next message
+        starts in a fresh conversation with the summary visible at the top.
+        """
+        db = get_db_service()
+
+        def _create(session):
+            conv_repo = ConversationRepository(session)
+            conv = conv_repo.create_conversation(
+                user_id=self.user_id,
+                title="Continued conversation",
+                main_agent_id=agent_id,
+            )
+            conv_repo.update_compacted_context(conv, summary, 0)
+            return conv.id
+
+        return db.execute_sync(_create)
+
+    def _generate_summary(
         self,
-        conversation_id: int,
         context_size: int,
         conversation_messages: list,
         model_name: str,
@@ -1180,14 +897,7 @@ class ChatSessionHandler:
         provider_type: str = "ollama",
         api_key: str | None = None,
     ) -> str:
-        """Compact conversation messages into a short rolling summary.
-
-        Calls the LLM synchronously to summarize the conversation, then stores
-        the result on the conversation record.
-
-        Returns:
-            The new compacted context string.
-        """
+        """LLM-only summary generation. No DB writes."""
         from kurisuassistant.models.llm import create_llm_provider
 
         target_chars = int(context_size * 0.1 * 4)
@@ -1221,7 +931,6 @@ class ChatSessionHandler:
             "Output ONLY the compacted context. No preamble, no explanation."
         )
 
-        # Format the conversation as a transcript for the compaction LLM
         transcript_lines = []
         for msg in conversation_messages:
             role = msg.get("role", "user")
@@ -1244,54 +953,17 @@ class ChatSessionHandler:
             new_context = response.message.content.strip()
             if len(new_context) > target_chars:
                 new_context = new_context[:target_chars]
+            return new_context
         except Exception as e:
             logger.error("Context compaction failed: %s", e, exc_info=True)
             return ""
 
-        # Find the last message ID in the conversation for the watermark
-        db = get_db_service()
-
-        def _update(session):
-            conv = session.query(Conversation).filter_by(id=conversation_id).first()
-            if not conv:
-                return
-            # Get the last message ID across all frames
-            last_msg = (
-                session.query(Message.id)
-                .join(Frame, Message.frame_id == Frame.id)
-                .filter(Frame.conversation_id == conversation_id)
-                .order_by(desc(Message.id))
-                .first()
-            )
-            compacted_up_to_id = last_msg[0] if last_msg else 0
-            ConversationRepository(session).update_compacted_context(
-                conv, new_context, compacted_up_to_id
-            )
-
-        db.execute_sync(_update)
-        logger.info("Compacted context for conversation %d: %d chars", conversation_id, len(new_context))
-        return new_context
-
-    def _load_agent(self, agent_id: int) -> BaseAgent:
-        """Load agent from database."""
-        db = get_db_service()
-
-        def _query(session):
-            agent = AgentRepository(session).get_by_user_and_id(self.user_id, agent_id)
-            if not agent:
-                raise ValueError(f"Agent not found: {agent_id}")
-            return self._agent_to_config(agent)
-
-        config = db.execute_sync(_query)
-        return BaseAgent.create_from_config(config, tool_registry)
-
-    def _save_message(self, msg: dict, frame_id: int):
-        """Save a single message to database immediately."""
+    def _save_message(self, msg: dict, conversation_id: int):
         db = get_db_service()
         db.execute_sync(lambda s: MessageRepository(s).create_message(
             role=msg["role"],
             message=msg["content"],
-            frame_id=frame_id,
+            conversation_id=conversation_id,
             thinking=msg.get("thinking"),
             agent_id=msg.get("agent_id"),
             name=msg.get("name"),

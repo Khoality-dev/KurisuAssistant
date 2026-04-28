@@ -173,7 +173,6 @@ class ListToolsTool(BaseTool):
 
     name = "list_tools"
     description = "List available tools with their names and descriptions. Returns a paginated list."
-    requires_approval = False
     built_in = True
 
     def __init__(self, proxy: DeferredToolProxy):
@@ -208,7 +207,6 @@ class SearchToolsTool(BaseTool):
 
     name = "search_tools"
     description = "Search available tools by keyword in name or description."
-    requires_approval = False
     built_in = True
 
     def __init__(self, proxy: DeferredToolProxy):
@@ -243,7 +241,6 @@ class GetToolSchemaTool(BaseTool):
 
     name = "get_tool_schema"
     description = "Get the full parameter schema for a tool. Call this before call_tool to know the expected arguments."
-    requires_approval = False
     built_in = True
 
     def __init__(self, proxy: DeferredToolProxy):
@@ -278,7 +275,6 @@ class CallToolTool(BaseTool):
 
     name = "call_tool"
     description = "Execute a tool by name with the given arguments. Use get_tool_schema first to know the expected arguments."
-    requires_approval = False  # Approval is handled by the underlying tool
     built_in = True
 
     def __init__(self, proxy: DeferredToolProxy):

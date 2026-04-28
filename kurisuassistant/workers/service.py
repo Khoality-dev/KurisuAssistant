@@ -1,12 +1,11 @@
-"""Background service — manages worker threads for background processing.
+"""Background service — worker threads for conversation-idle memory consolidation.
 
 Owns two threads:
-* **db_worker** — processes frame summarization and memory consolidation
-  (all background DB writes serialized through DBService).
-  After summarizing a frame, automatically chains memory consolidation
-  for each agent with memory_enabled.
-* **idle_scanner** — periodically scans for idle frames and submits
-  SummarizeFrameTask (consolidation is chained automatically).
+* **db_worker** — processes ``ConsolidateMemoryTask`` sequentially (all
+  background DB writes serialized through ``DBService``).
+* **idle_scanner** — periodically scans for conversations that have been
+  idle past ``CONVERSATION_IDLE_THRESHOLD_MINUTES`` and submits one
+  ``ConsolidateMemoryTask`` per participating agent.
 """
 
 import asyncio
@@ -16,14 +15,13 @@ import threading
 from datetime import datetime, timedelta
 from queue import Queue
 
-from kurisuassistant.workers.tasks import (
-    ConsolidateMemoryTask,
-    SummarizeFrameTask,
-)
+from kurisuassistant.workers.tasks import ConsolidateMemoryTask
 
 logger = logging.getLogger(__name__)
 
-FRAME_IDLE_THRESHOLD_MINUTES = int(os.getenv("FRAME_IDLE_THRESHOLD_MINUTES", "30"))
+CONVERSATION_IDLE_THRESHOLD_MINUTES = int(
+    os.getenv("CONVERSATION_IDLE_THRESHOLD_MINUTES", "30")
+)
 SCAN_INTERVAL_SECONDS = 60
 
 
@@ -34,6 +32,11 @@ class BackgroundService:
         self._db_queue: Queue = Queue()
         self._stopping = threading.Event()
         self._threads: list[threading.Thread] = []
+        # Track which (conversation_id, agent_id) pairs we've already
+        # queued for the current idle period, so we don't re-queue them
+        # on every scan while the conversation stays idle.
+        self._queued: set[tuple[int, int]] = set()
+        self._queued_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -67,7 +70,7 @@ class BackgroundService:
 
     def submit(self, task):
         """Route a task to the worker queue."""
-        if isinstance(task, (SummarizeFrameTask, ConsolidateMemoryTask)):
+        if isinstance(task, ConsolidateMemoryTask):
             self._db_queue.put(task)
         else:
             logger.warning("Unknown task type: %s", type(task).__name__)
@@ -83,26 +86,24 @@ class BackgroundService:
             if task is None:
                 break
             try:
-                if isinstance(task, SummarizeFrameTask):
-                    asyncio.run(self._handle_summarize(task))
-                elif isinstance(task, ConsolidateMemoryTask):
+                if isinstance(task, ConsolidateMemoryTask):
                     asyncio.run(self._handle_consolidate(task))
             except Exception:
                 logger.error("db-worker failed to process %s", task, exc_info=True)
 
     def _idle_scanner(self):
-        """Periodically scan for idle frames and submit SummarizeFrameTask."""
+        """Periodically scan for idle conversations and submit consolidation tasks."""
         logger.info(
             "Idle scanner started (interval=%ds, threshold=%dmin)",
             SCAN_INTERVAL_SECONDS,
-            FRAME_IDLE_THRESHOLD_MINUTES,
+            CONVERSATION_IDLE_THRESHOLD_MINUTES,
         )
         while not self._stopping.is_set():
             self._stopping.wait(timeout=SCAN_INTERVAL_SECONDS)
             if self._stopping.is_set():
                 break
             try:
-                self._scan_idle_frames()
+                self._scan_idle_conversations()
             except Exception:
                 logger.error("Idle scanner error", exc_info=True)
         logger.info("Idle scanner stopped")
@@ -111,112 +112,69 @@ class BackgroundService:
     # Task handlers
     # ------------------------------------------------------------------
 
-    async def _handle_summarize(self, task: SummarizeFrameTask):
-        """Summarize a frame, then chain memory consolidation for all agents."""
-        from kurisuassistant.utils.frame_summary import summarize_frame
-
-        await summarize_frame(
-            frame_id=task.frame_id,
-            model_name=task.model_name,
-            api_url=task.api_url,
-            provider_type=task.provider_type,
-            api_key=task.api_key,
-        )
-
-        # Chain: after summary completes, consolidate memory for each agent
-        self._chain_consolidation(task)
-
-    def _chain_consolidation(self, summary_task: SummarizeFrameTask):
-        """Submit ConsolidateMemoryTask for each agent with memory_enabled."""
-        from kurisuassistant.db.service import get_db_service
-
-        db = get_db_service()
-
-        def _get_agents(session):
-            from kurisuassistant.db.models import Agent, Conversation, Frame
-
-            frame = session.query(Frame).filter_by(id=summary_task.frame_id).first()
-            if not frame:
-                return []
-
-            conv = session.query(Conversation).filter_by(id=frame.conversation_id).first()
-            if not conv:
-                return []
-
-            agents = (
-                session.query(Agent.id)
-                .filter(Agent.user_id == conv.user_id, Agent.memory_enabled.is_(True))
-                .all()
-            )
-            return [(conv.user_id, a.id) for a in agents]
-
-        agent_pairs = db.execute_sync(_get_agents)
-
-        for user_id, agent_id in agent_pairs:
-            self.submit(ConsolidateMemoryTask(
-                user_id=user_id,
-                agent_id=agent_id,
-                frame_ids=[summary_task.frame_id],
-                model_name=summary_task.model_name,
-                api_url=summary_task.api_url,
-                provider_type=summary_task.provider_type,
-                api_key=summary_task.api_key,
-            ))
-
-    @staticmethod
-    async def _handle_consolidate(task: ConsolidateMemoryTask):
+    async def _handle_consolidate(self, task: ConsolidateMemoryTask):
         from kurisuassistant.utils.memory_consolidation import consolidate_agent_memory
 
         await consolidate_agent_memory(
             user_id=task.user_id,
             agent_id=task.agent_id,
-            frame_ids=task.frame_ids,
+            conversation_id=task.conversation_id,
             model_name=task.model_name,
             api_url=task.api_url,
             provider_type=task.provider_type,
             api_key=task.api_key,
         )
 
+        # After successful consolidation, allow this pair to be re-queued
+        # on a future idle cycle.
+        with self._queued_lock:
+            self._queued.discard((task.conversation_id, task.agent_id))
+
     # ------------------------------------------------------------------
-    # Idle frame scanning
+    # Idle conversation scanning
     # ------------------------------------------------------------------
 
-    def _scan_idle_frames(self):
-        """Query DB for idle frames and submit SummarizeFrameTask only.
+    def _scan_idle_conversations(self):
+        """Find conversations idle past the threshold and queue consolidation
+        for each participating agent with ``memory_enabled``.
 
-        Consolidation is chained automatically after each summary completes.
+        "Participating" = any message in the conversation has ``agent_id=X``.
         """
         from kurisuassistant.db.service import get_db_service
 
         db = get_db_service()
 
-        def _query_idle_data(session):
-            from kurisuassistant.db.models import Conversation, Frame, Message, User
-            from sqlalchemy import func
+        def _query_idle(session):
+            from kurisuassistant.db.models import Agent, Conversation, Message, User
 
-            idle_threshold = timedelta(minutes=FRAME_IDLE_THRESHOLD_MINUTES)
+            idle_threshold = timedelta(minutes=CONVERSATION_IDLE_THRESHOLD_MINUTES)
             cutoff = datetime.utcnow() - idle_threshold
 
-            idle_frames = (
-                session.query(Frame.id, Frame.conversation_id)
-                .join(Message, Frame.id == Message.frame_id)
-                .filter(Frame.summary.is_(None), Frame.updated_at < cutoff)
-                .group_by(Frame.id, Frame.conversation_id)
-                .having(func.count(Message.id) > 0)
-                .all()
-            )
-
-            if not idle_frames:
-                return None
-
-            conv_ids = list({f.conversation_id for f in idle_frames})
-            conv_users = (
+            idle_convs = (
                 session.query(Conversation.id, Conversation.user_id)
-                .filter(Conversation.id.in_(conv_ids))
+                .filter(Conversation.updated_at < cutoff)
                 .all()
             )
-            conv_to_user = {c.id: c.user_id for c in conv_users}
+            if not idle_convs:
+                return []
 
+            conv_ids = [c.id for c in idle_convs]
+            # Agents that actually spoke in each conversation AND have memory enabled
+            participation_rows = (
+                session.query(Message.conversation_id, Message.agent_id)
+                .join(Agent, Message.agent_id == Agent.id)
+                .filter(
+                    Message.conversation_id.in_(conv_ids),
+                    Message.agent_id.isnot(None),
+                    Agent.memory_enabled.is_(True),
+                )
+                .distinct()
+                .all()
+            )
+            if not participation_rows:
+                return []
+
+            conv_to_user = {c.id: c.user_id for c in idle_convs}
             user_ids = list(set(conv_to_user.values()))
             users = session.query(User).filter(User.id.in_(user_ids)).all()
             user_prefs = {
@@ -230,41 +188,50 @@ class BackgroundService:
                 for u in users
             }
 
-            return {
-                "idle_frames": [(f.id, f.conversation_id) for f in idle_frames],
-                "conv_to_user": conv_to_user,
-                "user_prefs": user_prefs,
-            }
+            return [
+                {
+                    "conversation_id": row.conversation_id,
+                    "agent_id": row.agent_id,
+                    "user_id": conv_to_user[row.conversation_id],
+                    "prefs": user_prefs.get(conv_to_user[row.conversation_id], {}),
+                }
+                for row in participation_rows
+            ]
 
-        data = db.execute_sync(_query_idle_data)
-        if data is None:
-            return
+        candidates = db.execute_sync(_query_idle)
 
-        for frame_id, conv_id in data["idle_frames"]:
-            user_id = data["conv_to_user"].get(conv_id)
-            if not user_id:
-                continue
+        for c in candidates:
+            key = (c["conversation_id"], c["agent_id"])
+            with self._queued_lock:
+                if key in self._queued:
+                    continue
+                self._queued.add(key)
 
-            prefs = data["user_prefs"].get(user_id, {})
+            prefs = c["prefs"]
             summary_model = prefs.get("summary_model")
-            ollama_url = prefs.get("ollama_url")
             if not summary_model:
+                # No model configured — drop the reservation and skip
+                with self._queued_lock:
+                    self._queued.discard(key)
                 continue
 
-            summary_provider = prefs.get("summary_provider", "ollama")
+            provider = prefs.get("summary_provider", "ollama")
             api_key = None
-            if summary_provider == "gemini":
+            if provider == "gemini":
                 api_key = prefs.get("gemini_api_key")
-            elif summary_provider == "nvidia":
+            elif provider == "nvidia":
                 api_key = prefs.get("nvidia_api_key")
 
-            # Only submit SummarizeFrameTask — consolidation chains automatically
-            self.submit(SummarizeFrameTask(
-                frame_id=frame_id,
+            self.submit(ConsolidateMemoryTask(
+                user_id=c["user_id"],
+                agent_id=c["agent_id"],
+                conversation_id=c["conversation_id"],
                 model_name=summary_model,
-                api_url=ollama_url,
-                provider_type=summary_provider,
+                api_url=prefs.get("ollama_url"),
+                provider_type=provider,
                 api_key=api_key,
             ))
-
-            logger.info("Queued idle processing for frame %d (user %d)", frame_id, user_id)
+            logger.info(
+                "Queued memory consolidation: conversation=%d agent=%d user=%d",
+                c["conversation_id"], c["agent_id"], c["user_id"],
+            )

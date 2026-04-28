@@ -2,18 +2,17 @@
 
 ## Connection
 
-**Single WebSocket** (`/ws/chat`): All communication (chat, media, vision) flows through one WebSocket connection. No separate `/ws/media` endpoint.
+**Single WebSocket** (`/ws/chat`): All communication (chat, vision) flows through one WebSocket connection.
 
 ## Reconnection
 
-Messages are persisted to DB incrementally (each complete message saved on role boundary). No server-side replay needed. `replace_websocket()` swaps socket + cancels old heartbeat + updates media player callback.
+Messages are persisted to DB incrementally (each complete message saved on role boundary). No server-side replay needed. `replace_websocket()` swaps socket + cancels old heartbeat.
 
 On every connect/reconnect, server sends `ConnectedEvent` with full state snapshot:
-- `chat_active`, `conversation_id`
-- `media_state`
+- `chat_active`, `conversation_id`, `frame_id`
 - `vision_active`, `vision_config`
 
-Client loads already-persisted messages from DB on reconnect, enters streaming mode if task still active, and receives remaining chunks live. Client stores use ConnectedEvent to sync: ChatWidget loads conversation + resumes streaming, visionStore re-sends vision_start if server lost state, mediaStore syncs playback state.
+Client loads already-persisted messages from DB on reconnect, enters streaming mode if task still active, and receives remaining chunks live. Client stores use ConnectedEvent to sync: ChatWidget loads conversation + resumes streaming, visionStore re-sends vision_start if server lost state.
 
 ## Heartbeat
 
@@ -36,10 +35,6 @@ When WebSocket is disconnected, outgoing messages (except `vision_frame`) are qu
 - `LLMLogEvent` — LLM call logging
 - `AgentSwitchEvent` — agent routing changes
 - `ConnectedEvent` — full state snapshot on connect/reconnect
-
-### Media Events
-- **Client→Server**: `MEDIA_PLAY(query)`, `MEDIA_PAUSE`, `MEDIA_RESUME`, `MEDIA_SKIP`, `MEDIA_STOP`, `MEDIA_QUEUE_ADD(query)`, `MEDIA_QUEUE_REMOVE(index)`, `MEDIA_VOLUME(volume)`
-- **Server→Client**: `MEDIA_STATE(state, current_track, queue, volume)`, `MEDIA_CHUNK(data, chunk_index, is_last, format, sample_rate)`, `MEDIA_ERROR(error)`
 
 ### Vision Events
 - **Client→Server**: `VisionStartEvent` (enable_face/enable_pose/enable_hands flags), `VisionFrameEvent` (base64 JPEG), `VisionStopEvent`

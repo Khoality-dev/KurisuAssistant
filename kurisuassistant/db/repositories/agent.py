@@ -57,13 +57,19 @@ class AgentRepository(BaseRepository[Agent]):
         self,
         user_id: int,
         name: str,
+        description: str = "",
         system_prompt: str = "",
         model_name: Optional[str] = None,
         provider_type: str = "ollama",
         available_tools: Optional[List[str]] = None,
         think: bool = False,
-        persona_id: Optional[int] = None,
         use_deferred_tools: bool = False,
+        agent_type: str = "main",
+        voice_reference: Optional[str] = None,
+        avatar_uuid: Optional[str] = None,
+        character_config: Optional[dict] = None,
+        preferred_name: Optional[str] = None,
+        trigger_word: Optional[str] = None,
     ) -> Agent:
         """Create a new agent.
 
@@ -77,13 +83,19 @@ class AgentRepository(BaseRepository[Agent]):
         return self.create(
             user_id=user_id,
             name=name,
+            description=description,
             system_prompt=system_prompt,
             model_name=model_name,
             provider_type=provider_type,
             available_tools=available_tools,
             think=think,
-            persona_id=persona_id,
             use_deferred_tools=use_deferred_tools,
+            agent_type=agent_type,
+            voice_reference=voice_reference,
+            avatar_uuid=avatar_uuid,
+            character_config=character_config,
+            preferred_name=preferred_name,
+            trigger_word=trigger_word,
         )
 
     def update_agent(self, agent: Agent, **kwargs) -> Agent:

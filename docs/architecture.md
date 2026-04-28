@@ -64,11 +64,6 @@ mcp_tools/
 ├── client.py                # Async list_tools()/call_tool() wrappers
 └── orchestrator.py          # Per-user orchestrator registry with caching (UserMCPOrchestrator)
 
-media/                       # Media player module (yt-dlp audio streaming)
-├── player.py                # MediaPlayer: per-user stateful player, yt-dlp download + base64 Opus chunk streaming
-│                            # Module-level player registry: get_media_player(user_id, send_event), remove_media_player(user_id)
-└── __init__.py
-
 vision/                      # Vision frame processing pipeline
 ├── processor.py             # VisionProcessor: processes base64 JPEG frames for face/gesture detection
 └── __init__.py

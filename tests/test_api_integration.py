@@ -157,14 +157,13 @@ class TestEventRoundTrip:
             chat_active=True,
             conversation_id=42,
             frame_id=3,
-            media_state={"playing": True, "track": "song.mp3"},
             vision_active=True,
             vision_config={"enable_face": True},
         )
         d = event.to_dict()
         assert d["chat_active"] is True
-        assert d["media_state"]["playing"] is True
         assert d["vision_active"] is True
+        assert d["vision_config"]["enable_face"] is True
 
 
 # ---------------------------------------------------------------------------

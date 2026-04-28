@@ -16,14 +16,6 @@ class EventType(str, Enum):
     VISION_START = "vision_start"
     VISION_FRAME = "vision_frame"
     VISION_STOP = "vision_stop"
-    MEDIA_PLAY = "media_play"
-    MEDIA_PAUSE = "media_pause"
-    MEDIA_RESUME = "media_resume"
-    MEDIA_SKIP = "media_skip"
-    MEDIA_STOP = "media_stop"
-    MEDIA_QUEUE_ADD = "media_queue_add"
-    MEDIA_QUEUE_REMOVE = "media_queue_remove"
-    MEDIA_VOLUME = "media_volume"
     CLIENT_TOOLS_REGISTER = "client_tools_register"
     TOOL_CALL_RESPONSE = "tool_call_response"
     COMPACT_CONTEXT = "compact_context"
@@ -37,10 +29,8 @@ class EventType(str, Enum):
     DONE = "done"
     ERROR = "error"
     VISION_RESULT = "vision_result"
-    MEDIA_STATE = "media_state"
-    MEDIA_CHUNK = "media_chunk"
-    MEDIA_ERROR = "media_error"
     CONTEXT_INFO = "context_info"
+    CONVERSATION_SWITCHED = "conversation_switched"
 
 
 @dataclass
@@ -63,8 +53,6 @@ class ConnectedEvent(BaseEvent):
     type: EventType = field(default=EventType.CONNECTED)
     chat_active: bool = False
     conversation_id: Optional[int] = None
-    frame_id: Optional[int] = None
-    media_state: Optional[Dict[str, Any]] = None
     vision_active: bool = False
     vision_config: Optional[Dict[str, Any]] = None
 
@@ -80,7 +68,6 @@ class ChatRequestEvent(BaseEvent):
     text: str = ""
     model_name: str = ""
     conversation_id: Optional[int] = None
-    agent_id: Optional[int] = None  # Which agent to use (None = router)
     images: List[str] = field(default_factory=list)  # base64 encoded
     context_files: List[Dict[str, Any]] = field(default_factory=list)  # [{path, fileName, startLine, endLine, ...}]
 
@@ -161,7 +148,6 @@ class StreamChunkEvent(BaseEvent):
     persona_name: Optional[str] = None  # Persona display name
     voice_reference: Optional[str] = None
     conversation_id: int = 0
-    frame_id: int = 0
     tool_args: Optional[Dict[str, Any]] = None  # Tool input params (for tool role messages)
     tool_status: Optional[str] = None  # "success" | "error" | "denied" (for tool role messages)
     images: Optional[List[str]] = None  # Image UUIDs
@@ -180,7 +166,7 @@ class ToolApprovalRequestEvent(BaseEvent):
     agent_id: Optional[int] = None
     name: Optional[str] = None  # Which agent is requesting approval
     description: str = ""  # Human-readable description
-    risk_level: str = "low"  # low, medium, high
+    execution_location: str = "backend"  # "backend" or "frontend" - where tool runs after approval
 
 
 @dataclass
@@ -208,7 +194,6 @@ class DoneEvent(BaseEvent):
     """Server signals streaming complete."""
     type: EventType = field(default=EventType.DONE)
     conversation_id: int = 0
-    frame_id: int = 0
 
 
 @dataclass
@@ -219,6 +204,16 @@ class ContextInfoEvent(BaseEvent):
     compacting: bool = False
     compacted_up_to_id: int = 0
     compacted_context: str = ""
+
+
+@dataclass
+class ConversationSwitchedEvent(BaseEvent):
+    """After compaction, the chat moves to a new conversation seeded with the summary."""
+    type: EventType = field(default=EventType.CONVERSATION_SWITCHED)
+    old_conversation_id: int = 0
+    new_conversation_id: int = 0
+    compacted_context: str = ""
+    agent_id: int = 0
 
 
 @dataclass
@@ -238,94 +233,6 @@ class VisionResultEvent(BaseEvent):
 
 
 # =============================================================================
-# Media Client -> Server Events
-# =============================================================================
-
-@dataclass
-class MediaPlayEvent(BaseEvent):
-    """Client requests to play media."""
-    type: EventType = field(default=EventType.MEDIA_PLAY)
-    query: str = ""
-
-
-@dataclass
-class MediaPauseEvent(BaseEvent):
-    """Client requests to pause media."""
-    type: EventType = field(default=EventType.MEDIA_PAUSE)
-
-
-@dataclass
-class MediaResumeEvent(BaseEvent):
-    """Client requests to resume media."""
-    type: EventType = field(default=EventType.MEDIA_RESUME)
-
-
-@dataclass
-class MediaSkipEvent(BaseEvent):
-    """Client requests to skip current track."""
-    type: EventType = field(default=EventType.MEDIA_SKIP)
-
-
-@dataclass
-class MediaStopEvent(BaseEvent):
-    """Client requests to stop media."""
-    type: EventType = field(default=EventType.MEDIA_STOP)
-
-
-@dataclass
-class MediaQueueAddEvent(BaseEvent):
-    """Client requests to add to queue."""
-    type: EventType = field(default=EventType.MEDIA_QUEUE_ADD)
-    query: str = ""
-
-
-@dataclass
-class MediaQueueRemoveEvent(BaseEvent):
-    """Client requests to remove from queue."""
-    type: EventType = field(default=EventType.MEDIA_QUEUE_REMOVE)
-    index: int = 0
-
-
-@dataclass
-class MediaVolumeEvent(BaseEvent):
-    """Client sets volume."""
-    type: EventType = field(default=EventType.MEDIA_VOLUME)
-    volume: float = 1.0
-
-
-# =============================================================================
-# Media Server -> Client Events
-# =============================================================================
-
-@dataclass
-class MediaStateEvent(BaseEvent):
-    """Server sends media player state."""
-    type: EventType = field(default=EventType.MEDIA_STATE)
-    state: str = "stopped"
-    current_track: Optional[Dict[str, Any]] = None
-    queue: List[Dict[str, Any]] = field(default_factory=list)
-    volume: float = 1.0
-
-
-@dataclass
-class MediaChunkEvent(BaseEvent):
-    """Server sends audio data chunk."""
-    type: EventType = field(default=EventType.MEDIA_CHUNK)
-    data: str = ""  # base64 encoded audio
-    chunk_index: int = 0
-    is_last: bool = False
-    format: str = "opus"
-    sample_rate: int = 48000
-
-
-@dataclass
-class MediaErrorEvent(BaseEvent):
-    """Server sends media error."""
-    type: EventType = field(default=EventType.MEDIA_ERROR)
-    error: str = ""
-
-
-# =============================================================================
 # Event Parsing
 # =============================================================================
 
@@ -340,7 +247,6 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
             text=data.get("text", ""),
             model_name=data.get("model_name", ""),
             conversation_id=data.get("conversation_id"),
-            agent_id=data.get("agent_id"),
             images=data.get("images", []),
             context_files=data.get("context_files", []),
         )
@@ -387,58 +293,6 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
         return VisionStopEvent(
             event_id=data.get("event_id", str(uuid.uuid4())),
             timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
-        )
-
-    elif event_type == EventType.MEDIA_PLAY.value:
-        return MediaPlayEvent(
-            event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
-            query=data.get("query", ""),
-        )
-
-    elif event_type == EventType.MEDIA_PAUSE.value:
-        return MediaPauseEvent(
-            event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
-        )
-
-    elif event_type == EventType.MEDIA_RESUME.value:
-        return MediaResumeEvent(
-            event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
-        )
-
-    elif event_type == EventType.MEDIA_SKIP.value:
-        return MediaSkipEvent(
-            event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
-        )
-
-    elif event_type == EventType.MEDIA_STOP.value:
-        return MediaStopEvent(
-            event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
-        )
-
-    elif event_type == EventType.MEDIA_QUEUE_ADD.value:
-        return MediaQueueAddEvent(
-            event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
-            query=data.get("query", ""),
-        )
-
-    elif event_type == EventType.MEDIA_QUEUE_REMOVE.value:
-        return MediaQueueRemoveEvent(
-            event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
-            index=data.get("index", 0),
-        )
-
-    elif event_type == EventType.MEDIA_VOLUME.value:
-        return MediaVolumeEvent(
-            event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
-            volume=data.get("volume", 1.0),
         )
 
     elif event_type == EventType.CLIENT_TOOLS_REGISTER.value:

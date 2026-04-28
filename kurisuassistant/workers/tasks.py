@@ -4,21 +4,15 @@ from dataclasses import dataclass
 
 
 @dataclass
-class SummarizeFrameTask:
-    """Summarize a conversation frame using an LLM."""
-    frame_id: int
-    model_name: str
-    api_url: str | None = None
-    provider_type: str = "ollama"
-    api_key: str | None = None
-
-
-@dataclass
 class ConsolidateMemoryTask:
-    """Consolidate agent memory + notes from conversation frames."""
+    """Consolidate an agent's memory from a conversation's messages.
+
+    Fired by the conversation-idle scanner (see ``BackgroundService``).
+    Runs after a conversation has been idle past the configured threshold.
+    """
     user_id: int
     agent_id: int
-    frame_ids: list[int]
+    conversation_id: int
     model_name: str
     api_url: str | None = None
     provider_type: str = "ollama"

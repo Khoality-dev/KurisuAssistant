@@ -115,7 +115,7 @@ class TestSendEvent:
         ws = make_mock_ws()
         handler = ChatSessionHandler(ws, user_id=1)
 
-        event = StreamChunkEvent(content="hello", role="assistant", conversation_id=1, frame_id=1)
+        event = StreamChunkEvent(content="hello", role="assistant", conversation_id=1)
         await handler.send_event(event)
 
         ws.send_json.assert_called_once()
@@ -128,7 +128,7 @@ class TestSendEvent:
         ws = make_mock_ws(client_state="DISCONNECTED")
         handler = ChatSessionHandler(ws, user_id=1)
 
-        event = StreamChunkEvent(content="hello", role="assistant", conversation_id=1, frame_id=1)
+        event = StreamChunkEvent(content="hello", role="assistant", conversation_id=1)
         await handler.send_event(event)
 
         ws.send_json.assert_not_called()
@@ -139,7 +139,7 @@ class TestSendEvent:
         ws.send_json.side_effect = RuntimeError("socket closed")
         handler = ChatSessionHandler(ws, user_id=1)
 
-        event = StreamChunkEvent(content="hello", role="assistant", conversation_id=1, frame_id=1)
+        event = StreamChunkEvent(content="hello", role="assistant", conversation_id=1)
         # Should not raise
         await handler.send_event(event)
 
@@ -154,8 +154,7 @@ class TestConnectedState:
         ws = make_mock_ws()
         handler = ChatSessionHandler(ws, user_id=1)
 
-        with patch("kurisuassistant.websocket.handlers.get_media_player", return_value=MagicMock(get_state=MagicMock(return_value=None))):
-            await handler.send_connected_state()
+        await handler.send_connected_state()
 
         ws.send_json.assert_called_once()
         sent = ws.send_json.call_args[0][0]
@@ -170,8 +169,7 @@ class TestConnectedState:
         handler.current_task.done.return_value = False
         handler._task_conversation_id = 42
 
-        with patch("kurisuassistant.websocket.handlers.get_media_player", return_value=MagicMock(get_state=MagicMock(return_value=None))):
-            await handler.send_connected_state()
+        await handler.send_connected_state()
 
         sent = ws.send_json.call_args[0][0]
         assert sent["chat_active"] is True
@@ -189,8 +187,7 @@ class TestReconnection:
         ws2 = make_mock_ws()
         handler = ChatSessionHandler(ws1, user_id=1)
 
-        with patch("kurisuassistant.websocket.handlers.get_media_player"):
-            await handler.replace_websocket(ws2)
+        await handler.replace_websocket(ws2)
 
         assert handler.websocket is ws2
 
@@ -202,8 +199,7 @@ class TestReconnection:
         fake_task = MagicMock()
         handler._heartbeat_task = fake_task
 
-        with patch("kurisuassistant.websocket.handlers.get_media_player"):
-            await handler.replace_websocket(make_mock_ws())
+        await handler.replace_websocket(make_mock_ws())
 
         fake_task.cancel.assert_called_once()
         assert handler._heartbeat_task is None
@@ -401,7 +397,7 @@ class TestStreamingDelivery:
         chunks = ["Hello", " world", ", how", " are you?"]
         for i, text in enumerate(chunks):
             await handler.send_event(StreamChunkEvent(
-                content=text, role="assistant", conversation_id=1, frame_id=1,
+                content=text, role="assistant", conversation_id=1,
             ))
 
         assert ws.send_json.call_count == len(chunks)
@@ -416,7 +412,7 @@ class TestStreamingDelivery:
 
         # First chunk succeeds
         await handler.send_event(StreamChunkEvent(
-            content="hello", role="assistant", conversation_id=1, frame_id=1,
+            content="hello", role="assistant", conversation_id=1,
         ))
         assert ws.send_json.call_count == 1
 
@@ -425,7 +421,7 @@ class TestStreamingDelivery:
 
         # Second chunk is silently dropped
         await handler.send_event(StreamChunkEvent(
-            content="world", role="assistant", conversation_id=1, frame_id=1,
+            content="world", role="assistant", conversation_id=1,
         ))
         assert ws.send_json.call_count == 1  # Still 1 — not sent
 
@@ -436,9 +432,9 @@ class TestStreamingDelivery:
         handler = ChatSessionHandler(ws, user_id=1)
 
         await handler.send_event(StreamChunkEvent(
-            content="response text", role="assistant", conversation_id=42, frame_id=1,
+            content="response text", role="assistant", conversation_id=42,
         ))
-        await handler.send_event(DoneEvent(conversation_id=42, frame_id=1))
+        await handler.send_event(DoneEvent(conversation_id=42))
 
         assert ws.send_json.call_count == 2
         last_event = ws.send_json.call_args_list[-1][0][0]
@@ -464,7 +460,7 @@ class TestStreamingDelivery:
         # Fire concurrent sends
         tasks = [
             asyncio.create_task(handler.send_event(StreamChunkEvent(
-                content=f"chunk_{i}", role="assistant", conversation_id=1, frame_id=1,
+                content=f"chunk_{i}", role="assistant", conversation_id=1,
             )))
             for i in range(5)
         ]
@@ -483,7 +479,6 @@ class TestStreamingDelivery:
             content="konnichiwa",
             role="assistant",
             conversation_id=1,
-            frame_id=1,
             voice_reference="abc-123-uuid",
             persona_name="Ayaka",
         ))
@@ -514,8 +509,7 @@ class TestConnectionRetention:
 
         # Reconnect with new socket
         ws2 = make_mock_ws()
-        with patch("kurisuassistant.websocket.handlers.get_media_player"):
-            await handler.replace_websocket(ws2)
+        await handler.replace_websocket(ws2)
 
         assert handler.websocket is ws2
         assert mgr.get_handler(1) is handler  # Same handler
@@ -527,11 +521,10 @@ class TestConnectionRetention:
         ws2 = make_mock_ws()
         handler = ChatSessionHandler(ws1, user_id=1)
 
-        with patch("kurisuassistant.websocket.handlers.get_media_player"):
-            await handler.replace_websocket(ws2)
+        await handler.replace_websocket(ws2)
 
         await handler.send_event(StreamChunkEvent(
-            content="hello", role="assistant", conversation_id=1, frame_id=1,
+            content="hello", role="assistant", conversation_id=1,
         ))
 
         ws1.send_json.assert_not_called()
@@ -543,16 +536,13 @@ class TestConnectionRetention:
         ws1 = make_mock_ws()
         handler = ChatSessionHandler(ws1, user_id=1)
         handler._task_conversation_id = 42
-        handler._task_frame_id = 7
         handler.current_task = MagicMock()
         handler.current_task.done.return_value = False
 
-        with patch("kurisuassistant.websocket.handlers.get_media_player"):
-            await handler.replace_websocket(make_mock_ws())
+        await handler.replace_websocket(make_mock_ws())
 
         # Task state preserved
         assert handler._task_conversation_id == 42
-        assert handler._task_frame_id == 7
         assert handler.current_task is not None
 
 
@@ -630,18 +620,17 @@ class TestIdleConnection:
 
         # Events to ws1 are dropped
         await handler.send_event(StreamChunkEvent(
-            content="lost", role="assistant", conversation_id=1, frame_id=1,
+            content="lost", role="assistant", conversation_id=1,
         ))
         ws1.send_json.assert_not_called()
 
         # Reconnect
         ws2 = make_mock_ws()
-        with patch("kurisuassistant.websocket.handlers.get_media_player"):
-            await handler.replace_websocket(ws2)
+        await handler.replace_websocket(ws2)
 
         # Events to ws2 work
         await handler.send_event(StreamChunkEvent(
-            content="recovered", role="assistant", conversation_id=1, frame_id=1,
+            content="recovered", role="assistant", conversation_id=1,
         ))
         ws2.send_json.assert_called_once()
         assert ws2.send_json.call_args[0][0]["content"] == "recovered"
@@ -657,7 +646,6 @@ class TestEvents:
             content="hello world",
             role="assistant",
             conversation_id=1,
-            frame_id=1,
             voice_reference="uuid-123",
             persona_name="Ayaka",
             agent_id=5,
@@ -670,7 +658,7 @@ class TestEvents:
         assert d["agent_id"] == 5
 
     def test_done_event_serialization(self):
-        event = DoneEvent(conversation_id=42, frame_id=1)
+        event = DoneEvent(conversation_id=42)
         d = event.to_dict()
         assert d["type"] == "done"
         assert d["conversation_id"] == 42
@@ -686,7 +674,6 @@ class TestEvents:
         event = ConnectedEvent(
             chat_active=True,
             conversation_id=10,
-            frame_id=2,
         )
         d = event.to_dict()
         assert d["type"] == "connected"

@@ -5,9 +5,9 @@ User uploads full keyframe images; backend diffs them against the base to extrac
 patch regions (bounding box + cropped image).
 
 Folder structure:
-  data/character_assets/{persona_id}/{pose_id}/base.png
-  data/character_assets/{persona_id}/{pose_id}/{part}_{index}.png
-  data/character_assets/{persona_id}/edges/{edge_id}.mp4|.webm
+  data/character_assets/{agent_id}/{pose_id}/base.png
+  data/character_assets/{agent_id}/{pose_id}/{part}_{index}.png
+  data/character_assets/{agent_id}/edges/{edge_id}.mp4|.webm
 """
 
 import logging
@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from kurisuassistant.core.deps import get_db, get_authenticated_user
 from kurisuassistant.db.models import User
 from kurisuassistant.db.service import get_db_service
-from kurisuassistant.db.repositories import AgentRepository, PersonaRepository
+from kurisuassistant.db.repositories import AgentRepository
 
 logger = logging.getLogger(__name__)
 
@@ -62,30 +62,30 @@ class ComputePatchResponse(BaseModel):
     patch: PatchResult
 
 
-def _pose_dir(persona_id: int, pose_id: str) -> Path:
+def _pose_dir(agent_id: int, pose_id: str) -> Path:
     """Return the directory for a specific pose's assets."""
-    return CHAR_ASSETS_DIR / str(persona_id) / pose_id
+    return CHAR_ASSETS_DIR / str(agent_id) / pose_id
 
 
-def _edges_dir(persona_id: int) -> Path:
-    """Return the directory for a persona's edge transition videos."""
-    return CHAR_ASSETS_DIR / str(persona_id) / "edges"
+def _edges_dir(agent_id: int) -> Path:
+    """Return the directory for an agent's edge transition videos."""
+    return CHAR_ASSETS_DIR / str(agent_id) / "edges"
 
 
-async def _resolve_persona_id(user_id: int, agent_id: int) -> int:
-    """Resolve agent_id to its persona_id. Raises HTTPException if not found."""
+async def _require_agent(user_id: int, agent_id: int) -> None:
+    """Confirm the agent belongs to the user (or is a system agent). 404 otherwise."""
     db = get_db_service()
 
     def _get(session):
         agent = AgentRepository(session).get_by_user_and_id(user_id, agent_id)
-        if not agent or not agent.persona_id:
-            return None
-        return agent.persona_id
+        if agent:
+            return True
+        agent = AgentRepository(session).get_by_id(agent_id)
+        return bool(agent and agent.is_system)
 
-    persona_id = await db.execute(_get)
-    if persona_id is None:
-        raise HTTPException(status_code=404, detail="Agent not found or has no persona")
-    return persona_id
+    ok = await db.execute(_get)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Agent not found")
 
 
 def _save_image(image: np.ndarray, path: Path) -> None:
@@ -153,9 +153,9 @@ async def upload_base_image(
 ) -> UploadBaseResponse:
     """Upload a base portrait image for a character pose.
 
-    Saved to ``{persona_id}/{pose_id}/base.png``.  Re-uploading overwrites.
+    Saved to ``{agent_id}/{pose_id}/base.png``.  Re-uploading overwrites.
     """
-    persona_id = await _resolve_persona_id(user.id, agent_id)
+    await _require_agent(user.id, agent_id)
 
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
@@ -167,10 +167,10 @@ async def upload_base_image(
     if image is None:
         raise HTTPException(status_code=400, detail="Invalid image format")
 
-    path = _pose_dir(persona_id, pose_id) / "base.png"
+    path = _pose_dir(agent_id, pose_id) / "base.png"
     _save_image(image, path)
 
-    asset_id = f"{persona_id}/{pose_id}/base"
+    asset_id = f"{agent_id}/{pose_id}/base"
     return UploadBaseResponse(
         asset_id=asset_id,
         image_url=f"/character-assets/{asset_id}",
@@ -196,17 +196,17 @@ async def compute_patch(
     modified (e.g., eyes half-closed, mouth open). The backend computes
     the difference, extracts the changed region, and stores it as a patch.
 
-    Saved to ``{persona_id}/{pose_id}/{part}_{index}.png``.
+    Saved to ``{agent_id}/{pose_id}/{part}_{index}.png``.
     """
     if part not in VALID_PARTS:
         raise HTTPException(
             status_code=400, detail=f"part must be one of: {', '.join(sorted(VALID_PARTS))}"
         )
 
-    persona_id = await _resolve_persona_id(user.id, agent_id)
+    await _require_agent(user.id, agent_id)
 
     # Load base image from the pose directory
-    base_path = _pose_dir(persona_id, pose_id) / "base.png"
+    base_path = _pose_dir(agent_id, pose_id) / "base.png"
     base = _load_image(base_path)
     if base is None:
         raise HTTPException(status_code=404, detail="Base image not found for this pose")
@@ -235,10 +235,10 @@ async def compute_patch(
         )
 
     # Save the patch image
-    patch_path = _pose_dir(persona_id, pose_id) / f"{part}_{index}.png"
+    patch_path = _pose_dir(agent_id, pose_id) / f"{part}_{index}.png"
     _save_image(result["patch_image"], patch_path)
 
-    patch_url_path = f"{persona_id}/{pose_id}/{part}_{index}"
+    patch_url_path = f"{agent_id}/{pose_id}/{part}_{index}"
     return ComputePatchResponse(
         patch=PatchResult(
             image_url=f"/character-assets/{patch_url_path}",
@@ -263,15 +263,15 @@ async def upload_video(
 ):
     """Upload a transition video for an animation edge.
 
-    Saved to ``{persona_id}/edges/{edge_id}.mp4|.webm``.  Re-uploading overwrites.
+    Saved to ``{agent_id}/edges/{edge_id}.mp4|.webm``.  Re-uploading overwrites.
     """
-    persona_id = await _resolve_persona_id(user.id, agent_id)
+    await _require_agent(user.id, agent_id)
 
     if not file.content_type or file.content_type not in VALID_VIDEO_TYPES:
         raise HTTPException(status_code=400, detail="File must be video/mp4 or video/webm")
 
     ext = ".mp4" if file.content_type == "video/mp4" else ".webm"
-    edges = _edges_dir(persona_id)
+    edges = _edges_dir(agent_id)
     edges.mkdir(parents=True, exist_ok=True)
 
     # Clean up old file with other extension before saving
@@ -285,7 +285,7 @@ async def upload_video(
     path = edges / f"{edge_id}{ext}"
     path.write_bytes(contents)
 
-    asset_url = f"{persona_id}/edges/{edge_id}"
+    asset_url = f"{agent_id}/edges/{edge_id}"
     return {
         "asset_id": asset_url,
         "video_url": f"/character-assets/{asset_url}",
@@ -302,23 +302,23 @@ async def migrate_ids(
     """Rename pose folders and edge video files when migrating to new short hex IDs.
 
     Accepts a mapping of old_id → new_id. Renames:
-    - Pose folders: ``{persona_id}/{old_node_id}/`` → ``{persona_id}/{new_node_id}/``
+    - Pose folders: ``{agent_id}/{old_node_id}/`` → ``{agent_id}/{new_node_id}/``
     - Edge video files: replaces old node IDs in filenames under ``edges/``
     """
-    persona_id = await _resolve_persona_id(user.id, agent_id)
+    await _require_agent(user.id, agent_id)
 
     id_mapping = body.id_mapping
     if not id_mapping:
         return {"message": "No IDs to migrate"}
 
-    persona_dir = CHAR_ASSETS_DIR / str(persona_id)
-    if not persona_dir.exists():
+    agent_dir = CHAR_ASSETS_DIR / str(agent_id)
+    if not agent_dir.exists():
         return {"message": "No assets to migrate"}
 
     # Rename pose folders (old_node_id → new_node_id)
     for old_id, new_id in id_mapping.items():
-        old_dir = persona_dir / old_id
-        new_dir = persona_dir / new_id
+        old_dir = agent_dir / old_id
+        new_dir = agent_dir / new_id
         if old_dir.exists() and old_dir.is_dir():
             if new_dir.exists():
                 # Merge into existing (shouldn't happen, but be safe)
@@ -330,7 +330,7 @@ async def migrate_ids(
             logger.info("Migrated pose folder: %s → %s", old_id, new_id)
 
     # Rename edge video files under edges/
-    edges_dir = _edges_dir(persona_id)
+    edges_dir = _edges_dir(agent_id)
     if edges_dir.exists():
         for video_file in list(edges_dir.iterdir()):
             if not video_file.is_file():
@@ -354,10 +354,10 @@ async def migrate_ids(
 # Order matters: edges route must come before the generic pose asset route
 # so that "edges" is not matched as a pose_id.
 
-@router.get("/{persona_id}/edges/{edge_id}")
-async def get_edge_video(persona_id: int, edge_id: str):
+@router.get("/{agent_id}/edges/{edge_id}")
+async def get_edge_video(agent_id: int, edge_id: str):
     """Serve a transition video for an animation edge."""
-    edges = _edges_dir(persona_id)
+    edges = _edges_dir(agent_id)
     for ext, media_type in [(".mp4", "video/mp4"), (".webm", "video/webm")]:
         path = edges / f"{edge_id}{ext}"
         if path.exists():
@@ -369,10 +369,10 @@ async def get_edge_video(persona_id: int, edge_id: str):
     raise HTTPException(status_code=404, detail="Edge video not found")
 
 
-@router.get("/{persona_id}/{pose_id}/{filename}")
-async def get_pose_asset(persona_id: int, pose_id: str, filename: str):
+@router.get("/{agent_id}/{pose_id}/{filename}")
+async def get_pose_asset(agent_id: int, pose_id: str, filename: str):
     """Serve a pose asset (base image or patch)."""
-    pose = _pose_dir(persona_id, pose_id)
+    pose = _pose_dir(agent_id, pose_id)
     for ext, media_type in [(".png", "image/png"), (".jpg", "image/jpeg")]:
         path = pose / f"{filename}{ext}"
         if path.exists():
@@ -416,33 +416,33 @@ def _extract_referenced_paths(config: Optional[dict]) -> set[str]:
     return paths
 
 
-def _file_to_ref_path(file_path: Path, persona_id: int) -> str:
+def _file_to_ref_path(file_path: Path, agent_id: int) -> str:
     """Convert a disk file path to the reference path (relative, no extension).
 
     E.g. data/character_assets/1/pose-default/base.png → "1/pose-default/base"
     Uses forward slashes (POSIX) to match URL paths regardless of OS.
     """
-    persona_dir = CHAR_ASSETS_DIR / str(persona_id)
-    rel = file_path.relative_to(persona_dir).with_suffix('')
-    return f"{persona_id}/{rel.as_posix()}"
+    agent_dir = CHAR_ASSETS_DIR / str(agent_id)
+    rel = file_path.relative_to(agent_dir).with_suffix('')
+    return f"{agent_id}/{rel.as_posix()}"
 
 
-def _cleanup_persona_assets(persona_id: int, referenced_paths: set[str]) -> None:
-    """Delete unreferenced files under a persona's asset directory and clean up empty dirs."""
-    persona_dir = CHAR_ASSETS_DIR / str(persona_id)
-    if not persona_dir.exists():
+def _cleanup_agent_assets(agent_id: int, referenced_paths: set[str]) -> None:
+    """Delete unreferenced files under an agent's asset directory and clean up empty dirs."""
+    agent_dir = CHAR_ASSETS_DIR / str(agent_id)
+    if not agent_dir.exists():
         return
 
-    for file_path in persona_dir.rglob("*"):
+    for file_path in agent_dir.rglob("*"):
         if not file_path.is_file():
             continue
-        ref_path = _file_to_ref_path(file_path, persona_id)
+        ref_path = _file_to_ref_path(file_path, agent_id)
         if ref_path not in referenced_paths:
             file_path.unlink()
             logger.debug("Deleted orphaned character asset: %s", file_path)
 
     # Clean up empty directories (bottom-up)
-    for dir_path in sorted(persona_dir.rglob("*"), reverse=True):
+    for dir_path in sorted(agent_dir.rglob("*"), reverse=True):
         if dir_path.is_dir() and not any(dir_path.iterdir()):
             dir_path.rmdir()
             logger.debug("Removed empty directory: %s", dir_path)
@@ -455,22 +455,25 @@ async def update_character_config(
     user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db),
 ):
-    """Update a persona's character animation config (pose tree).
+    """Update an agent's character animation config (pose tree).
 
     Automatically cleans up orphaned asset files when the config changes
     (e.g., old base images and patches no longer referenced).
     """
-    persona_id = await _resolve_persona_id(user.id, agent_id)
+    await _require_agent(user.id, agent_id)
 
     def _update_config(session):
-        persona_repo = PersonaRepository(session)
-        persona = persona_repo.get_by_user_and_id(user.id, persona_id)
+        agent_repo = AgentRepository(session)
+        agent = agent_repo.get_by_user_and_id(user.id, agent_id)
 
-        if not persona:
-            raise HTTPException(status_code=404, detail="Persona not found")
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
 
-        persona = persona_repo.update_persona(persona, character_config=config)
-        return {"message": "Character config updated", "character_config": persona.character_config}
+        agent = agent_repo.update_agent(agent, character_config=config)
+        return {"message": "Character config updated", "character_config": agent.character_config}
+
+    referenced_paths = _extract_referenced_paths(config)
+    _cleanup_agent_assets(agent_id, referenced_paths)
 
     db = get_db_service()
     return await db.execute(_update_config)
