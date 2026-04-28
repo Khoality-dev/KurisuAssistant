@@ -20,10 +20,8 @@ export type EventType =
   | 'done'
   | 'error'
   | 'vision_result'
-  | 'media_state'
-  | 'media_chunk'
-  | 'media_error'
   | 'context_info'
+  | 'conversation_switched'
   | 'connected';
 
 // Base event interface
@@ -39,7 +37,6 @@ export interface ChatRequestEvent extends BaseEvent {
   text: string;
   model_name: string;
   conversation_id: number | null;
-  agent_id: number | null;
   images: string[]; // base64 encoded
 }
 
@@ -70,7 +67,6 @@ export interface StreamChunkEvent extends BaseEvent {
   tool_args: Record<string, unknown> | null;
   tool_status: string | null;  // "success" | "error" | "denied"
   conversation_id: number;
-  frame_id: number;
   images: string[] | null;
   token_count: number | null;
 }
@@ -87,7 +83,6 @@ export interface AgentSwitchEvent extends BaseEvent {
 export interface DoneEvent extends BaseEvent {
   type: 'done';
   conversation_id: number;
-  frame_id: number;
 }
 
 export interface ErrorEvent extends BaseEvent {
@@ -104,7 +99,7 @@ export interface ToolApprovalRequestEvent extends BaseEvent {
   agent_id: number | null;
   name: string | null;
   description: string;
-  risk_level: string;
+  execution_location: 'backend' | 'frontend';
 }
 
 export interface VisionResultEvent extends BaseEvent {
@@ -119,40 +114,6 @@ export interface VisionResultEvent extends BaseEvent {
     gesture: string;
     confidence: number;
   }>;
-}
-
-export interface MediaStateEvent extends BaseEvent {
-  type: 'media_state';
-  state: 'stopped' | 'playing' | 'paused';
-  current_track: {
-    title: string;
-    url: string;
-    duration: number | null;
-    thumbnail: string | null;
-    artist: string | null;
-  } | null;
-  queue: Array<{
-    title: string;
-    url: string;
-    duration: number | null;
-    thumbnail: string | null;
-    artist: string | null;
-  }>;
-  volume: number;
-}
-
-export interface MediaChunkEvent extends BaseEvent {
-  type: 'media_chunk';
-  data: string; // base64 encoded audio
-  chunk_index: number;
-  is_last: boolean;
-  format: string;
-  sample_rate: number;
-}
-
-export interface MediaErrorEvent extends BaseEvent {
-  type: 'media_error';
-  error: string;
 }
 
 // Server -> Client: tool call forwarding
@@ -171,17 +132,18 @@ export interface ContextInfoEvent extends BaseEvent {
   compacted_context: string;
 }
 
+export interface ConversationSwitchedEvent extends BaseEvent {
+  type: 'conversation_switched';
+  old_conversation_id: number;
+  new_conversation_id: number;
+  compacted_context: string;
+  agent_id: number;
+}
+
 export interface ConnectedEvent extends BaseEvent {
   type: 'connected';
   chat_active: boolean;
   conversation_id: number | null;
-  frame_id: number | null;
-  media_state: {
-    state: 'stopped' | 'playing' | 'paused';
-    current_track: MediaStateEvent['current_track'];
-    queue: MediaStateEvent['queue'];
-    volume: number;
-  } | null;
   vision_active: boolean;
   vision_config: {
     enable_face: boolean;
@@ -199,10 +161,8 @@ export type ServerEvent =
   | ToolApprovalRequestEvent
   | ToolCallRequestEvent
   | VisionResultEvent
-  | MediaStateEvent
-  | MediaChunkEvent
-  | MediaErrorEvent
-  | ContextInfoEvent;
+  | ContextInfoEvent
+  | ConversationSwitchedEvent;
 
 type EventHandler<T = ServerEvent> = (event: T) => void;
 
@@ -412,7 +372,6 @@ class WebSocketManager {
     text: string,
     modelName: string,
     conversationId: number | null = null,
-    agentId: number | null = null,
     images: string[] = [],
     contextFiles: Array<Record<string, unknown>> = [],
   ): Promise<void> {
@@ -424,7 +383,6 @@ class WebSocketManager {
       text,
       model_name: modelName,
       conversation_id: conversationId,
-      agent_id: agentId,
       images,
       context_files: contextFiles.length > 0 ? contextFiles : undefined,
     });
@@ -497,38 +455,6 @@ class WebSocketManager {
    */
   sendToolCallResponse(requestId: string, content: string, isError: boolean) {
     this.send({ type: 'tool_call_response', request_id: requestId, content, is_error: isError });
-  }
-
-  // Media control methods
-
-  async sendMediaPlay(query: string) {
-    await this.connect();
-    this.send({ type: 'media_play', query });
-  }
-
-  async sendMediaPause() {
-    await this.connect();
-    this.send({ type: 'media_pause' });
-  }
-
-  async sendMediaResume() {
-    await this.connect();
-    this.send({ type: 'media_resume' });
-  }
-
-  async sendMediaSkip() {
-    await this.connect();
-    this.send({ type: 'media_skip' });
-  }
-
-  async sendMediaStop() {
-    await this.connect();
-    this.send({ type: 'media_stop' });
-  }
-
-  async sendMediaVolume(volume: number) {
-    await this.connect();
-    this.send({ type: 'media_volume', volume });
   }
 
   /**

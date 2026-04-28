@@ -19,7 +19,6 @@ export interface Message {
   content: string;
   thinking?: string; // Optional thinking content (for assistant messages)
   images?: string[];
-  frame_id?: number;
   created_at?: string;
   agent_id?: number; // Which agent sent this message
   name?: string; // Speaker identity (agent name, tool name, etc.)
@@ -33,6 +32,10 @@ export interface Message {
   tool_status?: string; // "success" | "error" | "denied" (from backend)
   context_files?: Array<{ path: string; fileName: string; startLine?: number; endLine?: number; startColumn?: number; endColumn?: number }>;
   queued?: boolean; // Queued message waiting to be processed
+  // Render-only stable key that survives the transition from streaming → store → DB-id'd reload.
+  // Without it, React keys flip from "stream-X" → "stream--Y" → "msg-Z" and Framer Motion replays
+  // the entry animation on every remount, producing a visible flash when a stream finishes.
+  _clientKey?: string;
 }
 
 export interface MessageRawData {
@@ -50,25 +53,19 @@ export interface ConversationLastMessage {
 export interface Conversation {
   id: number;
   title: string;
-  frame_count: number;
+  main_agent_id: number | null;  // null until first message picks a main agent
+  message_count: number;
   created_at: string;
   updated_at: string;
   last_message?: ConversationLastMessage;
 }
 
-export interface FrameInfo {
-  id: number;
-  summary: string | null;
-  created_at: string | null;
-  updated_at: string | null;
-}
-
 export interface ConversationDetail {
   id: number;
   title: string;
+  main_agent_id: number | null;
   created_at: string;
   messages: Message[];
-  frames: Record<number, FrameInfo>;
   total_messages: number;
   offset: number;
   limit: number;
@@ -122,31 +119,6 @@ export interface TTSRequest {
   use_emo_text?: boolean;
 }
 
-export interface Persona {
-  id: number;
-  name: string;
-  system_prompt: string;
-  voice_reference: string | null;
-  avatar_uuid: string | null;
-  character_config: CharacterConfigDTO | null;
-  preferred_name: string | null;
-  trigger_word: string | null;
-}
-
-export interface PersonaCreate {
-  name: string;
-  system_prompt?: string;
-  preferred_name?: string;
-  trigger_word?: string;
-}
-
-export interface PersonaUpdate {
-  name?: string;
-  system_prompt?: string;
-  preferred_name?: string;
-  trigger_word?: string;
-}
-
 export interface Agent {
   id: number;
   name: string;
@@ -161,8 +133,13 @@ export interface Agent {
   enabled: boolean;
   is_system: boolean;
   use_deferred_tools: boolean;
-  persona_id: number | null;
-  persona: Persona | null;
+  agent_type: string;  // "main" or "sub"
+  // Personality fields — MainAgent only
+  voice_reference: string | null;
+  avatar_uuid: string | null;
+  character_config: CharacterConfigDTO | null;
+  preferred_name: string | null;
+  trigger_word: string | null;  // First-message pick hint
 }
 
 // Character asset types (backend responses)
@@ -195,17 +172,25 @@ export interface UploadVideoResponseDTO {
 
 export interface AgentCreate {
   name: string;
+  description?: string;
   system_prompt?: string;
   model_name: string;
   provider_type?: string;
   available_tools?: string[];
   think?: boolean;
-  persona_id?: number;
   use_deferred_tools?: boolean;
+  agent_type?: string;  // "main" or "sub"
+  // Personality fields — MainAgent only
+  voice_reference?: string;
+  avatar_uuid?: string;
+  character_config?: CharacterConfigDTO;
+  preferred_name?: string;
+  trigger_word?: string;
 }
 
 export interface AgentUpdate {
   name?: string;
+  description?: string;
   system_prompt?: string;
   model_name?: string;
   provider_type?: string;
@@ -213,8 +198,14 @@ export interface AgentUpdate {
   think?: boolean;
   memory?: string;
   memory_enabled?: boolean;
-  persona_id?: number | null;
   use_deferred_tools?: boolean;
+  agent_type?: string;
+  // Personality fields — MainAgent only
+  voice_reference?: string | null;
+  avatar_uuid?: string | null;
+  character_config?: CharacterConfigDTO | null;
+  preferred_name?: string | null;
+  trigger_word?: string | null;
 }
 
 // MCP Server types
@@ -295,14 +286,6 @@ export interface SkillUpdate {
   instructions?: string;
 }
 
-// Avatar candidate types
-
-export interface AvatarCandidate {
-  uuid: string;
-  pose_id: string;
-  score: number;
-}
-
 // Face recognition types
 
 export interface FaceIdentity {
@@ -344,6 +327,7 @@ export interface VisionResult {
   faces: VisionFace[];
   gestures: VisionGesture[];
 }
+
 
 // Media player types
 

@@ -14,9 +14,6 @@ import type {
   Agent,
   AgentCreate,
   AgentUpdate,
-  Persona,
-  PersonaCreate,
-  PersonaUpdate,
   ToolsResponse,
   MCPServer,
   MCPServerCreate,
@@ -28,7 +25,6 @@ import type {
   CharacterConfigDTO,
   FaceIdentity,
   FaceIdentityDetail,
-  AvatarCandidate,
   Skill,
   SkillCreate,
   SkillUpdate,
@@ -169,9 +165,10 @@ class APIClient {
     return response.data;
   }
 
-  async getConversations(): Promise<Conversation[]> {
+  async getConversations(agentId?: number): Promise<Conversation[]> {
     const response = await this.client.get<Conversation[]>('/conversations', {
       headers: this.getHeaders(),
+      params: agentId ? { agent_id: agentId } : undefined,
     });
     return response.data;
   }
@@ -208,13 +205,6 @@ class APIClient {
       { title },
       { headers: this.getHeaders() }
     );
-  }
-
-  async deleteMessage(messageId: number): Promise<{ deleted: number }> {
-    const response = await this.client.delete<{ deleted: number }>(`/messages/${messageId}`, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
   }
 
   async getMessageRaw(messageId: number): Promise<MessageRawData> {
@@ -280,6 +270,30 @@ class APIClient {
       headers: this.getHeaders(),
     });
     return response.data;
+  }
+
+  // Tool Policies Methods
+
+  async getToolPolicies(): Promise<{ tools: Record<string, 'allow' | 'deny'> }> {
+    const response = await this.client.get('/users/me/tool-policies', {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async updateToolPolicies(policies: { tools: Record<string, 'allow' | 'deny'> }): Promise<void> {
+    await this.client.put('/users/me/tool-policies', policies, {
+      headers: this.getHeaders(),
+    });
+  }
+
+  async patchToolPolicy(toolName: string, policy: 'allow' | 'deny' | null): Promise<void> {
+    await this.client.patch('/users/me/tool-policies', {
+      tool_name: toolName,
+      policy: policy,
+    }, {
+      headers: this.getHeaders(),
+    });
   }
 
   async uploadImage(file: File): Promise<{ image_uuid: string; url: string }> {
@@ -491,134 +505,6 @@ class APIClient {
     const formData = new FormData();
     formData.append('file', file);
     const response = await this.client.post<Agent>('/agents/import', formData, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  // Persona Methods
-
-  /**
-   * List all personas for the current user
-   */
-  async listPersonas(): Promise<Persona[]> {
-    const response = await this.client.get<Persona[]>('/personas', {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  /**
-   * Get a specific persona by ID
-   */
-  async getPersona(id: number): Promise<Persona> {
-    const response = await this.client.get<Persona>(`/personas/${id}`, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  /**
-   * Create a new persona
-   */
-  async createPersona(data: PersonaCreate): Promise<Persona> {
-    const response = await this.client.post<Persona>('/personas', data, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  /**
-   * Update an existing persona
-   */
-  async updatePersona(id: number, data: PersonaUpdate): Promise<Persona> {
-    const response = await this.client.patch<Persona>(`/personas/${id}`, data, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  /**
-   * Delete a persona
-   */
-  async deletePersona(id: number): Promise<void> {
-    await this.client.delete(`/personas/${id}`, {
-      headers: this.getHeaders(),
-    });
-  }
-
-  /**
-   * Update persona avatar
-   */
-  async updatePersonaAvatar(id: number, avatar: File): Promise<Persona> {
-    const formData = new FormData();
-    formData.append('avatar', avatar);
-
-    const response = await this.client.patch<Persona>(`/personas/${id}/avatar`, formData, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  /**
-   * Update persona voice reference
-   */
-  async updatePersonaVoice(id: number, voice: File): Promise<Persona> {
-    const formData = new FormData();
-    formData.append('voice', voice);
-
-    const response = await this.client.patch<Persona>(`/personas/${id}/voice`, formData, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  /**
-   * Get URL for playing a persona's voice reference audio
-   */
-  getPersonaVoiceUrl(personaId: number): string {
-    return `${config.apiBaseUrl}/personas/${personaId}/voice?token=${this.token}`;
-  }
-
-  /**
-   * Get avatar candidates detected from character pose base images
-   */
-  async getAvatarCandidates(personaId: number): Promise<AvatarCandidate[]> {
-    const response = await this.client.get<AvatarCandidate[]>(`/personas/${personaId}/avatar-candidates`, {
-      headers: this.getHeaders(),
-      timeout: 60000,
-    });
-    return response.data;
-  }
-
-  /**
-   * Set persona avatar from an existing image UUID
-   */
-  async setPersonaAvatarFromUuid(personaId: number, uuid: string): Promise<Persona> {
-    const response = await this.client.post<Persona>(`/personas/${personaId}/avatar-from-uuid`, { avatar_uuid: uuid }, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  /**
-   * Export a persona as a ZIP archive
-   */
-  async exportPersona(id: number): Promise<Blob> {
-    const response = await this.client.get(`/personas/${id}/export`, {
-      headers: this.getHeaders(),
-      responseType: 'blob',
-    });
-    return response.data;
-  }
-
-  /**
-   * Import a persona from a ZIP archive
-   */
-  async importPersona(file: File): Promise<Persona> {
-    const formData = new FormData();
-    formData.append('file', file);
-    const response = await this.client.post<Persona>('/personas/import', formData, {
       headers: this.getHeaders(),
     });
     return response.data;

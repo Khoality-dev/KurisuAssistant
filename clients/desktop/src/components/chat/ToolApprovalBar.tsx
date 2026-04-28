@@ -1,21 +1,30 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Box, Paper, Typography, Chip } from '@mui/material';
-import { Build as ToolIcon } from '@mui/icons-material';
+import { Box, Paper, Typography, Chip, Divider } from '@mui/material';
+import { Build as ToolIcon, CheckCircle, Block, Schedule, DoNotDisturb } from '@mui/icons-material';
 
 export interface ApprovalOption {
   label: string;
   value: string;
   color?: 'success' | 'error' | 'warning' | 'info' | 'default';
+  icon?: React.ReactNode;
 }
 
 export interface ApprovalRequest {
   toolName: string;
   description: string;
   detail?: string;
-  riskLevel?: string;
+  executionLocation?: 'backend' | 'frontend';
   agentName?: string;
-  options: ApprovalOption[];
 }
+
+// Default options for tool approval
+const DEFAULT_OPTIONS: ApprovalOption[] = [
+  { label: 'Approve once', value: 'approve', color: 'success', icon: <CheckCircle fontSize="small" /> },
+  { label: 'Allow for this session', value: 'session_allow', color: 'success', icon: <Schedule fontSize="small" /> },
+  { label: 'Always allow this tool', value: 'always_allow', color: 'success', icon: <CheckCircle fontSize="small" /> },
+  { label: 'Deny once', value: 'deny', color: 'error', icon: <Block fontSize="small" /> },
+  { label: 'Always deny this tool', value: 'always_deny', color: 'error', icon: <DoNotDisturb fontSize="small" /> },
+];
 
 interface ToolApprovalBarProps {
   request: ApprovalRequest;
@@ -25,11 +34,11 @@ interface ToolApprovalBarProps {
 export const ToolApprovalBar: React.FC<ToolApprovalBarProps> = ({ request, onRespond }) => {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
-  const optionCount = request.options.length;
+  const optionCount = DEFAULT_OPTIONS.length;
 
   const handleSelect = useCallback(() => {
-    onRespond(request.options[selectedIndex].value);
-  }, [selectedIndex, onRespond, request.options]);
+    onRespond(DEFAULT_OPTIONS[selectedIndex].value);
+  }, [selectedIndex, onRespond]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -50,15 +59,15 @@ export const ToolApprovalBar: React.FC<ToolApprovalBarProps> = ({ request, onRes
           break;
         case 'Escape':
           e.preventDefault();
-          // Escape selects the last option (Deny)
-          onRespond(request.options[request.options.length - 1].value);
+          // Escape denies once
+          onRespond('deny');
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleSelect, onRespond, optionCount, request.options]);
+  }, [handleSelect, onRespond, optionCount]);
 
   // Reset selection when request changes
   useEffect(() => {
@@ -66,7 +75,7 @@ export const ToolApprovalBar: React.FC<ToolApprovalBarProps> = ({ request, onRes
     containerRef.current?.focus();
   }, [request]);
 
-  const riskColor = request.riskLevel === 'high' ? 'error' : request.riskLevel === 'medium' ? 'warning' : 'info';
+  const isExternal = request.executionLocation === 'frontend';
 
   return (
     <Paper
@@ -76,7 +85,7 @@ export const ToolApprovalBar: React.FC<ToolApprovalBarProps> = ({ request, onRes
       sx={{
         p: 2,
         borderTop: '2px solid',
-        borderColor: riskColor + '.main',
+        borderColor: 'warning.main',
         outline: 'none',
       }}
     >
@@ -86,9 +95,12 @@ export const ToolApprovalBar: React.FC<ToolApprovalBarProps> = ({ request, onRes
         <Typography variant="body2" sx={{ fontWeight: 600 }}>
           {request.toolName}
         </Typography>
-        {request.riskLevel && (
-          <Chip label={request.riskLevel} size="small" color={riskColor as any} variant="outlined" />
-        )}
+        <Chip
+          label={isExternal ? 'Client' : 'Server'}
+          size="small"
+          color={isExternal ? 'info' : 'default'}
+          variant="outlined"
+        />
         {request.agentName && (
           <Typography variant="caption" sx={{ color: 'text.secondary', ml: 'auto' }}>
             by {request.agentName}
@@ -122,9 +134,10 @@ export const ToolApprovalBar: React.FC<ToolApprovalBarProps> = ({ request, onRes
 
       {/* Options */}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-        {request.options.map((opt, i) => (
+        {DEFAULT_OPTIONS.map((opt, i) => (
           <Chip
             key={opt.value}
+            icon={opt.icon as React.ReactElement}
             label={opt.label}
             color={opt.color || 'default'}
             variant={i === selectedIndex ? 'filled' : 'outlined'}

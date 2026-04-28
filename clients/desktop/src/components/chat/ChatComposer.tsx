@@ -7,24 +7,18 @@ import {
   Paper,
   Chip,
   Tooltip,
-  Menu,
   MenuItem,
-  ListItemIcon,
   ListItemText,
   Popper,
   Typography,
   ClickAwayListener,
 } from '@mui/material';
-import CheckIcon from '@mui/icons-material/Check';
 import { getCommands } from '../../utils/commands';
 import { useConversationStore } from '../../store/conversationStore';
 import {
   Send as SendIcon,
-  AttachFile as AttachFileIcon,
   Close as CloseIcon,
   Stop as StopIcon,
-  Videocam as VideocamIcon,
-  VideocamOff as VideocamOffIcon,
   Mic as MicIcon,
 } from '@mui/icons-material';
 import { useMicStore, getMicAmplitude } from '../../store/micStore';
@@ -71,16 +65,8 @@ export interface ChatComposerProps {
   externalDraft: string;
   externalDraftVersion: number;
   isStreaming: boolean;
-  cameraActive: boolean;
-  cameraWebcams: string[];
-  cameraSelectedWebcam: string | null;
-  cameraMenuAnchor: HTMLElement | null;
   onSend: (text: string, imageFiles: File[]) => Promise<void>;
   onCancel: () => void;
-  onCameraToggle: () => Promise<void>;
-  onCameraContext: (e: React.MouseEvent<HTMLElement>) => void;
-  onCloseCameraMenu: () => void;
-  onSelectCamera: (camera: string) => void;
 }
 
 // Module-level prompt history — survives component re-renders and remounts
@@ -91,22 +77,15 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
   externalDraft,
   externalDraftVersion,
   isStreaming,
-  cameraActive,
-  cameraWebcams,
-  cameraSelectedWebcam,
-  cameraMenuAnchor,
   onSend,
   onCancel,
-  onCameraToggle,
-  onCameraContext,
-  onCloseCameraMenu,
-  onSelectCamera,
 }) => {
   const [input, setInput] = useState('');
   const [images, setImages] = useState<File[]>([]);
   const [commandIdx, setCommandIdx] = useState(-1);
   const [commandSelected, setCommandSelected] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragDepthRef = useRef(0);
   const textFieldRef = useRef<HTMLDivElement>(null);
 
   // Prompt history (module-level so it survives component remounts)
@@ -140,14 +119,35 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
     setInput(externalDraft);
   }, [externalDraft, externalDraftVersion]);
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return;
-    setImages((prev) => [...prev, ...Array.from(e.target.files!)]);
-    e.target.value = '';
-  }, []);
-
   const removeImage = useCallback((index: number) => {
     setImages((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+    dragDepthRef.current += 1;
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDragging(false);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragDepthRef.current = 0;
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'));
+    if (files.length > 0) {
+      setImages((prev) => [...prev, ...files]);
+    }
   }, []);
 
   const handleSend = useCallback(async () => {
@@ -228,12 +228,41 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
   return (
     <Paper
       elevation={3}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
       sx={{
         p: 2,
         borderTop: '1px solid',
-        borderColor: 'divider',
+        borderColor: isDragging ? 'primary.main' : 'divider',
+        position: 'relative',
+        transition: 'border-color 120ms ease',
       }}
     >
+      {isDragging && (
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            bgcolor: (t) => t.palette.mode === 'light'
+              ? 'rgba(25, 118, 210, 0.06)'
+              : 'rgba(144, 202, 249, 0.08)',
+            border: '2px dashed',
+            borderColor: 'primary.main',
+            borderRadius: 1,
+            pointerEvents: 'none',
+            zIndex: 2,
+          }}
+        >
+          <Typography variant="body2" color="primary" sx={{ fontWeight: 500 }}>
+            Drop images to attach
+          </Typography>
+        </Box>
+      )}
       {images.length > 0 && (
         <Box sx={{ mb: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           {images.map((img, index) => (
@@ -249,61 +278,6 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
       )}
 
       <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          style={{ display: 'none' }}
-          onChange={handleFileSelect}
-        />
-        <IconButton
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <AttachFileIcon />
-        </IconButton>
-
-        <Tooltip title={cameraActive ? 'Stop camera (right-click: select webcam)' : 'Start camera (right-click: select webcam)'}>
-          <IconButton
-            onClick={() => void onCameraToggle()}
-            onContextMenu={onCameraContext}
-            sx={{
-              color: cameraActive ? 'success.main' : 'inherit',
-              animation: cameraActive ? 'pulse 1.5s infinite' : 'none',
-              '@keyframes pulse': {
-                '0%': { opacity: 1 },
-                '50%': { opacity: 0.5 },
-                '100%': { opacity: 1 },
-              },
-            }}
-          >
-            {cameraActive ? <VideocamIcon /> : <VideocamOffIcon />}
-          </IconButton>
-        </Tooltip>
-        <Menu
-          anchorEl={cameraMenuAnchor}
-          open={Boolean(cameraMenuAnchor)}
-          onClose={onCloseCameraMenu}
-        >
-          {cameraWebcams.map((cam) => (
-            <MenuItem
-              key={cam}
-              onClick={() => onSelectCamera(cam)}
-              selected={cam === cameraSelectedWebcam}
-            >
-              {cam === cameraSelectedWebcam && (
-                <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
-              )}
-              <ListItemText inset={cam !== cameraSelectedWebcam}>
-                {cam}
-              </ListItemText>
-            </MenuItem>
-          ))}
-          {cameraWebcams.length === 0 && (
-            <MenuItem disabled>No webcams found</MenuItem>
-          )}
-        </Menu>
-
         <MicIndicator />
 
         <TextField

@@ -34,8 +34,8 @@ async function handleGetAgents(): Promise<ToolResult> {
   const agents = await apiClient.listAgents();
   if (agents.length === 0) return ok('No agents configured.');
   const lines = agents.map(a => {
-    const persona = a.persona ? ` (persona: ${a.persona.name})` : '';
-    return `- **${a.name}** (#${a.id}) — ${a.model_name || 'no model'}${persona}`;
+    const desc = a.description ? ` — ${a.description}` : '';
+    return `- **${a.name}** (#${a.id}) — ${a.model_name || 'no model'} [${a.agent_type}]${desc}`;
   });
   return ok(lines.join('\n'));
 }
@@ -49,10 +49,13 @@ async function handleCreateAgent(args: Record<string, unknown>): Promise<ToolRes
   const agent = await apiClient.createAgent({
     name,
     model_name: modelName,
+    description: args.description as string | undefined,
     system_prompt: args.system_prompt as string | undefined,
     provider_type: args.provider_type as string | undefined,
     think: args.think as boolean | undefined,
-    persona_id: args.persona_id as number | undefined,
+    agent_type: args.agent_type as string | undefined,
+    voice_reference: args.voice_reference as string | undefined,
+    preferred_name: args.preferred_name as string | undefined,
   });
   return ok(`Agent created: **${agent.name}** (#${agent.id})`);
 }
@@ -62,7 +65,7 @@ async function handleUpdateAgent(args: Record<string, unknown>): Promise<ToolRes
   if (!agentId) return err('agent_id is required.');
 
   const update: Record<string, unknown> = {};
-  for (const key of ['name', 'system_prompt', 'model_name', 'available_tools', 'think', 'memory_enabled', 'persona_id']) {
+  for (const key of ['name', 'description', 'system_prompt', 'model_name', 'available_tools', 'think', 'memory_enabled', 'agent_type', 'voice_reference', 'preferred_name']) {
     if (args[key] !== undefined) update[key] = args[key];
   }
 
@@ -178,57 +181,6 @@ async function handleDeleteSkill(args: Record<string, unknown>): Promise<ToolRes
   return ok(`Skill #${skillId} deleted.`);
 }
 
-// --- Personas ---
-
-async function handleGetPersonas(): Promise<ToolResult> {
-  const personas = await apiClient.listPersonas();
-  if (personas.length === 0) return ok('No personas configured.');
-  const lines = personas.map(p => {
-    const details: string[] = [];
-    if (p.preferred_name) details.push(`calls user "${p.preferred_name}"`);
-    if (p.trigger_word) details.push(`trigger: "${p.trigger_word}"`);
-    if (p.voice_reference) details.push('has voice');
-    if (p.avatar_uuid) details.push('has avatar');
-    return `- **${p.name}** (#${p.id})${details.length ? ' — ' + details.join(', ') : ''}`;
-  });
-  return ok(lines.join('\n'));
-}
-
-async function handleCreatePersona(args: Record<string, unknown>): Promise<ToolResult> {
-  const name = args.name as string;
-  if (!name) return err('name is required.');
-
-  const persona = await apiClient.createPersona({
-    name,
-    system_prompt: args.system_prompt as string | undefined,
-    preferred_name: args.preferred_name as string | undefined,
-    trigger_word: args.trigger_word as string | undefined,
-  });
-  return ok(`Persona created: **${persona.name}** (#${persona.id})`);
-}
-
-async function handleUpdatePersona(args: Record<string, unknown>): Promise<ToolResult> {
-  const personaId = args.persona_id as number;
-  if (!personaId) return err('persona_id is required.');
-
-  const update: Record<string, unknown> = {};
-  for (const key of ['name', 'system_prompt', 'preferred_name', 'trigger_word']) {
-    if (args[key] !== undefined) update[key] = args[key];
-  }
-  if (Object.keys(update).length === 0) return err('No fields to update.');
-
-  const persona = await apiClient.updatePersona(personaId, update);
-  return ok(`Persona updated: **${persona.name}** (#${persona.id})`);
-}
-
-async function handleDeletePersona(args: Record<string, unknown>): Promise<ToolResult> {
-  const personaId = args.persona_id as number;
-  if (!personaId) return err('persona_id is required.');
-
-  await apiClient.deletePersona(personaId);
-  return ok(`Persona #${personaId} deleted.`);
-}
-
 // --- Tools ---
 
 async function handleListTools(): Promise<ToolResult> {
@@ -334,10 +286,6 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<To
     case 'app_create_agent': return handleCreateAgent(args);
     case 'app_update_agent': return handleUpdateAgent(args);
     case 'app_delete_agent': return handleDeleteAgent(args);
-    case 'app_get_personas': return handleGetPersonas();
-    case 'app_create_persona': return handleCreatePersona(args);
-    case 'app_update_persona': return handleUpdatePersona(args);
-    case 'app_delete_persona': return handleDeletePersona(args);
     case 'app_list_mcp_servers': return handleListMCPServers();
     case 'app_add_mcp_server': return handleAddMCPServer(args);
     case 'app_update_mcp_server': return handleUpdateMCPServer(args);

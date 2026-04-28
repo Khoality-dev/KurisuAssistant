@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { useMicStore } from '../store/micStore';
-import { useAgentStore } from '../store/agentStore';
 
 interface UseInteractiveASRParams {
   agentId: number | null;
@@ -23,10 +22,9 @@ export function useInteractiveASR({
 }: UseInteractiveASRParams) {
   const {
     status: asrStatus, result: asrResult,
-    interactionActive, activateInteraction, deactivateInteraction,
+    interactionActive, deactivateInteraction,
     pttActive,
   } = useMicStore();
-  const storeAgents = useAgentStore(state => state.agents);
   const interactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const INTERACTION_IDLE_MS = 30_000;
@@ -86,14 +84,8 @@ export function useInteractiveASR({
     const asrTranscript = asrResult.text;
     const state = useMicStore.getState();
 
-    // Use Administrator agent's persona trigger word
-    const adminAgent = storeAgents.find(a => a.is_system);
-    const triggerWord = adminAgent?.persona?.trigger_word?.trim();
-    const hasTrigger = triggerWord && asrTranscript.toLowerCase().includes(triggerWord.toLowerCase());
-
-    if (state.interactionActive || hasTrigger) {
-      // Activate interaction if trigger word detected
-      if (!state.interactionActive) activateInteraction();
+    // Interactive mode: when active, auto-send ASR transcripts
+    if (state.interactionActive) {
 
       // During TTS playback: interrupt and send
       if (isQueueActiveRef.current) stopTTSPlayback();

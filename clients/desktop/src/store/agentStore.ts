@@ -31,10 +31,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const agents = await apiClient.listAgents();
       set({ agents });
 
-      // Auto-select first agent if stored selection is invalid
+      // Only main agents are user-selectable; sub-agents are tools, not chat partners.
+      const mainAgents = agents.filter((a) => a.agent_type !== 'sub');
       const { selectedAgentId } = get();
-      const stillValid = selectedAgentId !== null && agents.some((a) => a.id === selectedAgentId);
-      const finalId = stillValid ? selectedAgentId : (agents.length > 0 ? agents[0].id : null);
+      const stillValid = selectedAgentId !== null && mainAgents.some((a) => a.id === selectedAgentId);
+      const finalId = stillValid ? selectedAgentId : (mainAgents.length > 0 ? mainAgents[0].id : null);
 
       if (!stillValid && finalId !== null) {
         set({ selectedAgentId: finalId });

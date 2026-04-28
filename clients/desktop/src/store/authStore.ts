@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { apiClient } from '../api/client';
 import { storage } from '../utils/storage';
+import { useToolPermissionsStore } from './toolPermissionsStore';
 import type { UserProfile } from '../api/types';
 
 interface AuthState {
@@ -35,6 +36,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const user = await apiClient.getUserProfile();
     set({ isAuthenticated: true, user, rememberMe });
+    // Load tool permission policies
+    useToolPermissionsStore.getState().loadPolicies();
   },
 
   register: async (username: string, password: string, email?: string, rememberMe: boolean = false) => {
@@ -52,6 +55,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const user = await apiClient.getUserProfile();
     set({ isAuthenticated: true, user, rememberMe });
+    // Load tool permission policies
+    useToolPermissionsStore.getState().loadPolicies();
   },
 
   logout: () => {
@@ -93,6 +98,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // getUserProfile will auto-refresh via the 401 interceptor if token expired
       const user = await apiClient.getUserProfile();
       set({ isAuthenticated: true, user, rememberMe });
+      // Load tool permission policies
+      useToolPermissionsStore.getState().loadPolicies();
     } catch {
       // Both tokens are invalid — clear everything
       storage.clearToken();

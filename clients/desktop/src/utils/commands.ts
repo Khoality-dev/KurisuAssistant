@@ -5,8 +5,6 @@
  * Add new commands to the `commands` array below.
  */
 
-import { wsManager } from '../api/websocket';
-
 export interface CommandContext {
   activeConversationId: number | null;
   agentId: number | null;
@@ -20,33 +18,107 @@ interface Command {
 
 const commands: Command[] = [
   {
-    name: 'compact',
-    description: 'Compact conversation context to free up token space',
-    execute: (_args, ctx) => {
-      if (ctx.activeConversationId) {
-        wsManager.send({ type: 'compact_context', conversation_id: ctx.activeConversationId });
-        return 'Compacting context...';
+    name: 'clear',
+    description: 'Start a new empty conversation (keeps the current one in history)',
+    execute: async (_args, ctx) => {
+      const { useConversationStore } = await import('../store/conversationStore');
+      const { storage } = await import('./storage');
+      const convStore = useConversationStore.getState();
+      convStore.clearCurrentConversation();
+      if (ctx.agentId) {
+        storage.clearAgentConversationId(ctx.agentId);
+      } else {
+        storage.clearAgentConversationId('group');
       }
-      return 'No active conversation';
+      return 'Started a new conversation';
     },
   },
   {
-    name: 'clear',
-    description: 'Clear the current conversation',
+    name: 'delete',
+    description: 'Permanently delete the current conversation',
     execute: async (_args, ctx) => {
-      if (ctx.activeConversationId) {
-        const { useConversationStore } = await import('../store/conversationStore');
-        const { storage } = await import('./storage');
-        const convStore = useConversationStore.getState();
-        await convStore.deleteConversation(ctx.activeConversationId);
-        if (ctx.agentId) {
-          storage.clearAgentConversationId(ctx.agentId);
-        } else {
-          storage.clearAgentConversationId('group');
-        }
-        return 'Conversation cleared';
+      if (!ctx.activeConversationId) {
+        return 'No active conversation';
       }
-      return 'No active conversation';
+      const { useConversationStore } = await import('../store/conversationStore');
+      const { storage } = await import('./storage');
+      const convStore = useConversationStore.getState();
+      await convStore.deleteConversation(ctx.activeConversationId);
+      if (ctx.agentId) {
+        storage.clearAgentConversationId(ctx.agentId);
+      } else {
+        storage.clearAgentConversationId('group');
+      }
+      return 'Conversation deleted';
+    },
+  },
+  {
+    name: 'resume',
+    description: 'Pick a previous conversation to resume',
+    execute: (_args, ctx) => {
+      if (!ctx.agentId) {
+        return 'No agent selected';
+      }
+      window.dispatchEvent(new Event('kurisu:open-resume-picker'));
+      return '';
+    },
+  },
+  {
+    name: 'context',
+    description: 'Show the context breakdown for the current conversation',
+    execute: (_args, ctx) => {
+      if (!ctx.activeConversationId) {
+        return 'No active conversation';
+      }
+      window.dispatchEvent(new Event('kurisu:open-context-breakdown'));
+      return '';
+    },
+  },
+  {
+    name: 'agents',
+    description: 'Pick a main agent to chat with',
+    execute: () => {
+      window.dispatchEvent(new Event('kurisu:open-agent-picker'));
+      return '';
+    },
+  },
+  {
+    name: 'refresh',
+    description: 'Reload the current conversation from the server',
+    execute: (_args, ctx) => {
+      if (!ctx.activeConversationId) {
+        return 'No active conversation';
+      }
+      window.dispatchEvent(new Event('kurisu:refresh-conversation'));
+      return 'Reloading…';
+    },
+  },
+  {
+    name: 'live-animate',
+    description: 'Toggle the animated character window',
+    execute: () => {
+      window.dispatchEvent(new Event('kurisu:toggle-character'));
+      return '';
+    },
+  },
+  {
+    name: 'vision',
+    description: 'Toggle the webcam vision pipeline on/off',
+    execute: () => {
+      window.dispatchEvent(new Event('kurisu:toggle-vision'));
+      return '';
+    },
+  },
+  {
+    name: 'compact',
+    description: 'Compact this conversation now (summarize older messages)',
+    execute: async (_args, ctx) => {
+      if (!ctx.activeConversationId) {
+        return 'No active conversation';
+      }
+      const { wsManager } = await import('../api/websocket');
+      wsManager.send({ type: 'compact_context', conversation_id: ctx.activeConversationId });
+      return 'Compacting context…';
     },
   },
 ];

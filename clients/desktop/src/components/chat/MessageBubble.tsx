@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Box, Paper, Typography, Button, Avatar, Chip } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import {
-  CheckCircle as CheckCircleIcon,
   Psychology as PsychologyIcon,
   ExpandMore as ExpandMoreIcon,
   SmartToy as SmartToyIcon,
@@ -18,6 +17,7 @@ import { MessageToolbar } from './MessageToolbar';
 import { RawDataDialog } from './RawDataDialog';
 import { useExplorerStore } from '../../store/explorerStore';
 import { useLayoutStore } from '../../store/layoutStore';
+import { useAgentStore } from '../../store/agentStore';
 
 const MotionBox = motion(Box);
 
@@ -81,9 +81,6 @@ interface MessageBubbleProps {
   justFinishedStreaming: boolean;
   expandedThinking: Set<number>;
   onToggleThinking: (index: number) => void;
-  onRegenerate?: (messageIndex: number) => void;
-  onResend?: (messageIndex: number) => void;
-  onDelete?: (messageIndex: number) => void;
   searchHighlight?: string;
   ttsRef: React.RefObject<{ speak: (text: string, voice?: string, language?: string, backend?: string, emotionParams?: { emo_audio?: string; emo_alpha?: number; use_emo_text?: boolean }) => Promise<void>; stopTTS: () => void; clearQueue: () => void; isTTSPlaying: boolean; setActiveAgentForTTS: (agentId: number | null) => void }>;
   isQueueActive?: boolean;
@@ -102,15 +99,15 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   justFinishedStreaming,
   expandedThinking,
   onToggleThinking,
-  onRegenerate,
-  onResend,
-  onDelete,
   searchHighlight,
   ttsRef,
   isQueueActive,
 }) => {
   const isStreamingThisMessage = isLast && message.role !== 'user' && isStreaming;
-  const showFinishedIndicator = isLast && message.role !== 'user' && justFinishedStreaming && !isStreaming;
+  // Suppress unused var warning — the "Done" indicator was removed because mounting
+  // it on stream completion (and unmounting 3s later) shifted layout and caused a
+  // visible scroll jump on every finished message.
+  void justFinishedStreaming;
   const [localPlaying, setLocalPlaying] = useState(false);
   // Show TTS active on the last assistant bubble during auto-play
   const autoPlaying = !!(isQueueActive && isLast && message.role !== 'user' && !localPlaying);
@@ -201,9 +198,20 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
     label = personaName || agentRole || message.role.charAt(0).toUpperCase() + message.role.slice(1);
   }
 
-  // Get avatar URL for agent
-  const agentAvatarUrl = message.agent?.avatar_uuid
-    ? `${config.apiBaseUrl}/images/${message.agent.avatar_uuid}`
+  // Get avatar URL for agent. Fall back to the agent store keyed by agent_id —
+  // streaming chunks carry agent_id but no embedded `agent` (with avatar_uuid),
+  // so without the fallback the avatar would be missing during streaming and
+  // then pop in after the post-done reload, flashing the bubble. Select the
+  // uuid string (not the agent object) so Zustand's Object.is equality keeps
+  // the selector stable across unrelated agent-list updates.
+  const storeAvatarUuid = useAgentStore((s) =>
+    message.agent_id != null
+      ? s.agents.find((a) => a.id === message.agent_id)?.avatar_uuid ?? null
+      : null,
+  );
+  const avatarUuid = message.agent?.avatar_uuid ?? storeAvatarUuid;
+  const agentAvatarUrl = avatarUuid
+    ? `${config.apiBaseUrl}/images/${avatarUuid}`
     : undefined;
 
   // Color scheme for different roles
@@ -245,8 +253,10 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   const isTool = message.role === 'tool';
   const [toolExpanded, setToolExpanded] = useState(false);
 
-  // Don't show hover toolbar while streaming
-  const showToolbar = !isStreamingThisMessage && message.content;
+  // Always render the toolbar when there's content — it's hidden via opacity:0
+  // and revealed on hover. Mounting it only after streaming finishes used to
+  // grow the bubble's footprint and snap-scroll the view on every completion.
+  const showToolbar = !!message.content;
 
   return (
     <MotionBox
@@ -601,30 +611,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                 )}
               </>
             )}
-            {showFinishedIndicator && (
-              <Box
-                component={motion.div}
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.5,
-                  mt: 1,
-                  pt: 1,
-                  borderTop: '1px solid',
-                  borderColor: 'divider',
-                  color: 'success.main',
-                }}
-              >
-                <CheckCircleIcon sx={{ fontSize: 16 }} />
-                <Typography variant="caption" color="success.main">
-                  Done
-                </Typography>
-              </Box>
-            )}
           </Box>}
         </Paper>
 
@@ -632,18 +618,13 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
         {showToolbar && (
           <MessageToolbar
             isUser={isUser}
-            hasMessageId={!!message.id}
             hasRawData={!!message.id}
             copied={copied}
             localPlaying={localPlaying || autoPlaying}
-            agentRole={message.role === 'assistant' ? (message.agent?.name || message.name) || undefined : undefined}
             modelName={message.model_name || undefined}
             onCopy={handleCopy}
             onTTS={handleTTS}
             onShowRaw={handleShowRaw}
-            onResend={onResend ? () => onResend(index) : undefined}
-            onRegenerate={onRegenerate ? () => onRegenerate(index) : undefined}
-            onDelete={onDelete ? () => onDelete(index) : undefined}
           />
         )}
       </Box>
@@ -671,11 +652,8 @@ function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubbl
     prev.justFinishedStreaming === next.justFinishedStreaming &&
     prev.expandedThinking.has(prev.index) === next.expandedThinking.has(next.index) &&
     prev.onToggleThinking === next.onToggleThinking &&
-    prev.onRegenerate === next.onRegenerate &&
     prev.consecutive === next.consecutive &&
     prev.searchHighlight === next.searchHighlight &&
-    prev.onResend === next.onResend &&
-    prev.onDelete === next.onDelete &&
     prev.ttsRef === next.ttsRef
   );
 }

@@ -204,10 +204,10 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
 
     // Fetch fresh agent data from API to avoid stale cache
     apiClient.getAgent(agent.id).then((freshAgent) => {
-      loadConfig(freshAgent.persona?.character_config ?? null);
+      loadConfig(freshAgent.character_config ?? null);
     }).catch(() => {
       // Fallback to prop data if fetch fails
-      loadConfig(agent.persona?.character_config ?? null);
+      loadConfig(agent.character_config ?? null);
     });
   }, [open, agent.id]);
 

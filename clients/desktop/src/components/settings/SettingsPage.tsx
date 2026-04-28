@@ -5,7 +5,6 @@ import {
   Mic as VoiceIcon,
   RecordVoiceOver as TTSIcon,
   Palette as AppearanceIcon,
-  EmojiPeople as PersonasIcon,
   SmartToy as AgentsIcon,
   Extension as ToolsIcon,
   AutoFixHigh as SkillsIcon,
@@ -20,7 +19,6 @@ const AccountSection = React.lazy(() => import('./AccountSection').then(m => ({ 
 const VoiceSection = React.lazy(() => import('./VoiceSection').then(m => ({ default: m.VoiceSection })));
 const TTSSection = React.lazy(() => import('./TTSSection').then(m => ({ default: m.TTSSection })));
 const AppearanceSection = React.lazy(() => import('./AppearanceSection').then(m => ({ default: m.AppearanceSection })));
-const PersonasSection = React.lazy(() => import('./PersonasSection').then(m => ({ default: m.PersonasSection })));
 const AgentsSection = React.lazy(() => import('./AgentsSection').then(m => ({ default: m.AgentsSection })));
 const ToolsSection = React.lazy(() => import('./ToolsSection').then(m => ({ default: m.ToolsSection })));
 const SkillsSection = React.lazy(() => import('./SkillsSection').then(m => ({ default: m.SkillsSection })));
@@ -39,7 +37,6 @@ const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'voice', label: 'Voice', icon: <VoiceIcon /> },
   { id: 'tts', label: 'TTS & ASR', icon: <TTSIcon /> },
   { id: 'appearance', label: 'Appearance', icon: <AppearanceIcon /> },
-  { id: 'personas', label: 'Personas', icon: <PersonasIcon /> },
   { id: 'agents', label: 'Agents', icon: <AgentsIcon /> },
   { id: 'tools', label: 'Tools & MCP', icon: <ToolsIcon /> },
   { id: 'skills', label: 'Skills', icon: <SkillsIcon /> },
@@ -54,7 +51,6 @@ function renderSection(sectionId: string) {
     case 'voice': return <VoiceSection />;
     case 'tts': return <TTSSection />;
     case 'appearance': return <AppearanceSection />;
-    case 'personas': return <PersonasSection />;
     case 'agents': return <AgentsSection />;
     case 'mcp-servers': return <ToolsSection />; // Legacy route — redirect to merged page
     case 'tools': return <ToolsSection />;

@@ -11,8 +11,15 @@ import { registerAppToolIPC } from './appTools';
 import { registerExplorerIPC } from './explorerIPC';
 import { startMcpServer, stopMcpServer } from './mcpServer';
 
-// Set custom cache path to avoid permission issues on Windows
-app.setPath('userData', path.join(app.getPath('appData'), 'kurisu-assistant'));
+// Set custom cache path to avoid permission issues on Windows.
+// In E2E tests we point userData at an isolated temp dir so the single-instance
+// lock doesn't collide with a real running install.
+const e2eUserData = process.env.KURISU_E2E_USER_DATA_DIR;
+if (e2eUserData) {
+  app.setPath('userData', e2eUserData);
+} else {
+  app.setPath('userData', path.join(app.getPath('appData'), 'kurisu-assistant'));
+}
 app.setAppUserModelId('com.kurisu.assistant');
 
 // Single instance lock — only one instance allowed at a time

@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import { MicVAD } from '@ricky0123/vad-web';
 import { apiClient } from '../api/client';
 import { storage } from '../utils/storage';
-import { useAgentStore } from './agentStore';
 
 export type ASRStatus = 'idle' | 'listening' | 'processing';
 
@@ -167,12 +166,7 @@ export const useMicStore = create<MicState>((set, get) => ({
               if (fixedModel) model = fixedModel;
             }
 
-            // Always send trigger word as initial_prompt to bias recognition
-            const { agents, selectedAgentId } = useAgentStore.getState();
-            const selectedAgent = agents.find((a) => a.id === selectedAgentId);
-            const initial_prompt = selectedAgent?.persona?.trigger_word?.trim() || undefined;
-
-            const response = await apiClient.transcribe(int16.buffer, { language, model, initial_prompt });
+            const response = await apiClient.transcribe(int16.buffer, { language, model });
 
             if (response.text.trim()) {
               _seq += 1;

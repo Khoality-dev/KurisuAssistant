@@ -52,9 +52,10 @@ export const ConversationsPage: React.FC = () => {
     }
   };
 
+  const mainAgents = agents.filter(a => a.agent_type !== 'sub');
   const filteredAgents = search
-    ? agents.filter(a => a.name.toLowerCase().includes(search.toLowerCase()))
-    : agents;
+    ? mainAgents.filter(a => a.name.toLowerCase().includes(search.toLowerCase()))
+    : mainAgents;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -101,14 +102,14 @@ export const ConversationsPage: React.FC = () => {
             >
               <ListItemAvatar sx={{ minWidth: 0, mr: 1.5 }}>
                 <Avatar
-                  src={agent.persona?.avatar_uuid ? apiClient.getImageUrl(agent.persona.avatar_uuid) : undefined}
+                  src={agent.avatar_uuid ? apiClient.getImageUrl(agent.avatar_uuid) : undefined}
                   sx={{
                     width: 40,
                     height: 40,
                     bgcolor: (t) => t.palette.mode === 'light' ? '#F3F4F6' : '#262626',
                   }}
                 >
-                  {!agent.persona?.avatar_uuid && (
+                  {!agent.avatar_uuid && (
                     <AgentIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
                   )}
                 </Avatar>

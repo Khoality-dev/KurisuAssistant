@@ -4,24 +4,39 @@ import {
   Typography,
   Snackbar,
   Alert,
-  ToggleButtonGroup,
-  ToggleButton,
-  Collapse,
   Paper,
   IconButton,
   TextField,
   InputAdornment,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  Table,
+  TableBody,
+  TableRow,
+  TableCell,
+  Chip,
+  Tooltip,
+  LinearProgress,
+  List,
+  ListItemButton,
+  ListItemText,
+  Divider,
+  Avatar,
 } from '@mui/material';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import SearchIcon from '@mui/icons-material/Search';
 import CloseIcon from '@mui/icons-material/Close';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
 
 import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '../../store/conversationStore';
 import { useAuthStore } from '../../store/authStore';
+import { apiClient } from '../../api/client';
+import type { Conversation } from '../../api/types';
+import { storage } from '../../utils/storage';
 
 import { useTTS } from '../../hooks/useTTS';
 import { useVisionStore } from '../../store/visionStore';
@@ -30,9 +45,9 @@ import { useInteractiveASR } from '../../hooks/useInteractiveASR';
 import { useMicStore } from '../../store/micStore';
 import { useAgentStore } from '../../store/agentStore';
 import { useStreamingChat } from '../../hooks/useStreamingChat';
+import { useContextBreakdown } from '../../hooks/useContextBreakdown';
 import { InteractiveCallBar } from '../InteractiveCallBar';
 import { MessageBubble } from './MessageBubble';
-import { FrameSeparator } from '../FrameSeparator';
 import { SelectionChips } from './SelectionChips';
 import { ChatComposer } from './ChatComposer';
 import { ToolApprovalBar, ApprovalRequest } from './ToolApprovalBar';
@@ -47,7 +62,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   const agentId = agentIdProp ?? storeAgentId;
   const {
     messages,
-    frames,
     currentConversation,
     hasMoreMessages,
     isLoadingMessages,
@@ -58,9 +72,13 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   const { compactedUpToId, compactedContext } = useConversationStore();
   const contextSize = useAuthStore((s) => s.user?.context_size) || 8192;
 
-  // Display mode: "all" shows full history, "context" shows only LLM context window
-  const [displayMode, setDisplayMode] = useState<'all' | 'context'>('all');
-  const [contextBannerExpanded, setContextBannerExpanded] = useState(false);
+  const [breakdownDialogOpen, setBreakdownDialogOpen] = useState(false);
+  const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
+  const [resumeLoading, setResumeLoading] = useState(false);
+  const [resumeConversations, setResumeConversations] = useState<Conversation[]>([]);
+  const [resumeActiveIdx, setResumeActiveIdx] = useState(0);
+  const [agentPickerOpen, setAgentPickerOpen] = useState(false);
+  const [agentActiveIdx, setAgentActiveIdx] = useState(0);
 
   // Message search
   const [searchOpen, setSearchOpen] = useState(false);
@@ -141,18 +159,17 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     pushAgentCharacterConfig,
   });
 
-  // Reset display mode on conversation change
-  useEffect(() => {
-    setDisplayMode('all');
-    setContextBannerExpanded(false);
-  }, [currentConversation?.id]);
-
-  // Scroll to bottom when switching display mode (after render settles)
-  useEffect(() => {
-    requestAnimationFrame(() => {
-      streaming.messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
-    });
-  }, [displayMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Context breakdown is computed locally from current stores — no backend
+  const agents = useAgentStore((s) => s.agents);
+  const breakdownAgentId = currentConversation?.main_agent_id ?? agentId;
+  const breakdownAgentName = useMemo(
+    () => agents.find((a) => a.id === breakdownAgentId)?.name || '',
+    [agents, breakdownAgentId],
+  );
+  const breakdownData = useContextBreakdown({
+    agentId: breakdownAgentId,
+    enabled: breakdownDialogOpen,
+  });
 
   // Clear active speaker when TTS queue finishes playing
   useEffect(() => {
@@ -161,6 +178,121 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       amplitudeRef.current = { amplitude: 0, isPlaying: false, isThinking: false };
     }
   }, [isQueueActive, streaming.isStreaming, setActiveAgentId, amplitudeRef]);
+
+  // /context slash command opens the breakdown dialog
+  useEffect(() => {
+    const handler = () => setBreakdownDialogOpen(true);
+    window.addEventListener('kurisu:open-context-breakdown', handler);
+    return () => window.removeEventListener('kurisu:open-context-breakdown', handler);
+  }, []);
+
+  // /resume slash command opens the conversation picker
+  useEffect(() => {
+    const handler = () => setResumeDialogOpen(true);
+    window.addEventListener('kurisu:open-resume-picker', handler);
+    return () => window.removeEventListener('kurisu:open-resume-picker', handler);
+  }, []);
+
+  // Fetch conversations when the resume dialog opens
+  useEffect(() => {
+    if (!resumeDialogOpen) return;
+    setResumeLoading(true);
+    apiClient.getConversations(agentId ?? undefined)
+      .then((convs) => setResumeConversations(convs))
+      .catch((err) => {
+        console.error('Failed to load conversations:', err);
+        setResumeConversations([]);
+      })
+      .finally(() => setResumeLoading(false));
+  }, [resumeDialogOpen, agentId]);
+
+  const handleResumeSelect = useCallback(async (conv: Conversation) => {
+    setResumeDialogOpen(false);
+    if (conv.id === currentConversation?.id) return;
+    await loadConversation(conv.id);
+    if (agentId) {
+      storage.setAgentConversationId(agentId, conv.id);
+    }
+  }, [agentId, currentConversation?.id, loadConversation]);
+
+  // Reset highlight when the resume picker opens
+  useEffect(() => {
+    if (resumeDialogOpen) setResumeActiveIdx(0);
+  }, [resumeDialogOpen]);
+
+  // Keyboard navigation for the resume picker
+  useEffect(() => {
+    if (!resumeDialogOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setResumeDialogOpen(false);
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setResumeActiveIdx((i) => Math.min(i + 1, Math.max(0, resumeConversations.length - 1)));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setResumeActiveIdx((i) => Math.max(0, i - 1));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const conv = resumeConversations[resumeActiveIdx];
+        if (conv) handleResumeSelect(conv);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [resumeDialogOpen, resumeConversations, resumeActiveIdx, handleResumeSelect]);
+
+  // /agents slash command opens the agent picker
+  useEffect(() => {
+    const handler = () => setAgentPickerOpen(true);
+    window.addEventListener('kurisu:open-agent-picker', handler);
+    return () => window.removeEventListener('kurisu:open-agent-picker', handler);
+  }, []);
+
+  const selectAgent = useAgentStore((s) => s.selectAgent);
+  const handleAgentPick = useCallback((id: number) => {
+    setAgentPickerOpen(false);
+    if (id !== storeAgentId) {
+      selectAgent(id);
+    }
+  }, [selectAgent, storeAgentId]);
+
+  // Main agents are the only selectable ones in the picker — derive once.
+  const pickerMainAgents = useMemo(
+    () => agents.filter((a) => a.agent_type !== 'sub' && a.enabled),
+    [agents],
+  );
+
+  // Reset highlight when the agent picker opens — start on the current agent if any.
+  useEffect(() => {
+    if (!agentPickerOpen) return;
+    const idx = pickerMainAgents.findIndex((a) => a.id === storeAgentId);
+    setAgentActiveIdx(idx >= 0 ? idx : 0);
+  }, [agentPickerOpen, pickerMainAgents, storeAgentId]);
+
+  // Keyboard navigation for the agent picker
+  useEffect(() => {
+    if (!agentPickerOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setAgentPickerOpen(false);
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setAgentActiveIdx((i) => Math.min(i + 1, Math.max(0, pickerMainAgents.length - 1)));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setAgentActiveIdx((i) => Math.max(0, i - 1));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const agent = pickerMainAgents[agentActiveIdx];
+        if (agent) handleAgentPick(agent.id);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [agentPickerOpen, pickerMainAgents, agentActiveIdx, handleAgentPick]);
 
   // Interactive ASR hook
   const asr = useInteractiveASR({
@@ -204,17 +336,14 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     };
   }, []);
 
-  // Vision (camera toggle)
+  // Vision (camera toggle) — driven only by the /vision slash command
   const {
     isActive: cameraActive,
     webcams: cameraWebcams,
-    selectedWebcam: cameraSelectedWebcam,
     loadWebcams: loadCameraWebcams,
     startVision,
     stopVision,
-    setSelectedWebcam: setCameraSelectedWebcam,
   } = useVisionStore();
-  const [cameraMenuAnchor, setCameraMenuAnchor] = useState<HTMLElement | null>(null);
 
   const handleCameraToggle = useCallback(async () => {
     if (cameraActive) {
@@ -225,13 +354,11 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     }
   }, [cameraActive, cameraWebcams.length, loadCameraWebcams, startVision, stopVision]);
 
-  const handleCameraContext = useCallback((e: React.MouseEvent<HTMLElement>) => {
-    e.preventDefault();
-    const anchor = e.currentTarget;
-    loadCameraWebcams().then(() => {
-      setCameraMenuAnchor(anchor);
-    });
-  }, [loadCameraWebcams]);
+  useEffect(() => {
+    const handler = () => { void handleCameraToggle(); };
+    window.addEventListener('kurisu:toggle-vision', handler);
+    return () => window.removeEventListener('kurisu:toggle-vision', handler);
+  }, [handleCameraToggle]);
 
   // Host tool approval (IPC from Electron main process)
   const [hostApproval, setHostApproval] = useState<{ approvalId: string; request: ApprovalRequest } | null>(null);
@@ -261,14 +388,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     setHostApproval(null);
   }, [hostApproval]);
 
-  // Filter messages based on display mode
-  const displayedMessages = useMemo(() => {
-    if (displayMode === 'context') {
-      return messages.filter(m => (m.id ?? Infinity) > compactedUpToId);
-    }
-    return messages;
-  }, [messages, displayMode, compactedUpToId]);
-
   // Token count: frontend estimate from persisted messages + live streaming content
   const tokenCount = useMemo(() => {
     const contextMsgs = messages.filter(m => (m.id ?? Infinity) > compactedUpToId);
@@ -281,32 +400,35 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
   // Message rendering
   const messageElements = useMemo(() => {
-    const combined = [...displayedMessages, ...streaming.streamingMessages];
-    const displayedCount = displayedMessages.length;
+    // Dedupe by _clientKey across the combined array. handleDone moves
+    // streaming bubbles into `messages` and then clears `streamingMessages`,
+    // but those two updates can land in different React renders on slow CI
+    // (Zustand's useSyncExternalStore notification doesn't reliably batch
+    // with adjacent setState calls). Without dedupe, the brief overlap
+    // renders the same bubble twice and trips strict-mode locator
+    // assertions.
+    const seen = new Set<string>();
+    const combined = [...messages, ...streaming.streamingMessages].filter((m) => {
+      if (!m._clientKey) return true;
+      if (seen.has(m._clientKey)) return false;
+      seen.add(m._clientKey);
+      return true;
+    });
+    const displayedCount = messages.length;
     const activeStreamingMsg = streaming.isStreaming && streaming.streamingMessages.length > 0
       ? streaming.streamingMessages[streaming.streamingMessages.length - 1]
       : null;
     const elements: React.ReactNode[] = [];
-    let lastFrameId: number | undefined;
 
     combined.forEach((message, index) => {
-      const currentFrameId = message.frame_id;
-      if (currentFrameId && currentFrameId !== lastFrameId && lastFrameId !== undefined) {
-        const frameInfo = frames[currentFrameId];
-        if (frameInfo) {
-          elements.push(
-            <FrameSeparator key={`frame-sep-${currentFrameId}`} frame={frameInfo} />
-          );
-        }
-      }
-      lastFrameId = currentFrameId;
-
       const isActiveStreaming = message === activeStreamingMsg;
-      const isCompacted = message.id != null && message.id <= compactedUpToId;
       const prevMessage = index > 0 ? combined[index - 1] : null;
       const consecutive = prevMessage != null && prevMessage.role === message.role;
-      // Stable key: DB messages use their ID, streaming messages use their position in streamingMessages
-      const key = message.id ? `msg-${message.id}` : `stream-${index - displayedCount}`;
+      // Stable key: prefer the per-message _clientKey (assigned to streaming
+      // messages), then DB id (older persisted messages), then a positional
+      // fallback. Without _clientKey persistence the bubble would remount and
+      // replay its entry animation on every state churn.
+      const key = message._clientKey || (message.id ? `msg-${message.id}` : `stream-${index - displayedCount}`);
       const isSearchMatch = searchQuery && searchMatches.includes(index);
       elements.push(
         <Box
@@ -327,8 +449,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           justFinishedStreaming={index === combined.length - 1 && streaming.justFinishedStreaming}
           expandedThinking={streaming.expandedThinking}
           onToggleThinking={streaming.toggleThinking}
-          onResend={isCompacted ? undefined : streaming.handleResend}
-          onDelete={streaming.handleDelete}
           searchHighlight={isSearchMatch ? searchQuery : undefined}
           ttsRef={ttsRef}
           isQueueActive={isQueueActive}
@@ -339,18 +459,14 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
     return elements;
   }, [
-    displayedMessages,
+    messages,
     streaming.streamingMessages,
     streaming.isStreaming,
-    frames,
     streaming.streamingThinking,
     streaming.streamingContent,
     streaming.justFinishedStreaming,
     streaming.expandedThinking,
     streaming.toggleThinking,
-    streaming.handleResend,
-    streaming.handleDelete,
-    compactedUpToId,
     searchQuery,
     searchMatches,
     searchMatchIdx,
@@ -368,7 +484,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         minWidth: 0,
       }}
     >
-      {isLoadingMessages && displayMode === 'all' && (
+      {isLoadingMessages && (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
           <Typography variant="body2" color="text.secondary">
             Loading earlier messages...
@@ -376,26 +492,24 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         </Box>
       )}
 
-      {displayMode === 'context' && compactedContext && (
-        <Paper variant="outlined" sx={{ mx: 1, mb: 2, p: 1.5, bgcolor: 'action.hover', borderStyle: 'dashed' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="caption" color="text.secondary" fontWeight={600}>
-              Context Summary
-            </Typography>
-            <IconButton size="small" onClick={() => setContextBannerExpanded(v => !v)}>
-              {contextBannerExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-            </IconButton>
-          </Box>
-          <Collapse in={contextBannerExpanded}>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, whiteSpace: 'pre-wrap' }}>
-              {compactedContext}
-            </Typography>
-          </Collapse>
-          {!contextBannerExpanded && (
-            <Typography variant="body2" color="text.secondary" noWrap>
-              {compactedContext.slice(0, 150)}{compactedContext.length > 150 ? '...' : ''}
-            </Typography>
-          )}
+      {/* Banner only on conversations created by compaction (seeded summary, no messages
+          rolled in). Old in-place compactions have compactedUpToId > 0. */}
+      {compactedContext && compactedUpToId === 0 && (
+        <Paper
+          variant="outlined"
+          sx={{
+            mb: 2,
+            p: 2,
+            borderStyle: 'dashed',
+            bgcolor: 'action.hover',
+          }}
+        >
+          <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ display: 'block', mb: 0.5 }}>
+            Compacted Conversation
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+            {compactedContext}
+          </Typography>
         </Paper>
       )}
 
@@ -415,35 +529,38 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       ))}
       <div ref={streaming.messagesEndRef} />
     </Box>
-  ), [isLoadingMessages, messageElements, displayMode, compactedContext, contextBannerExpanded, streaming.queuedMessages]);
+  ), [isLoadingMessages, messageElements, streaming.queuedMessages, compactedContext]);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%', position: 'relative' }}>
 
-      {/* Display mode toggle + token usage */}
+      {/* Token usage */}
       {currentConversation && (
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 0.5 }}>
-          <ToggleButtonGroup
-            value={displayMode}
-            exclusive
-            onChange={(_, v) => v && setDisplayMode(v)}
-            size="small"
-            sx={{ '& .MuiToggleButton-root': { px: 1.5, py: 0.25, fontSize: '0.7rem', textTransform: 'none' } }}
-          >
-            <ToggleButton value="all">All</ToggleButton>
-            <ToggleButton value="context">Context</ToggleButton>
-          </ToggleButtonGroup>
-          <Typography
-            variant="caption"
-            sx={{
-              color: tokenCount > contextSize * 0.9 ? 'error.main'
-                : tokenCount > contextSize * 0.8 ? 'warning.main'
-                : 'text.secondary',
-              fontWeight: tokenCount > contextSize * 0.8 ? 600 : 400,
-            }}
-          >
-            {tokenCount.toLocaleString()} / {contextSize.toLocaleString()} tokens
-          </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', px: 2, py: 0.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography
+              variant="caption"
+              sx={{
+                color: tokenCount > contextSize * 0.9 ? 'error.main'
+                  : tokenCount > contextSize * 0.8 ? 'warning.main'
+                  : 'text.secondary',
+                fontWeight: tokenCount > contextSize * 0.8 ? 600 : 400,
+              }}
+            >
+              {tokenCount.toLocaleString()} / {contextSize.toLocaleString()} tokens
+            </Typography>
+            {currentConversation && (
+              <Tooltip title="View context breakdown">
+                <IconButton
+                  size="small"
+                  onClick={() => setBreakdownDialogOpen(true)}
+                  sx={{ p: 0.25 }}
+                >
+                  <InfoOutlinedIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
         </Box>
       )}
 
@@ -502,16 +619,12 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
             detail: Object.entries(streaming.pendingApproval!.tool_args)
               .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
               .join('\n'),
-            riskLevel: streaming.pendingApproval!.risk_level,
+            executionLocation: streaming.pendingApproval!.execution_location,
             agentName: streaming.pendingApproval!.name || undefined,
-            options: [
-              { label: 'Accept', value: 'approve', color: 'success' },
-              { label: 'Deny', value: 'deny', color: 'error' },
-            ],
           }}
           onRespond={hostApproval
             ? handleHostApprovalRespond
-            : (value) => streaming.respondToApproval(value === 'approve')
+            : (value) => streaming.respondToApproval(value)
           }
         />
       ) : asr.interactionActive ? (
@@ -529,19 +642,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           externalDraft={streaming.externalDraft}
           externalDraftVersion={streaming.externalDraftVersion}
           isStreaming={streaming.isStreaming}
-          cameraActive={cameraActive}
-          cameraWebcams={cameraWebcams}
-          cameraSelectedWebcam={cameraSelectedWebcam}
-          cameraMenuAnchor={cameraMenuAnchor}
           onSend={streaming.handleSend}
           onCancel={streaming.handleCancel}
-          onCameraToggle={handleCameraToggle}
-          onCameraContext={handleCameraContext}
-          onCloseCameraMenu={() => setCameraMenuAnchor(null)}
-          onSelectCamera={(camera) => {
-            setCameraSelectedWebcam(camera);
-            setCameraMenuAnchor(null);
-          }}
         />
       )}
       <Snackbar
@@ -564,6 +666,333 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           {streaming.infoToast}
         </Alert>
       </Snackbar>
+
+      {/* Context Breakdown Dialog */}
+      <Dialog
+        open={breakdownDialogOpen}
+        onClose={() => setBreakdownDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          Context Breakdown {breakdownAgentName ? `- ${breakdownAgentName}` : ''}
+          <IconButton size="small" onClick={() => setBreakdownDialogOpen(false)}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          {breakdownData ? (
+            <Box>
+              {/* Progress bar */}
+              <Box sx={{ mb: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="body2">
+                    {breakdownData.total_tokens.toLocaleString()} / {breakdownData.context_limit.toLocaleString()} tokens
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {Math.round((breakdownData.total_tokens / breakdownData.context_limit) * 100)}%
+                  </Typography>
+                </Box>
+                <Box sx={{ position: 'relative' }}>
+                  <LinearProgress
+                    variant="determinate"
+                    value={Math.min(100, (breakdownData.total_tokens / breakdownData.context_limit) * 100)}
+                    sx={{
+                      height: 8,
+                      borderRadius: 1,
+                      backgroundColor: 'action.hover',
+                      '& .MuiLinearProgress-bar': {
+                        backgroundColor: breakdownData.total_tokens > breakdownData.context_limit * 0.9
+                          ? 'error.main'
+                          : breakdownData.total_tokens > breakdownData.context_limit * 0.8
+                          ? 'warning.main'
+                          : 'primary.main',
+                      },
+                    }}
+                  />
+                  <Tooltip title="Auto-compact triggers at 90% of the context window">
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        top: -2,
+                        bottom: -2,
+                        left: '90%',
+                        width: '2px',
+                        bgcolor: 'warning.main',
+                        cursor: 'help',
+                      }}
+                    />
+                  </Tooltip>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Auto-compact at {Math.round(breakdownData.context_limit * 0.9).toLocaleString()} (90%)
+                  </Typography>
+                </Box>
+              </Box>
+
+              {/* Token breakdown table */}
+              <Typography variant="subtitle2" gutterBottom>Token Usage by Component</Typography>
+              <Table size="small" sx={{ mb: 2 }}>
+                <TableBody>
+                  <TableRow>
+                    <TableCell>System Prompt</TableCell>
+                    <TableCell align="right">{breakdownData.system_prompt_tokens.toLocaleString()}</TableCell>
+                  </TableRow>
+                  {breakdownData.memory_tokens > 0 && (
+                    <TableRow>
+                      <TableCell>Agent Memory</TableCell>
+                      <TableCell align="right">{breakdownData.memory_tokens.toLocaleString()}</TableCell>
+                    </TableRow>
+                  )}
+                  {breakdownData.compacted_context_tokens > 0 && (
+                    <TableRow>
+                      <TableCell>Compacted Context</TableCell>
+                      <TableCell align="right">{breakdownData.compacted_context_tokens.toLocaleString()}</TableCell>
+                    </TableRow>
+                  )}
+                  {breakdownData.skills_tokens > 0 && (
+                    <TableRow>
+                      <TableCell>Skills Instructions</TableCell>
+                      <TableCell align="right">{breakdownData.skills_tokens.toLocaleString()}</TableCell>
+                    </TableRow>
+                  )}
+                  {breakdownData.tools_guidance_tokens > 0 && (
+                    <TableRow>
+                      <TableCell>Tools Guidance</TableCell>
+                      <TableCell align="right">{breakdownData.tools_guidance_tokens.toLocaleString()}</TableCell>
+                    </TableRow>
+                  )}
+                  {breakdownData.other_agents_tokens > 0 && (
+                    <TableRow>
+                      <TableCell>Other Agents Info</TableCell>
+                      <TableCell align="right">{breakdownData.other_agents_tokens.toLocaleString()}</TableCell>
+                    </TableRow>
+                  )}
+                  <TableRow>
+                    <TableCell>Message History ({breakdownData.message_count} msgs)</TableCell>
+                    <TableCell align="right">{breakdownData.message_history_tokens.toLocaleString()}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell>Tool Schemas ({breakdownData.tool_count} tools)</TableCell>
+                    <TableCell align="right">{breakdownData.tool_schemas_tokens.toLocaleString()}</TableCell>
+                  </TableRow>
+                  <TableRow sx={{ '& td': { fontWeight: 600 } }}>
+                    <TableCell>Total</TableCell>
+                    <TableCell align="right">{breakdownData.total_tokens.toLocaleString()}</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+
+              {/* Loaded skills */}
+              {breakdownData.loaded_skills.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>Loaded Skills</Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {breakdownData.loaded_skills.map((skill) => (
+                      <Chip key={skill} label={skill} size="small" variant="outlined" />
+                    ))}
+                  </Box>
+                </Box>
+              )}
+
+              {/* Loaded tools */}
+              {breakdownData.loaded_tools.length > 0 && (
+                <Box>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Loaded Tools ({breakdownData.loaded_tools.length})
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxHeight: 120, overflowY: 'auto' }}>
+                    {breakdownData.loaded_tools.map((tool) => (
+                      <Chip key={tool} label={tool} size="small" variant="outlined" />
+                    ))}
+                  </Box>
+                </Box>
+              )}
+
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
+                Token estimates based on word count × 1.3
+              </Typography>
+            </Box>
+          ) : (
+            <Typography color="text.secondary">
+              {currentConversation
+                ? 'No breakdown yet — send a message to populate the context.'
+                : 'Select a conversation to see context breakdown.'}
+            </Typography>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Resume picker — full-pane overlay, dismiss with Esc */}
+      {resumeDialogOpen && (
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 5,
+            bgcolor: 'background.default',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 3, py: 2, borderBottom: 1, borderColor: 'divider' }}>
+            <Box>
+              <Typography variant="h6">Resume Conversation</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Press Esc to cancel
+              </Typography>
+            </Box>
+            <IconButton size="small" onClick={() => setResumeDialogOpen(false)}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Box>
+          <Box sx={{ flex: 1, overflowY: 'auto' }}>
+            {resumeLoading ? (
+              <Box sx={{ p: 4 }}>
+                <LinearProgress />
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 2, textAlign: 'center' }}>
+                  Loading conversations...
+                </Typography>
+              </Box>
+            ) : resumeConversations.length === 0 ? (
+              <Typography color="text.secondary" sx={{ p: 4, textAlign: 'center' }}>
+                No previous conversations.
+              </Typography>
+            ) : (
+              <List disablePadding>
+                {resumeConversations.map((conv, idx) => {
+                  const isCurrent = conv.id === currentConversation?.id;
+                  const isActive = idx === resumeActiveIdx;
+                  const updated = conv.updated_at ? new Date(conv.updated_at).toLocaleString() : '';
+                  const preview = conv.last_message?.content?.slice(0, 80) || '';
+                  return (
+                    <React.Fragment key={conv.id}>
+                      {idx > 0 && <Divider component="li" />}
+                      <ListItemButton
+                        onClick={() => handleResumeSelect(conv)}
+                        onMouseEnter={() => setResumeActiveIdx(idx)}
+                        selected={isCurrent}
+                        ref={(el) => {
+                          if (isActive && el) el.scrollIntoView({ block: 'nearest' });
+                        }}
+                        sx={{
+                          py: 1.25,
+                          px: 3,
+                          ...(isActive && { bgcolor: 'action.hover' }),
+                        }}
+                      >
+                        <ListItemText
+                          primary={
+                            <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 2 }}>
+                              <Typography variant="body2" sx={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {conv.title || 'Untitled'}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                                {updated}
+                              </Typography>
+                            </Box>
+                          }
+                          secondary={preview && (
+                            <Typography variant="caption" color="text.secondary" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+                              {preview}
+                            </Typography>
+                          )}
+                        />
+                      </ListItemButton>
+                    </React.Fragment>
+                  );
+                })}
+              </List>
+            )}
+          </Box>
+        </Box>
+      )}
+
+      {/* Agent picker — full-pane overlay, dismiss with Esc */}
+      {agentPickerOpen && (
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 5,
+            bgcolor: 'background.default',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 3, py: 2, borderBottom: 1, borderColor: 'divider' }}>
+            <Box>
+              <Typography variant="h6">Select Agent</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Press Esc to cancel
+              </Typography>
+            </Box>
+            <IconButton size="small" onClick={() => setAgentPickerOpen(false)}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Box>
+          <Box sx={{ flex: 1, overflowY: 'auto' }}>
+            {pickerMainAgents.length === 0 ? (
+              <Typography color="text.secondary" sx={{ p: 4, textAlign: 'center' }}>
+                No main agents available.
+              </Typography>
+            ) : (
+                <List disablePadding>
+                  {pickerMainAgents.map((agent, idx) => {
+                    const isCurrent = agent.id === storeAgentId;
+                    const isActive = idx === agentActiveIdx;
+                    return (
+                      <React.Fragment key={agent.id}>
+                        {idx > 0 && <Divider component="li" />}
+                        <ListItemButton
+                          onClick={() => handleAgentPick(agent.id)}
+                          onMouseEnter={() => setAgentActiveIdx(idx)}
+                          selected={isCurrent}
+                          ref={(el) => {
+                            if (isActive && el) el.scrollIntoView({ block: 'nearest' });
+                          }}
+                          sx={{
+                            py: 1.25,
+                            px: 3,
+                            gap: 1.5,
+                            ...(isActive && { bgcolor: 'action.hover' }),
+                          }}
+                        >
+                          <Avatar
+                            src={agent.avatar_uuid ? apiClient.getImageUrl(agent.avatar_uuid) : undefined}
+                            sx={{
+                              width: 40,
+                              height: 40,
+                              bgcolor: (t) => (t.palette.mode === 'light' ? '#F3F4F6' : '#262626'),
+                              flexShrink: 0,
+                            }}
+                          >
+                            {!agent.avatar_uuid && (
+                              <SmartToyIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
+                            )}
+                          </Avatar>
+                          <ListItemText
+                            primary={
+                              <Typography variant="body2" sx={{ fontWeight: isCurrent ? 600 : 500 }}>
+                                {agent.name}
+                              </Typography>
+                            }
+                            secondary={agent.description ? (
+                              <Typography variant="caption" color="text.secondary" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+                                {agent.description}
+                              </Typography>
+                            ) : null}
+                          />
+                        </ListItemButton>
+                      </React.Fragment>
+                    );
+                  })}
+                </List>
+            )}
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 };

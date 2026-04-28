@@ -12,6 +12,7 @@ React 18, Electron 28, MUI v5, Framer Motion, Zustand, Axios, Vite, react-markdo
 
 - Dev: `npm run electron:dev` (Vite on localhost:5173 + Electron)
 - Build: `npm run electron:build` (tsc + Vite + electron-builder → `release/`)
+- E2E tests: `npm run test:e2e:build` then `npm run test:e2e` (Playwright Electron; see `tests/`)
 
 ## CI/CD
 
@@ -32,7 +33,7 @@ src/components/
   layout/
     MainLayout.tsx         — 3-panel layout: ActivityBar (52px) | MainContent (flex) | ResizeHandle | ChatPanel (resizable)
     ActivityBar.tsx        — Narrow icon column: Workspace/Conversations/Settings nav + connection/character/call/logout
-    ChatPanel.tsx          — Persistent right panel: agent header + ChatWidget + MediaPlayerBar
+    ChatPanel.tsx          — Persistent right panel: agent header + ChatWidget
     ResizeHandle.tsx       — DOM-based drag resize (no React re-renders during drag, sync on mouseup)
   explorer/
     FileExplorerPage.tsx   — Workspace page: FullExplorer (no files open) or FileTreeSidebar + EditorTabs + FileEditor
@@ -68,7 +69,6 @@ src/components/
     MessageBubble.tsx      — Individual bubble: role styling, thinking collapse, TTS, resend/delete
     MessageToolbar.tsx     — Hover toolbar: copy, TTS play, raw data, resend/regenerate, delete
     RawDataDialog.tsx      — Dialog showing raw LLM input/output JSON (self-contained fetch)
-  MediaPlayerBar.tsx       — Bottom bar: track info, play/pause/skip/stop, volume slider
   CharacterConfigDialog.tsx — Re-exports from character/ subfolder
   character/
     CharacterConfigDialog.tsx — React Flow graph editor: multi-pose nodes, edges with transition videos
@@ -94,7 +94,6 @@ src/store/
   layoutStore.ts          — Layout state: activePage (workspace/conversations/settings), chatPanelWidth, workspaceTreeWidth, settingsSection (persisted)
   explorerStore.ts        — File explorer: tree navigation, open/close/save files, dirty detection, selections for chat context, view mode, lasso multi-select
   visionStore.ts          — Zustand singleton: vision pipeline control (getUserMedia webcam capture, backpressure-based frame upload via WebSocket with max 5 in-flight frames, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Syncs state on reconnect via `connected` listener. Used by both FacesWindow and ChatWidget camera toggle.
-  mediaStore.ts           — Zustand singleton: media player state (playback, track, queue, volume). All media events (control + chunks) flow through wsManager on /ws/chat. Module-level listeners for media_state/media_chunk/media_error + `connected` listener for reconnect state sync. Buffers base64 chunks → Blob → Audio playback. Volume persisted to localStorage.
   micStore.ts             — Zustand singleton: ASR lifecycle (VAD, status, result, devices) + interactive mode with substates. Module-level VAD instance, lazy-init reusable Audio elements for sound effects. Two-level state: `interactiveMode` (call bar UI shown, mic auto-started) + `interactionActive` (auto-send without trigger word). Used by MainWindow (phone toggle) and ChatWidget (transcript handling, conditional render).
 src/services/
   mcpService.ts            — Client-side MCP lifecycle: auto-init on WebSocket connect, fetches client-location MCP configs from API, starts local servers via Electron IPC, discovers tools, registers schemas with backend via client_tools_register event. Handles tool_call_request forwarding (execute locally → send tool_call_response). refreshClientMCPServers() for config changes.
@@ -217,6 +216,17 @@ Two-level state managed by `useMicStore` (Zustand, `src/store/micStore.ts`): `in
 
 ### Pagination
 - 20 messages/page, newest first. Scroll to top triggers `loadMoreMessages()`. Position preserved. Loading indicator hidden in Context display mode.
+
+## Testing
+
+E2E tests live in `tests/` and run via Playwright's Electron support.
+
+- `playwright.config.ts` — serial, single worker (each test spawns its own Electron + mock backend).
+- `tests/fixtures.ts` — `test` fixture that launches Electron pointing at `dist-electron/main.js` with an isolated userData dir (via `KURISU_E2E_USER_DATA_DIR` env var, which `electron/main.ts` honors for tests only), starts a mock backend on a random port, and seeds `kurisu_backend_url` in localStorage before reload.
+- `tests/mock/server.ts` — HTTP + WebSocket mock implementing login/profile/agents/conversations/models/tools/mcp-servers endpoints and the `/ws/chat` streaming protocol. Configurable via `setStream`, `setTools`, `addMcpServer`. `dropAllWebSockets()` simulates a silent backend socket loss. Tracks `lastChatRequest` and `lastMcpServerCreate` for assertions.
+- Specs: `smoke.spec.ts`, `streaming.spec.ts`, `settings.spec.ts`, `mcp.spec.ts`, `resilience.spec.ts`.
+
+Commands: `npm run test:e2e:build` (vite build → `dist/` + `dist-electron/`), then `npm run test:e2e` (or `test:e2e:headed` for debugging).
 
 ## Backend API Endpoints
 

@@ -14,30 +14,26 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Chip,
   Grid,
   Tooltip,
   FormControlLabel,
   Switch,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
+  Avatar,
 } from '@mui/material';
 import {
   Add as AddIcon,
   Delete as DeleteIcon,
   Save as SaveIcon,
   Refresh as RefreshIcon,
-  Settings as SettingsIcon,
   FileDownload as ExportIcon,
   FileUpload as ImportIcon,
+  SmartToy as AgentIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiClient } from '../../api/client';
 import { useAgentStore } from '../../store/agentStore';
 import { storage } from '../../utils/storage';
-import type { Agent, AgentCreate, AgentUpdate, Tool, Persona } from '../../api/types';
+import type { Agent, AgentCreate, AgentUpdate, Tool } from '../../api/types';
 import { ModelPicker } from '../ModelPicker';
 import { ToolGroupChecklist, buildToolGroups } from './ToolGroupChecklist';
 import { AgentEditDialog } from './AgentEditDialog';
@@ -45,18 +41,24 @@ import { AgentEditDialog } from './AgentEditDialog';
 const MotionCard = motion(Card);
 
 // Internal tools that shouldn't appear in the exclusion list
-const INTERNAL_TOOLS = ['route_to_agent', 'route_to_user', 'play_music', 'music_control', 'get_music_queue'];
+const INTERNAL_TOOLS = ['play_music', 'music_control', 'get_music_queue'];
 
 interface AgentFormData {
   name: string;
+  description: string;
   system_prompt: string;
   model_name: string;
   think: boolean;
   available_tools: string[] | null;
   memory: string;
   memory_enabled: boolean;
-  persona_id: number | null;
   use_deferred_tools: boolean;
+  agent_type: 'main' | 'sub';
+  // Personality fields — MainAgent only
+  voice_reference: string | null;
+  avatar_uuid: string | null;
+  preferred_name: string | null;
+  trigger_word: string | null;
 }
 
 export const AgentsSection: React.FC = () => {
@@ -78,18 +80,20 @@ export const AgentsSection: React.FC = () => {
   // Form data
   const [formData, setFormData] = useState<AgentFormData>({
     name: '',
+    description: '',
     system_prompt: '',
     model_name: '',
     think: false,
     available_tools: null,
     memory: '',
     memory_enabled: true,
-    persona_id: null,
     use_deferred_tools: false,
+    agent_type: 'main',
+    voice_reference: null,
+    avatar_uuid: null,
+    preferred_name: null,
+    trigger_word: null,
   });
-  const [personas, setPersonas] = useState<Persona[]>([]);
-
-  const [isPromptEditorExpanded, setIsPromptEditorExpanded] = useState(false);
 
   const toolGroups = useMemo(() => buildToolGroups(availableTools, mcpServerMap), [availableTools, mcpServerMap]);
 
@@ -97,17 +101,7 @@ export const AgentsSection: React.FC = () => {
     loadAgents();
     loadModels();
     loadTools();
-    loadPersonas();
   }, []);
-
-  const loadPersonas = async () => {
-    try {
-      const data = await apiClient.listPersonas();
-      setPersonas(data);
-    } catch (err: any) {
-      console.error('Failed to load personas:', err);
-    }
-  };
 
   const loadModels = async () => {
     try {
@@ -170,15 +164,22 @@ export const AgentsSection: React.FC = () => {
     try {
       const modelName = formData.model_name.trim();
       const provider = models.find(m => m.name === modelName)?.provider || 'ollama';
+      const isMain = formData.agent_type === 'main';
       const createData: AgentCreate = {
         name: formData.name,
+        description: formData.description || undefined,
         system_prompt: formData.system_prompt || undefined,
         model_name: modelName,
         provider_type: provider,
         think: formData.think,
         available_tools: formData.available_tools ?? undefined,
-        persona_id: formData.persona_id || undefined,
         use_deferred_tools: formData.use_deferred_tools || undefined,
+        agent_type: formData.agent_type,
+        // Identity fields only apply to main agents
+        voice_reference: isMain ? (formData.voice_reference || undefined) : undefined,
+        avatar_uuid: isMain ? (formData.avatar_uuid || undefined) : undefined,
+        preferred_name: isMain ? (formData.preferred_name || undefined) : undefined,
+        trigger_word: isMain ? (formData.trigger_word || undefined) : undefined,
       };
 
       const newAgent = await apiClient.createAgent(createData);
@@ -201,15 +202,20 @@ export const AgentsSection: React.FC = () => {
       const normalizedModelName = formData.model_name.trim();
       const updateData: AgentUpdate = {
         name: formData.name !== selectedAgent.name ? formData.name : undefined,
+        description: formData.description !== selectedAgent.description ? formData.description : undefined,
         system_prompt: formData.system_prompt !== selectedAgent.system_prompt ? formData.system_prompt : undefined,
         model_name: normalizedModelName !== (selectedAgent.model_name || '') ? normalizedModelName : undefined,
         provider_type: models.find(m => m.name === normalizedModelName)?.provider || 'ollama',
         think: formData.think !== selectedAgent.think ? formData.think : undefined,
-        available_tools: toolsChanged ? formData.available_tools : undefined,
+        available_tools: toolsChanged ? (formData.available_tools ?? undefined) : undefined,
         memory: formData.memory !== (selectedAgent.memory || '') ? formData.memory : undefined,
         memory_enabled: formData.memory_enabled !== selectedAgent.memory_enabled ? formData.memory_enabled : undefined,
-        persona_id: formData.persona_id !== selectedAgent.persona_id ? formData.persona_id : undefined,
         use_deferred_tools: formData.use_deferred_tools !== selectedAgent.use_deferred_tools ? formData.use_deferred_tools : undefined,
+        agent_type: formData.agent_type !== selectedAgent.agent_type ? formData.agent_type : undefined,
+        voice_reference: formData.voice_reference !== selectedAgent.voice_reference ? formData.voice_reference : undefined,
+        avatar_uuid: formData.avatar_uuid !== selectedAgent.avatar_uuid ? formData.avatar_uuid : undefined,
+        preferred_name: formData.preferred_name !== selectedAgent.preferred_name ? formData.preferred_name : undefined,
+        trigger_word: formData.trigger_word !== selectedAgent.trigger_word ? formData.trigger_word : undefined,
       };
 
       // Only send fields that changed
@@ -273,36 +279,44 @@ export const AgentsSection: React.FC = () => {
 
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  const resetForm = () => {
+  const resetForm = (agentType: 'main' | 'sub' = 'main') => {
     setFormData({
       name: '',
+      description: '',
       system_prompt: '',
       model_name: '',
       think: false,
       available_tools: null,
       memory: '',
       memory_enabled: true,
-      persona_id: null,
       use_deferred_tools: false,
+      agent_type: agentType,
+      voice_reference: null,
+      avatar_uuid: null,
+      preferred_name: null,
+      trigger_word: null,
     });
     setSelectedAgent(null);
-    setIsPromptEditorExpanded(false);
   };
 
   const openEditDialog = (agent: Agent) => {
     setSelectedAgent(agent);
     setFormData({
       name: agent.name,
+      description: agent.description || '',
       system_prompt: agent.system_prompt || '',
       model_name: agent.model_name || '',
       think: agent.think,
       available_tools: agent.available_tools ?? null,
       memory: agent.memory || '',
       memory_enabled: agent.memory_enabled,
-      persona_id: agent.persona_id || null,
       use_deferred_tools: agent.use_deferred_tools ?? false,
+      agent_type: (agent.agent_type as 'main' | 'sub') || 'main',
+      voice_reference: agent.voice_reference || null,
+      avatar_uuid: agent.avatar_uuid || null,
+      preferred_name: agent.preferred_name || null,
+      trigger_word: (agent as any).trigger_word || null,
     });
-    setIsPromptEditorExpanded(false);
     setEditDialogOpen(true);
     loadTools();
   };
@@ -312,7 +326,7 @@ export const AgentsSection: React.FC = () => {
     setDeleteDialogOpen(true);
   };
 
-  const isAdministrator = selectedAgent?.name === 'Administrator';
+  const isSystemAgent = selectedAgent?.is_system ?? false;
 
   return (
     <Box>
@@ -359,15 +373,26 @@ export const AgentsSection: React.FC = () => {
             }}
           />
           <Button
-            variant="contained"
+            variant="outlined"
             startIcon={<AddIcon />}
             onClick={() => {
-              resetForm();
+              resetForm('sub');
               setCreateDialogOpen(true);
               loadTools();
             }}
           >
-            New Agent
+            New Sub-Agent
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => {
+              resetForm('main');
+              setCreateDialogOpen(true);
+              loadTools();
+            }}
+          >
+            New Main Agent
           </Button>
         </Box>
       </Paper>
@@ -392,7 +417,8 @@ export const AgentsSection: React.FC = () => {
             No agents yet
           </Typography>
           <Typography color="text.secondary" sx={{ mb: 3 }}>
-            Create your first agent to get started. Agents define roles, models, and tool access.
+            Create your first agent to get started. Main agents have identity and talk to the user;
+            sub-agents are task-only workers that a main agent can call.
           </Typography>
           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
             <Button
@@ -406,131 +432,185 @@ export const AgentsSection: React.FC = () => {
               variant="contained"
               startIcon={<AddIcon />}
               onClick={() => {
-                resetForm();
+                resetForm('main');
                 setCreateDialogOpen(true);
                 loadTools();
               }}
             >
-              Create Agent
+              Create Main Agent
             </Button>
           </Box>
         </Paper>
-      ) : (
-        <Grid container spacing={3} sx={{ maxWidth: 1200, mx: 'auto' }}>
-          <AnimatePresence>
-            {agents.map((agent) => (
-              <Grid item xs={12} sm={6} md={4} key={agent.id}>
-                <MotionCard
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.3 }}
-                  onClick={() => openEditDialog(agent)}
+      ) : (() => {
+        const renderAgentCard = (agent: Agent) => (
+          <Grid item xs={12} sm={6} md={4} key={agent.id}>
+            <MotionCard
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+              onClick={() => openEditDialog(agent)}
+              sx={{
+                position: 'relative',
+                border: '1px solid',
+                borderColor: 'divider',
+                opacity: agent.enabled ? 1 : 0.5,
+                cursor: 'pointer',
+                '&:hover': {
+                  boxShadow: 3,
+                  transform: 'translateY(-2px)',
+                },
+                transition: 'box-shadow 0.2s, transform 0.2s, opacity 0.2s',
+              }}
+            >
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1, flexWrap: 'wrap' }}>
+                  <Avatar
+                    src={agent.avatar_uuid ? apiClient.getImageUrl(agent.avatar_uuid) : undefined}
+                    sx={{
+                      width: 44,
+                      height: 44,
+                      bgcolor: (t) => (t.palette.mode === 'light' ? '#F3F4F6' : '#262626'),
+                      flexShrink: 0,
+                    }}
+                  >
+                    {!agent.avatar_uuid && (
+                      <AgentIcon sx={{ fontSize: 22, color: 'text.secondary' }} />
+                    )}
+                  </Avatar>
+                  {/* Name: wraps to a new line if the card is too narrow for
+                      avatar + name on one row. wordBreak prevents long names
+                      from staying invisible behind overflow:hidden when the
+                      card collapses to ~120px (Grid md=4 in a narrow panel). */}
+                  <Typography variant="h6" sx={{ minWidth: 0, flex: '1 1 auto', wordBreak: 'break-word' }}>
+                    {agent.name}
+                  </Typography>
+                </Box>
+                {agent.description && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    {agent.description}
+                  </Typography>
+                )}
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
                   sx={{
-                    position: 'relative',
-                    border: agent.is_system ? '2px solid' : '1px solid',
-                    borderColor: agent.is_system ? 'secondary.main' : 'divider',
-                    opacity: agent.enabled ? 1 : 0.5,
-                    cursor: 'pointer',
-                    '&:hover': {
-                      boxShadow: 3,
-                      transform: 'translateY(-2px)',
-                    },
-                    transition: 'box-shadow 0.2s, transform 0.2s, opacity 0.2s',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    minHeight: 40,
                   }}
                 >
-                  {agent.is_system && (
-                    <Chip
-                      label="Built-in"
-                      color="secondary"
-                      size="small"
-                      icon={<SettingsIcon />}
-                      sx={{ position: 'absolute', top: 12, right: 12 }}
-                    />
-                  )}
-                  <CardContent sx={{ pt: 3 }}>
-                    <Typography variant="h6" gutterBottom>
-                      {agent.name}
-                    </Typography>
-                    {agent.persona?.name && (
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        Persona: {agent.persona.name}
-                      </Typography>
-                    )}
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        minHeight: 40,
+                  {agent.system_prompt || 'No system prompt set'}
+                </Typography>
+                {(agent.model_name || agent.trigger_word || agent.is_system) && (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ mt: 1.5, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  >
+                    {[
+                      agent.model_name,
+                      agent.trigger_word ? `"${agent.trigger_word}"` : null,
+                      agent.is_system ? 'System' : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Typography>
+                )}
+              </CardContent>
+              <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 2 }}>
+                <Switch
+                  size="small"
+                  checked={agent.enabled}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      await apiClient.toggleAgentEnabled(agent.id, !agent.enabled);
+                      loadAgents();
+                    } catch (err: any) {
+                      setError(err.response?.data?.detail || err.message);
+                    }
+                  }}
+                />
+                <Box>
+                  <Tooltip title="Export">
+                    <IconButton
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleExportAgent(agent);
                       }}
                     >
-                      {agent.system_prompt || 'No system prompt set'}
-                    </Typography>
-                    <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                      {agent.model_name && (
-                        <Chip label={agent.model_name} size="small" variant="outlined" />
-                      )}
-                      {agent.provider_type && (
-                        <Chip label={agent.provider_type} size="small" variant="outlined" color="info" />
-                      )}
-                    </Box>
-                  </CardContent>
-                  <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 2 }}>
-                    <Switch
-                      size="small"
-                      checked={agent.enabled}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={async (e) => {
-                        e.stopPropagation();
-                        try {
-                          await apiClient.toggleAgentEnabled(agent.id, !agent.enabled);
-                          loadAgents();
-                        } catch (err: any) {
-                          setError(err.response?.data?.detail || err.message);
-                        }
-                      }}
-                    />
-                    <Box>
-                      <Tooltip title="Export">
-                        <IconButton
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleExportAgent(agent);
-                          }}
-                        >
-                          <ExportIcon />
-                        </IconButton>
-                      </Tooltip>
-                      {!agent.is_system && (
-                        <Tooltip title="Delete">
-                          <IconButton
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openDeleteDialog(agent);
-                            }}
-                            color="error"
-                          >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </Box>
-                  </CardActions>
-                </MotionCard>
+                      <ExportIcon />
+                    </IconButton>
+                  </Tooltip>
+                  {!agent.is_system && (
+                    <Tooltip title="Delete">
+                      <IconButton
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDeleteDialog(agent);
+                        }}
+                        color="error"
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                </Box>
+              </CardActions>
+            </MotionCard>
+          </Grid>
+        );
+
+        const mainAgents = agents.filter(a => a.agent_type !== 'sub');
+        const subAgents = agents.filter(a => a.agent_type === 'sub');
+
+        return (
+          <Box sx={{ maxWidth: 1200, mx: 'auto' }}>
+            <Box sx={{ mb: 2, display: 'flex', alignItems: 'baseline', gap: 1.5 }}>
+              <Typography variant="h6">Main Agents</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {mainAgents.length} · has personality and talks to you
+              </Typography>
+            </Box>
+            {mainAgents.length === 0 ? (
+              <Paper sx={{ p: 3, mb: 4, textAlign: 'center', color: 'text.secondary' }}>
+                No main agents yet. Click "New Main Agent" to create one.
+              </Paper>
+            ) : (
+              <Grid container spacing={3} sx={{ mb: 4 }}>
+                <AnimatePresence>{mainAgents.map(renderAgentCard)}</AnimatePresence>
               </Grid>
-            ))}
-          </AnimatePresence>
-        </Grid>
-      )}
+            )}
+
+            <Box sx={{ mb: 2, display: 'flex', alignItems: 'baseline', gap: 1.5 }}>
+              <Typography variant="h6">Sub-Agents</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {subAgents.length} · task-only workers callable by main agents
+              </Typography>
+            </Box>
+            {subAgents.length === 0 ? (
+              <Paper sx={{ p: 3, textAlign: 'center', color: 'text.secondary' }}>
+                No sub-agents yet. Click "New Sub-Agent" to add a specialized worker.
+              </Paper>
+            ) : (
+              <Grid container spacing={3}>
+                <AnimatePresence>{subAgents.map(renderAgentCard)}</AnimatePresence>
+              </Grid>
+            )}
+          </Box>
+        );
+      })()}
 
       {/* Create Dialog */}
       <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Create New Agent</DialogTitle>
+        <DialogTitle>
+          Create {formData.agent_type === 'sub' ? 'Sub-Agent' : 'Main Agent'}
+        </DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
             {/* Name */}
@@ -540,33 +620,37 @@ export const AgentsSection: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               fullWidth
               required
-              helperText="A unique name for this agent (e.g., 'Kurisu')"
+              helperText={
+                formData.agent_type === 'sub'
+                  ? "A skill name (e.g., 'Researcher')"
+                  : "A unique character name (e.g., 'Kurisu')"
+              }
             />
 
-            {/* Persona */}
-            <FormControl fullWidth>
-              <InputLabel>Persona</InputLabel>
-              <Select
-                value={formData.persona_id ?? ''}
-                label="Persona"
-                onChange={(e) => setFormData({ ...formData, persona_id: e.target.value === '' ? null : Number(e.target.value) })}
-              >
-                <MenuItem value="">None</MenuItem>
-                {personas.map((p) => (
-                  <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            {/* Trigger word — main agents only */}
+            {formData.agent_type === 'main' && (
+              <TextField
+                label="Trigger Word (optional)"
+                value={formData.trigger_word || ''}
+                onChange={(e) => setFormData({ ...formData, trigger_word: e.target.value || null })}
+                fullWidth
+                helperText="If a new conversation's first message contains this word, this agent is picked. Otherwise a main agent is chosen at random."
+              />
+            )}
 
             {/* System Prompt */}
             <TextField
-              label="System Prompt"
+              label={formData.agent_type === 'sub' ? 'Task Instructions' : 'System Prompt'}
               value={formData.system_prompt}
               onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
               multiline
               rows={4}
               fullWidth
-              helperText="Define the agent's personality and behavior"
+              helperText={
+                formData.agent_type === 'sub'
+                  ? "What this sub-agent should do when called. No personality — just the task."
+                  : "Define the agent's personality and behavior"
+              }
             />
 
             {/* Model */}
@@ -629,11 +713,8 @@ export const AgentsSection: React.FC = () => {
         onClose={() => setEditDialogOpen(false)}
         formData={formData}
         setFormData={setFormData}
-        isAdministrator={isAdministrator}
-        isPromptEditorExpanded={isPromptEditorExpanded}
-        setIsPromptEditorExpanded={setIsPromptEditorExpanded}
+        isSystemAgent={isSystemAgent}
         models={models}
-        personas={personas}
         toolGroups={toolGroups}
         onSave={handleUpdateAgent}
         onRefreshModels={loadModels}
