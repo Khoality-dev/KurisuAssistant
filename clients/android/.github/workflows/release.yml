@@ -11,6 +11,13 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Promote secrets to job-level env so the `if:` conditionals below can read them.
+    # Empty string when the secret isn't set — that's how we detect missing config.
+    env:
+      KURISU_KEYSTORE_BASE64: ${{ secrets.KURISU_KEYSTORE_BASE64 }}
+      KURISU_KEYSTORE_PASSWORD: ${{ secrets.KURISU_KEYSTORE_PASSWORD }}
+      KURISU_KEY_ALIAS: ${{ secrets.KURISU_KEY_ALIAS }}
+      KURISU_KEY_PASSWORD: ${{ secrets.KURISU_KEY_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +30,24 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      # Decode the release keystore from the base64 secret. If the secret is
+      # missing, build.gradle.kts falls back to debug signing (with a warning),
+      # but the resulting APK won't be installable as an update over a real release.
+      - name: Decode release keystore
+        if: env.KURISU_KEYSTORE_BASE64 != ''
+        run: |
+          printf '%s' "$KURISU_KEYSTORE_BASE64" | base64 -d > kurisu-release.jks
+
+      - name: Write .env for Gradle
+        if: env.KURISU_KEYSTORE_BASE64 != ''
+        run: |
+          {
+            echo "KURISU_KEYSTORE=kurisu-release.jks"
+            echo "KURISU_KEYSTORE_PASSWORD=$KURISU_KEYSTORE_PASSWORD"
+            echo "KURISU_KEY_ALIAS=$KURISU_KEY_ALIAS"
+            echo "KURISU_KEY_PASSWORD=$KURISU_KEY_PASSWORD"
+          } > .env
 
       - name: Build release APK
         run: chmod +x ./gradlew && ./gradlew assembleRelease

@@ -5,6 +5,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -129,6 +131,84 @@ fun TtsAsrScreen(
                 supportingText = { Text("ISO 639-1 (en, ja, zh, vi). Empty = auto") },
             )
 
+            // ASR Mode
+            var modeExpanded by remember { mutableStateOf(false) }
+            ExposedDropdownMenuBox(
+                expanded = modeExpanded,
+                onExpandedChange = { modeExpanded = it },
+            ) {
+                OutlinedTextField(
+                    value = if (state.asrMode == "routing") "Routing (per-language)" else "Fixed (single model)",
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("ASR Mode") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modeExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor(),
+                )
+                ExposedDropdownMenu(expanded = modeExpanded, onDismissRequest = { modeExpanded = false }) {
+                    DropdownMenuItem(text = { Text("Fixed (single model)") }, onClick = { viewModel.setAsrMode("fixed"); modeExpanded = false })
+                    DropdownMenuItem(text = { Text("Routing (per-language)") }, onClick = { viewModel.setAsrMode("routing"); modeExpanded = false })
+                }
+            }
+
+            // Fixed-model picker
+            if (state.asrMode == "fixed") {
+                var fixedExpanded by remember { mutableStateOf(false) }
+                val display = if (state.asrFixedModel.isBlank()) "Server default"
+                else state.asrModels.firstOrNull { it.id == state.asrFixedModel }?.name ?: state.asrFixedModel
+                ExposedDropdownMenuBox(
+                    expanded = fixedExpanded,
+                    onExpandedChange = { fixedExpanded = it },
+                ) {
+                    OutlinedTextField(
+                        value = display,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Fixed Model") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = fixedExpanded) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    )
+                    ExposedDropdownMenu(expanded = fixedExpanded, onDismissRequest = { fixedExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Server default") },
+                            onClick = { viewModel.setAsrFixedModel(""); fixedExpanded = false },
+                        )
+                        state.asrModels.forEach { model ->
+                            DropdownMenuItem(
+                                text = { Text(model.name) },
+                                onClick = { viewModel.setAsrFixedModel(model.id); fixedExpanded = false },
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Routing-mode mapping table
+            if (state.asrMode == "routing") {
+                Text(
+                    "Language → Model mapping",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                state.asrModelMap.forEachIndexed { index, entry ->
+                    AsrMappingRow(
+                        entry = entry,
+                        models = state.asrModels,
+                        onLanguageChange = { v -> viewModel.updateAsrMapping(index, language = v) },
+                        onModelChange = { v -> viewModel.updateAsrMapping(index, model = v) },
+                        onDelete = { viewModel.deleteAsrMapping(index) },
+                    )
+                }
+                OutlinedButton(
+                    onClick = viewModel::addAsrMapping,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Add mapping")
+                }
+            }
+
             // Microphone
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
             Text("Microphone", style = MaterialTheme.typography.titleMedium)
@@ -178,6 +258,112 @@ fun TtsAsrScreen(
                     modifier = Modifier.fillMaxWidth().height(8.dp),
                 )
             }
+
+            // Speaker / output device
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            Text("Speaker", style = MaterialTheme.typography.titleMedium)
+            var speakerExpanded by remember { mutableStateOf(false) }
+            val speakerName = if (state.selectedSpeakerId.isBlank()) "System default"
+            else state.outputDevices.firstOrNull { it.first == state.selectedSpeakerId }?.second
+                ?: state.selectedSpeakerId
+            ExposedDropdownMenuBox(
+                expanded = speakerExpanded,
+                onExpandedChange = { speakerExpanded = it },
+            ) {
+                OutlinedTextField(
+                    value = speakerName,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Output Device") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = speakerExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor(),
+                )
+                ExposedDropdownMenu(expanded = speakerExpanded, onDismissRequest = { speakerExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("System default") },
+                        onClick = { viewModel.selectSpeakerDevice(""); speakerExpanded = false },
+                    )
+                    state.outputDevices.forEach { (id, name) ->
+                        DropdownMenuItem(
+                            text = { Text(name) },
+                            onClick = { viewModel.selectSpeakerDevice(id); speakerExpanded = false },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AsrMappingRow(
+    entry: com.kurisu.assistant.data.model.AsrLanguageModelEntry,
+    models: List<com.kurisu.assistant.data.model.AsrModelInfo>,
+    onLanguageChange: (String) -> Unit,
+    onModelChange: (String) -> Unit,
+    onDelete: () -> Unit,
+) {
+    val commonLanguages = listOf("en", "vi", "ja", "zh", "ko", "fr", "de", "es", "ru", "pt", "th", "ar")
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Language picker
+        var langExpanded by remember { mutableStateOf(false) }
+        ExposedDropdownMenuBox(
+            expanded = langExpanded,
+            onExpandedChange = { langExpanded = it },
+            modifier = Modifier.weight(1f),
+        ) {
+            OutlinedTextField(
+                value = entry.language,
+                onValueChange = onLanguageChange,
+                label = { Text("Lang") },
+                singleLine = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = langExpanded) },
+                modifier = Modifier.menuAnchor().fillMaxWidth(),
+            )
+            ExposedDropdownMenu(expanded = langExpanded, onDismissRequest = { langExpanded = false }) {
+                commonLanguages.forEach { lang ->
+                    DropdownMenuItem(
+                        text = { Text(lang) },
+                        onClick = { onLanguageChange(lang); langExpanded = false },
+                    )
+                }
+            }
+        }
+
+        // Model picker
+        var modelExpanded by remember { mutableStateOf(false) }
+        val display = models.firstOrNull { it.id == entry.model }?.name ?: entry.model.ifBlank { "(none)" }
+        ExposedDropdownMenuBox(
+            expanded = modelExpanded,
+            onExpandedChange = { modelExpanded = it },
+            modifier = Modifier.weight(2f),
+        ) {
+            OutlinedTextField(
+                value = display,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Model") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelExpanded) },
+                modifier = Modifier.menuAnchor().fillMaxWidth(),
+            )
+            ExposedDropdownMenu(expanded = modelExpanded, onDismissRequest = { modelExpanded = false }) {
+                models.forEach { model ->
+                    DropdownMenuItem(
+                        text = { Text(model.name) },
+                        onClick = { onModelChange(model.id); modelExpanded = false },
+                    )
+                }
+            }
+        }
+
+        IconButton(onClick = onDelete) {
+            Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
         }
     }
 }

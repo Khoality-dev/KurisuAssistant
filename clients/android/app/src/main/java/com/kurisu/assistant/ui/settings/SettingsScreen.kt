@@ -134,6 +134,25 @@ fun SettingsScreen(
 
             // Speech Recognition section
             Text("Speech Recognition", style = MaterialTheme.typography.titleMedium)
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Always Listen", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Keep the mic open for voice commands. Off = start recording manually.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = state.alwaysListen,
+                    onCheckedChange = viewModel::setAlwaysListen,
+                )
+            }
+
             OutlinedTextField(
                 value = state.asrLanguage,
                 onValueChange = viewModel::setAsrLanguage,
@@ -217,6 +236,25 @@ fun SettingsScreen(
             // About & Logout
             Text("About", style = MaterialTheme.typography.titleMedium)
             Text("Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium)
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Auto-update", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "On launch: download new releases and prompt to install automatically.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = state.autoUpdate,
+                    onCheckedChange = viewModel::setAutoUpdate,
+                )
+            }
+
             OutlinedButton(
                 onClick = viewModel::checkForUpdate,
                 enabled = !state.isCheckingUpdate,

@@ -87,37 +87,6 @@ data class VisionResultEvent(
 ) : ServerEvent
 
 @Serializable
-data class MediaStateEvent(
-    override val type: String = "media_state",
-    @SerialName("event_id") override val eventId: String = "",
-    override val timestamp: String = "",
-    val state: String = "",
-    @SerialName("current_track") val currentTrack: MediaTrack? = null,
-    val queue: List<MediaTrack> = emptyList(),
-    val volume: Float = 1f,
-) : ServerEvent
-
-@Serializable
-data class MediaChunkEvent(
-    override val type: String = "media_chunk",
-    @SerialName("event_id") override val eventId: String = "",
-    override val timestamp: String = "",
-    val data: String = "",
-    @SerialName("chunk_index") val chunkIndex: Int = 0,
-    @SerialName("is_last") val isLast: Boolean = false,
-    val format: String = "",
-    @SerialName("sample_rate") val sampleRate: Int = 0,
-) : ServerEvent
-
-@Serializable
-data class MediaErrorEvent(
-    override val type: String = "media_error",
-    @SerialName("event_id") override val eventId: String = "",
-    override val timestamp: String = "",
-    val error: String = "",
-) : ServerEvent
-
-@Serializable
 data class ConnectedEvent(
     override val type: String = "connected",
     @SerialName("event_id") override val eventId: String = "",
@@ -125,7 +94,6 @@ data class ConnectedEvent(
     @SerialName("chat_active") val chatActive: Boolean = false,
     @SerialName("conversation_id") val conversationId: Int? = null,
     @SerialName("frame_id") val frameId: Int? = null,
-    @SerialName("media_state") val mediaState: JsonObject? = null,
     @SerialName("vision_active") val visionActive: Boolean = false,
     @SerialName("vision_config") val visionConfig: JsonObject? = null,
 ) : ServerEvent

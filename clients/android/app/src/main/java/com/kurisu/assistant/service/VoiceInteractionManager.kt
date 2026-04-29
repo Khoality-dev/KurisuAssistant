@@ -46,10 +46,12 @@ class VoiceInteractionManager @Inject constructor(
         triggerWord = word
     }
 
-    /** Called by CoreService when an ASR transcript arrives. */
-    fun handleTranscript(text: String) {
-        val trigger = triggerWord ?: return
-
+    /**
+     * Called by CoreService when an ASR transcript arrives.
+     * Returns true if the transcript was consumed (auto-sent or triggered interaction mode).
+     * Returns false when the transcript should be treated as dictation (populate composer).
+     */
+    fun handleTranscript(text: String): Boolean {
         if (_state.value.isInteractionMode) {
             // In interaction mode -- auto-send
             if (isStreaming) {
@@ -58,13 +60,17 @@ class VoiceInteractionManager @Inject constructor(
                 cancelIdleTimer()
                 onTranscriptSend?.invoke(text)
             }
-        } else {
-            // Check for trigger word (case-insensitive)
-            if (text.lowercase().contains(trigger.lowercase())) {
-                enterMode()
-                onTranscriptSend?.invoke(text)
-            }
+            return true
         }
+
+        val trigger = triggerWord
+        if (trigger != null && text.lowercase().contains(trigger.lowercase())) {
+            enterMode()
+            onTranscriptSend?.invoke(text)
+            return true
+        }
+
+        return false
     }
 
     /** Called externally when streaming completes -- sends pending message if any */

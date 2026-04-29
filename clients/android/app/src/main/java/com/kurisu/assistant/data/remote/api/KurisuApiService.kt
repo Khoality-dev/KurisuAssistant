@@ -101,6 +101,9 @@ interface KurisuApiService {
         @retrofit2.http.Query("mode") mode: String? = null,
     ): TranscriptionResponse
 
+    @GET("/asr/models")
+    suspend fun listAsrModels(): AsrModelsResponse
+
     // Agents
     @GET("/agents")
     suspend fun listAgents(): List<Agent>

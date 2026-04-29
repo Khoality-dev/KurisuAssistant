@@ -28,6 +28,9 @@ class CoreState @Inject constructor() {
     private val _streamDone = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val streamDone: SharedFlow<Unit> = _streamDone
 
+    private val _dictationDrafts = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val dictationDrafts: SharedFlow<String> = _dictationDrafts
+
     fun setServiceRunning(running: Boolean) {
         _state.update { it.copy(isServiceRunning = running) }
     }
@@ -55,5 +58,9 @@ class CoreState @Inject constructor() {
 
     fun emitStreamDone() {
         _streamDone.tryEmit(Unit)
+    }
+
+    fun emitDictationDraft(text: String) {
+        _dictationDrafts.tryEmit(text)
     }
 }

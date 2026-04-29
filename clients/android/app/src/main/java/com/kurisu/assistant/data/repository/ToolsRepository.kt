@@ -1,6 +1,9 @@
 package com.kurisu.assistant.data.repository
 
 import com.kurisu.assistant.data.model.MCPServer
+import com.kurisu.assistant.data.model.MCPServerCreate
+import com.kurisu.assistant.data.model.MCPServerTestResult
+import com.kurisu.assistant.data.model.MCPServerUpdate
 import com.kurisu.assistant.data.model.Skill
 import com.kurisu.assistant.data.model.SkillCreate
 import com.kurisu.assistant.data.model.SkillUpdate
@@ -17,6 +20,10 @@ class ToolsRepository @Inject constructor(
     suspend fun listTools(): ToolsResponse = api.listTools()
 
     suspend fun listMCPServers(): List<MCPServer> = api.listMCPServers()
+    suspend fun createMCPServer(data: MCPServerCreate): MCPServer = api.createMCPServer(data)
+    suspend fun updateMCPServer(id: Int, data: MCPServerUpdate): MCPServer = api.updateMCPServer(id, data)
+    suspend fun deleteMCPServer(id: Int) = api.deleteMCPServer(id)
+    suspend fun testMCPServer(id: Int): MCPServerTestResult = api.testMCPServer(id)
 
     suspend fun listSkills(): List<Skill> = api.listSkills()
 

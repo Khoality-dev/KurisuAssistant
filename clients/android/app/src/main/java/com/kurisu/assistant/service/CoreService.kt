@@ -23,7 +23,6 @@ import com.kurisu.assistant.data.repository.ConversationRepository
 import com.kurisu.assistant.domain.audio.AudioRecorder
 import com.kurisu.assistant.domain.audio.VoiceActivityDetector
 import com.kurisu.assistant.domain.chat.ChatStreamProcessor
-import com.kurisu.assistant.domain.media.MediaPlaybackManager
 import com.kurisu.assistant.domain.tts.TtsQueueManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
@@ -72,7 +71,6 @@ class CoreService : Service() {
     @Inject lateinit var coreState: CoreState
     @Inject lateinit var audioRecorder: AudioRecorder
     @Inject lateinit var vad: VoiceActivityDetector
-    @Inject lateinit var mediaPlaybackManager: MediaPlaybackManager
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -121,7 +119,6 @@ class CoreService : Service() {
 
         wireCallbacks()
         streamProcessor.startCollecting()
-        mediaPlaybackManager.startCollecting()
         coreState.setServiceRunning(true)
 
         // Connect WebSocket
@@ -131,10 +128,14 @@ class CoreService : Service() {
             }
         }
 
-        // Initialize VAD and start recording + VAD loop
+        // Initialize VAD and start recording + VAD loop (gated by "Always Listen" pref)
         serviceScope.launch {
             audioRecorder.preferredDeviceType = prefs.getAudioInputDeviceType()
-            startRecordingAndVad()
+            if (prefs.getAsrAlwaysListen()) {
+                startRecordingAndVad()
+            } else {
+                Log.d(TAG, "Always Listen is off — not starting recording automatically")
+            }
         }
 
         Log.d(TAG, "Service started")
@@ -146,7 +147,6 @@ class CoreService : Service() {
         stopRecordingAndVad()
         unwireCallbacks()
         streamProcessor.stopCollecting()
-        mediaPlaybackManager.stopCollecting()
         coreState.setServiceRunning(false)
         coreState.setRecording(false)
         serviceScope.cancel()
@@ -252,7 +252,11 @@ class CoreService : Service() {
                 } else if (result.text.isNotBlank()) {
                     val trimmed = result.text.trim()
                     coreState.emitTranscript(trimmed)
-                    voiceInteractionManager.handleTranscript(trimmed)
+                    val consumed = voiceInteractionManager.handleTranscript(trimmed)
+                    if (!consumed) {
+                        // Dictation: populate chat composer so user can edit/send manually
+                        coreState.emitDictationDraft(trimmed)
+                    }
                 }
             }
         } catch (e: Exception) {

@@ -8,6 +8,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -53,6 +59,13 @@ fun ToolsMcpScreen(
                 },
             )
         },
+        floatingActionButton = {
+            if (state.selectedTab == 0) {
+                FloatingActionButton(onClick = viewModel::openCreateServer) {
+                    Icon(Icons.Default.Add, contentDescription = "Add MCP server")
+                }
+            }
+        },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -70,7 +83,14 @@ fun ToolsMcpScreen(
                     CircularProgressIndicator()
                 }
             } else when (state.selectedTab) {
-                0 -> ServersList(state.mcpServers)
+                0 -> ServersList(
+                    servers = state.mcpServers,
+                    meta = state.serverMeta,
+                    onEdit = viewModel::openEditServer,
+                    onDelete = viewModel::confirmDeleteServer,
+                    onTest = viewModel::testServer,
+                    onToggleEnabled = viewModel::toggleServerEnabled,
+                )
                 1 -> ToolsList(
                     builtinTools = state.builtinTools,
                     mcpTools = state.mcpTools,
@@ -108,10 +128,42 @@ fun ToolsMcpScreen(
             },
         )
     }
+
+    // Server form dialog
+    state.serverForm?.let { form ->
+        McpServerFormDialog(
+            form = form,
+            onChange = viewModel::updateServerForm,
+            onSave = viewModel::saveServerForm,
+            onDismiss = viewModel::dismissServerForm,
+        )
+    }
+
+    // Delete confirm
+    state.pendingDeleteServerId?.let {
+        AlertDialog(
+            onDismissRequest = viewModel::cancelDeleteServer,
+            title = { Text("Delete server?") },
+            text = { Text("This will remove the MCP server and its tools. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = viewModel::deleteServer) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = viewModel::cancelDeleteServer) { Text("Cancel") } },
+        )
+    }
 }
 
 @Composable
-private fun ServersList(servers: List<MCPServer>) {
+private fun ServersList(
+    servers: List<MCPServer>,
+    meta: Map<Int, McpServerUiMeta>,
+    onEdit: (MCPServer) -> Unit,
+    onDelete: (Int) -> Unit,
+    onTest: (Int) -> Unit,
+    onToggleEnabled: (MCPServer) -> Unit,
+) {
     if (servers.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No MCP servers configured", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -121,20 +173,194 @@ private fun ServersList(servers: List<MCPServer>) {
             items(servers, key = { it.id }) { server ->
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text(server.name, style = MaterialTheme.typography.titleSmall)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                server.name,
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Switch(
+                                checked = server.enabled,
+                                onCheckedChange = { onToggleEnabled(server) },
+                            )
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             SuggestionChip(onClick = {}, label = { Text(server.transportType.uppercase(), style = MaterialTheme.typography.labelSmall) })
                             SuggestionChip(onClick = {}, label = { Text(server.location.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelSmall) })
-                            if (!server.enabled) {
-                                SuggestionChip(onClick = {}, label = { Text("Disabled", style = MaterialTheme.typography.labelSmall) })
-                            }
                         }
                         val detail = server.url ?: server.command
                         if (detail != null) {
                             Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
+
+                        // Test result chip
+                        meta[server.id]?.testResult?.let { res ->
+                            Spacer(Modifier.height(4.dp))
+                            val isOk = res.status == "available"
+                            Surface(
+                                color = if (isOk) MaterialTheme.colorScheme.tertiaryContainer
+                                else MaterialTheme.colorScheme.errorContainer,
+                                shape = RoundedCornerShape(8.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = if (isOk) Icons.Default.CheckCircle else Icons.Default.Error,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                    Text(
+                                        text = if (isOk) "Available (${res.toolCount ?: 0} tools)"
+                                        else (res.error ?: "Unavailable"),
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            val testing = meta[server.id]?.testing == true
+                            IconButton(onClick = { onTest(server.id) }, enabled = !testing) {
+                                if (testing) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                else Icon(Icons.Default.PlayArrow, contentDescription = "Test")
+                            }
+                            IconButton(onClick = { onEdit(server) }) {
+                                Icon(Icons.Default.Edit, contentDescription = "Edit")
+                            }
+                            IconButton(onClick = { onDelete(server.id) }) {
+                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
                     }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun McpServerFormDialog(
+    form: McpServerForm,
+    onChange: ((McpServerForm) -> McpServerForm) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (form.editingId == null) "Add MCP server" else "Edit MCP server") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = form.name,
+                    onValueChange = { v -> onChange { it.copy(name = v) } },
+                    label = { Text("Server name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                ExposedDropdown(
+                    label = "Transport",
+                    options = listOf("sse" to "SSE", "stdio" to "Stdio"),
+                    selected = form.transportType,
+                    onSelect = { v -> onChange { it.copy(transportType = v) } },
+                )
+
+                ExposedDropdown(
+                    label = "Location",
+                    options = listOf("server" to "External (Server)", "client" to "Internal (This device)"),
+                    selected = form.location,
+                    onSelect = { v -> onChange { it.copy(location = v) } },
+                )
+
+                if (form.transportType == "sse") {
+                    OutlinedTextField(
+                        value = form.url,
+                        onValueChange = { v -> onChange { it.copy(url = v) } },
+                        label = { Text("URL") },
+                        placeholder = { Text("http://host:port/sse") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = form.command,
+                        onValueChange = { v -> onChange { it.copy(command = v) } },
+                        label = { Text("Command") },
+                        placeholder = { Text("npx or python") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = form.argsText,
+                        onValueChange = { v -> onChange { it.copy(argsText = v) } },
+                        label = { Text("Arguments (one per line)") },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp),
+                    )
+                }
+
+                OutlinedTextField(
+                    value = form.envText,
+                    onValueChange = { v -> onChange { it.copy(envText = v) } },
+                    label = { Text("Environment (KEY=VALUE per line, optional)") },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 70.dp),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onSave,
+                enabled = form.name.isNotBlank() && !form.saving,
+            ) {
+                if (form.saving) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                else Text("Save")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExposedDropdown(
+    label: String,
+    options: List<Pair<String, String>>,
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val display = options.firstOrNull { it.first == selected }?.second ?: selected
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+    ) {
+        OutlinedTextField(
+            value = display,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.menuAnchor().fillMaxWidth(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { (value, label) ->
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    onClick = {
+                        onSelect(value)
+                        expanded = false
+                    },
+                )
             }
         }
     }

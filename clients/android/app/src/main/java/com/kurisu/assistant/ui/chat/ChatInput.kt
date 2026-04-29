@@ -32,7 +32,6 @@ fun ChatInput(
     isStreaming: Boolean,
     isMicActive: Boolean,
     isInteractionMode: Boolean,
-    lastTranscript: String?,
     onMicToggle: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
@@ -71,6 +70,42 @@ fun ChatInput(
                         color = MaterialTheme.colorScheme.secondary,
                         style = MaterialTheme.typography.labelSmall,
                     )
+                }
+            }
+        }
+
+        // Slash command autocomplete
+        val suggestions = remember(text) { SlashCommands.autocomplete(text) }
+        if (suggestions.isNotEmpty()) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(12.dp),
+                tonalElevation = 2.dp,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+            ) {
+                Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                    suggestions.forEach { cmd ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onTextChange("/${cmd.name} ") }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Text(
+                                text = "/${cmd.name}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.widthIn(min = 84.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = cmd.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -139,7 +174,7 @@ fun ChatInput(
                         .heightIn(max = 120.dp),
                     placeholder = {
                         Text(
-                            lastTranscript ?: "Message...",
+                            "Message...",
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     },

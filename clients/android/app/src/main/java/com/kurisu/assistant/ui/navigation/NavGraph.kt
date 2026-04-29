@@ -6,7 +6,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.kurisu.assistant.ui.agents.AgentsScreen
 import com.kurisu.assistant.ui.auth.LoginScreen
+import com.kurisu.assistant.ui.character.CharacterScreen
 import com.kurisu.assistant.ui.chat.ChatScreen
+import com.kurisu.assistant.ui.faces.FaceIdentitiesScreen
 import com.kurisu.assistant.ui.personas.PersonasScreen
 import com.kurisu.assistant.ui.settings.AccountScreen
 import com.kurisu.assistant.ui.settings.AppearanceScreen
@@ -24,6 +26,8 @@ object Routes {
     const val AGENTS = "agents"
     const val TOOLS_MCP = "tools_mcp"
     const val SKILLS = "skills"
+    const val CHARACTER = "character"
+    const val FACES = "faces"
 }
 
 @Composable
@@ -51,6 +55,8 @@ fun KurisuNavGraph(
                 onNavigateToAgents = { navController.navigate(Routes.AGENTS) },
                 onNavigateToToolsMcp = { navController.navigate(Routes.TOOLS_MCP) },
                 onNavigateToSkills = { navController.navigate(Routes.SKILLS) },
+                onNavigateToCharacter = { navController.navigate(Routes.CHARACTER) },
+                onNavigateToFaces = { navController.navigate(Routes.FACES) },
                 onLogout = {
                     navController.navigate(Routes.LOGIN) {
                         popUpTo(0) { inclusive = true }
@@ -79,6 +85,12 @@ fun KurisuNavGraph(
         }
         composable(Routes.SKILLS) {
             SkillsScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.CHARACTER) {
+            CharacterScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.FACES) {
+            FaceIdentitiesScreen(onBack = { navController.popBackStack() })
         }
     }
 }

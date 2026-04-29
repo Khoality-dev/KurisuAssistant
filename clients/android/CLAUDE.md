@@ -39,10 +39,9 @@ com.kurisu.assistant/
 │   ├── chat/                    -- Stream processor, sentence splitter, narration stripper
 │   ├── tts/                     -- TTS queue, WAV parser, amplitude computer
 │   ├── audio/                   -- AudioRecorder, VoiceActivityDetector
-│   ├── media/                   -- MediaPlaybackManager (yt-dlp audio streaming via ExoPlayer)
 │   └── character/               -- Compositor, image cache, animation migration
 ├── ui/
-│   ├── navigation/              -- NavGraph with routes (HOME, CHAT/{agentId}, AGENTS, TOOLS, SETTINGS, CHARACTER)
+│   ├── navigation/              -- NavGraph with routes (LOGIN, CHAT, ACCOUNT, TTS_ASR, APPEARANCE, PERSONAS, AGENTS, TOOLS_MCP, SKILLS, CHARACTER, FACES)
 │   ├── theme/                   -- Material 3 theme (primary #2563EB)
 │   ├── auth/                    -- Login screen + ViewModel
 │   ├── home/                    -- Conversation list + ModalNavigationDrawer (HomeScreen + HomeViewModel)
@@ -50,8 +49,8 @@ com.kurisu.assistant/
 │   ├── agents/                  -- Agent CRUD management (create, edit, delete) + ViewModel
 │   ├── settings/                -- Settings screen + ViewModel
 │   ├── tools/                   -- Tools & Skills management (3-tab: Servers, Tools, Skills) + ViewModel
+│   ├── faces/                   -- Face Identities CRUD (camera capture via TakePicture intent + FileProvider)
 │   ├── update/                  -- UpdateDialog composable (in-app update from GitHub Releases)
-│   ├── media/                   -- MediaPlayerBar (persistent bottom bar) + MediaPlayerViewModel
 │   └── character/               -- Character canvas, video player, screen + ViewModel
 ├── service/                     -- CoreService (foreground service), CoreState (shared singleton), VoiceInteractionManager
 └── di/                          -- Hilt modules (App, Network)
@@ -67,7 +66,7 @@ com.kurisu.assistant/
 
 ## Testing
 
-- **Unit tests** live in `app/src/test/`. Use Robolectric (`@RunWith(AndroidJUnit4::class)`) only when you need a Context; pure logic should stay plain JVM. Existing coverage: `SentenceSplitter`, `NarrationStripper`, `WavParser`, `AmplitudeCurveComputer`, `AnimationMigration`, `ChatStreamProcessor`, `VoiceInteractionManager`, `HomeViewModel`
+- **Unit tests** live in `app/src/test/`. Use Robolectric (`@RunWith(AndroidJUnit4::class)`) only when you need a Context; pure logic should stay plain JVM. Existing coverage: `SentenceSplitter`, `NarrationStripper`, `WavParser`, `AmplitudeCurveComputer`, `AnimationMigration`, `ChatStreamProcessor`, `VoiceInteractionManager`, `HomeViewModel`, `SlashCommands`
 - **E2E tests** live in `app/src/androidTest/`. Prefer composable-level tests (`createComposeRule()`) with test-owned state over full-Activity tests, unless navigation/Hilt wiring is the thing under test. Existing coverage: `ChatInputTest`
 - `ChatStreamProcessor` exposes an `internal var collectDispatcher` so tests can swap the default `Dispatchers.Default` for `UnconfinedTestDispatcher()` — keep this seam when touching that class
 - Robolectric **must** be 4.14+ to match `targetSdk = 35`
@@ -94,6 +93,18 @@ Chat (back button) → Home
 - `messages` (DB-persisted) + `streamingMessages` (ephemeral) = displayed list
 - Same-role chunks accumulate into one bubble; role change → new bubble
 - On DoneEvent: `loadConversation()` refreshes from DB, clears streamingMessages
+- **No frame separators**: `frame_id` is still on the wire (`Message.frameId`, `ConversationDetail.frames`) but the chat UI does not draw session breaks. Sessions are surfaced as separate conversations via slash commands (matches desktop)
+- **Auto-scroll threshold**: `LaunchedEffect(allMessages.size, streamingMessages.size)` only scrolls to bottom when `isNearBottom` (last visible item within 2 of total). User scrolling up to read history is preserved during streaming
+
+### Slash Commands (client-side only)
+- Mirrors desktop's `/utils/commands.ts`. Registry lives in `ui/chat/SlashCommand.kt`; intercepted in `ChatViewModel.sendMessage` before reaching `WebSocketManager`. Unknown `/foo` falls through to backend (returns null from parser)
+- Autocomplete dropdown rendered in `ChatInput.kt` whenever input starts with `/` — tap a suggestion to fill `"/<name> "`
+- Commands: `/clear` (drop current conversation, server creates new on next send — non-destructive), `/delete` (delete current conversation), `/refresh` (reload from DB), `/resume` (modal picker of past conversations from `ConversationRepository.getConversations(agentId)`), `/agents` (modal picker of all agents — switches via `switchAgent` which loads agent's last conversation), `/context` (dialog showing token count + last `ContextInfoEvent` snapshot), `/compact` (`wsManager.sendCompactContext(convId)` → backend responds with `ContextInfoEvent`)
+- **Not ported**: desktop's `/vision` (Android does not expose webcam vision toggling) and `/live-animate` (Android exposes the character screen as a chat header button instead — see Character Button below)
+- Modal state lives in `ChatUiState.modal: ChatModal?` (sealed: ResumePicker / AgentPicker / ContextDialog). Transient feedback via `ChatUiState.commandFeedback` — auto-cleared after 2.2s by `LaunchedEffect`
+
+### Character Button (live-animate equivalent)
+- Replaces desktop's `/live-animate` slash command. Chat header has a `Face` icon button that navigates to `Routes.CHARACTER` (`CharacterScreen`). Plumbed via `ChatScreen.onNavigateToCharacter` callback wired in `NavGraph`
 
 ### TTS Pipeline
 - Sentence boundary splitting (`.!?。！？\n`) → `queueText()` FIFO
@@ -102,7 +113,9 @@ Chat (back button) → Home
 ### Voice Interaction
 - AudioRecord → Silero VAD (ONNX) → speech detection → ASR → trigger word → interaction mode
 - 30s idle timeout after TTS+streaming complete
-- **ASR transcript hint**: Every ASR result stored in `CoreServiceState.lastTranscript`, shown as placeholder in ChatInput and in Home MicStatusBar (overwrites on each new result, visible even without trigger word match)
+- **Always Listen toggle** (`prefs.getAsrAlwaysListen()`, default true): when off, `CoreService` does not auto-start VAD/recording on service start — user must toggle recording manually via mic FAB (aligned with Desktop client's opt-in mic). Settings UI exposes the switch; toggling at runtime calls `CoreService.toggleRecording()` to apply immediately.
+- **Dictation drafts**: When an ASR transcript arrives with no trigger word match AND no active interaction mode, `VoiceInteractionManager.handleTranscript()` returns `false`, and `CoreService` emits the text via `CoreState.dictationDrafts`. `ChatViewModel` observes this flow and populates the composer (`inputText`) so the user can edit/send manually — matches Desktop's `pushExternalDraft`. Transcripts matching a trigger word OR during interaction mode still auto-send (unchanged).
+- `CoreServiceState.lastTranscript` is still updated for every ASR result and displayed in Home `MicStatusBar`. Chat composer no longer uses it as a placeholder (placeholder is static "Message...").
 
 ### CoreService (Unified Foreground Service)
 - `CoreService` is the central engine — owns WebSocket, recording, VAD, ASR, chat sending (voice-triggered), TTS wiring, and voice interaction callbacks
@@ -123,13 +136,7 @@ Chat (back button) → Home
 - Downloads APK to `cacheDir/updates/`, installs via FileProvider + `ACTION_VIEW` intent
 - `UpdateDialog` composable shows changelog, download progress, and install button
 - `REQUEST_INSTALL_PACKAGES` permission + FileProvider declared in manifest
-
-### Media Player (yt-dlp Audio Streaming)
-- Backend streams audio as base64 chunks over WebSocket (`MediaChunkEvent`), client accumulates and plays
-- **MediaPlaybackManager** (`@Singleton` in `domain/media/`): Collects media events from `WebSocketManager.events`, accumulates base64 chunks → `ByteArray` list, on `is_last` concatenates → temp file → ExoPlayer plays. Manages pause/resume (local ExoPlayer), skip/stop (local + WS command). State: `StateFlow<MediaPlayerState>` (track info, playback state, volume, buffering). Volume persisted to DataStore
-- **MediaPlayerBar** (`ui/media/`): Persistent bottom bar in `MainActivity` (below NavHost). Thumbnail + title/artist + play/pause/skip/stop buttons. Uses `AnimatedVisibility` — shown when playback active or buffering. Self-contained via `hiltViewModel()`
-- **Lifecycle**: `CoreService.onStartCommand()` calls `mediaPlaybackManager.startCollecting()`, `onDestroy()` calls `stopCollecting()`
-- **WebSocket commands**: `sendMediaPlay/Pause/Resume/Skip/Stop/Volume` in `WebSocketManager`
+- **Auto-update** (`kurisu_auto_update`, default true): When enabled, `HomeViewModel.checkForUpdate()` immediately calls `downloadAndInstall(autoInstall = true)` after detecting a newer release. The post-download path fires `installApk(application, file)` (in `ui/update/UpdateInstaller.kt`) — the OS still shows the install permission prompt if `REQUEST_INSTALL_PACKAGES` isn't granted. Settings exposes the toggle. When off, the existing 2-step dialog (Update → Install) flow remains
 
 ### Character Animation
 - 60fps loop via `withFrameNanos`
@@ -145,3 +152,12 @@ Chat (back button) → Home
 ## Storage Keys
 
 Same as desktop/mobile clients: `kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_selected_agent_id`, `kurisu_agent_conversations`, etc.
+
+## Settings Parity (vs Windows Desktop)
+
+The following settings are aligned with the Windows Desktop client (see `data/local/StorageKeys.kt` for the full list):
+
+- **MCP Servers CRUD** — Add/edit/delete dialogs in `ToolsMcpScreen` (FAB + per-card actions). Test button per server. Stdio shows command+args; SSE shows URL. Env vars are KEY=VALUE per line. Delete confirms via dialog
+- **ASR Mode** (`kurisu_asr_mode`: "fixed" | "routing"): Fixed shows a single model dropdown (`kurisu_asr_fixed_model`); Routing shows a per-language mapping table (`kurisu_asr_model_map`, JSON-encoded `List<AsrLanguageModelEntry>`). Models populated from `GET /asr/models`
+- **Speaker output device** (`kurisu_speaker_device_id`): dropdown listing `AudioManager.GET_DEVICES_OUTPUTS`. `TtsQueueManager.applyPreferredOutput()` reads the pref before each `MediaPlayer.prepare()` and assigns `player.preferredDevice = AudioDeviceInfo` matching the stored id. Empty pref = system default
+- **Face Identities** (`Routes.FACES`): list + create dialog (name + camera capture) + detail dialog (photo grid + add/delete photos). Camera via `ActivityResultContracts.TakePicture()` + FileProvider authority `${applicationId}.fileprovider` (cache path `face_photos/`). All endpoints already in `KurisuApiService` — `FaceRepository` is the new wrapper

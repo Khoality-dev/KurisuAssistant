@@ -41,6 +41,8 @@ data class SettingsUiState(
     val isTesting: Boolean = false,
     val micTestLevel: Float = 0f,
     val asrLanguage: String = "",
+    val alwaysListen: Boolean = true,
+    val autoUpdate: Boolean = true,
 )
 
 @HiltViewModel
@@ -264,7 +266,34 @@ class SettingsViewModel @Inject constructor(
     private fun loadAsrOptions() {
         viewModelScope.launch {
             val lang = prefs.getAsrLanguage()
-            _state.update { it.copy(asrLanguage = lang) }
+            val alwaysListen = prefs.getAsrAlwaysListen()
+            val autoUpdate = prefs.getAutoUpdate()
+            _state.update { it.copy(
+                asrLanguage = lang,
+                alwaysListen = alwaysListen,
+                autoUpdate = autoUpdate,
+            ) }
+        }
+    }
+
+    fun setAutoUpdate(enabled: Boolean) {
+        viewModelScope.launch {
+            prefs.setAutoUpdate(enabled)
+            _state.update { it.copy(autoUpdate = enabled) }
+        }
+    }
+
+    fun setAlwaysListen(enabled: Boolean) {
+        viewModelScope.launch {
+            prefs.setAsrAlwaysListen(enabled)
+            _state.update { it.copy(alwaysListen = enabled) }
+
+            // Apply at runtime: start/stop recording to match the new setting
+            val recording = coreState.state.value.isRecording
+            val serviceRunning = coreState.state.value.isServiceRunning
+            if (serviceRunning && enabled != recording) {
+                CoreService.toggleRecording(application)
+            }
         }
     }
 

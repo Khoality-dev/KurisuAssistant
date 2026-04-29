@@ -244,42 +244,6 @@ class WebSocketManager @Inject constructor(
         send(json.encodeToString(ToolApprovalResponsePayload.serializer(), payload))
     }
 
-    fun sendMediaPlay(query: String) {
-        if (!isConnected) return
-        val payload = MediaPlayPayload(eventId = generateEventId(), timestamp = nowTimestamp(), query = query)
-        send(json.encodeToString(MediaPlayPayload.serializer(), payload))
-    }
-
-    fun sendMediaPause() {
-        if (!isConnected) return
-        val payload = MediaPausePayload(eventId = generateEventId(), timestamp = nowTimestamp())
-        send(json.encodeToString(MediaPausePayload.serializer(), payload))
-    }
-
-    fun sendMediaResume() {
-        if (!isConnected) return
-        val payload = MediaResumePayload(eventId = generateEventId(), timestamp = nowTimestamp())
-        send(json.encodeToString(MediaResumePayload.serializer(), payload))
-    }
-
-    fun sendMediaSkip() {
-        if (!isConnected) return
-        val payload = MediaSkipPayload(eventId = generateEventId(), timestamp = nowTimestamp())
-        send(json.encodeToString(MediaSkipPayload.serializer(), payload))
-    }
-
-    fun sendMediaStop() {
-        if (!isConnected) return
-        val payload = MediaStopPayload(eventId = generateEventId(), timestamp = nowTimestamp())
-        send(json.encodeToString(MediaStopPayload.serializer(), payload))
-    }
-
-    fun sendMediaVolume(volume: Float) {
-        if (!isConnected) return
-        val payload = MediaVolumePayload(eventId = generateEventId(), timestamp = nowTimestamp(), volume = volume)
-        send(json.encodeToString(MediaVolumePayload.serializer(), payload))
-    }
-
     suspend fun sendCompactContext(conversationId: Int) {
         ensureConnected()
         val payload = CompactContextPayload(
@@ -308,9 +272,6 @@ class WebSocketManager @Inject constructor(
             "error" -> json.decodeFromString<ErrorEvent>(text)
             "tool_approval_request" -> json.decodeFromString<ToolApprovalRequestEvent>(text)
             "vision_result" -> json.decodeFromString<VisionResultEvent>(text)
-            "media_state" -> json.decodeFromString<MediaStateEvent>(text)
-            "media_chunk" -> json.decodeFromString<MediaChunkEvent>(text)
-            "media_error" -> json.decodeFromString<MediaErrorEvent>(text)
             "connected" -> json.decodeFromString<ConnectedEvent>(text)
             "context_info" -> json.decodeFromString<ContextInfoEvent>(text)
             else -> {

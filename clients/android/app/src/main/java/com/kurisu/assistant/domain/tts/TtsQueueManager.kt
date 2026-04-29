@@ -1,6 +1,7 @@
 package com.kurisu.assistant.domain.tts
 
 import android.content.Context
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.util.Log
 import com.kurisu.assistant.data.local.PreferencesDataStore
@@ -109,6 +110,9 @@ class TtsQueueManager @Inject constructor(
             FileOutputStream(tempFile).use { it.write(wavBytes) }
         }
 
+        // Resolve preferred output device once per playback (prefs is suspend; lookup is cheap)
+        val preferredDeviceId = prefs.getSpeakerDeviceId()
+
         _state.update { it.copy(isPlaying = true) }
 
         try {
@@ -117,6 +121,7 @@ class TtsQueueManager @Inject constructor(
                 mediaPlayer = player
 
                 player.setDataSource(tempFile.absolutePath)
+                applyPreferredOutput(player, preferredDeviceId)
                 player.prepare()
                 player.setOnCompletionListener {
                     amplitudeJob?.cancel()
@@ -164,6 +169,26 @@ class TtsQueueManager @Inject constructor(
             }
         } catch (_: CancellationException) {
             // Cancelled — cleanup already done
+        }
+    }
+
+    /**
+     * Route TTS playback to the user-selected output device. The id is the AudioDeviceInfo.id
+     * (as a string) persisted by the Speaker setting; empty means system default.
+     */
+    private fun applyPreferredOutput(player: MediaPlayer, deviceId: String) {
+        if (deviceId.isBlank()) return
+        try {
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            val device = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                .firstOrNull { it.id.toString() == deviceId }
+            if (device != null) {
+                player.preferredDevice = device
+            } else {
+                Log.w(TAG, "Preferred TTS output device id=$deviceId not found; using system default")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to apply preferred TTS output: ${e.message}")
         }
     }
 

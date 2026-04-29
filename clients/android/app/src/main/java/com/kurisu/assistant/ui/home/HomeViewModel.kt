@@ -12,6 +12,7 @@ import com.kurisu.assistant.data.repository.ConversationRepository
 import com.kurisu.assistant.data.repository.UpdateRepository
 import com.kurisu.assistant.service.CoreService
 import com.kurisu.assistant.service.CoreState
+import com.kurisu.assistant.ui.update.installApk
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -32,6 +33,7 @@ data class HomeUiState(
     val updateRelease: GithubRelease? = null,
     val updateProgress: Float? = null,
     val updateApkFile: File? = null,
+    val updateAuto: Boolean = false,
 )
 
 data class TriggerMatch(
@@ -139,7 +141,9 @@ class HomeViewModel @Inject constructor(
             try {
                 val release = updateRepository.checkForUpdate()
                 if (release != null) {
-                    _state.update { it.copy(updateRelease = release) }
+                    val auto = prefs.getAutoUpdate()
+                    _state.update { it.copy(updateRelease = release, updateAuto = auto) }
+                    if (auto) downloadAndInstall(autoInstall = true)
                 }
             } catch (e: Exception) {
                 Log.d(TAG, "Update check failed: ${e.message}")
@@ -147,7 +151,7 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun downloadAndInstall() {
+    fun downloadAndInstall(autoInstall: Boolean = false) {
         val release = _state.value.updateRelease ?: return
         val apkAsset = release.assets.firstOrNull { it.name.endsWith(".apk") } ?: return
 
@@ -158,6 +162,14 @@ class HomeViewModel @Inject constructor(
                     _state.update { it.copy(updateProgress = progress) }
                 }
                 _state.update { it.copy(updateApkFile = file, updateProgress = 1f) }
+                if (autoInstall) {
+                    // System will prompt for REQUEST_INSTALL_PACKAGES if not granted
+                    try {
+                        installApk(application, file)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Auto-install failed; user can still tap Install", e)
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Download failed", e)
                 _state.update { it.copy(updateProgress = null) }

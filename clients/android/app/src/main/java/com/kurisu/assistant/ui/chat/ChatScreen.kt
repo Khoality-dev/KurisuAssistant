@@ -4,10 +4,14 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
@@ -16,19 +20,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.kurisu.assistant.data.model.FrameInfo
 import com.kurisu.assistant.data.model.Message
 import com.kurisu.assistant.data.model.ToolApprovalRequestEvent
 import com.kurisu.assistant.service.CoreService
 import com.kurisu.assistant.ui.update.UpdateDialog
 import kotlinx.coroutines.launch
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,6 +39,8 @@ fun ChatScreen(
     onNavigateToAgents: () -> Unit,
     onNavigateToToolsMcp: () -> Unit,
     onNavigateToSkills: () -> Unit,
+    onNavigateToCharacter: () -> Unit,
+    onNavigateToFaces: () -> Unit,
     onLogout: () -> Unit,
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
@@ -89,6 +90,34 @@ fun ChatScreen(
                 }
             },
         )
+    }
+
+    // Slash command modals
+    state.modal?.let { modal ->
+        when (modal) {
+            is ChatModal.ResumePicker -> ResumePickerDialog(
+                modal = modal,
+                onDismiss = viewModel::dismissModal,
+                onPick = viewModel::resumeConversation,
+            )
+            is ChatModal.AgentPicker -> AgentPickerDialog(
+                modal = modal,
+                onDismiss = viewModel::dismissModal,
+                onPick = viewModel::switchAgent,
+            )
+            is ChatModal.ContextDialog -> ContextInfoDialog(
+                modal = modal,
+                onDismiss = viewModel::dismissModal,
+            )
+        }
+    }
+
+    // Transient command feedback (auto-dismissed)
+    state.commandFeedback?.let { msg ->
+        LaunchedEffect(msg) {
+            kotlinx.coroutines.delay(2200)
+            viewModel.clearCommandFeedback()
+        }
     }
 
     // Tool approval dialog
@@ -160,9 +189,19 @@ fun ChatScreen(
     // Combine persisted + streaming messages
     val allMessages: List<Message> = state.messages + streaming.streamingMessages
 
-    // Auto-scroll to bottom on new messages
-    LaunchedEffect(allMessages.size) {
-        if (allMessages.isNotEmpty()) {
+    // Auto-scroll to bottom on new messages — only if user is already near the bottom.
+    // Matches desktop's <100px tolerance: respects manual scroll-up to read history.
+    val isNearBottom by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val total = info.totalItemsCount
+            if (total == 0) return@derivedStateOf true
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+            lastVisible >= total - 2
+        }
+    }
+    LaunchedEffect(allMessages.size, streaming.streamingMessages.size) {
+        if (allMessages.isNotEmpty() && isNearBottom) {
             val lastIndex = listState.layoutInfo.totalItemsCount - 1
             if (lastIndex >= 0) {
                 listState.animateScrollToItem(lastIndex)
@@ -226,6 +265,13 @@ fun ChatScreen(
                     onClick = { scope.launch { drawerState.close() }; onNavigateToAgents() },
                     modifier = Modifier.padding(horizontal = 12.dp),
                 )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.Face, contentDescription = null) },
+                    label = { Text("Face Identities") },
+                    selected = false,
+                    onClick = { scope.launch { drawerState.close() }; onNavigateToFaces() },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
                 NavigationDrawerItem(
                     icon = { Icon(Icons.Default.Build, contentDescription = null) },
@@ -281,6 +327,26 @@ fun ChatScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = {
+                            val nowOn = viewModel.toggleAlwaysListen()
+                            // Flip recording state to match the new pref
+                            if (nowOn != coreServiceState.isRecording) {
+                                CoreService.toggleRecording(context)
+                            }
+                        }) {
+                            Icon(
+                                imageVector = if (state.alwaysListen) Icons.Default.Mic else Icons.Default.MicOff,
+                                contentDescription = if (state.alwaysListen) "Always listen on" else "Always listen off",
+                                tint = if (state.alwaysListen) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                        IconButton(onClick = onNavigateToCharacter) {
+                            Icon(Icons.Default.Face, contentDescription = "Live character")
+                        }
                         if (state.conversationId != null) {
                             IconButton(onClick = viewModel::refreshConversation) {
                                 Icon(Icons.Default.Refresh, contentDescription = "Refresh")
@@ -351,16 +417,6 @@ fun ChatScreen(
                         }
 
                         allMessages.forEachIndexed { index, message ->
-                            // Frame separator when frame_id changes
-                            val prevFrameId = if (index > 0) allMessages[index - 1].frameId else null
-                            val curFrameId = message.frameId
-                            if (curFrameId != null && curFrameId != prevFrameId) {
-                                val frame = state.frames[curFrameId.toString()]
-                                item(key = "frame_sep_$curFrameId") {
-                                    FrameSeparator(frame = frame)
-                                }
-                            }
-
                             item(
                                 key = message.id ?: "${message.role}_${message.content.hashCode()}_$index",
                             ) {
@@ -439,6 +495,22 @@ fun ChatScreen(
                     }
                 }
 
+                // Command feedback toast
+                state.commandFeedback?.let { msg ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                        shape = MaterialTheme.shapes.small,
+                    ) {
+                        Text(
+                            text = msg,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                }
+
                 // Divider
                 HorizontalDivider()
 
@@ -454,7 +526,6 @@ fun ChatScreen(
                     isStreaming = streaming.isStreaming,
                     isMicActive = false,
                     isInteractionMode = voiceState.isInteractionMode,
-                    lastTranscript = coreServiceState.lastTranscript,
                     onMicToggle = null,
                 )
             }
@@ -463,31 +534,163 @@ fun ChatScreen(
 }
 
 @Composable
-private fun FrameSeparator(frame: FrameInfo?) {
-    val dateStr = frame?.createdAt?.let {
-        try {
-            val instant = Instant.parse(it)
-            val local = instant.atZone(ZoneId.systemDefault())
-            local.format(DateTimeFormatter.ofPattern("MMM d, HH:mm"))
-        } catch (_: Exception) {
-            "New session"
-        }
-    } ?: "New session"
+private fun ResumePickerDialog(
+    modal: ChatModal.ResumePicker,
+    onDismiss: () -> Unit,
+    onPick: (Int) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Resume conversation") },
+        text = {
+            when {
+                modal.loading -> Box(
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    contentAlignment = Alignment.Center,
+                ) { CircularProgressIndicator(modifier = Modifier.size(28.dp)) }
+                modal.conversations.isEmpty() -> Text(
+                    "No previous conversations.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                else -> androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.heightIn(max = 360.dp),
+                ) {
+                    items(modal.conversations.size) { idx ->
+                        val conv = modal.conversations[idx]
+                        val title = conv.title.ifBlank { "Conversation #${conv.id}" }
+                        val preview = conv.lastMessage?.content?.take(80) ?: ""
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPick(conv.id) }
+                                .padding(horizontal = 4.dp, vertical = 10.dp),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                )
+                                if (preview.isNotEmpty()) {
+                                    Text(
+                                        text = preview,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                    )
+                                }
+                            }
+                        }
+                        if (idx < modal.conversations.lastIndex) HorizontalDivider()
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        HorizontalDivider(modifier = Modifier.weight(1f))
-        Text(
-            text = dateStr,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 12.dp),
-            textAlign = TextAlign.Center,
-        )
-        HorizontalDivider(modifier = Modifier.weight(1f))
-    }
+@Composable
+private fun AgentPickerDialog(
+    modal: ChatModal.AgentPicker,
+    onDismiss: () -> Unit,
+    onPick: (com.kurisu.assistant.data.model.Agent) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Pick an agent") },
+        text = {
+            when {
+                modal.loading -> Box(
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    contentAlignment = Alignment.Center,
+                ) { CircularProgressIndicator(modifier = Modifier.size(28.dp)) }
+                modal.agents.isEmpty() -> Text(
+                    "No agents available.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                else -> androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.heightIn(max = 360.dp),
+                ) {
+                    items(modal.agents.size) { idx ->
+                        val agent = modal.agents[idx]
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPick(agent) }
+                                .padding(horizontal = 4.dp, vertical = 10.dp),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = agent.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                )
+                                if (agent.description.isNotBlank()) {
+                                    Text(
+                                        text = agent.description,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                    )
+                                }
+                            }
+                        }
+                        if (idx < modal.agents.lastIndex) HorizontalDivider()
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun ContextInfoDialog(
+    modal: ChatModal.ContextDialog,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Context") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "Conversation: ${modal.conversationId ?: "—"}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "Tokens used: ${modal.tokenCount ?: "—"}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (modal.compacting) {
+                    Text(
+                        "Compaction in progress...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                } else if (modal.compactedUpToId > 0) {
+                    Text(
+                        "Compacted up to message #${modal.compactedUpToId}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (modal.compactedContext.isNotBlank()) {
+                    HorizontalDivider()
+                    Text(
+                        text = modal.compactedContext,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            fontSize = 11.sp,
+                        ),
+                        modifier = Modifier
+                            .heightIn(max = 200.dp)
+                            .verticalScroll(rememberScrollState()),
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
 }

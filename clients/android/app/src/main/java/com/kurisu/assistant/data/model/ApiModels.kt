@@ -358,15 +358,6 @@ data class VisionResult(
 )
 
 @Serializable
-data class MediaTrack(
-    val title: String,
-    val url: String,
-    val duration: Float? = null,
-    val thumbnail: String? = null,
-    val artist: String? = null,
-)
-
-@Serializable
 data class MessageRawData(
     val id: Int,
     @SerialName("raw_input") val rawInput: JsonArray? = null,
@@ -375,6 +366,25 @@ data class MessageRawData(
 
 @Serializable
 data class ModelsResponse(val models: List<String>)
+
+@Serializable
+data class AsrModelInfo(
+    val id: String,
+    val name: String,
+    @SerialName("size_mb") val sizeMb: Float? = null,
+    val loaded: Boolean = false,
+)
+
+@Serializable
+data class AsrModelsResponse(
+    val data: List<AsrModelInfo> = emptyList(),
+)
+
+@Serializable
+data class AsrLanguageModelEntry(
+    val language: String,
+    val model: String,
+)
 
 @Serializable
 data class TranscriptionResponse(val text: String, val language: String = "")

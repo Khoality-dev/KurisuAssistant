@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -7,6 +9,26 @@ plugins {
     id("com.google.dagger.hilt.android")
 }
 
+// Load release signing values from <repo-root>/.env (gitignored). See .env.template.
+// If .env is missing or any value is blank, fall back to debug signing — fine for local
+// builds, but APKs shipped to users will fail auto-update unless they're signed with the
+// stable release keystore.
+val envFile = rootProject.file(".env")
+val envProps = Properties().apply {
+    if (envFile.exists()) envFile.inputStream().use { load(it) }
+}
+fun env(key: String): String? = envProps.getProperty(key)?.takeIf { it.isNotBlank() }
+val releaseKeystorePath = env("KURISU_KEYSTORE")
+val releaseKeystorePassword = env("KURISU_KEYSTORE_PASSWORD")
+val releaseKeyAlias = env("KURISU_KEY_ALIAS")
+val releaseKeyPassword = env("KURISU_KEY_PASSWORD")
+val hasReleaseSigning = listOf(
+    releaseKeystorePath,
+    releaseKeystorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { it != null }
+
 android {
     namespace = "com.kurisu.assistant"
     compileSdk = 35
@@ -15,8 +37,19 @@ android {
         applicationId = "com.kurisu.assistant"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(releaseKeystorePath!!)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
@@ -27,7 +60,15 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                logger.warn(
+                    "WARNING: .env is missing release signing values; " +
+                        "falling back to debug keystore. Auto-update will fail for users."
+                )
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

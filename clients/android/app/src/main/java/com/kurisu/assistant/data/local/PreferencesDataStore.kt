@@ -13,6 +13,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import com.kurisu.assistant.data.model.AsrLanguageModelEntry
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -37,9 +39,9 @@ class PreferencesDataStore @Inject constructor(
     private val KEY_BACKEND_URL = stringPreferencesKey(StorageKeys.BACKEND_URL)
     private val KEY_SELECTED_AGENT_ID = intPreferencesKey(StorageKeys.SELECTED_AGENT_ID)
     private val KEY_AGENT_CONVERSATIONS = stringPreferencesKey(StorageKeys.AGENT_CONVERSATIONS)
-    private val KEY_MEDIA_VOLUME = floatPreferencesKey(StorageKeys.MEDIA_VOLUME)
     private val KEY_AUDIO_INPUT_DEVICE_TYPE = intPreferencesKey(StorageKeys.AUDIO_INPUT_DEVICE_TYPE)
     private val KEY_ASR_LANGUAGE = stringPreferencesKey(StorageKeys.ASR_LANGUAGE)
+    private val KEY_ASR_ALWAYS_LISTEN = booleanPreferencesKey(StorageKeys.ASR_ALWAYS_LISTEN)
 
     companion object {
         const val DEFAULT_BACKEND_URL = "http://localhost:15597"
@@ -116,10 +118,6 @@ class PreferencesDataStore @Inject constructor(
 
     suspend fun clearAllAgentConversations() { ds.edit { it.remove(KEY_AGENT_CONVERSATIONS) } }
 
-    // Media Volume
-    suspend fun getMediaVolume(): Float = ds.data.first()[KEY_MEDIA_VOLUME] ?: 1.0f
-    suspend fun setMediaVolume(volume: Float) { ds.edit { it[KEY_MEDIA_VOLUME] = volume } }
-
     // Audio Input Device Type (-1 = default/auto)
     suspend fun getAudioInputDeviceType(): Int = ds.data.first()[KEY_AUDIO_INPUT_DEVICE_TYPE] ?: -1
     suspend fun setAudioInputDeviceType(type: Int) { ds.edit { it[KEY_AUDIO_INPUT_DEVICE_TYPE] = type } }
@@ -127,6 +125,10 @@ class PreferencesDataStore @Inject constructor(
     // ASR Language (empty = auto-detect)
     suspend fun getAsrLanguage(): String = ds.data.first()[KEY_ASR_LANGUAGE] ?: ""
     suspend fun setAsrLanguage(language: String) { ds.edit { it[KEY_ASR_LANGUAGE] = language } }
+
+    // ASR Always Listen (true = auto-start recording/VAD on service start)
+    suspend fun getAsrAlwaysListen(): Boolean = ds.data.first()[KEY_ASR_ALWAYS_LISTEN] ?: true
+    suspend fun setAsrAlwaysListen(value: Boolean) { ds.edit { it[KEY_ASR_ALWAYS_LISTEN] = value } }
 
     // Theme Mode ("light", "dark", "system")
     private val KEY_THEME_MODE = stringPreferencesKey(StorageKeys.THEME_MODE)
@@ -138,4 +140,37 @@ class PreferencesDataStore @Inject constructor(
     private val KEY_TTS_AUTO_PLAY_SETTING = booleanPreferencesKey(StorageKeys.TTS_AUTO_PLAY_SETTING)
     suspend fun getTTSAutoPlay(): Boolean = ds.data.first()[KEY_TTS_AUTO_PLAY_SETTING] ?: true
     suspend fun setTTSAutoPlay(enabled: Boolean) { ds.edit { it[KEY_TTS_AUTO_PLAY_SETTING] = enabled } }
+
+    // ASR mode ("fixed" | "routing")
+    private val KEY_ASR_MODE = stringPreferencesKey(StorageKeys.ASR_MODE)
+    suspend fun getAsrMode(): String = ds.data.first()[KEY_ASR_MODE] ?: "fixed"
+    suspend fun setAsrMode(mode: String) { ds.edit { it[KEY_ASR_MODE] = mode } }
+
+    // ASR fixed model (empty = server default)
+    private val KEY_ASR_FIXED_MODEL = stringPreferencesKey(StorageKeys.ASR_FIXED_MODEL)
+    suspend fun getAsrFixedModel(): String = ds.data.first()[KEY_ASR_FIXED_MODEL] ?: ""
+    suspend fun setAsrFixedModel(model: String) { ds.edit { it[KEY_ASR_FIXED_MODEL] = model } }
+
+    // ASR language → model map (JSON-encoded list)
+    private val KEY_ASR_MODEL_MAP = stringPreferencesKey(StorageKeys.ASR_MODEL_MAP)
+    suspend fun getAsrModelMap(): List<AsrLanguageModelEntry> {
+        val json = ds.data.first()[KEY_ASR_MODEL_MAP] ?: return emptyList()
+        return try {
+            Json.decodeFromString(ListSerializer(AsrLanguageModelEntry.serializer()), json)
+        } catch (_: Exception) { emptyList() }
+    }
+    suspend fun setAsrModelMap(entries: List<AsrLanguageModelEntry>) {
+        val json = Json.encodeToString(ListSerializer(AsrLanguageModelEntry.serializer()), entries)
+        ds.edit { it[KEY_ASR_MODEL_MAP] = json }
+    }
+
+    // Speaker output device id (empty = system default)
+    private val KEY_SPEAKER_DEVICE_ID = stringPreferencesKey(StorageKeys.SPEAKER_DEVICE_ID)
+    suspend fun getSpeakerDeviceId(): String = ds.data.first()[KEY_SPEAKER_DEVICE_ID] ?: ""
+    suspend fun setSpeakerDeviceId(id: String) { ds.edit { it[KEY_SPEAKER_DEVICE_ID] = id } }
+
+    // Auto-update on launch (when a newer GitHub release is found, download + fire install)
+    private val KEY_AUTO_UPDATE = booleanPreferencesKey(StorageKeys.AUTO_UPDATE)
+    suspend fun getAutoUpdate(): Boolean = ds.data.first()[KEY_AUTO_UPDATE] ?: true
+    suspend fun setAutoUpdate(enabled: Boolean) { ds.edit { it[KEY_AUTO_UPDATE] = enabled } }
 }
