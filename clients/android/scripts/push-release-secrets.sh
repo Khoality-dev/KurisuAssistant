@@ -79,19 +79,46 @@ if ! gh auth status >/dev/null 2>&1; then
 fi
 
 echo "Encoding keystore: ${KEYSTORE_PATH}"
-KEYSTORE_BASE64="$(base64 -w 0 "${KEYSTORE_PATH}" 2>/dev/null || base64 "${KEYSTORE_PATH}" | tr -d '\n')"
+# Write base64 to a temp file rather than holding it in a shell var; some shells
+# (Git Bash on Windows in particular) corrupt long binary-ish strings when piped
+# through stdin to gh. `gh secret set --body-file` reads the file directly and
+# preserves bytes exactly.
+TMP_B64="$(mktemp)"
+trap 'rm -f "${TMP_B64}"' EXIT
+if base64 -w 0 "${KEYSTORE_PATH}" > "${TMP_B64}" 2>/dev/null; then
+  : # GNU coreutils path
+else
+  base64 "${KEYSTORE_PATH}" | tr -d '\n\r' > "${TMP_B64}"
+fi
 
+# Sanity check: decode back and compare bytes to catch any local encoding bug
+# before we waste a CI run debugging it.
+DECODED_TMP="$(mktemp)"
+base64 -d "${TMP_B64}" > "${DECODED_TMP}" 2>/dev/null
+if ! cmp -s "${KEYSTORE_PATH}" "${DECODED_TMP}"; then
+  rm -f "${DECODED_TMP}"
+  echo "ERROR: base64 round-trip didn't match the keystore bytes. Aborting before push." >&2
+  exit 1
+fi
+rm -f "${DECODED_TMP}"
+
+push_secret_file() {
+  local name="$1"
+  local file="$2"
+  echo "Setting ${name}..."
+  gh secret set "${name}" "${GH_REPO_ARGS[@]}" < "${file}"
+}
 push_secret() {
   local name="$1"
   local value="$2"
   echo "Setting ${name}..."
-  printf '%s' "${value}" | gh secret set "${name}" "${GH_REPO_ARGS[@]}" --body -
+  gh secret set "${name}" "${GH_REPO_ARGS[@]}" --body "${value}"
 }
 
-push_secret "KURISU_KEYSTORE_BASE64"     "${KEYSTORE_BASE64}"
-push_secret "KURISU_KEYSTORE_PASSWORD"   "${KURISU_KEYSTORE_PASSWORD}"
-push_secret "KURISU_KEY_ALIAS"           "${KURISU_KEY_ALIAS}"
-push_secret "KURISU_KEY_PASSWORD"        "${KURISU_KEY_PASSWORD}"
+push_secret_file "KURISU_KEYSTORE_BASE64"     "${TMP_B64}"
+push_secret      "KURISU_KEYSTORE_PASSWORD"   "${KURISU_KEYSTORE_PASSWORD}"
+push_secret      "KURISU_KEY_ALIAS"           "${KURISU_KEY_ALIAS}"
+push_secret      "KURISU_KEY_PASSWORD"        "${KURISU_KEY_PASSWORD}"
 
 echo
 echo "Done. The release workflow can now sign APKs from these secrets."
