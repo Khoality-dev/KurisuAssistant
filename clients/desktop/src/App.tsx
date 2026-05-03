@@ -6,15 +6,32 @@ import { useAuthStore } from './store/authStore';
 import { LoginWindow } from './components/LoginWindow';
 import { MainLayout } from './components/layout/MainLayout';
 import { UpdateDialog } from './components/UpdateDialog';
+import { UpdateRequiredScreen } from './components/UpdateRequiredScreen';
+import { apiClient } from './api/client';
+import { WIRE_PROTOCOL } from './constants';
+import type { ServerVersionInfo } from './api/types';
 // Side-effect import: registers WebSocket listener for client-side MCP servers
 import './services/mcpService';
 
 const MainApp: React.FC = () => {
   const [initializing, setInitializing] = useState(true);
+  const [versionMismatch, setVersionMismatch] = useState<ServerVersionInfo | null>(null);
   const { isAuthenticated, initializeAuth } = useAuthStore();
 
   useEffect(() => {
     const init = async () => {
+      // Wire-protocol handshake. On unreachable backend we proceed (offline launch
+      // still works); only a confirmed mismatch is a hard gate.
+      try {
+        const info = await apiClient.getServerVersion();
+        if (info.wire_protocol !== WIRE_PROTOCOL) {
+          setVersionMismatch(info);
+          setInitializing(false);
+          return;
+        }
+      } catch {
+        // backend unreachable — let the app try to load anyway
+      }
       await initializeAuth();
       setInitializing(false);
     };
@@ -35,6 +52,10 @@ const MainApp: React.FC = () => {
         <CircularProgress size={40} sx={{ color: 'text.secondary' }} />
       </Box>
     );
+  }
+
+  if (versionMismatch) {
+    return <UpdateRequiredScreen info={versionMismatch} />;
   }
 
   return isAuthenticated ? <MainLayout /> : <LoginWindow />;
