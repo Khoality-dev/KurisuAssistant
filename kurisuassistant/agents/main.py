@@ -304,12 +304,10 @@ class MainAgent(BaseAgent):
                 if tool_denied:
                     break
 
-        except Exception as e:
-            logger.error(f"MainAgent processing failed: {e}", exc_info=True)
-            yield StreamChunkEvent(
-                content=f"Error: {e}",
-                role="assistant",
-                agent_id=self.config.id,
-                name=self.config.name,
-                conversation_id=context.conversation_id,
-            )
+        except Exception:
+            # Re-raise so the WebSocket handler emits an ErrorEvent (transient,
+            # toast-only) instead of yielding an assistant chunk that
+            # `_stream_and_save_agent` would persist as a normal message and
+            # later replay into the LLM context.
+            logger.error("MainAgent processing failed", exc_info=True)
+            raise
