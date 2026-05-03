@@ -4,6 +4,11 @@ export interface LoginResponse {
   token_type: string;
 }
 
+export interface ServerVersionInfo {
+  backend_version: string;
+  wire_protocol: number;
+}
+
 // Embedded agent info in messages (subset of Agent)
 export interface MessageAgent {
   id: number;

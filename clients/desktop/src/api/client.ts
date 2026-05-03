@@ -1,8 +1,10 @@
 import axios, { AxiosInstance } from 'axios';
 import { config } from '../config';
+import { WIRE_PROTOCOL } from '../constants';
 import { wsManager } from './websocket';
 import type {
   LoginResponse,
+  ServerVersionInfo,
   Conversation,
   ConversationDetail,
   MessageRawData,
@@ -42,9 +44,12 @@ class APIClient {
       timeout: 30000,
     });
 
-    // Read baseURL dynamically so it picks up changes from storage
+    // Read baseURL dynamically so it picks up changes from storage, and stamp
+    // every request with the wire-protocol header so backend can reject
+    // incompatible clients with HTTP 426.
     this.client.interceptors.request.use((reqConfig) => {
       reqConfig.baseURL = config.apiBaseUrl;
+      reqConfig.headers.set('X-Wire-Protocol', String(WIRE_PROTOCOL));
       return reqConfig;
     });
 
@@ -138,6 +143,11 @@ class APIClient {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
     return headers;
+  }
+
+  async getServerVersion(): Promise<ServerVersionInfo> {
+    const response = await this.client.get<ServerVersionInfo>('/version');
+    return response.data;
   }
 
   async login(username: string, password: string): Promise<LoginResponse> {
