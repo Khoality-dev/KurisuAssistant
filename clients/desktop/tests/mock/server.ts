@@ -196,6 +196,12 @@ export class MockBackend {
       return;
     }
 
+    // Version handshake — must return the wire_protocol the client expects,
+    // otherwise the startup gate in App.tsx blocks the UI with UpdateRequiredScreen.
+    if (pathOnly === '/version' && method === 'GET') {
+      return this.json(res, { backend_version: '0.2.0', wire_protocol: 1 });
+    }
+
     // Auth endpoints
     if (pathOnly === '/login' && method === 'POST') {
       return this.json(res, {
