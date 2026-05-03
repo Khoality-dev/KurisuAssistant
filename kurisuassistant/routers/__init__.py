@@ -15,6 +15,7 @@ from .tools import router as tools_router
 from .character import router as character_router
 from .vision import router as vision_router
 from .skills import router as skills_router
+from .version import router as version_router
 
 __all__ = [
     "auth_router",
@@ -32,4 +33,5 @@ __all__ = [
     "character_router",
     "vision_router",
     "skills_router",
+    "version_router",
 ]
