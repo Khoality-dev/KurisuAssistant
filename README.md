@@ -41,7 +41,7 @@ python -m scripts.migrate # Run database migrations
 
 ## Client
 
-See [KurisuAssistant-Client-Windows](https://github.com/Khoality-dev/KurisuAssistant-Client-Windows) for the Electron + React desktop client.
+See [KurisuAssistant-Client-Desktop](https://github.com/Khoality-dev/KurisuAssistant-Client-Desktop) for the cross-platform (Windows + Linux) Electron + React desktop client.
 
 ## Configuration
 
