@@ -119,34 +119,6 @@ data class TTSRequest(
 )
 
 @Serializable
-data class Persona(
-    val id: Int,
-    val name: String,
-    @SerialName("system_prompt") val systemPrompt: String = "",
-    @SerialName("voice_reference") val voiceReference: String? = null,
-    @SerialName("avatar_uuid") val avatarUuid: String? = null,
-    @SerialName("character_config") val characterConfig: JsonObject? = null,
-    @SerialName("preferred_name") val preferredName: String? = null,
-    @SerialName("trigger_word") val triggerWord: String? = null,
-)
-
-@Serializable
-data class PersonaCreate(
-    val name: String,
-    @SerialName("system_prompt") val systemPrompt: String? = null,
-    @SerialName("preferred_name") val preferredName: String? = null,
-    @SerialName("trigger_word") val triggerWord: String? = null,
-)
-
-@Serializable
-data class PersonaUpdate(
-    val name: String? = null,
-    @SerialName("system_prompt") val systemPrompt: String? = null,
-    @SerialName("preferred_name") val preferredName: String? = null,
-    @SerialName("trigger_word") val triggerWord: String? = null,
-)
-
-@Serializable
 data class Agent(
     val id: Int,
     val name: String,
@@ -166,8 +138,8 @@ data class Agent(
     @SerialName("is_system") val isSystem: Boolean = false,
     @SerialName("use_deferred_tools") val useDeferredTools: Boolean = false,
     @SerialName("trigger_word") val triggerWord: String? = null,
-    @SerialName("persona_id") val personaId: Int? = null,
-    val persona: Persona? = null,
+    @SerialName("agent_type") val agentType: String = "main",
+    @SerialName("preferred_name") val preferredName: String? = null,
 )
 
 @Serializable
@@ -181,7 +153,8 @@ data class AgentCreate(
     @SerialName("available_tools") val availableTools: List<String>? = null,
     val think: Boolean? = null,
     @SerialName("trigger_word") val triggerWord: String? = null,
-    @SerialName("persona_id") val personaId: Int? = null,
+    @SerialName("agent_type") val agentType: String? = null,
+    @SerialName("preferred_name") val preferredName: String? = null,
     @SerialName("use_deferred_tools") val useDeferredTools: Boolean? = null,
 )
 
@@ -198,7 +171,8 @@ data class AgentUpdate(
     val memory: String? = null,
     @SerialName("memory_enabled") val memoryEnabled: Boolean? = null,
     @SerialName("trigger_word") val triggerWord: String? = null,
-    @SerialName("persona_id") val personaId: Int? = null,
+    @SerialName("agent_type") val agentType: String? = null,
+    @SerialName("preferred_name") val preferredName: String? = null,
     @SerialName("use_deferred_tools") val useDeferredTools: Boolean? = null,
 )
 
@@ -365,7 +339,10 @@ data class MessageRawData(
 )
 
 @Serializable
-data class ModelsResponse(val models: List<String>)
+data class ModelInfo(val name: String, val provider: String = "ollama")
+
+@Serializable
+data class ModelsResponse(val models: List<ModelInfo>)
 
 @Serializable
 data class AsrModelInfo(

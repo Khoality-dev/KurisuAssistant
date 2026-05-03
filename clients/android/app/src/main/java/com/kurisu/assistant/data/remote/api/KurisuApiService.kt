@@ -8,6 +8,10 @@ import retrofit2.http.*
 
 interface KurisuApiService {
 
+    // Version handshake
+    @GET("/version")
+    suspend fun getServerVersion(): ServerVersionInfo
+
     // Auth
     @Multipart
     @POST("/login")
@@ -126,30 +130,6 @@ interface KurisuApiService {
 
     @DELETE("/agents/{id}")
     suspend fun deleteAgent(@Path("id") id: Int)
-
-    // Personas
-    @GET("/personas")
-    suspend fun listPersonas(): List<Persona>
-
-    @GET("/personas/{id}")
-    suspend fun getPersona(@Path("id") id: Int): Persona
-
-    @POST("/personas")
-    suspend fun createPersona(@Body data: PersonaCreate): Persona
-
-    @PATCH("/personas/{id}")
-    suspend fun updatePersona(@Path("id") id: Int, @Body data: PersonaUpdate): Persona
-
-    @DELETE("/personas/{id}")
-    suspend fun deletePersona(@Path("id") id: Int)
-
-    @Multipart
-    @PATCH("/personas/{id}/avatar")
-    suspend fun updatePersonaAvatar(@Path("id") id: Int, @Part avatar: MultipartBody.Part): Persona
-
-    @Multipart
-    @PATCH("/personas/{id}/voice")
-    suspend fun updatePersonaVoice(@Path("id") id: Int, @Part voice: MultipartBody.Part): Persona
 
     // Tools & MCP
     @GET("/tools")

@@ -58,10 +58,16 @@ com.kurisu.assistant/
 
 ## Commands
 
-- Build: `./gradlew assembleDebug` (requires `JAVA_HOME` set to Android Studio JBR, e.g. `export JAVA_HOME="/c/Program Files/Android/Android Studio/jbr"`)
-- Install: `./gradlew installDebug`
-- Unit tests (JVM): `./gradlew :app:testDebugUnitTest` — Robolectric + MockK + Turbine + Truth, no emulator needed
-- E2E UI tests (instrumented): `./gradlew :app:connectedDebugAndroidTest` — Compose UI tests, needs an emulator/device
+- Build types × flavors:
+  - Flavors: `prod` → applicationId `com.kurisu.assistant` (the GitHub Releases build); `dev` → applicationId `com.kurisu.assistant.dev`, app name "Kurisu Dev". Both can be installed on the same device.
+  - Build everything: `./gradlew assemble` — outputs go to `app/build/outputs/apk/<flavor>/<buildType>/kurisu-assistant-<flavor>-<buildType>-<version>.apk`.
+  - Day-to-day debugging: `./gradlew assembleDevDebug` / `./gradlew installDevDebug`.
+  - Shippable build: `./gradlew assembleProdRelease` (needs `.env` with the release keystore).
+  - Old aliases like `./gradlew assembleDebug` no longer exist — use the flavor-qualified task name.
+- Requires `JAVA_HOME` set to Android Studio JBR, e.g. `export JAVA_HOME="/c/Program Files/Android/Android Studio/jbr"`.
+- Unit tests (JVM): `./gradlew :app:testDevDebugUnitTest` — Robolectric + MockK + Turbine + Truth, no emulator needed.
+- E2E UI tests (instrumented): `./gradlew :app:connectedDevDebugAndroidTest` — Compose UI tests, needs an emulator/device.
+- Local LAN distribution: copy a release APK into `../AndroidLocalDeployment/apks/` and `docker compose up -d` from that directory — phones on the LAN can install from `http://<host-ip>:34822/`.
 - Note: `gradle-wrapper.jar` is gitignored — builds must run from an environment where it has been generated (e.g. Android Studio)
 
 ## Testing

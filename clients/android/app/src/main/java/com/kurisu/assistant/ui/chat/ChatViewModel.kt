@@ -170,7 +170,7 @@ class ChatViewModel @Inject constructor(
             if (agent != null) {
                 agentRepository.setSelectedAgentId(agent.id)
                 voiceInteractionManager.setTriggerWord(
-                    agent.persona?.triggerWord ?: agent.triggerWord,
+                    agent.triggerWord,
                 )
                 coreState.setSelectedAgentId(agent.id)
 
@@ -301,7 +301,8 @@ class ChatViewModel @Inject constructor(
         _state.update { it.copy(modal = ChatModal.AgentPicker(emptyList(), loading = true)) }
         viewModelScope.launch {
             try {
-                val agents = agentRepository.loadAgents()
+                // Only main agents are user-selectable for chat.
+                val agents = agentRepository.loadAgents().filter { it.agentType != "sub" }
                 _state.update { it.copy(modal = ChatModal.AgentPicker(agents, loading = false)) }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load agents", e)
@@ -389,7 +390,7 @@ class ChatViewModel @Inject constructor(
             try {
                 agentRepository.setSelectedAgentId(agent.id)
                 voiceInteractionManager.setTriggerWord(
-                    agent.persona?.triggerWord ?: agent.triggerWord,
+                    agent.triggerWord,
                 )
                 coreState.setSelectedAgentId(agent.id)
                 _state.update { it.copy(agent = agent, modal = null) }

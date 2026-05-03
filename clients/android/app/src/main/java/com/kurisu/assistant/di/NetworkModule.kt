@@ -4,6 +4,7 @@ import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFact
 import com.kurisu.assistant.data.remote.api.AuthInterceptor
 import com.kurisu.assistant.data.remote.api.DynamicBaseUrlInterceptor
 import com.kurisu.assistant.data.remote.api.KurisuApiService
+import com.kurisu.assistant.data.remote.api.WireProtocolInterceptor
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -38,6 +39,7 @@ object NetworkModule {
     fun provideOkHttpClient(
         authInterceptor: AuthInterceptor,
         dynamicBaseUrlInterceptor: DynamicBaseUrlInterceptor,
+        wireProtocolInterceptor: WireProtocolInterceptor,
     ): OkHttpClient {
         val trustManager = object : X509TrustManager {
             override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
@@ -52,6 +54,7 @@ object NetworkModule {
             .sslSocketFactory(sslContext.socketFactory, trustManager)
             .hostnameVerifier { _, _ -> true }
             .addInterceptor(dynamicBaseUrlInterceptor)
+            .addInterceptor(wireProtocolInterceptor)
             .addInterceptor(authInterceptor)
             .addInterceptor(HttpLoggingInterceptor().apply {
                 level = HttpLoggingInterceptor.Level.BASIC

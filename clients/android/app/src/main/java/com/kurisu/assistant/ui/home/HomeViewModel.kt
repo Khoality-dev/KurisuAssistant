@@ -98,7 +98,8 @@ class HomeViewModel @Inject constructor(
             _state.update { it.copy(isLoading = true) }
             try {
                 val baseUrl = prefs.getBackendUrl()
-                val agents = agentRepository.loadAgents()
+                // Sub-agents are task-only workers; only main agents own conversations.
+                val agents = agentRepository.loadAgents().filter { it.agentType != "sub" }
 
                 // Fetch all conversations in one call — each includes last_message
                 val allConversations = conversationRepository.getConversations()

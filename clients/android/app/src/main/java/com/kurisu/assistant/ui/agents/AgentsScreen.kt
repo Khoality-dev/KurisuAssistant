@@ -26,7 +26,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import com.kurisu.assistant.data.model.Agent
-import com.kurisu.assistant.data.model.Persona
+import com.kurisu.assistant.data.model.ModelInfo
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,8 +62,30 @@ fun AgentsScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            FloatingActionButton(onClick = viewModel::openNewEditor) {
-                Icon(Icons.Default.Add, contentDescription = "New Agent")
+            var fabMenuOpen by remember { mutableStateOf(false) }
+            Box {
+                FloatingActionButton(onClick = { fabMenuOpen = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "New Agent")
+                }
+                DropdownMenu(
+                    expanded = fabMenuOpen,
+                    onDismissRequest = { fabMenuOpen = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("New Main Agent") },
+                        onClick = {
+                            fabMenuOpen = false
+                            viewModel.openNewEditor("main")
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("New Sub-Agent") },
+                        onClick = {
+                            fabMenuOpen = false
+                            viewModel.openNewEditor("sub")
+                        },
+                    )
+                }
             }
         },
     ) { padding ->
@@ -86,18 +108,61 @@ fun AgentsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(8.dp))
-                    Button(onClick = viewModel::openNewEditor) {
+                    Button(onClick = { viewModel.openNewEditor("main") }) {
                         Text("Create your first agent")
                     }
                 }
             }
         } else {
+            val mainAgents = state.agents.filter { it.agentType != "sub" }
+            val subAgents = state.agents.filter { it.agentType == "sub" }
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(state.agents, key = { it.id }) { agent ->
+                item("main_header") {
+                    SectionHeader(
+                        title = "Main Agents",
+                        subtitle = "Have personality and talk to you",
+                    )
+                }
+                if (mainAgents.isEmpty()) {
+                    item("main_empty") {
+                        Text(
+                            "No main agents yet",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+                items(mainAgents, key = { "main-${it.id}" }) { agent ->
+                    AgentCard(
+                        agent = agent,
+                        baseUrl = state.baseUrl,
+                        onEdit = { viewModel.openEditEditor(agent) },
+                        onDelete = { viewModel.confirmDelete(agent) },
+                    )
+                }
+                item("sub_header") {
+                    Spacer(Modifier.height(8.dp))
+                    SectionHeader(
+                        title = "Sub-Agents",
+                        subtitle = "Task-only workers callable by main agents",
+                    )
+                }
+                if (subAgents.isEmpty()) {
+                    item("sub_empty") {
+                        Text(
+                            "No sub-agents yet",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+                items(subAgents, key = { "sub-${it.id}" }) { agent ->
                     AgentCard(
                         agent = agent,
                         baseUrl = state.baseUrl,
@@ -113,6 +178,7 @@ fun AgentsScreen(
     if (state.showEditor) {
         AgentEditorDialog(
             isEditing = state.editingAgent != null,
+            agentType = state.editorAgentType,
             avatarUrl = state.editingAgent?.avatarUuid?.let {
                 "${state.baseUrl.trimEnd('/')}/images/$it"
             },
@@ -124,11 +190,9 @@ fun AgentsScreen(
             think = state.editorThink,
             tools = state.editorTools,
             memory = state.editorMemory,
-            personaId = state.editorPersonaId,
             availableModels = state.availableModels,
             availableVoices = state.availableVoices,
             availableTools = state.availableTools.map { it.function.name },
-            availablePersonas = state.availablePersonas,
             isSaving = state.isSaving,
             onNameChange = viewModel::setEditorName,
             onModelNameChange = viewModel::setEditorModelName,
@@ -138,7 +202,6 @@ fun AgentsScreen(
             onThinkChange = viewModel::setEditorThink,
             onToggleTool = viewModel::toggleEditorTool,
             onMemoryChange = viewModel::setEditorMemory,
-            onPersonaIdChange = viewModel::setEditorPersonaId,
             onSave = viewModel::saveAgent,
             onDismiss = viewModel::dismissEditor,
         )
@@ -162,6 +225,7 @@ fun AgentsScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AgentCard(
     agent: Agent,
@@ -202,7 +266,19 @@ private fun AgentCard(
                     )
                 }
                 // Tags
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    if (agent.agentType == "sub") {
+                        AssistChip(
+                            onClick = {},
+                            label = { Text("Sub", style = MaterialTheme.typography.labelSmall) },
+                            colors = AssistChipDefaults.assistChipColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            ),
+                        )
+                    }
                     if (agent.think) {
                         SuggestionChip(
                             onClick = {},
@@ -241,6 +317,7 @@ private fun AgentCard(
 @Composable
 private fun AgentEditorDialog(
     isEditing: Boolean,
+    agentType: String,
     avatarUrl: String?,
     name: String,
     modelName: String,
@@ -250,11 +327,9 @@ private fun AgentEditorDialog(
     think: Boolean,
     tools: List<String>,
     memory: String,
-    personaId: Int?,
-    availableModels: List<String>,
+    availableModels: List<ModelInfo>,
     availableVoices: List<String>,
     availableTools: List<String>,
-    availablePersonas: List<Persona>,
     isSaving: Boolean,
     onNameChange: (String) -> Unit,
     onModelNameChange: (String) -> Unit,
@@ -264,16 +339,23 @@ private fun AgentEditorDialog(
     onThinkChange: (Boolean) -> Unit,
     onToggleTool: (String) -> Unit,
     onMemoryChange: (String) -> Unit,
-    onPersonaIdChange: (Int?) -> Unit,
     onSave: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var modelDropdownExpanded by remember { mutableStateOf(false) }
     var voiceDropdownExpanded by remember { mutableStateOf(false) }
+    val isMain = agentType == "main"
+
+    val dialogTitle = when {
+        isEditing && isMain -> "Edit Main Agent"
+        isEditing && !isMain -> "Edit Sub-Agent"
+        isMain -> "New Main Agent"
+        else -> "New Sub-Agent"
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (isEditing) "Edit Agent" else "New Agent") },
+        title = { Text(dialogTitle) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -296,43 +378,6 @@ private fun AgentEditorDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                // Persona selector
-                if (availablePersonas.isNotEmpty()) {
-                    var personaExpanded by remember { mutableStateOf(false) }
-                    val selectedPersonaName = if (personaId != null) {
-                        availablePersonas.find { it.id == personaId }?.name ?: "Unknown"
-                    } else "None"
-
-                    ExposedDropdownMenuBox(
-                        expanded = personaExpanded,
-                        onExpandedChange = { personaExpanded = it },
-                    ) {
-                        OutlinedTextField(
-                            value = selectedPersonaName,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Persona") },
-                            modifier = Modifier.fillMaxWidth().menuAnchor(),
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = personaExpanded) },
-                        )
-                        ExposedDropdownMenu(
-                            expanded = personaExpanded,
-                            onDismissRequest = { personaExpanded = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("None") },
-                                onClick = { onPersonaIdChange(null); personaExpanded = false },
-                            )
-                            availablePersonas.forEach { persona ->
-                                DropdownMenuItem(
-                                    text = { Text(persona.name) },
-                                    onClick = { onPersonaIdChange(persona.id); personaExpanded = false },
-                                )
-                            }
-                        }
-                    }
-                }
-
                 // Model selector
                 ExposedDropdownMenuBox(
                     expanded = modelDropdownExpanded,
@@ -351,20 +396,36 @@ private fun AgentEditorDialog(
                             expanded = modelDropdownExpanded,
                             onDismissRequest = { modelDropdownExpanded = false },
                         ) {
-                            availableModels.forEach { model ->
+                            val grouped = availableModels.groupBy { it.provider }
+                                .toSortedMap()
+                            grouped.forEach { (provider, models) ->
                                 DropdownMenuItem(
-                                    text = { Text(model) },
-                                    onClick = {
-                                        onModelNameChange(model)
-                                        modelDropdownExpanded = false
+                                    enabled = false,
+                                    text = {
+                                        Text(
+                                            provider.uppercase(),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
                                     },
+                                    onClick = {},
                                 )
+                                models.sortedBy { it.name }.forEach { model ->
+                                    DropdownMenuItem(
+                                        text = { Text(model.name) },
+                                        onClick = {
+                                            onModelNameChange(model.name)
+                                            modelDropdownExpanded = false
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
                 }
 
-                // Voice selector
+                // Voice selector — main agents only
+                if (isMain) {
                 ExposedDropdownMenuBox(
                     expanded = voiceDropdownExpanded,
                     onExpandedChange = { voiceDropdownExpanded = it },
@@ -395,6 +456,7 @@ private fun AgentEditorDialog(
                         }
                     }
                 }
+                }
 
                 OutlinedTextField(
                     value = systemPrompt,
@@ -404,14 +466,16 @@ private fun AgentEditorDialog(
                     maxLines = 8,
                 )
 
-                OutlinedTextField(
-                    value = triggerWord,
-                    onValueChange = onTriggerWordChange,
-                    label = { Text("Trigger Word") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    supportingText = { Text("Voice activation keyword") },
-                )
+                if (isMain) {
+                    OutlinedTextField(
+                        value = triggerWord,
+                        onValueChange = onTriggerWordChange,
+                        label = { Text("Trigger Word") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        supportingText = { Text("Voice activation keyword") },
+                    )
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -459,6 +523,24 @@ private fun AgentEditorDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         },
     )
+}
+
+@Composable
+private fun SectionHeader(title: String, subtitle: String? = null) {
+    Column(modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        if (subtitle != null) {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
 
 @Composable

@@ -13,8 +13,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.kurisu.assistant.BuildConfig
-import com.kurisu.assistant.ui.update.UpdateDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,16 +28,6 @@ fun AccountScreen(
             snackbarHostState.showSnackbar(it)
             viewModel.clearMessage()
         }
-    }
-
-    if (state.updateRelease != null) {
-        UpdateDialog(
-            release = state.updateRelease!!,
-            progress = state.updateProgress,
-            apkFile = state.updateApkFile,
-            onDownload = viewModel::downloadAndInstall,
-            onDismiss = viewModel::dismissUpdate,
-        )
     }
 
     Scaffold(
@@ -153,14 +141,29 @@ fun AccountScreen(
                         expanded = modelExpanded,
                         onDismissRequest = { modelExpanded = false },
                     ) {
-                        state.availableModels.forEach { model ->
+                        val grouped = state.availableModels.groupBy { it.provider }
+                            .toSortedMap()
+                        grouped.forEach { (provider, models) ->
                             DropdownMenuItem(
-                                text = { Text(model) },
-                                onClick = {
-                                    viewModel.setSummaryModel(model)
-                                    modelExpanded = false
+                                enabled = false,
+                                text = {
+                                    Text(
+                                        provider.uppercase(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
                                 },
+                                onClick = {},
                             )
+                            models.sortedBy { it.name }.forEach { model ->
+                                DropdownMenuItem(
+                                    text = { Text(model.name) },
+                                    onClick = {
+                                        viewModel.setSummaryModel(model.name)
+                                        modelExpanded = false
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -181,21 +184,6 @@ fun AccountScreen(
                 enabled = !state.isSaving,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Save") }
-
-            // About
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            Text("About", style = MaterialTheme.typography.titleMedium)
-            Text("Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium)
-            OutlinedButton(
-                onClick = viewModel::checkForUpdate,
-                enabled = !state.isCheckingUpdate,
-            ) {
-                if (state.isCheckingUpdate) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text("Check for updates")
-            }
         }
     }
 }

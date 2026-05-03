@@ -2,7 +2,9 @@ package com.kurisu.assistant.data.repository
 
 import android.content.Context
 import com.kurisu.assistant.BuildConfig
+import com.kurisu.assistant.data.model.GithubAsset
 import com.kurisu.assistant.data.model.GithubRelease
+import com.kurisu.assistant.data.model.LocalUpdateManifest
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -20,8 +22,9 @@ class UpdateRepository @Inject constructor(
     private val json: Json,
 ) {
     companion object {
-        private const val RELEASES_URL =
+        private const val GITHUB_RELEASES_URL =
             "https://api.github.com/repos/Khoality-dev/KurisuAssistant-Client-Android/releases/latest"
+        private const val DEV_MANIFEST_PATH = "/apks/kurisu-dev-latest.json"
     }
 
     private val client = OkHttpClient.Builder()
@@ -29,9 +32,22 @@ class UpdateRepository @Inject constructor(
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    suspend fun checkForUpdate(): GithubRelease? = withContext(Dispatchers.IO) {
+    /**
+     * Returns a release object if a newer build is available, else null.
+     * Dispatches by build flavor:
+     *   - prod → GitHub Releases (the public ship channel)
+     *   - dev  → AndroidLocalDeployment manifest on the LAN
+     * The dev path synthesizes a [GithubRelease] so the rest of the update
+     * pipeline (HomeViewModel, UpdateDialog, downloadApk) doesn't need to care.
+     */
+    suspend fun checkForUpdate(): GithubRelease? = when (BuildConfig.FLAVOR) {
+        "dev" -> checkLocalDevUpdate()
+        else -> checkGithubUpdate()
+    }
+
+    private suspend fun checkGithubUpdate(): GithubRelease? = withContext(Dispatchers.IO) {
         val request = Request.Builder()
-            .url(RELEASES_URL)
+            .url(GITHUB_RELEASES_URL)
             .header("Accept", "application/vnd.github.v3+json")
             .build()
 
@@ -42,6 +58,39 @@ class UpdateRepository @Inject constructor(
         val release = json.decodeFromString<GithubRelease>(body)
 
         if (isNewer(release.tagName, BuildConfig.VERSION_NAME)) release else null
+    }
+
+    private suspend fun checkLocalDevUpdate(): GithubRelease? = withContext(Dispatchers.IO) {
+        val baseUrl = BuildConfig.DEV_UPDATE_BASE_URL.trimEnd('/')
+        if (baseUrl.isEmpty()) return@withContext null
+
+        val request = Request.Builder().url(baseUrl + DEV_MANIFEST_PATH).build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) return@withContext null
+
+        val body = response.body?.string() ?: return@withContext null
+        val manifest = json.decodeFromString<LocalUpdateManifest>(body)
+
+        if (manifest.versionCode <= BuildConfig.VERSION_CODE) return@withContext null
+
+        val apkUrl = resolveApkUrl(baseUrl, manifest.apkPath)
+        GithubRelease(
+            tagName = manifest.versionName,
+            name = manifest.name ?: "Dev build ${manifest.versionName}",
+            body = manifest.body,
+            assets = listOf(
+                GithubAsset(
+                    name = manifest.apkPath.substringAfterLast('/'),
+                    browserDownloadUrl = apkUrl,
+                ),
+            ),
+        )
+    }
+
+    private fun resolveApkUrl(baseUrl: String, apkPath: String): String = when {
+        apkPath.startsWith("http://") || apkPath.startsWith("https://") -> apkPath
+        apkPath.startsWith("/") -> baseUrl + apkPath
+        else -> "$baseUrl/apks/$apkPath"
     }
 
     suspend fun downloadApk(url: String, onProgress: (Float) -> Unit): File =

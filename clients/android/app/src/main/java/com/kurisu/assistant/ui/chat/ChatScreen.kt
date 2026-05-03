@@ -35,12 +35,12 @@ fun ChatScreen(
     onNavigateToAccount: () -> Unit,
     onNavigateToTtsAsr: () -> Unit,
     onNavigateToAppearance: () -> Unit,
-    onNavigateToPersonas: () -> Unit,
     onNavigateToAgents: () -> Unit,
     onNavigateToToolsMcp: () -> Unit,
     onNavigateToSkills: () -> Unit,
     onNavigateToCharacter: () -> Unit,
     onNavigateToFaces: () -> Unit,
+    onNavigateToAbout: () -> Unit,
     onLogout: () -> Unit,
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
@@ -252,13 +252,6 @@ fun ChatScreen(
                 )
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
                 NavigationDrawerItem(
-                    icon = { Icon(Icons.Default.Person, contentDescription = null) },
-                    label = { Text("Personas") },
-                    selected = false,
-                    onClick = { scope.launch { drawerState.close() }; onNavigateToPersonas() },
-                    modifier = Modifier.padding(horizontal = 12.dp),
-                )
-                NavigationDrawerItem(
                     icon = { Icon(Icons.Default.SmartToy, contentDescription = null) },
                     label = { Text("Agents") },
                     selected = false,
@@ -289,6 +282,13 @@ fun ChatScreen(
                 )
                 Spacer(Modifier.weight(1f))
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.Info, contentDescription = null) },
+                    label = { Text("About") },
+                    selected = false,
+                    onClick = { scope.launch { drawerState.close() }; onNavigateToAbout() },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
                 NavigationDrawerItem(
                     icon = { Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null) },
                     label = { Text("Logout") },

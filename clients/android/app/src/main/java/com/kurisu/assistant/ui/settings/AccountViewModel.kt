@@ -1,14 +1,13 @@
 package com.kurisu.assistant.ui.settings
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kurisu.assistant.data.local.PreferencesDataStore
+import com.kurisu.assistant.data.model.ModelInfo
 import com.kurisu.assistant.data.remote.api.DynamicBaseUrlInterceptor
 import com.kurisu.assistant.data.remote.api.KurisuApiService
 import com.kurisu.assistant.data.repository.AgentRepository
 import com.kurisu.assistant.data.repository.AuthRepository
-import com.kurisu.assistant.data.repository.UpdateRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,13 +21,9 @@ data class AccountUiState(
     val nvidiaApiKey: String = "",
     val summaryModel: String = "",
     val contextSize: String = "8192",
-    val availableModels: List<String> = emptyList(),
+    val availableModels: List<ModelInfo> = emptyList(),
     val isSaving: Boolean = false,
     val message: String? = null,
-    val isCheckingUpdate: Boolean = false,
-    val updateRelease: com.kurisu.assistant.data.model.GithubRelease? = null,
-    val updateProgress: Float? = null,
-    val updateApkFile: java.io.File? = null,
     val serverUrl: String = "",
     val isValidatingGemini: Boolean = false,
     val isValidatingNvidia: Boolean = false,
@@ -41,7 +36,6 @@ class AccountViewModel @Inject constructor(
     private val agentRepository: AgentRepository,
     private val prefs: PreferencesDataStore,
     private val dynamicBaseUrlInterceptor: DynamicBaseUrlInterceptor,
-    private val updateRepository: UpdateRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AccountUiState())
@@ -143,43 +137,5 @@ class AccountViewModel @Inject constructor(
                 _state.update { it.copy(isValidatingNvidia = false) }
             }
         }
-    }
-
-    fun checkForUpdate() {
-        viewModelScope.launch {
-            _state.update { it.copy(isCheckingUpdate = true) }
-            try {
-                val release = updateRepository.checkForUpdate()
-                if (release != null) {
-                    _state.update { it.copy(updateRelease = release) }
-                } else {
-                    _state.update { it.copy(message = "You're on the latest version") }
-                }
-            } catch (e: Exception) {
-                _state.update { it.copy(message = "Update check failed: ${e.message}") }
-            } finally {
-                _state.update { it.copy(isCheckingUpdate = false) }
-            }
-        }
-    }
-
-    fun downloadAndInstall() {
-        val release = _state.value.updateRelease ?: return
-        val apkAsset = release.assets.firstOrNull { it.name.endsWith(".apk") } ?: return
-        viewModelScope.launch {
-            _state.update { it.copy(updateProgress = 0f) }
-            try {
-                val file = updateRepository.downloadApk(apkAsset.browserDownloadUrl) { progress ->
-                    _state.update { it.copy(updateProgress = progress) }
-                }
-                _state.update { it.copy(updateApkFile = file, updateProgress = 1f) }
-            } catch (e: Exception) {
-                _state.update { it.copy(updateProgress = null, message = "Download failed: ${e.message}") }
-            }
-        }
-    }
-
-    fun dismissUpdate() {
-        _state.update { it.copy(updateRelease = null, updateProgress = null, updateApkFile = null) }
     }
 }

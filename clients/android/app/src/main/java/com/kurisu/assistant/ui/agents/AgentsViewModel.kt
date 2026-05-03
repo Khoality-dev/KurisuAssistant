@@ -6,7 +6,7 @@ import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.model.Agent
 import com.kurisu.assistant.data.model.AgentCreate
 import com.kurisu.assistant.data.model.AgentUpdate
-import com.kurisu.assistant.data.model.Persona
+import com.kurisu.assistant.data.model.ModelInfo
 import com.kurisu.assistant.data.model.Tool
 import com.kurisu.assistant.data.remote.api.KurisuApiService
 import com.kurisu.assistant.data.repository.AgentRepository
@@ -25,13 +25,13 @@ data class AgentsUiState(
     val baseUrl: String = "",
     val message: String? = null,
     // Available options for editor
-    val availableModels: List<String> = emptyList(),
+    val availableModels: List<ModelInfo> = emptyList(),
     val availableTools: List<Tool> = emptyList(),
     val availableVoices: List<String> = emptyList(),
-    val availablePersonas: List<Persona> = emptyList(),
     // Editor dialog
     val showEditor: Boolean = false,
     val editingAgent: Agent? = null,
+    val editorAgentType: String = "main",
     val editorName: String = "",
     val editorModelName: String = "",
     val editorSystemPrompt: String = "",
@@ -40,7 +40,6 @@ data class AgentsUiState(
     val editorVoiceReference: String = "",
     val editorTools: List<String> = emptyList(),
     val editorMemory: String = "",
-    val editorPersonaId: Int? = null,
     val isSaving: Boolean = false,
     // Delete confirmation
     val deletingAgent: Agent? = null,
@@ -89,33 +88,30 @@ class AgentsViewModel @Inject constructor(
                 val voices = ttsRepository.listVoices(null)
                 _state.update { it.copy(availableVoices = voices) }
             } catch (_: Exception) {}
-            try {
-                val personas = api.listPersonas()
-                _state.update { it.copy(availablePersonas = personas) }
-            } catch (_: Exception) {}
         }
     }
 
     fun clearMessage() = _state.update { it.copy(message = null) }
 
     // Editor
-    fun openNewEditor() = _state.update { it.copy(
+    fun openNewEditor(agentType: String = "main") = _state.update { it.copy(
         showEditor = true,
         editingAgent = null,
+        editorAgentType = agentType,
         editorName = "",
-        editorModelName = it.availableModels.firstOrNull() ?: "",
+        editorModelName = it.availableModels.firstOrNull()?.name ?: "",
         editorSystemPrompt = "",
         editorVoiceReference = "",
         editorTriggerWord = "",
         editorThink = false,
         editorTools = emptyList(),
         editorMemory = "",
-        editorPersonaId = null,
     ) }
 
     fun openEditEditor(agent: Agent) = _state.update { it.copy(
         showEditor = true,
         editingAgent = agent,
+        editorAgentType = agent.agentType,
         editorName = agent.name,
         editorModelName = agent.modelName ?: "",
         editorSystemPrompt = agent.systemPrompt,
@@ -124,7 +120,6 @@ class AgentsViewModel @Inject constructor(
         editorThink = agent.think,
         editorTools = agent.availableTools ?: agent.tools ?: emptyList(),
         editorMemory = agent.memory ?: "",
-        editorPersonaId = agent.personaId,
     ) }
 
     fun dismissEditor() = _state.update { it.copy(showEditor = false, editingAgent = null) }
@@ -136,7 +131,6 @@ class AgentsViewModel @Inject constructor(
     fun setEditorTriggerWord(v: String) = _state.update { it.copy(editorTriggerWord = v) }
     fun setEditorThink(v: Boolean) = _state.update { it.copy(editorThink = v) }
     fun setEditorMemory(v: String) = _state.update { it.copy(editorMemory = v) }
-    fun setEditorPersonaId(id: Int?) = _state.update { it.copy(editorPersonaId = id) }
 
     fun toggleEditorTool(toolName: String) = _state.update {
         val current = it.editorTools.toMutableList()
@@ -157,17 +151,20 @@ class AgentsViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isSaving = true) }
             try {
+                val isMain = s.editorAgentType == "main"
+                val voice = if (isMain) s.editorVoiceReference.trim().ifBlank { null } else null
+                val trigger = if (isMain) s.editorTriggerWord.trim().ifBlank { null } else null
                 if (s.editingAgent != null) {
                     agentRepository.updateAgent(s.editingAgent.id, AgentUpdate(
                         name = s.editorName.trim(),
                         modelName = s.editorModelName.trim(),
                         systemPrompt = s.editorSystemPrompt,
-                        voiceReference = s.editorVoiceReference.trim().ifBlank { null },
-                        triggerWord = s.editorTriggerWord.trim().ifBlank { null },
+                        voiceReference = voice,
+                        triggerWord = trigger,
                         think = s.editorThink,
                         availableTools = s.editorTools,
                         memory = s.editorMemory.ifBlank { null },
-                        personaId = s.editorPersonaId,
+                        agentType = s.editorAgentType,
                     ))
                     _state.update { it.copy(message = "Agent updated") }
                 } else {
@@ -175,13 +172,13 @@ class AgentsViewModel @Inject constructor(
                         name = s.editorName.trim(),
                         modelName = s.editorModelName.trim(),
                         systemPrompt = s.editorSystemPrompt.ifBlank { null },
-                        voiceReference = s.editorVoiceReference.trim().ifBlank { null },
-                        triggerWord = s.editorTriggerWord.trim().ifBlank { null },
+                        voiceReference = voice,
+                        triggerWord = trigger,
                         think = s.editorThink,
                         availableTools = s.editorTools.ifEmpty { null },
-                        personaId = s.editorPersonaId,
+                        agentType = s.editorAgentType,
                     ))
-                    _state.update { it.copy(message = "Agent created") }
+                    _state.update { it.copy(message = if (isMain) "Main agent created" else "Sub-agent created") }
                 }
                 _state.update { it.copy(showEditor = false, editingAgent = null) }
                 reloadAgents()

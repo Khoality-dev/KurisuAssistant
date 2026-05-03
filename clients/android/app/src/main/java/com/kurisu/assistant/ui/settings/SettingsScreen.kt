@@ -235,7 +235,10 @@ fun SettingsScreen(
 
             // About & Logout
             Text("About", style = MaterialTheme.typography.titleMedium)
-            Text("Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                style = MaterialTheme.typography.bodyMedium,
+            )
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
