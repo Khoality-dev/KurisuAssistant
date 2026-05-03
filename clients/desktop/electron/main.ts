@@ -63,8 +63,10 @@ function initAutoLaunch(): void {
 }
 
 function createTray(): void {
-  // Try to use app icon from resources, fall back to empty
-  const iconPath = path.join(__dirname, '../resources/icon.ico');
+  // Try to use app icon from resources, fall back to empty.
+  // Linux/macOS need PNG; Windows uses .ico.
+  const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
+  const iconPath = path.join(__dirname, '../resources', iconName);
   const trayIcon = fs.existsSync(iconPath)
     ? nativeImage.createFromPath(iconPath)
     : nativeImage.createEmpty();
@@ -274,14 +276,19 @@ ipcMain.on('character:subtitle', (_event, data) => {
 // --- Extensions ---
 
 function getExtensionExePath(appName: string): string {
-  const localAppData = process.env.LOCALAPPDATA || path.join(app.getPath('home'), 'AppData', 'Local');
-  if (appName === 'maestro') {
-    return path.join(localAppData, 'Programs', 'Maestro', 'Maestro.exe');
+  if (appName !== 'maestro' && appName !== 'chronicle') {
+    throw new Error(`Unknown extension: ${appName}`);
   }
-  if (appName === 'chronicle') {
-    return path.join(localAppData, 'Programs', 'Chronicle', 'Chronicle.exe');
+  const displayName = appName === 'maestro' ? 'Maestro' : 'Chronicle';
+  if (process.platform === 'win32') {
+    const localAppData = process.env.LOCALAPPDATA || path.join(app.getPath('home'), 'AppData', 'Local');
+    return path.join(localAppData, 'Programs', displayName, `${displayName}.exe`);
   }
-  throw new Error(`Unknown extension: ${appName}`);
+  // Linux/macOS: portable layout under XDG data dir. The file likely doesn't
+  // exist (these companion apps are currently Windows-only), which is fine —
+  // the IPC handler checks existence and surfaces "not installed" in the UI.
+  const dataDir = process.env.XDG_DATA_HOME || path.join(app.getPath('home'), '.local', 'share');
+  return path.join(dataDir, 'kurisu-assistant', appName, appName);
 }
 
 function downloadFile(url: string, destPath: string, onProgress: (percent: number) => void): Promise<void> {
@@ -351,7 +358,8 @@ ipcMain.handle('extensions:launch-app', (_event, appName: string) => {
 
 ipcMain.handle('extensions:download-install', async (_event, url: string) => {
   const tempDir = app.getPath('temp');
-  const fileName = url.split('/').pop() || 'installer.exe';
+  const defaultName = process.platform === 'win32' ? 'installer.exe' : 'installer';
+  const fileName = url.split('/').pop() || defaultName;
   const destPath = path.join(tempDir, fileName);
 
   await downloadFile(url, destPath, (percent) => {

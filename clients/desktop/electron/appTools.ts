@@ -471,7 +471,16 @@ function findBrowser(preference: string): { name: string; path: string } | null 
             path.join(process.env['PROGRAMFILES(X86)'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
             path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
           ]
-        : ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'],
+        : [
+            '/usr/bin/google-chrome',
+            '/usr/bin/google-chrome-stable',
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
+            '/snap/bin/chromium',
+            '/snap/bin/google-chrome',
+            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+            '/Applications/Chromium.app/Contents/MacOS/Chromium',
+          ],
     },
     {
       name: 'edge',
@@ -480,7 +489,12 @@ function findBrowser(preference: string): { name: string; path: string } | null 
             path.join(process.env.PROGRAMFILES || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
             path.join(process.env['PROGRAMFILES(X86)'] || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
           ]
-        : ['/usr/bin/microsoft-edge', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'],
+        : [
+            '/usr/bin/microsoft-edge',
+            '/usr/bin/microsoft-edge-stable',
+            '/opt/microsoft/msedge/microsoft-edge',
+            '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+          ],
     },
   ];
 
