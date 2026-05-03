@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-KurisuAssistant-Client-Windows — desktop client for the KurisuAssistant AI platform. React + Electron + TypeScript + MUI + Framer Motion. Chat interface with streaming responses, TTS, image attachments, conversation management, and animated 2D character video call window.
+KurisuAssistant-Client-Desktop — cross-platform desktop client (Windows + Linux) for the KurisuAssistant AI platform. React + Electron + TypeScript + MUI + Framer Motion. Chat interface with streaming responses, TTS, image attachments, conversation management, and animated 2D character video call window.
 
 ## Tech Stack
 
