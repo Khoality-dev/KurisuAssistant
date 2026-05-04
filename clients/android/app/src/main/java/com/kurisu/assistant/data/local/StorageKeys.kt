@@ -3,7 +3,6 @@ package com.kurisu.assistant.data.local
 object StorageKeys {
     const val AUTH_TOKEN = "kurisu_auth_token"
     const val REMEMBER_ME = "kurisu_remember_me"
-    const val SELECTED_MODEL = "kurisu_selected_model"
     const val TTS_VOICE = "kurisu_tts_voice"
     const val TTS_LANGUAGE = "kurisu_tts_language"
     const val TTS_AUTO_PLAY = "kurisu_tts_auto_play"

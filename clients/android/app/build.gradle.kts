@@ -76,7 +76,7 @@ android {
         applicationId = "com.kurisu.assistant"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
+        versionCode = 10
         versionName = "0.2.0"
         // Wire-protocol integer — must equal backend `WIRE_PROTOCOL` in
         // KurisuAssistant/kurisuassistant/version.py. Bump on any breaking

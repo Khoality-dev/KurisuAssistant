@@ -27,6 +27,7 @@ import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import com.kurisu.assistant.data.model.Agent
 import com.kurisu.assistant.data.model.ModelInfo
+import com.kurisu.assistant.ui.common.ModelDropdown
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -191,11 +192,13 @@ fun AgentsScreen(
             tools = state.editorTools,
             memory = state.editorMemory,
             availableModels = state.availableModels,
+            isRefreshingModels = state.isRefreshingModels,
             availableVoices = state.availableVoices,
             availableTools = state.availableTools.map { it.function.name },
             isSaving = state.isSaving,
             onNameChange = viewModel::setEditorName,
             onModelNameChange = viewModel::setEditorModelName,
+            onRefreshModels = viewModel::refreshModels,
             onSystemPromptChange = viewModel::setEditorSystemPrompt,
             onVoiceReferenceChange = viewModel::setEditorVoiceReference,
             onTriggerWordChange = viewModel::setEditorTriggerWord,
@@ -328,6 +331,7 @@ private fun AgentEditorDialog(
     tools: List<String>,
     memory: String,
     availableModels: List<ModelInfo>,
+    isRefreshingModels: Boolean,
     availableVoices: List<String>,
     availableTools: List<String>,
     isSaving: Boolean,
@@ -339,10 +343,10 @@ private fun AgentEditorDialog(
     onThinkChange: (Boolean) -> Unit,
     onToggleTool: (String) -> Unit,
     onMemoryChange: (String) -> Unit,
+    onRefreshModels: () -> Unit,
     onSave: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var modelDropdownExpanded by remember { mutableStateOf(false) }
     var voiceDropdownExpanded by remember { mutableStateOf(false) }
     val isMain = agentType == "main"
 
@@ -378,51 +382,14 @@ private fun AgentEditorDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                // Model selector
-                ExposedDropdownMenuBox(
-                    expanded = modelDropdownExpanded,
-                    onExpandedChange = { modelDropdownExpanded = it },
-                ) {
-                    OutlinedTextField(
-                        value = modelName,
-                        onValueChange = onModelNameChange,
-                        label = { Text("Model") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().menuAnchor(),
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelDropdownExpanded) },
-                    )
-                    if (availableModels.isNotEmpty()) {
-                        ExposedDropdownMenu(
-                            expanded = modelDropdownExpanded,
-                            onDismissRequest = { modelDropdownExpanded = false },
-                        ) {
-                            val grouped = availableModels.groupBy { it.provider }
-                                .toSortedMap()
-                            grouped.forEach { (provider, models) ->
-                                DropdownMenuItem(
-                                    enabled = false,
-                                    text = {
-                                        Text(
-                                            provider.uppercase(),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.primary,
-                                        )
-                                    },
-                                    onClick = {},
-                                )
-                                models.sortedBy { it.name }.forEach { model ->
-                                    DropdownMenuItem(
-                                        text = { Text(model.name) },
-                                        onClick = {
-                                            onModelNameChange(model.name)
-                                            modelDropdownExpanded = false
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+                ModelDropdown(
+                    label = "Model",
+                    value = modelName,
+                    onValueChange = onModelNameChange,
+                    availableModels = availableModels,
+                    isRefreshing = isRefreshingModels,
+                    onRefresh = onRefreshModels,
+                )
 
                 // Voice selector — main agents only
                 if (isMain) {

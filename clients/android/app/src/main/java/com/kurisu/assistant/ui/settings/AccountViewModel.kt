@@ -22,6 +22,7 @@ data class AccountUiState(
     val summaryModel: String = "",
     val contextSize: String = "8192",
     val availableModels: List<ModelInfo> = emptyList(),
+    val isRefreshingModels: Boolean = false,
     val isSaving: Boolean = false,
     val message: String? = null,
     val serverUrl: String = "",
@@ -55,10 +56,21 @@ class AccountViewModel @Inject constructor(
                     contextSize = (user.contextSize ?: 8192).toString(),
                 ) }
             } catch (_: Exception) {}
+            refreshModels()
+        }
+    }
+
+    fun refreshModels() {
+        viewModelScope.launch {
+            _state.update { it.copy(isRefreshingModels = true) }
             try {
                 val models = agentRepository.listModels()
                 _state.update { it.copy(availableModels = models) }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                _state.update { it.copy(message = "Failed to load models: ${e.message}") }
+            } finally {
+                _state.update { it.copy(isRefreshingModels = false) }
+            }
         }
     }
 

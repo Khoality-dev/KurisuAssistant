@@ -333,10 +333,10 @@ class CoreService : Service() {
 
         serviceScope.launch {
             try {
-                val modelName = prefs.getSelectedModel() ?: ""
+                // Backend uses the agent's configured model_name when modelName is empty.
                 wsManager.sendChatRequest(
                     text = text,
-                    modelName = modelName,
+                    modelName = "",
                     conversationId = state.conversationId,
                     agentId = state.selectedAgentId,
                 )

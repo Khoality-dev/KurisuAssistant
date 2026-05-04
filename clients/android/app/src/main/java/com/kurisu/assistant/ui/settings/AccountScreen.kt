@@ -13,6 +13,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.kurisu.assistant.ui.common.ModelDropdown
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -122,52 +123,15 @@ fun AccountScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
             Text("Model", style = MaterialTheme.typography.titleMedium)
 
-            var modelExpanded by remember { mutableStateOf(false) }
-            ExposedDropdownMenuBox(
-                expanded = modelExpanded,
-                onExpandedChange = { modelExpanded = it },
-            ) {
-                OutlinedTextField(
-                    value = state.summaryModel,
-                    onValueChange = viewModel::setSummaryModel,
-                    label = { Text("Summary Model") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().menuAnchor(),
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelExpanded) },
-                    supportingText = { Text("For session summaries & memory consolidation") },
-                )
-                if (state.availableModels.isNotEmpty()) {
-                    ExposedDropdownMenu(
-                        expanded = modelExpanded,
-                        onDismissRequest = { modelExpanded = false },
-                    ) {
-                        val grouped = state.availableModels.groupBy { it.provider }
-                            .toSortedMap()
-                        grouped.forEach { (provider, models) ->
-                            DropdownMenuItem(
-                                enabled = false,
-                                text = {
-                                    Text(
-                                        provider.uppercase(),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                },
-                                onClick = {},
-                            )
-                            models.sortedBy { it.name }.forEach { model ->
-                                DropdownMenuItem(
-                                    text = { Text(model.name) },
-                                    onClick = {
-                                        viewModel.setSummaryModel(model.name)
-                                        modelExpanded = false
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            ModelDropdown(
+                label = "Summary Model",
+                value = state.summaryModel,
+                onValueChange = viewModel::setSummaryModel,
+                availableModels = state.availableModels,
+                isRefreshing = state.isRefreshingModels,
+                onRefresh = viewModel::refreshModels,
+                supportingText = { Text("For session summaries & memory consolidation") },
+            )
 
             OutlinedTextField(
                 value = state.contextSize,
