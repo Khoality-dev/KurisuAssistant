@@ -29,7 +29,6 @@ class PreferencesDataStore @Inject constructor(
 
     // Keys
     private val KEY_REMEMBER_ME = booleanPreferencesKey(StorageKeys.REMEMBER_ME)
-    private val KEY_SELECTED_MODEL = stringPreferencesKey(StorageKeys.SELECTED_MODEL)
     private val KEY_TTS_VOICE = stringPreferencesKey(StorageKeys.TTS_VOICE)
     private val KEY_TTS_LANGUAGE = stringPreferencesKey(StorageKeys.TTS_LANGUAGE)
     private val KEY_TTS_BACKEND = stringPreferencesKey(StorageKeys.TTS_BACKEND)
@@ -55,10 +54,6 @@ class PreferencesDataStore @Inject constructor(
     suspend fun getBackendUrl(): String = ds.data.first()[KEY_BACKEND_URL] ?: DEFAULT_BACKEND_URL
     fun backendUrlFlow(): Flow<String> = ds.data.map { it[KEY_BACKEND_URL] ?: DEFAULT_BACKEND_URL }
     suspend fun setBackendUrl(url: String) { ds.edit { it[KEY_BACKEND_URL] = url } }
-
-    // Selected Model
-    suspend fun getSelectedModel(): String? = ds.data.first()[KEY_SELECTED_MODEL]
-    suspend fun setSelectedModel(model: String) { ds.edit { it[KEY_SELECTED_MODEL] = model } }
 
     // TTS
     suspend fun getTTSVoice(): String? = ds.data.first()[KEY_TTS_VOICE]

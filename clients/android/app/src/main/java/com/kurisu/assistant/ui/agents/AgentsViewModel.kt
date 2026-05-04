@@ -26,6 +26,7 @@ data class AgentsUiState(
     val message: String? = null,
     // Available options for editor
     val availableModels: List<ModelInfo> = emptyList(),
+    val isRefreshingModels: Boolean = false,
     val availableTools: List<Tool> = emptyList(),
     val availableVoices: List<String> = emptyList(),
     // Editor dialog
@@ -75,10 +76,7 @@ class AgentsViewModel @Inject constructor(
             }
 
             // Load models and tools in background for editor
-            try {
-                val models = agentRepository.listModels()
-                _state.update { it.copy(availableModels = models) }
-            } catch (_: Exception) {}
+            refreshModels()
             try {
                 val tools = toolsRepository.listTools()
                 val allTools = tools.mcpTools + tools.builtinTools
@@ -88,6 +86,20 @@ class AgentsViewModel @Inject constructor(
                 val voices = ttsRepository.listVoices(null)
                 _state.update { it.copy(availableVoices = voices) }
             } catch (_: Exception) {}
+        }
+    }
+
+    fun refreshModels() {
+        viewModelScope.launch {
+            _state.update { it.copy(isRefreshingModels = true) }
+            try {
+                val models = agentRepository.listModels()
+                _state.update { it.copy(availableModels = models) }
+            } catch (e: Exception) {
+                _state.update { it.copy(message = "Failed to load models: ${e.message}") }
+            } finally {
+                _state.update { it.copy(isRefreshingModels = false) }
+            }
         }
     }
 

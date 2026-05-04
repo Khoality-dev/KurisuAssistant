@@ -419,10 +419,10 @@ class ChatViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                val modelName = prefs.getSelectedModel() ?: ""
+                // Backend uses the agent's configured model_name when modelName is empty.
                 wsManager.sendChatRequest(
                     text = text,
-                    modelName = modelName,
+                    modelName = "",
                     conversationId = s.conversationId,
                     agentId = s.agent?.id,
                     images = images,
