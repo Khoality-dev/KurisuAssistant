@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-KurisuAssistant native Android client — Kotlin/Jetpack Compose app that connects to the KurisuAssistant backend. Features streaming chat, TTS with lip sync, Silero VAD voice interaction, character animation, and camera vision pipeline.
+`clients/android/` in the KurisuAssistant monorepo (see the root `CLAUDE.md`; the backend is in `../../backend/`). KurisuAssistant native Android client — Kotlin/Jetpack Compose app that connects to the KurisuAssistant backend. Features streaming chat, TTS with lip sync, Silero VAD voice interaction, character animation, and camera vision pipeline.
 
 ## Tech Stack
 
@@ -67,8 +67,8 @@ com.kurisu.assistant/
 - Requires `JAVA_HOME` set to Android Studio JBR, e.g. `export JAVA_HOME="/c/Program Files/Android/Android Studio/jbr"`.
 - Unit tests (JVM): `./gradlew :app:testDevDebugUnitTest` — Robolectric + MockK + Turbine + Truth, no emulator needed.
 - E2E UI tests (instrumented): `./gradlew :app:connectedDevDebugAndroidTest` — Compose UI tests, needs an emulator/device.
-- Local LAN distribution: copy a release APK into `../AndroidLocalDeployment/apks/` and `docker compose up -d` from that directory — phones on the LAN can install from `http://<host-ip>:34822/`.
-- Note: `gradle-wrapper.jar` is gitignored — builds must run from an environment where it has been generated (e.g. Android Studio)
+- Local LAN distribution: copy a release APK into `../../../AndroidLocalDeployment/apks/` (a sibling of the monorepo checkout) and `docker compose up -d` from that directory — phones on the LAN can install from `http://<host-ip>:34822/`.
+- Prod release: bump `versionCode`/`versionName`, commit, then push tag `android-v<versionName>`. The root `.github/workflows/android-release.yml` builds `assembleProdRelease` and publishes it as release `v<versionName>` on the legacy `Khoality-dev/KurisuAssistant-Client-Android` repo, which is where `UpdateRepository` checks for updates — keep that URL unchanged unless the update channel is migrated too.
 
 ## Testing
 

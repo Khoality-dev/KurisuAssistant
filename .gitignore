@@ -1,0 +1,16 @@
+# Repository-level ignores. Each package keeps its own .gitignore
+# (backend/, clients/desktop/, clients/android/).
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

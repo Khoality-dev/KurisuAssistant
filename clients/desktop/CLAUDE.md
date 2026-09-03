@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-KurisuAssistant-Client-Desktop — cross-platform desktop client (Windows + Linux) for the KurisuAssistant AI platform. React + Electron + TypeScript + MUI + Framer Motion. Chat interface with streaming responses, TTS, image attachments, conversation management, and animated 2D character video call window.
+`clients/desktop/` in the KurisuAssistant monorepo (see the root `CLAUDE.md`; the backend is in `../../backend/`) — cross-platform desktop client (Windows + Linux) for the KurisuAssistant AI platform. React + Electron + TypeScript + MUI + Framer Motion. Chat interface with streaming responses, TTS, image attachments, conversation management, and animated 2D character video call window.
 
 ## Tech Stack
 
@@ -16,7 +16,7 @@ React 18, Electron 28, MUI v5, Framer Motion, Zustand, Axios, Vite, react-markdo
 
 ## CI/CD
 
-GitHub Actions workflow (`.github/workflows/build.yml`): triggers on release creation, sets `package.json` version from release tag (strips `v` prefix), builds NSIS installer on `windows-latest`, publishes `.exe` + `latest.yml` to the release via `electron-builder --publish always` (uses `GH_TOKEN`). Auto-update: `electron-updater` checks GitHub Releases on app startup, downloads updates in background, prompts user to restart via `UpdateDialog`.
+Workflows live at the repo root. `.github/workflows/desktop-build.yml` triggers on tags `desktop-vX.Y.Z`, sets `package.json` version from the tag, builds the NSIS installer on `windows-latest` and AppImage + deb on `ubuntu-latest`, and publishes them with `latest.yml` / `latest-linux.yml` as release `vX.Y.Z` on the legacy `Khoality-dev/KurisuAssistant-Client-Desktop` repo via `electron-builder --publish always` (`GH_TOKEN` = `CLIENT_RELEASE_TOKEN` secret, a PAT with write access to that repo). Keep `build.publish.repo` in `package.json` pointing there: installed apps' `electron-updater` reads that repo's latest release. `.github/workflows/desktop-test.yml` runs the Playwright suite on pushes/PRs that touch `clients/desktop/`. Auto-update: `electron-updater` checks GitHub Releases on app startup, downloads updates in background, prompts user to restart via `UpdateDialog`.
 
 ## Architecture
 

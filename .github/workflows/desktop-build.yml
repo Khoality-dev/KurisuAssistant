@@ -1,0 +1,111 @@
+name: Desktop – Build and Release
+
+# Release flow for the desktop client:
+#
+#   git tag desktop-v1.2.3 && git push origin desktop-v1.2.3
+#
+# Builds the Windows (NSIS) and Linux (AppImage, deb) packages and publishes
+# them as release v1.2.3 on the legacy client repository,
+# Khoality-dev/KurisuAssistant-Client-Desktop (see "build.publish" in
+# clients/desktop/package.json). Installed apps auto-update from that
+# repository's latest release, so it stays the release channel even though the
+# code now lives here.
+#
+# Required secret: CLIENT_RELEASE_TOKEN — a personal access token with
+# Contents: read/write on the legacy client repository. The default
+# GITHUB_TOKEN cannot create releases in another repository.
+#
+# A manual run (workflow_dispatch) builds without publishing and uploads the
+# packages as a workflow artifact.
+
+on:
+  push:
+    tags:
+      - 'desktop-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: clients/desktop
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: clients/desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^desktop-v', ''
+          npm version $version --no-git-tag-version
+
+      - name: Build Electron app
+        env:
+          GH_TOKEN: ${{ secrets.CLIENT_RELEASE_TOKEN }}
+        run: npx vite build && npx electron-builder --publish ${{ startsWith(github.ref, 'refs/tags/desktop-v') && 'always' || 'never' }}
+
+      - name: Upload packages (manual runs only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: |
+            clients/desktop/release/*.exe
+            clients/desktop/release/*.yml
+          retention-days: 7
+
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: clients/desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        run: |
+          version="${GITHUB_REF_NAME#desktop-v}"
+          npm version "$version" --no-git-tag-version
+
+      - name: Build Electron app
+        env:
+          GH_TOKEN: ${{ secrets.CLIENT_RELEASE_TOKEN }}
+        run: npx vite build && npx electron-builder --linux --publish ${{ startsWith(github.ref, 'refs/tags/desktop-v') && 'always' || 'never' }}
+
+      - name: Upload packages (manual runs only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: |
+            clients/desktop/release/*.AppImage
+            clients/desktop/release/*.deb
+            clients/desktop/release/*.yml
+          retention-days: 7

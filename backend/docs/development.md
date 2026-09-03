@@ -1,39 +1,50 @@
 # Development
 
+Everything below runs from the `backend/` directory. The server resolves `data/` relative to the working directory, and `docker compose` reads `docker-compose.yml` from here.
+
 ## Local Setup
 
 ```bash
-python -m venv venv && venv\Scripts\activate && pip install -r requirements.txt
-python -m scripts.migrate  # Run migrations
-./run_dev.bat              # Start server (Windows)
+python -m venv venv && source venv/bin/activate   # venv\Scripts\activate on Windows
+pip install -r requirements.txt
+python -m scripts.migrate                          # Run migrations
+uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --reload --reload-dir kurisuassistant
 ```
+
+`run_dev.bat` does the same on Windows (creates the venv, runs migrations, starts uvicorn); `stop_dev.bat` kills whatever is listening on port 15597.
 
 ## Docker
 
 ```bash
-docker-compose up -d       # Start all services
-docker-compose logs -f api # View API logs
+docker compose up -d       # Start all services
+docker compose logs -f api # View API logs
 ```
 
-Migrations auto-run on container startup via `docker-entrypoint.sh`.
+Migrations auto-run on container startup via `docker-entrypoint.sh`. The API container mounts `kurisuassistant/`, `scripts/`, `tests/`, and `data/` from this directory.
+
+## Tests
+
+```bash
+pytest                       # unit tests
+pytest -m integration        # tests that need Postgres / Ollama
+```
 
 ## Environment Variables
 
-See `.env_template` for all options.
+`.env_template` lists the variables the Compose stack expects. Variables read by the server itself:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `POSTGRES_*` | `kurisu` | Database credentials |
+| `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | — | Database connection |
 | `LLM_API_URL` | `http://localhost:11434` | Ollama server URL |
-| `JWT_SECRET_KEY` | — | Secret for JWT tokens |
-| `ACCESS_TOKEN_EXPIRE_DAYS` | `30` | JWT token expiry |
-| `TTS_PROVIDER` | `vixtts` | TTS backend (`gpt-sovits` or `vixtts`) |
-| `TTS_API_URL` | (docker-compose) | GPT-SoVITS API URL (hardcoded as `http://gpt-sovits-container:9880` in docker-compose) |
-| `VIXTTS_API_URL` | — | viXTTS API URL |
-| `VIXTTS_ROOT` | `/home/khoa/application/viXTTS` | Local viXTTS checkout used by Docker Compose for build context and model/cache mounts |
-| `ASR_MODEL` | `data/asr/whisper-ct2` | Whisper model path or size |
-| `ASR_DEVICE` | `auto` | ASR inference device (`cpu`/`cuda`) |
-| `FRAME_IDLE_THRESHOLD_MINUTES` | `30` | Idle time before starting a new session frame |
+| `GEMINI_API_KEY`, `NVIDIA_API_KEY` | — | Cloud LLM providers |
+| `ASR_API_URL`, `UVOICE_URL` | (docker-compose) | Speech recognition / universal voice service |
+| `JWT_SECRET_KEY` | generated | Overrides the secret persisted to `data/jwt_secret.key` |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access token lifetime |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
+| `CONVERSATION_IDLE_THRESHOLD_MINUTES` | — | Idle time before a conversation's memory is consolidated |
+| `DATA_DIR` | `data/` | Override the data directory |
+| `VIXTTS_ROOT`, `UVOICE_ROOT` | (docker-compose) | Sibling checkouts used as build contexts and mounts for the TTS and ASR services |
 
 MCP tool-specific env vars (e.g. `SERPAPI_KEY`) are configured in each tool's own `.env` in the separate `mcp-servers` repo.
 
@@ -42,9 +53,7 @@ MCP tool-specific env vars (e.g. `SERPAPI_KEY`) are configured in each tool's ow
 Back up these volumes/directories:
 
 - `postgres-data` — PostgreSQL database
-- `./data` — images, avatars, voices, character assets
-- `./ollama` — Ollama model cache
-- `./openwebui` — Open WebUI data
+- `./data` — images, avatars, voices, character assets, JWT secret
 
 ## Voice Files
 

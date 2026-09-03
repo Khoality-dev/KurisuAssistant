@@ -4,6 +4,8 @@
 
 KurisuAssistant is a voice-based AI assistant platform combining STT (faster-whisper), TTS (GPT-SoVITS/viXTTS), and LLM (Ollama). Microservices architecture with Docker Compose.
 
+This is the `backend/` package of the KurisuAssistant monorepo (see the root `CLAUDE.md`). The desktop and Android clients live in `../clients/`. Run every command below from `backend/`: the server resolves `data/` relative to the working directory.
+
 ## Documentation Index
 
 - [Architecture](docs/architecture.md) — services, directory structure, design principles, key patterns
@@ -39,13 +41,14 @@ KurisuAssistant is a voice-based AI assistant platform combining STT (faster-whi
 
 ```bash
 # Local
-python -m venv venv && venv\Scripts\activate && pip install -r requirements.txt
+python -m venv venv && source venv/bin/activate && pip install -r requirements.txt
 python -m scripts.migrate            # Run migrations
-./run_dev.bat                       # Start server (Windows)
+uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --reload --reload-dir kurisuassistant
+./run_dev.bat                       # Same, on Windows
 
 # Docker
-docker-compose up -d       # Start all
-docker-compose logs -f api # View logs
+docker compose up -d       # Start all
+docker compose logs -f api # View logs
 
 # Migrations (Alembic, auto-run on container startup via docker-entrypoint.sh)
 cd kurisuassistant/db && alembic revision --autogenerate -m "description"

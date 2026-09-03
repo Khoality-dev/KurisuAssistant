@@ -1,35 +1,36 @@
 # Kurisu Assistant — Desktop Client
 
-Desktop client for [KurisuAssistant](https://github.com/Khoality-dev/KurisuAssistant) built with React, Electron, TypeScript, and Material-UI.
+Desktop client for [KurisuAssistant](../../README.md), built with React, Electron, TypeScript, and Material-UI. Lives in `clients/desktop/` of the monorepo; the server it talks to is in [`backend/`](../../backend/).
 
 ## Features
 
 - **Streaming Chat** — Real-time WebSocket streaming with sentence-by-sentence display
-- **Voice Input** — Silero VAD auto-detects speech end, transcribes via server-side faster-whisper
+- **Voice Input** — Silero VAD auto-detects speech end, transcribes via server-side ASR
 - **TTS Auto-Play** — Streams text-to-speech as the agent responds, with per-agent voice selection
 - **Multi-Agent** — Create and switch between agents with custom prompts, models, voices, and tools
+- **Workspace** — Built-in file explorer and Monaco editor, with per-agent host tools sandboxed to allowed paths
+- **MCP Servers** — Run local stdio/SSE MCP servers and expose their tools to agents
 - **Character Animation** — Separate video call window with animated 2D characters: blink, breathing, lip sync, gesture-triggered pose transitions via a graph-based state machine
 - **Vision Pipeline** — Webcam face recognition and gesture detection with real-time results
 - **Skills** — Create, edit, and import/export instruction blocks that teach agents capabilities
 - **Image Support** — Attach images to messages with vision model support
-- **Conversation Management** — Sidebar with conversation list, session frame separators, infinite scroll pagination
+- **Auto-Update** — Checks GitHub Releases on startup and installs updates in the background
 
 ## Tech Stack
 
 - **Frontend**: React 18 + TypeScript
 - **Desktop**: Electron 28
-- **UI**: Material-UI v5
-- **Animations**: Framer Motion
+- **UI**: Material-UI v5, Framer Motion
 - **State**: Zustand
-- **Build**: Vite
-- **Character Engine**: Canvas-based compositor with 60fps rendering
+- **Build**: Vite, electron-builder
+- **Tests**: Vitest (unit), Playwright (Electron end-to-end)
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js 18+
-- KurisuAssistant server running
+- Node.js 20+
+- A running KurisuAssistant backend
 
 ### Install & Run
 
@@ -44,41 +45,50 @@ npm run electron:dev
 npm run electron:build
 ```
 
-Produces an installer in `release/`.
+Produces installers in `release/`.
+
+### Tests
+
+```bash
+npm test                                   # unit tests
+npm run test:e2e:build && npm run test:e2e # Playwright end-to-end
+```
 
 ## Configuration
 
 Server URL is configurable in the login screen and persisted to localStorage. Default: `https://localhost`.
 
+## Releases
+
+Push a `desktop-vX.Y.Z` tag on the monorepo. The root workflow `.github/workflows/desktop-build.yml` builds Windows and Linux packages and publishes them as release `vX.Y.Z` on `Khoality-dev/KurisuAssistant-Client-Desktop`, which is where installed apps look for updates (see `build.publish` in `package.json`).
+
 ## Project Structure
 
 ```
 electron/
-  main.ts                   Multi-window entry (main + character window)
-  preload.ts                IPC bridge (platform + character window channels)
+  main.ts                   Multi-window entry, auto-updater, IPC registration
+  mcp.ts                    MCP server manager (stdio/SSE), tool discovery/execution
+  hostTools.ts              Sandboxed per-agent host tools (read/write/edit/search/bash)
+  appTools.ts               App config tools for agents (agent CRUD, MCP, vision, browser)
+  explorerIPC.ts            File explorer IPC
+  preload.ts                contextBridge surface
 src/
-  api/client.ts             Axios + WebSocket manager (chat + media streaming)
+  api/                      Axios + WebSocket client, API types
   components/
-    LoginWindow.tsx          Login/register with server URL field
-    MainWindow.tsx           Sidebar + chat layout
-    ChatWidget.tsx           Chat UI, streaming, TTS, image attach, vision toggle
-    MessageBubble.tsx        Message rendering with thinking blocks, TTS, actions
-    AgentsWindow.tsx         Agent CRUD + character config
-    ToolsWindow.tsx          MCP tools, built-in tools, skills management
-    FacesWindow.tsx          Face identity CRUD + webcam vision controls
-    SettingsWindow.tsx       Account + TTS settings
-    CharacterConfigDialog.tsx  React Flow graph editor for pose trees
-  hooks/
-    useTTS.ts               TTS synthesis queue + playback
-    useAudioAmplitude.ts    Audio amplitude for lip sync
-  store/                    Zustand stores (auth, conversations, agents, vision)
-  videocall/                Character animation engine
-    CharacterRenderer.tsx    React wrapper for canvas compositor
-    engine/
-      CanvasCompositor.ts    60fps render: blink, breathing, lip sync, pose state machine
-  CharacterWindowApp.tsx     IPC-driven renderer for character window
+    layout/                 ActivityBar | MainContent | ChatPanel three-panel shell
+    explorer/               File explorer, tabs, Monaco editor
+    conversations/          Conversation list
+    settings/               Settings sections (account, TTS, agents, MCP, tools, skills, faces, ...)
+    chat/                   Chat widget, composer, message bubbles
+    character/              React Flow pose-graph editor and preview
+  hooks/                    TTS queue, audio amplitude, webcam capture, ...
+  store/                    Zustand stores
+  videocall/                Character animation engine (canvas compositor)
+tests/                      Playwright specs and mock backend
 ```
+
+See `CLAUDE.md` for the detailed architecture map.
 
 ## License
 
-See [LICENSE](LICENSE).
+MIT. See the repository [LICENSE](../../LICENSE).

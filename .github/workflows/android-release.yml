@@ -1,0 +1,110 @@
+name: Android – Build and Release
+
+# Release flow for the Android client:
+#
+#   1. Bump versionCode / versionName in clients/android/app/build.gradle.kts and commit.
+#   2. git tag android-v<versionName> && git push origin android-v<versionName>
+#
+# Builds the signed prod release APK and publishes it as release v<versionName>
+# on the legacy client repository, Khoality-dev/KurisuAssistant-Client-Android.
+# The app's in-app updater (UpdateRepository) checks that repository's latest
+# release, so it stays the release channel even though the code now lives here.
+#
+# Required secrets:
+#   CLIENT_RELEASE_TOKEN     — personal access token with Contents: read/write on
+#                              the legacy client repository (GITHUB_TOKEN cannot
+#                              create releases in another repository)
+#   KURISU_KEYSTORE_BASE64   — release keystore, base64-encoded
+#   KURISU_KEYSTORE_PASSWORD, KURISU_KEY_ALIAS, KURISU_KEY_PASSWORD
+#
+# A manual run (workflow_dispatch) builds the APK and uploads it as a workflow
+# artifact without publishing.
+
+on:
+  push:
+    tags:
+      - 'android-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: clients/android
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Promote secrets to job-level env so the `if:` conditionals below can read them.
+    # Empty string when the secret isn't set — that's how we detect missing config.
+    env:
+      KURISU_KEYSTORE_BASE64: ${{ secrets.KURISU_KEYSTORE_BASE64 }}
+      KURISU_KEYSTORE_PASSWORD: ${{ secrets.KURISU_KEYSTORE_PASSWORD }}
+      KURISU_KEY_ALIAS: ${{ secrets.KURISU_KEY_ALIAS }}
+      KURISU_KEY_PASSWORD: ${{ secrets.KURISU_KEY_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          gradle_version="$(sed -nE 's/^[[:space:]]*versionName = "([^"]+)".*/\1/p' app/build.gradle.kts | head -1)"
+          echo "version=$gradle_version" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then
+            tag_version="${GITHUB_REF_NAME#android-v}"
+            if [[ "$tag_version" != "$gradle_version" ]]; then
+              echo "Tag version '$tag_version' does not match versionName '$gradle_version' in app/build.gradle.kts" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Decode the release keystore from the base64 secret. If the secret is
+      # missing, build.gradle.kts falls back to debug signing (with a warning),
+      # but the resulting APK won't be installable as an update over a real release.
+      - name: Decode release keystore
+        if: env.KURISU_KEYSTORE_BASE64 != ''
+        run: |
+          printf '%s' "$KURISU_KEYSTORE_BASE64" | base64 -d > kurisu-release.jks
+
+      - name: Write .env for Gradle
+        if: env.KURISU_KEYSTORE_BASE64 != ''
+        run: |
+          {
+            echo "KURISU_KEYSTORE=kurisu-release.jks"
+            echo "KURISU_KEYSTORE_PASSWORD=$KURISU_KEYSTORE_PASSWORD"
+            echo "KURISU_KEY_ALIAS=$KURISU_KEY_ALIAS"
+            echo "KURISU_KEY_PASSWORD=$KURISU_KEY_PASSWORD"
+          } > .env
+
+      - name: Build prod release APK
+        run: chmod +x ./gradlew && ./gradlew assembleProdRelease
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk
+          path: clients/android/app/build/outputs/apk/prod/release/*.apk
+          # The APK is also attached to the GitHub Release below, which is free
+          # and permanent. This artifact is only for debugging a failed run.
+          retention-days: 7
+
+      - name: Publish release on the legacy client repository
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: Khoality-dev/KurisuAssistant-Client-Android
+          token: ${{ secrets.CLIENT_RELEASE_TOKEN }}
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          files: clients/android/app/build/outputs/apk/prod/release/*.apk

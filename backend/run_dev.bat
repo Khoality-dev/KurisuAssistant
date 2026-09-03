@@ -19,8 +19,6 @@ set POSTGRES_PASSWORD=kurisu
 set POSTGRES_HOST=localhost
 set POSTGRES_PORT=5432
 set POSTGRES_DB=kurisu
-set JWT_SECRET_KEY=your-secret-key-change-in-production
-set ACCESS_TOKEN_EXPIRE_DAYS=30
 
 REM Run migrations first
 echo Running database migrations...

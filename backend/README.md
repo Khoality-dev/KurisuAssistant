@@ -1,85 +1,81 @@
-# Kurisu Assistant
+# Kurisu Assistant — Backend
 
-A voice-based AI assistant platform combining speech recognition, voice synthesis, and large language models. Built with a microservices architecture using Docker Compose.
+The API server behind the [desktop](../clients/desktop/) and [Android](../clients/android/) clients. Speech recognition, voice synthesis, and LLM agents with tools and memory, run as a Docker Compose stack. Part of the [KurisuAssistant monorepo](../README.md).
 
 ## Features
 
-- **Voice Conversations** — Browser-based Silero VAD detects speech, transcribes via faster-whisper, and responds with natural TTS (GPT-SoVITS or viXTTS)
-- **Multi-Agent System** — Create specialized agents with custom prompts, voices, models, and tool access. Administrator agent can route between them in group discussions
-- **Agent Memory** — Agents automatically consolidate conversation history into persistent memory, injected into every request
-- **Vision Pipeline** — Real-time face recognition (InsightFace) and gesture detection (YOLOv8-Pose + MediaPipe Hands) from webcam
-- **Character Animation** — Pose-based character system with gesture-triggered transitions
-- **Session Frames** — Conversations split into session windows after idle periods, with automatic LLM summarization of past frames
+- **Voice Conversations** — Clients run Silero VAD and send audio; the server transcribes it and answers with streamed text and TTS (GPT-SoVITS or viXTTS)
+- **Multi-Agent System** — Main agents with their own prompts, voices, models, and tool access, plus task-only sub-agents they can delegate to
+- **Agent Memory** — Conversations are consolidated into persistent per-agent memory when they go idle, and injected into later requests
+- **Rolling Context Compaction** — Long conversations are summarized in place once they approach the model's context window
+- **Vision Pipeline** — Face recognition (InsightFace) and gesture detection (YOLOv8-Pose + MediaPipe Hands) from client camera frames
+- **Character Animation** — Pose-based character configuration with gesture-triggered transitions
 - **Skills System** — User-editable instruction blocks that teach agents how to use capabilities
-- **Tool Ecosystem** — Built-in tools (message search, frame history), opt-in tools (music player), and custom MCP tools (server + client-side)
-- **Media Player** — YouTube audio streaming via yt-dlp, controllable by voice or LLM tools
-- **Image Support** — Upload and embed images in conversations with vision model support
+- **Tool Ecosystem** — Built-in tools, opt-in tools, MCP tools (server and client side), with client-enforced approval policies
+- **Image Support** — Images in conversations with vision model support
 
 ## Prerequisites
 
-- Docker and Docker Compose
-- [Ollama](https://ollama.ai) (models can be pulled manually or automatically on first use)
-- (Optional) NVIDIA GPU for CUDA-accelerated ASR and vision
+- Docker and Docker Compose with the NVIDIA container runtime (the API, TTS, and ASR services reserve GPUs)
+- [Ollama](https://ollama.ai) reachable from the stack, or a cloud provider key (Gemini, NVIDIA)
+- Sibling checkouts of the TTS and ASR services referenced by `docker-compose.yml` (`VIXTTS_ROOT`, `UVOICE_ROOT`)
 
 ## Getting Started
 
 ```bash
 cp .env_template .env    # Edit with your settings
 docker compose up -d
+docker compose logs -f api
 ```
 
-Default account: `admin` / `admin`
+Default account: `admin` / `admin`. Migrations run automatically on container start (`docker-entrypoint.sh`).
 
 ### Local Development
 
 ```bash
-python -m venv venv && venv\Scripts\activate
+python -m venv venv && source venv/bin/activate   # venv\Scripts\activate on Windows
 pip install -r requirements.txt
-python -m scripts.migrate # Run database migrations
-./run_dev.bat            # Start server (Windows)
+python -m scripts.migrate                          # Run database migrations
+uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --reload --reload-dir kurisuassistant
 ```
 
-## Client
-
-See [KurisuAssistant-Client-Desktop](https://github.com/Khoality-dev/KurisuAssistant-Client-Desktop) for the cross-platform (Windows + Linux) Electron + React desktop client.
+`run_dev.bat` wraps the same steps for Windows. Run everything from this directory: the server resolves `data/` relative to the working directory.
 
 ## Configuration
 
-Key environment variables (see `.env_template` for all options):
+Environment variables read by the server (see `.env_template` for the full list used by the Compose stack):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | — | Database connection |
 | `LLM_API_URL` | `http://localhost:11434` | Ollama server URL |
-| `POSTGRES_*` | `kurisu` | Database credentials |
-| `JWT_SECRET_KEY` | — | Secret for JWT tokens |
-| `TTS_PROVIDER` | `vixtts` | TTS backend (`gpt-sovits` or `vixtts`) |
-| `ASR_MODEL` | `data/asr/whisper-ct2` | Whisper model path or size |
-| `ASR_DEVICE` | `auto` | ASR inference device (`cpu`/`cuda`) |
-| `FRAME_IDLE_THRESHOLD_MINUTES` | `30` | Idle time before starting a new session frame |
+| `GEMINI_API_KEY`, `NVIDIA_API_KEY` | — | Cloud LLM providers (per-user keys can also be stored in the app) |
+| `ASR_API_URL`, `UVOICE_URL` | (docker-compose) | Speech recognition / universal voice service |
+| `JWT_SECRET_KEY` | generated | Overrides the secret persisted to `data/jwt_secret.key` |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access token lifetime |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
+| `CONVERSATION_IDLE_THRESHOLD_MINUTES` | — | Idle time before a conversation's memory is consolidated |
+| `DATA_DIR` | `data/` | Override the data directory |
+
+MCP tool servers are declared in `mcp_config.json` (gitignored). See [docs/mcp-config.md](docs/mcp-config.md).
 
 Voice reference files go in `data/voice_storage/` (.wav/.mp3/.flac/.ogg).
 
-When running the bundled Docker stack, the `vixtts` service builds from `VIXTTS_ROOT` and defaults to `/home/khoa/application/viXTTS`.
-
 ## Backup & Restore
 
-Back up these volumes/directories:
-- `postgres-data` — PostgreSQL database
-- `./data` — images, avatars, voices, character assets
-- `./ollama` — Ollama model cache
+Back up these volumes and directories:
 
-The `userdata/` directory contains backup tooling — see `userdata/RESTORE.md` for step-by-step instructions.
+- `postgres-data` — PostgreSQL database
+- `./data` — images, avatars, voices, character assets, JWT secret
 
 ## Documentation
 
-See the [docs/](docs/) directory for detailed technical documentation:
+See the [docs/](docs/) directory:
+
 - [Architecture](docs/architecture.md), [Agents](docs/agents.md), [WebSocket](docs/websocket.md), [API Reference](docs/API.md)
-- [TTS](docs/tts.md), [ASR](docs/asr.md), [Vision](docs/vision.md), [Media Player](docs/media.md)
-- [Tools & Skills](docs/tools.md), [Database](docs/database.md), [Development](docs/development.md)
-
-## License
-
-MIT License. See [LICENSE](LICENSE).
+- [TTS](docs/tts.md), [ASR](docs/asr.md), [Vision](docs/vision.md), [GPT-SoVITS Setup](docs/gpt-sovits.md)
+- [Tools](docs/tools.md), [Skills](docs/skills.md), [MCP Configuration](docs/mcp-config.md)
+- [Database](docs/database.md), [Development](docs/development.md)
 
 ## Acknowledgments
 
