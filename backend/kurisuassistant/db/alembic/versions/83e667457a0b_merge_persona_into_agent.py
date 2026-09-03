@@ -26,8 +26,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    # Drop unused devices table
-    op.drop_table('devices')
+    # Drop unused devices table. It only ever existed on the production
+    # database (created outside this chain), so a fresh database has none.
+    if sa.inspect(op.get_bind()).has_table('devices'):
+        op.drop_table('devices')
 
     # 1. Add new columns to agents (nullable first for existing rows)
     op.add_column('agents', sa.Column('voice_reference', sa.String(), nullable=True))

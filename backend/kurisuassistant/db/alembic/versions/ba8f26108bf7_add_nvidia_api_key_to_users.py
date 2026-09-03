@@ -20,7 +20,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    op.add_column('users', sa.Column('nvidia_api_key', sa.String(), nullable=True))
+    # e65c290cdcd6 already adds this column on a fresh database; production ran
+    # an earlier version of that migration without it.
+    columns = [c['name'] for c in sa.inspect(op.get_bind()).get_columns('users')]
+    if 'nvidia_api_key' not in columns:
+        op.add_column('users', sa.Column('nvidia_api_key', sa.String(), nullable=True))
 
 
 def downgrade() -> None:
