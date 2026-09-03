@@ -1,5 +1,7 @@
 # Kurisu Assistant
 
+![Kurisu Assistant banner](docs/assets/kurisu-assistant-banner.png)
+
 Kurisu Assistant is a personal AI assistant for text and voice conversations. It supports multiple customizable agents, persistent conversations and memory, image input, speech recognition, text-to-speech, tools, skills, and animated characters.
 
 You use Kurisu Assistant through either the desktop app (Windows/Linux) or the Android app. Both clients connect to a Kurisu Assistant server.
