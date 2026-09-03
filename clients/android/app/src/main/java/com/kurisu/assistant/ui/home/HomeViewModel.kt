@@ -1,0 +1,184 @@
+package com.kurisu.assistant.ui.home
+
+import android.app.Application
+import android.util.Log
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.kurisu.assistant.data.local.PreferencesDataStore
+import com.kurisu.assistant.data.model.Agent
+import com.kurisu.assistant.data.model.GithubRelease
+import com.kurisu.assistant.data.repository.AgentRepository
+import com.kurisu.assistant.data.repository.ConversationRepository
+import com.kurisu.assistant.data.repository.UpdateRepository
+import com.kurisu.assistant.service.CoreService
+import com.kurisu.assistant.service.CoreState
+import com.kurisu.assistant.ui.update.installApk
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import java.io.File
+import javax.inject.Inject
+
+data class AgentConversation(
+    val agent: Agent,
+    val lastMessage: String? = null,
+    val lastMessageTime: String? = null,
+    val conversationId: Int? = null,
+)
+
+data class HomeUiState(
+    val conversations: List<AgentConversation> = emptyList(),
+    val isLoading: Boolean = false,
+    val baseUrl: String = "",
+    val updateRelease: GithubRelease? = null,
+    val updateProgress: Float? = null,
+    val updateApkFile: File? = null,
+    val updateAuto: Boolean = false,
+)
+
+data class TriggerMatch(
+    val agentId: Int,
+    val text: String,
+)
+
+@HiltViewModel
+class HomeViewModel @Inject constructor(
+    private val application: Application,
+    private val agentRepository: AgentRepository,
+    private val conversationRepository: ConversationRepository,
+    private val prefs: PreferencesDataStore,
+    private val coreState: CoreState,
+    private val updateRepository: UpdateRepository,
+) : ViewModel() {
+
+    companion object {
+        private const val TAG = "HomeViewModel"
+    }
+
+    private val _state = MutableStateFlow(HomeUiState())
+    val state: StateFlow<HomeUiState> = _state
+
+    val coreServiceState = coreState.state
+
+    private val _triggerMatch = MutableSharedFlow<TriggerMatch>(extraBufferCapacity = 1)
+    val triggerMatch: SharedFlow<TriggerMatch> = _triggerMatch
+
+    init {
+        loadConversations()
+        checkForUpdate()
+
+        // Observe ASR transcripts from CoreState for trigger word matching across all agents
+        viewModelScope.launch {
+            coreState.asrTranscripts.collect { text ->
+                val match = _state.value.conversations.find { conv ->
+                    conv.agent.triggerWord != null &&
+                        text.lowercase().contains(conv.agent.triggerWord!!.lowercase())
+                }
+                if (match != null) {
+                    _triggerMatch.tryEmit(TriggerMatch(match.agent.id, text))
+                }
+            }
+        }
+    }
+
+    fun toggleRecording() {
+        if (coreState.state.value.isServiceRunning) {
+            CoreService.toggleRecording(application)
+        } else {
+            CoreService.start(application)
+        }
+    }
+
+    fun startService() {
+        CoreService.start(application)
+    }
+
+    fun loadConversations() {
+        viewModelScope.launch {
+            _state.update { it.copy(isLoading = true) }
+            try {
+                val baseUrl = prefs.getBackendUrl()
+                // Sub-agents are task-only workers; only main agents own conversations.
+                val agents = agentRepository.loadAgents().filter { it.agentType != "sub" }
+
+                // Fetch all conversations in one call — each includes last_message
+                val allConversations = conversationRepository.getConversations()
+                // Build agent→conversation mapping from local storage
+                val agentConvMap = mutableMapOf<Int, Int>()
+                for (agent in agents) {
+                    val convId = agentRepository.getConversationIdForAgent(agent.id)
+                    if (convId != null) agentConvMap[agent.id] = convId
+                }
+
+                val conversations = agents.map { agent ->
+                    val convId = agentConvMap[agent.id]
+                    val conv = if (convId != null) allConversations.find { it.id == convId } else null
+                    val lastMsg = conv?.lastMessage
+                    AgentConversation(
+                        agent = agent,
+                        lastMessage = lastMsg?.content,
+                        lastMessageTime = lastMsg?.createdAt,
+                        conversationId = convId,
+                    )
+                }
+
+                // Sort: agents with recent messages first (by timestamp desc), then agents without
+                val sorted = conversations.sortedWith(
+                    compareByDescending<AgentConversation> { it.lastMessageTime != null }
+                        .thenByDescending { it.lastMessageTime ?: "" }
+                )
+
+                _state.update { it.copy(conversations = sorted, baseUrl = baseUrl) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load conversations", e)
+            } finally {
+                _state.update { it.copy(isLoading = false) }
+            }
+        }
+    }
+
+    private fun checkForUpdate() {
+        viewModelScope.launch {
+            try {
+                val release = updateRepository.checkForUpdate()
+                if (release != null) {
+                    val auto = prefs.getAutoUpdate()
+                    _state.update { it.copy(updateRelease = release, updateAuto = auto) }
+                    if (auto) downloadAndInstall(autoInstall = true)
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Update check failed: ${e.message}")
+            }
+        }
+    }
+
+    fun downloadAndInstall(autoInstall: Boolean = false) {
+        val release = _state.value.updateRelease ?: return
+        val apkAsset = release.assets.firstOrNull { it.name.endsWith(".apk") } ?: return
+
+        viewModelScope.launch {
+            _state.update { it.copy(updateProgress = 0f) }
+            try {
+                val file = updateRepository.downloadApk(apkAsset.browserDownloadUrl) { progress ->
+                    _state.update { it.copy(updateProgress = progress) }
+                }
+                _state.update { it.copy(updateApkFile = file, updateProgress = 1f) }
+                if (autoInstall) {
+                    // System will prompt for REQUEST_INSTALL_PACKAGES if not granted
+                    try {
+                        installApk(application, file)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Auto-install failed; user can still tap Install", e)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Download failed", e)
+                _state.update { it.copy(updateProgress = null) }
+            }
+        }
+    }
+
+    fun dismissUpdate() {
+        _state.update { it.copy(updateRelease = null, updateProgress = null, updateApkFile = null) }
+    }
+}
