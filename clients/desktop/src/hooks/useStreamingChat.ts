@@ -1,0 +1,923 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, ConnectedEvent, ToolApprovalRequestEvent, ContextInfoEvent, ConversationSwitchedEvent } from '../api/websocket';
+import { useConversationStore } from '../store/conversationStore';
+import { useToolPermissionsStore } from '../store/toolPermissionsStore';
+import { storage } from '../utils/storage';
+import { stripNarration, fileToBase64 } from '../utils/chat';
+import { useExplorerStore } from '../store/explorerStore';
+import { useAgentStore } from '../store/agentStore';
+import type { Message } from '../api/types';
+import type { AmplitudeState } from '../videocall/CharacterRenderer';
+import { handleCommand } from '../utils/commands';
+
+export interface UseStreamingChatParams {
+  agentId: number | null;
+  currentConversation: { id: number } | null;
+  messages: Message[];
+  hasMoreMessages: boolean;
+  isLoadingMessages: boolean;
+  loadMoreMessages: () => void;
+  loadConversation: (id: number) => Promise<void>;
+  setCurrentConversationId: (id: number) => void;
+  // TTS
+  queueText: (text: string, voice?: string) => void;
+  clearQueue: () => void;
+  // Character panel
+  amplitudeRef: React.MutableRefObject<AmplitudeState>;
+  pushAgentCharacterConfig: (agentId: number | undefined, agentName?: string) => void;
+}
+
+export interface UseStreamingChatReturn {
+  isStreaming: boolean;
+  streamingMessages: Message[];
+  streamingContent: string;
+  streamingThinking: string;
+  justFinishedStreaming: boolean;
+  expandedThinking: Set<number>;
+  activeConversationId: number | null;
+  errorToast: string | null;
+  setErrorToast: (v: string | null) => void;
+  infoToast: string | null;
+  setInfoToast: (v: string | null) => void;
+  externalDraft: string;
+  externalDraftVersion: number;
+  pushExternalDraft: (text: string) => void;
+  clearExternalDraft: () => void;
+  messagesEndRef: React.RefObject<HTMLDivElement>;
+  messagesContainerRef: React.RefObject<HTMLDivElement>;
+  handleSend: (text: string, imageFiles: File[]) => Promise<void>;
+  handleSendText: (text: string) => Promise<void>;
+  handleCancel: () => void;
+  toggleThinking: (index: number) => void;
+  queuedMessages: Message[];
+  pendingApproval: ToolApprovalRequestEvent | null;
+  respondToApproval: (approved: boolean) => void;
+  contextTokens: number;
+  contextLimit: number;
+  isCompacting: boolean;
+}
+
+export function useStreamingChat({
+  agentId,
+  currentConversation,
+  messages,
+  hasMoreMessages,
+  isLoadingMessages,
+  loadMoreMessages,
+  loadConversation,
+  setCurrentConversationId,
+  queueText,
+  clearQueue,
+  amplitudeRef,
+  pushAgentCharacterConfig,
+}: UseStreamingChatParams): UseStreamingChatReturn {
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingMessages, setStreamingMessages] = useState<Message[]>([]);
+  const [streamingContent, setStreamingContent] = useState('');
+  const [streamingThinking, setStreamingThinking] = useState('');
+  const [justFinishedStreaming, setJustFinishedStreaming] = useState(false);
+  const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
+  const [externalDraft, setExternalDraft] = useState('');
+  const [externalDraftVersion, setExternalDraftVersion] = useState(0);
+  const [activeConversationId, setActiveConversationId] = useState<number | null>(
+    currentConversation?.id || null
+  );
+  const [errorToast, setErrorToast] = useState<string | null>(null);
+  const [infoToast, setInfoToast] = useState<string | null>(null);
+  const [pendingApproval, setPendingApproval] = useState<ToolApprovalRequestEvent | null>(null);
+  const [contextTokens, setContextTokens] = useState(0);
+  const [isCompacting, setIsCompacting] = useState(false);
+  const [queuedMessages, setQueuedMessages] = useState<Message[]>([]);
+
+  // Ref to track streaming state without stale closures
+  const isStreamingRef = useRef(false);
+  const cancelledRef = useRef(false);
+
+  // Refs for streaming state (to avoid stale closures in callbacks)
+  const streamingStateRef = useRef({
+    currentRole: null as string | null,
+    currentAgentId: undefined as number | undefined,
+    currentAgentName: undefined as string | undefined,
+    accumulatedContent: '',
+    accumulatedThinking: '',
+    hasPlaceholder: false,
+    hasStarted: false,
+    conversationId: null as number | null,
+  });
+
+  const ttsBufferRef = useRef('');
+  const ttsVoiceRef = useRef<string | undefined>(undefined);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const previousScrollHeightRef = useRef<number>(0);
+  // Tracks the container's scrollHeight from the previous render so we can decide
+  // whether the user was at the bottom *before* this update. If they were, we keep
+  // them pinned to the bottom; if they had scrolled up, we leave them alone.
+  const lastScrollHeightRef = useRef<number>(0);
+  const streamFrameRef = useRef<number | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
+  const pendingStreamRef = useRef<{ content: string; thinking: string }>({ content: '', thinking: '' });
+  const prevConversationIdRef = useRef<number | null>(null);
+
+  // Authoritative copy of streamingMessages, kept in lockstep with React state
+  // by `updateStreaming` below. Updating it on render (the previous approach)
+  // was racy: a chunk's setState could be batched and unflushed when the next
+  // chunk's handler — or handleDone — read this ref, returning a stale array
+  // and dropping the in-progress bubble. The ref is the source of truth now;
+  // setStreamingMessages is just a notifier.
+  const streamingMessagesRef = useRef<Message[]>([]);
+  const updateStreaming = useCallback(
+    (updater: Message[] | ((prev: Message[]) => Message[])) => {
+      const next = typeof updater === 'function'
+        ? (updater as (prev: Message[]) => Message[])(streamingMessagesRef.current)
+        : updater;
+      streamingMessagesRef.current = next;
+      setStreamingMessages(next);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    isStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
+  const pushExternalDraft = useCallback((text: string) => {
+    setExternalDraft(text);
+    setExternalDraftVersion((prev) => prev + 1);
+  }, []);
+
+  const clearExternalDraft = useCallback(() => {
+    setExternalDraft('');
+    setExternalDraftVersion((prev) => prev + 1);
+  }, []);
+
+  const cancelStreamUpdate = () => {
+    if (streamFrameRef.current !== null) {
+      cancelAnimationFrame(streamFrameRef.current);
+      streamFrameRef.current = null;
+    }
+  };
+
+  const scheduleStreamUpdate = useCallback((content: string, thinking: string) => {
+    pendingStreamRef.current = { content, thinking };
+    if (streamFrameRef.current === null) {
+      streamFrameRef.current = requestAnimationFrame(() => {
+        const next = pendingStreamRef.current;
+        setStreamingContent(next.content);
+        setStreamingThinking(next.thinking);
+        streamFrameRef.current = null;
+      });
+    }
+  }, []);
+
+  // Conversation change cleanup.
+  //
+  // This effect fires whenever `currentConversation` gets a new object reference —
+  // including the null→N transition that happens when a chunk assigns the
+  // first-ever conversation_id during an active stream, and the background
+  // reload after `done` that replaces the conversation object with the same id.
+  // Wiping streaming state on those transitions would erase the user bubble and
+  // reset the accumulator mid-stream, so we only clear on an *actual* switch
+  // to a different conversation.
+  useEffect(() => {
+    const newId = currentConversation?.id || null;
+    const prevId = prevConversationIdRef.current;
+    const isActualSwitch = prevId !== null && newId !== null && prevId !== newId;
+    prevConversationIdRef.current = newId;
+
+    setActiveConversationId(newId);
+
+    if (!isActualSwitch) {
+      // Keep streaming/TTS state intact: this is either initial mount, a
+      // null→N transition on first chunk of a new conversation, or a same-id
+      // reload after done.
+      return;
+    }
+
+    // Clear local streaming state on a real switch.
+    updateStreaming([]);
+    setStreamingContent('');
+    setStreamingThinking('');
+    setJustFinishedStreaming(false);
+    setIsStreaming(false);
+    isStreamingRef.current = false;
+    cancelStreamUpdate();
+    clearQueue();
+    ttsBufferRef.current = '';
+    ttsVoiceRef.current = undefined;
+    streamingStateRef.current = {
+      currentRole: null,
+      currentAgentId: undefined,
+      currentAgentName: undefined,
+      accumulatedContent: '',
+      accumulatedThinking: '',
+      hasPlaceholder: false,
+      hasStarted: false,
+      conversationId: newId,
+    };
+  }, [currentConversation]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // cancelStreamUpdate cleanup on unmount
+  useEffect(() => {
+    return () => {
+      cancelStreamUpdate();
+    };
+  }, []);
+
+  // Reset "just finished" indicator after 3 seconds
+  useEffect(() => {
+    if (justFinishedStreaming) {
+      const timer = setTimeout(() => {
+        setJustFinishedStreaming(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [justFinishedStreaming]);
+
+  // Reset scroll tracking on conversation switch so the new conversation pins
+  // to the bottom on first render (oldHeight=0 → distFromBottom is non-positive).
+  useEffect(() => {
+    lastScrollHeightRef.current = 0;
+  }, [currentConversation?.id]);
+
+  // Auto-scroll on streaming/message updates, but only if the user was already
+  // near the bottom of the *previous* content. Always 'auto' — 'smooth' produces
+  // a visible scroll animation when the stream finishes (state flips like
+  // setStreamingMessages([])/setStreamingContent('') and the post-done reload
+  // each retrigger the effect). Note: isStreaming intentionally not in deps —
+  // toggling it shouldn't cause a scroll on its own.
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const oldHeight = lastScrollHeightRef.current;
+    lastScrollHeightRef.current = container.scrollHeight;
+    if (isLoadingMessages) return;
+    const distFromBottom = oldHeight
+      ? oldHeight - container.scrollTop - container.clientHeight
+      : 0;
+    if (distFromBottom < 100) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    }
+  }, [messages, streamingMessages, streamingContent, isLoadingMessages]);
+
+  // Preserve scroll position after loading more messages
+  useEffect(() => {
+    if (!isLoadingMessages && previousScrollHeightRef.current > 0) {
+      const container = messagesContainerRef.current;
+      if (container) {
+        const newScrollHeight = container.scrollHeight;
+        const scrollDiff = newScrollHeight - previousScrollHeightRef.current;
+        container.scrollTop = scrollDiff;
+        previousScrollHeightRef.current = 0;
+      }
+    }
+  }, [isLoadingMessages]);
+
+  // WebSocket event handlers
+  const handleStreamChunk = useCallback((event: StreamChunkEvent) => {
+    const state = streamingStateRef.current;
+
+    // Ignore late chunks after cancel
+    if (cancelledRef.current) return;
+
+    // Ignore events for a different conversation (prevents cross-conversation leaks)
+    if (event.conversation_id && state.conversationId && event.conversation_id !== state.conversationId) {
+      return;
+    }
+
+    // Auto-enter streaming mode on replayed chunks (reconnect scenario)
+    if (!isStreamingRef.current) {
+      setIsStreaming(true);
+      isStreamingRef.current = true;
+    }
+
+    // Track conversation ID
+    if (event.conversation_id && !state.conversationId) {
+      state.conversationId = event.conversation_id;
+      setActiveConversationId(event.conversation_id);
+      setCurrentConversationId(event.conversation_id);
+
+      // Save agent-conversation mapping
+      if (agentId) {
+        storage.setAgentConversationId(agentId, event.conversation_id);
+      } else {
+        storage.setAgentConversationId('group', event.conversation_id);
+      }
+    }
+
+    const messageRole = event.role;
+    const agentName = event.name || undefined;
+    const eventAgentId = event.agent_id ?? undefined;
+
+    // Check if we need to create a new bubble:
+    // - Role changed (user -> assistant -> tool)
+    // - Agent changed (handoff between main agents) - compare by name
+    const roleChanged = state.currentRole && messageRole !== state.currentRole;
+    const agentChanged = state.hasStarted && state.currentAgentName !== agentName;
+    const needsNewBubble = roleChanged || agentChanged;
+
+    if (needsNewBubble) {
+      // Flush TTS buffer from previous agent before switching
+      if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
+        const cleaned = stripNarration(ttsBufferRef.current);
+        if (cleaned) queueText(cleaned, ttsVoiceRef.current);
+        ttsBufferRef.current = '';
+      }      // Capture ref values before mutating. React defers updater execution,
+      // so reading the ref inside the updater would see the new (wrong) value.
+      const previousContent = state.accumulatedContent;
+      const previousThinking = state.accumulatedThinking;
+
+      // Finalize previous message content and add new bubble
+      updateStreaming(prev => {
+        const updated = [...prev];
+        if (updated.length > 0) {
+          updated[updated.length - 1] = {
+            ...updated[updated.length - 1],
+            content: previousContent,
+            thinking: previousThinking || undefined,
+          };
+        }
+        updated.push({
+          role: messageRole,
+          content: '',
+          name: agentName,
+          agent_id: eventAgentId,
+          voice_reference: event.voice_reference || undefined,
+          persona_name: event.persona_name || undefined,
+          model_name: event.model_name || undefined,
+          provider_type: event.provider_type || undefined,
+          tool_args: event.tool_args || undefined,
+          tool_status: event.tool_status || undefined,
+          _clientKey: crypto.randomUUID(),
+        });
+        return updated;
+      });
+
+      state.currentRole = messageRole;
+      state.currentAgentId = eventAgentId;
+      state.currentAgentName = agentName;
+      state.accumulatedContent = event.content || '';
+      state.accumulatedThinking = '';
+
+      // Update TTS voice for new agent
+      ttsVoiceRef.current = event.voice_reference || undefined;
+
+      // Update character panel with active agent
+      pushAgentCharacterConfig(eventAgentId, agentName);
+
+      scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
+    } else if (!state.hasStarted) {
+      // First message chunk - update placeholder bubble
+      state.hasStarted = true;
+      state.currentRole = messageRole;
+      state.currentAgentId = eventAgentId;
+      state.currentAgentName = agentName;
+      state.accumulatedContent = event.content || '';
+      state.accumulatedThinking = '';
+
+      // Update character panel with active agent
+      pushAgentCharacterConfig(eventAgentId, agentName);
+
+      if (state.hasPlaceholder) {
+        // Update placeholder with actual role/agent info
+        updateStreaming(prev => {
+          const updated = [...prev];
+          if (updated.length > 0) {
+            updated[updated.length - 1] = {
+              ...updated[updated.length - 1],
+              role: messageRole,
+              name: agentName,
+              agent_id: eventAgentId,
+              voice_reference: event.voice_reference || undefined,
+              model_name: event.model_name || undefined,
+              provider_type: event.provider_type || undefined,
+              tool_args: event.tool_args || undefined,
+              tool_status: event.tool_status || undefined,
+            };
+          }
+          return updated;
+        });
+        state.hasPlaceholder = false;
+      } else {
+        updateStreaming(prev => [...prev, {
+          role: messageRole,
+          content: '',
+          name: agentName,
+          agent_id: eventAgentId,
+          voice_reference: event.voice_reference || undefined,
+          persona_name: event.persona_name || undefined,
+          model_name: event.model_name || undefined,
+          provider_type: event.provider_type || undefined,
+          tool_args: event.tool_args || undefined,
+          tool_status: event.tool_status || undefined,
+          _clientKey: crypto.randomUUID(),
+        }]);
+      }
+
+      scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
+    } else {
+      // Same role and agent, accumulate content
+      if (event.content) {
+        state.accumulatedContent += event.content;
+        scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
+      }
+    }
+
+    // Merge images from chunk into current streaming message
+    if (event.images && event.images.length > 0) {
+      updateStreaming(prev => {
+        const updated = [...prev];
+        if (updated.length > 0) {
+          const last = updated[updated.length - 1];
+          updated[updated.length - 1] = {
+            ...last,
+            images: [...(last.images || []), ...event.images!],
+          };
+        }
+        return updated;
+      });
+    }
+
+    // Always accumulate thinking + update isThinking for character transitions
+    if (event.thinking) {
+      state.accumulatedThinking += event.thinking;
+      amplitudeRef.current = { ...amplitudeRef.current, isThinking: true };
+      scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
+    }
+    if (event.content) {      // Content arrived, so the thinking phase is over
+      amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
+    }
+
+    // Update running token count from server and persist to store
+    if (event.token_count != null) {
+      setContextTokens(event.token_count);
+    }
+
+    // Streaming TTS auto-play: feed complete sentences to TTS queue
+    // Only queue when we have full sentences AND enough words (min 10)
+    if (storage.getTTSAutoPlay() && event.content && event.role !== 'tool') {
+      ttsVoiceRef.current = event.voice_reference || ttsVoiceRef.current;
+      ttsBufferRef.current += event.content;
+      // Split on sentence-ending punctuation; all but the last segment are complete
+      const parts = ttsBufferRef.current.split(/(?<=[.!?。！？\n])\s*/);
+      if (parts.length > 1) {
+        const completeSentences = parts.slice(0, -1).join(' ');
+        const wordCount = completeSentences.trim().split(/\s+/).length;
+        if (wordCount >= 10) {
+          ttsBufferRef.current = parts[parts.length - 1];
+          const cleaned = stripNarration(completeSentences);
+          if (cleaned) queueText(cleaned, ttsVoiceRef.current);
+        }
+        // If < 10 words, keep accumulating — don't update buffer
+      }
+    }
+  }, [setCurrentConversationId, scheduleStreamUpdate, queueText, pushAgentCharacterConfig]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleDone = useCallback((event: DoneEvent) => {
+    cancelledRef.current = false;
+    const state = streamingStateRef.current;
+
+    // Ignore done events for a different conversation
+    if (event.conversation_id && state.conversationId && event.conversation_id !== state.conversationId) {
+      return;
+    }
+
+    // Clear thinking state
+    amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
+
+    // Flush remaining TTS buffer
+    if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
+      const cleaned = stripNarration(ttsBufferRef.current);
+      if (cleaned) queueText(cleaned, ttsVoiceRef.current);
+    }
+    ttsBufferRef.current = '';
+    ttsVoiceRef.current = undefined;    // Do not clear activeAgentId here; TTS may still be playing after streaming ends.
+    // activeAgentId is cleared when isQueueActive becomes false (see effect below).
+
+    // Build the finalized array directly from the ref + accumulator instead of
+    // routing it through setStreamingMessages → flushSync → ref. The previous
+    // approach was racy: when a stream chunk arrived microseconds before the
+    // done event (common at the end of a multi-role stream), the ref still
+    // pointed to a render-stale array (3 bubbles instead of 4) and the last
+    // bubble was lost from the store. Computing finalized inline removes the
+    // dependency on render timing entirely.
+    const current = streamingMessagesRef.current;
+    const finalized: Message[] = current.length > 0
+      ? [
+          ...current.slice(0, -1),
+          {
+            ...current[current.length - 1],
+            content: state.accumulatedContent,
+            thinking: state.accumulatedThinking || undefined,
+          },
+        ]
+      : [];
+
+    cancelStreamUpdate();
+    setStreamingContent('');
+    setStreamingThinking('');
+    setJustFinishedStreaming(true);
+    setIsStreaming(false);
+
+    // Streaming → store handoff. Order matters: clear local streaming state
+    // FIRST, then append to the store. The reverse order leaves a window
+    // (between Zustand commit and React commit) where the same bubble lives
+    // in both arrays and renders twice — a strict-mode locator violation in
+    // tests. Clearing first means a one-frame "no bubble" flicker, but React
+    // 18 batches both updates so in practice the user sees one re-render.
+    updateStreaming([]);
+    if (finalized.length > 0) {
+      useConversationStore.getState().appendMessages(finalized);
+    }
+    // Drop any queued messages — backend will stream them next.
+    setQueuedMessages([]);
+
+    // Refresh agent previews (last-message snippet on the sidebar). No
+    // conversation reload: streaming chunks already deliver every field the
+    // bubble needs, and resend/delete/raw-data have been removed, so the
+    // missing DB ids are no longer load-bearing on the client.
+    if (event.conversation_id) {
+      useAgentStore.getState().loadAgentPreviews();
+    }
+  }, [queueText]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleError = useCallback((event: ErrorEvent) => {
+    console.error('WebSocket error:', event.error);
+    setErrorToast(event.error);
+    updateStreaming([]);
+    cancelStreamUpdate();
+    setStreamingContent('');
+    setStreamingThinking('');
+    setIsStreaming(false);
+  }, [updateStreaming]);
+
+  const handleConnected = useCallback((event: ConnectedEvent) => {
+    if (event.chat_active && event.conversation_id) {      // Server still has an active streaming task; enter streaming mode and load
+      // already-persisted messages (user msg + any completed agent messages)
+      if (!isStreamingRef.current) {
+        setIsStreaming(true);
+        isStreamingRef.current = true;
+      }
+      loadConversation(event.conversation_id).catch(console.error);
+    } else if (!event.chat_active && event.conversation_id) {      // Task finished while we were disconnected; reload once from the database
+      const convId = event.conversation_id;
+      loadConversation(convId)
+        .then(() => updateStreaming([]))
+        .catch(console.error);
+    }
+    // If no conversation_id, nothing to restore
+  }, [loadConversation]);  // Stable refs for WebSocket handlers avoid re-registering on every render.  // This prevents queueText -> playQueue -> amplitudeController churn.
+  const handleStreamChunkRef = useRef(handleStreamChunk);
+  handleStreamChunkRef.current = handleStreamChunk;
+  const handleDoneRef = useRef(handleDone);
+  handleDoneRef.current = handleDone;
+  const handleErrorRef = useRef(handleError);
+  handleErrorRef.current = handleError;
+  const handleConnectedRef = useRef(handleConnected);
+  handleConnectedRef.current = handleConnected;
+
+  // Set up WebSocket event listeners (registered once, delegates to latest ref)
+  useEffect(() => {
+    const onChunk = (e: StreamChunkEvent) => handleStreamChunkRef.current(e);
+    const onDone = (e: DoneEvent) => handleDoneRef.current(e);
+    const onError = (e: ErrorEvent) => handleErrorRef.current(e);
+    const onConnected = (e: ConnectedEvent) => handleConnectedRef.current(e);
+
+    const onApproval = (e: ToolApprovalRequestEvent) => {
+      // Check tool permissions policy before showing dialog
+      const decision = useToolPermissionsStore.getState().getToolDecision(e.tool_name);
+      if (decision === 'allow') {
+        // Auto-approve based on policy
+        wsManager.sendToolApprovalResponse(e.approval_id, true);
+        return;
+      }
+      if (decision === 'deny') {
+        // Auto-deny based on policy
+        wsManager.sendToolApprovalResponse(e.approval_id, false);
+        return;
+      }
+      // No policy - show dialog
+      setPendingApproval(e);
+    };
+    const onContextInfo = (e: ContextInfoEvent) => {
+      setIsCompacting(e.compacting);
+      if (!e.compacting) {
+        if (e.compacted_up_to_id) {
+          useConversationStore.getState().updateCompactionData(
+            e.compacted_up_to_id,
+            e.compacted_context ?? '',
+          );
+        }
+        // Reload conversation to refresh compaction data from API
+        const convId = useConversationStore.getState().currentConversation?.id;
+        if (convId) {
+          useConversationStore.getState().loadConversation(convId);
+        }
+      }
+    };
+    const onConversationSwitched = (e: ConversationSwitchedEvent) => {
+      // Compaction (manual or auto) created a new conversation seeded with
+      // the rolling summary. Update the agent → conversation mapping and
+      // load the new one. The summary will be visible at the top.
+      if (e.agent_id) {
+        storage.setAgentConversationId(e.agent_id, e.new_conversation_id);
+      }
+      void useConversationStore.getState().loadConversation(e.new_conversation_id);
+      setInfoToast('Compacted — opened a new conversation with the summary on top.');
+    };
+
+    wsManager.on('stream_chunk', onChunk);
+    wsManager.on('done', onDone);
+    wsManager.on('error', onError);
+    wsManager.on('connected', onConnected);
+    wsManager.on('tool_approval_request', onApproval);
+    wsManager.on('context_info', onContextInfo);
+    wsManager.on('conversation_switched', onConversationSwitched);
+
+    return () => {
+      wsManager.off('stream_chunk', onChunk);
+      wsManager.off('done', onDone);
+      wsManager.off('error', onError);
+      wsManager.off('connected', onConnected);
+      wsManager.off('tool_approval_request', onApproval);
+      wsManager.off('context_info', onContextInfo);
+      wsManager.off('conversation_switched', onConversationSwitched);
+    };
+  }, []);
+
+  // Handle scroll to load more messages
+  const handleScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container || isLoadingMessages || !hasMoreMessages) return;
+
+    if (container.scrollTop < 100) {
+      previousScrollHeightRef.current = container.scrollHeight;
+      loadMoreMessages();
+    }
+  }, [isLoadingMessages, hasMoreMessages, loadMoreMessages]);
+
+  const handleScrollRef = useRef(handleScroll);
+  handleScrollRef.current = handleScroll;
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const onScroll = () => {
+      if (scrollFrameRef.current !== null) return;
+      scrollFrameRef.current = requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        handleScrollRef.current();
+      });
+    };
+
+    container.addEventListener('scroll', onScroll, { passive: true });
+
+    return () => {
+      container.removeEventListener('scroll', onScroll);
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      } else if (!storage.getTTSAutoPlay()) {
+        ttsBufferRef.current = '';
+      } else if (!storage.getTTSAutoPlay()) {
+        ttsBufferRef.current = '';
+      }
+    };
+  }, []);
+
+  const handleSendText = async (overrideText: string) => {
+    if (!overrideText.trim() || isStreamingRef.current) return;
+    await _doSend(overrideText.trim(), []);
+  };
+
+  const _doSend = useCallback(async (text: string, imageFiles: File[]) => {
+    cancelledRef.current = false;
+    setIsStreaming(true);
+
+    // Collect file selections as structured context_files
+    const { selections, liveSelections, clearAllSelections } = useExplorerStore.getState();
+    const contextFiles: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    for (const sel of selections) {
+      const key = sel.startLine > 0 ? `${sel.filePath}:${sel.startLine}-${sel.endLine}` : sel.filePath;
+      if (!seen.has(key)) {
+        seen.add(key);
+        contextFiles.push({
+          path: sel.filePath, fileName: sel.fileName,
+          ...(sel.startLine > 0 ? { startLine: sel.startLine, endLine: sel.endLine, startColumn: sel.startColumn, endColumn: sel.endColumn } : {}),
+        });
+      }
+    }
+    for (const ls of liveSelections) {
+      const key = ls.isWholeFile ? ls.filePath : `${ls.filePath}:${ls.startLine}-${ls.endLine}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        contextFiles.push({
+          path: ls.filePath, fileName: ls.fileName,
+          ...(!ls.isWholeFile ? { startLine: ls.startLine, endLine: ls.endLine, startColumn: ls.startColumn, endColumn: ls.endColumn } : {}),
+        });
+      }
+    }
+    if (contextFiles.length > 0) clearAllSelections();
+
+    // Clear any previous TTS queue
+    clearQueue();
+    ttsBufferRef.current = '';
+    ttsVoiceRef.current = undefined;
+
+    try {
+      const imageBase64: string[] = [];
+      for (const imageFile of imageFiles) {
+        const base64 = await fileToBase64(imageFile);
+        imageBase64.push(base64);
+      }
+
+      const userMessage: Message = {
+        role: 'user',
+        content: text,
+        images: [],
+        context_files: contextFiles.length > 0 ? contextFiles as Message['context_files'] : undefined,
+        _clientKey: crypto.randomUUID(),
+      };
+
+      // Send user text as subtitle
+      window.electron?.characterWindow?.sendSubtitle({ text, isUser: true });
+
+      // Add user message + placeholder to local streaming state (not store)
+      updateStreaming([userMessage, { role: 'assistant', content: '', _clientKey: crypto.randomUUID() }]);
+
+      // Reset streaming state
+      streamingStateRef.current = {
+        currentRole: null,
+        currentAgentId: undefined,
+        currentAgentName: undefined,
+        accumulatedContent: '',
+        accumulatedThinking: '',
+        hasPlaceholder: true,
+        hasStarted: false,
+        conversationId: activeConversationId,
+      };
+
+      setStreamingContent('');
+      setStreamingThinking('');
+      setJustFinishedStreaming(false);
+
+      // Send via WebSocket
+      await wsManager.sendChatRequest(
+        text,
+        '', // Model determined by backend
+        activeConversationId,
+        imageBase64,
+        contextFiles,
+      );
+    } catch (err: any) {
+      console.error('Chat error:', err);
+      updateStreaming(prev => {
+        if (prev.length === 0) return prev;
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          ...updated[updated.length - 1],
+          content: 'Error: ' + (err.message || 'Failed to send message'),
+        };
+        return updated;
+      });
+      cancelStreamUpdate();
+      setStreamingContent('');
+      setStreamingThinking('');
+      setIsStreaming(false);
+    }
+  }, [activeConversationId, agentId, clearQueue, setCurrentConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSend = useCallback(async (text: string, imageFiles: File[]) => {
+    if (!text.trim()) return;
+    const trimmed = text.trim();
+
+    // Slash commands are always client-side — never send to backend
+    if (trimmed.startsWith('/')) {
+      const feedback = await handleCommand(trimmed, { activeConversationId, agentId });
+      if (feedback) setInfoToast(feedback);
+      return;
+    }
+
+    if (isStreamingRef.current) {
+      // Already streaming — queue: show dimmed user bubble below streaming content
+      setQueuedMessages(prev => [...prev, { role: 'user', content: trimmed, images: [], queued: true, _clientKey: crypto.randomUUID() }]);
+
+      const imageBase64: string[] = [];
+      for (const imageFile of imageFiles) {
+        const base64 = await fileToBase64(imageFile);
+        imageBase64.push(base64);
+      }
+
+      await wsManager.sendChatRequest(
+        trimmed,
+        '',
+        activeConversationId,
+        imageBase64,
+      );
+      return;
+    }
+
+    await _doSend(trimmed, imageFiles);
+  }, [_doSend, activeConversationId, agentId]);
+
+  const handleCancel = () => {
+    cancelledRef.current = true;
+    wsManager.sendCancel();
+
+    // Stop TTS auto-play
+    clearQueue();
+    ttsBufferRef.current = '';
+    ttsVoiceRef.current = undefined;
+
+    // Clear subtitle
+    window.electron?.characterWindow?.sendSubtitle({ text: '', isUser: false });
+
+    // Finalize streaming messages and merge into store. Read from the ref so
+    // the side effect runs exactly once (StrictMode re-invokes state updaters).
+    const state = streamingStateRef.current;
+    const current = streamingMessagesRef.current;
+    if (current.length > 0) {
+      const updated = [...current];
+      updated[updated.length - 1] = {
+        ...updated[updated.length - 1],
+        content: state.accumulatedContent,
+        thinking: state.accumulatedThinking || undefined,
+      };
+      useConversationStore.getState().appendMessages(updated);
+    }
+    updateStreaming([]);
+
+    setIsStreaming(false);
+    cancelStreamUpdate();
+    setStreamingContent('');
+    setStreamingThinking('');
+    setQueuedMessages([]);
+  };
+
+  const toggleThinking = useCallback((index: number) => {
+    setExpandedThinking(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+  }, []);
+
+  /**
+   * Respond to a tool approval request.
+   * @param response - 'approve' | 'deny' | 'always_allow' | 'always_deny' | 'session_allow'
+   */
+  const respondToApproval = useCallback((response: string) => {
+    if (!pendingApproval) return;
+
+    const toolName = pendingApproval.tool_name;
+    const approved = response !== 'deny' && response !== 'always_deny';
+
+    // Handle remember options
+    if (response === 'always_allow') {
+      useToolPermissionsStore.getState().setToolPolicy(toolName, 'allow');
+    } else if (response === 'always_deny') {
+      useToolPermissionsStore.getState().setToolPolicy(toolName, 'deny');
+    } else if (response === 'session_allow') {
+      useToolPermissionsStore.getState().addSessionApproval(toolName);
+    }
+
+    wsManager.sendToolApprovalResponse(pendingApproval.approval_id, approved);
+    setPendingApproval(null);
+  }, [pendingApproval]);
+
+  return {
+    isStreaming,
+    streamingMessages,
+    streamingContent,
+    streamingThinking,
+    justFinishedStreaming,
+    expandedThinking,
+    activeConversationId,
+    errorToast,
+    setErrorToast,
+    infoToast,
+    setInfoToast,
+    externalDraft,
+    externalDraftVersion,
+    pushExternalDraft,
+    clearExternalDraft,
+    messagesEndRef,
+    messagesContainerRef,
+    handleSend,
+    handleSendText,
+    handleCancel,
+    toggleThinking,
+    queuedMessages,
+    pendingApproval,
+    respondToApproval,
+    contextTokens,
+    contextLimit: 0,  // Frontend determines limit from model config
+    isCompacting,
+  };
+}
