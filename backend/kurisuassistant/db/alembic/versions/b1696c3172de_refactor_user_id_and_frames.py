@@ -100,8 +100,13 @@ def upgrade() -> None:
     # Step 16: Rename messages.chunk_id to messages.frame_id
     op.alter_column('messages', 'chunk_id', new_column_name='frame_id')
 
-    # Step 17: Update foreign key constraint for messages.frame_id
-    op.drop_constraint('messages_chunk_id_fkey', 'messages', type_='foreignkey')
+    # Step 17: Update foreign key constraint for messages.frame_id.
+    # d4e8f92a3b1c names this FK fk_messages_chunk_id; production carried the
+    # auto-generated name instead, so accept either.
+    existing_fks = {fk['name'] for fk in sa.inspect(op.get_bind()).get_foreign_keys('messages')}
+    for fk_name in ('messages_chunk_id_fkey', 'fk_messages_chunk_id'):
+        if fk_name in existing_fks:
+            op.drop_constraint(fk_name, 'messages', type_='foreignkey')
     op.create_foreign_key('messages_frame_id_fkey', 'messages', 'frames', ['frame_id'], ['id'], ondelete='CASCADE')
 
 
