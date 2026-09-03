@@ -7,6 +7,7 @@
 #   git worktree add ../KurisuAssistant-dev -b dev      # from the monorepo root
 #   cd ../KurisuAssistant-dev/backend
 #   ln -s docker-compose.dev.yml compose.yaml           # plain `docker compose` picks this file first
+#                                                      # (it warns about two config files; that is expected)
 #   cp ../../KurisuAssistant/backend/.env .             # same credentials, separate database
 #   mkdir -p data
 #   docker compose up -d --build
@@ -33,8 +34,8 @@ services:
       service: api
     # Container names are global on `central`, so it must differ from production's.
     container_name: kurisu-api-dev
-    # `extends` deliberately drops depends_on: the GPU services belong to production.
-    depends_on:
+    # !override replaces the inherited list: the GPU services belong to production.
+    depends_on: !override
       - postgres-dev
     environment:
       # Never the bare `postgres`: this container also sits on production's
