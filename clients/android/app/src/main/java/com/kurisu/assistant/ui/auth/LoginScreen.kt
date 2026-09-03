@@ -6,10 +6,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +32,7 @@ fun LoginScreen(
     val state by viewModel.state.collectAsState()
     val loginSuccess by viewModel.loginSuccess.collectAsState()
     var passwordVisible by remember { mutableStateOf(false) }
+    var showQrScanner by remember { mutableStateOf(false) }
 
     LaunchedEffect(loginSuccess) {
         if (loginSuccess != null) onLoginSuccess()
@@ -189,6 +193,46 @@ fun LoginScreen(
                     )
                 }
             }
+
+            if (state.isLoginMode) {
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = { showQrScanner = true },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    enabled = !state.isLoading,
+                    shape = RoundedCornerShape(6.dp),
+                ) {
+                    Icon(
+                        Icons.Default.QrCodeScanner,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Sign in with QR code", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
+    }
+
+    if (showQrScanner) {
+        Dialog(
+            onDismissRequest = { showQrScanner = false },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = false,
+            ),
+        ) {
+            QrLoginScanner(
+                onResult = { raw ->
+                    val applied = viewModel.applyLoginQr(raw)
+                    showQrScanner = false
+                    if (!applied) {
+                        // Error message is already on state.error → snackbar will show.
+                    }
+                },
+                onCancel = { showQrScanner = false },
+            )
         }
     }
 }

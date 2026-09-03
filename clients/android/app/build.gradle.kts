@@ -230,6 +230,10 @@ dependencies {
     // ONNX Runtime (Silero VAD)
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")
 
+    // ML Kit Barcode Scanning (login QR). Bundled flavour — no Google Play
+    // Services dependency, works on emulators and degoogled devices.
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+
     // Image loading
     implementation("io.coil-kt:coil-compose:2.7.0")
 

@@ -11,7 +11,20 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
+
+@Serializable
+private data class LoginQrPayload(
+    @SerialName("v") val version: Int = 1,
+    @SerialName("server") val server: String,
+    @SerialName("username") val username: String,
+    @SerialName("password") val password: String,
+)
+
+private val qrJson = Json { ignoreUnknownKeys = true }
 
 data class LoginUiState(
     val isLoginMode: Boolean = true,
@@ -51,6 +64,39 @@ class LoginViewModel @Inject constructor(
     fun setServerUrl(v: String) = _state.update { it.copy(serverUrl = v) }
     fun setRememberMe(v: Boolean) = _state.update { it.copy(rememberMe = v) }
     fun clearError() = _state.update { it.copy(error = null) }
+
+    /**
+     * Parse a QR code payload and, if it's a valid v1 login QR, populate the
+     * form and submit. Returns true if the payload was applied (caller can
+     * dismiss the scanner). Returns false if the QR is not ours.
+     */
+    fun applyLoginQr(raw: String): Boolean {
+        val payload = try {
+            qrJson.decodeFromString(LoginQrPayload.serializer(), raw)
+        } catch (_: Exception) {
+            _state.update { it.copy(error = "QR code is not a Kurisu login code") }
+            return false
+        }
+        if (payload.version != 1) {
+            _state.update { it.copy(error = "Unsupported QR version (${payload.version})") }
+            return false
+        }
+        if (payload.server.isBlank() || payload.username.isBlank() || payload.password.isBlank()) {
+            _state.update { it.copy(error = "QR code is missing fields") }
+            return false
+        }
+        _state.update {
+            it.copy(
+                isLoginMode = true,
+                serverUrl = payload.server,
+                username = payload.username,
+                password = payload.password,
+                error = null,
+            )
+        }
+        submit()
+        return true
+    }
 
     fun submit() {
         val s = _state.value

@@ -161,6 +161,23 @@ class APIClient {
     return response.data;
   }
 
+  // Validate username/password without touching the current session's token.
+  // Used by the login-QR generator to confirm the user typed the right password
+  // before encoding it into a QR code.
+  async verifyCredentials(username: string, password: string): Promise<void> {
+    const formData = new FormData();
+    formData.append('username', username);
+    formData.append('password', password);
+    await this.client.post<LoginResponse>('/login', formData, {
+      // Skip the bearer header — /login is unauthenticated, and we don't want
+      // a stale token to interfere or get refreshed.
+      transformRequest: [(data, headers) => {
+        delete (headers as any).Authorization;
+        return data;
+      }],
+    });
+  }
+
   async register(username: string, password: string, email?: string): Promise<LoginResponse> {
     const formData = new FormData();
     formData.append('username', username);

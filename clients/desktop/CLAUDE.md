@@ -178,6 +178,11 @@ Two-level state managed by `useMicStore` (Zustand, `src/store/micStore.ts`): `in
 - Token refresh: `POST /auth/refresh` with refresh_token body → returns new access_token. Coalesced (concurrent 401s share one refresh call). On success, persists new token if rememberMe. On failure, triggers logout.
 - WebSocket auth failure (4001): wsManager auto-refreshes via apiClient.tryRefresh() then reconnects
 
+### QR Code Login (generator)
+- `AccountSection` → "Show login QR" button opens `LoginQrDialog` (`src/components/settings/LoginQrDialog.tsx`). User re-enters their password (we don't store it in plaintext); dialog calls `apiClient.verifyCredentials()` (a passwordless variant of `/login` that doesn't overwrite the session token), then renders a QR via the `qrcode` npm package onto a canvas.
+- Shared payload format (must match Android scanner): `{"v":1,"server":"https://...","username":"foo","password":"bar"}`. Server URL comes from `storage.getBackendUrl()`; username from `useAuthStore().user.username`.
+- The dialog warns that the QR is a credential. There is no logout-after-share or rotation step — user is responsible.
+
 ### Image Handling
 - Upload: base64 images sent in `chat_request` WebSocket event → backend saves to per-user directory, returns UUIDs via `StreamChunkEvent.images`
 - Display: `message.images[]` UUIDs rendered via `apiClient.getUserImageUrl(uuid)` → `GET /images/u/{uuid}?token=` (auth-required, per-user scoped)

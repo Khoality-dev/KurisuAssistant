@@ -12,10 +12,12 @@ import {
   Save as SaveIcon,
   Visibility as ShowIcon,
   VisibilityOff as HideIcon,
+  QrCode2 as QrCodeIcon,
 } from '@mui/icons-material';
 import { useAuthStore } from '../../store/authStore';
 import { apiClient } from '../../api/client';
 import { ModelPicker } from '../ModelPicker';
+import { LoginQrDialog } from './LoginQrDialog';
 import type { UserProfile } from '../../api/types';
 
 const ApiKeyField: React.FC<{
@@ -81,6 +83,7 @@ export const AccountSection: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [qrDialogOpen, setQrDialogOpen] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -239,6 +242,24 @@ export const AccountSection: React.FC = () => {
         />
       </Box>
 
+      {/* Sign in on another device */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+          Sign in on another device
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          Generate a one-glance QR code that the Android client can scan to sign in.
+        </Typography>
+        <Button
+          variant="outlined"
+          startIcon={<QrCodeIcon />}
+          onClick={() => setQrDialogOpen(true)}
+          disabled={!user}
+        >
+          Show login QR
+        </Button>
+      </Box>
+
       {/* Save Button */}
       <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
         <Button
@@ -250,6 +271,12 @@ export const AccountSection: React.FC = () => {
           {isSaving ? 'Saving...' : 'Save Account Settings'}
         </Button>
       </Box>
+
+      <LoginQrDialog
+        open={qrDialogOpen}
+        username={user?.username || ''}
+        onClose={() => setQrDialogOpen(false)}
+      />
     </Box>
   );
 };

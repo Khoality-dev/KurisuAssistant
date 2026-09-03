@@ -135,6 +135,11 @@ Chat (back button) → Home
 - **sendMessage in two places**: CoreService handles voice-triggered sends, ChatViewModel handles user-typed sends. Both use the same singletons (`streamProcessor`, `wsManager`). Concurrency guard: both check `streamProcessor.state.value.isStreaming` before sending
 - **Stream-done signaling**: CoreService emits `CoreState.streamDone` → ChatViewModel observes, reloads conversation from DB, then clears ephemeral streaming messages
 
+### QR Code Login
+- LoginScreen has a "Sign in with QR code" button (visible in Login mode only) that opens `QrLoginScanner` in a fullscreen Dialog. CameraX `ImageAnalysis` feeds frames to ML Kit `BarcodeScanning` (bundled flavour, no Play Services dep). On the first decoded payload, `LoginViewModel.applyLoginQr()` parses it, fills the form, and auto-submits.
+- Shared payload format (must match Desktop generator): `{"v":1,"server":"https://...","username":"foo","password":"bar"}`. `v` is the schema version. Unknown fields are ignored. Bad payloads surface via `state.error` snackbar.
+- Camera permission is requested inline in the scanner overlay — no extra manifest entry beyond the existing `CAMERA` permission used by face capture.
+
 ### In-App Update (GitHub Releases)
 - `UpdateRepository` uses its own plain `OkHttpClient` (no auth/interceptors) to call GitHub Releases API
 - Checks on app launch (HomeViewModel.init) and manually from Settings ("Check for updates" button)
