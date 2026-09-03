@@ -38,3 +38,6 @@ nul
 postgres-data/
 ollama/
 openwebui/
+
+# Dev checkout: symlink to docker-compose.dev.yml (see that file)
+compose.yaml

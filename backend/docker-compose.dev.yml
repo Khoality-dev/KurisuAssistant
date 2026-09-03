@@ -1,0 +1,66 @@
+# Dev overlay for the backend — a second, isolated API + database on this box.
+#
+# Use it from a SEPARATE checkout, never from the production tree: the API
+# bind-mounts ./kurisuassistant and ./data, so two projects sharing one
+# directory would run the same code against the same files.
+#
+#   git worktree add ../KurisuAssistant-dev -b dev      # from the monorepo root
+#   cd ../KurisuAssistant-dev/backend
+#   ln -s docker-compose.dev.yml compose.yaml           # plain `docker compose` picks this file first
+#   cp ../../KurisuAssistant/backend/.env .             # same credentials, separate database
+#   mkdir -p data
+#   docker compose up -d --build
+#
+# Duplicated for dev: the API (kurisu-api-dev), Postgres (postgres-dev, own
+# volume, own alembic_version) and ./data (images, avatars, character assets,
+# voice uploads, JWT secret). None of it is shared with production.
+#
+# Shared with production: the GPU services (universal-voice, vixtts,
+# gpt-sovits), reached over production's compose network, and Ollama over
+# `central`. They are stateless as far as the API is concerned — the API
+# uploads the voice reference with every TTS request — so a second copy would
+# only cost GPU memory.
+#
+# Reachable at https://<host>:15598 (production keeps 15597). The vhost lives
+# in ../../ingress/nginx/conf.d/kurisu-dev.conf and proxies to kurisu-api-dev.
+
+name: kurisuassistant-dev
+
+services:
+  api:
+    extends:
+      file: docker-compose.yml
+      service: api
+    # Container names are global on `central`, so it must differ from production's.
+    container_name: kurisu-api-dev
+    # `extends` deliberately drops depends_on: the GPU services belong to production.
+    depends_on:
+      - postgres-dev
+    environment:
+      # Never the bare `postgres`: this container also sits on production's
+      # network, where that name resolves to the production database.
+      - POSTGRES_HOST=postgres-dev
+    networks:
+      - default
+      - central
+      - kurisu-prod
+
+  postgres-dev:
+    extends:
+      file: docker-compose.yml
+      service: postgres
+    container_name: postgres-dev
+
+networks:
+  default:
+  central:
+    external: true
+    name: central
+  # Production's project network, for universal-voice / vixtts / gpt-sovits.
+  kurisu-prod:
+    external: true
+    name: kurisuassistant_default
+
+volumes:
+  # Becomes kurisuassistant-dev_postgres-data — separate from production's.
+  postgres-data:

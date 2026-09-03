@@ -22,6 +22,32 @@ docker compose logs -f api # View API logs
 
 Migrations auto-run on container startup via `docker-entrypoint.sh`. The API container mounts `kurisuassistant/`, `scripts/`, `tests/`, and `data/` from this directory.
 
+## Dev Deployment
+
+A second, isolated copy of the API runs next to production from its own checkout, with its own database and `data/` directory. It shares the GPU services (universal-voice, vixtts, gpt-sovits) and Ollama with production; the API uploads the voice reference with every TTS request, so nothing user-specific lives in those services.
+
+| | Production | Dev |
+|---|---|---|
+| Checkout | `KurisuAssistant/` (branch `main`) | `KurisuAssistant-dev/` (git worktree, branch `dev`) |
+| Compose project | `kurisuassistant` | `kurisuassistant-dev` |
+| API container | `kurisu-api` | `kurisu-api-dev` |
+| Database | `postgres-container`, volume `kurisuassistant_postgres-data` | `postgres-dev`, volume `kurisuassistant-dev_postgres-data` |
+| Data | `KurisuAssistant/backend/data/` | `KurisuAssistant-dev/backend/data/` |
+| URL | `https://<host>:15597` | `https://<host>:15598` |
+
+Setup, once:
+
+```bash
+git worktree add ../KurisuAssistant-dev -b dev      # from the monorepo root
+cd ../KurisuAssistant-dev/backend
+ln -s docker-compose.dev.yml compose.yaml           # plain `docker compose` then uses the dev file
+cp ../../KurisuAssistant/backend/.env .             # same credentials, separate database
+mkdir -p data
+docker compose up -d --build
+```
+
+Day to day: commit on `dev`, `docker compose up -d --build` (or `restart api`) in the dev checkout, and merge `dev` into `main` plus the same command in the production checkout to promote. Migrations run on container start in both. The vhost is `../ingress/nginx/conf.d/kurisu-dev.conf`. See `docker-compose.dev.yml` for what is and is not shared.
+
 ## Tests
 
 ```bash

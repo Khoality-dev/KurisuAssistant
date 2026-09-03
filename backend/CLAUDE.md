@@ -50,6 +50,10 @@ uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --reload --reload-d
 docker compose up -d       # Start all
 docker compose logs -f api # View logs
 
+# Dev deployment: separate worktree (../KurisuAssistant-dev, branch dev) running
+# docker-compose.dev.yml — own API, Postgres and data/, shared GPU services.
+# See docs/development.md "Dev Deployment". Never run the dev overlay from this tree.
+
 # Migrations (Alembic, auto-run on container startup via docker-entrypoint.sh)
 cd kurisuassistant/db && alembic revision --autogenerate -m "description"
 ```
