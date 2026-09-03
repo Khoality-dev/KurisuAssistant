@@ -1,93 +1,48 @@
-# Kurisu Assistant — Desktop Client
+# Kurisu Assistant Desktop
 
-Desktop client for [KurisuAssistant](../../README.md), built with React, Electron, TypeScript, and Material-UI. Lives in `clients/desktop/` of the monorepo; the server it talks to is in [`backend/`](../../backend/).
+The Windows and Linux desktop client for [Kurisu Assistant](../../README.md).
 
-## Features
+## Install
 
-- **Streaming Chat** — Real-time WebSocket streaming with sentence-by-sentence display
-- **Voice Input** — Silero VAD auto-detects speech end, transcribes via server-side ASR
-- **TTS Auto-Play** — Streams text-to-speech as the agent responds, with per-agent voice selection
-- **Multi-Agent** — Create and switch between agents with custom prompts, models, voices, and tools
-- **Workspace** — Built-in file explorer and Monaco editor, with per-agent host tools sandboxed to allowed paths
-- **MCP Servers** — Run local stdio/SSE MCP servers and expose their tools to agents
-- **Character Animation** — Separate video call window with animated 2D characters: blink, breathing, lip sync, gesture-triggered pose transitions via a graph-based state machine
-- **Vision Pipeline** — Webcam face recognition and gesture detection with real-time results
-- **Skills** — Create, edit, and import/export instruction blocks that teach agents capabilities
-- **Image Support** — Attach images to messages with vision model support
-- **Auto-Update** — Checks GitHub Releases on startup and installs updates in the background
+Download the latest installer from the [desktop releases page](https://github.com/Khoality-dev/KurisuAssistant-Client-Desktop/releases/latest).
 
-## Tech Stack
+- Windows: run the `.exe` installer.
+- Linux: install the `.deb`, or make the `.AppImage` executable with `chmod +x` and open it.
 
-- **Frontend**: React 18 + TypeScript
-- **Desktop**: Electron 28
-- **UI**: Material-UI v5, Framer Motion
-- **State**: Zustand
-- **Build**: Vite, electron-builder
-- **Tests**: Vitest (unit), Playwright (Electron end-to-end)
+The app checks for updates when it starts.
 
-## Getting Started
+## Sign in
 
-### Prerequisites
+Enter your server's complete URL, including `http://` or `https://`, then enter your username and password. Use **Register** to create an account on a new server. Under **Settings → Account**, you can generate a QR code for quick Android sign-in; treat it like a password.
 
-- Node.js 20+
-- A running KurisuAssistant backend
+## Everyday use
 
-### Install & Run
+- **Workspace:** browse and edit folders allowed under **Settings → Host Access**.
+- **Conversations:** switch between agents and resume earlier conversations.
+- **Voice:** use the microphone button for dictation or trigger-word voice interaction. Configure ASR and TTS under **Settings → Voice** and **Settings → TTS & ASR**.
+- **Images:** attach an image or drag one onto the composer; the selected model must support vision.
+- **Agents:** create main agents with a model, personality, voice, avatar, memory, trigger word, and allowed tools.
+- **Tools & MCP:** connect tool servers and review approval requests before allowing calls.
+- **Character:** configure animation, webcam vision, and face identities from Settings. `/live-animate` toggles the character window and `/vision` toggles webcam vision.
+
+Typing `/` in the composer shows commands such as `/clear`, `/resume`, `/delete`, `/agents`, `/refresh`, `/context`, and `/compact`.
+
+## Run from source
+
+Requires Node.js 20 or newer and a running backend:
 
 ```bash
 npm install
 npm run electron:dev
 ```
 
-### Build
+Build an installer with `npm run electron:build`; output is written to `release/`.
 
-```bash
-npm run electron:build
-```
+Run tests with `npm test`. End-to-end tests use `npm run test:e2e:build && npm run test:e2e`.
 
-Produces installers in `release/`.
+## Client configuration
 
-### Tests
-
-```bash
-npm test                                   # unit tests
-npm run test:e2e:build && npm run test:e2e # Playwright end-to-end
-```
-
-## Configuration
-
-Server URL is configurable in the login screen and persisted to localStorage. Default: `https://localhost`.
-
-## Releases
-
-Push a `desktop-vX.Y.Z` tag on the monorepo. The root workflow `.github/workflows/desktop-build.yml` builds Windows and Linux packages and publishes them as release `vX.Y.Z` on `Khoality-dev/KurisuAssistant-Client-Desktop`, which is where installed apps look for updates (see `build.publish` in `package.json`).
-
-## Project Structure
-
-```
-electron/
-  main.ts                   Multi-window entry, auto-updater, IPC registration
-  mcp.ts                    MCP server manager (stdio/SSE), tool discovery/execution
-  hostTools.ts              Sandboxed per-agent host tools (read/write/edit/search/bash)
-  appTools.ts               App config tools for agents (agent CRUD, MCP, vision, browser)
-  explorerIPC.ts            File explorer IPC
-  preload.ts                contextBridge surface
-src/
-  api/                      Axios + WebSocket client, API types
-  components/
-    layout/                 ActivityBar | MainContent | ChatPanel three-panel shell
-    explorer/               File explorer, tabs, Monaco editor
-    conversations/          Conversation list
-    settings/               Settings sections (account, TTS, agents, MCP, tools, skills, faces, ...)
-    chat/                   Chat widget, composer, message bubbles
-    character/              React Flow pose-graph editor and preview
-  hooks/                    TTS queue, audio amplitude, webcam capture, ...
-  store/                    Zustand stores
-  videocall/                Character animation engine (canvas compositor)
-tests/                      Playwright specs and mock backend
-```
-
-See `CLAUDE.md` for the detailed architecture map.
+The server URL is entered on the login screen and saved locally. The default is `https://localhost`; use the URL supplied by your server administrator for remote or LAN servers. See [`CLAUDE.md`](CLAUDE.md) for the architecture map and [`backend/docs/`](../../backend/docs/) for server protocol details.
 
 ## License
 
