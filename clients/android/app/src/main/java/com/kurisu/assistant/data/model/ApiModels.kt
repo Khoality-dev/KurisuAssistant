@@ -96,6 +96,10 @@ data class UserProfile(
     @SerialName("assistant_avatar_uuid") val assistantAvatarUuid: String? = null,
     @SerialName("ollama_url") val ollamaUrl: String? = null,
     @SerialName("summary_model") val summaryModel: String? = null,
+    // Provider keys are write-only: the server reports only whether one is set,
+    // and these carry a new key on PATCH. Null means "leave the stored key alone".
+    @SerialName("has_gemini_key") val hasGeminiKey: Boolean = false,
+    @SerialName("has_nvidia_key") val hasNvidiaKey: Boolean = false,
     @SerialName("gemini_api_key") val geminiApiKey: String? = null,
     @SerialName("nvidia_api_key") val nvidiaApiKey: String? = null,
     @SerialName("context_size") val contextSize: Int? = null,

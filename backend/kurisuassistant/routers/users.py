@@ -21,7 +21,13 @@ async def get_user_profile(
     user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db)
 ):
-    """Get current user profile."""
+    """Get current user profile.
+
+    Provider API keys are never returned. They are write-only: PATCH sets one,
+    and this reports only whether one is configured. Echoing the key back put
+    the user's paid third-party credentials into every client that holds a
+    token, and into any log or proxy that saw the response.
+    """
     try:
         return {
             "username": user.username,
@@ -29,8 +35,8 @@ async def get_user_profile(
             "preferred_name": user.preferred_name or "",
             "agent_avatar_uuid": user.agent_avatar_uuid,
             "ollama_url": user.ollama_url,
-            "gemini_api_key": user.gemini_api_key,
-            "nvidia_api_key": getattr(user, 'nvidia_api_key', None),
+            "has_gemini_key": bool(user.gemini_api_key),
+            "has_nvidia_key": bool(getattr(user, 'nvidia_api_key', None)),
             "summary_model": user.summary_model,
             "summary_provider": getattr(user, 'summary_provider', 'ollama') or 'ollama',
             "context_size": user.context_size,

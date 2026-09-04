@@ -15,8 +15,14 @@ Bumping rules:
 - Bump rarely; treat each bump as a coordinated release across all clients.
 
 Update log (most recent first):
+- 2: `GET /users/me` no longer returns `gemini_api_key` / `nvidia_api_key`.
+     They are write-only now; the response carries `has_gemini_key` and
+     `has_nvidia_key` booleans instead. Clients must stop pre-filling the key
+     field from the profile, and must omit the key from a PATCH unless the user
+     typed a new one — an older client would send back what it read and clear
+     the stored key.
 - 1: Initial wire protocol baseline.
 """
 
-__version__ = "0.2.0"
-WIRE_PROTOCOL = 1
+__version__ = "0.3.0"
+WIRE_PROTOCOL = 2

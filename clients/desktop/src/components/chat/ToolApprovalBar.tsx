@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Box, Paper, Typography, Chip, Divider } from '@mui/material';
+import { Box, Paper, Typography, Chip } from '@mui/material';
 import { Build as ToolIcon, CheckCircle, Block, Schedule, DoNotDisturb } from '@mui/icons-material';
 
 export interface ApprovalOption {
@@ -15,6 +15,7 @@ export interface ApprovalRequest {
   detail?: string;
   executionLocation?: 'backend' | 'frontend';
   agentName?: string;
+  options?: ApprovalOption[];
 }
 
 // Default options for tool approval

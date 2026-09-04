@@ -1,0 +1,65 @@
+# Backend – fast tests
+#
+# The backend had no CI at all: eight pytest modules existed and never ran, so a
+# regression in the agent loop, the WebSocket handler or the migration chain
+# shipped undetected.
+#
+# This installs backend/requirements-ci.txt rather than requirements.txt. The
+# latter targets a CUDA PyTorch image and would drag torch, torchvision and the
+# nvidia-* wheels onto the runner for tests that never touch them. See the header
+# of that file for what is included and why.
+#
+# Integration-marked tests are deselected: every one of them calls pytest.skip()
+# when Ollama or Postgres is unreachable, so running them here would be green and
+# meaningless.
+
+name: Backend – Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-test.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-test.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: backend-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        # backend/ is the package root; the server also resolves data/ relative
+        # to the working directory, and three modules mkdir under it at import.
+        working-directory: backend
+    env:
+      # core/security.py generates and writes a key at import when this is unset.
+      JWT_SECRET_KEY: ci-not-a-real-secret
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements-ci.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-ci.txt
+
+      - name: Run tests
+        # An explicit path: pytest's default discovery would otherwise pick up
+        # vendored node-gyp files named *_test.py if any are present locally.
+        run: python -m pytest tests -m "not integration" -q

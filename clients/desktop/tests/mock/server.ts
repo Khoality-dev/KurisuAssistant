@@ -10,6 +10,7 @@ import http from 'http';
 import { AddressInfo } from 'net';
 import { WebSocketServer, WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
+import { WIRE_PROTOCOL } from '../../src/constants';
 
 export interface MockAgent {
   id: number;
@@ -197,9 +198,11 @@ export class MockBackend {
     }
 
     // Version handshake — must return the wire_protocol the client expects,
-    // otherwise the startup gate in App.tsx blocks the UI with UpdateRequiredScreen.
+    // otherwise the startup gate in App.tsx blocks the UI with UpdateRequiredScreen
+    // and every later locator times out. Taken from the client constant rather
+    // than hardcoded, so a protocol bump cannot silently break the whole suite.
     if (pathOnly === '/version' && method === 'GET') {
-      return this.json(res, { backend_version: '0.2.0', wire_protocol: 1 });
+      return this.json(res, { backend_version: '0.3.0', wire_protocol: WIRE_PROTOCOL });
     }
 
     // Auth endpoints
@@ -228,6 +231,9 @@ export class MockBackend {
         email: 'tester@example.com',
         preferred_name: 'Tester',
         context_size: 8192,
+        // Provider keys are write-only; the profile reports only whether one is set.
+        has_gemini_key: false,
+        has_nvidia_key: false,
       });
     }
     if (pathOnly === '/users/me' && method === 'PATCH') {

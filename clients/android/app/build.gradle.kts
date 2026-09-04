@@ -83,7 +83,7 @@ android {
         // change to REST/WebSocket payloads, headers, or auth flow. Sent on
         // every request via WireProtocolInterceptor and checked once on
         // startup against `GET /version`.
-        buildConfigField("int", "WIRE_PROTOCOL", "1")
+        buildConfigField("int", "WIRE_PROTOCOL", "2")
     }
 
     signingConfigs {

@@ -49,7 +49,6 @@ export const TTSSection: React.FC = () => {
 
   // ASR settings
   const [asrMode, setAsrModeState] = useState(storage.getASRMode());
-  const [asrLanguage, setAsrLanguageState] = useState(storage.getASRLanguage() || '');
   const [asrFixedModel, setAsrFixedModelState] = useState(storage.getASRFixedModel());
   const [modelMap, setModelMapState] = useState(storage.getASRModelMap());
   const [availableModels, setAvailableModels] = useState<ModelEntry[]>([]);
@@ -57,12 +56,6 @@ export const TTSSection: React.FC = () => {
   const setAsrMode = (v: 'fixed' | 'routing') => {
     setAsrModeState(v);
     storage.setASRMode(v);
-  };
-
-  const setAsrLanguage = (v: string) => {
-    setAsrLanguageState(v);
-    if (v) storage.setASRLanguage(v);
-    else storage.clearASRLanguage();
   };
 
   const setAsrFixedModel = (v: string) => {

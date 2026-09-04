@@ -1,4 +1,4 @@
-name: Desktop – E2E Tests
+name: Desktop – Tests
 
 on:
   push:
@@ -18,7 +18,38 @@ defaults:
     working-directory: clients/desktop
 
 jobs:
+  # Typecheck and unit tests were both missing. The release path builds with
+  # `vite build` alone, which does not typecheck, so type errors could ship in a
+  # strict-mode codebase; and `npm test` (vitest) was never run anywhere.
+  # Neither depends on the OS, so one Linux job covers both and fails fast
+  # before the slower Electron matrix starts.
+  checks:
+    name: Typecheck + unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: clients/desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm test
+
   e2e:
+    name: Playwright end-to-end
     strategy:
       fail-fast: false
       matrix:

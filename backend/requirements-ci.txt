@@ -1,0 +1,44 @@
+# Dependencies needed to run the fast test suite, and nothing else.
+#
+# requirements.txt targets a CUDA PyTorch image and is unusable in CI: ultralytics
+# pulls torch, torchvision and the nvidia-* CUDA wheels (gigabytes), and insightface
+# ships an sdist with C++ extensions that needs a compiler. None of that is reached
+# by `pytest -m "not integration"` — every heavy provider imports its library lazily,
+# inside the method that uses it, so the collection-time graph stays small.
+#
+# Versions are kept in step with requirements.txt. If you add a module-level import
+# to the backend, this file is what tells you: CI fails at collection, not at runtime.
+
+# Web framework — conftest imports the routers package, which imports every router
+fastapi==0.115.12
+starlette==0.46.2
+pydantic==2.11.4
+pydantic_core==2.33.2
+httpx>=0.27.0
+# Required by any route declaring Form or UploadFile, and checked at import time.
+# It is absent from requirements.txt and only reaches the image transitively.
+python-multipart==0.0.20
+
+# Database — db/session.py calls create_engine() at module scope, so SQLAlchemy
+# resolves and imports psycopg2 eagerly even though nothing connects.
+SQLAlchemy>=2.0,<2.1
+psycopg2-binary==2.9.9
+pgvector
+
+# Auth — core/security.py builds the bcrypt CryptContext at import.
+# passlib 1.7.4 breaks against bcrypt >= 4.1, so that pin is load-bearing.
+python-jose==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+
+# Imported at module scope on the collection path
+numpy==2.2.5
+opencv-python-headless==4.12.0.88
+fastmcp==2.9.2
+ollama==0.6.1
+google-genai
+requests==2.32.3
+
+# Test runner. pytest.ini sets asyncio_mode=auto, so the plugin is required.
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

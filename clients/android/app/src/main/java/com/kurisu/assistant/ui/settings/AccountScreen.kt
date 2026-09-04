@@ -85,6 +85,10 @@ fun AccountScreen(
                 value = state.geminiApiKey,
                 onValueChange = viewModel::setGeminiApiKey,
                 label = { Text("Google Gemini API Key") },
+                placeholder = {
+                    Text(if (state.hasGeminiKey) "A key is saved \u2014 type to replace it" else "Enter API key")
+                },
+                supportingText = if (state.hasGeminiKey) {{ Text("A key is already saved") }} else null,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 visualTransformation = PasswordVisualTransformation(),
@@ -104,6 +108,10 @@ fun AccountScreen(
                 value = state.nvidiaApiKey,
                 onValueChange = viewModel::setNvidiaApiKey,
                 label = { Text("NVIDIA NIM API Key") },
+                placeholder = {
+                    Text(if (state.hasNvidiaKey) "A key is saved \u2014 type to replace it" else "Enter API key")
+                },
+                supportingText = if (state.hasNvidiaKey) {{ Text("A key is already saved") }} else null,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 visualTransformation = PasswordVisualTransformation(),

@@ -30,7 +30,8 @@ const ApiKeyField: React.FC<{
   validating: boolean;
   onValidate: () => void;
   helperText: string;
-}> = ({ label, value, onChange, show, onToggleShow, valid, validating, onValidate, helperText }) => (
+  configured?: boolean;
+}> = ({ label, value, onChange, show, onToggleShow, valid, validating, onValidate, helperText, configured }) => (
   <Box sx={{ mb: 4 }}>
     <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
       <TextField
@@ -39,8 +40,8 @@ const ApiKeyField: React.FC<{
         onChange={(e) => onChange(e.target.value)}
         fullWidth
         type={show ? 'text' : 'password'}
-        placeholder="Enter API key"
-        helperText={helperText}
+        placeholder={configured ? 'A key is saved — type to replace it' : 'Enter API key'}
+        helperText={configured ? `${helperText} · a key is already saved` : helperText}
         InputProps={{
           endAdornment: value ? (
             <Box sx={{ display: 'flex', gap: 0.5, mr: -0.5 }}>
@@ -88,8 +89,10 @@ export const AccountSection: React.FC = () => {
   useEffect(() => {
     if (user) {
       setOllamaUrl(user.ollama_url || '');
-      setGeminiApiKey(user.gemini_api_key || '');
-      setNvidiaApiKey(user.nvidia_api_key || '');
+      // The server never returns the keys, so these stay empty. An empty field
+      // means "leave whatever is stored alone", not "clear it".
+      setGeminiApiKey('');
+      setNvidiaApiKey('');
       setSummaryModel(user.summary_model || '');
       setContextSize(user.context_size || '');
     }
@@ -117,8 +120,10 @@ export const AccountSection: React.FC = () => {
     try {
       const profileUpdates: Partial<UserProfile> = {};
       profileUpdates.ollama_url = ollamaUrl || '';
-      profileUpdates.gemini_api_key = geminiApiKey || '';
-      profileUpdates.nvidia_api_key = nvidiaApiKey || '';
+      // Only send a key the user actually typed. Sending an empty string would
+      // clear the stored key every time the page is saved.
+      if (geminiApiKey) profileUpdates.gemini_api_key = geminiApiKey;
+      if (nvidiaApiKey) profileUpdates.nvidia_api_key = nvidiaApiKey;
       profileUpdates.summary_model = summaryModel.trim() || '';
       profileUpdates.context_size = contextSize || 0;
 
@@ -185,6 +190,7 @@ export const AccountSection: React.FC = () => {
           setValidating('');
         }}
         helperText="Get your key from ai.google.dev"
+        configured={!!user?.has_gemini_key}
       />
 
       {/* NVIDIA NIM API Key */}
@@ -207,6 +213,7 @@ export const AccountSection: React.FC = () => {
           setValidating('');
         }}
         helperText="Get your key from build.nvidia.com"
+        configured={!!user?.has_nvidia_key}
       />
 
       {/* Summary Model */}

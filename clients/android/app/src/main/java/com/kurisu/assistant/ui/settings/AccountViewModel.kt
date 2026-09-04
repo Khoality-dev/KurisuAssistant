@@ -19,6 +19,8 @@ data class AccountUiState(
     val ollamaUrl: String = "",
     val geminiApiKey: String = "",
     val nvidiaApiKey: String = "",
+    val hasGeminiKey: Boolean = false,
+    val hasNvidiaKey: Boolean = false,
     val summaryModel: String = "",
     val contextSize: String = "8192",
     val availableModels: List<ModelInfo> = emptyList(),
@@ -50,8 +52,12 @@ class AccountViewModel @Inject constructor(
                 val user = authRepository.loadUserProfile()
                 _state.update { it.copy(
                     ollamaUrl = user.ollamaUrl ?: "",
-                    geminiApiKey = user.geminiApiKey ?: "",
-                    nvidiaApiKey = user.nvidiaApiKey ?: "",
+                    // The server never returns the keys. An empty field means
+                    // "keep whatever is stored", not "clear it".
+                    geminiApiKey = "",
+                    nvidiaApiKey = "",
+                    hasGeminiKey = user.hasGeminiKey,
+                    hasNvidiaKey = user.hasNvidiaKey,
                     summaryModel = user.summaryModel ?: "",
                     contextSize = (user.contextSize ?: 8192).toString(),
                 ) }
