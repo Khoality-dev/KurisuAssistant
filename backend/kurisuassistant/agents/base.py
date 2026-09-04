@@ -100,6 +100,9 @@ class AgentContext:
     images: Optional[List[str]] = None
     context_size: Optional[int] = None
     compacted_context: str = ""
+    # {tool_name: "allow" | "deny"} from users.tool_policies. The server decides
+    # with this; the client's approval answer can only narrow it, never widen it.
+    tool_policies: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -211,13 +214,37 @@ class BaseAgent(ABC):
                 logger.warning(f"Agent '{self.config.name}' tried to use unavailable tool: {tool_name}")
                 return ToolResult(content=f"Tool not available: {tool_name}", status="error")
 
+        # The stored policy is the server's own decision and is applied first.
+        # A "deny" is final and never reaches the client; an "allow" skips the
+        # prompt; anything else has to be approved by a human.
+        policy = (context.tool_policies or {}).get(tool_name)
+
+        if policy == "deny":
+            logger.info(
+                "Tool '%s' refused for user %s by stored policy", tool_name, context.user_id,
+            )
+            return ToolResult(
+                content=f"Tool execution denied by policy: {tool_name}",
+                status="denied",
+            )
+
         if tool:
             description = tool.describe_call(tool_args)
         else:
             description = f"Execute {tool_name} with args: {tool_args}"
 
-        # ALWAYS request approval from frontend
-        if context.handler:
+        if policy != "allow":
+            if not context.handler:
+                # Nothing is attached that could approve this. Historically the
+                # call went ahead unchecked; it must not.
+                logger.warning(
+                    "Refusing tool '%s': no client session available to approve it", tool_name,
+                )
+                return ToolResult(
+                    content=f"Tool execution denied (no client available to approve): {tool_name}",
+                    status="denied",
+                )
+
             approval_request = ToolApprovalRequestEvent(
                 tool_name=tool_name,
                 tool_args=tool_args,
