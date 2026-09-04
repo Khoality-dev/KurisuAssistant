@@ -341,6 +341,25 @@ class MainAgent(BaseAgent):
 
                 if tool_denied:
                     break
+            else:
+                # The loop ran out of rounds rather than finishing. Say so: the
+                # stream otherwise just stopped after the last tool result, with
+                # nothing to distinguish it from a completed answer.
+                logger.warning(
+                    "Agent '%s' hit the %d tool-round cap", self.config.name, MAX_TOOL_ROUNDS,
+                )
+                yield StreamChunkEvent(
+                    content=(
+                        f"\n\n_Stopped after {MAX_TOOL_ROUNDS} rounds of tool calls "
+                        "without reaching an answer._"
+                    ),
+                    role="assistant",
+                    agent_id=self.config.id,
+                    name=self.config.name,
+                    conversation_id=context.conversation_id,
+                    model_name=model,
+                    provider_type=self.config.provider_type,
+                )
 
         except Exception:
             # Re-raise so the WebSocket handler emits an ErrorEvent (transient,

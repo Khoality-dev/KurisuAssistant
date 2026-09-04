@@ -8,11 +8,11 @@ the SubAgent's intermediate stream.
 
 import json
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Set
 
 from kurisuassistant.tools.base import BaseTool
 
-from .base import BaseAgent, AgentContext, async_iterate, estimate_tokens
+from .base import BaseAgent, AgentContext, async_iterate
 
 logger = logging.getLogger(__name__)
 
@@ -141,19 +141,36 @@ class SubAgentTool(BaseTool):
 
     built_in = False
 
-    def __init__(self, sub: SubAgent):
+    def __init__(self, sub: SubAgent, taken: Optional[Set[str]] = None):
         self.sub = sub
-        self.name = self._to_tool_name(sub.config.name)
+        self.name = self._to_tool_name(sub.config.name, taken)
         self.description = sub.config.description or f"Delegate task to {sub.config.name}"
 
     @staticmethod
-    def _to_tool_name(agent_name: str) -> str:
-        """Convert an agent name to a valid tool name (snake_case)."""
+    def _to_tool_name(agent_name: str, taken: Optional[Set[str]] = None) -> str:
+        """Convert an agent name to a valid tool name (snake_case).
+
+        Names collapse: "Web Search" and "web-search" both reduce to
+        ``web_search_agent``. Nothing checked for that, so one adapter silently
+        shadowed the other and the model was shown two identical schemas. A
+        collision now gets a numeric suffix.
+        """
         name = agent_name.lower()
         name = "".join(c if c.isalnum() else "_" for c in name)
         while "__" in name:
             name = name.replace("__", "_")
-        return name.strip("_") + "_agent"
+        base = name.strip("_") + "_agent"
+
+        if taken is None:
+            return base
+
+        candidate = base
+        suffix = 2
+        while candidate in taken:
+            candidate = f"{base}_{suffix}"
+            suffix += 1
+        taken.add(candidate)
+        return candidate
 
     def get_schema(self) -> Dict[str, Any]:
         return {

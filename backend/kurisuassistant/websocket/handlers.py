@@ -311,7 +311,11 @@ class ChatSessionHandler:
                 ))
 
             # SubAgent tool adapters injected as extra_tools on the MainAgent
-            sub_agent_tools = [SubAgentTool(SubAgent(sa, tool_registry)) for sa in sub_agents]
+            taken_tool_names: set = set()
+            sub_agent_tools = [
+                SubAgentTool(SubAgent(sa, tool_registry), taken_tool_names)
+                for sa in sub_agents
+            ]
 
             agent_context = AgentContext(
                 user_id=self.user_id,
