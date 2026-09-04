@@ -3,10 +3,11 @@
 import logging
 import os
 
-import requests as http_requests
+import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from kurisuassistant.core.deps import get_authenticated_user
+from kurisuassistant.core.http import get_client
 
 logger = logging.getLogger(__name__)
 
@@ -33,16 +34,16 @@ async def asr_endpoint(
         if initial_prompt:
             params["initial_prompt"] = initial_prompt
 
-        r = http_requests.post(
+        r = await get_client().post(
             f"{ASR_API_URL}/asr",
-            data=audio,
+            content=audio,
             params=params,
             headers={"Content-Type": "application/octet-stream"},
             timeout=30,
         )
         r.raise_for_status()
         return r.json()
-    except http_requests.RequestException as e:
+    except httpx.HTTPError as e:
         logger.error("ASR service error: %s", e, exc_info=True)
         raise HTTPException(status_code=502, detail=f"ASR service error: {e}")
 
@@ -50,36 +51,36 @@ async def asr_endpoint(
 @router.post("/asr/detect-language")
 async def asr_detect_language(
     audio: bytes = Body(..., media_type="application/octet-stream"),
-    languages: str | None = Query(None),
+    model: str | None = Query(None),
     _user=Depends(get_authenticated_user),
 ):
-    """Detect language from raw PCM audio. Optional: constrain to comma-separated codes."""
+    """Detect the spoken language of an audio clip."""
     try:
         params: dict = {}
-        if languages:
-            params["languages"] = languages
+        if model:
+            params["model"] = model
 
-        r = http_requests.post(
+        r = await get_client().post(
             f"{ASR_API_URL}/asr/detect-language",
-            data=audio,
+            content=audio,
             params=params,
             headers={"Content-Type": "application/octet-stream"},
-            timeout=15,
+            timeout=30,
         )
         r.raise_for_status()
         return r.json()
-    except http_requests.RequestException as e:
+    except httpx.HTTPError as e:
         logger.error("ASR detect-language error: %s", e, exc_info=True)
         raise HTTPException(status_code=502, detail=f"ASR service error: {e}")
 
 
 @router.get("/asr/models")
 async def asr_models(_user=Depends(get_authenticated_user)):
-    """Proxy model list from universal-voice service."""
+    """List ASR models available on the universal-voice service."""
     try:
-        r = http_requests.get(f"{ASR_API_URL}/v1/models", timeout=10)
+        r = await get_client().get(f"{ASR_API_URL}/v1/models", timeout=10)
         r.raise_for_status()
         return r.json()
-    except http_requests.RequestException as e:
+    except httpx.HTTPError as e:
         logger.error("ASR models error: %s", e, exc_info=True)
         raise HTTPException(status_code=502, detail=f"ASR service error: {e}")

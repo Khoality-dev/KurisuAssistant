@@ -8,14 +8,18 @@ from .base import BaseTool
 logger = logging.getLogger(__name__)
 
 
-def get_skill_names_for_user(user_id: int) -> List[str]:
-    """Load all skill names for a user."""
+async def get_skill_names_for_user(user_id: int) -> List[str]:
+    """Load all skill names for a user.
+
+    Awaited rather than blocking: this runs while building the system prompt,
+    which happens inside the streaming coroutine on the event loop.
+    """
     from kurisuassistant.db.service import get_db_service
     from kurisuassistant.db.repositories import SkillRepository
 
     try:
         db = get_db_service()
-        return db.execute_sync(lambda s: [
+        return await db.execute(lambda s: [
             skill.name for skill in SkillRepository(s).list_by_user(user_id)
             if skill.name
         ])

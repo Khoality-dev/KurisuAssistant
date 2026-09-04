@@ -61,6 +61,8 @@ async def lifespan(app: FastAPI):
     # Shutdown — reverse order: stop producers, drain workers, close DB
     logger.info("Shutting down application...")
     workers.stop()
+    from kurisuassistant.core.http import close_client
+    await close_client()
     stop_db_service()
     from kurisuassistant.db.session import engine
     engine.dispose()

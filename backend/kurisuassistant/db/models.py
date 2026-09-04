@@ -59,6 +59,11 @@ class Message(Base):
     provider_type = Column(String, nullable=True)
     tool_args = Column(JSON, nullable=True)
     tool_status = Column(String, nullable=True)
+    # An assistant message records the calls it made; a tool message records
+    # which call it answers. Without these, replayed history is a tool message
+    # with no matching request, which strict providers reject.
+    tool_calls = Column(JSON, nullable=True)
+    tool_call_id = Column(String, nullable=True)
     context_files = Column(JSON, nullable=True)
     images = Column(JSON, nullable=True)
     conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), nullable=False, index=True)
