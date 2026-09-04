@@ -161,22 +161,45 @@ class BaseAgent(ABC):
         tool_name: str,
         tool_args: Dict[str, Any],
         context: AgentContext,
+        _depth: int = 0,
     ) -> ToolResult:
-        """Execute a tool after requesting approval from frontend.
+        """Resolve and run a tool call, subject to the user's tool policy.
 
-        All tool calls go through frontend for permission check. Frontend
-        decides whether to auto-approve based on the user's policies or
-        show an approval dialog.
+        The server decides first, from ``context.tool_policies``: a stored deny
+        is final, a stored allow skips the prompt, and anything else is put to
+        the connected client, whose answer can only narrow that decision.
         """
         import json as _json
 
-        # Deferred tools: intercept call_tool and delegate to the inner tool
+        # Deferred tools: intercept call_tool and delegate to the inner tool.
+        # One level of indirection is all the protocol needs; a model that names
+        # call_tool as its own inner tool would otherwise recurse until the
+        # interpreter gives up.
         if tool_name == "call_tool":
+            if _depth >= 1:
+                logger.warning("Refusing nested call_tool from agent '%s'", self.config.name)
+                return ToolResult(
+                    content="call_tool cannot invoke call_tool. Name the tool you want to run.",
+                    status="error",
+                )
             inner_name = tool_args.get("name", "")
             inner_args = tool_args.get("arguments", {})
             if isinstance(inner_args, str):
-                inner_args = _json.loads(inner_args)
-            return await self.execute_tool(inner_name, inner_args, context)
+                try:
+                    inner_args = _json.loads(inner_args)
+                except (ValueError, TypeError):
+                    return ToolResult(
+                        content="call_tool arguments were not valid JSON.",
+                        status="error",
+                    )
+            if not isinstance(inner_args, dict):
+                return ToolResult(
+                    content="call_tool arguments must be an object.",
+                    status="error",
+                )
+            if not inner_name:
+                return ToolResult(content="call_tool requires a tool name.", status="error")
+            return await self.execute_tool(inner_name, inner_args, context, _depth=_depth + 1)
 
         # Deferred tools: handle list_tools / search_tools / get_tool_schema via proxy
         proxy = getattr(self, "_deferred_proxy", None)

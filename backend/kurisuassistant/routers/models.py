@@ -6,10 +6,9 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 from kurisuassistant.core.errors import internal_error
-from kurisuassistant.core.deps import get_db, get_authenticated_user
+from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.db.models import User
 from kurisuassistant.models.llm import list_models as llm_list_models, pull_model as llm_pull_model, create_llm_provider
 
@@ -39,7 +38,6 @@ class PullModelResponse(BaseModel):
 @router.get("")
 async def list_models(
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
 ) -> dict:
     """List available LLM models."""
     try:
@@ -77,7 +75,6 @@ async def list_models(
 @router.get("/details")
 async def list_models_detailed(
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
 ) -> dict:
     """List available models with detailed info (size, modified date)."""
     try:
@@ -103,7 +100,6 @@ async def list_models_detailed(
 async def pull_model(
     body: PullModelRequest,
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
 ) -> PullModelResponse:
     """Pull/download a model from Ollama registry."""
     try:
@@ -121,7 +117,6 @@ async def pull_model(
 async def delete_model(
     model_name: str,
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
 ) -> dict:
     """Delete a downloaded model."""
     try:
@@ -137,7 +132,6 @@ async def delete_model(
 async def ensure_model(
     model_name: str,
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
 ) -> dict:
     """Ensure a model is available, pulling it if necessary."""
     try:
@@ -164,7 +158,6 @@ class ValidateKeyRequest(BaseModel):
 async def validate_api_key(
     body: ValidateKeyRequest,
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
 ) -> dict:
     """Validate an API key by attempting to list models."""
     try:

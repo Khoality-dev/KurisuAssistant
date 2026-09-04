@@ -4,10 +4,9 @@ import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 
 from kurisuassistant.core.errors import internal_error
-from kurisuassistant.core.deps import get_db, get_authenticated_user
+from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
 from kurisuassistant.db.repositories import MessageRepository, ConversationRepository
@@ -39,8 +38,7 @@ def _verify_message_ownership(msg_repo, conv_repo, message_id: int, user_id: int
 @router.get("/{message_id}")
 async def get_message(
     message_id: int,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
+    user: User = Depends(get_authenticated_user)
 ):
     """Fetch a specific message by its ID."""
     try:
@@ -74,8 +72,7 @@ async def get_message(
 @router.delete("/{message_id}")
 async def delete_message(
     message_id: int,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Delete a message and all subsequent messages in the conversation."""
     try:
@@ -108,8 +105,7 @@ async def delete_message(
 @router.get("/{message_id}/raw")
 async def get_message_raw(
     message_id: int,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
+    user: User = Depends(get_authenticated_user)
 ):
     """Fetch raw LLM input/output for a message.
 

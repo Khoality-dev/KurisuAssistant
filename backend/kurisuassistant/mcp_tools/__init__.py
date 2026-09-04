@@ -3,8 +3,7 @@
 from .client import list_tools, call_tool
 from .orchestrator import (
     UserMCPOrchestrator,
-    init_orchestrator,
-    get_orchestrator,
+    evict_user_orchestrator,
     get_user_orchestrator,
     invalidate_user_orchestrator,
 )
@@ -13,8 +12,7 @@ __all__ = [
     "list_tools",
     "call_tool",
     "UserMCPOrchestrator",
-    "init_orchestrator",
-    "get_orchestrator",
+    "evict_user_orchestrator",
     "get_user_orchestrator",
     "invalidate_user_orchestrator",
 ]

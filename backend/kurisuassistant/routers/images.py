@@ -5,11 +5,10 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
 
 from fastapi.security import OAuth2PasswordBearer
 
-from kurisuassistant.core.deps import get_db, get_authenticated_user
+from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.core.security import get_current_user
 from kurisuassistant.db.models import User
 from kurisuassistant.db.service import get_db_service
@@ -27,8 +26,7 @@ router = APIRouter(prefix="/images", tags=["images"])
 @router.post("")
 async def create_image(
     file: UploadFile = File(...),
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
+    user: User = Depends(get_authenticated_user)
 ):
     """Upload image and return UUID."""
     image_uuid = upload_image(file)
@@ -62,7 +60,7 @@ async def _get_user_from_token(token: Optional[str]) -> User:
 async def get_user_image(
     image_uuid: str,
     token: Optional[str] = Query(None),
-    header_token: Optional[str] = Depends(_optional_oauth2),
+    header_token: Optional[str] = Depends(_optional_oauth2)
 ):
     """Serve user-scoped image (requires auth via header or query param)."""
     resolved_token = token or header_token
