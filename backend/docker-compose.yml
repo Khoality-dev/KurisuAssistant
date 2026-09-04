@@ -116,8 +116,6 @@ services:
       - POSTGRES_PORT=${POSTGRES_PORT}
       - POSTGRES_DB=${POSTGRES_DB}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /usr/bin/docker:/usr/bin/docker:ro
       - ./kurisuassistant:/app/kurisuassistant
       - ./scripts:/app/scripts
       - ./data:/app/data
