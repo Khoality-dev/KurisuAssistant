@@ -4,7 +4,7 @@ import logging
 from typing import Optional, List, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from kurisuassistant.core.deps import get_db, get_authenticated_user
@@ -16,6 +16,20 @@ from kurisuassistant.mcp_tools.orchestrator import get_user_orchestrator, invali
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/mcp-servers", tags=["mcp"])
+
+# A stdio server is a command the host runs. Accepting one for location="server"
+# would let any account execute arbitrary commands inside the API container, so
+# stdio is only ever valid for location="client", where the desktop app runs it
+# on the user's own machine under its own approval prompts.
+_STDIO_SERVER_SIDE_ERROR = (
+    "stdio MCP servers cannot run server-side. Use location='client' to run the "
+    "command on your own machine, or use an 'sse' server for a server-side connection."
+)
+
+
+def _reject_server_side_stdio(transport_type: Optional[str], location: Optional[str]) -> None:
+    if transport_type == "stdio" and location == "server":
+        raise ValueError(_STDIO_SERVER_SIDE_ERROR)
 
 
 class MCPServerCreate(BaseModel):
@@ -40,6 +54,11 @@ class MCPServerCreate(BaseModel):
         if v is not None and v not in ("server", "client"):
             raise ValueError("location must be 'server' or 'client'")
         return v or "server"
+
+    @model_validator(mode="after")
+    def reject_server_side_stdio(self) -> "MCPServerCreate":
+        _reject_server_side_stdio(self.transport_type, self.location)
+        return self
 
 
 class MCPServerUpdate(BaseModel):
@@ -143,6 +162,15 @@ async def update_mcp_server(
             server = repo.get_by_user_and_id(user.id, server_id)
             if not server:
                 raise HTTPException(status_code=404, detail="MCP server not found")
+
+            # A patch is partial, so check the values the row will actually hold.
+            effective_transport = data.transport_type if data.transport_type is not None else server.transport_type
+            effective_location = data.location if data.location is not None else (server.location or "server")
+            try:
+                _reject_server_side_stdio(effective_transport, effective_location)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+
             server = repo.update_server(
                 server,
                 name=data.name,

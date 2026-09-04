@@ -32,16 +32,23 @@ def _patch_httpx_factory(client: FastMCPClient):
 
 
 def _create_client_from_server(server) -> Optional[FastMCPClient]:
-    """Create a FastMCPClient from a single MCPServer DB row."""
+    """Create a FastMCPClient from a single MCPServer DB row.
+
+    Only URL-based transports are supported here. A stdio entry names a command
+    for the host to run, and these rows are user-writable through the MCP API, so
+    honouring one would let any account execute arbitrary commands inside the API
+    container. stdio servers belong to ``location="client"``, where the desktop
+    app runs them on the user's own machine behind its approval prompts.
+    """
     if server.transport_type == "sse" and server.url:
         config = {"mcpServers": {server.name: {"url": server.url}}}
-    elif server.transport_type == "stdio" and server.command:
-        entry: Dict[str, Any] = {"command": server.command}
-        if server.args:
-            entry["args"] = server.args
-        if server.env:
-            entry["env"] = server.env
-        config = {"mcpServers": {server.name: entry}}
+    elif server.transport_type == "stdio":
+        logger.warning(
+            "Refusing to start server-side stdio MCP server '%s': stdio is only "
+            "supported for client-side servers.",
+            server.name,
+        )
+        return None
     else:
         return None
 
