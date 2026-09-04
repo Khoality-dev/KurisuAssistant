@@ -322,7 +322,7 @@ List all frames in a conversation with metadata.
 }
 ```
 
-**Note:** Frames are session windows. A new frame is created when the user returns after idle time (`FRAME_IDLE_THRESHOLD_MINUTES`, default 30). Old frames are summarized asynchronously if `User.summary_model` is configured.
+**Note:** Frames were removed in migration `0caebafdf4cc`. A conversation now carries its own summary in `conversations.compacted_context`, and messages belong directly to a conversation. Agent memory is consolidated in the background for conversations idle past `CONVERSATION_IDLE_THRESHOLD_MINUTES` (default 30), which requires `User.summary_model` to be set.
 
 ---
 

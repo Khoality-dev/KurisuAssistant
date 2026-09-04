@@ -1,116 +1,192 @@
 # Architecture
 
+How the backend is put together. Written against the tree, not against intent —
+if this file and the code disagree, the code is right and this file is a bug.
+
 ## Services
 
-- **nginx** (80/443): HTTPS reverse proxy (self-signed certs, `proxy_buffering off` for WebSocket)
-- **api** (internal 15597): Main FastAPI app (`main.py`) — chat, auth, conversations, TTS, vision
-- **postgres** (internal 5432): pgvector/pgvector:pg16 (PostgreSQL 16 + vector extension, not host-exposed)
-- **vixtts** (19770): Voice synthesis backend for the default TTS flow
-- **gpt-sovits** (9880): Voice synthesis backend
-- **mediamtx** (8554): RTSP server (available for IP camera streams, not used by default webcam pipeline)
+The stack in `docker-compose.yml`:
 
-## Directory Structure
+- **api** (internal 15597) — the FastAPI app, `kurisuassistant/main.py`. Reached
+  through an external `central` network rather than a bundled reverse proxy.
+- **postgres** (internal 5432) — `pgvector/pgvector:pg16`. Not exposed to the host.
+- **universal-voice** (internal 14213) — speech recognition and synthesis. The API
+  proxies to it; it in turn fronts the two synthesis backends.
+- **vixtts** (internal 19770) and **gpt-sovits** (internal 9880) — synthesis backends,
+  reached through universal-voice rather than directly.
+
+Ollama is not part of this stack. It is reached over the `central` network at a
+URL each user configures.
+
+`docker-compose.dev.yml` is an overlay that runs a second, isolated API and
+database from a separate checkout. It inherits the api service's volumes from the
+base file.
+
+## Package layout
 
 ```
-db/
-├── models.py                # SQLAlchemy ORM models
-├── session.py               # Session management (pool: 10+20 overflow, 1hr recycle, pre-ping)
-└── repositories/            # Repository pattern with BaseRepository[T] generic CRUD
-    ├── base.py, user.py, conversation.py, frame.py, message.py, agent.py, face.py, skill.py, mcp_server.py
+main.py                  FastAPI app: middleware, router mounting, lifespan
+version.py               __version__ and WIRE_PROTOCOL (see "Versioning")
 
-models/                      # ML/inference modules (NO business logic/DB knowledge)
-├── asr/                     # Pure ASR interface
-│   ├── base.py              # Abstract BaseASRProvider
-│   ├── faster_whisper_provider.py  # faster-whisper (CTranslate2) implementation
-│   ├── adapter.py           # Pure transcription adapter
-│   └── __init__.py          # Factory: get_provider(), re-exports transcribe()
-├── face_recognition/        # Face detection + embedding
-│   ├── base.py              # Abstract BaseFaceRecognitionProvider
-│   ├── insightface_provider.py  # InsightFace (ArcFace, buffalo_l, 512-dim embeddings)
-│   └── __init__.py          # Singleton factory: get_provider()
-├── gesture_detection/       # Gesture detection from webcam frames
-│   ├── base.py              # Abstract BaseGestureDetector
-│   ├── mediapipe_provider.py  # YOLOv8-Pose (CUDA) + MediaPipe Hands (CPU)
-│   ├── classifier.py        # Rule-based gesture classification (hand per-frame, pose trajectory-based)
-│   └── __init__.py          # Singleton factory: get_provider()
-├── llm/                     # Pure LLM interface
-│   ├── base.py              # Abstract BaseLLMProvider
-│   ├── ollama_provider.py   # Ollama implementation
-│   ├── adapter.py           # Streaming chat, generate, list/pull models
-│   └── __init__.py          # Factory: create_llm_provider(api_url)
-├── tts/                     # Pure TTS interface
-│   ├── base.py              # Abstract BaseTTSProvider
-│   ├── gpt_sovits_provider.py  # GPT-SoVITS (path as query param, POSIX format)
-│   ├── vixtts_provider.py      # viXTTS (file via multipart/form-data)
-│   ├── adapter.py           # synthesize, list_voices, list_backends, check_health
-│   └── __init__.py          # Factory: create_tts_provider()
-└── __init__.py
+core/
+  deps.py                get_authenticated_user; get_db is a legacy no-op
+  security.py            bcrypt hashing, JWT issue/verify, access + refresh
+  errors.py              internal_error(): log the exception, return a reference
+  http.py                the shared httpx.AsyncClient for outbound calls
+  paths.py               DATA_DIR, resolved from the package location
 
-tools/
-├── base.py                  # BaseTool abstract class (built_in flag: True = always available)
-├── registry.py              # ToolRegistry, global tool_registry singleton
-├── routing.py               # RouteToAgentTool, RouteToUserTool (Administrator routing, opt-in)
-├── context.py               # SearchMessagesTool, GetConversationInfoTool, GetFrameSummariesTool, GetFrameMessagesTool (built-in)
-├── media.py                 # PlayMusicTool, MusicControlTool, GetMusicQueueTool (opt-in)
-└── skills.py                # GetSkillInstructionsTool (built-in, on-demand lookup), get_skill_names_for_user() helper
+routers/                 one module per surface, all mounted in main.py
+  auth, users, version   accounts, profile, protocol handshake
+  conversations, messages
+  agents, models, tools, skills, mcp
+  asr, tts               proxy to universal-voice
+  images, character      serve stored media
+  vision                 face identities and photos
+  ws                     the WebSocket route and its handshake auth
+
+websocket/
+  events.py              the event dataclasses and parse_event()
+  handlers.py            ChatSessionHandler: one session, the chat turn loop
+  manager.py             ConnectionManager: sockets and handlers, keyed by user id
 
 agents/
-├── base.py                  # BaseAgent, SimpleAgent, AgentConfig, AgentContext
-├── router.py                # RouterAgent (legacy)
-├── orchestration.py         # OrchestrationSession, OrchestrationLog
-└── administrator.py         # AdministratorAgent (LLM-based router)
+  base.py                BaseAgent, AgentConfig, AgentContext, tool dispatch
+  main.py                MainAgent: streams to the user, runs the tool loop
+  sub.py                 SubAgent and the adapter exposing one as a tool
+  selection.py           picks a main agent by trigger word, else at random
 
-mcp_tools/
-├── client.py                # Async list_tools()/call_tool() wrappers
-└── orchestrator.py          # Per-user orchestrator registry with caching (UserMCPOrchestrator)
+tools/
+  base.py, registry.py   BaseTool and the global registry
+  history.py             conversation search and retrieval (built-in)
+  skills.py              on-demand skill lookup (built-in)
+  deferred.py            list/search/get_schema/call_tool meta-tools
 
-vision/                      # Vision frame processing pipeline
-├── processor.py             # VisionProcessor: processes base64 JPEG frames for face/gesture detection
-└── __init__.py
+models/                  inference providers; no DB access, no business logic
+  llm/                   ollama, gemini, nvidia behind a common base
+  face_recognition/      InsightFace, 512-dimension embeddings
+  gesture_detection/     pose and hand detection, rule-based classification
 
-utils/prompts.py             # build_system_messages() from DEFAULT_SYSTEM_PROMPT + user prefs
-utils/images.py              # Image storage: upload_image(), save_image_from_array(), check/get/delete helpers
-utils/frame_summary.py       # summarize_frame() — async fire-and-forget LLM summarization of old frames
-utils/memory_consolidation.py # consolidate_agent_memory() — async fire-and-forget LLM memory update from session frames
+db/
+  models.py              8 tables
+  session.py             engine and sessionmaker
+  service.py             DBService: the single thread all DB access goes through
+  repositories/          one per table, over a generic BaseRepository
+  alembic/               50 revisions, single head
+
+vision/processor.py      per-frame face and gesture pipeline
+workers/                 background threads: idle scan, memory consolidation
+utils/                   prompt assembly, image storage, memory consolidation
 ```
 
-## Key Design Principles
+## How a chat turn runs
 
-- **Separation of concerns**: Business logic (DB, users, prompts) in routers → pure adapters (`llm/`, `tts_adapter.py`) → provider implementations. Adapters never touch DB.
-- **Repository pattern**: Repos use `with get_session()` for transactions. Use `user.id` (not username) for all DB operations.
-- **Provider pattern**: LLM, TTS, and ASR all use abstract base → concrete provider → factory. Supports runtime provider selection.
+1. The client sends `chat_request` over the socket.
+2. `ChatSessionHandler._setup_conversation` resolves or creates the conversation
+   and reads the user's preferences, including their tool policies.
+3. If the conversation has no `main_agent_id`, one is picked — first by scanning
+   the message for any agent's trigger word, otherwise at random — and persisted.
+4. Context is loaded: the conversation's `compacted_context` plus every message
+   after `compacted_up_to_id`.
+5. If the estimated size exceeds 90% of the context window and a summary model is
+   configured, the conversation is compacted. Compaction creates a **new**
+   conversation seeded with the summary and emits `conversation_switched`.
+6. `MainAgent.process` runs the LLM loop, at most 10 tool rounds, or 25 with
+   deferred tools. It yields a `stream_chunk` per content, thinking and tool
+   chunk.
+7. The handler writes each message to the database as the role boundary crosses,
+   not batched at the end, so a crash mid-turn keeps what was already said.
+8. `done` closes the turn.
 
-## Key Patterns
+### Tool dispatch
 
-### Authentication
+`BaseAgent.execute_tool` resolves a call in this order:
 
-JWT (HS256, 30-day expiry, `JWT_SECRET_KEY`). Protected endpoints use `Depends(get_authenticated_user)` → returns detached User object.
+1. the deferred meta-tools, when the agent uses them;
+2. the native registry;
+3. `extra_tools`, which is where sub-agent adapters live;
+4. tools the client registered over the socket, executed on the client;
+5. a server-side MCP server.
 
-### Error Handling
+**Permission is decided by the server.** `users.tool_policies` is read once per
+turn onto `AgentContext`. A stored `deny` returns immediately and never reaches
+the client. A stored `allow` skips the prompt. Anything else asks the connected
+client, whose answer can only narrow the server's decision, never widen it. With
+no client attached, an unapproved call is refused rather than run.
+
+## Sessions
+
+`ConnectionManager` keys both sockets and handlers by user id. A handler
+deliberately survives a reconnect, so a dropped connection can rejoin a running
+turn, and it is evicted when the user's last connection closes.
+
+Sessions are last-one-wins: a second connection displaces the earlier one with
+close code 4003. Reconnecting clears the tools the previous client registered,
+because they belonged to that client.
+
+There is no application-level heartbeat. uvicorn pings at the protocol level,
+configured in `docker-entrypoint.sh`.
+
+## Authentication
+
+JWT, HS256. Access tokens last 60 minutes, refresh tokens 30 days. The signing
+key comes from `JWT_SECRET_KEY`, or is generated and persisted under `data/`.
+
+HTTP routes depend on `get_authenticated_user`. The WebSocket authenticates
+during the handshake, either with an `Authorization: Bearer` header or — for
+browser clients, which cannot set headers on a socket — by offering
+`kurisu.auth.bearer, <token>` as the subprotocol, which the server echoes on
+accept.
+
+Registration is closed unless `ALLOW_REGISTRATION` says otherwise. Login and
+registration are rate limited per client address.
+
+## Versioning
+
+`version.py` holds `__version__` and `WIRE_PROTOCOL`. The integer is bumped on any
+breaking change to what clients depend on: renamed or removed fields, changed
+types, changed event names, a restructured auth handshake. Adding an optional
+field does not bump it.
+
+Clients ship their own constant and check it against `GET /version` at startup.
+REST requests carry `X-Wire-Protocol` and a mismatch is rejected with 426. Note
+that the check is HTTP middleware, so it does not cover the socket.
+
+## Data
+
+Eight tables: `users`, `conversations`, `messages`, `agents`, `skills`,
+`mcp_servers`, `face_identities`, `face_photos`. See `database.md`.
+
+Media does not live in the database. Images, voice reference clips and character
+assets are files under `data/`, referenced by identifier from a row.
+
+**All database access goes through one thread.** `DBService` owns a queue and a
+single worker; `await db.execute(op)` suspends the caller, `execute_sync(op)`
+blocks and belongs only in worker threads. This is a deliberate serialization
+point and also the throughput ceiling: the engine's connection pool never has
+more than one connection in use.
+
+## Conventions
+
+**Nothing blocks the event loop.** Outbound HTTP uses the shared async client in
+`core/http.py`. Synchronous SDK calls go through `asyncio.to_thread`. Database
+work on the loop is awaited, never `execute_sync`. `tests/test_event_loop_hygiene.py`
+enforces this, because the symptom — everything slow, for everyone — does not look
+like a bug in the code that caused it.
+
+**Errors do not echo exceptions.** An unexpected exception is logged with its
+traceback and a short reference; the caller gets a generic message and that
+reference. Raw exception text carries failing SQL, internal URLs and server paths.
 
 ```python
 except HTTPException:
-    raise  # Don't log expected errors
+    raise
 except Exception as e:
-    logger.error(f"Context info: {e}", exc_info=True)
-    raise HTTPException(status_code=500, detail=str(e))
+    raise internal_error(e, "listing conversations")
 ```
 
-### Streaming & Persistence
+**Repositories take a session, and callers use ids.** A repository never opens its
+own session, and business logic keys on `user.id` rather than the username.
 
-- Chat streams via WebSocket `StreamChunkEvent` with `conversation_id`, `frame_id`, content
-- **Incremental persistence**: Each message saved to DB immediately on role boundary (not batched at end). User message → DB, then each assistant/tool message → DB as it completes. Survives server crashes mid-turn.
-- User message saved to DB before agent processing begins. Final event: `DoneEvent`
-- Thinking blocks: streamed as `{"content": "", "thinking": "..."}`, saved to `messages.thinking` column
-
-### Conversation & Frame Management
-
-- Conversations auto-created on first message with `conversation_id=None` (no explicit create endpoint)
-- **Frames as session windows**: Each frame is a session window. When the user returns after idle time (`FRAME_IDLE_THRESHOLD_MINUTES`, default 30), a new frame is created with clean LLM context. The old frame gets summarized asynchronously via `summarize_frame()` if `User.summary_model` is configured (no default fallback). LLM only sees messages from the current frame. Built-in tools (`get_frame_summaries`, `get_frame_messages`) let the LLM pull past context on demand.
-- Frontend shows visual separators between frames (date chip with summary tooltip)
-- `GET /conversations/{id}` returns a `frames` map keyed by frame_id with metadata for frames referenced by returned messages
-- Message pagination: reverse chronological fetch, reversed before return (enables infinite scroll)
-
-### Image Handling
-
-Stored in `data/image_storage/data/` with UUID names. Converted to base64 for LLM. Embedded as `![Image](/images/{uuid})`. Served with 1-year cache.
+**Providers are pluggable.** Each of LLM, face recognition and gesture detection
+has an abstract base, concrete providers, and a factory. Providers know nothing
+about users, conversations or the database.

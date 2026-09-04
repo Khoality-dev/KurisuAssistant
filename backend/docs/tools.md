@@ -12,7 +12,7 @@
 
 ## Non-built-in Tools
 
-Available by default, can be excluded via agent's `excluded_tools` JSON array. `_handler` auto-injected:
+Available by default. `agents.available_tools` is an allowlist of tool names, or null for all of them; built-in tools ignore it. `_handler` auto-injected:
 
 - `play_music`: Search YouTube and play/enqueue a track
 - `music_control`: Pause, resume, skip, stop playback
@@ -29,9 +29,9 @@ Each user has their own `UserMCPOrchestrator` with 30s tool cache; only loads `l
 
 ### Client-side (internal)
 
-Electron app starts local MCP server processes, discovers tools, registers schemas with backend via `client_tools_register` WebSocket event. Tool calls forwarded via `tool_call_request`/`tool_call_response` WebSocket events with 120s timeout. `AgentContext.client_tools` and `client_tool_callback` wire client tools into `SimpleAgent.process()`. Excluded via agent's `excluded_tools` list.
+Electron app starts local MCP server processes, discovers tools, registers schemas with backend via `client_tools_register` WebSocket event. Tool calls forwarded via `tool_call_request`/`tool_call_response` WebSocket events with 120s timeout. `AgentContext.client_tools` and `client_tool_callback` wire client tools into `MainAgent.process()`. Restricted by the agent's `available_tools` allowlist, and by the server-side tool policy in `users.tool_policies`, which is applied before the client is ever asked.
 
-MCP tool schemas injected directly in `SimpleAgent.process()` (not via tool registry).
+MCP tool schemas injected directly in `MainAgent.process()` (not via tool registry).
 
 See [MCP Configuration](mcp-config.md) for server configuration format.
 
