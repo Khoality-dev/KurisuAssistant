@@ -115,7 +115,6 @@ class TestEventRoundTrip:
             persona_name="Ayaka-chan",
             voice_reference="uuid-voice",
             conversation_id=10,
-            frame_id=2,
             model_name="qwen3.5:0.8b",
             provider_type="ollama",
             token_count=150,
@@ -132,7 +131,6 @@ class TestEventRoundTrip:
         assert d["persona_name"] == "Ayaka-chan"
         assert d["voice_reference"] == "uuid-voice"
         assert d["conversation_id"] == 10
-        assert d["frame_id"] == 2
         assert d["model_name"] == "qwen3.5:0.8b"
         assert d["provider_type"] == "ollama"
         assert d["token_count"] == 150
@@ -140,7 +138,7 @@ class TestEventRoundTrip:
         assert "timestamp" in d
 
     def test_done_event_round_trip(self):
-        event = DoneEvent(conversation_id=5, frame_id=1)
+        event = DoneEvent(conversation_id=5)
         d = event.to_dict()
         assert d["type"] == "done"
         assert d["conversation_id"] == 5
@@ -156,7 +154,6 @@ class TestEventRoundTrip:
         event = ConnectedEvent(
             chat_active=True,
             conversation_id=42,
-            frame_id=3,
             vision_active=True,
             vision_config={"enable_face": True},
         )
