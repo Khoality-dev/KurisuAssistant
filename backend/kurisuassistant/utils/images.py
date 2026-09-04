@@ -1,12 +1,15 @@
 """Image storage operations."""
 
 import base64
+import os
 import uuid
 import cv2
 import numpy as np
 from pathlib import Path
 from typing import Optional
 from fastapi import HTTPException, UploadFile
+
+from kurisuassistant.core.errors import internal_error
 
 # Image storage configuration - data/ directory at project root
 from kurisuassistant.core.paths import DATA_DIR
@@ -18,33 +21,58 @@ USER_IMAGES_DIR = IMAGES_DIR / "users"
 USER_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def upload_image(file: UploadFile) -> str:
-    """Save uploaded image and return UUID."""
-    if not file.content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail="File must be an image")
+# An upload is read into memory whole and then decoded, which allocates the
+# bitmap on top, so the ceiling has to be well under available memory.
+MAX_IMAGE_BYTES = int(os.getenv("MAX_IMAGE_BYTES", str(16 * 1024 * 1024)))
 
-    # Generate UUID for the image
+
+def _read_bounded(stream, limit: int = MAX_IMAGE_BYTES) -> bytes:
+    """Read at most ``limit`` bytes, refusing anything larger.
+
+    Reads one byte past the limit so an oversized upload is rejected rather
+    than silently truncated into a corrupt image.
+    """
+    data = stream.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Image is larger than the {limit // (1024 * 1024)} MB limit.",
+        )
+    return data
+
+
+def upload_image(file: UploadFile) -> str:
+    """Save an uploaded image and return its UUID.
+
+    The declared content type is not trusted: it is client-supplied and gates
+    nothing, since whether this is really an image is settled by the decode
+    below. It was also assumed non-null, so a request without the header raised
+    an AttributeError and surfaced as a 500.
+    """
     image_uuid = str(uuid.uuid4())
     image_path = IMAGES_DIR / f"{image_uuid}.jpg"
 
     try:
-        # Read and process the image
-        contents = file.file.read()
+        contents = _read_bounded(file.file)
         nparr = np.frombuffer(contents, np.uint8)
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
         if image is None:
-            raise HTTPException(status_code=400, detail="Invalid image format")
+            raise HTTPException(status_code=400, detail="That file could not be read as an image.")
 
         # Save as JPEG with quality 90
         cv2.imwrite(str(image_path), image, [cv2.IMWRITE_JPEG_QUALITY, 90])
 
         return image_uuid
-    except Exception as e:
-        # Clean up partial file if it exists
+    except HTTPException:
         if image_path.exists():
             image_path.unlink()
-        raise HTTPException(status_code=500, detail=f"Failed to process image: {str(e)}")
+        raise
+    except Exception as e:
+        if image_path.exists():
+            image_path.unlink()
+        # The decoder's message can name a server path, so it is logged instead.
+        raise internal_error(e, "processing an uploaded image")
 
 
 def check_image_exists(image_uuid: str) -> bool:
@@ -103,13 +131,21 @@ def get_image_url(image_uuid: str) -> str:
 
 
 def save_image_from_base64(base64_data: str, user_id: int) -> str:
-    """Save base64 image to per-user directory, return UUID."""
+    """Save a base64 image to the user's directory and return its UUID.
+
+    These arrive over the WebSocket, so the same ceiling applies. base64 is
+    roughly four bytes per three, so the encoded form is checked against the
+    correspondingly larger bound before it is decoded.
+    """
     user_dir = USER_IMAGES_DIR / str(user_id)
     user_dir.mkdir(parents=True, exist_ok=True)
 
     # Strip data URL prefix if present
     if "," in base64_data:
         base64_data = base64_data.split(",", 1)[1]
+
+    if len(base64_data) > (MAX_IMAGE_BYTES * 4) // 3 + 4:
+        raise ValueError("Image exceeds the maximum allowed size")
 
     image_bytes = base64.b64decode(base64_data)
     nparr = np.frombuffer(image_bytes, np.uint8)
