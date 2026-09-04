@@ -87,8 +87,12 @@ export interface UserProfile {
   preferred_name?: string;
   agent_avatar_uuid?: string;
   ollama_url?: string;
-  gemini_api_key?: string; // Masked in GET response, full key in PATCH
-  nvidia_api_key?: string; // Masked in GET response, full key in PATCH
+  // Provider keys are write-only. GET reports only whether one is set; a key
+  // is sent on PATCH and never read back, so omit it unless the user typed one.
+  has_gemini_key?: boolean;
+  has_nvidia_key?: boolean;
+  gemini_api_key?: string; // PATCH only
+  nvidia_api_key?: string; // PATCH only
   summary_model?: string; // Model for frame summarization (null = use chat model)
   context_size?: number; // Ollama num_ctx override (null = default 8192)
 }
