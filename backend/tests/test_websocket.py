@@ -1,4 +1,4 @@
-"""Tests for WebSocket connection, heartbeat, streaming, and reconnection."""
+"""Tests for WebSocket connection, streaming, and reconnection."""
 
 import asyncio
 import json
@@ -10,8 +10,6 @@ import pytest
 from kurisuassistant.websocket.manager import ConnectionManager
 from kurisuassistant.websocket.handlers import (
     ChatSessionHandler,
-    HEARTBEAT_INTERVAL,
-    HEARTBEAT_TIMEOUT,
 )
 from kurisuassistant.websocket.events import (
     StreamChunkEvent,
@@ -191,119 +189,6 @@ class TestReconnection:
 
         assert handler.websocket is ws2
 
-    @pytest.mark.asyncio
-    async def test_replace_websocket_cancels_old_heartbeat(self):
-        ws1 = make_mock_ws()
-        handler = ChatSessionHandler(ws1, user_id=1)
-
-        fake_task = MagicMock()
-        handler._heartbeat_task = fake_task
-
-        await handler.replace_websocket(make_mock_ws())
-
-        fake_task.cancel.assert_called_once()
-        assert handler._heartbeat_task is None
-
-
-# ---------------------------------------------------------------------------
-# ChatSessionHandler — heartbeat
-# ---------------------------------------------------------------------------
-
-class TestHeartbeat:
-    @pytest.mark.asyncio
-    async def test_heartbeat_sends_ping(self):
-        ws = make_mock_ws()
-        handler = ChatSessionHandler(ws, user_id=1)
-        handler._last_pong_time = time.monotonic()
-
-        # Run heartbeat with very short intervals for testing
-        with patch("kurisuassistant.websocket.handlers.HEARTBEAT_INTERVAL", 0.05), \
-             patch("kurisuassistant.websocket.handlers.HEARTBEAT_TIMEOUT", 0.05):
-
-            task = asyncio.create_task(handler._heartbeat_loop(ws))
-            await asyncio.sleep(0.08)  # Let it send one ping
-
-            # Keep updating pong so it doesn't timeout
-            handler._last_pong_time = time.monotonic()
-            await asyncio.sleep(0.08)
-
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-        # Should have sent at least one ping
-        ping_calls = [
-            c for c in ws.send_json.call_args_list
-            if c[0][0] == {"type": "ping"}
-        ]
-        assert len(ping_calls) >= 1
-
-    @pytest.mark.asyncio
-    async def test_heartbeat_timeout_closes_socket(self):
-        ws = make_mock_ws()
-        handler = ChatSessionHandler(ws, user_id=1)
-        # Set pong time far in the past to trigger timeout
-        handler._last_pong_time = time.monotonic() - 100
-
-        with patch("kurisuassistant.websocket.handlers.HEARTBEAT_INTERVAL", 0.02), \
-             patch("kurisuassistant.websocket.handlers.HEARTBEAT_TIMEOUT", 0.02):
-
-            task = asyncio.create_task(handler._heartbeat_loop(ws))
-            await asyncio.sleep(0.1)  # Wait for timeout
-
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-        ws.close.assert_called_once_with(code=4002, reason="Heartbeat timeout")
-
-    @pytest.mark.asyncio
-    async def test_heartbeat_stops_on_websocket_replace(self):
-        ws1 = make_mock_ws()
-        ws2 = make_mock_ws()
-        handler = ChatSessionHandler(ws1, user_id=1)
-        handler._last_pong_time = time.monotonic()
-
-        with patch("kurisuassistant.websocket.handlers.HEARTBEAT_INTERVAL", 0.05), \
-             patch("kurisuassistant.websocket.handlers.HEARTBEAT_TIMEOUT", 0.05):
-
-            task = asyncio.create_task(handler._heartbeat_loop(ws1))
-            await asyncio.sleep(0.02)
-
-            # Simulate reconnect — replace websocket
-            handler.websocket = ws2
-            await asyncio.sleep(0.1)  # Heartbeat should detect and stop
-
-            assert task.done()
-
-    @pytest.mark.asyncio
-    async def test_pong_resets_timeout(self):
-        ws = make_mock_ws()
-        handler = ChatSessionHandler(ws, user_id=1)
-        handler._last_pong_time = time.monotonic()
-
-        with patch("kurisuassistant.websocket.handlers.HEARTBEAT_INTERVAL", 0.05), \
-             patch("kurisuassistant.websocket.handlers.HEARTBEAT_TIMEOUT", 0.05):
-
-            task = asyncio.create_task(handler._heartbeat_loop(ws))
-
-            # Continuously update pong to prevent timeout
-            for _ in range(3):
-                await asyncio.sleep(0.04)
-                handler._last_pong_time = time.monotonic()
-
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-        # Should NOT have closed the socket
-        ws.close.assert_not_called()
-
 
 # ---------------------------------------------------------------------------
 # ChatSessionHandler — run loop (pong processing)
@@ -311,14 +196,14 @@ class TestHeartbeat:
 
 class TestRunLoop:
     @pytest.mark.asyncio
-    async def test_pong_updates_last_pong_time(self):
+    async def test_a_stray_pong_is_ignored(self):
+        """The server no longer pings, but older clients may still answer one."""
         from starlette.websockets import WebSocketDisconnect
 
         ws = make_mock_ws()
         handler = ChatSessionHandler(ws, user_id=1)
 
         call_count = 0
-        initial_time = handler._last_pong_time
 
         async def receive_side_effect():
             nonlocal call_count
@@ -332,7 +217,8 @@ class TestRunLoop:
         with pytest.raises(WebSocketDisconnect):
             await handler.run()
 
-        assert handler._last_pong_time > initial_time
+        # Consumed without being parsed as an event and without erroring.
+        assert call_count == 2
 
     @pytest.mark.asyncio
     async def test_unknown_event_sends_error(self):
@@ -544,96 +430,6 @@ class TestConnectionRetention:
         # Task state preserved
         assert handler._task_conversation_id == 42
         assert handler.current_task is not None
-
-
-# ---------------------------------------------------------------------------
-# AFK / idle connection
-# ---------------------------------------------------------------------------
-
-class TestIdleConnection:
-    @pytest.mark.asyncio
-    async def test_connection_stays_alive_with_pong(self):
-        """Connection survives multiple heartbeat cycles when pongs are received."""
-        ws = make_mock_ws()
-        handler = ChatSessionHandler(ws, user_id=1)
-        handler._last_pong_time = time.monotonic()
-
-        cycles_completed = 0
-
-        with patch("kurisuassistant.websocket.handlers.HEARTBEAT_INTERVAL", 0.03), \
-             patch("kurisuassistant.websocket.handlers.HEARTBEAT_TIMEOUT", 0.03):
-
-            task = asyncio.create_task(handler._heartbeat_loop(ws))
-
-            # Simulate 5 heartbeat cycles with timely pongs
-            for _ in range(5):
-                await asyncio.sleep(0.04)
-                handler._last_pong_time = time.monotonic()
-                cycles_completed += 1
-
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-        assert cycles_completed == 5
-        ws.close.assert_not_called()
-
-        # Should have sent multiple pings
-        ping_calls = [
-            c for c in ws.send_json.call_args_list
-            if c[0][0] == {"type": "ping"}
-        ]
-        assert len(ping_calls) >= 3
-
-    @pytest.mark.asyncio
-    async def test_connection_dies_without_pong(self):
-        """Connection is closed if pong is never received (AFK client)."""
-        ws = make_mock_ws()
-        handler = ChatSessionHandler(ws, user_id=1)
-        # Pong time is set at start but never updated (simulates AFK client)
-        handler._last_pong_time = time.monotonic()
-
-        with patch("kurisuassistant.websocket.handlers.HEARTBEAT_INTERVAL", 0.03), \
-             patch("kurisuassistant.websocket.handlers.HEARTBEAT_TIMEOUT", 0.03):
-
-            task = asyncio.create_task(handler._heartbeat_loop(ws))
-            # Don't update _last_pong_time — simulate client not responding
-            await asyncio.sleep(0.15)
-
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-        ws.close.assert_called_once_with(code=4002, reason="Heartbeat timeout")
-
-    @pytest.mark.asyncio
-    async def test_reconnect_after_idle_disconnect(self):
-        """After idle disconnect, handler accepts new WebSocket and works."""
-        ws1 = make_mock_ws()
-        handler = ChatSessionHandler(ws1, user_id=1)
-
-        # Simulate: ws1 was closed due to heartbeat timeout
-        ws1.client_state.name = "DISCONNECTED"
-
-        # Events to ws1 are dropped
-        await handler.send_event(StreamChunkEvent(
-            content="lost", role="assistant", conversation_id=1,
-        ))
-        ws1.send_json.assert_not_called()
-
-        # Reconnect
-        ws2 = make_mock_ws()
-        await handler.replace_websocket(ws2)
-
-        # Events to ws2 work
-        await handler.send_event(StreamChunkEvent(
-            content="recovered", role="assistant", conversation_id=1,
-        ))
-        ws2.send_json.assert_called_once()
-        assert ws2.send_json.call_args[0][0]["content"] == "recovered"
 
 
 # ---------------------------------------------------------------------------
