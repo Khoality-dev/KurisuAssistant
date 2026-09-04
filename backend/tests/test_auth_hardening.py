@@ -12,7 +12,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from kurisuassistant.core.deps import get_authenticated_user, get_db
+from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.routers import auth, users
 
 
@@ -143,7 +143,6 @@ class FakeUser:
 def profile_client(user):
     app = FastAPI()
     app.dependency_overrides[get_authenticated_user] = lambda: user
-    app.dependency_overrides[get_db] = lambda: MagicMock()
     app.include_router(users.router)
     return TestClient(app)
 

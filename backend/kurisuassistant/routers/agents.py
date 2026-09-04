@@ -6,10 +6,9 @@ from typing import Optional, List
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 from kurisuassistant.core.errors import internal_error
-from kurisuassistant.core.deps import get_db, get_authenticated_user
+from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
 from kurisuassistant.db.repositories import AgentRepository
@@ -116,7 +115,6 @@ def _agent_to_response(agent) -> AgentResponse:
 @router.get("")
 async def list_agents(
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
 ) -> List[AgentResponse]:
     """List all agents for the current user."""
     def _list(session):
@@ -133,7 +131,6 @@ async def list_agents(
 async def get_agent(
     agent_id: int,
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
 ) -> AgentResponse:
     """Get a specific agent by ID."""
     def _get(session):
@@ -158,7 +155,6 @@ async def get_agent(
 async def create_agent(
     body: AgentCreate,
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
 ) -> AgentResponse:
     """Create a new agent."""
     # Validate name is not reserved
@@ -206,7 +202,6 @@ async def update_agent(
     agent_id: int,
     body: AgentUpdate,
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
 ) -> AgentResponse:
     """Update an agent."""
     # Validate new name is not reserved (if name is being changed)
@@ -265,8 +260,7 @@ async def update_agent(
 @router.delete("/{agent_id}")
 async def delete_agent(
     agent_id: int,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Delete an agent. System agents (is_system=True) cannot be deleted."""
     def _delete(session):
@@ -301,7 +295,6 @@ async def toggle_agent_enabled(
     agent_id: int,
     body: AgentToggleEnabled,
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
 ) -> AgentResponse:
     """Toggle an agent's enabled state."""
     def _toggle(session):
@@ -346,8 +339,7 @@ def _get_agent_data(session, user_id: int, agent_id: int) -> Optional[dict]:
 @router.get("/{agent_id}/export")
 async def export_agent(
     agent_id: int,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Export an agent as JSON metadata."""
     from fastapi.responses import StreamingResponse
@@ -424,7 +416,6 @@ async def _import_from_json(meta: dict, user: User) -> AgentResponse:
 async def import_agent(
     file: UploadFile = File(...),
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
 ) -> AgentResponse:
     """Import an agent from a .json file."""
     filename = file.filename or ""

@@ -5,10 +5,9 @@ from typing import Optional, List, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator, model_validator
-from sqlalchemy.orm import Session
 
 from kurisuassistant.core.errors import internal_error
-from kurisuassistant.core.deps import get_db, get_authenticated_user
+from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
 from kurisuassistant.db.repositories import MCPServerRepository
@@ -104,8 +103,7 @@ def _serialize(server) -> dict:
 
 @router.get("")
 async def list_mcp_servers(
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """List all MCP servers for the current user."""
     try:
@@ -118,8 +116,7 @@ async def list_mcp_servers(
 @router.post("")
 async def create_mcp_server(
     data: MCPServerCreate,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Create a new MCP server."""
     try:
@@ -151,8 +148,7 @@ async def create_mcp_server(
 async def update_mcp_server(
     server_id: int,
     data: MCPServerUpdate,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Update an MCP server."""
     try:
@@ -196,8 +192,7 @@ async def update_mcp_server(
 @router.delete("/{server_id}")
 async def delete_mcp_server(
     server_id: int,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Delete an MCP server."""
     try:
@@ -221,8 +216,7 @@ async def delete_mcp_server(
 @router.post("/{server_id}/test")
 async def test_mcp_server(
     server_id: int,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Test connectivity to an MCP server by listing its tools."""
     try:

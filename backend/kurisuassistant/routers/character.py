@@ -20,9 +20,8 @@ import numpy as np
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
-from kurisuassistant.core.deps import get_db, get_authenticated_user
+from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.db.models import User
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.repositories import AgentRepository
@@ -149,7 +148,6 @@ async def upload_base_image(
     pose_id: str,
     file: UploadFile = File(...),
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
 ) -> UploadBaseResponse:
     """Upload a base portrait image for a character pose.
 
@@ -188,7 +186,6 @@ async def compute_patch(
     index: int,
     keyframe: UploadFile = File(...),
     user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
 ) -> ComputePatchResponse:
     """Upload a keyframe image and compute the diff patch against the pose's base image.
 
@@ -258,8 +255,7 @@ async def upload_video(
     agent_id: int,
     edge_id: str,
     file: UploadFile = File(...),
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Upload a transition video for an animation edge.
 
@@ -296,8 +292,7 @@ async def upload_video(
 async def migrate_ids(
     agent_id: int,
     body: MigrateIdsRequest,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Rename pose folders and edge video files when migrating to new short hex IDs.
 
@@ -358,7 +353,7 @@ async def migrate_ids(
 async def get_edge_video(
     agent_id: int,
     edge_id: str,
-    user: User = Depends(get_authenticated_user),
+    user: User = Depends(get_authenticated_user)
 ):
     """Serve a transition video for an animation edge.
 
@@ -384,7 +379,7 @@ async def get_pose_asset(
     agent_id: int,
     pose_id: str,
     filename: str,
-    user: User = Depends(get_authenticated_user),
+    user: User = Depends(get_authenticated_user)
 ):
     """Serve a pose asset (base image or patch)."""
     await _require_agent(user.id, agent_id)
@@ -468,8 +463,7 @@ def _cleanup_agent_assets(agent_id: int, referenced_paths: set[str]) -> None:
 async def update_character_config(
     agent_id: int,
     config: dict,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Update an agent's character animation config (pose tree).
 

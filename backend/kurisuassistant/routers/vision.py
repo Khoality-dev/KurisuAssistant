@@ -43,7 +43,7 @@ async def list_faces(user: User = Depends(get_authenticated_user)):
 async def create_face(
     name: str,
     photo: UploadFile = File(...),
-    user: User = Depends(get_authenticated_user),
+    user: User = Depends(get_authenticated_user)
 ):
     """Register a new face identity with an initial photo.
 
@@ -154,7 +154,7 @@ async def delete_face(identity_id: int, user: User = Depends(get_authenticated_u
 async def add_face_photo(
     identity_id: int,
     photo: UploadFile = File(...),
-    user: User = Depends(get_authenticated_user),
+    user: User = Depends(get_authenticated_user)
 ):
     """Add an additional photo to an existing face identity."""
     contents = await photo.read()
@@ -202,7 +202,7 @@ async def add_face_photo(
 async def delete_face_photo(
     identity_id: int,
     photo_id: int,
-    user: User = Depends(get_authenticated_user),
+    user: User = Depends(get_authenticated_user)
 ):
     """Remove a specific photo from a face identity."""
     def _delete_photo(session):
@@ -233,7 +233,7 @@ async def delete_face_photo(
 async def get_face_photo_image(
     identity_id: int,
     photo_id: int,
-    user: User = Depends(get_authenticated_user),
+    user: User = Depends(get_authenticated_user)
 ):
     """Serve a face photo image file."""
     from fastapi.responses import FileResponse

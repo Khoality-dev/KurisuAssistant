@@ -10,6 +10,8 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
+from kurisuassistant.core.paths import DATA_DIR
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -39,7 +41,10 @@ def _load_or_create_secret() -> str:
     if env_key:
         return env_key
 
-    secret_path = Path("data/jwt_secret.key")
+    # Resolved from the package location, not the working directory: a
+    # cwd-relative path meant starting the server from elsewhere generated a
+    # fresh key and invalidated every issued token.
+    secret_path = DATA_DIR / "jwt_secret.key"
     if secret_path.exists():
         return secret_path.read_text().strip()
 

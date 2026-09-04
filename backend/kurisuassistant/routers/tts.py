@@ -36,7 +36,7 @@ async def synthesize_speech(
     voice: str = Body(None, embed=True),
     language: str = Body(None, embed=True),
     provider: str = Body(None, embed=True),
-    _user=Depends(get_authenticated_user),
+    _user=Depends(get_authenticated_user)
 ):
     """Proxy TTS synthesis to universal-voice.
 
@@ -91,7 +91,7 @@ async def synthesize_speech(
 @router.get("/voices")
 async def list_tts_voices(
     provider: str = None,
-    _user=Depends(get_authenticated_user),
+    _user=Depends(get_authenticated_user)
 ):
     """Proxy voice listing to universal-voice."""
     try:
@@ -111,7 +111,7 @@ async def list_tts_voices(
 @router.post("/check")
 async def check_tts_health(
     provider: str = Body(None, embed=True),
-    _user=Depends(get_authenticated_user),
+    _user=Depends(get_authenticated_user)
 ):
     """Proxy health check to universal-voice."""
     try:
@@ -133,7 +133,7 @@ _FALLBACK_TTS_MODELS = [
 
 @router.get("/models")
 async def list_tts_models(
-    _user=Depends(get_authenticated_user),
+    _user=Depends(get_authenticated_user)
 ):
     """List available TTS models from universal-voice, with fallback."""
     try:

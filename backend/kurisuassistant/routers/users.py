@@ -3,10 +3,9 @@
 import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from sqlalchemy.orm import Session
 
 from kurisuassistant.core.errors import internal_error
-from kurisuassistant.core.deps import get_db, get_authenticated_user
+from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
 from kurisuassistant.db.repositories import UserRepository
@@ -19,8 +18,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 @router.get("/me")
 async def get_user_profile(
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
+    user: User = Depends(get_authenticated_user)
 ):
     """Get current user profile.
 
@@ -49,8 +47,7 @@ async def get_user_profile(
 @router.patch("/me")
 async def update_user_profile(
     request: Request,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
+    user: User = Depends(get_authenticated_user)
 ):
     """Update user profile fields (text only)."""
     try:
@@ -87,8 +84,7 @@ async def update_user_profile(
 @router.patch("/me/avatars")
 async def update_user_avatars(
     agent_avatar: UploadFile = File(None),
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db)
+    user: User = Depends(get_authenticated_user)
 ):
     """Update agent avatar image."""
     try:
@@ -135,7 +131,7 @@ async def update_user_avatars(
 
 @router.get("/me/tool-policies")
 async def get_tool_policies(
-    user: User = Depends(get_authenticated_user),
+    user: User = Depends(get_authenticated_user)
 ):
     """Get user's tool permission policies."""
     return user.tool_policies or {"tools": {}}
@@ -144,7 +140,7 @@ async def get_tool_policies(
 @router.put("/me/tool-policies")
 async def update_tool_policies(
     request: Request,
-    user: User = Depends(get_authenticated_user),
+    user: User = Depends(get_authenticated_user)
 ):
     """Update user's tool permission policies."""
     try:
@@ -179,7 +175,7 @@ async def update_tool_policies(
 @router.patch("/me/tool-policies")
 async def patch_tool_policy(
     request: Request,
-    user: User = Depends(get_authenticated_user),
+    user: User = Depends(get_authenticated_user)
 ):
     """Update a single tool's permission policy (incremental update)."""
     try:

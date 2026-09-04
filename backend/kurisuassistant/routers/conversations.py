@@ -4,10 +4,9 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy.orm import Session
 
 from kurisuassistant.core.errors import internal_error
-from kurisuassistant.core.deps import get_db, get_authenticated_user
+from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
 from kurisuassistant.db.repositories import ConversationRepository, MessageRepository
@@ -24,8 +23,7 @@ async def list_conversations(
         None,
         description="Filter by main_agent_id (returns latest conversation with this main agent)",
     ),
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """List user's conversations. If agent_id is provided, returns the latest
     conversation whose ``main_agent_id`` matches.
@@ -61,8 +59,7 @@ async def get_conversation(
     conversation_id: int,
     limit: int = 20,
     offset: int = 0,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Get conversation details with messages."""
     try:
@@ -146,8 +143,7 @@ async def get_conversation(
 async def update_conversation(
     conversation_id: int,
     request: Request,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Update conversation title."""
     try:
@@ -172,8 +168,7 @@ async def update_conversation(
 @router.delete("/{conversation_id}")
 async def delete_conversation(
     conversation_id: int,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Delete conversation and all its messages."""
     try:

@@ -27,7 +27,6 @@ from kurisuassistant.routers import (
     skills_router,
     version_router,
 )
-from kurisuassistant.mcp_tools.orchestrator import init_orchestrator
 from kurisuassistant.version import WIRE_PROTOCOL, __version__
 
 # Configure logging with explicit console handler
@@ -40,10 +39,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 dotenv.load_dotenv()
-
-# Initialize MCP orchestrator (re-reads mcp_config.json on each cache refresh)
-init_orchestrator()
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

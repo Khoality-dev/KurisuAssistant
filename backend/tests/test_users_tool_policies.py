@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock, AsyncMock, patch
 
-from kurisuassistant.core.deps import get_authenticated_user, get_db
+from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.routers import users
 
 
@@ -29,7 +29,6 @@ def app(fake_user):
     """FastAPI app with users router and auth bypassed."""
     app = FastAPI()
     app.dependency_overrides[get_authenticated_user] = lambda: fake_user
-    app.dependency_overrides[get_db] = lambda: MagicMock()
     app.include_router(users.router)
     return app
 

@@ -2,7 +2,6 @@
 
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
 
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
@@ -11,15 +10,6 @@ from kurisuassistant.core.security import get_current_user
 
 # OAuth2 scheme for token-based authentication
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
-
-
-def get_db():
-    """Legacy dependency — kept only for router signature compatibility.
-
-    All DB access now goes through DBService.  This dependency is a no-op
-    but still declared in many route signatures, so it must exist.
-    """
-    yield None
 
 
 def get_authenticated_user(token: str = Depends(oauth2_scheme)) -> User:

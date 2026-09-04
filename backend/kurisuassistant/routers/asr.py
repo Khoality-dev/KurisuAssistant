@@ -23,7 +23,7 @@ async def asr_endpoint(
     language: str | None = Query(None),
     model: str | None = Query(None),
     initial_prompt: str | None = Query(None),
-    _user=Depends(get_authenticated_user),
+    _user=Depends(get_authenticated_user)
 ):
     """Proxy raw PCM audio to universal-voice service."""
     try:
@@ -55,7 +55,7 @@ async def asr_endpoint(
 async def asr_detect_language(
     audio: bytes = Body(..., media_type="application/octet-stream"),
     model: str | None = Query(None),
-    _user=Depends(get_authenticated_user),
+    _user=Depends(get_authenticated_user)
 ):
     """Detect the spoken language of an audio clip."""
     try:

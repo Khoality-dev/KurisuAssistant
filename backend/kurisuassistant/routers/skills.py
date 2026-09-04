@@ -5,10 +5,9 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 from kurisuassistant.core.errors import internal_error
-from kurisuassistant.core.deps import get_db, get_authenticated_user
+from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
 from kurisuassistant.db.repositories import SkillRepository
@@ -30,8 +29,7 @@ class SkillUpdate(BaseModel):
 
 @router.get("")
 async def list_skills(
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """List all skills for the current user."""
     try:
@@ -57,8 +55,7 @@ async def list_skills(
 @router.post("")
 async def create_skill(
     data: SkillCreate,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Create a new skill."""
     try:
@@ -88,8 +85,7 @@ async def create_skill(
 async def update_skill(
     skill_id: int,
     data: SkillUpdate,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Update a skill."""
     try:
@@ -117,8 +113,7 @@ async def update_skill(
 @router.delete("/{skill_id}")
 async def delete_skill(
     skill_id: int,
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
+    user: User = Depends(get_authenticated_user)
 ):
     """Delete a skill."""
     try:
