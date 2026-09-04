@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordBearer
 
 from kurisuassistant.core.deps import get_db, get_authenticated_user
+from kurisuassistant.core.security import get_current_user
 from kurisuassistant.db.models import User
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.repositories import UserRepository
@@ -26,7 +27,7 @@ router = APIRouter(prefix="/images", tags=["images"])
 @router.post("")
 async def create_image(
     file: UploadFile = File(...),
-    username: str = Depends(get_authenticated_user),
+    user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db)
 ):
     """Upload image and return UUID."""
@@ -34,11 +35,16 @@ async def create_image(
     return {"image_uuid": image_uuid, "url": f"/images/{image_uuid}"}
 
 
-def _get_user_from_token(token: Optional[str]) -> User:
-    """Resolve user from token (header or query param)."""
-    # BYPASS AUTH: Always return admin for development
-    username = "admin"
-    # Original: username = get_current_user(token) ...
+async def _get_user_from_token(token: Optional[str]) -> User:
+    """Resolve and verify the caller from an access token (header or query param).
+
+    The token is verified exactly as `get_authenticated_user` verifies it; the
+    query-param variant exists only because `<img src=...>` cannot send an
+    Authorization header.
+    """
+    username = get_current_user(token) if token else None
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
     def _fetch_user(session):
         user_repo = UserRepository(session)
@@ -49,7 +55,7 @@ def _get_user_from_token(token: Optional[str]) -> User:
         return user
 
     db = get_db_service()
-    return db.execute_sync(_fetch_user)
+    return await db.execute(_fetch_user)
 
 
 @router.get("/u/{image_uuid}")
@@ -62,7 +68,7 @@ async def get_user_image(
     resolved_token = token or header_token
     if not resolved_token:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    user = _get_user_from_token(resolved_token)
+    user = await _get_user_from_token(resolved_token)
     image_path = get_user_image_path(user.id, image_uuid)
     if not image_path:
         raise HTTPException(status_code=404, detail="Image not found")
