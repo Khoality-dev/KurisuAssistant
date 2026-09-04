@@ -82,7 +82,11 @@ async def websocket_chat(websocket: WebSocket):
     if user_id is None:
         return await reject("User not found")
 
-    await manager.connect(websocket, username, subprotocol=subprotocol)
+    await manager.connect(websocket, user_id, subprotocol=subprotocol)
+
+    # Sessions are last-one-wins: the handler is shared and writes to one socket,
+    # so an earlier connection would sit attached but never written to.
+    await manager.displace_existing(user_id, keep=websocket)
 
     # Reuse existing handler if one exists (preserves vision/media state)
     handler = manager.get_handler(user_id)
@@ -107,4 +111,6 @@ async def websocket_chat(websocket: WebSocket):
         logger.error(f"WS [{username}] Error: {e}", exc_info=True)
     finally:
         logger.info(f"WS [{username}] Cleaning up")
-        manager.disconnect(websocket, username)
+        evicted = manager.disconnect(websocket, user_id)
+        if evicted is not None:
+            await evicted.shutdown()
