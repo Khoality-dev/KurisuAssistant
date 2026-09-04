@@ -196,7 +196,7 @@ class ChatSessionHandler:
             (conversation_id, system_messages, user_system_prompt, preferred_name,
              ollama_url, gemini_api_key, nvidia_api_key,
              summary_model, summary_provider, context_size,
-             existing_main_agent_id) = setup
+             existing_main_agent_id, tool_policies) = setup
 
             self._task_conversation_id = conversation_id
             self._task_done = False
@@ -354,6 +354,7 @@ class ChatSessionHandler:
                 images=event.images if event.images else None,
                 context_size=context_size,
                 compacted_context=compacted_context,
+                tool_policies=tool_policies,
             )
 
             agent = MainAgent(current_agent, tool_registry)
@@ -514,7 +515,7 @@ class ChatSessionHandler:
     async def _setup_conversation(self, event: ChatRequestEvent):
         """Return (conversation_id, system_messages, user_sys_prompt, preferred_name,
         ollama_url, gemini_api_key, nvidia_api_key, summary_model, summary_provider,
-        context_size, main_agent_id).
+        context_size, main_agent_id, tool_policies).
         """
         db = get_db_service()
 
@@ -532,6 +533,9 @@ class ChatSessionHandler:
             summary_model = user.summary_model
             summary_provider = getattr(user, 'summary_provider', 'ollama') or 'ollama'
             context_size = user.context_size
+            # Read once per turn; the agent consults this before every tool call
+            # so a policy decision never needs a DB round trip mid-stream.
+            tool_policies = dict((user.tool_policies or {}).get("tools", {}))
 
             if event.conversation_id is None:
                 title = (event.text[:80] + "...") if len(event.text) > 80 else event.text
@@ -548,19 +552,19 @@ class ChatSessionHandler:
             return (conversation_id, system_prompt, preferred_name,
                     ollama_url, gemini_api_key, nvidia_api_key,
                     summary_model, summary_provider, context_size,
-                    main_agent_id)
+                    main_agent_id, tool_policies)
 
         (conversation_id, system_prompt, preferred_name,
          ollama_url, gemini_api_key, nvidia_api_key,
          summary_model, summary_provider, context_size,
-         main_agent_id) = await db.execute(_do_setup)
+         main_agent_id, tool_policies) = await db.execute(_do_setup)
 
         system_messages = build_system_messages(system_prompt, preferred_name)
 
         return (conversation_id, system_messages, system_prompt, preferred_name or "",
                 ollama_url, gemini_api_key, nvidia_api_key,
                 summary_model, summary_provider, context_size,
-                main_agent_id)
+                main_agent_id, tool_policies)
 
     def _persist_main_agent(self, conversation_id: int, agent_id: int) -> None:
         """Save the picked main agent on the conversation (one-time at first message)."""
