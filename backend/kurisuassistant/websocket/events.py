@@ -150,6 +150,10 @@ class StreamChunkEvent(BaseEvent):
     conversation_id: int = 0
     tool_args: Optional[Dict[str, Any]] = None  # Tool input params (for tool role messages)
     tool_status: Optional[str] = None  # "success" | "error" | "denied" (for tool role messages)
+    # Linkage between an assistant turn and the tool results answering it.
+    # OpenAI-compatible providers reject a tool message with no matching call.
+    tool_calls: Optional[List[Dict[str, Any]]] = None  # on the assistant chunk
+    tool_call_id: Optional[str] = None  # on each tool chunk
     images: Optional[List[str]] = None  # Image UUIDs
     model_name: Optional[str] = None  # LLM model used
     provider_type: Optional[str] = None  # LLM provider used

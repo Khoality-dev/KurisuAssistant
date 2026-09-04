@@ -7,6 +7,7 @@ the user.
 
 import json
 import logging
+import uuid
 from typing import AsyncGenerator, Dict, List
 
 from kurisuassistant.websocket.events import StreamChunkEvent
@@ -126,6 +127,15 @@ class MainAgent(BaseAgent):
             entry = {"role": chat_role, "content": content}
             if chat_role == "assistant" and "thinking" in msg:
                 entry["thinking"] = msg["thinking"]
+            # Replay the call/result linkage. A tool message with no matching
+            # assistant tool_call is an API error on OpenAI-compatible providers.
+            if chat_role == "assistant" and msg.get("tool_calls"):
+                entry["tool_calls"] = msg["tool_calls"]
+            if chat_role == "tool":
+                if msg.get("tool_call_id"):
+                    entry["tool_call_id"] = msg["tool_call_id"]
+                if msg.get("name"):
+                    entry["name"] = msg["name"]
             prepared.append(entry)
 
         return prepared
@@ -260,17 +270,39 @@ class MainAgent(BaseAgent):
                 assistant_msg = {"role": "assistant", "content": full_content}
                 if full_thinking:
                     assistant_msg["thinking"] = full_thinking
+
+                # Every call needs a stable id so the tool result that answers it
+                # can point back. Ollama does not supply one; OpenAI-compatible
+                # providers do, and theirs is reused when present.
                 tc_list = []
+                call_ids = []
                 for tc in all_tool_calls:
                     args = tc.function.arguments
                     if isinstance(args, str):
                         args = json.loads(args)
-                    tc_list.append({"function": {"name": tc.function.name, "arguments": args}})
+                    call_id = getattr(tc, "id", None) or f"call_{uuid.uuid4().hex[:24]}"
+                    call_ids.append(call_id)
+                    tc_list.append({
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": args},
+                    })
                 assistant_msg["tool_calls"] = tc_list
                 messages.append(assistant_msg)
 
+                # Hand the calls to the handler so they are stored on the
+                # assistant message that is still being accumulated.
+                yield StreamChunkEvent(
+                    content="",
+                    role="assistant",
+                    agent_id=self.config.id,
+                    name=self.config.name,
+                    conversation_id=context.conversation_id,
+                    tool_calls=tc_list,
+                )
+
                 tool_denied = False
-                for tc in all_tool_calls:
+                for call_index, tc in enumerate(all_tool_calls):
                     tool_name = tc.function.name
                     tool_args = tc.function.arguments
                     if isinstance(tool_args, str):
@@ -293,9 +325,15 @@ class MainAgent(BaseAgent):
                         tool_args=display_args,
                         tool_status=result.status,
                         images=result.images or None,
+                        tool_call_id=call_ids[call_index],
                     )
 
-                    messages.append({"role": "tool", "content": result.content})
+                    messages.append({
+                        "role": "tool",
+                        "content": result.content,
+                        "tool_call_id": call_ids[call_index],
+                        "name": tool_name,
+                    })
 
                     if result.status == "denied":
                         tool_denied = True

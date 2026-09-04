@@ -402,6 +402,8 @@ class ChatSessionHandler:
         current_tool_args_json: Optional[str] = None
         current_tool_args: Optional[Dict] = None
         current_tool_status: Optional[str] = None
+        current_tool_calls: Optional[List[Dict]] = None
+        current_tool_call_id: Optional[str] = None
         final_assistant_content = ""
         last_model_name: Optional[str] = None
         last_provider_type: Optional[str] = None
@@ -426,6 +428,10 @@ class ChatSessionHandler:
 
             if chunk.images:
                 current_images.extend(chunk.images)
+            if chunk.tool_calls:
+                current_tool_calls = chunk.tool_calls
+            if chunk.tool_call_id and chunk.role == current_role:
+                current_tool_call_id = chunk.tool_call_id
 
             if chunk.role != current_role:
                 if chunk_content or chunk_thinking:
@@ -450,6 +456,8 @@ class ChatSessionHandler:
                         "provider_type": last_provider_type if current_role == "assistant" else None,
                         "tool_args": current_tool_args if current_role == "tool" else None,
                         "tool_status": current_tool_status if current_role == "tool" else None,
+                        "tool_calls": current_tool_calls if current_role == "assistant" else None,
+                        "tool_call_id": current_tool_call_id if current_role == "tool" else None,
                     }
                     await self._save_message(completed_msg, conversation_id)
                     conversation_messages.append({
@@ -468,6 +476,8 @@ class ChatSessionHandler:
                 current_tool_args_json = json.dumps(chunk.tool_args, ensure_ascii=False) if chunk.tool_args else None
                 current_tool_args = chunk.tool_args if chunk.tool_args else None
                 current_tool_status = chunk.tool_status if chunk.tool_status else None
+                current_tool_calls = chunk.tool_calls
+                current_tool_call_id = chunk.tool_call_id
             else:
                 chunk_content += chunk.content
                 if chunk.thinking:
@@ -862,6 +872,10 @@ class ChatSessionHandler:
                     entry["agent_id"] = msg.agent_id
                 if msg.thinking:
                     entry["thinking"] = msg.thinking
+                if getattr(msg, "tool_calls", None):
+                    entry["tool_calls"] = msg.tool_calls
+                if getattr(msg, "tool_call_id", None):
+                    entry["tool_call_id"] = msg.tool_call_id
                 result.append(entry)
             return compacted_context, compacted_up_to_id, result
 
@@ -978,5 +992,7 @@ class ChatSessionHandler:
             provider_type=msg.get("provider_type"),
             tool_args=msg.get("tool_args"),
             tool_status=msg.get("tool_status"),
+            tool_calls=msg.get("tool_calls"),
+            tool_call_id=msg.get("tool_call_id"),
             context_files=msg.get("context_files"),
         ))
