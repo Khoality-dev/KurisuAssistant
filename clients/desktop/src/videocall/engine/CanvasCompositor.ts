@@ -1,6 +1,7 @@
 import type { PoseConfig, PoseTree, ProcessedPose, LoadedPatch, AnimationEdge, EdgeTransition, AnimationSettings } from '../types';
 import { migrateEdgeToTransitions } from '../types';
 import { getCachedImage } from './ImageCache';
+import { storage } from '../../utils/storage';
 
 type BlinkState = 'open' | 'closing' | 'closed' | 'opening';
 type CompositorState = 'idle' | 'transitioning';
@@ -511,7 +512,12 @@ export class CanvasCompositor {
 
     const videoPromises = [...videoUrls].map(async (url) => {
       try {
-        const resp = await fetch(url);
+        // Character assets require authentication, like every other route in
+        // that router.
+        const token = storage.getToken();
+        const resp = await fetch(url, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
         if (!resp.ok) return;
         const blob = await resp.blob();
         const hashBuffer = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());

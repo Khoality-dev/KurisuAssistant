@@ -11,9 +11,12 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.kurisu.assistant.data.local.EncryptedPreferences
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -23,6 +26,7 @@ fun TransitionVideoPlayer(
     onVideoEnded: () -> Unit,
     onFadeOutComplete: () -> Unit,
     modifier: Modifier = Modifier,
+    authToken: String? = null,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -33,8 +37,18 @@ fun TransitionVideoPlayer(
     var firstFrameRendered by remember { mutableStateOf(false) }
     var videoEnded by remember { mutableStateOf(false) }
 
-    val exoPlayer = remember(videoUrl) {
-        ExoPlayer.Builder(context).build().apply {
+    // Character assets are served from an authenticated endpoint, so the player
+    // needs the bearer token on its own requests; ExoPlayer does not share the
+    // app's OkHttp interceptor chain.
+    val exoPlayer = remember(videoUrl, authToken) {
+        val dataSourceFactory = DefaultHttpDataSource.Factory().apply {
+            if (authToken != null) {
+                setDefaultRequestProperties(mapOf("Authorization" to "Bearer $authToken"))
+            }
+        }
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .build().apply {
             setMediaItem(MediaItem.fromUri(videoUrl))
             playbackParameters = PlaybackParameters(playbackRate)
             repeatMode = Player.REPEAT_MODE_OFF
