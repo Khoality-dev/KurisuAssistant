@@ -43,6 +43,7 @@ from kurisuassistant.db.repositories import (
     MessageRepository,
     UserRepository,
 )
+from kurisuassistant.core.errors import GENERIC_MESSAGE, log_internal_error
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.utils.prompts import build_system_messages
 
@@ -102,8 +103,11 @@ class ChatSessionHandler:
             except RuntimeError:
                 raise WebSocketDisconnect()
             except Exception as e:
-                logger.error(f"Error handling WebSocket event: {e}", exc_info=True)
-                await self.send_event(ErrorEvent(error=str(e), code="INTERNAL_ERROR"))
+                reference = log_internal_error(e, "handling a WebSocket event")
+                await self.send_event(ErrorEvent(
+                    error=f"{GENERIC_MESSAGE} (reference: {reference})",
+                    code="INTERNAL_ERROR",
+                ))
 
     async def _handle_event(self, event: BaseEvent):
         if isinstance(event, ChatRequestEvent):
@@ -351,8 +355,11 @@ class ChatSessionHandler:
         except WebSocketDisconnect:
             raise
         except Exception as e:
-            logger.error(f"Chat task failed: {e}", exc_info=True)
-            await self.send_event(ErrorEvent(error=str(e), code="INTERNAL_ERROR"))
+            reference = log_internal_error(e, "running a chat turn")
+            await self.send_event(ErrorEvent(
+                error=f"{GENERIC_MESSAGE} (reference: {reference})",
+                code="INTERNAL_ERROR",
+            ))
             self._process_queue()
 
     async def _stream_and_save_agent(

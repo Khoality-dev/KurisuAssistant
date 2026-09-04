@@ -9,6 +9,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import Response
 
 from kurisuassistant.core.deps import get_authenticated_user
+from kurisuassistant.core.errors import internal_error
 from kurisuassistant.core.http import get_client
 
 logger = logging.getLogger(__name__)
@@ -81,8 +82,10 @@ async def synthesize_speech(
             headers={"Content-Disposition": "attachment; filename=speech.wav"},
         )
     except httpx.HTTPError as e:
-        logger.error("TTS service error: %s", e, exc_info=True)
-        raise HTTPException(status_code=502, detail=f"TTS service error: {e}")
+        raise internal_error(
+            e, "TTS service request failed", status_code=502,
+            public_detail="The speech service is unavailable.",
+        )
 
 
 @router.get("/voices")
@@ -99,8 +102,10 @@ async def list_tts_voices(
         r.raise_for_status()
         return {"voices": r.json()}
     except httpx.HTTPError as e:
-        logger.error("TTS voices error: %s", e, exc_info=True)
-        raise HTTPException(status_code=502, detail=f"TTS service error: {e}")
+        raise internal_error(
+            e, "TTS voices request failed", status_code=502,
+            public_detail="The speech service is unavailable.",
+        )
 
 
 @router.post("/check")

@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
+from kurisuassistant.core.errors import internal_error
 from kurisuassistant.core.deps import get_db, get_authenticated_user
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
@@ -42,8 +43,7 @@ async def get_user_profile(
             "context_size": user.context_size,
         }
     except Exception as e:
-        logger.error(f"Error fetching user profile for {user.username}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error fetching user profile for {user.username}")
 
 
 @router.patch("/me")
@@ -81,8 +81,7 @@ async def update_user_profile(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating user profile for {user.username}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error updating user profile for {user.username}")
 
 
 @router.patch("/me/avatars")
@@ -105,9 +104,15 @@ async def update_user_avatars(
                 else:
                     avatar_uuid = None
                     should_update = True
+            except HTTPException:
+                raise
             except Exception as e:
-                logger.warning(f"Error processing agent avatar: {e}")
-                raise HTTPException(status_code=400, detail=f"Invalid agent avatar: {e}")
+                # The decoder's message can carry a server path, so it is logged
+                # rather than returned; the caller only needs to know it failed.
+                raise internal_error(
+                    e, "processing an agent avatar", status_code=400,
+                    public_detail="That file could not be read as an image.",
+                )
 
         def _update_avatar(session):
             user_repo = UserRepository(session)
@@ -125,8 +130,7 @@ async def update_user_avatars(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating avatars for {user.username}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error updating avatars for {user.username}")
 
 
 @router.get("/me/tool-policies")
@@ -169,8 +173,7 @@ async def update_tool_policies(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating tool policies for {user.username}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error updating tool policies for {user.username}")
 
 
 @router.patch("/me/tool-policies")
@@ -215,5 +218,4 @@ async def patch_tool_policy(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error patching tool policy for {user.username}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error patching tool policy for {user.username}")

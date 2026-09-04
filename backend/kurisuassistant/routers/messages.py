@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from kurisuassistant.core.errors import internal_error
 from kurisuassistant.core.deps import get_db, get_authenticated_user
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
@@ -67,8 +68,7 @@ async def get_message(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error fetching message {message_id} for user {user.username}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error fetching message {message_id} for user {user.username}")
 
 
 @router.delete("/{message_id}")
@@ -102,8 +102,7 @@ async def delete_message(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting message {message_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error deleting message {message_id}")
 
 
 @router.get("/{message_id}/raw")
@@ -148,5 +147,4 @@ async def get_message_raw(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error fetching raw data for message {message_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error fetching raw data for message {message_id}")

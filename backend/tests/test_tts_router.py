@@ -125,7 +125,11 @@ class TestSynthesize:
         resp = client.post("/tts", json={"text": "hello"})
 
         assert resp.status_code == 502
-        assert "TTS service error" in resp.json()["detail"]
+        detail = resp.json()["detail"]
+        assert "speech service is unavailable" in detail.lower()
+        # The upstream URL and the exception text stay in the log, not the response.
+        assert "refused" not in detail
+        assert "reference:" in detail
 
 
 # ---------------------------------------------------------------------------

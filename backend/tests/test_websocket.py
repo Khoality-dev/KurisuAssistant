@@ -247,7 +247,11 @@ class TestRunLoop:
             if isinstance(c[0][0], dict) and c[0][0].get("type") == "error"
         ]
         assert len(error_calls) == 1
-        assert "Unknown event type" in error_calls[0][0][0]["error"]
+        # The event type came from the client, but the message is generic either
+        # way: this path also catches exceptions whose text is not safe to echo.
+        message = error_calls[0][0][0]["error"]
+        assert "reference:" in message
+        assert "nonexistent_event_type" not in message
 
 
 # ---------------------------------------------------------------------------

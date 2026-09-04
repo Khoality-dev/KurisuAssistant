@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from kurisuassistant.core.errors import internal_error
 from kurisuassistant.core.deps import get_db, get_authenticated_user
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
@@ -50,8 +51,7 @@ async def list_skills(
         db = get_db_service()
         return await db.execute(_list)
     except Exception as e:
-        logger.error(f"Error listing skills: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, "Error listing skills")
 
 
 @router.post("")
@@ -81,8 +81,7 @@ async def create_skill(
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
-        logger.error(f"Error creating skill: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, "Error creating skill")
 
 
 @router.patch("/{skill_id}")
@@ -112,8 +111,7 @@ async def update_skill(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating skill: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, "Error updating skill")
 
 
 @router.delete("/{skill_id}")
@@ -137,5 +135,4 @@ async def delete_skill(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting skill: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, "Error deleting skill")
