@@ -19,9 +19,15 @@ class ConnectionManager:
         # user_id -> persistent ChatSessionHandler (survives reconnects)
         self._handlers: Dict[int, "ChatSessionHandler"] = {}
 
-    async def connect(self, websocket: WebSocket, username: str) -> None:
-        """Accept and register a new WebSocket connection."""
-        await websocket.accept()
+    async def connect(
+        self, websocket: WebSocket, username: str, subprotocol: Optional[str] = None
+    ) -> None:
+        """Accept and register a new WebSocket connection.
+
+        ``subprotocol`` must be echoed back when the client authenticated through
+        the subprotocol header, or the browser closes the connection.
+        """
+        await websocket.accept(subprotocol=subprotocol)
 
         if username not in self._connections:
             self._connections[username] = set()

@@ -355,8 +355,18 @@ async def migrate_ids(
 # so that "edges" is not matched as a pose_id.
 
 @router.get("/{agent_id}/edges/{edge_id}")
-async def get_edge_video(agent_id: int, edge_id: str):
-    """Serve a transition video for an animation edge."""
+async def get_edge_video(
+    agent_id: int,
+    edge_id: str,
+    user: User = Depends(get_authenticated_user),
+):
+    """Serve a transition video for an animation edge.
+
+    Authenticated and ownership-checked like every other route in this file.
+    These two serving routes were not, so any agent's character assets could be
+    read by walking the sequential agent ids.
+    """
+    await _require_agent(user.id, agent_id)
     edges = _edges_dir(agent_id)
     for ext, media_type in [(".mp4", "video/mp4"), (".webm", "video/webm")]:
         path = edges / f"{edge_id}{ext}"
@@ -370,8 +380,14 @@ async def get_edge_video(agent_id: int, edge_id: str):
 
 
 @router.get("/{agent_id}/{pose_id}/{filename}")
-async def get_pose_asset(agent_id: int, pose_id: str, filename: str):
+async def get_pose_asset(
+    agent_id: int,
+    pose_id: str,
+    filename: str,
+    user: User = Depends(get_authenticated_user),
+):
     """Serve a pose asset (base image or patch)."""
+    await _require_agent(user.id, agent_id)
     pose = _pose_dir(agent_id, pose_id)
     for ext, media_type in [(".png", "image/png"), (".jpg", "image/jpeg")]:
         path = pose / f"{filename}{ext}"

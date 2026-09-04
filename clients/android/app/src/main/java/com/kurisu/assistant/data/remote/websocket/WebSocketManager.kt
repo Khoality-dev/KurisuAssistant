@@ -79,9 +79,14 @@ class WebSocketManager @Inject constructor(
             val wsUrl = baseUrl
                 .replace(Regex("^http:"), "ws:")
                 .replace(Regex("^https:"), "wss:")
-            val url = "$wsUrl/ws/chat?token=${java.net.URLEncoder.encode(currentToken, "UTF-8")}"
-            Log.d(TAG, "connect() opening WebSocket to $wsUrl/ws/chat")
-            val request = Request.Builder().url(url).build()
+            // The token goes in a header, not the query string: query strings are
+            // recorded by proxies and this credential is refreshable for 30 days.
+            val url = "$wsUrl/ws/chat"
+            Log.d(TAG, "connect() opening WebSocket to $url")
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $currentToken")
+                .build()
 
             val deferred = CompletableDeferred<Unit>()
 

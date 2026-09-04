@@ -1,7 +1,9 @@
 """WebSocket router for real-time chat."""
 
 import logging
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from typing import Optional
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from kurisuassistant.core.security import get_current_user
 from kurisuassistant.websocket.manager import manager
@@ -13,24 +15,63 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Browsers cannot set headers on a WebSocket, so a browser-based client passes
+# the token as the second entry of the subprotocol list. The server selects this
+# marker so the handshake completes.
+WS_AUTH_SUBPROTOCOL = "kurisu.auth.bearer"
+
+
+def _extract_token(websocket: WebSocket) -> tuple[Optional[str], Optional[str]]:
+    """Return (token, subprotocol_to_echo) from the handshake.
+
+    The token used to arrive as a query parameter, which put a 30-day-refreshable
+    credential into every proxy access log and browser history entry. Two carriers
+    replace it:
+
+    * ``Authorization: Bearer <token>`` — for clients that control their headers,
+      such as the Android client's OkHttp stack.
+    * ``Sec-WebSocket-Protocol: kurisu.auth.bearer, <token>`` — for browser
+      contexts, where the WebSocket API exposes no other channel. The selected
+      subprotocol has to be echoed on accept or the browser drops the connection.
+    """
+    authorization = websocket.headers.get("authorization")
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[len("bearer "):].strip()
+        if token:
+            return token, None
+
+    offered = websocket.headers.get("sec-websocket-protocol")
+    if offered:
+        parts = [p.strip() for p in offered.split(",") if p.strip()]
+        if len(parts) >= 2 and parts[0] == WS_AUTH_SUBPROTOCOL:
+            return parts[1], WS_AUTH_SUBPROTOCOL
+
+    return None, None
+
 
 @router.websocket("/ws/chat")
-async def websocket_chat(
-    websocket: WebSocket,
-    token: str = Query(...),
-):
+async def websocket_chat(websocket: WebSocket):
     """WebSocket endpoint for real-time chat.
 
-    Client must provide JWT token as query parameter.
+    The client authenticates during the handshake, either with an Authorization
+    header or with the `kurisu.auth.bearer` subprotocol.
     """
-    # Authenticate user
+    token, subprotocol = _extract_token(websocket)
+
+    async def reject(reason: str) -> None:
+        # A close frame is only delivered after the handshake completes, so the
+        # socket has to be accepted before it can be refused with a reason.
+        await websocket.accept(subprotocol=subprotocol)
+        await websocket.close(code=4001, reason=reason)
+
+    if not token:
+        logger.info("WS rejected: no credentials in the handshake")
+        return await reject("Unauthorized")
+
     username = get_current_user(token)
     if not username:
-        await websocket.accept()
-        await websocket.close(code=4001, reason="Unauthorized")
-        return
+        return await reject("Unauthorized")
 
-    # Get user ID from username
     def _get_user_id(session):
         user_repo = UserRepository(session)
         user = user_repo.get_by_username(username)
@@ -39,12 +80,9 @@ async def websocket_chat(
     db = get_db_service()
     user_id = await db.execute(_get_user_id)
     if user_id is None:
-        await websocket.accept()
-        await websocket.close(code=4001, reason="User not found")
-        return
+        return await reject("User not found")
 
-    # Connect
-    await manager.connect(websocket, username)
+    await manager.connect(websocket, username, subprotocol=subprotocol)
 
     # Reuse existing handler if one exists (preserves vision/media state)
     handler = manager.get_handler(user_id)
@@ -70,5 +108,3 @@ async def websocket_chat(
     finally:
         logger.info(f"WS [{username}] Cleaning up")
         manager.disconnect(websocket, username)
-
-

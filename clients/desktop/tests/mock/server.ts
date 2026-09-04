@@ -10,7 +10,7 @@ import http from 'http';
 import { AddressInfo } from 'net';
 import { WebSocketServer, WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
-import { WIRE_PROTOCOL } from '../../src/constants';
+import { WIRE_PROTOCOL, WS_AUTH_SUBPROTOCOL } from '../../src/constants';
 
 export interface MockAgent {
   id: number;
@@ -113,6 +113,17 @@ export class MockBackend {
     this.httpServer.on('upgrade', (req, socket, head) => {
       const url = req.url ?? '';
       if (url.startsWith('/ws/chat')) {
+        // The client authenticates the handshake with the auth subprotocol (or an
+        // Authorization header). The selected subprotocol must be echoed back, or
+        // the browser drops the connection and every later assertion times out.
+        const offered = (req.headers['sec-websocket-protocol'] ?? '')
+          .toString()
+          .split(',')
+          .map((p) => p.trim())
+          .filter(Boolean);
+        if (offered[0] === WS_AUTH_SUBPROTOCOL) {
+          req.headers['sec-websocket-protocol'] = WS_AUTH_SUBPROTOCOL;
+        }
         this.wss.handleUpgrade(req, socket, head, (ws) => this.handleWs(ws));
       } else {
         socket.destroy();

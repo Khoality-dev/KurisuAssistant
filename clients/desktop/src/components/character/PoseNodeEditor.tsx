@@ -38,6 +38,7 @@ import { apiClient } from '../../api/client';
 import { config } from '../../config';
 import type { PatchInfo, PoseConfig, AnimationSettings } from '../../videocall/types';
 import { PreviewCanvas, PREVIEW_W, PREVIEW_H } from './PreviewCanvas';
+import { useAuthedAssetUrl } from '../../utils/authedAsset';
 
 const STEPS = ['Base Image', 'Keyframes', 'Preview'];
 
@@ -89,6 +90,8 @@ export const PoseNodeEditor: React.FC<PoseNodeEditorProps> = ({
   // Step 1: Base image
   const [hasBase, setHasBase] = useState(false);
   const [baseImageUrl, setBaseImageUrl] = useState<string | null>(null);
+  // Character assets need the auth header, so <img src> cannot load them directly.
+  const displayBaseImageUrl = useAuthedAssetUrl(baseImageUrl);
   const baseInputRef = useRef<HTMLInputElement>(null);
 
   // Step 2: Keyframes
@@ -319,10 +322,10 @@ export const PoseNodeEditor: React.FC<PoseNodeEditorProps> = ({
                 bgcolor: 'grey.50',
               }}
             >
-              {baseImageUrl ? (
+              {displayBaseImageUrl ? (
                 <Box
                   component="img"
-                  src={baseImageUrl}
+                  src={displayBaseImageUrl}
                   sx={{ width: '100%', height: '100%', objectFit: 'contain' }}
                 />
               ) : (

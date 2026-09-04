@@ -56,6 +56,7 @@ fun CharacterScreen(
                         onVideoEnded = viewModel::onTransitionVideoEnded,
                         onFadeOutComplete = viewModel::onTransitionVideoFadeOutComplete,
                         modifier = Modifier.fillMaxSize(),
+                        authToken = state.authToken,
                     )
                 }
 

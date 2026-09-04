@@ -8,9 +8,10 @@ This module provides a per-user orchestrator registry for managing MCP tools:
 - Caching tools with 30-second TTL
 """
 
-import time
 import datetime
 import logging
+import os
+import time
 from typing import Optional, List, Dict, Any
 
 import httpx
@@ -20,7 +21,21 @@ from .client import list_tools, call_tool
 
 logger = logging.getLogger(__name__)
 
-_httpx_factory = lambda **kwargs: httpx.AsyncClient(verify=False, follow_redirects=True, **kwargs)
+# TLS verification is on. It used to be disabled unconditionally, which made
+# every https MCP server interceptable on the network path, and combined with
+# follow_redirects meant a redirect could move the request to another host and
+# still not be checked. An operator with a self-signed MCP server sets
+# MCP_TLS_VERIFY=false deliberately; it is not a default anyone should inherit.
+_VERIFY_TLS = os.getenv("MCP_TLS_VERIFY", "true").strip().lower() not in ("0", "false", "no", "off")
+
+if not _VERIFY_TLS:
+    logger.warning(
+        "MCP_TLS_VERIFY is off: MCP server certificates are not being checked."
+    )
+
+
+def _httpx_factory(**kwargs):
+    return httpx.AsyncClient(verify=_VERIFY_TLS, follow_redirects=True, **kwargs)
 
 
 def _patch_httpx_factory(client: FastMCPClient):

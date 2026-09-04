@@ -10,6 +10,7 @@ import com.kurisu.assistant.data.remote.websocket.WebSocketManager
 import com.kurisu.assistant.data.repository.AgentRepository
 import com.kurisu.assistant.domain.character.CharacterCompositor
 import com.kurisu.assistant.domain.character.CompositorState
+import com.kurisu.assistant.data.local.EncryptedPreferences
 import com.kurisu.assistant.domain.character.ImageCache
 import com.kurisu.assistant.domain.chat.ChatStreamProcessor
 import com.kurisu.assistant.domain.tts.TtsQueueManager
@@ -26,6 +27,9 @@ data class CharacterUiState(
     val transitionVideoUrl: String? = null,
     val transitionPlaybackRate: Float = 1f,
     val subtitle: String? = null,
+    // ExoPlayer fetches transition videos itself and does not share the app's
+    // OkHttp interceptor chain, so it needs the token handed to it.
+    val authToken: String? = null,
 )
 
 @HiltViewModel
@@ -37,13 +41,14 @@ class CharacterViewModel @Inject constructor(
     private val streamProcessor: ChatStreamProcessor,
     private val ttsQueueManager: TtsQueueManager,
     private val agentRepository: AgentRepository,
+    private val encryptedPreferences: EncryptedPreferences,
 ) : ViewModel() {
 
     private val navAgentId: Int = savedStateHandle["agentId"] ?: -1
 
     val compositor = CharacterCompositor(imageCache)
 
-    private val _state = MutableStateFlow(CharacterUiState())
+    private val _state = MutableStateFlow(CharacterUiState(authToken = encryptedPreferences.getToken()))
     val state: StateFlow<CharacterUiState> = _state
 
     private val json = Json { ignoreUnknownKeys = true }
