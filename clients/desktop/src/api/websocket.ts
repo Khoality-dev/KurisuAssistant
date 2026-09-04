@@ -3,6 +3,7 @@
  */
 
 import { config } from '../config';
+import { WS_AUTH_SUBPROTOCOL } from '../constants';
 
 // Event types matching backend websocket/events.py
 export type EventType =
@@ -229,8 +230,12 @@ class WebSocketManager {
         .replace(/^http:/, 'ws:')
         .replace(/^https:/, 'wss:');
 
-      const url = `${wsUrl}/ws/chat?token=${encodeURIComponent(this.token!)}`;
-      this.ws = new WebSocket(url);
+      // The token is offered as a subprotocol rather than a query parameter:
+      // query strings end up in proxy access logs, and this is a credential that
+      // can be refreshed for 30 days. A browser WebSocket cannot set headers, so
+      // the subprotocol list is the only channel available here.
+      const url = `${wsUrl}/ws/chat`;
+      this.ws = new WebSocket(url, [WS_AUTH_SUBPROTOCOL, this.token!]);
 
       this.ws.onopen = () => {
         this.isConnecting = false;

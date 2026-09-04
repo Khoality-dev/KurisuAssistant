@@ -15,6 +15,13 @@ Bumping rules:
 - Bump rarely; treat each bump as a coordinated release across all clients.
 
 Update log (most recent first):
+- 3: The WebSocket no longer accepts the access token as a `?token=` query
+     parameter. Clients authenticate the handshake with an
+     `Authorization: Bearer` header, or — in a browser context, which cannot set
+     headers on a WebSocket — by offering `kurisu.auth.bearer, <token>` as the
+     subprotocol. Character asset routes also require authentication now, so a
+     client must fetch those with the token attached rather than pointing an
+     image or video element straight at the URL.
 - 2: `GET /users/me` no longer returns `gemini_api_key` / `nvidia_api_key`.
      They are write-only now; the response carries `has_gemini_key` and
      `has_nvidia_key` booleans instead. Clients must stop pre-filling the key
@@ -24,5 +31,5 @@ Update log (most recent first):
 - 1: Initial wire protocol baseline.
 """
 
-__version__ = "0.3.0"
-WIRE_PROTOCOL = 2
+__version__ = "0.4.0"
+WIRE_PROTOCOL = 3
