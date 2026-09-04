@@ -201,7 +201,7 @@ class ChatSessionHandler:
             self._task_conversation_id = conversation_id
             self._task_done = False
 
-            all_agents = self._load_enabled_agents()
+            all_agents = await self._load_enabled_agents()
             main_agents = [a for a in all_agents if a.agent_type == 'main']
             sub_agents = [a for a in all_agents if a.agent_type == 'sub']
 
@@ -226,7 +226,7 @@ class ChatSessionHandler:
                     )
             if current_agent is None:
                 current_agent = pick_main_agent(event.text, main_agents)
-                self._persist_main_agent(conversation_id, current_agent.id)
+                await self._persist_main_agent(conversation_id, current_agent.id)
 
             await self.send_event(AgentSwitchEvent(
                 from_agent_id=None,
@@ -246,7 +246,7 @@ class ChatSessionHandler:
                     except Exception as e:
                         logger.warning(f"Failed to save image: {e}")
 
-            compacted_context, compacted_up_to_id, context_messages = self._load_context_messages(conversation_id)
+            compacted_context, compacted_up_to_id, context_messages = await self._load_context_messages(conversation_id)
 
             content = event.text
             if event.context_files:
@@ -320,9 +320,9 @@ class ChatSessionHandler:
                     ))
 
             # Save the pending user message + extras to the (possibly new) conversation
-            self._save_message(user_message, conversation_id)
+            await self._save_message(user_message, conversation_id)
             for extra_msg in extra_msgs_prepared:
-                self._save_message(extra_msg, conversation_id)
+                await self._save_message(extra_msg, conversation_id)
             conversation_messages = system_messages + context_messages + [user_message] + extra_msgs_prepared
             token_count = self._estimate_tokens(conversation_messages)
 
@@ -369,7 +369,7 @@ class ChatSessionHandler:
                 conversation_messages=conversation_messages,
             )
 
-            self._update_timestamps(conversation_id)
+            await self._update_timestamps(conversation_id)
             self._task_done = True
             await self.send_event(DoneEvent(conversation_id=conversation_id))
 
@@ -451,7 +451,7 @@ class ChatSessionHandler:
                         "tool_args": current_tool_args if current_role == "tool" else None,
                         "tool_status": current_tool_status if current_role == "tool" else None,
                     }
-                    self._save_message(completed_msg, conversation_id)
+                    await self._save_message(completed_msg, conversation_id)
                     conversation_messages.append({
                         "role": current_role,
                         "content": chunk_content,
@@ -496,7 +496,7 @@ class ChatSessionHandler:
                 "tool_args": current_tool_args if current_role == "tool" else None,
                 "tool_status": current_tool_status if current_role == "tool" else None,
             }
-            self._save_message(completed_msg, conversation_id)
+            await self._save_message(completed_msg, conversation_id)
             conversation_messages.append({
                 "role": current_role,
                 "content": chunk_content,
@@ -566,7 +566,7 @@ class ChatSessionHandler:
                 summary_model, summary_provider, context_size,
                 main_agent_id, tool_policies)
 
-    def _persist_main_agent(self, conversation_id: int, agent_id: int) -> None:
+    async def _persist_main_agent(self, conversation_id: int, agent_id: int) -> None:
         """Save the picked main agent on the conversation (one-time at first message)."""
         db = get_db_service()
 
@@ -576,16 +576,16 @@ class ChatSessionHandler:
             if conv:
                 conv_repo.update_main_agent(conv, agent_id)
 
-        db.execute_sync(_update)
+        await db.execute(_update)
 
-    def _load_enabled_agents(self) -> List[AgentConfig]:
+    async def _load_enabled_agents(self) -> List[AgentConfig]:
         db = get_db_service()
 
         def _query(session):
             agents = AgentRepository(session).list_enabled_for_user(self.user_id)
             return [self._agent_to_config(agent) for agent in agents]
 
-        return db.execute_sync(_query)
+        return await db.execute(_query)
 
     @staticmethod
     def _agent_to_config(agent) -> AgentConfig:
@@ -611,7 +611,7 @@ class ChatSessionHandler:
             agent_type=getattr(agent, 'agent_type', 'main'),
         )
 
-    def _update_timestamps(self, conversation_id: int):
+    async def _update_timestamps(self, conversation_id: int):
         db = get_db_service()
 
         def _update(session):
@@ -620,7 +620,7 @@ class ChatSessionHandler:
             if conversation:
                 conv_repo.update_timestamp(conversation)
 
-        db.execute_sync(_update)
+        await db.execute(_update)
 
     # ------------------------------------------------------------------
     # Tool approval / cancel / vision / client-tools — unchanged plumbing
@@ -659,13 +659,13 @@ class ChatSessionHandler:
                 agent_id,
             )
 
-        summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key, agent_id = db.execute_sync(_get_prefs)
+        summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key, agent_id = await db.execute(_get_prefs)
 
         if not summary_model:
             await self.send_event(ErrorEvent(error="No summary model configured.", code="NO_SUMMARY_MODEL"))
             return
 
-        _, _, context_messages = self._load_context_messages(conversation_id)
+        _, _, context_messages = await self._load_context_messages(conversation_id)
         if not context_messages:
             return
 
@@ -673,7 +673,7 @@ class ChatSessionHandler:
             user = UserRepository(session).get_by_id(self.user_id)
             return getattr(user, 'context_size', None) or 8192
 
-        context_limit = db.execute_sync(_get_ctx)
+        context_limit = await db.execute(_get_ctx)
 
         await self.send_event(ContextInfoEvent(conversation_id=conversation_id, compacting=True))
 
@@ -833,7 +833,7 @@ class ChatSessionHandler:
     # Context loading + compaction
     # ------------------------------------------------------------------
 
-    def _load_context_messages(self, conversation_id: int) -> tuple[str, int, list]:
+    async def _load_context_messages(self, conversation_id: int) -> tuple[str, int, list]:
         """Load (compacted_context, compacted_up_to_id, messages_after_watermark)."""
         db = get_db_service()
 
@@ -865,7 +865,7 @@ class ChatSessionHandler:
                 result.append(entry)
             return compacted_context, compacted_up_to_id, result
 
-        return db.execute_sync(_query)
+        return await db.execute(_query)
 
     @staticmethod
     def _estimate_tokens(messages: list) -> int:
@@ -962,9 +962,9 @@ class ChatSessionHandler:
             logger.error("Context compaction failed: %s", e, exc_info=True)
             return ""
 
-    def _save_message(self, msg: dict, conversation_id: int):
+    async def _save_message(self, msg: dict, conversation_id: int):
         db = get_db_service()
-        db.execute_sync(lambda s: MessageRepository(s).create_message(
+        await db.execute(lambda s: MessageRepository(s).create_message(
             role=msg["role"],
             message=msg["content"],
             conversation_id=conversation_id,

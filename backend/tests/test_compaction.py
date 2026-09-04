@@ -48,10 +48,16 @@ def setup_db_prefs(monkeypatch, summary_model="qwen3:1.7b", agent_id=42):
         # Run with a dummy session — closure paths we exercise don't touch it
         return fn(MagicMock())
 
-    db.execute_sync = MagicMock(side_effect=lambda fn: {
-        "_get_prefs": (summary_model, "ollama", None, None, None, agent_id),
-        "_get_ctx": 8192,
-    }.get(fn.__name__, execute_sync(fn)))
+    def dispatch(fn):
+        return {
+            "_get_prefs": (summary_model, "ollama", None, None, None, agent_id),
+            "_get_ctx": 8192,
+        }.get(fn.__name__, execute_sync(fn))
+
+    # The handler awaits DB work now; execute_sync remains for the worker-thread
+    # path (_create_summary_conversation runs under asyncio.to_thread).
+    db.execute = AsyncMock(side_effect=dispatch)
+    db.execute_sync = MagicMock(side_effect=dispatch)
     return db
 
 
@@ -61,12 +67,14 @@ class TestHandleCompactContext:
         ws = make_mock_ws()
         handler = ChatSessionHandler(ws, user_id=1)
 
-        with patch.object(handler, "_load_context_messages", return_value=("", 0, [{"role": "user", "content": "hi"}])), \
+        with patch.object(handler, "_load_context_messages", new_callable=AsyncMock, return_value=("", 0, [{"role": "user", "content": "hi"}])), \
              patch.object(handler, "_generate_summary", return_value="SUMMARY TEXT"), \
              patch.object(handler, "_create_summary_conversation", return_value=999), \
              patch("kurisuassistant.websocket.handlers.get_db_service") as mock_db:
-            mock_db.return_value.execute_sync = lambda fn: ("qwen3:1.7b", "ollama", None, None, None, 42) \
+            mock_db.return_value.execute = AsyncMock(
+                side_effect=lambda fn: ("qwen3:1.7b", "ollama", None, None, None, 42)
                 if fn.__name__ == "_get_prefs" else 8192
+            )
 
             await handler._handle_compact_context(CompactContextEvent(conversation_id=123))
 
@@ -89,8 +97,10 @@ class TestHandleCompactContext:
 
         with patch("kurisuassistant.websocket.handlers.get_db_service") as mock_db:
             # summary_model is None → handler should bail with an ErrorEvent
-            mock_db.return_value.execute_sync = lambda fn: (None, "ollama", None, None, None, None) \
+            mock_db.return_value.execute = AsyncMock(
+                side_effect=lambda fn: (None, "ollama", None, None, None, None)
                 if fn.__name__ == "_get_prefs" else 8192
+            )
 
             await handler._handle_compact_context(CompactContextEvent(conversation_id=123))
 
@@ -104,10 +114,12 @@ class TestHandleCompactContext:
         ws = make_mock_ws()
         handler = ChatSessionHandler(ws, user_id=1)
 
-        with patch.object(handler, "_load_context_messages", return_value=("", 0, [])), \
+        with patch.object(handler, "_load_context_messages", new_callable=AsyncMock, return_value=("", 0, [])), \
              patch("kurisuassistant.websocket.handlers.get_db_service") as mock_db:
-            mock_db.return_value.execute_sync = lambda fn: ("qwen3:1.7b", "ollama", None, None, None, 42) \
+            mock_db.return_value.execute = AsyncMock(
+                side_effect=lambda fn: ("qwen3:1.7b", "ollama", None, None, None, 42)
                 if fn.__name__ == "_get_prefs" else 8192
+            )
 
             await handler._handle_compact_context(CompactContextEvent(conversation_id=123))
 
@@ -119,12 +131,14 @@ class TestHandleCompactContext:
         ws = make_mock_ws()
         handler = ChatSessionHandler(ws, user_id=1)
 
-        with patch.object(handler, "_load_context_messages", return_value=("", 0, [{"role": "user", "content": "hi"}])), \
+        with patch.object(handler, "_load_context_messages", new_callable=AsyncMock, return_value=("", 0, [{"role": "user", "content": "hi"}])), \
              patch.object(handler, "_generate_summary", return_value=""), \
              patch.object(handler, "_create_summary_conversation") as create_mock, \
              patch("kurisuassistant.websocket.handlers.get_db_service") as mock_db:
-            mock_db.return_value.execute_sync = lambda fn: ("qwen3:1.7b", "ollama", None, None, None, 42) \
+            mock_db.return_value.execute = AsyncMock(
+                side_effect=lambda fn: ("qwen3:1.7b", "ollama", None, None, None, 42)
                 if fn.__name__ == "_get_prefs" else 8192
+            )
 
             await handler._handle_compact_context(CompactContextEvent(conversation_id=123))
 

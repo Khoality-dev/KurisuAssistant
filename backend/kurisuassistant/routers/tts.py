@@ -4,11 +4,12 @@ import logging
 import os
 from pathlib import Path
 
-import requests as http_requests
+import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import Response
 
 from kurisuassistant.core.deps import get_authenticated_user
+from kurisuassistant.core.http import get_client
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ async def synthesize_speech(
         voice_file = _find_voice_file(voice) if voice else None
 
         if voice_file:
-            files["ref_audio"] = open(voice_file, "rb")
+            files["ref_audio"] = (voice_file.name, voice_file.read_bytes())
             logger.info("TTS: uploading ref_audio from %s", voice_file)
         elif voice:
             data["voice_id"] = voice
@@ -63,28 +64,23 @@ async def synthesize_speech(
         else:
             logger.info("TTS: no voice specified, using model default")
 
-        try:
-            logger.debug("TTS: POST %s/tts/synthesize data=%s files=%s",
-                         UVOICE_URL, {k: v for k, v in data.items() if k != "text"}, list(files.keys()))
-            r = http_requests.post(
-                f"{UVOICE_URL}/tts/synthesize",
-                data=data,
-                files=files or None,
-                timeout=120,
-            )
-            r.raise_for_status()
-            logger.info("TTS: synthesized %d bytes", len(r.content))
-        finally:
-            for f in files.values():
-                if hasattr(f, "close"):
-                    f.close()
+        logger.debug("TTS: POST %s/tts/synthesize data=%s files=%s",
+                     UVOICE_URL, {k: v for k, v in data.items() if k != "text"}, list(files.keys()))
+        r = await get_client().post(
+            f"{UVOICE_URL}/tts/synthesize",
+            data=data,
+            files=files or None,
+            timeout=120,
+        )
+        r.raise_for_status()
+        logger.info("TTS: synthesized %d bytes", len(r.content))
 
         return Response(
             content=r.content,
             media_type="audio/wav",
             headers={"Content-Disposition": "attachment; filename=speech.wav"},
         )
-    except http_requests.RequestException as e:
+    except httpx.HTTPError as e:
         logger.error("TTS service error: %s", e, exc_info=True)
         raise HTTPException(status_code=502, detail=f"TTS service error: {e}")
 
@@ -99,10 +95,10 @@ async def list_tts_voices(
         params = {}
         if provider:
             params["model"] = provider
-        r = http_requests.get(f"{UVOICE_URL}/tts/voices", params=params, timeout=10)
+        r = await get_client().get(f"{UVOICE_URL}/tts/voices", params=params, timeout=10)
         r.raise_for_status()
         return {"voices": r.json()}
-    except http_requests.RequestException as e:
+    except httpx.HTTPError as e:
         logger.error("TTS voices error: %s", e, exc_info=True)
         raise HTTPException(status_code=502, detail=f"TTS service error: {e}")
 
@@ -114,10 +110,10 @@ async def check_tts_health(
 ):
     """Proxy health check to universal-voice."""
     try:
-        r = http_requests.get(f"{UVOICE_URL}/health", timeout=5)
+        r = await get_client().get(f"{UVOICE_URL}/health", timeout=5)
         r.raise_for_status()
         return r.json()
-    except http_requests.RequestException as e:
+    except httpx.HTTPError as e:
         logger.error("TTS health error: %s", e, exc_info=True)
         return {"ok": False, "message": str(e)}
 
@@ -136,13 +132,13 @@ async def list_tts_models(
 ):
     """List available TTS models from universal-voice, with fallback."""
     try:
-        r = http_requests.get(f"{UVOICE_URL}/v1/models", timeout=5)
+        r = await get_client().get(f"{UVOICE_URL}/v1/models", timeout=5)
         r.raise_for_status()
         models = r.json().get("data", [])
         tts_models = [m for m in models if m.get("type") == "tts"]
         if tts_models:
             return {"models": tts_models}
-    except http_requests.RequestException as e:
+    except httpx.HTTPError as e:
         logger.warning("TTS service unavailable, returning fallback models: %s", e)
 
     return {"models": _FALLBACK_TTS_MODELS}

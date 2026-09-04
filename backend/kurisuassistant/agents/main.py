@@ -31,7 +31,7 @@ class MainAgent(BaseAgent):
         super().__init__(config, tool_registry)
         self.turn_data: List[Dict] = []
 
-    def _prepare_messages(
+    async def _prepare_messages(
         self,
         messages: List[Dict],
         context: AgentContext,
@@ -70,7 +70,7 @@ class MainAgent(BaseAgent):
 
         if context.user_id:
             from kurisuassistant.tools.skills import get_skill_names_for_user
-            skill_names = get_skill_names_for_user(context.user_id)
+            skill_names = await get_skill_names_for_user(context.user_id)
             if skill_names:
                 system_parts.append(
                     "## Skills\n"
@@ -152,7 +152,7 @@ class MainAgent(BaseAgent):
 
         llm = create_llm_provider(provider_type, api_url=context.api_url, api_key=api_key)
 
-        messages = self._prepare_messages(messages, context)
+        messages = await self._prepare_messages(messages, context)
         self.last_prepared_messages = messages
 
         allowed = set(self.config.available_tools) if self.config.available_tools is not None else None

@@ -1,5 +1,6 @@
 """Model management routes: list, pull, delete models."""
 
+import asyncio
 import logging
 from typing import List
 
@@ -42,7 +43,7 @@ async def list_models(
     """List available LLM models."""
     try:
         user_ollama_url = user.ollama_url
-        ollama_models = llm_list_models(api_url=user_ollama_url)
+        ollama_models = await asyncio.to_thread(llm_list_models, api_url=user_ollama_url)
 
         # Build model list: [{name, provider}]
         models = [{"name": m, "provider": "ollama"} for m in ollama_models]
@@ -52,7 +53,7 @@ async def list_models(
         if gemini_api_key:
             try:
                 gemini_provider = create_llm_provider("gemini", api_key=gemini_api_key)
-                gemini_models = gemini_provider.list_models()
+                gemini_models = await asyncio.to_thread(gemini_provider.list_models)
                 models.extend({"name": m, "provider": "gemini"} for m in gemini_models)
             except Exception as ge:
                 logger.warning(f"Failed to list Gemini models: {ge}")
@@ -62,7 +63,7 @@ async def list_models(
         if nvidia_api_key:
             try:
                 nvidia_provider = create_llm_provider("nvidia", api_key=nvidia_api_key)
-                nvidia_models = nvidia_provider.list_models()
+                nvidia_models = await asyncio.to_thread(nvidia_provider.list_models)
                 models.extend({"name": m, "provider": "nvidia"} for m in nvidia_models)
             except Exception as ne:
                 logger.warning(f"Failed to list NVIDIA models: {ne}")
@@ -84,7 +85,7 @@ async def list_models_detailed(
         provider = create_llm_provider("ollama", api_url=user_ollama_url)
 
         # Get detailed model list from Ollama
-        resp = provider.client.list()
+        resp = await asyncio.to_thread(provider.client.list)
         models = []
         for m in getattr(resp, "models", []):
             models.append(ModelInfo(
@@ -108,7 +109,7 @@ async def pull_model(
     """Pull/download a model from Ollama registry."""
     try:
         user_ollama_url = user.ollama_url
-        llm_pull_model(body.name, api_url=user_ollama_url)
+        await asyncio.to_thread(llm_pull_model, body.name, api_url=user_ollama_url)
         return PullModelResponse(
             status="ok",
             message=f"Model '{body.name}' pulled successfully"
@@ -128,7 +129,7 @@ async def delete_model(
     try:
         user_ollama_url = user.ollama_url
         provider = create_llm_provider("ollama", api_url=user_ollama_url)
-        provider.client.delete(model_name)
+        await asyncio.to_thread(provider.client.delete, model_name)
         return {"status": "ok", "message": f"Model '{model_name}' deleted successfully"}
     except Exception as e:
         logger.error(f"Error deleting model '{model_name}': {e}", exc_info=True)
@@ -144,14 +145,14 @@ async def ensure_model(
     """Ensure a model is available, pulling it if necessary."""
     try:
         user_ollama_url = user.ollama_url
-        models = llm_list_models(api_url=user_ollama_url)
+        models = await asyncio.to_thread(llm_list_models, api_url=user_ollama_url)
 
         # Check if model already exists
         if model_name in models:
             return {"status": "ok", "message": f"Model '{model_name}' already available"}
 
         # Pull the model
-        llm_pull_model(model_name, api_url=user_ollama_url)
+        await asyncio.to_thread(llm_pull_model, model_name, api_url=user_ollama_url)
         return {"status": "ok", "message": f"Model '{model_name}' pulled successfully"}
     except Exception as e:
         logger.error(f"Error ensuring model '{model_name}': {e}", exc_info=True)
@@ -172,7 +173,7 @@ async def validate_api_key(
     """Validate an API key by attempting to list models."""
     try:
         provider = create_llm_provider(body.provider, api_key=body.api_key)
-        models = provider.list_models()
+        models = await asyncio.to_thread(provider.list_models)
         return {"valid": True, "model_count": len(models)}
     except Exception as e:
         return {"valid": False, "error": str(e)}
