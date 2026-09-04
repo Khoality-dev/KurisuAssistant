@@ -82,6 +82,9 @@ class UserMCPOrchestrator:
     def __init__(self, user_id: int):
         self.user_id = user_id
         self._server_clients: Dict[str, FastMCPClient] = {}
+        # The configuration each live client was built from, so a refresh can
+        # tell an unchanged server from a changed one.
+        self._server_configs: Dict[str, tuple] = {}
         self._tool_to_client: Dict[str, FastMCPClient] = {}
         self._tool_to_server: Dict[str, str] = {}
         self._cached_tools: List[Dict] = []
@@ -89,10 +92,16 @@ class UserMCPOrchestrator:
         self._cache_ttl: int = 30
 
     def _load_servers(self):
-        """Load enabled server-side servers from DB and rebuild per-server clients.
+        """Reconcile the live clients against the user's configured servers.
 
-        Only loads servers with location="server" (or NULL for backwards compat).
-        Client-side servers are managed by the Electron app.
+        Only servers with location="server" are loaded here; client-side ones are
+        run by the desktop app.
+
+        This used to drop every client and rebuild them all on each refresh, so a
+        thirty-second cache guaranteed churn proportional to conversation length:
+        connections reopened, and a tool call could land in the window where the
+        clients had just been replaced. Now only servers whose configuration
+        actually changed are rebuilt.
         """
         from kurisuassistant.db.service import get_db_service
         from kurisuassistant.db.repositories import MCPServerRepository
@@ -109,16 +118,41 @@ class UserMCPOrchestrator:
         db = get_db_service()
         server_data = db.execute_sync(_fetch)
 
-        self._server_clients.clear()
+        desired = {}
         for name, transport_type, url, command, args, env in server_data:
-            # Build a lightweight object for _create_client_from_server
+            # Lists and dicts are unhashable, so normalise for comparison.
+            desired[name] = (
+                transport_type, url, command,
+                tuple(args or ()),
+                tuple(sorted((env or {}).items())),
+            )
+
+        for name in list(self._server_clients):
+            if name not in desired:
+                self._drop_client(name, "removed from configuration")
+
+        for name, config in desired.items():
+            if self._server_configs.get(name) == config and name in self._server_clients:
+                continue  # unchanged: keep the live client
+
+            if name in self._server_clients:
+                self._drop_client(name, "configuration changed")
+
+            transport_type, url, command, args, env = config
             server = type("S", (), {
                 "name": name, "transport_type": transport_type,
-                "url": url, "command": command, "args": args, "env": env,
+                "url": url, "command": command,
+                "args": list(args), "env": dict(env),
             })()
             client = _create_client_from_server(server)
             if client:
                 self._server_clients[name] = client
+                self._server_configs[name] = config
+
+    def _drop_client(self, name: str, reason: str) -> None:
+        self._server_clients.pop(name, None)
+        self._server_configs.pop(name, None)
+        logger.debug("Dropped MCP client '%s' for user %s: %s", name, self.user_id, reason)
 
     def invalidate(self):
         """Reset cache, forcing reload on next call."""
@@ -252,16 +286,7 @@ def evict_user_orchestrator(user_id: int) -> None:
     orchestrator = _orchestrators.pop(user_id, None)
     if orchestrator is not None:
         orchestrator._server_clients.clear()
+        orchestrator._server_configs.clear()
         orchestrator._tool_to_client.clear()
         logger.debug("Evicted MCP orchestrator for user %s", user_id)
 
-
-# Backward compatibility
-def init_orchestrator() -> None:
-    """No-op for backward compatibility."""
-    pass
-
-
-def get_orchestrator() -> UserMCPOrchestrator:
-    """Backward-compatible getter (returns user_id=0 instance)."""
-    return get_user_orchestrator(0)
