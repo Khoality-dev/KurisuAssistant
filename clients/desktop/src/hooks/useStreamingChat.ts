@@ -51,7 +51,7 @@ export interface UseStreamingChatReturn {
   toggleThinking: (index: number) => void;
   queuedMessages: Message[];
   pendingApproval: ToolApprovalRequestEvent | null;
-  respondToApproval: (approved: boolean) => void;
+  respondToApproval: (response: string) => void;
   contextTokens: number;
   contextLimit: number;
   isCompacting: boolean;
