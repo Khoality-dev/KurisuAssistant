@@ -48,8 +48,9 @@ from kurisuassistant.utils.prompts import build_system_messages
 
 logger = logging.getLogger(__name__)
 
-HEARTBEAT_INTERVAL = 30
-HEARTBEAT_TIMEOUT = 10
+# A turn can take minutes, and a client is free to keep typing while it runs.
+# The queue is merged into one follow-up turn, so it needs a ceiling.
+MAX_QUEUED_MESSAGES = 20
 
 
 class ChatSessionHandler:
@@ -74,9 +75,6 @@ class ChatSessionHandler:
         self._task_conversation_id: Optional[int] = None
         self._task_done: bool = False
 
-        self._heartbeat_task: Optional[asyncio.Task] = None
-        self._last_pong_time: float = 0
-
         self._client_tools: List[Dict] = []
         self._client_tool_names: set = set()
         self._pending_tool_calls: Dict[str, asyncio.Future] = {}
@@ -88,64 +86,24 @@ class ChatSessionHandler:
 
     async def run(self):
         from fastapi import WebSocketDisconnect
-        import time
 
         ws = self.websocket
-        self._last_pong_time = time.monotonic()
-        my_heartbeat = asyncio.create_task(self._heartbeat_loop(ws))
-        self._heartbeat_task = my_heartbeat
-
-        try:
-            while True:
-                try:
-                    data = await ws.receive_json()
-                    msg_type = data.get("type")
-                    if msg_type == "pong":
-                        self._last_pong_time = time.monotonic()
-                        continue
-                    event = parse_event(data)
-                    await self._handle_event(event)
-                except WebSocketDisconnect:
-                    raise
-                except RuntimeError:
-                    raise WebSocketDisconnect()
-                except Exception as e:
-                    logger.error(f"Error handling WebSocket event: {e}", exc_info=True)
-                    await self.send_event(ErrorEvent(error=str(e), code="INTERNAL_ERROR"))
-        finally:
-            my_heartbeat.cancel()
-            if self._heartbeat_task is my_heartbeat:
-                self._heartbeat_task = None
-
-    async def _heartbeat_loop(self, ws: WebSocket):
-        import time
-        try:
-            while True:
-                await asyncio.sleep(HEARTBEAT_INTERVAL)
-                if self.websocket is not ws:
-                    return
-                try:
-                    async with self._send_lock:
-                        state = ws.client_state.name
-                        if state == "CONNECTED":
-                            await ws.send_json({"type": "ping"})
-                        else:
-                            return
-                except Exception:
-                    return
-
-                await asyncio.sleep(HEARTBEAT_TIMEOUT)
-                if self.websocket is not ws:
-                    return
-                if time.monotonic() - self._last_pong_time > HEARTBEAT_INTERVAL + HEARTBEAT_TIMEOUT:
-                    logger.warning("Heartbeat timeout — closing WebSocket for user %d", self.user_id)
-                    try:
-                        await ws.close(code=4002, reason="Heartbeat timeout")
-                    except Exception:
-                        pass
-                    return
-        except asyncio.CancelledError:
-            pass
+        while True:
+            try:
+                data = await ws.receive_json()
+                if data.get("type") == "pong":
+                    # Clients still answer the old application-level ping. The
+                    # server no longer sends one, so this just ignores stragglers.
+                    continue
+                event = parse_event(data)
+                await self._handle_event(event)
+            except WebSocketDisconnect:
+                raise
+            except RuntimeError:
+                raise WebSocketDisconnect()
+            except Exception as e:
+                logger.error(f"Error handling WebSocket event: {e}", exc_info=True)
+                await self.send_event(ErrorEvent(error=str(e), code="INTERNAL_ERROR"))
 
     async def _handle_event(self, event: BaseEvent):
         if isinstance(event, ChatRequestEvent):
@@ -169,6 +127,19 @@ class ChatSessionHandler:
 
     async def _handle_chat_request(self, event: ChatRequestEvent):
         if self.current_task and not self.current_task.done():
+            if len(self._message_queue) >= MAX_QUEUED_MESSAGES:
+                logger.warning(
+                    "Dropping a message for user %d: %d already queued",
+                    self.user_id, len(self._message_queue),
+                )
+                await self.send_event(ErrorEvent(
+                    error=(
+                        "Too many messages queued while the assistant is replying. "
+                        "Wait for the current reply to finish."
+                    ),
+                    code="QUEUE_FULL",
+                ))
+                return
             self._message_queue.append(event)
             logger.debug("Queued message (queue size: %d)", len(self._message_queue))
             return
@@ -814,10 +785,42 @@ class ChatSessionHandler:
         ))
 
     async def replace_websocket(self, websocket: WebSocket):
+        """Attach a new socket to this session.
+
+        The tools registered by the previous client are dropped. They belonged to
+        that client, and a different one — the phone after the desktop, say —
+        cannot run them. Keeping them meant the model was offered desktop-only
+        tools whose calls went to a client that ignores them, stalling the turn
+        for the full 120-second timeout each time.
+        """
         self.websocket = websocket
-        if self._heartbeat_task:
-            self._heartbeat_task.cancel()
-            self._heartbeat_task = None
+        if self._client_tools:
+            logger.info(
+                "Clearing %d client tools registered by the previous session for user %d",
+                len(self._client_tools), self.user_id,
+            )
+        self._client_tools = []
+        self._client_tool_names = set()
+        for future in self._pending_tool_calls.values():
+            if not future.done():
+                future.set_result("Client disconnected before the tool call returned")
+        self._pending_tool_calls.clear()
+
+    async def shutdown(self) -> None:
+        """Release everything this session holds. Called when it is evicted."""
+        if self.current_task and not self.current_task.done():
+            self.current_task.cancel()
+        self._message_queue.clear()
+        await self._handle_vision_stop()
+        for future in list(self._pending_tool_calls.values()) + list(self.pending_approvals.values()):
+            if not future.done():
+                future.cancel()
+        self._pending_tool_calls.clear()
+        self.pending_approvals.clear()
+
+        from kurisuassistant.mcp_tools.orchestrator import evict_user_orchestrator
+        evict_user_orchestrator(self.user_id)
+        logger.info("Session for user %d shut down", self.user_id)
 
     async def request_tool_approval(
         self,

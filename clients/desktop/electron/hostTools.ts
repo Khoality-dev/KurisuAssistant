@@ -236,8 +236,23 @@ async function gateToolCall(
 }
 
 // --- Read tracking for edit-requires-read ---
+//
+// Bounded: this only has to remember that a file was read recently enough for an
+// edit to follow, and an unbounded set grew for the life of the process.
 
+const MAX_TRACKED_READS = 500;
 const readFiles = new Set<string>();
+
+function rememberRead(resolvedPath: string): void {
+  // Re-inserting moves the entry to the end, so the oldest is evicted first.
+  readFiles.delete(resolvedPath);
+  readFiles.add(resolvedPath);
+  while (readFiles.size > MAX_TRACKED_READS) {
+    const oldest = readFiles.values().next().value;
+    if (oldest === undefined) break;
+    readFiles.delete(oldest);
+  }
+}
 
 // --- Tool schemas ---
 
@@ -389,7 +404,7 @@ async function executeHostRead(args: Record<string, unknown>): Promise<ToolResul
 
     const raw = fs.readFileSync(resolved, { encoding: 'utf-8' });
     const text = raw.replace(/\r\n/g, '\n');
-    readFiles.add(resolved);
+    rememberRead(resolved);
 
     const lines = text.split('\n');
     const startLine = typeof args.start_line === 'number' ? Math.max(1, args.start_line) : 1;
@@ -439,7 +454,7 @@ async function executeHostWrite(args: Record<string, unknown>): Promise<ToolResu
     if (content === undefined || content === null) return err('content is required.');
 
     const result = fsOps.writeFile(filePath, content);
-    readFiles.add(result.path);
+    rememberRead(result.path);
     clearDiffView();
     return ok(`File written: ${filePath} (${result.bytes} bytes)`);
   } catch (e: any) { clearDiffView(); return err(e.message); }

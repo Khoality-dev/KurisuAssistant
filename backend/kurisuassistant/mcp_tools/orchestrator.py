@@ -242,6 +242,20 @@ def invalidate_user_orchestrator(user_id: int) -> None:
         _orchestrators[user_id].invalidate()
 
 
+def evict_user_orchestrator(user_id: int) -> None:
+    """Drop a user's orchestrator entirely.
+
+    The registry only ever grew: an orchestrator, and the clients it holds, stayed
+    for the process lifetime once a user had connected. Called when the user's
+    last session closes.
+    """
+    orchestrator = _orchestrators.pop(user_id, None)
+    if orchestrator is not None:
+        orchestrator._server_clients.clear()
+        orchestrator._tool_to_client.clear()
+        logger.debug("Evicted MCP orchestrator for user %s", user_id)
+
+
 # Backward compatibility
 def init_orchestrator() -> None:
     """No-op for backward compatibility."""
