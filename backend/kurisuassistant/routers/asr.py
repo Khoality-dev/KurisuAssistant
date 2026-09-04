@@ -7,6 +7,7 @@ import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from kurisuassistant.core.deps import get_authenticated_user
+from kurisuassistant.core.errors import internal_error
 from kurisuassistant.core.http import get_client
 
 logger = logging.getLogger(__name__)
@@ -44,8 +45,10 @@ async def asr_endpoint(
         r.raise_for_status()
         return r.json()
     except httpx.HTTPError as e:
-        logger.error("ASR service error: %s", e, exc_info=True)
-        raise HTTPException(status_code=502, detail=f"ASR service error: {e}")
+        raise internal_error(
+            e, "ASR service request failed", status_code=502,
+            public_detail="The speech service is unavailable.",
+        )
 
 
 @router.post("/asr/detect-language")
@@ -70,8 +73,10 @@ async def asr_detect_language(
         r.raise_for_status()
         return r.json()
     except httpx.HTTPError as e:
-        logger.error("ASR detect-language error: %s", e, exc_info=True)
-        raise HTTPException(status_code=502, detail=f"ASR service error: {e}")
+        raise internal_error(
+            e, "ASR detect-language request failed", status_code=502,
+            public_detail="The speech service is unavailable.",
+        )
 
 
 @router.get("/asr/models")
@@ -82,5 +87,7 @@ async def asr_models(_user=Depends(get_authenticated_user)):
         r.raise_for_status()
         return r.json()
     except httpx.HTTPError as e:
-        logger.error("ASR models error: %s", e, exc_info=True)
-        raise HTTPException(status_code=502, detail=f"ASR service error: {e}")
+        raise internal_error(
+            e, "ASR models request failed", status_code=502,
+            public_detail="The speech service is unavailable.",
+        )

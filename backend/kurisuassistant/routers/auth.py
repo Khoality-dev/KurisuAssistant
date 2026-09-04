@@ -146,8 +146,7 @@ async def register(request: Request, form_data: OAuth2PasswordRequestForm = Depe
     except ValueError:
         raise HTTPException(status_code=400, detail="User already exists")
     except Exception as e:
-        logger.error(f"Error registering user {form_data.username}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error registering user {form_data.username}")
 
     return _make_token_response(form_data.username)
 

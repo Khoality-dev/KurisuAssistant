@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy.orm import Session
 
+from kurisuassistant.core.errors import internal_error
 from kurisuassistant.core.deps import get_db, get_authenticated_user
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
@@ -111,8 +112,7 @@ async def list_mcp_servers(
         db = get_db_service()
         return await db.execute(lambda s: [_serialize(srv) for srv in MCPServerRepository(s).list_by_user(user.id)])
     except Exception as e:
-        logger.error(f"Error listing MCP servers: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, "Error listing MCP servers")
 
 
 @router.post("")
@@ -144,8 +144,7 @@ async def create_mcp_server(
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
-        logger.error(f"Error creating MCP server: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, "Error creating MCP server")
 
 
 @router.patch("/{server_id}")
@@ -191,8 +190,7 @@ async def update_mcp_server(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating MCP server: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, "Error updating MCP server")
 
 
 @router.delete("/{server_id}")
@@ -217,8 +215,7 @@ async def delete_mcp_server(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting MCP server: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, "Error deleting MCP server")
 
 
 @router.post("/{server_id}/test")
@@ -264,5 +261,4 @@ async def test_mcp_server(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error testing MCP server: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, "Error testing MCP server")

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from kurisuassistant.core.errors import internal_error
 from kurisuassistant.core.deps import get_db, get_authenticated_user
 from kurisuassistant.db.models import User
 from kurisuassistant.models.llm import list_models as llm_list_models, pull_model as llm_pull_model, create_llm_provider
@@ -70,8 +71,7 @@ async def list_models(
 
         return {"models": models}
     except Exception as e:
-        logger.error(f"Error fetching models: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, "Error fetching models")
 
 
 @router.get("/details")
@@ -96,8 +96,7 @@ async def list_models_detailed(
 
         return {"models": models}
     except Exception as e:
-        logger.error(f"Error fetching model details: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, "Error fetching model details")
 
 
 @router.post("/pull")
@@ -115,8 +114,7 @@ async def pull_model(
             message=f"Model '{body.name}' pulled successfully"
         )
     except Exception as e:
-        logger.error(f"Error pulling model '{body.name}': {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error pulling model '{body.name}'")
 
 
 @router.delete("/{model_name:path}")
@@ -132,8 +130,7 @@ async def delete_model(
         await asyncio.to_thread(provider.client.delete, model_name)
         return {"status": "ok", "message": f"Model '{model_name}' deleted successfully"}
     except Exception as e:
-        logger.error(f"Error deleting model '{model_name}': {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error deleting model '{model_name}'")
 
 
 @router.post("/ensure/{model_name:path}")
@@ -155,8 +152,7 @@ async def ensure_model(
         await asyncio.to_thread(llm_pull_model, model_name, api_url=user_ollama_url)
         return {"status": "ok", "message": f"Model '{model_name}' pulled successfully"}
     except Exception as e:
-        logger.error(f"Error ensuring model '{model_name}': {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error ensuring model '{model_name}'")
 
 
 class ValidateKeyRequest(BaseModel):

@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
+from kurisuassistant.core.errors import internal_error
 from kurisuassistant.core.deps import get_db, get_authenticated_user
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
@@ -52,8 +53,7 @@ async def list_conversations(
         db = get_db_service()
         return await db.execute(_list)
     except Exception as e:
-        logger.error(f"Error listing conversations for user {user.username}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error listing conversations for user {user.username}")
 
 
 @router.get("/{conversation_id}")
@@ -139,8 +139,7 @@ async def get_conversation(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error fetching conversation {conversation_id} for user {user.username}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error fetching conversation {conversation_id} for user {user.username}")
 
 
 @router.post("/{conversation_id}")
@@ -167,8 +166,7 @@ async def update_conversation(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating conversation {conversation_id} for user {user.username}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error updating conversation {conversation_id} for user {user.username}")
 
 
 @router.delete("/{conversation_id}")
@@ -191,7 +189,6 @@ async def delete_conversation(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting conversation {conversation_id} for user {user.username}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e, f"Error deleting conversation {conversation_id} for user {user.username}")
 
 
