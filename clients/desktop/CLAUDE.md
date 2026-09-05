@@ -245,6 +245,12 @@ E2E tests live in `tests/` and run via Playwright's Electron support.
 
 Commands: `npm test` (vitest, no build needed), and `npm run test:e2e:build` (vite build → `dist/` + `dist-electron/`) then `npm run test:e2e` (or `test:e2e:headed` for debugging).
 
+**On a headless machine, run the e2e in Docker: `npm run test:e2e:build` then `npm run test:e2e:docker`.** Playwright drives real Electron, which cannot start without a display, so `npm run test:e2e` fails on a server or a container with no X — and installing `xvfb` needs root. The `mcr.microsoft.com/playwright` image ships both Xvfb and the GUI libraries, so the Docker route needs nothing but Docker. It mounts the package, runs as the calling uid so build artefacts stay owned by you, and sets `HOME=/tmp` and `--shm-size=1g` because Chromium needs a writable home and more than the default 64 MB of shared memory. **The image tag is pinned to the `@playwright/test` version (currently `v1.59.1-noble`) and must be bumped with it** — a mismatch fails with a browser-not-found error that reads like a missing install.
+
+It invokes `./node_modules/.bin/playwright` rather than `npx playwright`, deliberately. `npx` with no TTY and closed stdin — which is what `docker run` gives it under `npm run` — blocks on its install prompt forever: Xvfb comes up, no node process ever starts, and the container sits there looking like a slow test run rather than a hang.
+
+This is not a nicety: the e2e suite is the only one that cannot run on the host, and a WebSocket reconnect regression reached CI precisely because it was the suite nobody could run locally.
+
 ## Backend API Endpoints
 
 - `POST /login`, `POST /register` — Auth, returns JWT

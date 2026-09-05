@@ -14,6 +14,7 @@
     "test:e2e:build": "vite build",
     "test:e2e:build:dev": "vite build --mode development",
     "test:e2e": "playwright test",
+    "test:e2e:docker": "docker run --rm --init --user \"$(id -u):$(id -g)\" -e HOME=/tmp -e CI=1 --shm-size=1g -v \"$PWD\":/w -w /w mcr.microsoft.com/playwright:v1.59.1-noble bash -lc \"xvfb-run -a ./node_modules/.bin/playwright test\"",
     "test:e2e:dev": "vite build --mode development && playwright test",
     "test:e2e:headed": "playwright test --headed"
   },
