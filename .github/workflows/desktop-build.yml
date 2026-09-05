@@ -48,6 +48,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        env:
+          # @vscode/ripgrep downloads a prebuilt binary from the GitHub API in a
+          # postinstall hook. Unauthenticated calls are rate-limited per runner
+          # IP, so this intermittently fails the whole job with a 403 before any
+          # test runs. The token raises the limit; it needs no extra scope.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set version from tag
         if: startsWith(github.ref, 'refs/tags/desktop-v')
@@ -87,6 +93,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        env:
+          # @vscode/ripgrep downloads a prebuilt binary from the GitHub API in a
+          # postinstall hook. Unauthenticated calls are rate-limited per runner
+          # IP, so this intermittently fails the whole job with a 403 before any
+          # test runs. The token raises the limit; it needs no extra scope.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set version from tag
         if: startsWith(github.ref, 'refs/tags/desktop-v')
