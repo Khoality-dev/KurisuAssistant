@@ -1,4 +1,13 @@
-"""Message routes."""
+"""Message routes.
+
+Every route here was dead. Ownership was checked through ``message.frame``, an
+attribute the ``Message`` model lost when migration 0caebafdf4cc removed the
+``frames`` table and hung messages straight off the conversation — so each handler
+raised ``AttributeError`` and answered 500. The desktop client's raw-data viewer and
+the Android client's delete-message action both still call these, which is why they
+are repaired rather than removed: the conversation id they need has been a column on
+the message all along.
+"""
 
 import json
 import logging
@@ -17,19 +26,18 @@ router = APIRouter(prefix="/messages", tags=["messages"])
 
 
 def _verify_message_ownership(msg_repo, conv_repo, message_id: int, user_id: int):
-    """Verify user owns the message. Returns the message or raises 404."""
+    """Return the message if the caller owns its conversation, else raise 404.
+
+    A message the caller does not own is reported as missing rather than
+    forbidden: message ids are sequential, and a 403 would confirm which ones
+    exist.
+    """
     message = msg_repo.get_by_id(message_id)
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
 
-    if message.frame and message.frame.conversation:
-        conversation = conv_repo.get_by_user_and_id(
-            user_id,
-            message.frame.conversation_id
-        )
-        if not conversation:
-            raise HTTPException(status_code=404, detail="Message not found")
-    else:
+    conversation = conv_repo.get_by_user_and_id(user_id, message.conversation_id)
+    if not conversation:
         raise HTTPException(status_code=404, detail="Message not found")
 
     return message
@@ -50,7 +58,7 @@ async def get_message(
                 "id": message.id,
                 "role": message.role,
                 "content": message.message,
-                "conversation_id": message.frame.conversation_id if message.frame else None,
+                "conversation_id": message.conversation_id,
                 "created_at": message.created_at.isoformat() + "Z",
                 "has_raw_data": bool(message.raw_input or message.raw_output),
             }
@@ -58,6 +66,8 @@ async def get_message(
                 result["images"] = message.images
             if message.thinking:
                 result["thinking"] = message.thinking
+            if message.persona_id:
+                result["persona_id"] = message.persona_id
             return result
 
         db = get_db_service()
@@ -80,17 +90,15 @@ async def delete_message(
             msg_repo = MessageRepository(session)
             conv_repo = ConversationRepository(session)
             message = _verify_message_ownership(msg_repo, conv_repo, message_id, user.id)
-            conversation_id = message.frame.conversation_id
+            conversation_id = message.conversation_id
 
-            # Block deletion of compacted messages
-            from kurisuassistant.db.models import Conversation
-            conv = session.query(Conversation).filter_by(id=conversation_id).first()
-            if conv and conv.compacted_up_to_id and message_id <= conv.compacted_up_to_id:
+            # Compacted messages are already folded into the conversation summary,
+            # so deleting one leaves the summary asserting something with no source.
+            conversation = conv_repo.get_by_user_and_id(user.id, conversation_id)
+            if conversation.compacted_up_to_id and message_id <= conversation.compacted_up_to_id:
                 raise HTTPException(status_code=400, detail="Cannot delete compacted messages")
 
-            count = msg_repo.delete_from_message(message_id, conversation_id)
-            session.commit()
-            return count
+            return msg_repo.delete_from_message(message_id, conversation_id)
 
         db = get_db_service()
         count = await db.execute(_delete)

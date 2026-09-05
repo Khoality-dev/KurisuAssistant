@@ -20,7 +20,7 @@ class MessageRepository(BaseRepository[Message]):
         conversation_id: int,
         created_at: Optional[datetime] = None,
         thinking: Optional[str] = None,
-        agent_id: Optional[int] = None,
+        persona_id: Optional[int] = None,
         name: Optional[str] = None,
         raw_input: Optional[str] = None,
         raw_output: Optional[str] = None,
@@ -43,8 +43,8 @@ class MessageRepository(BaseRepository[Message]):
             data["created_at"] = created_at
         if thinking is not None:
             data["thinking"] = thinking
-        if agent_id is not None:
-            data["agent_id"] = agent_id
+        if persona_id is not None:
+            data["persona_id"] = persona_id
         if name is not None:
             data["name"] = name
         if raw_input is not None:

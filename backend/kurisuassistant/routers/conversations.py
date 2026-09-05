@@ -3,41 +3,57 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from kurisuassistant.core.errors import internal_error
 from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
-from kurisuassistant.db.repositories import ConversationRepository, MessageRepository
+from kurisuassistant.db.repositories import (
+    ConversationRepository,
+    MessageRepository,
+    PersonaRepository,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 
+class ConversationUpdate(BaseModel):
+    """Request body for PATCH /conversations/{id}.
+
+    Both fields are optional and read through ``model_fields_set``. Sending
+    ``persona_id: null`` unbinds the conversation, so the next message falls back
+    to the assistant's default persona.
+    """
+    title: Optional[str] = None
+    persona_id: Optional[int] = None
+
+
 @router.get("")
 async def list_conversations(
     limit: int = 50,
-    agent_id: Optional[int] = Query(
+    persona_id: Optional[int] = Query(
         None,
-        description="Filter by main_agent_id (returns latest conversation with this main agent)",
+        description="Filter by persona (returns the latest conversation bound to it)",
     ),
     user: User = Depends(get_authenticated_user)
 ):
-    """List user's conversations. If agent_id is provided, returns the latest
-    conversation whose ``main_agent_id`` matches.
+    """List user's conversations. If persona_id is provided, returns the latest
+    conversation bound to that persona.
     """
     try:
         def _list(session):
             conv_repo = ConversationRepository(session)
-            if agent_id is not None:
-                conversation = conv_repo.get_latest_by_agent(user.id, agent_id)
+            if persona_id is not None:
+                conversation = conv_repo.get_latest_by_persona(user.id, persona_id)
                 if conversation:
                     return [{
                         "id": conversation.id,
                         "title": conversation.title or "New conversation",
-                        "main_agent_id": conversation.main_agent_id,
+                        "persona_id": conversation.persona_id,
                         "created_at": conversation.created_at.isoformat() + "Z",
                         "updated_at": (
                             conversation.updated_at.isoformat() + "Z"
@@ -99,14 +115,14 @@ async def get_conversation(
                     message_dict["tool_status"] = msg.tool_status
                 if getattr(msg, 'context_files', None):
                     message_dict["context_files"] = msg.context_files
-                if msg.agent_id:
-                    message_dict["agent_id"] = msg.agent_id
-                    if msg.agent:
-                        message_dict["agent"] = {
-                            "id": msg.agent.id,
-                            "name": msg.agent.name,
-                            "avatar_uuid": msg.agent.avatar_uuid,
-                            "voice_reference": msg.agent.voice_reference,
+                if msg.persona_id:
+                    message_dict["persona_id"] = msg.persona_id
+                    if msg.persona:
+                        message_dict["persona"] = {
+                            "id": msg.persona.id,
+                            "name": msg.persona.name,
+                            "avatar_uuid": msg.persona.avatar_uuid,
+                            "voice_reference": msg.persona.voice_reference,
                         }
                 messages_array.append(message_dict)
 
@@ -118,7 +134,7 @@ async def get_conversation(
             return {
                 "id": conversation.id,
                 "messages": messages_array,
-                "main_agent_id": conversation.main_agent_id,
+                "persona_id": conversation.persona_id,
                 "created_at": conversation.created_at.isoformat() + "Z",
                 "title": conversation.title or "",
                 "total_messages": total_messages,
@@ -139,26 +155,54 @@ async def get_conversation(
         raise internal_error(e, f"Error fetching conversation {conversation_id} for user {user.username}")
 
 
-@router.post("/{conversation_id}")
+@router.patch("/{conversation_id}")
 async def update_conversation(
     conversation_id: int,
-    request: Request,
+    body: ConversationUpdate,
     user: User = Depends(get_authenticated_user)
 ):
-    """Update conversation title."""
-    try:
-        payload = await request.json()
-        title = payload.get("title")
+    """Update a conversation's title, its bound persona, or both.
 
-        if not title:
-            raise HTTPException(status_code=400, detail="Title is required")
+    Replaces the old ``POST /conversations/{id}``, which only ever renamed. The
+    persona half is what the chat header's "this conversation only" switch calls:
+    the binding is written here rather than held in client state, so it survives a
+    reconnect and applies even if the user switches and then sends nothing.
+    """
+    fields = body.model_dump(exclude_unset=True)
+    if not fields:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    if "title" in fields and not (fields["title"] or "").strip():
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+
+    try:
+        def _update(session):
+            conv_repo = ConversationRepository(session)
+            conversation = conv_repo.get_by_user_and_id(user.id, conversation_id)
+            if not conversation:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+
+            if fields.get("persona_id") is not None:
+                persona = PersonaRepository(session).get_by_user_and_id(
+                    user.id, fields["persona_id"]
+                )
+                if not persona:
+                    raise HTTPException(status_code=404, detail="Persona not found")
+                if not persona.enabled:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="That persona is disabled. Enable it before using it here.",
+                    )
+
+            conv_repo.update(conversation, **fields)
+            return {
+                "id": conversation.id,
+                "title": conversation.title or "",
+                "persona_id": conversation.persona_id,
+            }
 
         db = get_db_service()
-        await db.execute(
-            lambda s: ConversationRepository(s).update_title(user.id, title, conversation_id)
-        )
-
-        return {"message": "Conversation title updated successfully"}
+        return await db.execute(_update)
     except HTTPException:
         raise
     except Exception as e:
@@ -185,5 +229,3 @@ async def delete_conversation(
         raise
     except Exception as e:
         raise internal_error(e, f"Error deleting conversation {conversation_id} for user {user.username}")
-
-

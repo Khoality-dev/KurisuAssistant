@@ -4,8 +4,11 @@ Three defects that shared a shape: something reachable from outside was trusted
 more than it had earned.
 
   * MCP connections disabled TLS verification unconditionally.
-  * Two character-asset routes served any agent's files with no authentication.
+  * Two character-asset routes served any persona's files with no authentication.
   * The WebSocket took its access token from the query string, which proxies log.
+  * The wire-protocol check was HTTP middleware only, so a stale client refused
+    every REST call could still open the socket and read event shapes it cannot
+    parse.
 """
 
 import importlib
@@ -15,6 +18,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from kurisuassistant.routers import character, ws
+from kurisuassistant.version import WIRE_PROTOCOL
 
 
 # ---------------------------------------------------------------------------
@@ -74,23 +78,23 @@ def route_signatures(module):
 
 
 class TestCharacterAssetsRequireAuth:
-    """Both serving routes were open; agent ids are sequential and guessable."""
+    """Both serving routes were open; persona ids are sequential and guessable."""
 
     @pytest.mark.parametrize(
-        "path", ["/{agent_id}/edges/{edge_id}", "/{agent_id}/{pose_id}/{filename}"],
+        "path", ["/{persona_id}/edges/{edge_id}", "/{persona_id}/{pose_id}/{filename}"],
     )
     def test_route_takes_an_authenticated_user(self, path):
         name, args_dump, _ = route_signatures(character)[path]
         assert "get_authenticated_user" in args_dump, f"{name} does not require authentication"
 
     @pytest.mark.parametrize(
-        "path", ["/{agent_id}/edges/{edge_id}", "/{agent_id}/{pose_id}/{filename}"],
+        "path", ["/{persona_id}/edges/{edge_id}", "/{persona_id}/{pose_id}/{filename}"],
     )
     def test_route_checks_ownership(self, path):
         name, _, source = route_signatures(character)[path]
         body = source.split(f"async def {name}(")[1].split("\n@router")[0]
-        assert "_require_agent" in body, (
-            f"{name} serves files without checking the agent belongs to the caller"
+        assert "_require_persona" in body, (
+            f"{name} serves files without checking the persona belongs to the caller"
         )
 
     def test_every_route_in_the_router_is_authenticated(self):
@@ -148,3 +152,45 @@ class TestWebSocketTokenSource:
     def test_malformed_handshakes_yield_no_token(self, headers):
         token, _ = handshake(headers)
         assert token is None
+
+
+class TestWebSocketWireProtocol:
+    """The socket enforces the same version number the REST middleware does.
+
+    Without this, a client whose every REST call is answered 426 still connects to
+    /ws/chat and receives the new event shapes with no error at all — which is the
+    exact failure the protocol number exists to prevent.
+    """
+
+    def protocol(self, headers):
+        socket = MagicMock()
+        socket.headers = headers
+        return ws._extract_wire_protocol(socket)
+
+    def test_a_matching_header_is_accepted(self):
+        assert self.protocol({"x-wire-protocol": str(WIRE_PROTOCOL)}) == WIRE_PROTOCOL
+
+    def test_a_stale_header_is_reported_as_itself(self):
+        assert self.protocol({"x-wire-protocol": str(WIRE_PROTOCOL - 1)}) == WIRE_PROTOCOL - 1
+
+    def test_a_browser_can_declare_it_as_a_subprotocol(self):
+        """A browser cannot set a header on a WebSocket, so it uses the same channel
+        it already uses for the token."""
+        offered = f"{ws.WS_AUTH_SUBPROTOCOL}, abc.def.ghi, kurisu.wire.{WIRE_PROTOCOL}"
+        assert self.protocol({"sec-websocket-protocol": offered}) == WIRE_PROTOCOL
+
+    def test_the_token_still_parses_when_a_version_is_offered(self):
+        offered = f"{ws.WS_AUTH_SUBPROTOCOL}, abc.def.ghi, kurisu.wire.{WIRE_PROTOCOL}"
+        token, subprotocol = handshake({"sec-websocket-protocol": offered})
+        assert token == "abc.def.ghi"
+        assert subprotocol == ws.WS_AUTH_SUBPROTOCOL
+
+    def test_silence_is_allowed(self):
+        """Absence is allowed over HTTP too — curl and internal tooling say nothing."""
+        assert self.protocol({}) is None
+
+    def test_an_unreadable_value_is_not_silence(self):
+        assert self.protocol({"x-wire-protocol": "three"}) == -1
+
+    def test_the_mismatch_close_code_is_in_the_application_range(self):
+        assert 4000 <= ws.WS_WIRE_PROTOCOL_MISMATCH <= 4999

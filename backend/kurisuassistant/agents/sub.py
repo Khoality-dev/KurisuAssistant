@@ -12,25 +12,35 @@ from typing import Any, Dict, List, Optional, Set
 
 from kurisuassistant.tools.base import BaseTool
 
-from .base import BaseAgent, AgentContext, async_iterate
+from .base import BaseAgent, AgentContext, SubAgentConfig, async_iterate
 
 logger = logging.getLogger(__name__)
 
 
 class SubAgent(BaseAgent):
-    """Task-only agent. No identity, no streaming to the frontend."""
+    """Task-only agent. No identity, no memory, no streaming to the frontend."""
+
+    @property
+    def config(self) -> SubAgentConfig:
+        """The sub-agent's own row.
+
+        A sub-agent is its own capability and its own label, so ``capabilities``
+        and ``identity`` are the same object; this names it once for the
+        SubAgentTool adapter and the delegation guide.
+        """
+        return self.capabilities
 
     async def execute(self, task: str, context: AgentContext) -> str:
         """Run the sub-agent on a single task and return the final assistant text.
 
-        Builds a minimal message list (system prompt + memory + the task),
+        Builds a minimal message list (system prompt + the task),
         runs the LLM tool-loop until completion, and accumulates the
         assistant content into a string. Does not yield events.
         """
         from kurisuassistant.models.llm import create_llm_provider
 
-        model = self.config.model_name or context.model_name
-        provider_type = self.config.provider_type or "ollama"
+        model = self.capabilities.model_name or context.model_name
+        provider_type = self.capabilities.provider_type or "ollama"
 
         api_key = None
         if provider_type == "gemini":
@@ -41,17 +51,19 @@ class SubAgent(BaseAgent):
         llm = create_llm_provider(provider_type, api_url=context.api_url, api_key=api_key)
 
         system_parts: List[str] = []
-        if self.config.system_prompt:
-            system_parts.append(self.config.system_prompt)
-        if self.config.memory_enabled and self.config.memory:
-            system_parts.append("Your memory:\n" + self.config.memory)
+        if self.identity.system_prompt:
+            system_parts.append(self.identity.system_prompt)
 
         messages: List[Dict] = []
         if system_parts:
             messages.append({"role": "system", "content": "\n\n".join(system_parts)})
         messages.append({"role": "user", "content": task})
 
-        allowed = set(self.config.available_tools) if self.config.available_tools is not None else None
+        allowed = (
+            set(self.capabilities.available_tools)
+            if self.capabilities.available_tools is not None
+            else None
+        )
         tool_schemas = self.tool_registry.get_schemas(allowed)
 
         # Server-side MCP tools
@@ -75,7 +87,7 @@ class SubAgent(BaseAgent):
                     messages=messages,
                     tools=tool_schemas if tool_schemas else [],
                     stream=True,
-                    think=self.config.think,
+                    think=self.capabilities.think,
                     options={"num_ctx": context.context_size or 8192},
                 )
 

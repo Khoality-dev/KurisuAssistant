@@ -26,6 +26,11 @@ async def get_user_profile(
     and this reports only whether one is configured. Echoing the key back put
     the user's paid third-party credentials into every client that holds a
     token, and into any log or proxy that saw the response.
+
+    ``agent_avatar_uuid`` stays despite personas owning their own ``avatar_uuid``:
+    it is the account-level fallback a client shows when the answering persona has
+    no avatar of its own, and it is what migration 0dacee9f63b8 copied into the
+    persona it seeded for accounts that had none.
     """
     try:
         return {

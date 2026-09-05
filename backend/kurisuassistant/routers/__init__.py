@@ -9,7 +9,9 @@ from .images import router as images_router
 from .tts import router as tts_router
 from .mcp import router as mcp_router
 from .ws import router as ws_router
-from .agents import router as agents_router
+from .assistant import router as assistant_router
+from .personas import router as personas_router
+from .sub_agents import router as sub_agents_router
 from .models import router as models_router
 from .tools import router as tools_router
 from .character import router as character_router
@@ -27,7 +29,9 @@ __all__ = [
     "tts_router",
     "mcp_router",
     "ws_router",
-    "agents_router",
+    "assistant_router",
+    "personas_router",
+    "sub_agents_router",
     "models_router",
     "tools_router",
     "character_router",

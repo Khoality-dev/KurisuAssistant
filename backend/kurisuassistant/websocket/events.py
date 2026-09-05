@@ -25,7 +25,6 @@ class EventType(str, Enum):
     STREAM_CHUNK = "stream_chunk"
     TOOL_APPROVAL_REQUEST = "tool_approval_request"
     TOOL_CALL_REQUEST = "tool_call_request"
-    AGENT_SWITCH = "agent_switch"
     DONE = "done"
     ERROR = "error"
     VISION_RESULT = "vision_result"
@@ -53,6 +52,10 @@ class ConnectedEvent(BaseEvent):
     type: EventType = field(default=EventType.CONNECTED)
     chat_active: bool = False
     conversation_id: Optional[int] = None
+    # Persona bound to ``conversation_id``, so a reconnecting client knows who
+    # it is talking to before the first chunk arrives. None when no
+    # conversation is in flight or it has no binding yet.
+    persona_id: Optional[int] = None
     vision_active: bool = False
     vision_config: Optional[Dict[str, Any]] = None
 
@@ -68,6 +71,10 @@ class ChatRequestEvent(BaseEvent):
     text: str = ""
     model_name: str = ""
     conversation_id: Optional[int] = None
+    # Explicit persona override for this turn. Omitted on an ordinary message:
+    # a new conversation silently adopts assistants.default_persona_id and an
+    # existing one keeps its binding. Sending it rebinds the conversation.
+    persona_id: Optional[int] = None
     images: List[str] = field(default_factory=list)  # base64 encoded
     context_files: List[Dict[str, Any]] = field(default_factory=list)  # [{path, fileName, startLine, endLine, ...}]
 
@@ -143,13 +150,21 @@ class StreamChunkEvent(BaseEvent):
     content: str = ""
     thinking: Optional[str] = None
     role: str = "assistant"
-    agent_id: Optional[int] = None
-    name: Optional[str] = None  # Speaker identity (agent name, tool name, etc.)
-    persona_name: Optional[str] = None  # Persona display name
+    # Who is speaking. Set on ASSISTANT chunks only — a tool chunk is not the
+    # persona talking, so both stay None there and ``name`` carries the tool's
+    # own label instead.
+    persona_id: Optional[int] = None
+    persona_name: Optional[str] = None
+    name: Optional[str] = None  # Speaker label (persona name, tool name, etc.)
     voice_reference: Optional[str] = None
     conversation_id: int = 0
     tool_args: Optional[Dict[str, Any]] = None  # Tool input params (for tool role messages)
     tool_status: Optional[str] = None  # "success" | "error" | "denied" (for tool role messages)
+    # Tool-chunk metadata. A tool chunk is emitted only after the call returns,
+    # so the client can neither time it nor tell a delegation from an ordinary
+    # tool call; both have to come from here.
+    tool_kind: Optional[str] = None  # "tool" | "sub_agent" (for tool role messages)
+    duration_ms: Optional[int] = None  # Wall-clock time the tool call took
     # Linkage between an assistant turn and the tool results answering it.
     # OpenAI-compatible providers reject a tool message with no matching call.
     tool_calls: Optional[List[Dict[str, Any]]] = None  # on the assistant chunk
@@ -183,17 +198,6 @@ class ToolCallRequestEvent(BaseEvent):
 
 
 @dataclass
-class AgentSwitchEvent(BaseEvent):
-    """Server notifies client of agent delegation."""
-    type: EventType = field(default=EventType.AGENT_SWITCH)
-    from_agent_id: Optional[int] = None
-    from_agent_name: Optional[str] = None
-    to_agent_id: Optional[int] = None
-    to_agent_name: Optional[str] = None
-    reason: str = ""
-
-
-@dataclass
 class DoneEvent(BaseEvent):
     """Server signals streaming complete."""
     type: EventType = field(default=EventType.DONE)
@@ -217,7 +221,9 @@ class ConversationSwitchedEvent(BaseEvent):
     old_conversation_id: int = 0
     new_conversation_id: int = 0
     compacted_context: str = ""
-    agent_id: int = 0
+    # The persona carried over to the new conversation. Without it a compacted
+    # conversation loses its voice.
+    persona_id: int = 0
 
 
 @dataclass
@@ -251,6 +257,7 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
             text=data.get("text", ""),
             model_name=data.get("model_name", ""),
             conversation_id=data.get("conversation_id"),
+            persona_id=data.get("persona_id"),
             images=data.get("images", []),
             context_files=data.get("context_files", []),
         )

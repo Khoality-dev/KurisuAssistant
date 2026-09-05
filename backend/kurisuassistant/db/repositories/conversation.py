@@ -17,12 +17,12 @@ class ConversationRepository(BaseRepository[Conversation]):
         self,
         user_id: int,
         title: str = "New conversation",
-        main_agent_id: Optional[int] = None,
+        persona_id: Optional[int] = None,
     ) -> Conversation:
-        """Create a new conversation. ``main_agent_id`` may be left None
-        and picked on the first message via trigger-word/random selection.
+        """Create a new conversation. ``persona_id`` may be left None and bound
+        on the first message from the user's default (or an explicit override).
         """
-        return self.create(user_id=user_id, title=title, main_agent_id=main_agent_id)
+        return self.create(user_id=user_id, title=title, persona_id=persona_id)
 
     def get_by_user_and_id(self, user_id: int, conversation_id: int) -> Optional[Conversation]:
         return self.get_by_filter(user_id=user_id, id=conversation_id)
@@ -35,13 +35,13 @@ class ConversationRepository(BaseRepository[Conversation]):
             .first()
         )
 
-    def get_latest_by_agent(self, user_id: int, agent_id: int) -> Optional[Conversation]:
-        """Most recent conversation where this agent is the main agent."""
+    def get_latest_by_persona(self, user_id: int, persona_id: int) -> Optional[Conversation]:
+        """Most recent conversation bound to this persona."""
         return (
             self.session.query(Conversation)
             .filter(
                 Conversation.user_id == user_id,
-                Conversation.main_agent_id == agent_id,
+                Conversation.persona_id == persona_id,
             )
             .order_by(desc(Conversation.updated_at))
             .first()
@@ -50,7 +50,7 @@ class ConversationRepository(BaseRepository[Conversation]):
     def list_by_user(self, user_id: int, limit: int = 50) -> List[dict]:
         """List conversations with metadata for a user.
 
-        Each entry: id, title, main_agent_id, created_at, updated_at,
+        Each entry: id, title, persona_id, created_at, updated_at,
         message_count, last_message.
         """
         latest_msg_subq = (
@@ -77,7 +77,7 @@ class ConversationRepository(BaseRepository[Conversation]):
             self.session.query(
                 Conversation.id,
                 Conversation.title,
-                Conversation.main_agent_id,
+                Conversation.persona_id,
                 Conversation.created_at,
                 Conversation.updated_at,
                 func.coalesce(msg_count_subq.c.msg_count, 0).label("message_count"),
@@ -112,7 +112,7 @@ class ConversationRepository(BaseRepository[Conversation]):
             result.append({
                 "id": conv.id,
                 "title": conv.title or "New conversation",
-                "main_agent_id": conv.main_agent_id,
+                "persona_id": conv.persona_id,
                 "created_at": conv.created_at.isoformat() + "Z",
                 "updated_at": (
                     conv.updated_at.isoformat() + "Z"
@@ -140,9 +140,9 @@ class ConversationRepository(BaseRepository[Conversation]):
     def update_timestamp(self, conversation: Conversation) -> Conversation:
         return self.update(conversation, updated_at=datetime.utcnow())
 
-    def update_main_agent(self, conversation: Conversation, agent_id: int) -> Conversation:
-        """Persist the main agent pick for a conversation (one-time at first message)."""
-        return self.update(conversation, main_agent_id=agent_id)
+    def update_persona(self, conversation: Conversation, persona_id: int) -> Conversation:
+        """Persist the persona bound to a conversation (one-time at first message)."""
+        return self.update(conversation, persona_id=persona_id)
 
     def update_compacted_context(
         self, conversation: Conversation, compacted_context: str, compacted_up_to_id: int

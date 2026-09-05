@@ -448,14 +448,14 @@ class TestEvents:
             conversation_id=1,
             voice_reference="uuid-123",
             persona_name="Ayaka",
-            agent_id=5,
+            persona_id=5,
         )
         d = event.to_dict()
         assert d["type"] == "stream_chunk"
         assert d["content"] == "hello world"
         assert d["voice_reference"] == "uuid-123"
         assert d["persona_name"] == "Ayaka"
-        assert d["agent_id"] == 5
+        assert d["persona_id"] == 5
 
     def test_done_event_serialization(self):
         event = DoneEvent(conversation_id=42)
