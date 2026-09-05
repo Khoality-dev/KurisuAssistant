@@ -83,3 +83,18 @@ class BaseLLMProvider(ABC):
             model: Model name/identifier to download
         """
         pass
+
+    def validate_key(self) -> int:
+        """Check the credentials this provider was built with.
+
+        Returns:
+            How many models the credentials unlock
+
+        Raises:
+            Exception: when the provider refuses the key
+
+        The default assumes that listing models needs a valid key, which holds for
+        Gemini. A provider whose catalogue is public overrides this with an
+        authenticated probe, otherwise a bad key would read as "valid, no models".
+        """
+        return len(self.list_models())

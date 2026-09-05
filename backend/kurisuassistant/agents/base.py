@@ -110,6 +110,7 @@ class AgentContext:
     api_url: Optional[str] = None
     gemini_api_key: Optional[str] = None
     nvidia_api_key: Optional[str] = None
+    poe_api_key: Optional[str] = None
     client_tools: List[Dict] = field(default_factory=list)
     client_tool_callback: Optional[Callable[[str, Dict], Coroutine[Any, Any, str]]] = None
     images: Optional[List[str]] = None

@@ -63,7 +63,7 @@ pytest -m integration        # tests that need Postgres / Ollama
 |----------|---------|-------------|
 | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | — | Database connection |
 | `LLM_API_URL` | `http://localhost:11434` | Ollama server URL |
-| `GEMINI_API_KEY`, `NVIDIA_API_KEY` | — | Cloud LLM providers |
+| `GEMINI_API_KEY`, `NVIDIA_API_KEY`, `POE_API_KEY` | — | Cloud LLM providers; fallbacks when the user has no key stored |
 | `ASR_API_URL`, `UVOICE_URL` | (docker-compose) | Speech recognition / universal voice service |
 | `JWT_SECRET_KEY` | generated | Overrides the secret persisted to `data/jwt_secret.key` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access token lifetime |

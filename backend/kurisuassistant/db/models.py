@@ -20,6 +20,7 @@ class User(Base):
     context_size = Column(Integer, nullable=True)
     gemini_api_key = Column(String, nullable=True)
     nvidia_api_key = Column(String, nullable=True)
+    poe_api_key = Column(String, nullable=True)
     tool_policies = Column(JSON, nullable=True)  # {"tools": {"tool_name": "allow"|"deny"}}
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
