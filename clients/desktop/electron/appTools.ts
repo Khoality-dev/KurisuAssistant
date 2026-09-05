@@ -17,6 +17,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { startServer } from './mcp';
+import { PLAYWRIGHT_MCP_PACKAGE } from '../src/constants';
 
 // --- Tool schemas ---
 
@@ -612,7 +613,8 @@ async function executeLaunchBrowser(args: Record<string, unknown>): Promise<{ co
         name: 'Playwright',
         transport_type: 'stdio',
         command: 'npx',
-        args: ['@playwright/mcp', '--cdp-endpoint', cdpEndpoint],
+        // Pinned, and `-y` so npx never blocks on its install prompt.
+        args: ['-y', PLAYWRIGHT_MCP_PACKAGE, '--cdp-endpoint', cdpEndpoint],
       });
 
       // Notify renderer to re-register tools (picks up new Playwright tools)
