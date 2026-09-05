@@ -67,7 +67,6 @@ src/components/
     FaceCreateDialog.tsx   — Face registration dialog: webcam capture, photo grid, name input. Uses useWebcamCapture hook.
     ExtensionsSection.tsx  — Companion app installer (Maestro, Chronicle)
   LoginWindow.tsx          — Login/Register tabs, Remember Me, Server URL field
-  MessageBubble.tsx        — Re-exports from chat/ subfolder
   InteractiveCallBar.tsx   — Voice mode call bar: transcript, mic button with pulse, hang up
   chat/
     ChatWidget.tsx         — Chat UI with streaming, TTS, image attach, pagination, voice mode, selection context chips, display mode toggle (All/Context), token usage bar
@@ -76,14 +75,12 @@ src/components/
     MessageBubble.tsx      — Individual bubble: role styling, thinking collapse, TTS, resend/delete
     MessageToolbar.tsx     — Hover toolbar: copy, TTS play, raw data, resend/regenerate, delete
     RawDataDialog.tsx      — Dialog showing raw LLM input/output JSON (self-contained fetch)
-  CharacterConfigDialog.tsx — Re-exports from character/ subfolder
   character/
     CharacterConfigDialog.tsx — React Flow graph editor: multi-pose nodes, edges with transition videos
     graphHelpers.ts         — Pure helpers: poseTreeToReactFlow, reactFlowToPoseTree, getEdgeVisuals, getBestHandles, nextNodeId
     OffsetEdge.tsx          — Custom React Flow edge component (straight, bidirectional offset, self-loop)
     PreviewCanvas.tsx       — Self-contained canvas preview with CanvasCompositor (mouth/eye/breathing animations)
     PoseNodeEditor.tsx      — 3-step stepper for pose node editing (base image, keyframes, preview)
-  PoseNodeEditor.tsx       — Re-exports from character/ subfolder
   EdgeEditor.tsx           — Transition edge editor: video upload, condition config
   PoseGraphNode.tsx        — Custom React Flow node component
   UpdateDialog.tsx         — Auto-update notification
