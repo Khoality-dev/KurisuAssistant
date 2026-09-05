@@ -33,7 +33,7 @@ A second, isolated copy of the API runs next to production from its own checkout
 | API container | `kurisu-api` | `kurisu-api-dev` |
 | Database | `postgres-container`, volume `kurisuassistant_postgres-data` | `postgres-dev`, volume `kurisuassistant-dev_postgres-data` |
 | Data | `KurisuAssistant-prod/backend/data/` | `KurisuAssistant/backend/data/` |
-| URL | `https://<host>:15597` | `https://<host>:15598` |
+| URL | `https://<host>:15597` and `:15598` — both, via the `kurisu.conf` vhost | none — no ingress vhost; reach it on the docker network, or publish a port |
 
 Setup, once:
 
@@ -60,7 +60,7 @@ Checkout and restart belong in the same step. The API bind-mounts `./kurisuassis
 
 When a release bumps `WIRE_PROTOCOL`, publish the client releases first — `android-v*` and `desktop-v*` tags trigger the publish workflows — and deploy the backend tag after. The backend rejects a mismatched client with 426 and Android hard-gates on it, so deploying first locks every installed app out.
 
-The vhost is `../ingress/nginx/conf.d/kurisu-dev.conf`. See `docker-compose.dev.yml` for what is and is not shared.
+Production's vhost is `../ingress/nginx/conf.d/kurisu.conf`, and it listens on both ports so clients configured for either reach production; the overlay has no vhost. See `docker-compose.dev.yml` for what is and is not shared.
 
 ## Tests
 

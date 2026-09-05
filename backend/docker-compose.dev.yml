@@ -24,8 +24,9 @@
 # uploads the voice reference with every TTS request — so a second copy would
 # only cost GPU memory.
 #
-# Reachable at https://<host>:15598 (production keeps 15597). The vhost lives
-# in ../../ingress/nginx/conf.d/kurisu-dev.conf and proxies to kurisu-api-dev.
+# Not routed by the ingress: both 15597 and 15598 proxy to production's kurisu-api
+# (../../ingress/nginx/conf.d/kurisu.conf). Reach this instance on the docker
+# network, or add a `ports:` mapping here while you need it.
 
 name: kurisuassistant-dev
 
