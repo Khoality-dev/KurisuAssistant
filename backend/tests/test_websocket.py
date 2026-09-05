@@ -370,12 +370,12 @@ class TestStreamingDelivery:
             role="assistant",
             conversation_id=1,
             voice_reference="abc-123-uuid",
-            persona_name="Ayaka",
+            persona_name="Nova",
         ))
 
         sent = ws.send_json.call_args[0][0]
         assert sent["voice_reference"] == "abc-123-uuid"
-        assert sent["persona_name"] == "Ayaka"
+        assert sent["persona_name"] == "Nova"
 
 
 # ---------------------------------------------------------------------------
@@ -447,14 +447,14 @@ class TestEvents:
             role="assistant",
             conversation_id=1,
             voice_reference="uuid-123",
-            persona_name="Ayaka",
+            persona_name="Nova",
             persona_id=5,
         )
         d = event.to_dict()
         assert d["type"] == "stream_chunk"
         assert d["content"] == "hello world"
         assert d["voice_reference"] == "uuid-123"
-        assert d["persona_name"] == "Ayaka"
+        assert d["persona_name"] == "Nova"
         assert d["persona_id"] == 5
 
     def test_done_event_serialization(self):

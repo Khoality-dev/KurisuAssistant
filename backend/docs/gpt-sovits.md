@@ -78,7 +78,7 @@ The API service communicates with GPT-SoVITS through the `GPTSoVITSProvider` in 
 4. Merges resulting WAV chunks into a single file
 
 The TTS server URL can be configured:
-- **Default**: `TTS_API_URL` environment variable (fallback: `http://10.0.0.122:9880/tts`)
+- **Default**: `TTS_API_URL` environment variable (fallback: `http://localhost:9880/tts`)
 - **Per-user**: Via the "TTS Server URL" field in client Settings > TTS tab
 - **Per-request**: Via the `api_url` parameter in `POST /tts`
 

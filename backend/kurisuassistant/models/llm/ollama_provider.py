@@ -20,7 +20,7 @@ class OllamaProvider(BaseLLMProvider):
             api_url: Optional Ollama API URL (defaults to LLM_API_URL env var)
         """
         if api_url is None:
-            api_url = os.getenv("LLM_API_URL", "http://10.0.0.122:11434")
+            api_url = os.getenv("LLM_API_URL", "http://localhost:11434")
 
         logger.info(f"Initializing Ollama provider with URL: {api_url}")
         self.client = OllamaClient(host=api_url)

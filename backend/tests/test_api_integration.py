@@ -111,8 +111,8 @@ class TestEventRoundTrip:
             thinking="let me think...",
             role="assistant",
             persona_id=3,
-            name="Ayaka",
-            persona_name="Ayaka-chan",
+            name="Nova",
+            persona_name="Nova-chan",
             voice_reference="uuid-voice",
             conversation_id=10,
             model_name="qwen3.5:0.8b",
@@ -127,8 +127,8 @@ class TestEventRoundTrip:
         assert d["thinking"] == "let me think..."
         assert d["role"] == "assistant"
         assert d["persona_id"] == 3
-        assert d["name"] == "Ayaka"
-        assert d["persona_name"] == "Ayaka-chan"
+        assert d["name"] == "Nova"
+        assert d["persona_name"] == "Nova-chan"
         assert d["voice_reference"] == "uuid-voice"
         assert d["conversation_id"] == 10
         assert d["model_name"] == "qwen3.5:0.8b"
