@@ -54,9 +54,11 @@ docker compose up -d       # Start all
 docker compose logs -f api # View logs
 
 # Deployments run a release tag (backend-vX.Y.Z) from their own checkout, never from
-# the tree you develop in: the API bind-mounts ./kurisuassistant, so a bare checkout
-# changes the live code. Move one with `git fetch --tags && git checkout <tag> &&
-# docker compose up -d --build` in ONE step. For a second, isolated instance to try
+# the tree you develop in: the image carries the code (the Dockerfile COPYs it) so a
+# checkout no longer swaps the live code, but the two would share ./data and the fixed
+# project name. Move one with `git fetch --tags && git checkout <tag> &&
+# docker compose up -d --build` in ONE step — the rebuild is what ships the code. For
+# a second, isolated instance to try
 # main against: `docker compose -f docker-compose.dev.yml up -d --build` (own
 # project, database and data/). See docs/development.md "Releases and Deployment".
 

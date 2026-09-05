@@ -126,11 +126,11 @@ services:
       - POSTGRES_PORT=${POSTGRES_PORT}
       - POSTGRES_DB=${POSTGRES_DB}
     volumes:
-      - ./kurisuassistant:/app/kurisuassistant
-      - ./scripts:/app/scripts
+      # Runtime state only. The code comes from the image (see Dockerfile), so
+      # this checkout is a build context and nothing more — a `git checkout`
+      # here does not touch the running server, and the image can run on a host
+      # that has no checkout at all. The dev overlay mounts the source back.
       - ./data:/app/data
-      - ./tests:/app/tests
-      - ./pytest.ini:/app/pytest.ini
     tty: true
     restart: unless-stopped
 
