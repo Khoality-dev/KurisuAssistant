@@ -132,6 +132,15 @@ export function useStreamingChat({
   const pendingStreamRef = useRef<{ content: string; thinking: string }>({ content: '', thinking: '' });
   const prevConversationIdRef = useRef<number | null>(null);
 
+  // Bumped once per turn. `handleConnected` restores a finished turn by reloading
+  // the conversation, which is asynchronous: if a new turn starts while that read
+  // is in flight, the snapshot it returns predates the turn and would overwrite
+  // it. The counter lets the restore notice that and defer instead.
+  const turnSeqRef = useRef(0);
+  // Set when a restore was deferred for that reason; handleDone re-reads once the
+  // turn is persisted.
+  const pendingRestoreRef = useRef<number | null>(null);
+
   // Authoritative copy of streamingMessages, kept in lockstep with React state
   // by `updateStreaming` below. Updating it on render (the previous approach)
   // was racy: a chunk's setState could be batched and unflushed when the next
@@ -300,6 +309,7 @@ export function useStreamingChat({
 
     // Auto-enter streaming mode on replayed chunks (reconnect scenario)
     if (!isStreamingRef.current) {
+      turnSeqRef.current++;
       setIsStreaming(true);
       isStreamingRef.current = true;
     }
@@ -574,6 +584,15 @@ export function useStreamingChat({
     if (event.conversation_id) {
       usePersonaStore.getState().loadPersonaPreviews();
     }
+
+    // A `connected` restore landed mid-turn and deferred rather than overwrite
+    // it. The snapshot it applied is stale by exactly this turn, so re-read now
+    // that the turn is persisted.
+    const pendingRestore = pendingRestoreRef.current;
+    if (pendingRestore !== null) {
+      pendingRestoreRef.current = null;
+      loadConversation(pendingRestore).catch(console.error);
+    }
   }, [queueText]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleError = useCallback((event: ErrorEvent) => {
@@ -594,10 +613,28 @@ export function useStreamingChat({
         isStreamingRef.current = true;
       }
       loadConversation(event.conversation_id).catch(console.error);
-    } else if (!event.chat_active && event.conversation_id) {      // Task finished while we were disconnected; reload once from the database
+    } else if (!event.chat_active && event.conversation_id) {      // Task finished while we were disconnected; reload once from the database.
+      // The read is asynchronous and the user may send again before it lands —
+      // on a reconnect the queued message flushes the moment the socket opens,
+      // which is the same tick this event arrives.
+      //
+      // Clearing the streaming buffer then is actively destructive, not merely
+      // stale: `updateStreaming([])` empties the array but leaves
+      // `streamingStateRef` claiming a placeholder bubble still exists, so every
+      // later chunk of that turn is written into a bubble that is no longer
+      // there and the whole reply is lost. Skip the clear while a turn is live
+      // (and if one merely began and ended during the read), and let handleDone
+      // re-read once it is persisted.
       const convId = event.conversation_id;
+      const seq = turnSeqRef.current;
       loadConversation(convId)
-        .then(() => updateStreaming([]))
+        .then(() => {
+          if (isStreamingRef.current || turnSeqRef.current !== seq) {
+            pendingRestoreRef.current = convId;
+            return;
+          }
+          updateStreaming([]);
+        })
         .catch(console.error);
     }
     // If no conversation_id, nothing to restore
@@ -729,6 +766,7 @@ export function useStreamingChat({
 
   const _doSend = useCallback(async (text: string, imageFiles: File[]) => {
     cancelledRef.current = false;
+    turnSeqRef.current++;
     setIsStreaming(true);
 
     // Collect file selections as structured context_files

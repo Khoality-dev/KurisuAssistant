@@ -87,7 +87,7 @@ test.describe('settings', () => {
     // serves `trigger_word`, which it used to omit even though the client type
     // declares it non-optional.
     const wakeWord = mock.getAssistant().trigger_word!;
-    await expect(page.getByDisplayValue(wakeWord)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByLabel('Wake word')).toHaveValue(wakeWord, { timeout: 10_000 });
   });
 
   test('account section shows logged-in username', async ({ page }) => {
