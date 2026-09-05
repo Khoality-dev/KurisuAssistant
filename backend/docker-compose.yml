@@ -115,6 +115,11 @@ services:
       - ASR_API_URL=http://universal-voice:14213
       - LLM_API_URL=http://ollama-container:11434
       - UVOICE_URL=http://universal-voice:14213
+      # Server-wide fallbacks for users with no key of their own stored; empty
+      # disables the fallback. See .env_template.
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
+      - POE_API_KEY=${POE_API_KEY:-}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_HOST=${POSTGRES_HOST}

@@ -202,6 +202,7 @@ class BackgroundService:
                     "summary_provider": getattr(u, 'summary_provider', 'ollama') or 'ollama',
                     "gemini_api_key": u.gemini_api_key,
                     "nvidia_api_key": getattr(u, 'nvidia_api_key', None),
+                    "poe_api_key": getattr(u, 'poe_api_key', None),
                 }
                 for u in users
             }
@@ -238,6 +239,8 @@ class BackgroundService:
                 api_key = prefs.get("gemini_api_key")
             elif provider == "nvidia":
                 api_key = prefs.get("nvidia_api_key")
+            elif provider == "poe":
+                api_key = prefs.get("poe_api_key")
 
             self.submit(ConsolidateMemoryTask(
                 user_id=c["user_id"],

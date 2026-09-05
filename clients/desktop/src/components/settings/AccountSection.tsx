@@ -73,10 +73,13 @@ export const AccountSection: React.FC = () => {
   const [ollamaUrl, setOllamaUrl] = useState('');
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [nvidiaApiKey, setNvidiaApiKey] = useState('');
+  const [poeApiKey, setPoeApiKey] = useState('');
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [showNvidiaKey, setShowNvidiaKey] = useState(false);
+  const [showPoeKey, setShowPoeKey] = useState(false);
   const [geminiValid, setGeminiValid] = useState<boolean | null>(null);
   const [nvidiaValid, setNvidiaValid] = useState<boolean | null>(null);
+  const [poeValid, setPoeValid] = useState<boolean | null>(null);
   const [validating, setValidating] = useState('');
   const [summaryModel, setSummaryModel] = useState('');
   const [contextSize, setContextSize] = useState<number | ''>('');
@@ -93,6 +96,7 @@ export const AccountSection: React.FC = () => {
       // means "leave whatever is stored alone", not "clear it".
       setGeminiApiKey('');
       setNvidiaApiKey('');
+      setPoeApiKey('');
       setSummaryModel(user.summary_model || '');
       setContextSize(user.context_size || '');
     }
@@ -124,6 +128,7 @@ export const AccountSection: React.FC = () => {
       // clear the stored key every time the page is saved.
       if (geminiApiKey) profileUpdates.gemini_api_key = geminiApiKey;
       if (nvidiaApiKey) profileUpdates.nvidia_api_key = nvidiaApiKey;
+      if (poeApiKey) profileUpdates.poe_api_key = poeApiKey;
       profileUpdates.summary_model = summaryModel.trim() || '';
       profileUpdates.context_size = contextSize || 0;
 
@@ -214,6 +219,29 @@ export const AccountSection: React.FC = () => {
         }}
         helperText="Get your key from build.nvidia.com"
         configured={!!user?.has_nvidia_key}
+      />
+
+      {/* Poe API Key */}
+      <ApiKeyField
+        label="Poe API Key"
+        value={poeApiKey}
+        onChange={setPoeApiKey}
+        show={showPoeKey}
+        onToggleShow={() => setShowPoeKey(!showPoeKey)}
+        valid={poeValid}
+        validating={validating === 'poe'}
+        onValidate={async () => {
+          if (!poeApiKey) return;
+          setValidating('poe');
+          setPoeValid(null);
+          try {
+            const result = await apiClient.validateApiKey('poe', poeApiKey);
+            setPoeValid(result.valid);
+          } catch { setPoeValid(false); }
+          setValidating('');
+        }}
+        helperText="Get your key from poe.com/api/keys — one subscription, every frontier model"
+        configured={!!user?.has_poe_key}
       />
 
       {/* Summary Model */}
