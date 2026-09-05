@@ -12,12 +12,15 @@ The project is split into a server and two clients. Pick the guide that matches 
 | [Desktop client](clients/desktop/README.md) | Windows and Linux users | Install, sign in, chat, voice, tools |
 | [Android client](clients/android/README.md) | Android users | Install the APK, permissions, mobile voice |
 
-**[Screens](docs/screens.md)** — a picture of what the apps actually look like, and how one assistant,
-its personas and its sub-agents fit together.
+Each package documents itself. For pictures of the apps, see
+**[Android screens](clients/android/docs/screens.md)** and
+**[Desktop screens](clients/desktop/docs/screens.md)**; for the model behind them —
+one assistant, its personas, and the sub-agents it calls — see
+**[Agents](backend/docs/agents.md)**.
 
 | | | |
 | --- | --- | --- |
-| ![Chats](docs/assets/android/01-chats.png) | ![A conversation](docs/assets/android/02-chat.png) | ![Assistant](docs/assets/android/05-assistant.png) |
+| ![Chats](clients/android/docs/assets/01-chats.png) | ![A conversation](clients/android/docs/assets/02-chat.png) | ![Assistant](clients/android/docs/assets/05-assistant.png) |
 | Conversations, labelled by the persona answering | A tool call, shown as a rail | One assistant: model, tools, memory, wake word |
 
 ## Quick start for users

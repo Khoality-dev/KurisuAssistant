@@ -2,6 +2,8 @@
 
 The Windows and Linux desktop client for [Kurisu Assistant](../../README.md).
 
+See [Screens](docs/screens.md) for what the app looks like and the model it presents.
+
 ## Install
 
 Download the latest installer from the [desktop releases page](https://github.com/Khoality-dev/KurisuAssistant-Client-Desktop/releases/latest).

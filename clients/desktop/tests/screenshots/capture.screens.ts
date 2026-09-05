@@ -27,7 +27,8 @@ import { MockBackend } from '../mock/server';
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const DIST = path.join(PROJECT_ROOT, 'dist');
-const OUT = path.resolve(PROJECT_ROOT, '..', '..', 'docs', 'assets', 'desktop');
+// Screenshots belong to this package, next to the doc that shows them.
+const OUT = path.resolve(PROJECT_ROOT, 'docs', 'assets');
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',

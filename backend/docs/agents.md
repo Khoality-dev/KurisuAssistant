@@ -3,7 +3,7 @@
 Three kinds of row, three different jobs. They used to be one `agents` table;
 migration `0dacee9f63b8_split_persona_from_assistant` took it apart again.
 
-For what this looks like to a user, see [Screens](../../docs/screens.md) — the Assistant
+For what this looks like to a user, see the client screens docs — [Android](../../clients/android/docs/screens.md), [Desktop](../../clients/desktop/docs/screens.md) — where the Assistant
 and Personas screens are the split made visible.
 
 **The assistant** (`assistants`) is *what the user's assistant can do*. Exactly one

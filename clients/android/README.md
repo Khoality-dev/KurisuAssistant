@@ -2,6 +2,8 @@
 
 The Android client for [Kurisu Assistant](../../README.md). It requires Android 8.0 (API 26) or newer.
 
+See [Screens](docs/screens.md) for what the app looks like and the model it presents.
+
 ## Install
 
 Download the latest APK from the [Android releases page](https://github.com/Khoality-dev/KurisuAssistant-Client-Android/releases/latest), open it, and allow installation from your browser or file manager if Android asks.
