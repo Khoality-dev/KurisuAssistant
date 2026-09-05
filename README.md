@@ -2,7 +2,7 @@
 
 ![Kurisu Assistant banner](docs/assets/kurisu-assistant-banner.png)
 
-Kurisu Assistant is a personal AI assistant for text and voice conversations. It supports customizable agents, persistent conversations and memory, image input, speech recognition, text-to-speech, tools, skills, and animated characters.
+Kurisu Assistant is a personal AI assistant for text and voice conversations. One assistant per account owns the model, tools and memory; you give it as many personas as you like — a name, a personality, a voice and a face — and pick which one answers. It also supports persistent conversations and memory, image input, speech recognition, text-to-speech, tools, skills, and animated characters.
 
 The project is split into a server and two clients. Pick the guide that matches what you want to do:
 
@@ -12,6 +12,14 @@ The project is split into a server and two clients. Pick the guide that matches 
 | [Desktop client](clients/desktop/README.md) | Windows and Linux users | Install, sign in, chat, voice, tools |
 | [Android client](clients/android/README.md) | Android users | Install the APK, permissions, mobile voice |
 
+**[Screens](docs/screens.md)** — a picture of what the apps actually look like, and how one assistant,
+its personas and its sub-agents fit together.
+
+| | | |
+| --- | --- | --- |
+| ![Chats](docs/assets/android/01-chats.png) | ![A conversation](docs/assets/android/02-chat.png) | ![Assistant](docs/assets/android/05-assistant.png) |
+| Conversations, labelled by the persona answering | A tool call, shown as a rail | One assistant: model, tools, memory, wake word |
+
 ## Quick start for users
 
 You need a Kurisu Assistant server URL and an account. If someone else hosts the server, ask them for both. If you are hosting it yourself, follow the [backend guide](backend/README.md) first.
@@ -19,14 +27,16 @@ You need a Kurisu Assistant server URL and an account. If someone else hosts the
 1. Install the [desktop client](https://github.com/Khoality-dev/KurisuAssistant-Client-Desktop/releases/latest) or [Android client](https://github.com/Khoality-dev/KurisuAssistant-Client-Android/releases/latest).
 2. Open the app and enter the complete server URL, including `http://` or `https://`.
 3. Sign in, or use **Register** to create an account on a new server.
-4. Configure a model and create an agent using the client-specific guide.
+4. Configure your assistant's model, and create a persona for it, using the client-specific guide.
 5. Start chatting. Grant microphone or camera permission only when you want those features.
 
 On a physical Android phone, `localhost` means the phone itself. Use the server computer's LAN address or public hostname instead.
 
 ## Shared first-run checklist
 
-After signing in, configure at least one model provider under **Settings → Account**. Desktop supports Ollama, Google Gemini, and NVIDIA NIM; Android currently exposes the Ollama URL. Then create a main agent, select its model, and optionally configure its personality, voice, avatar, trigger word, memory, and tools.
+After signing in, configure at least one model provider under **Settings → Account**. Desktop supports Ollama, Google Gemini, and NVIDIA NIM; Android currently exposes the Ollama URL.
+
+Your account already has one assistant and one persona. Select the assistant's model, and optionally its tools, memory and voice wake word — those belong to the assistant, so they do not change when you switch persona. Then give the persona (or a new one) a personality, voice and avatar. A new conversation silently uses your default persona; the chat header switches persona for one conversation.
 
 For voice conversations, select an ASR language/model and TTS backend, then enable **TTS Auto-Play**. Enable **Always Listen** only when you want the microphone kept active for trigger words or dictation. Available models and voices depend on the services installed on the server.
 

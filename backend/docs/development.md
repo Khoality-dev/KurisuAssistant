@@ -68,9 +68,12 @@ pytest -m integration        # tests that need Postgres / Ollama
 | `JWT_SECRET_KEY` | generated | Overrides the secret persisted to `data/jwt_secret.key` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access token lifetime |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
-| `CONVERSATION_IDLE_THRESHOLD_MINUTES` | — | Idle time before a conversation's memory is consolidated |
-| `DATA_DIR` | `data/` | Override the data directory |
+| `CONVERSATION_IDLE_THRESHOLD_MINUTES` | `30` | Idle time before a conversation's memory is consolidated |
+| `MCP_TLS_VERIFY` | `true` | Set to `false` to skip TLS verification on server-side MCP connections |
+| `ALLOW_REGISTRATION` | — | Registration is closed unless this says otherwise |
 | `VIXTTS_ROOT`, `UVOICE_ROOT` | (docker-compose) | Sibling checkouts used as build contexts and mounts for the TTS and ASR services |
+
+There is **no `DATA_DIR` variable**. `core/paths.py` resolves `data/` from the package location and never reads the environment, which is why every command has to be run from `backend/`.
 
 MCP tool-specific env vars (e.g. `SERPAPI_KEY`) are configured in each tool's own `.env` in the separate `mcp-servers` repo.
 

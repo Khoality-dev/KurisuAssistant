@@ -34,21 +34,22 @@ com.kurisu.assistant/
 │   ├── remote/api/              -- Retrofit service, interceptors
 │   ├── remote/websocket/        -- OkHttp WebSocket, event payloads
 │   ├── model/                   -- Data classes (API, WS, Animation, UpdateModels)
-│   └── repository/              -- Auth, Agent, Conversation, TTS, ASR, Vision, Tools, Update repos
+│   └── repository/              -- Auth, Assistant, Persona, SubAgent, Conversation, TTS, ASR, Vision, Tools, Face, Update repos
 ├── domain/
 │   ├── chat/                    -- Stream processor, sentence splitter, narration stripper
 │   ├── tts/                     -- TTS queue, WAV parser, amplitude computer
 │   ├── audio/                   -- AudioRecorder, VoiceActivityDetector
 │   └── character/               -- Compositor, image cache, animation migration
 ├── ui/
-│   ├── navigation/              -- NavGraph with routes (LOGIN, CHAT, ACCOUNT, TTS_ASR, APPEARANCE, PERSONAS, AGENTS, TOOLS_MCP, SKILLS, CHARACTER, FACES)
+│   ├── navigation/              -- NavGraph + AppDrawerHost (routes: LOGIN, CONVERSATIONS, CHAT, ASSISTANT, PERSONAS, TOOLS_MCP, SKILLS, SETTINGS, ACCOUNT, TTS_ASR, APPEARANCE, FACES, ABOUT)
 │   ├── theme/                   -- Material 3 theme (primary #2563EB)
 │   ├── auth/                    -- Login screen + ViewModel
-│   ├── home/                    -- Conversation list + ModalNavigationDrawer (HomeScreen + HomeViewModel)
-│   ├── chat/                    -- Chat screen, message bubble, input, markdown (nav arg: agentId, triggerText)
-│   ├── agents/                  -- Agent CRUD management (create, edit, delete) + ViewModel
-│   ├── settings/                -- Settings screen + ViewModel
-│   ├── tools/                   -- Tools & Skills management (3-tab: Servers, Tools, Skills) + ViewModel
+│   ├── conversations/           -- Chats list (start destination) + mic strip + in-app update check
+│   ├── chat/                    -- Chat screen, message bubble, tool rail, input, markdown (no nav args)
+│   ├── assistant/               -- The one assistant (model, tools, memory, wake word) + sub-agent CRUD
+│   ├── personas/                -- Persona CRUD (name, prompt, voice, avatar) + ViewModel
+│   ├── common/                  -- Shared UI bits (personaInitials, ModelDropdown)
+│   ├── settings/                -- Settings index + Account, Appearance, TTS & ASR, Tools & MCP, Skills screens
 │   ├── faces/                   -- Face Identities CRUD (camera capture via TakePicture intent + FileProvider)
 │   ├── update/                  -- UpdateDialog composable (in-app update from GitHub Releases)
 │   └── character/               -- Character canvas, video player, screen + ViewModel
@@ -72,7 +73,7 @@ com.kurisu.assistant/
 
 ## Testing
 
-- **Unit tests** live in `app/src/test/`. Use Robolectric (`@RunWith(AndroidJUnit4::class)`) only when you need a Context; pure logic should stay plain JVM. Existing coverage: `SentenceSplitter`, `NarrationStripper`, `WavParser`, `AmplitudeCurveComputer`, `AnimationMigration`, `ChatStreamProcessor`, `VoiceInteractionManager`, `HomeViewModel`, `SlashCommands`
+- **Unit tests** live in `app/src/test/`. Use Robolectric (`@RunWith(AndroidJUnit4::class)`) only when you need a Context; pure logic should stay plain JVM. Existing coverage: `SentenceSplitter`, `NarrationStripper`, `WavParser`, `AmplitudeCurveComputer`, `AnimationMigration`, `ChatStreamProcessor`, `VoiceInteractionManager`, `ConversationsViewModel`, `AssistantViewModel`, `PersonasViewModel`, `ChatViewModel` (persona override), `ToolRailModel`, `SlashCommands`
 - **E2E tests** live in `app/src/androidTest/`. Prefer composable-level tests (`createComposeRule()`) with test-owned state over full-Activity tests, unless navigation/Hilt wiring is the thing under test. Existing coverage: `ChatInputTest`
 - `ChatStreamProcessor` exposes an `internal var collectDispatcher` so tests can swap the default `Dispatchers.Default` for `UnconfinedTestDispatcher()` — keep this seam when touching that class
 - Robolectric **must** be 4.14+ to match `targetSdk = 35`
@@ -80,18 +81,25 @@ com.kurisu.assistant/
 ## Navigation Flow
 
 ```
-Login → Home (messaging-app style conversation list, hamburger menu → navigation drawer)
-  ├── Tap agent row → Chat (with that agent, nav arg agentId)
-  ├── Say trigger word (mic FAB) → Chat (agentId + triggerText) + auto voice interaction
-  ├── Drawer → Agents (CRUD: create, edit, delete with model/tools/memory)
-  ├── Drawer → Tools & Skills (3-tab: MCP Servers, Tools, Skills with CRUD)
-  └── Drawer → Settings
-Chat (back button) → Home
+Login → Conversations ("Chats", the start destination; hamburger → app drawer)
+  ├── Tap a row / New chat FAB → Chat
+  ├── Say the wake word (mic strip) → Chat + auto voice interaction
+  ├── Drawer → Chats | Assistant | Personas | Tools & MCP | Skills
+  ├── Drawer → Settings → Account | Appearance | TTS & ASR | Face Identities | About
+  └── Drawer → Logout
+Chat header (persona name) → persona sheet → "Manage personas" → Personas
+Chat header (face icon) → character overlay (a sheet, not a destination)
+Back everywhere → navController.popBackStack()
 ```
 
-- `Routes.HOME` = landing page after login, shows agents as conversation rows with last message preview
-- `Routes.CHAT` = `chat/{agentId}?triggerText={text}`, ChatViewModel reads nav args via SavedStateHandle
-- HomeViewModel observes `CoreState.asrTranscripts` to check all agents' trigger words
+- `Routes.CONVERSATIONS` = landing page after login: one row per conversation, showing the persona
+  bound to it. `Routes.CHAT` carries **no** nav arguments — the conversation to show is passed through
+  `CoreState.setConversationId(...)` before navigating, and `ChatViewModel` picks it up from there.
+- The drawer lives in `ui/navigation/AppDrawer.kt` (`AppDrawerHost`), not inside a screen: Chats and
+  Chat both open the same one, so the nav graph wraps both destinations in it. Drawer destinations
+  `popUpTo(CONVERSATIONS)` rather than stacking. Logout is `AppDrawerViewModel`.
+- `ConversationsViewModel` observes `CoreState.asrTranscripts` for the assistant's wake word. The
+  trigger is assistant-level and selects no persona.
 
 ## Key Patterns
 
@@ -105,12 +113,12 @@ Chat (back button) → Home
 ### Slash Commands (client-side only)
 - Mirrors desktop's `/utils/commands.ts`. Registry lives in `ui/chat/SlashCommand.kt`; intercepted in `ChatViewModel.sendMessage` before reaching `WebSocketManager`. Unknown `/foo` falls through to backend (returns null from parser)
 - Autocomplete dropdown rendered in `ChatInput.kt` whenever input starts with `/` — tap a suggestion to fill `"/<name> "`
-- Commands: `/clear` (drop current conversation, server creates new on next send — non-destructive), `/delete` (delete current conversation), `/refresh` (reload from DB), `/resume` (modal picker of past conversations from `ConversationRepository.getConversations(agentId)`), `/agents` (modal picker of all agents — switches via `switchAgent` which loads agent's last conversation), `/context` (dialog showing token count + last `ContextInfoEvent` snapshot), `/compact` (`wsManager.sendCompactContext(convId)` → backend responds with `ContextInfoEvent`)
+- Commands: `/clear` (drop current conversation, server creates new on next send — non-destructive), `/delete` (delete current conversation), `/refresh` (reload from DB), `/resume` (modal picker of past conversations from `ConversationRepository.getConversations(agentId)`), `/persona` (modal picker of personas — rebinds THIS conversation via `PATCH /conversations/{id}` and does not touch `default_persona_id`), `/context` (dialog showing token count + last `ContextInfoEvent` snapshot), `/compact` (`wsManager.sendCompactContext(convId)` → backend responds with `ContextInfoEvent`)
 - **Not ported**: desktop's `/vision` (Android does not expose webcam vision toggling) and `/live-animate` (Android exposes the character screen as a chat header button instead — see Character Button below)
-- Modal state lives in `ChatUiState.modal: ChatModal?` (sealed: ResumePicker / AgentPicker / ContextDialog). Transient feedback via `ChatUiState.commandFeedback` — auto-cleared after 2.2s by `LaunchedEffect`
+- Modal state lives in `ChatUiState.modal: ChatModal?` (sealed: ResumePicker / PersonaPicker / ContextDialog). Transient feedback via `ChatUiState.commandFeedback` — auto-cleared after 2.2s by `LaunchedEffect`
 
 ### Character Button (live-animate equivalent)
-- Replaces desktop's `/live-animate` slash command. Chat header has a `Face` icon button that navigates to `Routes.CHARACTER` (`CharacterScreen`). Plumbed via `ChatScreen.onNavigateToCharacter` callback wired in `NavGraph`
+- Replaces desktop's `/live-animate` slash command. Chat header has a `Face` icon button that opens `CharacterSheet` (`ui/character/CharacterSheet.kt`) over the transcript. It is a sheet, not a route: the chat keeps streaming behind it, and the sheet is bound to the conversation's persona (falling back to the assistant's default)
 
 ### TTS Pipeline
 - Sentence boundary splitting (`.!?。！？\n`) → `queueText()` FIFO
@@ -125,7 +133,7 @@ Chat (back button) → Home
 
 ### CoreService (Unified Foreground Service)
 - `CoreService` is the central engine — owns WebSocket, recording, VAD, ASR, chat sending (voice-triggered), TTS wiring, and voice interaction callbacks
-- Started on app launch (HomeScreen requests mic permission → starts service). Keeps process alive via persistent notification
+- Started on app launch (ConversationsScreen requests mic permission → starts service). Keeps process alive via persistent notification
 - **Owns all callback wiring**: `ChatStreamProcessor` → `TtsQueueManager`, `VoiceInteractionManager` → `sendMessage()`. No dual-ownership with ViewModel
 - **VAD loop**: Collects `AudioRecorder.audioChunks` → `VoiceActivityDetector.processSamples()` → speech/silence tracking → `processCurrentRecording()` on 1500ms silence after speech
 - **ASR pipeline**: `AudioRecorder.takeAccumulatedPcm()` → `AsrRepository.transcribe()` → `CoreState.emitTranscript()` → `VoiceInteractionManager.handleTranscript()`
@@ -142,12 +150,12 @@ Chat (back button) → Home
 
 ### In-App Update (GitHub Releases)
 - `UpdateRepository` uses its own plain `OkHttpClient` (no auth/interceptors) to call GitHub Releases API
-- Checks on app launch (HomeViewModel.init) and manually from Settings ("Check for updates" button)
+- Checks on app launch (`ConversationsViewModel.init`) and manually from Settings → "Check for updates" (or About)
 - Compares `tag_name` (semver) against `BuildConfig.VERSION_NAME`
 - Downloads APK to `cacheDir/updates/`, installs via FileProvider + `ACTION_VIEW` intent
 - `UpdateDialog` composable shows changelog, download progress, and install button
 - `REQUEST_INSTALL_PACKAGES` permission + FileProvider declared in manifest
-- **Auto-update** (`kurisu_auto_update`, default true): When enabled, `HomeViewModel.checkForUpdate()` immediately calls `downloadAndInstall(autoInstall = true)` after detecting a newer release. The post-download path fires `installApk(application, file)` (in `ui/update/UpdateInstaller.kt`) — the OS still shows the install permission prompt if `REQUEST_INSTALL_PACKAGES` isn't granted. Settings exposes the toggle. When off, the existing 2-step dialog (Update → Install) flow remains
+- **Auto-update** (`kurisu_auto_update`, default true): When enabled, `ConversationsViewModel.checkForUpdate()` immediately calls `downloadAndInstall(autoInstall = true)` after detecting a newer release. The post-download path fires `installApk(application, file)` (in `ui/update/UpdateInstaller.kt`) — the OS still shows the install permission prompt if `REQUEST_INSTALL_PACKAGES` isn't granted. Settings exposes the toggle. When off, the existing 2-step dialog (Update → Install) flow remains
 
 ### Character Animation
 - 60fps loop via `withFrameNanos`
@@ -162,7 +170,9 @@ Chat (back button) → Home
 
 ## Storage Keys
 
-Same as desktop/mobile clients: `kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_selected_agent_id`, `kurisu_agent_conversations`, etc.
+Same as desktop/mobile clients: `kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_persona_conversations`, etc.
+
+`kurisu_selected_agent_id` was **deleted** in wire protocol 4: there is one assistant, so there is nothing to select locally, and the default persona lives on the assistant row server-side. `kurisu_agent_conversations` became `kurisu_persona_conversations` with no client-side migration — it is a cache that re-derives from the backend on a miss.
 
 ## Settings Parity (vs Windows Desktop)
 

@@ -33,12 +33,19 @@ core/
   security.py            bcrypt hashing, JWT issue/verify, access + refresh
   errors.py              internal_error(): log the exception, return a reference
   http.py                the shared httpx.AsyncClient for outbound calls
-  paths.py               DATA_DIR, resolved from the package location
+  paths.py               DATA_DIR, resolved from the package location, not from
+                         the environment
+  accounts.py            provision_user(): the assistant row + first persona an
+                         account needs before it can chat
 
 routers/                 one module per surface, all mounted in main.py
   auth, users, version   accounts, profile, protocol handshake
   conversations, messages
-  agents, models, tools, skills, mcp
+  assistant              the user's one assistant: model, tools, memory
+  personas               how the assistant looks and sounds
+  sub_agents             task-only workers
+  portability            the shared export/import format for the two above
+  models, tools, skills, mcp
   asr, tts               proxy to universal-voice
   images, character      serve stored media
   vision                 face identities and photos
@@ -50,10 +57,13 @@ websocket/
   manager.py             ConnectionManager: sockets and handlers, keyed by user id
 
 agents/
-  base.py                BaseAgent, AgentConfig, AgentContext, tool dispatch
-  main.py                MainAgent: streams to the user, runs the tool loop
+  base.py                BaseAgent, AgentContext, tool dispatch, and the three
+                         configs: AssistantConfig (capability), PersonaConfig
+                         (identity), SubAgentConfig (both, for a worker)
+  main.py                MainAgent: the assistant speaking as a persona; streams
+                         to the user and runs the tool loop
   sub.py                 SubAgent and the adapter exposing one as a tool
-  selection.py           picks a main agent by trigger word, else at random
+  selection.py           pick_persona(): override → default → first enabled, by id
 
 tools/
   base.py, registry.py   BaseTool and the global registry
@@ -67,11 +77,11 @@ models/                  inference providers; no DB access, no business logic
   gesture_detection/     pose and hand detection, rule-based classification
 
 db/
-  models.py              8 tables
+  models.py              10 tables
   session.py             engine and sessionmaker
   service.py             DBService: the single thread all DB access goes through
   repositories/          one per table, over a generic BaseRepository
-  alembic/               50 revisions, single head
+  alembic/               51 revisions, single head
 
 vision/processor.py      per-frame face and gesture pipeline
 workers/                 background threads: idle scan, memory consolidation
@@ -83,16 +93,22 @@ utils/                   prompt assembly, image storage, memory consolidation
 1. The client sends `chat_request` over the socket.
 2. `ChatSessionHandler._setup_conversation` resolves or creates the conversation
    and reads the user's preferences, including their tool policies.
-3. If the conversation has no `main_agent_id`, one is picked — first by scanning
-   the message for any agent's trigger word, otherwise at random — and persisted.
+3. A persona is resolved and persisted to `conversations.persona_id`: an explicit
+   override (`chat_request.persona_id`, or the binding already stored) → the
+   assistant's `default_persona_id` → the first enabled persona by id. Nothing
+   scans for a trigger word and nothing is picked at random; the trigger word is a
+   voice wake word on the assistant and selects nothing. The write happens on a
+   rebind too, so a per-turn override survives to the next message.
 4. Context is loaded: the conversation's `compacted_context` plus every message
    after `compacted_up_to_id`.
 5. If the estimated size exceeds 90% of the context window and a summary model is
    configured, the conversation is compacted. Compaction creates a **new**
-   conversation seeded with the summary and emits `conversation_switched`.
-6. `MainAgent.process` runs the LLM loop, at most 10 tool rounds, or 25 with
-   deferred tools. It yields a `stream_chunk` per content, thinking and tool
-   chunk.
+   conversation seeded with the summary, carries the persona binding over, and
+   emits `conversation_switched`.
+6. `MainAgent.process` runs the LLM loop — capability from the user's one
+   `assistants` row, identity from the bound persona — at most 10 tool rounds, or
+   25 with deferred tools. It yields a `stream_chunk` per content, thinking and
+   tool chunk; tool chunks carry `tool_kind` and `duration_ms`.
 7. The handler writes each message to the database as the role boundary crosses,
    not batched at the end, so a crash mid-turn keeps what was already said.
 8. `done` closes the turn.
@@ -148,13 +164,25 @@ types, changed event names, a restructured auth handshake. Adding an optional
 field does not bump it.
 
 Clients ship their own constant and check it against `GET /version` at startup.
-REST requests carry `X-Wire-Protocol` and a mismatch is rejected with 426. Note
-that the check is HTTP middleware, so it does not cover the socket.
+REST requests carry `X-Wire-Protocol` and a mismatch is rejected with 426. The
+WebSocket handshake enforces the same number: a client declares it with the same
+header, or — in a browser, which cannot set one — as a `kurisu.wire.<n>` entry in
+the subprotocol list alongside its token. A mismatch is closed with 4426 before
+authentication. Saying nothing is still allowed on both transports, so curl and
+internal tooling keep working.
 
 ## Data
 
-Eight tables: `users`, `conversations`, `messages`, `agents`, `skills`,
-`mcp_servers`, `face_identities`, `face_photos`. See `database.md`.
+Ten tables: `users`, `assistants`, `personas`, `sub_agents`, `conversations`,
+`messages`, `skills`, `mcp_servers`, `face_identities`, `face_photos`. See
+`database.md`.
+
+The old merged `agents` table was split in migration `0dacee9f63b8`: one
+`assistants` row per user holds capability (model, tools, memory, wake word,
+default persona), `personas` holds presentation, and `sub_agents` holds task-only
+workers. `agents` was **renamed** to `personas` with its ids intact, because
+`data/character_assets/{id}/` and the URLs inside `character_config` are keyed on
+them.
 
 Media does not live in the database. Images, voice reference clips and character
 assets are files under `data/`, referenced by identifier from a row.

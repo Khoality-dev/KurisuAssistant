@@ -5,13 +5,13 @@ The API server behind the [desktop](../clients/desktop/) and [Android](../client
 ## Features
 
 - **Voice Conversations** — Clients run Silero VAD and send audio; the server transcribes it and answers with streamed text and TTS (GPT-SoVITS or viXTTS)
-- **Multi-Agent System** — Main agents with their own prompts, voices, models, and tool access, plus task-only sub-agents they can delegate to
-- **Agent Memory** — Conversations are consolidated into persistent per-agent memory when they go idle, and injected into later requests
+- **One Assistant, Many Personas** — One assistant per account owns the model, tools, memory and voice wake word; personas own the name, prompt, voice and face, and a conversation binds to one. Task-only sub-agents with their own models can be delegated to mid-answer
+- **Assistant Memory** — Idle conversations are consolidated into one persistent memory document per account, shared by every persona and injected into later requests
 - **Rolling Context Compaction** — Long conversations are summarized in place once they approach the model's context window
 - **Vision Pipeline** — Face recognition (InsightFace) and gesture detection (YOLOv8-Pose + MediaPipe Hands) from client camera frames
 - **Character Animation** — Pose-based character configuration with gesture-triggered transitions
 - **Skills System** — User-editable instruction blocks that teach agents how to use capabilities
-- **Tool Ecosystem** — Built-in tools, opt-in tools, MCP tools (server and client side), with client-enforced approval policies
+- **Tool Ecosystem** — Built-in tools and MCP tools (server and client side), with server-enforced approval policies
 - **Image Support** — Images in conversations with vision model support
 
 ## Prerequisites
@@ -54,10 +54,13 @@ Environment variables read by the server (see `.env_template` for the full list 
 | `JWT_SECRET_KEY` | generated | Overrides the secret persisted to `data/jwt_secret.key` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access token lifetime |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
-| `CONVERSATION_IDLE_THRESHOLD_MINUTES` | — | Idle time before a conversation's memory is consolidated |
-| `DATA_DIR` | `data/` | Override the data directory |
+| `CONVERSATION_IDLE_THRESHOLD_MINUTES` | `30` | Idle time before a conversation's memory is consolidated |
+| `MCP_TLS_VERIFY` | `true` | Set to `false` to skip TLS verification on server-side MCP connections |
+| `ALLOW_REGISTRATION` | — | Registration is closed unless this says otherwise |
 
-MCP tool servers are declared in `mcp_config.json` (gitignored). See [docs/mcp-config.md](docs/mcp-config.md).
+There is no `DATA_DIR` variable: `data/` is resolved from the package location, which is why every command runs from this directory.
+
+MCP tool servers are configured per user through `/mcp-servers` and stored in the database, not in a file. See [docs/mcp-config.md](docs/mcp-config.md).
 
 Voice reference files go in `data/voice_storage/` (.wav/.mp3/.flac/.ogg).
 
