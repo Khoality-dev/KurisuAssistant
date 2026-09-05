@@ -59,7 +59,6 @@ src/components/
     SubAgentEditDialog.tsx — One sub-agent: name, description, task instructions, model (empty = the assistant's), tools, thinking, deferred tools. No avatar, voice, memory or wake word — a sub-agent has no identity.
     ResourceCard.tsx       — The card both grids use: avatar/icon, name, description, clamped prompt, caption line, enabled switch, export + delete.
     useAvailableTools.ts   — The tool list both capability forms pick from: backend MCP + built-ins, plus this Electron process's host/app tools, deduped and grouped.
-    MCPServersSection.tsx  — Local servers detection (Maestro, Chronicle, Playwright) + user MCP server CRUD
     ToolsSection.tsx       — Available tools list with details dialog
     SkillsSection.tsx      — Skill CRUD + import/export
     HostAccessSection.tsx  — Allowed-paths config. One global list, shared by every host tool call — there is no per-agent or per-persona scoping.
