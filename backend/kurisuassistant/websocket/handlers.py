@@ -84,6 +84,7 @@ class _TurnSetup:
     ollama_url: Optional[str] = None
     gemini_api_key: Optional[str] = None
     nvidia_api_key: Optional[str] = None
+    poe_api_key: Optional[str] = None
     summary_model: Optional[str] = None
     summary_provider: str = "ollama"
     context_size: Optional[int] = None
@@ -300,6 +301,7 @@ class ChatSessionHandler:
                 summary_api_key = (
                     setup.gemini_api_key if setup.summary_provider == "gemini"
                     else setup.nvidia_api_key if setup.summary_provider == "nvidia"
+                    else setup.poe_api_key if setup.summary_provider == "poe"
                     else None
                 )
                 summary_input = setup.system_messages + context_messages
@@ -368,6 +370,7 @@ class ChatSessionHandler:
                 api_url=setup.ollama_url,
                 gemini_api_key=setup.gemini_api_key,
                 nvidia_api_key=setup.nvidia_api_key,
+                poe_api_key=setup.poe_api_key,
                 client_tools=self._client_tools,
                 client_tool_callback=self._execute_client_tool,
                 images=event.images if event.images else None,
@@ -569,6 +572,7 @@ class ChatSessionHandler:
             ollama_url = user.ollama_url
             gemini_api_key = getattr(user, 'gemini_api_key', None)
             nvidia_api_key = getattr(user, 'nvidia_api_key', None)
+            poe_api_key = getattr(user, 'poe_api_key', None)
             summary_model = user.summary_model
             summary_provider = getattr(user, 'summary_provider', 'ollama') or 'ollama'
             context_size = user.context_size
@@ -605,6 +609,7 @@ class ChatSessionHandler:
                 ollama_url=ollama_url,
                 gemini_api_key=gemini_api_key,
                 nvidia_api_key=nvidia_api_key,
+                poe_api_key=poe_api_key,
                 summary_model=summary_model,
                 summary_provider=summary_provider,
                 context_size=context_size,
@@ -724,7 +729,7 @@ class ChatSessionHandler:
         def _get_prefs(session):
             user = UserRepository(session).get_by_id(self.user_id)
             if not user:
-                return None, None, None, None, None, None
+                return None, None, None, None, None, None, None
             conv = ConversationRepository(session).get_by_user_and_id(self.user_id, conversation_id)
             persona_id = conv.persona_id if conv else None
             return (
@@ -733,10 +738,11 @@ class ChatSessionHandler:
                 user.ollama_url,
                 getattr(user, 'gemini_api_key', None),
                 getattr(user, 'nvidia_api_key', None),
+                getattr(user, 'poe_api_key', None),
                 persona_id,
             )
 
-        summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key, persona_id = await db.execute(_get_prefs)
+        summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key, poe_api_key, persona_id = await db.execute(_get_prefs)
 
         if not summary_model:
             await self.send_event(ErrorEvent(error="No summary model configured.", code="NO_SUMMARY_MODEL"))
@@ -757,6 +763,7 @@ class ChatSessionHandler:
         summary_api_key = (
             gemini_api_key if summary_provider == "gemini"
             else nvidia_api_key if summary_provider == "nvidia"
+            else poe_api_key if summary_provider == "poe"
             else None
         )
         summary = await asyncio.to_thread(

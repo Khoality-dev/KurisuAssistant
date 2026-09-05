@@ -136,8 +136,10 @@ being refused. The WebSocket handshake enforces the same number and closes with
             {"name": "gemini-2.0-flash", "provider": "gemini"}]}
 ```
 
-Ollama models come from the user's `ollama_url`. Gemini and NVIDIA models are
-added only when the user has stored that provider's key.
+Ollama models come from the user's `ollama_url`. Gemini, NVIDIA and Poe models are
+added only when the user has stored that provider's key. Poe's catalogue also lists
+image, video and audio bots; only text-output models that serve chat completions
+are offered.
 
 ### GET /models/details
 
@@ -160,10 +162,16 @@ Pulls only if the model is not already present. → `{"status": "ok", "message":
 
 ### POST /models/validate-key
 
-**Request:** `{"provider": "gemini" | "nvidia", "api_key": "..."}`
+**Request:** `{"provider": "gemini" | "nvidia" | "poe", "api_key": "..."}`
 
 **Response:** `200 OK` — `{"valid": true, "model_count": 12}` or
 `{"valid": false, "error": "..."}`. Always 200; read `valid`.
+
+Gemini and NVIDIA are validated by listing models with the key. Poe's model list is
+public, so its key is checked with a one-token chat request for a model that does
+not exist: a bad key is refused with 401 before the model is looked up, a good one
+gets a 404 and spends nothing. `error` carries the provider's own message
+(`Poe: HTTP 401 authentication_error: Incorrect API key provided. …`).
 
 ---
 
@@ -609,6 +617,7 @@ Posting a file to the wrong endpoint returns a `400` naming the right one.
   "ollama_url": "http://localhost:11434",
   "has_gemini_key": true,
   "has_nvidia_key": false,
+  "has_poe_key": false,
   "summary_model": "llama3.2:latest",
   "summary_provider": "ollama",
   "context_size": 8192
@@ -634,8 +643,9 @@ client shows when the answering persona has no avatar of its own.
 | `ollama_url` | string | Ollama API URL |
 | `gemini_api_key` | string | Write-only |
 | `nvidia_api_key` | string | Write-only |
+| `poe_api_key` | string | Write-only |
 | `summary_model` | string | Used for compaction **and** memory consolidation |
-| `summary_provider` | string | `ollama` \| `gemini` \| `nvidia` |
+| `summary_provider` | string | `ollama` \| `gemini` \| `nvidia` \| `poe` |
 | `context_size` | integer | Context window used for the 90% compaction trigger |
 
 **Response:** `{"status": "ok", "message": "Profile updated successfully"}`

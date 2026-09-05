@@ -10,7 +10,7 @@ describes it.
 users
   id, username(unique), password(bcrypt)
   system_prompt, preferred_name, agent_avatar_uuid
-  ollama_url, gemini_api_key, nvidia_api_key        write-only over the API
+  ollama_url, gemini_api_key, nvidia_api_key, poe_api_key   write-only over the API
   summary_model, summary_provider(default 'ollama') used for compaction + memory
   context_size
   tool_policies(JSON)                               {"tools": {name: allow|deny}}

@@ -6,6 +6,7 @@ from .base import BaseLLMProvider
 from .ollama_provider import OllamaProvider
 from .gemini_provider import GeminiProvider
 from .nvidia_provider import NvidiaProvider
+from .poe_provider import PoeProvider
 
 
 def create_llm_provider(
@@ -16,9 +17,9 @@ def create_llm_provider(
     """Factory function to create LLM provider instances.
 
     Args:
-        provider_type: Type of provider ("ollama", "gemini", or "nvidia")
+        provider_type: Type of provider ("ollama", "gemini", "nvidia" or "poe")
         api_url: Optional API URL (for Ollama)
-        api_key: Optional API key (for Gemini/NVIDIA)
+        api_key: Optional API key (for Gemini/NVIDIA/Poe)
 
     Returns:
         BaseLLMProvider instance
@@ -27,6 +28,8 @@ def create_llm_provider(
         return GeminiProvider(api_key=api_key)
     elif provider_type == "nvidia":
         return NvidiaProvider(api_key=api_key)
+    elif provider_type == "poe":
+        return PoeProvider(api_key=api_key)
     elif provider_type == "ollama":
         return OllamaProvider(api_url=api_url)
     else:
@@ -41,6 +44,8 @@ __all__ = [
     "BaseLLMProvider",
     "OllamaProvider",
     "GeminiProvider",
+    "NvidiaProvider",
+    "PoeProvider",
     "create_llm_provider",
     # Adapter functions
     "chat",

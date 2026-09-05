@@ -125,7 +125,7 @@ class TestRateLimiting:
 # ---------------------------------------------------------------------------
 
 class FakeUser:
-    def __init__(self, gemini=None, nvidia=None):
+    def __init__(self, gemini=None, nvidia=None, poe=None):
         self.id = 1
         self.username = "alice"
         self.system_prompt = ""
@@ -134,6 +134,7 @@ class FakeUser:
         self.ollama_url = None
         self.gemini_api_key = gemini
         self.nvidia_api_key = nvidia
+        self.poe_api_key = poe
         self.summary_model = None
         self.summary_provider = "ollama"
         self.context_size = None
@@ -150,21 +151,25 @@ def profile_client(user):
 class TestProfileNeverReturnsKeys:
     def test_key_values_are_absent(self):
         secret = "AIzaSy-super-secret-value"
-        body = profile_client(FakeUser(gemini=secret, nvidia="nvapi-secret")).get("/users/me").json()
+        body = profile_client(FakeUser(gemini=secret, nvidia="nvapi-secret", poe="poe-secret")).get("/users/me").json()
         assert "gemini_api_key" not in body
         assert "nvidia_api_key" not in body
+        assert "poe_api_key" not in body
         assert secret not in str(body)
         assert "nvapi-secret" not in str(body)
+        assert "poe-secret" not in str(body)
 
     def test_presence_is_reported_when_set(self):
-        body = profile_client(FakeUser(gemini="k", nvidia="k")).get("/users/me").json()
+        body = profile_client(FakeUser(gemini="k", nvidia="k", poe="k")).get("/users/me").json()
         assert body["has_gemini_key"] is True
         assert body["has_nvidia_key"] is True
+        assert body["has_poe_key"] is True
 
     def test_presence_is_reported_when_unset(self):
         body = profile_client(FakeUser()).get("/users/me").json()
         assert body["has_gemini_key"] is False
         assert body["has_nvidia_key"] is False
+        assert body["has_poe_key"] is False
 
     def test_an_empty_string_counts_as_unset(self):
         body = profile_client(FakeUser(gemini="", nvidia="")).get("/users/me").json()

@@ -67,6 +67,16 @@ async def list_models(
             except Exception as ne:
                 logger.warning(f"Failed to list NVIDIA models: {ne}")
 
+        # Add Poe models if user has API key
+        poe_api_key = getattr(user, 'poe_api_key', None)
+        if poe_api_key:
+            try:
+                poe_provider = create_llm_provider("poe", api_key=poe_api_key)
+                poe_models = await asyncio.to_thread(poe_provider.list_models)
+                models.extend({"name": m, "provider": "poe"} for m in poe_models)
+            except Exception as pe:
+                logger.warning(f"Failed to list Poe models: {pe}")
+
         return {"models": models}
     except Exception as e:
         raise internal_error(e, "Error fetching models")
@@ -150,7 +160,7 @@ async def ensure_model(
 
 
 class ValidateKeyRequest(BaseModel):
-    provider: str  # "gemini" or "nvidia"
+    provider: str  # "gemini", "nvidia" or "poe"
     api_key: str
 
 
@@ -159,10 +169,15 @@ async def validate_api_key(
     body: ValidateKeyRequest,
     user: User = Depends(get_authenticated_user),
 ) -> dict:
-    """Validate an API key by attempting to list models."""
+    """Validate an API key with its provider and report how many models it unlocks.
+
+    Each provider decides what validation means (``BaseLLMProvider.validate_key``):
+    listing models where that needs the key, an authenticated probe where the
+    catalogue is public and listing would accept any key.
+    """
     try:
         provider = create_llm_provider(body.provider, api_key=body.api_key)
-        models = await asyncio.to_thread(provider.list_models)
-        return {"valid": True, "model_count": len(models)}
+        model_count = await asyncio.to_thread(provider.validate_key)
+        return {"valid": True, "model_count": model_count}
     except Exception as e:
         return {"valid": False, "error": str(e)}

@@ -576,6 +576,7 @@ export class MockBackend {
         // Provider keys are write-only; the profile reports only whether one is set.
         has_gemini_key: false,
         has_nvidia_key: false,
+        has_poe_key: false,
       });
     }
     if (pathOnly === '/users/me' && method === 'PATCH') {

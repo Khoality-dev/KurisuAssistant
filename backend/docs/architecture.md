@@ -72,7 +72,8 @@ tools/
   deferred.py            list/search/get_schema/call_tool meta-tools
 
 models/                  inference providers; no DB access, no business logic
-  llm/                   ollama, gemini, nvidia behind a common base
+  llm/                   ollama, gemini, nvidia, poe behind a common base; nvidia and poe
+                         are thin subclasses of the OpenAI-dialect openai_compat.py
   face_recognition/      InsightFace, 512-dimension embeddings
   gesture_detection/     pose and hand detection, rule-based classification
 

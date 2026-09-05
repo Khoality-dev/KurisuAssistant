@@ -120,8 +120,10 @@ data class UserProfile(
     // and these carry a new key on PATCH. Null means "leave the stored key alone".
     @SerialName("has_gemini_key") val hasGeminiKey: Boolean = false,
     @SerialName("has_nvidia_key") val hasNvidiaKey: Boolean = false,
+    @SerialName("has_poe_key") val hasPoeKey: Boolean = false,
     @SerialName("gemini_api_key") val geminiApiKey: String? = null,
     @SerialName("nvidia_api_key") val nvidiaApiKey: String? = null,
+    @SerialName("poe_api_key") val poeApiKey: String? = null,
     @SerialName("context_size") val contextSize: Int? = null,
 )
 

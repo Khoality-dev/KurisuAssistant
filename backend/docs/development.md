@@ -11,8 +11,6 @@ python -m scripts.migrate                          # Run migrations
 uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --reload --reload-dir kurisuassistant
 ```
 
-`run_dev.bat` does the same on Windows (creates the venv, runs migrations, starts uvicorn); `stop_dev.bat` kills whatever is listening on port 15597.
-
 ## Docker
 
 ```bash
@@ -57,13 +55,13 @@ pytest -m integration        # tests that need Postgres / Ollama
 
 ## Environment Variables
 
-`.env_template` lists the variables the Compose stack expects. Variables read by the server itself:
+`.env.template` lists the variables the Compose stack expects. Variables read by the server itself:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | — | Database connection |
 | `LLM_API_URL` | `http://localhost:11434` | Ollama server URL |
-| `GEMINI_API_KEY`, `NVIDIA_API_KEY` | — | Cloud LLM providers |
+| `GEMINI_API_KEY`, `NVIDIA_API_KEY`, `POE_API_KEY` | — | Cloud LLM providers; fallbacks when the user has no key stored |
 | `ASR_API_URL`, `UVOICE_URL` | (docker-compose) | Speech recognition / universal voice service |
 | `JWT_SECRET_KEY` | generated | Overrides the secret persisted to `data/jwt_secret.key` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access token lifetime |

@@ -33,7 +33,7 @@ export interface Message {
   voice_reference?: string; // Voice reference for TTS (from streaming chunks)
   has_raw_data?: boolean; // Whether raw LLM input/output is available
   model_name?: string; // LLM model that generated this message
-  provider_type?: string; // LLM provider (ollama, gemini)
+  provider_type?: string; // LLM provider (ollama, gemini, nvidia, poe)
   tool_args?: Record<string, unknown>; // Tool input arguments (for tool role messages)
   tool_status?: string; // "success" | "error" | "denied" (from backend)
   context_files?: Array<{ path: string; fileName: string; startLine?: number; endLine?: number; startColumn?: number; endColumn?: number }>;
@@ -92,8 +92,10 @@ export interface UserProfile {
   // is sent on PATCH and never read back, so omit it unless the user typed one.
   has_gemini_key?: boolean;
   has_nvidia_key?: boolean;
+  has_poe_key?: boolean;
   gemini_api_key?: string; // PATCH only
   nvidia_api_key?: string; // PATCH only
+  poe_api_key?: string; // PATCH only
   summary_model?: string; // Model for frame summarization (null = use chat model)
   context_size?: number; // Ollama num_ctx override (null = default 8192)
 }

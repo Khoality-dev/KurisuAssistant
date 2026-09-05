@@ -47,6 +47,8 @@ class SubAgent(BaseAgent):
             api_key = context.gemini_api_key
         elif provider_type == "nvidia":
             api_key = context.nvidia_api_key
+        elif provider_type == "poe":
+            api_key = context.poe_api_key
 
         llm = create_llm_provider(provider_type, api_url=context.api_url, api_key=api_key)
 

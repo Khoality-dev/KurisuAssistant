@@ -41,7 +41,7 @@ def find_event(ws, event_type: str):
 def setup_db_prefs(monkeypatch, summary_model="qwen3:1.7b", persona_id=42):
     """Patch get_db_service so handler reads canned user prefs + agent id."""
     db = MagicMock()
-    # _get_prefs returns (summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key, persona_id)
+    # _get_prefs returns (summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key, poe_api_key, persona_id)
     # _get_ctx returns context_size
     # _create runs the create_summary_conversation closure (returns new id)
     def execute_sync(fn):
@@ -50,7 +50,7 @@ def setup_db_prefs(monkeypatch, summary_model="qwen3:1.7b", persona_id=42):
 
     def dispatch(fn):
         return {
-            "_get_prefs": (summary_model, "ollama", None, None, None, persona_id),
+            "_get_prefs": (summary_model, "ollama", None, None, None, None, persona_id),
             "_get_ctx": 8192,
         }.get(fn.__name__, execute_sync(fn))
 
@@ -72,7 +72,7 @@ class TestHandleCompactContext:
              patch.object(handler, "_create_summary_conversation", return_value=999), \
              patch("kurisuassistant.websocket.handlers.get_db_service") as mock_db:
             mock_db.return_value.execute = AsyncMock(
-                side_effect=lambda fn: ("qwen3:1.7b", "ollama", None, None, None, 42)
+                side_effect=lambda fn: ("qwen3:1.7b", "ollama", None, None, None, None, 42)
                 if fn.__name__ == "_get_prefs" else 8192
             )
 
@@ -98,7 +98,7 @@ class TestHandleCompactContext:
         with patch("kurisuassistant.websocket.handlers.get_db_service") as mock_db:
             # summary_model is None → handler should bail with an ErrorEvent
             mock_db.return_value.execute = AsyncMock(
-                side_effect=lambda fn: (None, "ollama", None, None, None, None)
+                side_effect=lambda fn: (None, "ollama", None, None, None, None, None)
                 if fn.__name__ == "_get_prefs" else 8192
             )
 
@@ -117,7 +117,7 @@ class TestHandleCompactContext:
         with patch.object(handler, "_load_context_messages", new_callable=AsyncMock, return_value=("", 0, [])), \
              patch("kurisuassistant.websocket.handlers.get_db_service") as mock_db:
             mock_db.return_value.execute = AsyncMock(
-                side_effect=lambda fn: ("qwen3:1.7b", "ollama", None, None, None, 42)
+                side_effect=lambda fn: ("qwen3:1.7b", "ollama", None, None, None, None, 42)
                 if fn.__name__ == "_get_prefs" else 8192
             )
 
@@ -136,7 +136,7 @@ class TestHandleCompactContext:
              patch.object(handler, "_create_summary_conversation") as create_mock, \
              patch("kurisuassistant.websocket.handlers.get_db_service") as mock_db:
             mock_db.return_value.execute = AsyncMock(
-                side_effect=lambda fn: ("qwen3:1.7b", "ollama", None, None, None, 42)
+                side_effect=lambda fn: ("qwen3:1.7b", "ollama", None, None, None, None, 42)
                 if fn.__name__ == "_get_prefs" else 8192
             )
 

@@ -37,7 +37,7 @@ On a physical Android phone, `localhost` means the phone itself. Use the server 
 
 ## Shared first-run checklist
 
-After signing in, configure at least one model provider under **Settings → Account**. Desktop supports Ollama, Google Gemini, and NVIDIA NIM; Android currently exposes the Ollama URL.
+After signing in, configure at least one model provider under **Settings → Account**. Both clients support Ollama, Google Gemini, NVIDIA NIM and Poe; enter a provider's API key there and its models appear in the model pickers.
 
 Your account already has one assistant and one persona. Select the assistant's model, and optionally its tools, memory and voice wake word — those belong to the assistant, so they do not change when you switch persona. Then give the persona (or a new one) a personality, voice and avatar. A new conversation silently uses your default persona; the chat header switches persona for one conversation.
 

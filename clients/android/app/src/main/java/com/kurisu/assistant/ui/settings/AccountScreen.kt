@@ -127,6 +127,29 @@ fun AccountScreen(
                 Text("Validate NVIDIA Key")
             }
 
+            OutlinedTextField(
+                value = state.poeApiKey,
+                onValueChange = viewModel::setPoeApiKey,
+                label = { Text("Poe API Key") },
+                placeholder = {
+                    Text(if (state.hasPoeKey) "A key is saved — type to replace it" else "Enter API key")
+                },
+                supportingText = if (state.hasPoeKey) {{ Text("A key is already saved") }} else null,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                visualTransformation = PasswordVisualTransformation(),
+            )
+            OutlinedButton(
+                onClick = viewModel::validatePoeKey,
+                enabled = !state.isValidatingPoe && state.poeApiKey.isNotBlank(),
+            ) {
+                if (state.isValidatingPoe) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text("Validate Poe Key")
+            }
+
             // Model settings
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
             Text("Model", style = MaterialTheme.typography.titleMedium)

@@ -19,8 +19,10 @@ data class AccountUiState(
     val ollamaUrl: String = "",
     val geminiApiKey: String = "",
     val nvidiaApiKey: String = "",
+    val poeApiKey: String = "",
     val hasGeminiKey: Boolean = false,
     val hasNvidiaKey: Boolean = false,
+    val hasPoeKey: Boolean = false,
     val summaryModel: String = "",
     val contextSize: String = "8192",
     val availableModels: List<ModelInfo> = emptyList(),
@@ -30,6 +32,7 @@ data class AccountUiState(
     val serverUrl: String = "",
     val isValidatingGemini: Boolean = false,
     val isValidatingNvidia: Boolean = false,
+    val isValidatingPoe: Boolean = false,
 )
 
 @HiltViewModel
@@ -56,8 +59,10 @@ class AccountViewModel @Inject constructor(
                     // "keep whatever is stored", not "clear it".
                     geminiApiKey = "",
                     nvidiaApiKey = "",
+                    poeApiKey = "",
                     hasGeminiKey = user.hasGeminiKey,
                     hasNvidiaKey = user.hasNvidiaKey,
+                    hasPoeKey = user.hasPoeKey,
                     summaryModel = user.summaryModel ?: "",
                     contextSize = (user.contextSize ?: 8192).toString(),
                 ) }
@@ -107,6 +112,7 @@ class AccountViewModel @Inject constructor(
                     ollamaUrl = _state.value.ollamaUrl.trim().ifBlank { null },
                     geminiApiKey = _state.value.geminiApiKey.trim().ifBlank { null },
                     nvidiaApiKey = _state.value.nvidiaApiKey.trim().ifBlank { null },
+                    poeApiKey = _state.value.poeApiKey.trim().ifBlank { null },
                     summaryModel = _state.value.summaryModel.trim().ifBlank { null },
                     contextSize = ctxSize,
                 ))
@@ -153,6 +159,27 @@ class AccountViewModel @Inject constructor(
                 _state.update { it.copy(message = "Validation failed: ${e.message}") }
             } finally {
                 _state.update { it.copy(isValidatingNvidia = false) }
+            }
+        }
+    }
+
+    fun setPoeApiKey(v: String) = _state.update { it.copy(poeApiKey = v) }
+
+    fun validatePoeKey() {
+        val key = _state.value.poeApiKey.trim()
+        if (key.isBlank()) { _state.update { it.copy(message = "Enter a key first") }; return }
+        viewModelScope.launch {
+            _state.update { it.copy(isValidatingPoe = true) }
+            try {
+                val result = api.validateApiKey(mapOf("provider" to "poe", "api_key" to key))
+                val valid = result["valid"] as? Boolean ?: false
+                val modelCount = (result["model_count"] as? Number)?.toInt()
+                val error = result["error"] as? String
+                _state.update { it.copy(message = if (valid) "Valid ($modelCount models)" else "Invalid: ${error ?: "unknown"}") }
+            } catch (e: Exception) {
+                _state.update { it.copy(message = "Validation failed: ${e.message}") }
+            } finally {
+                _state.update { it.copy(isValidatingPoe = false) }
             }
         }
     }
