@@ -1,5 +1,7 @@
 #!/bin/bash
 # Generate self-signed SSL certificate for nginx
+#
+# Set LAN_IP=<your address> to add it to the certificate's subjectAltName.
 set -e
 
 CERT_DIR="$(dirname "$0")/certs"
@@ -16,6 +18,6 @@ openssl req -x509 -nodes -days 365 \
     -keyout "$CERT_DIR/selfsigned.key" \
     -out "$CERT_DIR/selfsigned.crt" \
     -subj "/CN=localhost" \
-    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:10.0.0.122"
+    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1${LAN_IP:+,IP:$LAN_IP}"
 
 echo "Certificates generated in $CERT_DIR"

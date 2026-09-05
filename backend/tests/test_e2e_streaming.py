@@ -146,14 +146,14 @@ class TestE2EStreaming:
                         content=content, thinking=thinking,
                         role="assistant", conversation_id=1, frame_id=1,
                         voice_reference="voice-uuid-123",
-                        persona_name="Ayaka",
+                        persona_name="Nova",
                     ))
 
         asyncio.get_event_loop().run_until_complete(run())
 
         for e in collector.chunks:
             assert e["voice_reference"] == "voice-uuid-123"
-            assert e["persona_name"] == "Ayaka"
+            assert e["persona_name"] == "Nova"
 
     def test_done_event_is_last(self):
         """DoneEvent follows all stream chunks."""
