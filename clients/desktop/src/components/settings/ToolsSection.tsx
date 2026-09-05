@@ -37,6 +37,7 @@ import { apiClient } from '../../api/client';
 import type { Tool, MCPServer, MCPServerTestResult } from '../../api/types';
 import type { McpServerInfo } from '../../types/electron';
 import { refreshClientMCPServers, getClientTools, getClientToolsByServer } from '../../services/mcpService';
+import { PLAYWRIGHT_MCP_ARGS, PLAYWRIGHT_MCP_PACKAGE } from '../../constants';
 
 // --- Local server detection ---
 
@@ -95,6 +96,27 @@ export const ToolsSection: React.FC = () => {
     window.electron?.mcpServer?.getInfo()
       .then(setMcpServerInfo)
       .catch(() => setMcpServerInfo(null));
+  }, []);
+
+  // Programs this app is allowed to launch: whether Playwright starts on its
+  // own, and the command lines answered "Always allow" at the spawn prompt.
+  const [playwrightAutostart, setPlaywrightAutostart] = useState(false);
+  const [approvedSpawns, setApprovedSpawns] = useState<string[]>([]);
+
+  useEffect(() => {
+    window.electron?.mcp?.getPlaywrightAutostart().then(setPlaywrightAutostart).catch(() => {});
+    window.electron?.mcp?.getApprovedSpawns().then(setApprovedSpawns).catch(() => {});
+  }, []);
+
+  const setPlaywrightAutostartSetting = useCallback(async (enabled: boolean) => {
+    setPlaywrightAutostart(enabled);
+    const stored = await window.electron?.mcp?.setPlaywrightAutostart(enabled);
+    if (typeof stored === 'boolean') setPlaywrightAutostart(stored);
+  }, []);
+
+  const revokeSpawn = useCallback(async (commandLine: string) => {
+    const remaining = await window.electron?.mcp?.revokeApprovedSpawn(commandLine);
+    if (remaining) setApprovedSpawns(remaining);
   }, []);
 
   const rotateMcpServerToken = useCallback(async () => {
@@ -208,7 +230,7 @@ export const ToolsSection: React.FC = () => {
 
     if (svc.type === 'stdio' && svc.mcpName && window.electron?.mcp?.startServer) {
       const result = await window.electron.mcp.startServer(
-        { name: svc.mcpName, transport_type: 'stdio', command: 'npx', args: ['@playwright/mcp'] },
+        { name: svc.mcpName, transport_type: 'stdio', command: 'npx', args: [...PLAYWRIGHT_MCP_ARGS] },
       );
       setDetectedServices((prev) => ({ ...prev, [svc.id]: { running: result.ok } }));
       if (result.ok) await refreshClientMCPServers();
@@ -517,6 +539,51 @@ export const ToolsSection: React.FC = () => {
             </Box>
           </Paper>
         )}
+
+        {/* Programs this app may launch locally. */}
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+            Local programs
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+            Starting a local MCP server runs a program on this computer. Each command line is
+            asked about the first time it runs; the ones you allowed permanently are listed here.
+          </Typography>
+
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+            <Box>
+              <Typography variant="body2">Start Playwright automatically</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Downloads and runs {PLAYWRIGHT_MCP_PACKAGE} from npm whenever the app connects.
+              </Typography>
+            </Box>
+            <Switch
+              checked={playwrightAutostart}
+              onChange={(e) => setPlaywrightAutostartSetting(e.target.checked)}
+            />
+          </Box>
+
+          {approvedSpawns.length > 0 && (
+            <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+              {approvedSpawns.map((commandLine) => (
+                <Box
+                  key={commandLine}
+                  sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+                >
+                  <Typography
+                    variant="caption"
+                    sx={{ fontFamily: 'monospace', wordBreak: 'break-all', flex: 1 }}
+                  >
+                    {commandLine}
+                  </Typography>
+                  <Button size="small" color="warning" onClick={() => revokeSpawn(commandLine)}>
+                    Revoke
+                  </Button>
+                </Box>
+              ))}
+            </Box>
+          )}
+        </Paper>
 
         {/* Built-in tools card (app + server built-in) */}
         {(tools.client.length > 0 || tools.builtin.length > 0) && renderServerCard(

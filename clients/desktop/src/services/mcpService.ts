@@ -2,10 +2,14 @@
  * Client-side MCP service — lifecycle management for internal MCP servers.
  *
  * On WebSocket connect:
- * 1. Fetches MCP server configs from API, filters location="client"
- * 2. Starts local MCP server processes via Electron IPC
- * 3. Discovers tools from local servers
- * 4. Registers tool schemas with backend via WebSocket
+ * 1. Collects the built-in host and app tool schemas
+ * 2. Starts Playwright, if the user turned its auto-start on
+ * 3. Discovers tools from every locally running MCP server
+ * 4. Registers the lot with the backend via WebSocket
+ *
+ * It does not fetch `location: "client"` server configs from the backend and
+ * spawn them, whatever this comment used to say. Any spawn goes through
+ * `electron/mcp.ts`, which asks the user first.
  *
  * On tool_call_request from backend:
  * 1. Calls tool via Electron IPC
@@ -14,6 +18,7 @@
 
 import { wsManager, type ToolCallRequestEvent } from '../api/websocket';
 import { initAppToolsHandler } from './appToolsHandler';
+import { PLAYWRIGHT_MCP_ARGS } from '../constants';
 
 let initialized = false;
 let initializing = false;
@@ -47,12 +52,21 @@ export async function initClientMCPServers(): Promise<void> {
 
   console.log(`[MCP] Built-in tools: ${hostTools.length} host + ${appTools.length} app`);
 
-  // Auto-start Playwright MCP server (stdio, always available for browser tools)
-  if (window.electron?.mcp?.startServer) {
+  // Playwright, only if the user asked for it to start on its own.
+  //
+  // This used to run on every connect: an unpinned `npx @playwright/mcp`,
+  // fetching and executing whatever the registry served that day, with no
+  // consent and no version. It is opt-in now (Settings → Tools & MCP), pinned,
+  // and — like any stdio server — subject to the spawn prompt in the main
+  // process the first time that command line runs.
+  if (window.electron?.mcp?.startServer && (await window.electron.mcp.getPlaywrightAutostart())) {
     try {
-      const result = await window.electron.mcp.startServer(
-        { name: 'Playwright', transport_type: 'stdio', command: 'npx', args: ['@playwright/mcp'] },
-      );
+      const result = await window.electron.mcp.startServer({
+        name: 'Playwright',
+        transport_type: 'stdio',
+        command: 'npx',
+        args: [...PLAYWRIGHT_MCP_ARGS],
+      });
       if (result.ok) {
         console.log('[MCP] Playwright MCP server started');
       } else {
