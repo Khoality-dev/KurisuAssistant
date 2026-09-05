@@ -28,10 +28,11 @@ electron/hostToolPolicy.ts — The gate's rules, electron-free so they are unit-
 electron/mcpConsent.ts    — Which local MCP spawns the user has agreed to, keyed on the command line rather than the server's name: renaming a server keeps consent, editing what it runs asks again.
 electron/appTools.ts      — App config tools: assistant capability (`app_get/update_assistant`), persona CRUD, sub-agent CRUD, MCP servers, skills, vision, UI navigation, browser launch (CDP). Forwards to the renderer via IPC round-trip; every advertised name must have a case in `src/services/appToolsHandler.ts` (`tests/appTools.test.ts` enforces it).
 electron/explorerIPC.ts   — Unsandboxed file explorer IPC: list-directory, read-file, write-file, is-binary, has-vscode, open-in-vscode
+electron/credentials.ts   — Session tokens, encrypted with `safeStorage` (OS keychain) into `credentials.json` in userData. With no keychain available nothing is written at all and `isSecure` says so, rather than falling back to plaintext. IPC: credentials:is-secure|read|write|clear.
 electron/mcpServer.ts     — The app *as* an MCP server: publishes every host and app tool over SSE for an external client (Claude Code). 127.0.0.1 only, no CORS headers, and a bearer token minted on first run into settings.json — shown in Settings → Tools & MCP. IPC: mcp-server:get-info, mcp-server:rotate-token.
 electron/mcpServerAuth.ts — The guard in front of that server, electron-free so it is unit-tested directly (`tests/mcpServerAuth.test.ts`): refuses anything carrying browser headers (Origin, Referer, Sec-Fetch-*) and requires the bearer token everywhere but /health.
 electron/settings.ts      — The main process's settings.json under userData (host-tool approvals, MCP token, first-run flags). One loader/saver: three modules had private copies, and two writes in the same tick dropped each other's keys.
-electron/preload.ts       — contextBridge: hostTools, appTools, explorer, mcp, mcpServer, characterWindow, extensions, updater
+electron/preload.ts       — contextBridge: hostTools, appTools, explorer, mcp, mcpServer, credentials, characterWindow, extensions, updater
 src/api/client.ts         — Axios + WebSocket singleton; streaming + media via wsManager; assistant/persona/sub-agent REST; migrateCharacterIds()
 src/api/types.ts          — TypeScript interfaces for API (Assistant / Persona / SubAgent — the old `Agent` is split three ways)
 src/constants.ts          — WIRE_PROTOCOL (4) + the `kurisu.auth.bearer` / `kurisu.wire.<n>` WebSocket subprotocol names
@@ -111,7 +112,7 @@ src/videocall/            — Character animation engine (rendered in separate E
   engine/
     CanvasCompositor.ts   — 60fps render: blink + breathing + mouth + pose tree state machine (idle→transitioning→idle), edge timers, video transitions, configurable AnimationSettings
     ImageCache.ts         — URL→HTMLImageElement cache
-src/utils/storage.ts      — localStorage wrapper (auth token, model, TTS settings, persona-conversation mapping)
+src/utils/storage.ts      — Preferences in localStorage (model, TTS settings, persona-conversation mapping) **and the in-memory half of token storage**. Tokens are never written to localStorage; `loadPersistedTokens()` fills memory from the keychain once at startup (migrating and deleting any plaintext pair an older build left), and `getToken()` stays synchronous for the authed asset URLs that call it on render paths.
 src/utils/commands.ts     — Slash command system: /compact, /clear. Autocomplete via getCommands(). Async handleCommand() with feedback strings. Lazy imports to avoid circular deps.
 src/theme/theme.ts        — MUI theme: primary #10A37F, 8px/12px border-radius
 src/config.ts             — API URL config (reads dynamically from storage)
@@ -180,7 +181,7 @@ Two-level state managed by `useMicStore` (Zustand, `src/store/micStore.ts`): `in
 - Mapping cleared on logout (`clearAllPersonaConversations`) and persona delete (`clearPersonaConversationId`)
 
 ### Auth Flow
-- Login → POST /login → access token (1h) + refresh token (30d) → stored in apiClient + localStorage (if rememberMe)
+- Login → POST /login → access token (1h) + refresh token (30d) → held by apiClient and in `storage`'s module memory; written to the OS keychain only if rememberMe. Memory holds them either way, so authed asset URLs work in a no-remember-me session.
 - App startup: `initializeAuth()` → sets refresh token on apiClient → validates via GET /users/me → auto-refreshes on 401 via axios interceptor
 - Token refresh: `POST /auth/refresh` with refresh_token body → returns new access_token. Coalesced (concurrent 401s share one refresh call). On success, persists new token if rememberMe. On failure, triggers logout.
 - WebSocket auth failure (4001): wsManager auto-refreshes via apiClient.tryRefresh() then reconnects
@@ -241,8 +242,10 @@ E2E tests live in `tests/` and run via Playwright's Electron support.
   Over the socket it emits `connected` (with `persona_id`), `stream_chunk`, `done`, and — on a `compact_context` event — `context_info` then `conversation_switched`. It enforces the wire protocol in the handshake, closing with 4426 on a mismatch.
   Configurable via `setStream`, `setTools`, `addPersona`, `addSubAgent`, `addMcpServer`. `dropAllWebSockets()` simulates a silent backend socket loss. Tracks `lastChatRequest`, `lastConversationPatch` and `lastMcpServerCreate` for assertions; `getConversation`/`getConversations`/`getPersonas`/`getAssistant` read its state back.
   A scripted `StreamChunk` speaks as the conversation's bound persona unless it sets `personaId`/`personaName` — which is how a handoff is scripted, since the client splits assistant bubbles on `persona_id`. A `role: 'tool'` chunk carries `name`, `toolKind` and `durationMs` instead, and goes out with `persona_id`/`persona_name` null.
-- Specs (Playwright, `*.spec.ts`): `smoke.spec.ts`, `streaming.spec.ts`, `settings.spec.ts`, `mcp.spec.ts`, `resilience.spec.ts`, `regression.spec.ts`, `mcpServer.spec.ts`. The last one drives the built-in MCP server over HTTP — token minted, anonymous refused, browser refused, SSE stream opens, nothing reachable off loopback. It is the only spec that talks to the app other than through the UI, and it earned that: the header heuristic in `mcpServerAuth.ts` passed every unit test while refusing every real client, because Node's `fetch` sends `sec-fetch-mode`.
-- Unit tests (vitest, `*.test.ts`) run with no Electron build: `tests/mock/server.test.ts` pins the mock's own shapes against the backend contract, `tests/appTools.test.ts` fails the build if an app tool is advertised without a handler, and `tests/hostToolPolicy.test.ts` / `tests/mcpConsent.test.ts` / `tests/mcpServerAuth.test.ts` cover the three security decisions the main process makes — which paths a host tool may touch, which programs may be spawned, who may reach the built-in MCP server. `vitest.config.ts` includes `tests/**/*.test.ts` alongside `src/**`; the `.spec.ts` / `.test.ts` split is what keeps the two runners apart.
+- Specs (Playwright, `*.spec.ts`): `smoke.spec.ts`, `streaming.spec.ts`, `settings.spec.ts`, `mcp.spec.ts`, `resilience.spec.ts`, `regression.spec.ts`, `mcpServer.spec.ts`, `credentials.spec.ts`.
+  - `mcpServer.spec.ts` drives the built-in MCP server over HTTP — token minted, anonymous refused, browser refused, SSE stream opens, nothing reachable off loopback. It talks to the app other than through the UI, and it earned that: the header heuristic in `mcpServerAuth.ts` passed every unit test while refusing every real client, because Node's `fetch` sends `sec-fetch-mode`.
+  - `credentials.spec.ts` logs in and checks that no token reaches localStorage, then forks on `credentials.isSecure()`: with a keychain the session survives a reload and the stored file holds no readable token; without one (a CI container has no secret service) nothing is written and the reload lands back on the login form.
+- Unit tests (vitest, `*.test.ts`) run with no Electron build: `tests/mock/server.test.ts` pins the mock's own shapes against the backend contract, `tests/appTools.test.ts` fails the build if an app tool is advertised without a handler, `tests/hostToolPolicy.test.ts` / `tests/mcpConsent.test.ts` / `tests/mcpServerAuth.test.ts` cover the three security decisions the main process makes — which paths a host tool may touch, which programs may be spawned, who may reach the built-in MCP server — and `src/utils/storage.test.ts` pins the negative property that no token is ever written to localStorage. `vitest.config.ts` includes `tests/**/*.test.ts` alongside `src/**`; the `.spec.ts` / `.test.ts` split is what keeps the two runners apart.
 
 Commands: `npm test` (vitest, no build needed), and `npm run test:e2e:build` (vite build → `dist/` + `dist-electron/`) then `npm run test:e2e` (or `test:e2e:headed` for debugging).
 
@@ -302,9 +305,11 @@ Separate Electron window (toggleable via Face icon in top bar). Opens as indepen
 
 ## Storage Keys (localStorage)
 
-`kurisu_auth_token`, `kurisu_refresh_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_tts_emo_audio`, `kurisu_tts_emo_alpha`, `kurisu_tts_use_emo_text`, `kurisu_selected_persona_id`, `kurisu_persona_conversations`, `kurisu_media_volume`
+`kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_tts_emo_audio`, `kurisu_tts_emo_alpha`, `kurisu_tts_use_emo_text`, `kurisu_selected_persona_id`, `kurisu_persona_conversations`, `kurisu_media_volume`
 
 Pre-split keys `kurisu_selected_agent_id` and `kurisu_agent_conversations` are removed once at startup by `storage.clearLegacyAgentKeys()` — both were caches that re-derive from the backend, so nothing is migrated.
+
+`kurisu_auth_token` and `kurisu_refresh_token` are **gone from this list on purpose**. Tokens live in the OS keychain via `electron/credentials.ts`; `storage.loadPersistedTokens()` moves any pair an older build left here into it and deletes them. Do not add a token, password or key to localStorage — in Electron it is an unencrypted LevelDB under userData, readable by any process running as the user.
 
 ## Client-Side MCP Servers
 
@@ -322,7 +327,7 @@ MCP servers can run locally on the Electron client (`location: "client"`) in add
 
 - contextIsolation enabled, nodeIntegration disabled
 - Token validated on startup (not blindly trusted)
-- Tokens in localStorage (renderer-only, no XSS risk with contextIsolation)
+- Tokens are kept in the OS keychain (`safeStorage`), never in localStorage, matching what the Android client already did with EncryptedSharedPreferences. On a system with no keychain the session simply ends with the app: "Remember me" is disabled and says why, because the alternative is writing a 30-day credential to disk in the clear.
 - Self-signed certificates accepted via `certificate-error` handler (for direct HTTPS connections to backend)
 - Host tools: `allowed_paths` is enforced in `executeHostTool`, not just consulted before the prompt, and "Always" stores the exact path. Bash approvals are the full normalised command — keying them on the first token meant an approved `git status` also approved `git status; <anything>`.
 - No stdio MCP server is spawned without consent for that exact command line, whoever asked: the settings form, `app_add_mcp_server` (a row a model can write), or a config from the backend. Playwright's auto-start is opt-in and its package is pinned in `src/constants.ts`; it used to run `npx @playwright/mcp` unpinned on every connect.

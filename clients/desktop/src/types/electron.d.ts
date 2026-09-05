@@ -100,6 +100,16 @@ export interface MCPAPI {
   revokeApprovedSpawn: (commandLine: string) => Promise<string[]>;
 }
 
+/** Session tokens, held by the main process in the OS keychain. */
+export interface CredentialsAPI {
+  /** False when the OS offers no keychain — then nothing is persisted at all. */
+  isSecure: () => Promise<boolean>;
+  read: () => Promise<{ accessToken: string | null; refreshToken: string | null }>;
+  /** Resolves false if the write was refused for want of secure storage. */
+  write: (credentials: { accessToken: string | null; refreshToken: string | null }) => Promise<boolean>;
+  clear: () => Promise<void>;
+}
+
 /** The app's own MCP endpoint, the one external clients connect to. */
 export interface McpServerInfo {
   url: string;
@@ -132,6 +142,7 @@ export interface ElectronAPI {
   explorer: ExplorerAPI;
   mcp: MCPAPI;
   mcpServer: McpServerAPI;
+  credentials: CredentialsAPI;
   characterWindow: CharacterWindowAPI;
   extensions: ExtensionsAPI;
 }

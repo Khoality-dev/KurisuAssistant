@@ -1,11 +1,19 @@
 /**
- * Persistent storage utility for auth tokens
- * Uses localStorage for simplicity in Electron renderer process
+ * Persistent storage for preferences, and the in-memory half of token storage.
+ *
+ * Preferences live in localStorage. **Tokens do not.** They are held in module
+ * memory for the life of the window and persisted through the main process into
+ * the OS keychain (`electron/credentials.ts`), because localStorage in Electron
+ * is an unencrypted LevelDB any process running as the user can read, and the
+ * refresh token is 30 days of account access.
+ *
+ * `getToken()` stays synchronous — it is called while building authed URLs on
+ * render paths — so the flow is: `loadPersistedTokens()` once at startup fills
+ * memory from the keychain, and every later read is a memory read. Writes go to
+ * memory first and to the keychain in the background.
  */
 
 const STORAGE_KEYS = {
-  AUTH_TOKEN: 'kurisu_auth_token',
-  REFRESH_TOKEN: 'kurisu_refresh_token',
   REMEMBER_ME: 'kurisu_remember_me',
   SELECTED_MODEL: 'kurisu_selected_model',
   TTS_VOICE: 'kurisu_tts_voice',
@@ -31,6 +39,62 @@ const LEGACY_STORAGE_KEYS = [
   'kurisu_selected_agent_id',
   'kurisu_agent_conversations',
 ] as const;
+
+// Where the tokens used to be kept. Read once during migration, then removed.
+const LEGACY_TOKEN_KEYS = {
+  AUTH_TOKEN: 'kurisu_auth_token',
+  REFRESH_TOKEN: 'kurisu_refresh_token',
+} as const;
+
+/**
+ * The tokens, for this window only. Never written to localStorage; the copy
+ * that survives a restart is the encrypted one the main process holds.
+ */
+const tokens: { access: string | null; refresh: string | null } = {
+  access: null,
+  refresh: null,
+};
+
+/** False once we learn the OS has no keychain: then nothing persists at all. */
+let secureStorageAvailable = true;
+
+function credentialsBridge() {
+  return typeof window !== 'undefined' ? window.electron?.credentials : undefined;
+}
+
+function rememberMeEnabled(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEYS.REMEMBER_ME) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Push the current pair to the keychain. Fire-and-forget by design.
+ *
+ * "Remember me" decides what crosses this line, not what the window holds:
+ * memory always has the tokens while a session is open, which is what the
+ * authed asset URLs read. Without remember-me nothing is written, and anything
+ * previously written is dropped.
+ */
+function persistTokens(): void {
+  const bridge = credentialsBridge();
+  if (!bridge) return; // Vite dev server with no Electron: memory only.
+  if (!rememberMeEnabled()) {
+    bridge.clear().catch((error) => console.error('Failed to clear tokens:', error));
+    return;
+  }
+  bridge
+    .write({ accessToken: tokens.access, refreshToken: tokens.refresh })
+    .then((stored) => {
+      secureStorageAvailable = stored !== false;
+      if (!stored) {
+        console.warn('[storage] No OS keychain available — tokens are not persisted.');
+      }
+    })
+    .catch((error) => console.error('Failed to persist tokens:', error));
+}
 
 /**
  * A key in the persona → conversation map. A number is a persona id. `'unbound'`
@@ -58,62 +122,86 @@ export const storage = {
   },
 
   /**
-   * Save auth token to persistent storage
+   * Fill memory from the keychain, once, before anything reads a token.
+   *
+   * Also migrates a pair left in localStorage by an older build: it is moved
+   * into the keychain and the plaintext copies are deleted. If there is no
+   * keychain to move them to, they are deleted anyway — an unencrypted 30-day
+   * credential on disk is the thing being fixed, and the user can log in again.
    */
+  async loadPersistedTokens(): Promise<void> {
+    const bridge = credentialsBridge();
+
+    let legacyAccess: string | null = null;
+    let legacyRefresh: string | null = null;
+    try {
+      legacyAccess = localStorage.getItem(LEGACY_TOKEN_KEYS.AUTH_TOKEN);
+      legacyRefresh = localStorage.getItem(LEGACY_TOKEN_KEYS.REFRESH_TOKEN);
+      localStorage.removeItem(LEGACY_TOKEN_KEYS.AUTH_TOKEN);
+      localStorage.removeItem(LEGACY_TOKEN_KEYS.REFRESH_TOKEN);
+    } catch {
+      /* no localStorage: nothing to migrate */
+    }
+
+    if (!bridge) {
+      secureStorageAvailable = false;
+      tokens.access = legacyAccess;
+      tokens.refresh = legacyRefresh;
+      return;
+    }
+
+    try {
+      secureStorageAvailable = await bridge.isSecure();
+      const stored = await bridge.read();
+      tokens.access = stored.accessToken ?? legacyAccess;
+      tokens.refresh = stored.refreshToken ?? legacyRefresh;
+      // Only write when migrating, so a plain launch does not rewrite the file.
+      if (!stored.refreshToken && (legacyAccess || legacyRefresh)) persistTokens();
+    } catch (error) {
+      console.error('Failed to read stored tokens:', error);
+      tokens.access = legacyAccess;
+      tokens.refresh = legacyRefresh;
+    }
+  },
+
+  /** False when the OS offers no keychain, so "Remember me" cannot be honoured. */
+  isTokenStorageSecure(): boolean {
+    return secureStorageAvailable;
+  },
+
   setToken(token: string): void {
-    try {
-      localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
-    } catch (error) {
-      console.error('Failed to save token:', error);
-    }
+    tokens.access = token;
+    persistTokens();
   },
 
-  /**
-   * Get auth token from persistent storage
-   */
   getToken(): string | null {
-    try {
-      return localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
-    } catch (error) {
-      console.error('Failed to get token:', error);
-      return null;
-    }
+    return tokens.access;
   },
 
-  /**
-   * Remove auth token from storage
-   */
   clearToken(): void {
-    try {
-      localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
-    } catch (error) {
-      console.error('Failed to clear token:', error);
-    }
+    tokens.access = null;
+    persistTokens();
   },
 
   setRefreshToken(token: string): void {
-    try {
-      localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, token);
-    } catch (error) {
-      console.error('Failed to save refresh token:', error);
-    }
+    tokens.refresh = token;
+    persistTokens();
   },
 
   getRefreshToken(): string | null {
-    try {
-      return localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-    } catch (error) {
-      console.error('Failed to get refresh token:', error);
-      return null;
-    }
+    return tokens.refresh;
   },
 
   clearRefreshToken(): void {
-    try {
-      localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-    } catch (error) {
-      console.error('Failed to clear refresh token:', error);
-    }
+    tokens.refresh = null;
+    persistTokens();
+  },
+
+  /** Drop both tokens from memory and from the keychain. */
+  clearTokens(): void {
+    tokens.access = null;
+    tokens.refresh = null;
+    credentialsBridge()?.clear().catch((error) => console.error('Failed to clear tokens:', error));
   },
 
   /**

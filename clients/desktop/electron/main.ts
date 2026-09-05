@@ -11,6 +11,7 @@ import { registerAppToolIPC } from './appTools';
 import { registerExplorerIPC } from './explorerIPC';
 import { startMcpServer, stopMcpServer, registerMcpServerIPC } from './mcpServer';
 import { loadSettings, saveSettings } from './settings';
+import { registerCredentialsIPC } from './credentials';
 
 // Set custom cache path to avoid permission issues on Windows.
 // In E2E tests we point userData at an isolated temp dir so the single-instance
@@ -448,6 +449,7 @@ app.whenReady().then(() => {
   registerHostToolIPC();
   registerAppToolIPC();
   registerExplorerIPC();
+  registerCredentialsIPC();
   registerMcpServerIPC();
   // The port is fixed in normal use; the E2E run overrides it so the suite
   // cannot end up talking to a real install listening on the default.
