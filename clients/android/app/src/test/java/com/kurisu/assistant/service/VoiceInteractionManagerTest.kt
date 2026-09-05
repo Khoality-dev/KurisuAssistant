@@ -138,4 +138,69 @@ class VoiceInteractionManagerTest {
         manager.onTTSAndStreamingIdle()
         assertThat(manager.state.value.isInteractionMode).isFalse()
     }
+
+    // ── Idle countdown ────────────────────────────────────────────────────
+    // The composer shows "idle timeout in {n}s". It needs the instant the timer
+    // fires, not the constant: seconds counted in the UI drift the moment the
+    // screen sleeps or a recomposition is skipped.
+
+    @Test
+    fun `no idle deadline is armed until streaming and speech both stop`() {
+        manager.enterMode()
+        assertThat(manager.state.value.idleDeadlineMs).isNull()
+
+        manager.isStreaming = true
+        manager.onTTSAndStreamingIdle()
+        assertThat(manager.state.value.idleDeadlineMs).isNull()
+    }
+
+    @Test
+    fun `going idle arms a deadline one timeout away`() {
+        manager.enterMode()
+        val before = System.currentTimeMillis()
+        manager.onTTSAndStreamingIdle()
+        val after = System.currentTimeMillis()
+
+        val deadline = manager.state.value.idleDeadlineMs
+        assertThat(deadline).isNotNull()
+        assertThat(deadline!!).isAtLeast(before + VoiceInteractionManager.IDLE_TIMEOUT_MS)
+        assertThat(deadline).isAtMost(after + VoiceInteractionManager.IDLE_TIMEOUT_MS)
+    }
+
+    @Test
+    fun `a new transcript restarts the wait, so the deadline moves forward`() {
+        manager.enterMode()
+        manager.onTTSAndStreamingIdle()
+        val first = manager.state.value.idleDeadlineMs!!
+
+        // Answering resets the clock: the countdown must not keep running down
+        // while the user is still talking.
+        manager.handleTranscript("still here")
+        assertThat(manager.state.value.idleDeadlineMs).isNull()
+
+        manager.onTTSAndStreamingIdle()
+        assertThat(manager.state.value.idleDeadlineMs!!).isAtLeast(first)
+    }
+
+    @Test
+    fun `leaving voice mode clears the deadline`() {
+        manager.enterMode()
+        manager.onTTSAndStreamingIdle()
+        assertThat(manager.state.value.idleDeadlineMs).isNotNull()
+
+        manager.exitMode()
+        assertThat(manager.state.value.idleDeadlineMs).isNull()
+        assertThat(manager.state.value.isInteractionMode).isFalse()
+    }
+
+    @Test
+    fun `the wake word API is unchanged — it is assistant-level, not per persona`() {
+        // setTriggerWord(String?) keeps its shape: one word wakes the assistant
+        // and the conversation's bound persona answers. It selects no one.
+        manager.setTriggerWord("kurisu")
+        assertThat(manager.handleTranscript("kurisu are you there")).isTrue()
+        manager.exitMode()
+        manager.setTriggerWord(null)
+        assertThat(manager.handleTranscript("kurisu are you there")).isFalse()
+    }
 }

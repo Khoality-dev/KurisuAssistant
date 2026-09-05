@@ -38,7 +38,7 @@ class UpdateRepository @Inject constructor(
      *   - prod → GitHub Releases (the public ship channel)
      *   - dev  → AndroidLocalDeployment manifest on the LAN
      * The dev path synthesizes a [GithubRelease] so the rest of the update
-     * pipeline (HomeViewModel, UpdateDialog, downloadApk) doesn't need to care.
+     * pipeline (ConversationsViewModel, UpdateDialog, downloadApk) doesn't need to care.
      */
     suspend fun checkForUpdate(): GithubRelease? = when (BuildConfig.FLAVOR) {
         "dev" -> checkLocalDevUpdate()

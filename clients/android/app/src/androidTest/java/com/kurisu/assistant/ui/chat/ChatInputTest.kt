@@ -39,9 +39,7 @@ class ChatInputTest {
                     onRemoveImage = {},
                     selectedImages = emptyList(),
                     isStreaming = false,
-                    isMicActive = false,
                     isInteractionMode = false,
-                    onMicToggle = null,
                 )
             }
         }
@@ -65,9 +63,7 @@ class ChatInputTest {
                     onRemoveImage = {},
                     selectedImages = emptyList(),
                     isStreaming = false,
-                    isMicActive = false,
                     isInteractionMode = false,
-                    onMicToggle = null,
                 )
             }
         }
@@ -98,9 +94,7 @@ class ChatInputTest {
                     onRemoveImage = {},
                     selectedImages = emptyList(),
                     isStreaming = true,
-                    isMicActive = false,
                     isInteractionMode = false,
-                    onMicToggle = null,
                 )
             }
         }
@@ -123,9 +117,7 @@ class ChatInputTest {
                     onRemoveImage = {},
                     selectedImages = emptyList(),
                     isStreaming = true,
-                    isMicActive = false,
                     isInteractionMode = false,
-                    onMicToggle = null,
                 )
             }
         }
@@ -134,7 +126,8 @@ class ChatInputTest {
     }
 
     @Test
-    fun voice_active_banner_shows_when_in_interaction_mode() {
+    fun voice_bar_shows_copy_countdown_and_stop_control() {
+        var stopCount = 0
         composeRule.setContent {
             KurisuTheme {
                 ChatInput(
@@ -146,20 +139,22 @@ class ChatInputTest {
                     onRemoveImage = {},
                     selectedImages = emptyList(),
                     isStreaming = false,
-                    isMicActive = true,
                     isInteractionMode = true,
-                    onMicToggle = {},
+                    voiceIdleDeadlineMs = System.currentTimeMillis() + 27_000L,
+                    onStopVoice = { stopCount++ },
                 )
             }
         }
 
-        composeRule.onNodeWithText("Voice Active").assertExists()
-        composeRule.onNodeWithContentDescription("Toggle microphone").assertExists()
+        composeRule.onNodeWithText("Voice active — sends when you stop").assertExists()
+        // 27s remaining, rounded up — the bar counts down from the deadline.
+        composeRule.onNodeWithText("idle timeout in 27s").assertExists()
+        composeRule.onNodeWithContentDescription("Stop voice mode").performClick()
+        assert(stopCount == 1) { "Expected onStopVoice to fire once, got $stopCount" }
     }
 
     @Test
-    fun mic_toggle_fires_callback() {
-        var micCount = 0
+    fun voice_bar_is_absent_outside_interaction_mode() {
         composeRule.setContent {
             KurisuTheme {
                 ChatInput(
@@ -171,36 +166,11 @@ class ChatInputTest {
                     onRemoveImage = {},
                     selectedImages = emptyList(),
                     isStreaming = false,
-                    isMicActive = false,
                     isInteractionMode = false,
-                    onMicToggle = { micCount++ },
                 )
             }
         }
-
-        composeRule.onNodeWithContentDescription("Toggle microphone").performClick()
-        assert(micCount == 1)
-    }
-
-    @Test
-    fun mic_not_rendered_when_callback_is_null() {
-        composeRule.setContent {
-            KurisuTheme {
-                ChatInput(
-                    text = "",
-                    onTextChange = {},
-                    onSend = {},
-                    onCancel = {},
-                    onImageSelected = {},
-                    onRemoveImage = {},
-                    selectedImages = emptyList(),
-                    isStreaming = false,
-                    isMicActive = false,
-                    isInteractionMode = false,
-                    onMicToggle = null,
-                )
-            }
-        }
-        composeRule.onNodeWithContentDescription("Toggle microphone").assertDoesNotExist()
+        composeRule.onNodeWithText("Voice active — sends when you stop").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Stop voice mode").assertDoesNotExist()
     }
 }

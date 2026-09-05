@@ -13,6 +13,16 @@ import javax.inject.Singleton
 
 data class VoiceInteractionState(
     val isInteractionMode: Boolean = false,
+    /**
+     * Wall-clock instant ([System.currentTimeMillis]) at which the idle timer
+     * will drop out of voice mode, or null while no timer is armed (mode is off,
+     * or the assistant is still streaming/speaking so the clock has not started).
+     *
+     * The composer needs the deadline rather than the remaining seconds: a
+     * countdown recomputed from a fixed instant stays correct across
+     * recomposition, process pauses and a screen that was off for ten seconds.
+     */
+    val idleDeadlineMs: Long? = null,
 )
 
 @Singleton
@@ -21,7 +31,9 @@ class VoiceInteractionManager @Inject constructor(
 ) {
     companion object {
         private const val TAG = "VoiceInteraction"
-        private const val IDLE_TIMEOUT_MS = 30000L
+
+        /** How long voice mode waits for another utterance before dropping out. */
+        const val IDLE_TIMEOUT_MS = 30000L
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -101,13 +113,14 @@ class VoiceInteractionManager @Inject constructor(
     fun exitMode() {
         cancelIdleTimer()
         pendingAutoSend = null
-        _state.update { it.copy(isInteractionMode = false) }
+        _state.update { it.copy(isInteractionMode = false, idleDeadlineMs = null) }
         playSound("stop_effect")
         onExitMode?.invoke()
     }
 
     private fun startIdleTimer() {
         cancelIdleTimer()
+        _state.update { it.copy(idleDeadlineMs = System.currentTimeMillis() + IDLE_TIMEOUT_MS) }
         idleTimerJob = scope.launch {
             delay(IDLE_TIMEOUT_MS)
             exitMode()
@@ -117,6 +130,9 @@ class VoiceInteractionManager @Inject constructor(
     private fun cancelIdleTimer() {
         idleTimerJob?.cancel()
         idleTimerJob = null
+        if (_state.value.idleDeadlineMs != null) {
+            _state.update { it.copy(idleDeadlineMs = null) }
+        }
     }
 
     private fun playSound(name: String) {

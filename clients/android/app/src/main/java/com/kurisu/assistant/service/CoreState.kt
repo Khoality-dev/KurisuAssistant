@@ -14,7 +14,9 @@ data class CoreServiceState(
     val isProcessingAsr: Boolean = false,
     val lastTranscript: String? = null,
     val conversationId: Int? = null,
-    val selectedAgentId: Int? = null,
+    // The persona answering in [conversationId]. There is nothing to "select":
+    // one assistant owns capability, and this only records who is speaking.
+    val currentPersonaId: Int? = null,
 )
 
 @Singleton
@@ -52,8 +54,8 @@ class CoreState @Inject constructor() {
         _state.update { it.copy(conversationId = id) }
     }
 
-    fun setSelectedAgentId(id: Int?) {
-        _state.update { it.copy(selectedAgentId = id) }
+    fun setCurrentPersonaId(id: Int?) {
+        _state.update { it.copy(currentPersonaId = id) }
     }
 
     fun emitStreamDone() {

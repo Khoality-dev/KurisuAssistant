@@ -1,38 +1,76 @@
 package com.kurisu.assistant.ui.settings
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Face
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.RecordVoiceOver
+import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import com.kurisu.assistant.domain.audio.AudioRecorder
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kurisu.assistant.BuildConfig
+import com.kurisu.assistant.ui.theme.KurisuTheme
 import com.kurisu.assistant.ui.update.UpdateDialog
 
+/**
+ * The settings index: grouped rows of icon, label and sub-label.
+ *
+ * Every row that edits something opens the screen that owns it. The two rows
+ * that decide something here — auto-update and the manual check — do it inline,
+ * because there is no screen behind them.
+ *
+ * The design draws Text-to-Speech and Speech Recognition as two rows. This
+ * client has one screen holding both (plus the microphone device), so they are
+ * one row: two rows leading to the same place would say there are two places.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
-    onLogout: () -> Unit,
+    onNavigateToAccount: () -> Unit,
+    onNavigateToAppearance: () -> Unit,
+    onNavigateToTtsAsr: () -> Unit,
+    onNavigateToFaces: () -> Unit,
+    onNavigateToAbout: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
-
-    if (state.updateRelease != null) {
-        UpdateDialog(
-            release = state.updateRelease!!,
-            progress = state.updateProgress,
-            apkFile = state.updateApkFile,
-            onDownload = viewModel::downloadAndInstall,
-            onDismiss = viewModel::dismissUpdate,
-        )
-    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(state.message) {
@@ -40,6 +78,16 @@ fun SettingsScreen(
             snackbarHostState.showSnackbar(it)
             viewModel.clearMessage()
         }
+    }
+
+    state.updateRelease?.let { release ->
+        UpdateDialog(
+            release = release,
+            progress = state.updateProgress,
+            apkFile = state.updateApkFile,
+            onDownload = viewModel::downloadAndInstall,
+            onDismiss = viewModel::dismissUpdate,
+        )
     }
 
     Scaffold(
@@ -59,248 +107,138 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .verticalScroll(rememberScrollState()),
         ) {
-            // Server section
-            Text("Server", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(
-                value = state.serverUrl,
-                onValueChange = viewModel::setServerUrl,
-                label = { Text("Backend URL") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+            GroupLabel("You")
+            SettingsRow(
+                icon = Icons.Outlined.AccountCircle,
+                label = "Account",
+                sub = "Preferred name, Ollama URL, server",
+                onClick = onNavigateToAccount,
             )
-            Button(onClick = viewModel::saveServerUrl) {
-                Text("Save URL")
-            }
-
-            HorizontalDivider()
-
-            // Account section
-            Text("Account", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(
-                value = state.username,
-                onValueChange = {},
-                label = { Text("Username") },
-                enabled = false,
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+            SettingsRow(
+                icon = Icons.Outlined.Palette,
+                label = "Appearance",
+                sub = "Theme mode",
+                onClick = onNavigateToAppearance,
             )
-            OutlinedTextField(
-                value = state.preferredName,
-                onValueChange = viewModel::setPreferredName,
-                label = { Text("Preferred Name") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+
+            GroupLabel("Voice")
+            SettingsRow(
+                icon = Icons.Outlined.RecordVoiceOver,
+                label = "Text-to-Speech & ASR",
+                sub = "Backend, voice, language, mic device",
+                onClick = onNavigateToTtsAsr,
             )
-            OutlinedTextField(
-                value = state.ollamaUrl,
-                onValueChange = viewModel::setOllamaUrl,
-                label = { Text("Ollama URL") },
-                placeholder = { Text("http://localhost:11434") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+            SettingsRow(
+                icon = Icons.Outlined.Face,
+                label = "Face Identities",
+                sub = state.faceCount?.let {
+                    if (it == 1) "1 person enrolled" else "$it people enrolled"
+                } ?: "People the camera recognises",
+                onClick = onNavigateToFaces,
             )
-            Button(
-                onClick = viewModel::saveProfile,
-                enabled = !state.isSaving,
-            ) {
-                Text("Save Profile")
-            }
 
-            HorizontalDivider()
-
-            // TTS section
-            Text("Text-to-Speech", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(
-                value = state.ttsBackend,
-                onValueChange = viewModel::setTtsBackend,
-                label = { Text("TTS Backend") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                supportingText = {
-                    if (state.backends.isNotEmpty()) {
-                        Text("Available: ${state.backends.joinToString(", ")}")
-                    }
-                },
-            )
-            Button(onClick = viewModel::saveTtsSettings) {
-                Text("Save TTS Settings")
-            }
-
-            HorizontalDivider()
-
-            // Speech Recognition section
-            Text("Speech Recognition", style = MaterialTheme.typography.titleMedium)
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Always Listen", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        "Keep the mic open for voice commands. Off = start recording manually.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = state.alwaysListen,
-                    onCheckedChange = viewModel::setAlwaysListen,
-                )
-            }
-
-            OutlinedTextField(
-                value = state.asrLanguage,
-                onValueChange = viewModel::setAsrLanguage,
-                label = { Text("Language") },
-                placeholder = { Text("Auto-detect") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                supportingText = {
-                    Text("ISO 639-1 code (e.g. en, ja, zh, vi). Empty = auto-detect")
-                },
-            )
-            Button(onClick = viewModel::saveAsrLanguage) {
-                Text("Save ASR Language")
-            }
-
-            HorizontalDivider()
-
-            // Microphone section
-            Text("Microphone", style = MaterialTheme.typography.titleMedium)
-            if (state.inputDevices.isNotEmpty()) {
-                var micExpanded by remember { mutableStateOf(false) }
-                val selectedName = if (state.selectedDeviceType < 0) {
-                    "Default"
+            GroupLabel("App")
+            SettingsRow(
+                icon = Icons.Outlined.SystemUpdate,
+                label = "Auto-update",
+                sub = if (state.autoUpdate) {
+                    "On · checks GitHub Releases"
                 } else {
-                    state.inputDevices.find { it.first == state.selectedDeviceType }?.second
-                        ?: AudioRecorder.deviceTypeName(state.selectedDeviceType)
-                }
-                ExposedDropdownMenuBox(
-                    expanded = micExpanded,
-                    onExpandedChange = { micExpanded = it },
-                ) {
-                    OutlinedTextField(
-                        value = selectedName,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Input Device") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = micExpanded) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    "Off · check for updates below"
+                },
+                onClick = { viewModel.setAutoUpdate(!state.autoUpdate) },
+                trailing = {
+                    Switch(
+                        checked = state.autoUpdate,
+                        onCheckedChange = viewModel::setAutoUpdate,
                     )
-                    ExposedDropdownMenu(
-                        expanded = micExpanded,
-                        onDismissRequest = { micExpanded = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Default") },
-                            onClick = {
-                                viewModel.selectMicDevice(-1)
-                                micExpanded = false
-                            },
+                },
+            )
+            SettingsRow(
+                icon = Icons.Outlined.SystemUpdate,
+                label = "Check for updates",
+                sub = state.updateStatus ?: "v${BuildConfig.VERSION_NAME} (${BuildConfig.FLAVOR})",
+                onClick = viewModel::checkForUpdate,
+                trailing = if (state.isCheckingUpdate) {
+                    {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
                         )
-                        state.inputDevices.forEach { (type, name) ->
-                            DropdownMenuItem(
-                                text = { Text(name) },
-                                onClick = {
-                                    viewModel.selectMicDevice(type)
-                                    micExpanded = false
-                                },
-                            )
-                        }
                     }
-                }
-            } else {
-                Text(
-                    "No input devices found",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            OutlinedButton(onClick = viewModel::testMicrophone) {
-                Text(if (state.isTesting) "Stop Test" else "Test Microphone")
-            }
-            if (state.isTesting) {
-                LinearProgressIndicator(
-                    progress = { state.micTestLevel },
-                    modifier = Modifier.fillMaxWidth().height(8.dp),
-                )
-            }
-
-            HorizontalDivider()
-
-            // About & Logout
-            Text("About", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-                style = MaterialTheme.typography.bodyMedium,
+                } else {
+                    null
+                },
+            )
+            SettingsRow(
+                icon = Icons.Outlined.Info,
+                label = "About",
+                sub = "v${BuildConfig.VERSION_NAME} (${BuildConfig.FLAVOR}) · wire ${BuildConfig.WIRE_PROTOCOL}",
+                onClick = onNavigateToAbout,
             )
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Auto-update", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        "On launch: download new releases and prompt to install automatically.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = state.autoUpdate,
-                    onCheckedChange = viewModel::setAutoUpdate,
-                )
-            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
 
-            OutlinedButton(
-                onClick = viewModel::checkForUpdate,
-                enabled = !state.isCheckingUpdate,
-            ) {
-                if (state.isCheckingUpdate) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text("Check for updates")
-            }
+@Composable
+private fun GroupLabel(text: String) {
+    Text(
+        text = text.uppercase(),
+        style = KurisuTheme.extraTypography.metadataSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 6.dp),
+    )
+}
 
-            Spacer(Modifier.height(8.dp))
-
-            var showLogoutDialog by remember { mutableStateOf(false) }
-            Button(
-                onClick = { showLogoutDialog = true },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Logout")
-            }
-
-            if (showLogoutDialog) {
-                AlertDialog(
-                    onDismissRequest = { showLogoutDialog = false },
-                    title = { Text("Logout") },
-                    text = { Text("Are you sure you want to logout?") },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            showLogoutDialog = false
-                            viewModel.logout(onLogout)
-                        }) { Text("Logout") }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showLogoutDialog = false }) { Text("Cancel") }
-                    },
-                )
-            }
+/**
+ * One settings row. [trailing] replaces the chevron when the row does something
+ * in place rather than opening a screen — a switch, or a spinner while a check
+ * is running.
+ */
+@Composable
+private fun SettingsRow(
+    icon: ImageVector,
+    label: String,
+    sub: String,
+    onClick: () -> Unit,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(21.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                sub,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (trailing != null) {
+            Box(contentAlignment = Alignment.Center) { trailing() }
+        } else {
+            Icon(
+                Icons.Outlined.ChevronRight,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

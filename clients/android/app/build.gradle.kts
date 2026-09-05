@@ -76,14 +76,14 @@ android {
         applicationId = "com.kurisu.assistant"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.2.0"
+        versionCode = 11
+        versionName = "0.3.0"
         // Wire-protocol integer — must equal backend `WIRE_PROTOCOL` in
         // KurisuAssistant/kurisuassistant/version.py. Bump on any breaking
         // change to REST/WebSocket payloads, headers, or auth flow. Sent on
         // every request via WireProtocolInterceptor and checked once on
         // startup against `GET /version`.
-        buildConfigField("int", "WIRE_PROTOCOL", "3")
+        buildConfigField("int", "WIRE_PROTOCOL", "4")
     }
 
     signingConfigs {

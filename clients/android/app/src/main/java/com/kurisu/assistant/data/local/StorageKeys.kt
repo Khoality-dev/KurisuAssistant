@@ -11,8 +11,15 @@ object StorageKeys {
     const val TTS_EMO_ALPHA = "kurisu_tts_emo_alpha"
     const val TTS_USE_EMO_TEXT = "kurisu_tts_use_emo_text"
     const val BACKEND_URL = "kurisu_backend_url"
-    const val SELECTED_AGENT_ID = "kurisu_selected_agent_id"
-    const val AGENT_CONVERSATIONS = "kurisu_agent_conversations"
+    // There is exactly one assistant, so there is nothing to select locally, and
+    // the default persona lives on the assistant row server-side — two devices
+    // would otherwise disagree about who answers. `kurisu_selected_agent_id` is
+    // gone rather than renamed.
+    //
+    // Persona -> last conversation. A cache: it re-derives from the backend on a
+    // miss, so the rename needs no migration; a stale `kurisu_agent_conversations`
+    // blob is simply never read again.
+    const val PERSONA_CONVERSATIONS = "kurisu_persona_conversations"
     const val AUDIO_INPUT_DEVICE_TYPE = "kurisu_audio_input_device_type"
     const val ASR_LANGUAGE = "kurisu_asr_language"
     const val ASR_ALWAYS_LISTEN = "kurisu_asr_always_listen"

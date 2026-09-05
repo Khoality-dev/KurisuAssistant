@@ -13,7 +13,11 @@ data class ChatRequestPayload(
     val text: String,
     @SerialName("model_name") val modelName: String,
     @SerialName("conversation_id") val conversationId: Int? = null,
-    @SerialName("agent_id") val agentId: Int? = null,
+    // Optional per-turn persona override. Omit on an ordinary message: a new
+    // conversation silently adopts the assistant's default persona and an
+    // existing one keeps its binding. Sending it REBINDS the conversation.
+    // The old `agent_id` was renamed, not aliased — the backend ignores it.
+    @SerialName("persona_id") val personaId: Int? = null,
     val images: List<String> = emptyList(),
 )
 
@@ -64,4 +68,18 @@ data class CompactContextPayload(
     @SerialName("event_id") val eventId: String,
     val timestamp: String,
     @SerialName("conversation_id") val conversationId: Int,
+)
+
+/**
+ * Answer to a `tool_call_request`. Backend keys it by [requestId]; when [isError] is
+ * true the content is surfaced to the model as "Client tool error: <content>".
+ */
+@Serializable
+data class ToolCallResponsePayload(
+    val type: String = "tool_call_response",
+    @SerialName("event_id") val eventId: String,
+    val timestamp: String,
+    @SerialName("request_id") val requestId: String,
+    val content: String,
+    @SerialName("is_error") val isError: Boolean = false,
 )

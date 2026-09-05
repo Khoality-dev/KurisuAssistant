@@ -14,7 +14,7 @@ import com.kurisu.assistant.data.model.ModelInfo
  * Read-only model picker with a refresh button.
  *
  * Replaces the ad-hoc ExposedDropdownMenu blocks that used to live in
- * AgentsScreen and AccountScreen, which had three bugs in common:
+ * AssistantScreen and AccountScreen, which had three bugs in common:
  *  1. The text field accepted arbitrary input (no readOnly).
  *  2. The menu was gated on `availableModels.isNotEmpty()`, so when the
  *     list hadn't loaded yet, tapping the chevron rendered nothing.

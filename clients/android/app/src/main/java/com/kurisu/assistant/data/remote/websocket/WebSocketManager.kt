@@ -1,6 +1,7 @@
 package com.kurisu.assistant.data.remote.websocket
 
 import android.util.Log
+import com.kurisu.assistant.BuildConfig
 import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.model.*
 import kotlinx.coroutines.*
@@ -81,6 +82,12 @@ class WebSocketManager @Inject constructor(
                 .replace(Regex("^https:"), "wss:")
             // The token goes in a header, not the query string: query strings are
             // recorded by proxies and this credential is refreshable for 30 days.
+            //
+            // The handshake also has to declare `X-Wire-Protocol` or the server
+            // closes it with 4426 before authenticating. That header is stamped by
+            // WireProtocolInterceptor, which [wsClient] inherits from the shared
+            // OkHttpClient — OkHttp runs application interceptors on the upgrade
+            // request too, so do not drop those interceptors from this builder.
             val url = "$wsUrl/ws/chat"
             Log.d(TAG, "connect() opening WebSocket to $url")
             val request = Request.Builder()
@@ -113,6 +120,8 @@ class WebSocketManager @Inject constructor(
                         val event = parseServerEvent(text)
                         if (event != null) {
                             _events.tryEmit(event)
+                        } else {
+                            onUnhandledEvent(type)
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to parse WS message: ${e.message}")
@@ -183,14 +192,21 @@ class WebSocketManager @Inject constructor(
     private fun generateEventId(): String = UUID.randomUUID().toString()
     private fun nowTimestamp(): String = Instant.now().toString()
 
+    /**
+     * Send a chat turn.
+     *
+     * [personaId] is an optional override: leave it null and a new conversation
+     * silently adopts the assistant's default persona while an existing one keeps
+     * its binding. Passing it REBINDS the conversation server-side.
+     */
     suspend fun sendChatRequest(
         text: String,
         modelName: String,
         conversationId: Int? = null,
-        agentId: Int? = null,
+        personaId: Int? = null,
         images: List<String> = emptyList(),
     ) {
-        Log.d(TAG, "sendChatRequest: text='${text.take(50)}' agentId=$agentId convId=$conversationId")
+        Log.d(TAG, "sendChatRequest: text='${text.take(50)}' personaId=$personaId convId=$conversationId")
         ensureConnected()
         val payload = ChatRequestPayload(
             eventId = generateEventId(),
@@ -198,7 +214,7 @@ class WebSocketManager @Inject constructor(
             text = text,
             modelName = modelName,
             conversationId = conversationId,
-            agentId = agentId,
+            personaId = personaId,
             images = images,
         )
         send(json.encodeToString(ChatRequestPayload.serializer(), payload))
@@ -249,6 +265,23 @@ class WebSocketManager @Inject constructor(
         send(json.encodeToString(ToolApprovalResponsePayload.serializer(), payload))
     }
 
+    /**
+     * Answer a `tool_call_request`. Android registers no client tools, so
+     * [ChatStreamProcessor][com.kurisu.assistant.domain.chat.ChatStreamProcessor] uses
+     * this to refuse immediately instead of letting the backend block for 120s.
+     */
+    fun sendToolCallResponse(requestId: String, content: String, isError: Boolean) {
+        if (!isConnected) return
+        val payload = ToolCallResponsePayload(
+            eventId = generateEventId(),
+            timestamp = nowTimestamp(),
+            requestId = requestId,
+            content = content,
+            isError = isError,
+        )
+        send(json.encodeToString(ToolCallResponsePayload.serializer(), payload))
+    }
+
     suspend fun sendCompactContext(conversationId: Int) {
         ensureConnected()
         val payload = CompactContextPayload(
@@ -266,23 +299,20 @@ class WebSocketManager @Inject constructor(
         }
     }
 
-    private fun parseServerEvent(text: String): ServerEvent? {
-        val jsonElement = json.parseToJsonElement(text)
-        val type = jsonElement.jsonObject["type"]?.jsonPrimitive?.content ?: return null
-
-        return when (type) {
-            "stream_chunk" -> json.decodeFromString<StreamChunkEvent>(text)
-            "agent_switch" -> json.decodeFromString<AgentSwitchEvent>(text)
-            "done" -> json.decodeFromString<DoneEvent>(text)
-            "error" -> json.decodeFromString<ErrorEvent>(text)
-            "tool_approval_request" -> json.decodeFromString<ToolApprovalRequestEvent>(text)
-            "vision_result" -> json.decodeFromString<VisionResultEvent>(text)
-            "connected" -> json.decodeFromString<ConnectedEvent>(text)
-            "context_info" -> json.decodeFromString<ContextInfoEvent>(text)
-            else -> {
-                Log.w(TAG, "Unknown event type: $type")
-                null
-            }
+    /**
+     * An event type the protocol table above does not cover. Release builds only log it;
+     * debug builds also push a visible error into the stream so a protocol gap shows up
+     * in the app instead of scrolling past in logcat (issue #92).
+     */
+    private fun onUnhandledEvent(type: String?) {
+        Log.w(TAG, "Unknown event type: $type")
+        if (BuildConfig.DEBUG) {
+            _events.tryEmit(ErrorEvent(
+                eventId = "",
+                timestamp = nowTimestamp(),
+                error = "Unhandled server event: $type",
+                code = "UNKNOWN_EVENT",
+            ))
         }
     }
 
@@ -319,3 +349,31 @@ class WebSocketManager @Inject constructor(
 
 private val kotlinx.serialization.json.JsonElement.jsonObject
     get() = this as kotlinx.serialization.json.JsonObject
+
+private val parserJson = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
+
+/**
+ * Decode one server frame into a [ServerEvent], or null when the `type` is one this
+ * client does not model.
+ *
+ * Top-level and `internal` so the unit tests can table-drive the whole protocol without
+ * standing up a socket — every entry in this `when` is a wire contract with the backend's
+ * `EventType` enum (backend/kurisuassistant/websocket/events.py).
+ */
+internal fun parseServerEvent(text: String): ServerEvent? {
+    val jsonElement = parserJson.parseToJsonElement(text)
+    val type = jsonElement.jsonObject["type"]?.jsonPrimitive?.content ?: return null
+
+    return when (type) {
+        "stream_chunk" -> parserJson.decodeFromString<StreamChunkEvent>(text)
+        "done" -> parserJson.decodeFromString<DoneEvent>(text)
+        "error" -> parserJson.decodeFromString<ErrorEvent>(text)
+        "tool_approval_request" -> parserJson.decodeFromString<ToolApprovalRequestEvent>(text)
+        "tool_call_request" -> parserJson.decodeFromString<ToolCallRequestEvent>(text)
+        "vision_result" -> parserJson.decodeFromString<VisionResultEvent>(text)
+        "connected" -> parserJson.decodeFromString<ConnectedEvent>(text)
+        "context_info" -> parserJson.decodeFromString<ContextInfoEvent>(text)
+        "conversation_switched" -> parserJson.decodeFromString<ConversationSwitchedEvent>(text)
+        else -> null
+    }
+}

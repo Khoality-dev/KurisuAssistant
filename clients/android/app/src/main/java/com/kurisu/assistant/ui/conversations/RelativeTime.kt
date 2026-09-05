@@ -1,4 +1,4 @@
-package com.kurisu.assistant.ui.home
+package com.kurisu.assistant.ui.conversations
 
 import java.time.Duration
 import java.time.Instant
@@ -8,6 +8,14 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 
+/**
+ * The time label on a conversation row: "Just now", "14m ago", "Yesterday",
+ * "Tue", "Jan 5".
+ *
+ * Lifted from `ui/home/RelativeTime.kt`, which is deleted along with the dead
+ * Home screen. It is formatted at render time, not stored in the UI state, so a
+ * row that sits on screen ages without a reload.
+ */
 fun formatRelativeTime(isoTimestamp: String): String {
     val instant = try {
         Instant.parse(isoTimestamp)

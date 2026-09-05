@@ -5,9 +5,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -15,6 +15,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Pending
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,13 +26,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.kurisu.assistant.data.model.Message
 import com.kurisu.assistant.data.model.MessageRawData
+import com.kurisu.assistant.ui.theme.JetBrainsMono
+import com.kurisu.assistant.ui.theme.KurisuTheme
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -44,63 +48,36 @@ fun MessageBubble(
 ) {
     val isUser = message.role == "user"
     val isTool = message.role == "tool"
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // ── Color scheme matching desktop ──────────────────────────
-    val toolSuccess = isTool && message.toolStatus == "success"
-    val toolError = isTool && (message.toolStatus == "error" || message.toolStatus == "denied")
-
-    val bgColor = when {
-        isUser -> if (isDark) Color(0xFF0066CC) else Color(0xFF0084FF)
-        toolSuccess -> if (isDark) Color(0xFF002A00) else Color(0xFFE8F5E9)
-        toolError -> if (isDark) Color(0xFF2A0000) else Color(0xFFFCE4EC)
-        isTool -> if (isDark) Color(0xFF1A1A1A) else Color(0xFFE4E6EB)
-        else -> if (isDark) Color(0xFF262626) else Color(0xFFE4E6EB)
-    }
-    val borderColor = when {
-        toolSuccess -> if (isDark) Color(0xFF006600) else Color(0xFF81C784)
-        toolError -> if (isDark) Color(0xFF660000) else Color(0xFFE57373)
-        else -> Color.Transparent
-    }
-    val textOnBubble = when {
-        isUser -> Color.White
-        toolSuccess -> if (isDark) Color(0xFF81C784) else Color(0xFF2E7D32)
-        toolError -> if (isDark) Color(0xFFE57373) else Color(0xFFC62828)
-        else -> MaterialTheme.colorScheme.onSurface
-    }
-    val labelColor = when {
-        isUser -> Color.White.copy(alpha = 0.85f)
-        toolSuccess -> if (isDark) Color(0xFF81C784) else Color(0xFF2E7D32)
-        toolError -> if (isDark) Color(0xFFE57373) else Color(0xFFC62828)
-        isTool -> MaterialTheme.colorScheme.onSurfaceVariant
-        else -> MaterialTheme.colorScheme.primary
+    // A tool call is not the persona talking, so it is not drawn as a bubble.
+    // It is a rail hanging off the reply it belongs to: what ran, how it went,
+    // how long it took, and what came back.
+    if (isTool) {
+        ToolRail(message = message, modifier = modifier)
+        return
     }
 
-    // ── Label: matches desktop format ──────────────────────────
-    val label = when {
-        isUser -> "You"
-        isTool -> {
-            if (message.name != null && message.toolArgs != null) {
-                val argsStr = message.toolArgs.entries.joinToString(", ") { (k, v) ->
-                    val s = v.toString().removeSurrounding("\"")
-                    "$k: ${if (s.length > 40) s.take(40) + "..." else s}"
-                }
-                "${message.name}($argsStr)"
-            } else {
-                message.name ?: "Tool"
-            }
-        }
-        else -> {
-            message.personaName ?: message.agent?.personaName
-                ?: message.agent?.name ?: message.name
-                ?: message.role.replaceFirstChar { it.uppercase() }
-        }
+    // ── Color roles (light/dark derived once, in the theme) ────
+    val extra = KurisuTheme.extraColors
+
+    val bgColor = if (isUser) extra.bubbleUser else extra.bubbleNeutral
+    val textOnBubble = if (isUser) extra.bubbleUserContent else MaterialTheme.colorScheme.onSurface
+    val labelColor = if (isUser) {
+        extra.bubbleUserContent.copy(alpha = 0.85f)
+    } else {
+        MaterialTheme.colorScheme.primary
     }
+
+    // Who said this — the persona stamped on THIS message, not whoever the
+    // conversation is bound to now. Switching persona must not rewrite history
+    // by making yesterday's answers look like they came from today's speaker.
+    val speaker = message.personaName ?: message.persona?.name ?: message.name
+    val label = if (isUser) "You" else (speaker ?: message.role.replaceFirstChar { it.uppercase() })
 
     // Avatar URL
-    val agentAvatarUrl = message.agent?.avatarUuid?.let { "$baseUrl/images/$it" }
+    val agentAvatarUrl = message.persona?.avatarUuid?.let { "$baseUrl/images/$it" }
 
     // Action states
     var showActions by remember { mutableStateOf(false) }
@@ -108,7 +85,6 @@ fun MessageBubble(
     var showRawDialog by remember { mutableStateOf(false) }
     var rawData by remember { mutableStateOf<MessageRawData?>(null) }
     var rawLoading by remember { mutableStateOf(false) }
-    var toolExpanded by remember { mutableStateOf(false) }
 
     Row(
         modifier = modifier
@@ -119,22 +95,7 @@ fun MessageBubble(
     ) {
         // Avatar on left for non-user
         if (!isUser) {
-            if (isTool) {
-                Surface(
-                    modifier = Modifier.size(32.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                ) {
-                    Icon(
-                        Icons.Default.Build,
-                        contentDescription = null,
-                        modifier = Modifier.padding(7.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else {
-                AvatarIcon(avatarUrl = agentAvatarUrl)
-            }
+            PersonaAvatar(name = speaker, avatarUrl = agentAvatarUrl)
             Spacer(Modifier.width(8.dp))
         }
 
@@ -152,79 +113,59 @@ fun MessageBubble(
             Surface(
                 color = bgColor,
                 shape = bubbleShape,
-                border = if (borderColor != Color.Transparent) androidx.compose.foundation.BorderStroke(1.dp, borderColor) else null,
                 modifier = Modifier.widthIn(min = 80.dp).wrapContentWidth().combinedClickable(
-                    onClick = {
-                        if (isTool) toolExpanded = !toolExpanded
-                        else if (showActions) showActions = false
-                    },
+                    onClick = { if (showActions) showActions = false },
                     onLongClick = { showActions = !showActions },
                 ),
             ) {
                 Column(
                     modifier = Modifier.padding(10.dp).animateContentSize(),
                 ) {
-                    // Header row: label + expand icon for tools
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
-                            color = labelColor,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier,
-                        )
-                        if (isTool) {
-                            Spacer(Modifier.width(4.dp))
-                            Icon(
-                                if (toolExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = "Toggle",
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                        ),
+                        color = labelColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+
+                    Spacer(Modifier.height(6.dp))
+
+                    // Thinking section (collapsible)
+                    if (!message.thinking.isNullOrBlank()) {
+                        ThinkingSection(thinking = message.thinking)
+                        Spacer(Modifier.height(6.dp))
                     }
 
-                    // Content — collapsed by default for tool messages
-                    if (!isTool || toolExpanded) {
-                        Spacer(Modifier.height(6.dp))
-
-                        // Thinking section (collapsible)
-                        if (!message.thinking.isNullOrBlank()) {
-                            ThinkingSection(thinking = message.thinking)
-                            Spacer(Modifier.height(6.dp))
-                        }
-
-                        // Image attachments
-                        if (!message.images.isNullOrEmpty()) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                for (imageId in message.images.take(3)) {
-                                    AsyncImage(
-                                        model = "$baseUrl/images/$imageId",
-                                        contentDescription = "Image",
-                                        modifier = Modifier
-                                            .size(80.dp)
-                                            .clip(RoundedCornerShape(8.dp)),
-                                        contentScale = ContentScale.Crop,
-                                    )
-                                }
-                            }
-                            if (message.content.isNotBlank()) Spacer(Modifier.height(4.dp))
-                        }
-
-                        // Content
-                        if (message.content.isNotBlank()) {
-                            if (isUser) {
-                                Text(
-                                    text = message.content,
-                                    color = textOnBubble,
-                                    style = MaterialTheme.typography.bodyMedium,
+                    // Image attachments
+                    if (!message.images.isNullOrEmpty()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            for (imageId in message.images.take(3)) {
+                                AsyncImage(
+                                    model = "$baseUrl/images/$imageId",
+                                    contentDescription = "Image",
+                                    modifier = Modifier
+                                        .size(80.dp)
+                                        .clip(RoundedCornerShape(8.dp)),
+                                    contentScale = ContentScale.Crop,
                                 )
-                            } else {
-                                MarkdownText(text = message.content)
                             }
+                        }
+                        if (message.content.isNotBlank()) Spacer(Modifier.height(4.dp))
+                    }
+
+                    // Content
+                    if (message.content.isNotBlank()) {
+                        if (isUser) {
+                            Text(
+                                text = message.content,
+                                color = textOnBubble,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        } else {
+                            MarkdownText(text = message.content)
                         }
                     }
                 }
@@ -351,7 +292,7 @@ private fun RawDataDialog(
                             text = rawData.rawInput?.toString()?.let { formatJson(it) }
                                 ?: "No raw input data",
                             style = MaterialTheme.typography.bodySmall.copy(
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = JetBrainsMono,
                                 fontSize = 11.sp,
                             ),
                             modifier = Modifier.padding(8.dp),
@@ -365,7 +306,7 @@ private fun RawDataDialog(
                         Text(
                             text = rawData.rawOutput ?: "No raw output data",
                             style = MaterialTheme.typography.bodySmall.copy(
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = JetBrainsMono,
                                 fontSize = 11.sp,
                             ),
                             modifier = Modifier.padding(8.dp),
@@ -388,32 +329,6 @@ private fun formatJson(json: String): String {
         )
     } catch (_: Exception) {
         json
-    }
-}
-
-@Composable
-private fun AvatarIcon(avatarUrl: String?) {
-    val avatarSize = 32.dp
-    if (avatarUrl != null) {
-        AsyncImage(
-            model = avatarUrl,
-            contentDescription = "Avatar",
-            modifier = Modifier.size(avatarSize).clip(CircleShape),
-            contentScale = ContentScale.Crop,
-        )
-    } else {
-        Surface(
-            modifier = Modifier.size(avatarSize),
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.secondaryContainer,
-        ) {
-            Icon(
-                imageVector = Icons.Default.SmartToy,
-                contentDescription = "Agent",
-                modifier = Modifier.padding(6.dp),
-                tint = MaterialTheme.colorScheme.secondary,
-            )
-        }
     }
 }
 
@@ -456,10 +371,189 @@ private fun ThinkingSection(thinking: String) {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = thinking,
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = JetBrainsMono),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
+    }
+}
+
+/**
+ * One tool call, drawn as a rail rather than a bubble.
+ *
+ * The rail carries what a bubble never could: whether the step was an ordinary
+ * tool or a delegation to a sub-agent, which model ran it, and how long it took.
+ * `tool_kind` and `duration_ms` reach the client only on the live stream, so a
+ * reloaded transcript quietly drops the tag and the timing rather than guessing.
+ */
+@Composable
+fun ToolRail(
+    message: Message,
+    modifier: Modifier = Modifier,
+) {
+    val extra = KurisuTheme.extraColors
+    val mono = KurisuTheme.extraTypography
+
+    val rail = remember(message) { ToolRailModel.from(message) }
+    val isError = rail.status == ToolRunStatus.FAILED
+    val isSubAgent = rail.isSubAgent
+
+    val statusIcon = when (rail.status) {
+        ToolRunStatus.SUCCEEDED -> Icons.Outlined.CheckCircle
+        ToolRunStatus.FAILED -> Icons.Outlined.ErrorOutline
+        ToolRunStatus.RUNNING -> Icons.Outlined.Pending
+    }
+    val statusTint = when (rail.status) {
+        ToolRunStatus.SUCCEEDED -> extra.toolSuccessContent
+        ToolRunStatus.FAILED -> extra.toolErrorContent
+        ToolRunStatus.RUNNING -> MaterialTheme.colorScheme.primary
+    }
+    val nameColor = if (rail.status == ToolRunStatus.RUNNING) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    val meta = rail.meta
+    val argsLine = rail.args
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .padding(start = 50.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+    ) {
+        // The rail itself — the vertical line that ties the steps to the reply.
+        Box(
+            modifier = Modifier
+                .width(2.dp)
+                .fillMaxHeight()
+                .background(MaterialTheme.colorScheme.outlineVariant),
+        )
+        Spacer(Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                if (isSubAgent) {
+                    Surface(
+                        color = extra.subAgentTagBackground,
+                        contentColor = extra.subAgentTagContent,
+                        shape = RoundedCornerShape(6.dp),
+                    ) {
+                        Text(
+                            text = "sub-agent",
+                            style = mono.metadataSmall,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+                Text(
+                    text = rail.name,
+                    style = mono.metadata,
+                    color = nameColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Icon(
+                    imageVector = statusIcon,
+                    contentDescription = rail.status.name.lowercase(),
+                    modifier = Modifier.size(15.dp),
+                    tint = statusTint,
+                )
+                Spacer(Modifier.weight(1f))
+                if (meta.isNotEmpty()) {
+                    Text(
+                        text = meta,
+                        style = mono.metadataSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+            }
+
+            if (argsLine.isNotEmpty()) {
+                Text(
+                    text = argsLine,
+                    style = mono.metadataSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            if (message.content.isNotBlank()) {
+                Text(
+                    text = message.content,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isError) extra.toolErrorContent else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 6,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+enum class ToolRunStatus { RUNNING, SUCCEEDED, FAILED }
+
+/**
+ * Everything the rail draws about one tool call, derived once and without a
+ * composition — so the rules that decide "sub-agent tag or not" and "which model,
+ * how long" can be tested directly rather than through a screenshot.
+ */
+data class ToolRailModel(
+    val name: String,
+    val status: ToolRunStatus,
+    val isSubAgent: Boolean,
+    val meta: String,
+    val args: String,
+) {
+    companion object {
+        fun from(message: Message): ToolRailModel {
+            val status = when (message.toolStatus) {
+                "success" -> ToolRunStatus.SUCCEEDED
+                "error", "denied" -> ToolRunStatus.FAILED
+                else -> ToolRunStatus.RUNNING
+            }
+            // `tool_kind` is stream-only. A reloaded transcript has it null, so
+            // the tag is omitted rather than guessed from the tool's name.
+            val isSubAgent = message.toolKind == "sub_agent"
+
+            // The model is worth naming only for a delegated step: an ordinary
+            // tool runs no model, and repeating the assistant's own model on
+            // every row would say nothing.
+            val meta = buildList {
+                if (isSubAgent) message.modelName?.takeIf { it.isNotBlank() }?.let(::add)
+                message.durationMs?.let { add(formatToolDuration(it)) }
+            }.joinToString(" · ").ifEmpty {
+                if (status == ToolRunStatus.RUNNING) "running" else ""
+            }
+
+            return ToolRailModel(
+                name = message.name ?: "tool",
+                status = status,
+                isSubAgent = isSubAgent,
+                meta = meta,
+                args = formatToolArgs(message.toolArgs),
+            )
+        }
+    }
+}
+
+/** "800" → "0.8s". Sub-second calls keep a decimal rather than reading "0s". */
+internal fun formatToolDuration(durationMs: Int): String {
+    val tenths = Math.round(durationMs / 100.0)
+    return "${tenths / 10}.${tenths % 10}s"
+}
+
+/** `{"query": "halden invoice"}` → `query: halden invoice`. */
+internal fun formatToolArgs(args: kotlinx.serialization.json.JsonObject?): String {
+    if (args.isNullOrEmpty()) return ""
+    return args.entries.joinToString(", ") { (k, v) ->
+        val raw = v.toString().removeSurrounding("\"")
+        "$k: ${if (raw.length > 60) raw.take(60) + "…" else raw}"
     }
 }
