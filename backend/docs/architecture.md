@@ -173,7 +173,7 @@ internal tooling keep working.
 
 Releases are tags on `main`, not branches: `backend-vX.Y.Z`, with X.Y.Z equal to
 `__version__`. The backend has no publish workflow — a deployment checks the tag out
-and rebuilds (see `development.md`, "Dev Deployment"). The clients are released by
+and rebuilds (see `development.md`, "Releases and Deployment"). The clients are released by
 tag too (`desktop-v*`, `android-v*`), and those tags *do* trigger publish workflows.
 When a release bumps `WIRE_PROTOCOL`, the clients must be published before the
 backend is deployed.

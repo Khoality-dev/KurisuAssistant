@@ -1,18 +1,15 @@
 # Dev overlay for the backend — a second, isolated API + database on this box.
 #
-# Run it from the MAIN checkout (KurisuAssistant/backend) to try main against a
-# second, isolated API. Never from KurisuAssistant-prod/: the API bind-mounts
-# ./kurisuassistant and ./data, so two projects sharing one directory would run
-# the same code against the same files.
+# For trying main against a running backend without touching a deployment. Run it
+# from the backend/ of the checkout you want to run — never from a deployment's
+# tree: the API bind-mounts ./kurisuassistant and ./data, so two projects sharing
+# one directory would run the same code against the same files.
 #
-#   cd KurisuAssistant/backend
+#   cp /path/to/deployment/backend/.env .   # same credentials, separate database
 #   docker compose -f docker-compose.dev.yml up -d --build
 #
 # It is its own project (kurisuassistant-dev) with its own database and data/.
-# It needs the same env file as production; copy it from
-# KurisuAssistant-prod/backend, which is where that file lives. Production itself
-# runs from that worktree, detached at a backend-vX.Y.Z tag — see
-# docs/development.md "Dev Deployment".
+# See docs/development.md "Releases and Deployment".
 #
 # Duplicated for dev: the API (kurisu-api-dev), Postgres (postgres-dev, own
 # volume, own alembic_version) and ./data (images, avatars, character assets,
@@ -24,9 +21,8 @@
 # uploads the voice reference with every TTS request — so a second copy would
 # only cost GPU memory.
 #
-# Not routed by the ingress: both 15597 and 15598 proxy to production's kurisu-api
-# (../../ingress/nginx/conf.d/kurisu.conf). Reach this instance on the docker
-# network, or add a `ports:` mapping here while you need it.
+# Publishes no port and is not part of any reverse-proxy setup. Reach this
+# instance on the docker network, or add a `ports:` mapping here while you need it.
 
 name: kurisuassistant-dev
 
