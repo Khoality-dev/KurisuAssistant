@@ -8,9 +8,10 @@
 #   cd KurisuAssistant/backend
 #   docker compose -f docker-compose.dev.yml up -d --build
 #
-# It is its own project (kurisuassistant-dev) with its own database and data/,
-# and reads the same env file as production. Production itself runs from the
-# KurisuAssistant-prod worktree, detached at a backend-vX.Y.Z tag — see
+# It is its own project (kurisuassistant-dev) with its own database and data/.
+# It needs the same env file as production; copy it from
+# KurisuAssistant-prod/backend, which is where that file lives. Production itself
+# runs from that worktree, detached at a backend-vX.Y.Z tag — see
 # docs/development.md "Dev Deployment".
 #
 # Duplicated for dev: the API (kurisu-api-dev), Postgres (postgres-dev, own

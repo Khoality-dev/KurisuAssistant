@@ -41,11 +41,13 @@ Setup, once:
 # production — from the monorepo root, once
 git worktree add --detach ../KurisuAssistant-prod backend-vX.Y.Z
 cd ../KurisuAssistant-prod/backend
-cp ../../KurisuAssistant/backend/.env .             # same credentials
+#   put the .env with the database credentials here — this is its home; the main
+#   checkout does not keep one
 mkdir -p data                                       # or move the existing data/ here
 docker compose up -d --build
 
 # a second instance to try main against — from KurisuAssistant/backend, never from -prod
+cp ../../KurisuAssistant-prod/backend/.env .        # same credentials, separate database
 docker compose -f docker-compose.dev.yml up -d --build
 ```
 
