@@ -48,7 +48,6 @@ This is the `backend/` package of the KurisuAssistant monorepo (see the root `CL
 python -m venv venv && source venv/bin/activate && pip install -r requirements.txt
 python -m scripts.migrate            # Run migrations
 uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --reload --reload-dir kurisuassistant
-./run_dev.bat                       # Same, on Windows
 
 # Docker
 docker compose up -d       # Start all

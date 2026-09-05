@@ -11,8 +11,6 @@ python -m scripts.migrate                          # Run migrations
 uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --reload --reload-dir kurisuassistant
 ```
 
-`run_dev.bat` does the same on Windows (creates the venv, runs migrations, starts uvicorn); `stop_dev.bat` kills whatever is listening on port 15597.
-
 ## Docker
 
 ```bash
@@ -57,7 +55,7 @@ pytest -m integration        # tests that need Postgres / Ollama
 
 ## Environment Variables
 
-`.env_template` lists the variables the Compose stack expects. Variables read by the server itself:
+`.env.template` lists the variables the Compose stack expects. Variables read by the server itself:
 
 | Variable | Default | Description |
 |----------|---------|-------------|

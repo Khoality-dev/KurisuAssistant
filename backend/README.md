@@ -17,13 +17,13 @@ The API server behind the [desktop](../clients/desktop/) and [Android](../client
 ## Prerequisites
 
 - Docker and Docker Compose with the NVIDIA container runtime (the API, TTS, and ASR services reserve GPUs)
-- [Ollama](https://ollama.ai) reachable from the stack, or a cloud provider key (Gemini, NVIDIA)
+- [Ollama](https://ollama.ai) reachable from the stack, or a cloud provider key (Gemini, NVIDIA, Poe)
 - Sibling checkouts of the TTS and ASR services referenced by `docker-compose.yml` (`VIXTTS_ROOT`, `UVOICE_ROOT`)
 
 ## Getting Started
 
 ```bash
-cp .env_template .env    # Edit with your settings
+cp .env.template .env    # Edit with your settings
 docker compose up -d
 docker compose logs -f api
 ```
@@ -39,11 +39,11 @@ python -m scripts.migrate                          # Run database migrations
 uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --reload --reload-dir kurisuassistant
 ```
 
-`run_dev.bat` wraps the same steps for Windows. Run everything from this directory: the server resolves `data/` relative to the working directory.
+Run everything from this directory: the server resolves `data/` relative to the working directory.
 
 ## Configuration
 
-Environment variables read by the server (see `.env_template` for the full list used by the Compose stack):
+Environment variables read by the server (see `.env.template` for the full list used by the Compose stack):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
