@@ -9,14 +9,37 @@
 import { test as base, _electron as electron, ElectronApplication, Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import net from 'net';
 import os from 'os';
 import { MockBackend } from './mock/server';
 
+/** Where this run's Electron keeps its state, and what port its MCP server got. */
+export interface AppPaths {
+  userDataDir: string;
+  mcpPort: number;
+  /** The main process's settings.json — the MCP bearer token lives here. */
+  settingsFile: string;
+}
+
 type Fixtures = {
   mock: MockBackend;
+  appPaths: AppPaths;
   electronApp: ElectronApplication;
   page: Page;
 };
+
+/** An unused port, so the suite never talks to a real install on the default. */
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.on('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      probe.close(() => (port ? resolve(port) : reject(new Error('no port'))));
+    });
+  });
+}
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const MAIN_ENTRY = path.join(PROJECT_ROOT, 'dist-electron', 'main.js');
@@ -32,14 +55,26 @@ export const test = base.extend<Fixtures>({
     }
   },
 
-  electronApp: async ({ mock }, use) => {
-    if (!fs.existsSync(MAIN_ENTRY)) {
-      throw new Error(`Electron entry missing: ${MAIN_ENTRY}. Run "npm run build" first.`);
-    }
-
+  appPaths: async ({}, use) => {
     // Isolated user data per test — prevents state bleed and the single-instance
     // lock from blocking parallel runs.
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kurisu-e2e-'));
+    const paths: AppPaths = {
+      userDataDir,
+      mcpPort: await freePort(),
+      settingsFile: path.join(userDataDir, 'settings.json'),
+    };
+    try {
+      await use(paths);
+    } finally {
+      try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { /* noop */ }
+    }
+  },
+
+  electronApp: async ({ mock, appPaths }, use) => {
+    if (!fs.existsSync(MAIN_ENTRY)) {
+      throw new Error(`Electron entry missing: ${MAIN_ENTRY}. Run "npm run build" first.`);
+    }
 
     const app = await electron.launch({
       args: [MAIN_ENTRY],
@@ -48,7 +83,10 @@ export const test = base.extend<Fixtures>({
         ...process.env,
         // Ensure the test Electron instance uses an isolated userData dir so the
         // single-instance lock from a real running install doesn't block us.
-        KURISU_E2E_USER_DATA_DIR: userDataDir,
+        KURISU_E2E_USER_DATA_DIR: appPaths.userDataDir,
+        // Likewise for the built-in MCP server's port: on the default, the suite
+        // would be poking at whatever install is already running on this machine.
+        KURISU_E2E_MCP_PORT: String(appPaths.mcpPort),
         // Ensure production mode (no VITE_DEV_SERVER_URL) so main.ts loads dist/index.html
         VITE_DEV_SERVER_URL: '',
         KURISU_E2E: '1',
@@ -80,7 +118,6 @@ export const test = base.extend<Fixtures>({
       await use(app);
     } finally {
       try { await app.close(); } catch { /* noop */ }
-      try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { /* noop */ }
     }
   },
 

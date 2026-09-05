@@ -138,6 +138,12 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('mcp:call-tool', toolName, args),
   },
 
+  // The app's own MCP endpoint — the one external clients connect *to*.
+  mcpServer: {
+    getInfo: () => ipcRenderer.invoke('mcp-server:get-info'),
+    rotateToken: () => ipcRenderer.invoke('mcp-server:rotate-token'),
+  },
+
   characterWindow: {
     open: () => ipcRenderer.invoke('character:open-window'),
     close: () => ipcRenderer.invoke('character:close-window'),

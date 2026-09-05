@@ -9,7 +9,8 @@ import { registerMCPHandlers, cleanupMCP } from './mcp';
 import { registerHostToolIPC } from './hostTools';
 import { registerAppToolIPC } from './appTools';
 import { registerExplorerIPC } from './explorerIPC';
-import { startMcpServer, stopMcpServer } from './mcpServer';
+import { startMcpServer, stopMcpServer, registerMcpServerIPC } from './mcpServer';
+import { loadSettings, saveSettings } from './settings';
 
 // Set custom cache path to avoid permission issues on Windows.
 // In E2E tests we point userData at an isolated temp dir so the single-instance
@@ -40,19 +41,6 @@ app.on('second-instance', () => {
   }
 });
 let isQuitting = false;
-
-// --- Settings persistence ---
-const settingsPath = path.join(app.getPath('userData'), 'settings.json');
-
-function loadSettings(): Record<string, any> {
-  try { return JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); }
-  catch { return {}; }
-}
-
-function saveSettings(settings: Record<string, any>): void {
-  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-}
 
 function initAutoLaunch(): void {
   const settings = loadSettings();
@@ -460,7 +448,11 @@ app.whenReady().then(() => {
   registerHostToolIPC();
   registerAppToolIPC();
   registerExplorerIPC();
-  startMcpServer();
+  registerMcpServerIPC();
+  // The port is fixed in normal use; the E2E run overrides it so the suite
+  // cannot end up talking to a real install listening on the default.
+  const mcpPortOverride = Number(process.env.KURISU_E2E_MCP_PORT);
+  startMcpServer(Number.isFinite(mcpPortOverride) && mcpPortOverride > 0 ? mcpPortOverride : undefined);
 
   // Auto-updater (no-op in dev mode — no update server configured)
   autoUpdater.autoDownload = true;
