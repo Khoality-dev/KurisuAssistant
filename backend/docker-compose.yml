@@ -1,3 +1,8 @@
+# Fixed so a deployment adopts the same containers and volumes from any directory.
+# Without it the project is named after the directory, and a checkout under a new
+# path would silently create an empty database instead of using this one.
+name: kurisuassistant
+
 services:
   vixtts:
     build:

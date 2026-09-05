@@ -1,16 +1,15 @@
 # Dev overlay for the backend — a second, isolated API + database on this box.
 #
-# Use it from a SEPARATE checkout, never from the production tree: the API
-# bind-mounts ./kurisuassistant and ./data, so two projects sharing one
-# directory would run the same code against the same files.
+# For trying main against a running backend without touching a deployment. Run it
+# from the backend/ of the checkout you want to run — never from a deployment's
+# tree: the API bind-mounts ./kurisuassistant and ./data, so two projects sharing
+# one directory would run the same code against the same files.
 #
-#   git worktree add ../KurisuAssistant-dev -b dev      # from the monorepo root
-#   cd ../KurisuAssistant-dev/backend
-#   ln -s docker-compose.dev.yml compose.yaml           # plain `docker compose` picks this file first
-#                                                      # (it warns about two config files; that is expected)
-#   cp ../../KurisuAssistant/backend/.env .             # same credentials, separate database
-#   mkdir -p data
-#   docker compose up -d --build
+#   cp /path/to/deployment/backend/.env .   # same credentials, separate database
+#   docker compose -f docker-compose.dev.yml up -d --build
+#
+# It is its own project (kurisuassistant-dev) with its own database and data/.
+# See docs/development.md "Releases and Deployment".
 #
 # Duplicated for dev: the API (kurisu-api-dev), Postgres (postgres-dev, own
 # volume, own alembic_version) and ./data (images, avatars, character assets,
@@ -22,8 +21,8 @@
 # uploads the voice reference with every TTS request — so a second copy would
 # only cost GPU memory.
 #
-# Reachable at https://<host>:15598 (production keeps 15597). The vhost lives
-# in ../../ingress/nginx/conf.d/kurisu-dev.conf and proxies to kurisu-api-dev.
+# Publishes no port and is not part of any reverse-proxy setup. Reach this
+# instance on the docker network, or add a `ports:` mapping here while you need it.
 
 name: kurisuassistant-dev
 

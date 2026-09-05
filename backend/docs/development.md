@@ -22,31 +22,31 @@ docker compose logs -f api # View API logs
 
 Migrations auto-run on container startup via `docker-entrypoint.sh`. The API container mounts `kurisuassistant/`, `scripts/`, `tests/`, and `data/` from this directory.
 
-## Dev Deployment
+## Releases and Deployment
 
-A second, isolated copy of the API runs next to production from its own checkout, with its own database and `data/` directory. It shares the GPU services (universal-voice, vixtts, gpt-sovits) and Ollama with production; the API uploads the voice reference with every TTS request, so nothing user-specific lives in those services.
+There is no long-lived `dev` branch. Work happens on short-lived branches merged into `main` through pull requests, and a release is a tag on `main`: `backend-vX.Y.Z`, with X.Y.Z equal to `__version__` in `version.py`. The tag *is* the release — nothing else marks one, and the backend has no publish workflow. A deployment is a checkout of a release tag with `docker compose up -d --build` run from its `backend/`.
 
-| | Production | Dev |
-|---|---|---|
-| Checkout | `KurisuAssistant/` (branch `main`) | `KurisuAssistant-dev/` (git worktree, branch `dev`) |
-| Compose project | `kurisuassistant` | `kurisuassistant-dev` |
-| API container | `kurisu-api` | `kurisu-api-dev` |
-| Database | `postgres-container`, volume `kurisuassistant_postgres-data` | `postgres-dev`, volume `kurisuassistant-dev_postgres-data` |
-| Data | `KurisuAssistant/backend/data/` | `KurisuAssistant-dev/backend/data/` |
-| URL | `https://<host>:15597` | `https://<host>:15598` |
-
-Setup, once:
+Keep a deployment's checkout separate from the one you develop in. The API container bind-mounts `./kurisuassistant`, `./scripts` and `./data` from the directory it was started from, so that working tree *is* the running code: editing or checking out in a deployment's tree changes the live server immediately, and a process still on its old imports can lazy-load modules from the new commit. Move a deployment with checkout and restart in one step:
 
 ```bash
-git worktree add ../KurisuAssistant-dev -b dev      # from the monorepo root
-cd ../KurisuAssistant-dev/backend
-ln -s docker-compose.dev.yml compose.yaml           # plain `docker compose` then uses the dev file
-cp ../../KurisuAssistant/backend/.env .             # same credentials, separate database
-mkdir -p data
-docker compose up -d --build
+git fetch --tags && git checkout backend-vX.Y.Z && docker compose up -d --build
 ```
 
-Day to day: commit on `dev`, `docker compose up -d --build` (or `restart api`) in the dev checkout, and merge `dev` into `main` plus the same command in the production checkout to promote. Migrations run on container start in both. The vhost is `../ingress/nginx/conf.d/kurisu-dev.conf`. See `docker-compose.dev.yml` for what is and is not shared.
+Migrations run on container start, so the restart is also what applies them. `docker-compose.yml` pins `name: kurisuassistant`, so the project adopts the same containers and volumes (`postgres-container`, `kurisuassistant_postgres-data`) whichever directory it is started from — a checkout under a new path continues the same database instead of silently creating an empty one.
+
+When a release bumps `WIRE_PROTOCOL`, publish the client releases first — `android-v*` and `desktop-v*` tags trigger the publish workflows — and deploy the backend tag after. The backend rejects a mismatched client with 426 and Android hard-gates on it, so deploying first locks every installed app out.
+
+### A second instance
+
+`docker-compose.dev.yml` starts a second, isolated API and database as its own Compose project — `kurisuassistant-dev`: `kurisu-api-dev`, `postgres-dev`, volume `kurisuassistant-dev_postgres-data`, its own `./data` — for trying `main` against a running backend without touching a deployment. It shares the GPU services (universal-voice, vixtts, gpt-sovits) and Ollama with the deployment over the deployment's Compose network; the API uploads the voice reference with every TTS request, so nothing user-specific lives in those services.
+
+```bash
+# from the backend/ of the checkout you want to run — never the deployment's
+cp /path/to/deployment/backend/.env .     # same credentials, separate database
+docker compose -f docker-compose.dev.yml up -d --build
+```
+
+It publishes no port and is not part of any reverse-proxy setup; reach it on the Docker network, or add a `ports:` mapping while you need it. Run the overlay only from a checkout that is not also running the plain stack: both bind-mount the same `./kurisuassistant` and `./data`, so two projects sharing one directory would run the same code against the same files. See the file's header for what is and is not shared.
 
 ## Tests
 

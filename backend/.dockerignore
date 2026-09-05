@@ -1,2 +1,6 @@
 venv/
 __pycache__/
+
+# Runtime data is bind-mounted, never copied into the image; without this every
+# build ships the whole directory (over a gigabyte) as context for nothing.
+data/
