@@ -41,6 +41,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        env:
+          # @vscode/ripgrep downloads a prebuilt binary from the GitHub API in a
+          # postinstall hook. Unauthenticated calls are rate-limited per runner
+          # IP, so this intermittently fails the whole job with a 403 before any
+          # test runs. The token raises the limit; it needs no extra scope.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Typecheck
         run: npx tsc --noEmit
@@ -70,6 +76,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        env:
+          # @vscode/ripgrep downloads a prebuilt binary from the GitHub API in a
+          # postinstall hook. Unauthenticated calls are rate-limited per runner
+          # IP, so this intermittently fails the whole job with a 403 before any
+          # test runs. The token raises the limit; it needs no extra scope.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build renderer + Electron main
         run: npm run test:e2e:build
