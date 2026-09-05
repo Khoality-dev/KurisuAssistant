@@ -28,7 +28,7 @@ A second, isolated copy of the API runs next to production from its own checkout
 
 | | Production | Dev |
 |---|---|---|
-| Checkout | `KurisuAssistant/` (branch `main`) | `KurisuAssistant-dev/` (git worktree, branch `dev`) |
+| Checkout | `KurisuAssistant/` — `main`, deployed from a `backend-vX.Y.Z` tag | `KurisuAssistant-dev/` — git worktree, detached at whatever is under test (usually `origin/main`) |
 | Compose project | `kurisuassistant` | `kurisuassistant-dev` |
 | API container | `kurisu-api` | `kurisu-api-dev` |
 | Database | `postgres-container`, volume `kurisuassistant_postgres-data` | `postgres-dev`, volume `kurisuassistant-dev_postgres-data` |
@@ -38,7 +38,7 @@ A second, isolated copy of the API runs next to production from its own checkout
 Setup, once:
 
 ```bash
-git worktree add ../KurisuAssistant-dev -b dev      # from the monorepo root
+git worktree add --detach ../KurisuAssistant-dev origin/main   # from the monorepo root; no branch, see below
 cd ../KurisuAssistant-dev/backend
 ln -s docker-compose.dev.yml compose.yaml           # plain `docker compose` then uses the dev file
 cp ../../KurisuAssistant/backend/.env .             # same credentials, separate database
@@ -46,7 +46,16 @@ mkdir -p data
 docker compose up -d --build
 ```
 
-Day to day: commit on `dev`, `docker compose up -d --build` (or `restart api`) in the dev checkout, and merge `dev` into `main` plus the same command in the production checkout to promote. Migrations run on container start in both. The vhost is `../ingress/nginx/conf.d/kurisu-dev.conf`. See `docker-compose.dev.yml` for what is and is not shared.
+There is no long-lived `dev` branch. Work happens on short-lived branches merged into `main` through pull requests, and `main` is the only line of development. The two deployments differ only in *which commit they have checked out*:
+
+- **Dev** tracks `main`. In the dev checkout: `git fetch && git checkout --detach origin/main && docker compose up -d --build`.
+- **Production** runs a release. Tag `main` as `backend-vX.Y.Z`, with X.Y.Z equal to `__version__` in `version.py`, then in the production checkout: `git checkout backend-vX.Y.Z && docker compose up -d --build`. The tag *is* the release; nothing else marks one, and there is no publish workflow for the backend.
+
+Checkout and restart belong in the same step. The API bind-mounts `./kurisuassistant`, so a bare `git checkout` changes the running container's code on disk immediately, and a process still running on its old imports can then lazy-load modules from the new commit. Never move a deployment's checkout without restarting its container in the same command. Migrations run on container start, so the restart is also what applies them.
+
+When a release bumps `WIRE_PROTOCOL`, publish the client releases first — `android-v*` and `desktop-v*` tags trigger the publish workflows — and deploy the backend tag after. The backend rejects a mismatched client with 426 and Android hard-gates on it, so deploying first locks every installed app out.
+
+The vhost is `../ingress/nginx/conf.d/kurisu-dev.conf`. See `docker-compose.dev.yml` for what is and is not shared.
 
 ## Tests
 
