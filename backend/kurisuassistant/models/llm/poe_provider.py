@@ -31,6 +31,10 @@ POE_BASE_URL = "https://api.poe.com/v1"
 #: Deliberately not a bot. See ``PoeProvider.validate_key``.
 _KEY_CHECK_MODEL = "kurisu-key-check-no-such-model"
 
+#: Poe rejects a smaller output cap with 400 ("Expected a value >= 16"), checked
+#: before the model is even looked up.
+_MIN_MAX_TOKENS = 16
+
 
 class PoeProvider(OpenAICompatibleProvider):
     """Poe implementation of BaseLLMProvider."""
@@ -43,7 +47,7 @@ class PoeProvider(OpenAICompatibleProvider):
         # Poe caps output per model itself; only an explicit Ollama-style
         # num_predict is passed on. num_ctx is a context size, not an output cap.
         if options.get("num_predict"):
-            payload["max_tokens"] = int(options["num_predict"])
+            payload["max_tokens"] = max(_MIN_MAX_TOKENS, int(options["num_predict"]))
 
     def _model_filter(self, entry: Dict[str, Any]) -> bool:
         arch = entry.get("architecture") or {}
@@ -59,7 +63,7 @@ class PoeProvider(OpenAICompatibleProvider):
             json={
                 "model": _KEY_CHECK_MODEL,
                 "messages": [{"role": "user", "content": "ping"}],
-                "max_tokens": 1,
+                "max_tokens": _MIN_MAX_TOKENS,
                 "stream": False,
             },
             timeout=self.REQUEST_TIMEOUT,

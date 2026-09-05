@@ -123,6 +123,12 @@ class TestPayloads:
             PoeProvider(api_key="k").chat("gpt-5.4", CONVERSATION, stream=False, options={"num_predict": 256})
         assert sent_payload(post)["max_tokens"] == 256
 
+    def test_poe_raises_a_tiny_output_cap_to_the_api_minimum(self):
+        # Verified live: max_tokens below 16 is a 400 before the model is looked up.
+        with patch(POST, return_value=FakeResponse(json_data={"choices": []})) as post:
+            PoeProvider(api_key="k").chat("gpt-5.4", CONVERSATION, stream=False, options={"num_predict": 5})
+        assert sent_payload(post)["max_tokens"] == 16
+
     def test_messages_gain_openai_tool_call_linkage(self):
         with patch(POST, return_value=FakeResponse(json_data={"choices": []})) as post:
             PoeProvider(api_key="k").chat("m", CONVERSATION, stream=False)
@@ -251,7 +257,7 @@ class TestValidateKey:
             with pytest.raises(PermissionError, match="invalid_api_key"):
                 PoeProvider(api_key="bad").validate_key()
         probe = post.call_args.kwargs["json"]
-        assert probe["model"] == _KEY_CHECK_MODEL and probe["max_tokens"] == 1
+        assert probe["model"] == _KEY_CHECK_MODEL and probe["max_tokens"] == 16
 
     def test_poe_accepts_a_key_that_gets_past_authentication(self):
         not_found = {"error": {"type": "not_found_error", "message": "no such bot"}}
