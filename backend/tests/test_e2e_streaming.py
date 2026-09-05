@@ -1,22 +1,16 @@
-"""End-to-end streaming tests through the backend pipeline.
+"""Streaming through the backend pipeline: ``OllamaProvider.chat()`` against the
+mock Ollama → chunks → ``ChatSessionHandler.send_event`` → what the socket sees.
 
-Tests the full flow: OllamaProvider.chat() → stream chunks → send_event,
-verifying chunking, event ordering, and metadata propagation.
-
-Requires Ollama running. Mark: @pytest.mark.integration
+Exercises the real provider and the real ``ollama`` client; only the model is a
+mock, so nothing here is skipped and nothing costs money.
 """
 
-import os
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
+from kurisuassistant.models.llm.ollama_provider import OllamaProvider
 from kurisuassistant.websocket.handlers import ChatSessionHandler
 from kurisuassistant.websocket.events import StreamChunkEvent, DoneEvent
-
-
-OLLAMA_URL = os.environ.get("LLM_API_URL", "http://ollama-container:11434")
-TEST_MODEL = os.environ.get("TEST_MODEL", "qwen3.5:0.8b")
+from tests.mock_ollama import DEFAULT_MODEL, Reply
 
 
 def make_mock_ws():
@@ -51,229 +45,91 @@ class EventCollector:
         return "".join(e.get("thinking", "") or "" for e in self.chunks)
 
 
-def _get_provider():
-    """Create OllamaProvider, skip if unreachable."""
-    from kurisuassistant.models.llm.ollama_provider import OllamaProvider
-    provider = OllamaProvider(api_url=OLLAMA_URL)
-    try:
-        models = provider.list_models()
-        if TEST_MODEL not in models:
-            pytest.skip(f"{TEST_MODEL} not available (have: {models[:5]})")
-    except Exception:
-        pytest.skip("Ollama not available")
-    return provider
+def stream(provider, prompt, model=DEFAULT_MODEL, **kwargs):
+    """Stream chat, yielding (content, thinking) tuples the way the agent reads them."""
+    for chunk in provider.chat(model=model, messages=[{"role": "user", "content": prompt}], stream=True, **kwargs):
+        msg = chunk.message
+        yield msg.content or "", getattr(msg, "thinking", None) or ""
 
 
-def _stream_ollama(provider, prompt, model=TEST_MODEL):
-    """Stream chat from Ollama, yield (content, thinking) tuples."""
-    response = provider.chat(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        stream=True,
-    )
-    for chunk in response:
-        msg = chunk.get("message", {})
-        content = msg.get("content", "")
-        thinking = msg.get("thinking", "")
-        yield content, thinking
+async def relay(provider, prompt, collector, **event_fields):
+    """Forward every chunk through a handler's send_event, as the agent loop does."""
+    handler = ChatSessionHandler(make_mock_ws(), user_id=1)
+    handler.send_event = collector.collect
+    for content, thinking in stream(provider, prompt):
+        if content or thinking:
+            await handler.send_event(StreamChunkEvent(content=content, thinking=thinking, role="assistant", **event_fields))
+    return handler
 
 
-# ---------------------------------------------------------------------------
-# E2E: Ollama → handler.send_event → verify events
-# ---------------------------------------------------------------------------
-
-@pytest.mark.integration
 class TestE2EStreaming:
 
-    def test_stream_chunks_have_content(self):
-        """Real Ollama produces stream_chunk events with content."""
-        provider = _get_provider()
+    async def test_stream_chunks_have_content(self, mock_ollama):
         collector = EventCollector()
-        handler = ChatSessionHandler(make_mock_ws(), user_id=1)
-        handler.send_event = collector.collect
-
-        import asyncio
-        async def run():
-            for content, thinking in _stream_ollama(provider, "Say hello in 10 words."):
-                if content or thinking:
-                    await handler.send_event(StreamChunkEvent(
-                        content=content, thinking=thinking,
-                        role="assistant", conversation_id=1, frame_id=1,
-                        model_name=TEST_MODEL, provider_type="ollama",
-                    ))
-
-        asyncio.get_event_loop().run_until_complete(run())
-
+        await relay(OllamaProvider(api_url=mock_ollama.url), "Say hello in 10 words.", collector,
+                    conversation_id=1, model_name=DEFAULT_MODEL, provider_type="ollama")
         assert len(collector.chunks) > 0
-        assert len(collector.content) + len(collector.thinking) > 0
+        assert collector.content == "You said: Say hello in 10 words."
 
-    def test_all_chunks_carry_metadata(self):
-        """Every chunk has conversation_id, frame_id, model_name."""
-        provider = _get_provider()
+    async def test_all_chunks_carry_metadata(self, mock_ollama):
         collector = EventCollector()
-        handler = ChatSessionHandler(make_mock_ws(), user_id=1)
-        handler.send_event = collector.collect
-
-        import asyncio
-        async def run():
-            for content, thinking in _stream_ollama(provider, "Count to 3."):
-                if content or thinking:
-                    await handler.send_event(StreamChunkEvent(
-                        content=content, thinking=thinking,
-                        role="assistant", conversation_id=42, frame_id=7,
-                        model_name=TEST_MODEL, provider_type="ollama",
-                    ))
-
-        asyncio.get_event_loop().run_until_complete(run())
-
+        await relay(OllamaProvider(api_url=mock_ollama.url), "Count to 3.", collector,
+                    conversation_id=42, model_name=DEFAULT_MODEL, provider_type="ollama")
         for e in collector.chunks:
             assert e["conversation_id"] == 42
-            assert e["frame_id"] == 7
-            assert e["model_name"] == TEST_MODEL
+            assert e["model_name"] == DEFAULT_MODEL
+            assert e["provider_type"] == "ollama"
 
-    def test_voice_reference_propagated(self):
-        """voice_reference survives through stream chunks."""
-        provider = _get_provider()
+    async def test_voice_reference_propagated(self, mock_ollama):
         collector = EventCollector()
-        handler = ChatSessionHandler(make_mock_ws(), user_id=1)
-        handler.send_event = collector.collect
-
-        import asyncio
-        async def run():
-            for content, thinking in _stream_ollama(provider, "Say yes."):
-                if content or thinking:
-                    await handler.send_event(StreamChunkEvent(
-                        content=content, thinking=thinking,
-                        role="assistant", conversation_id=1, frame_id=1,
-                        voice_reference="voice-uuid-123",
-                        persona_name="Nova",
-                    ))
-
-        asyncio.get_event_loop().run_until_complete(run())
-
+        await relay(OllamaProvider(api_url=mock_ollama.url), "Say yes.", collector,
+                    conversation_id=1, voice_reference="voice-uuid-123", persona_name="Nova")
         for e in collector.chunks:
             assert e["voice_reference"] == "voice-uuid-123"
             assert e["persona_name"] == "Nova"
 
-    def test_done_event_is_last(self):
-        """DoneEvent follows all stream chunks."""
-        provider = _get_provider()
+    async def test_done_event_is_last(self, mock_ollama):
         collector = EventCollector()
-        handler = ChatSessionHandler(make_mock_ws(), user_id=1)
-        handler.send_event = collector.collect
-
-        import asyncio
-        async def run():
-            for content, thinking in _stream_ollama(provider, "Say OK."):
-                if content or thinking:
-                    await handler.send_event(StreamChunkEvent(
-                        content=content, thinking=thinking,
-                        role="assistant", conversation_id=99, frame_id=1,
-                    ))
-            await handler.send_event(DoneEvent(conversation_id=99, frame_id=1))
-
-        asyncio.get_event_loop().run_until_complete(run())
-
+        handler = await relay(OllamaProvider(api_url=mock_ollama.url), "Say OK.", collector, conversation_id=99)
+        await handler.send_event(DoneEvent(conversation_id=99))
         assert collector.events[-1]["type"] == "done"
         assert collector.events[-1]["conversation_id"] == 99
 
-    def test_long_response_many_chunks(self):
-        """Longer prompts produce many stream chunks (proper streaming)."""
-        provider = _get_provider()
+    async def test_long_response_many_chunks(self, mock_ollama):
+        mock_ollama.state.script(Reply(content=" ".join(["wave"] * 40) + "."))
         collector = EventCollector()
-        handler = ChatSessionHandler(make_mock_ws(), user_id=1)
-        handler.send_event = collector.collect
+        await relay(OllamaProvider(api_url=mock_ollama.url), "Write a paragraph about the ocean.", collector, conversation_id=1)
+        assert len(collector.chunks) > 10, f"Expected many chunks for streaming, got {len(collector.chunks)}"
 
-        import asyncio
-        async def run():
-            for content, thinking in _stream_ollama(
-                provider, "Write a 100-word paragraph about the ocean."
-            ):
-                if content or thinking:
-                    await handler.send_event(StreamChunkEvent(
-                        content=content, thinking=thinking,
-                        role="assistant", conversation_id=1, frame_id=1,
-                    ))
-
-        asyncio.get_event_loop().run_until_complete(run())
-
-        assert len(collector.chunks) > 10, \
-            f"Expected many chunks for streaming, got {len(collector.chunks)}"
-
-    def test_thinking_separated_from_content(self):
-        """Thinking tokens in thinking field, content in content field."""
-        provider = _get_provider()
+    async def test_thinking_separated_from_content(self, mock_ollama):
+        mock_ollama.state.script(Reply(thinking="2 plus 2 is 4.", content="4."))
         collector = EventCollector()
-        handler = ChatSessionHandler(make_mock_ws(), user_id=1)
-        handler.send_event = collector.collect
+        await relay(OllamaProvider(api_url=mock_ollama.url), "What is 2+2? Think step by step.", collector, conversation_id=1)
+        assert collector.content == "4."
+        assert collector.thinking == "2 plus 2 is 4."
+        assert collector.thinking not in collector.content
 
-        import asyncio
-        async def run():
-            for content, thinking in _stream_ollama(
-                provider, "What is 2+2? Think step by step."
-            ):
-                if content or thinking:
-                    await handler.send_event(StreamChunkEvent(
-                        content=content, thinking=thinking,
-                        role="assistant", conversation_id=1, frame_id=1,
-                    ))
-
-        asyncio.get_event_loop().run_until_complete(run())
-
-        # Should have content at minimum
-        assert len(collector.content) > 0
-        # If model supports thinking, verify it's separated
-        if collector.thinking:
-            # Thinking should not appear in content
-            assert collector.thinking not in collector.content
-
-    def test_mid_stream_disconnect_drops_silently(self):
-        """Disconnect mid-stream drops remaining chunks without crash."""
-        provider = _get_provider()
+    async def test_mid_stream_disconnect_drops_silently(self, mock_ollama):
+        mock_ollama.state.script(Reply(content=" ".join(["word"] * 12)))
         ws = make_mock_ws()
         handler = ChatSessionHandler(ws, user_id=1)
 
-        import asyncio
-        async def run():
-            chunk_count = 0
-            for content, thinking in _stream_ollama(provider, "Tell me a long story."):
-                if content or thinking:
-                    chunk_count += 1
-                    if chunk_count == 5:
-                        ws.client_state.name = "DISCONNECTED"
-                    await handler.send_event(StreamChunkEvent(
-                        content=content, thinking=thinking,
-                        role="assistant", conversation_id=1, frame_id=1,
-                    ))
-            return chunk_count
-
-        total = asyncio.get_event_loop().run_until_complete(run())
+        total = 0
+        for content, thinking in stream(OllamaProvider(api_url=mock_ollama.url), "Tell me a long story."):
+            if content or thinking:
+                total += 1
+                if total == 5:
+                    ws.client_state.name = "DISCONNECTED"
+                await handler.send_event(StreamChunkEvent(content=content, thinking=thinking, role="assistant", conversation_id=1))
 
         sent = ws.send_json.call_count
         assert sent >= 1  # Some were sent before disconnect
         assert sent < total  # Rest were silently dropped
 
-    def test_response_contains_sentences(self):
-        """Real Ollama response forms complete sentences."""
-        provider = _get_provider()
+    async def test_response_contains_sentences(self, mock_ollama):
+        mock_ollama.state.script(Reply(content="Cats nap in the sun. Cats purr when content."))
         collector = EventCollector()
-        handler = ChatSessionHandler(make_mock_ws(), user_id=1)
-        handler.send_event = collector.collect
-
-        import asyncio
-        async def run():
-            for content, thinking in _stream_ollama(
-                provider, "Write two sentences about cats."
-            ):
-                if content:
-                    await handler.send_event(StreamChunkEvent(
-                        content=content, role="assistant",
-                        conversation_id=1, frame_id=1,
-                    ))
-
-        asyncio.get_event_loop().run_until_complete(run())
-
+        await relay(OllamaProvider(api_url=mock_ollama.url), "Write two sentences about cats.", collector, conversation_id=1)
         full = collector.content
-        # Should contain at least one sentence-ending punctuation
-        assert any(p in full for p in ".!?"), \
-            f"Expected sentences but got: {full[:200]}"
+        assert any(p in full for p in ".!?"), f"Expected sentences but got: {full[:200]}"
+        assert full.count(".") == 2

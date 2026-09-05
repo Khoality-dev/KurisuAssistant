@@ -368,30 +368,21 @@ class TestTTSRouter:
 # ---------------------------------------------------------------------------
 
 class TestOllamaIntegration:
-    """Integration tests that require a running Ollama instance.
-
-    Run with: pytest -m integration
-    Skip with: pytest -m "not integration"
-    """
+    """The raw Ollama HTTP surface as the backend consumes it, against the mock
+    Ollama (``tests/mock_ollama``) — no daemon, nothing skipped."""
 
     @pytest.fixture
-    def ollama_url(self):
-        import os
-        return os.environ.get("LLM_API_URL", "http://ollama-container:11434")
+    def ollama_url(self, mock_ollama):
+        return mock_ollama.url
 
-    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_ollama_chat_streaming(self, ollama_url):
-        """Test real Ollama streaming response."""
+        """Streaming NDJSON: content and thinking tokens arrive, done closes it."""
         import httpx
 
         async with httpx.AsyncClient(timeout=30) as client:
-            # Check Ollama is reachable
-            try:
-                tags = await client.get(f"{ollama_url}/api/tags")
-                models = [m["name"] for m in tags.json()["models"]]
-            except Exception:
-                pytest.skip("Ollama not available")
+            tags = await client.get(f"{ollama_url}/api/tags")
+            models = [m["name"] for m in tags.json()["models"]]
 
             # Use smallest available model
             small_models = [m for m in models if "0.8b" in m or "0.5b" in m]
@@ -432,17 +423,13 @@ class TestOllamaIntegration:
             full_thinking = "".join(thinking_chunks)
             assert len(full_response) + len(full_thinking) > 0
 
-    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_ollama_model_list(self, ollama_url):
-        """Test Ollama model listing."""
+        """Model listing carries the fields the backend reads."""
         import httpx
 
         async with httpx.AsyncClient(timeout=10) as client:
-            try:
-                resp = await client.get(f"{ollama_url}/api/tags")
-            except Exception:
-                pytest.skip("Ollama not available")
+            resp = await client.get(f"{ollama_url}/api/tags")
 
             assert resp.status_code == 200
             models = resp.json()["models"]
