@@ -1,6 +1,7 @@
 import type { PoseTree } from '../videocall/types';
 
-export interface AgentData {
+/** One persona's animation state, as shipped to the character window. */
+export interface PersonaCharacterData {
   id: number;
   name: string;
   poseTree: PoseTree | null;
@@ -10,12 +11,12 @@ export interface CharacterWindowAPI {
   open: () => Promise<void>;
   close: () => Promise<void>;
   sendAmplitude: (data: { amplitude: number; isPlaying: boolean; isThinking: boolean }) => void;
-  sendAgentsUpdate: (data: { agents: AgentData[]; activeAgentId: number | null }) => void;
+  sendPersonasUpdate: (data: { personas: PersonaCharacterData[]; activePersonaId: number | null }) => void;
   sendGestureUpdate: (data: { gestures: string[] }) => void;
   sendFaceUpdate: (data: { faces: string[] }) => void;
   sendSubtitle: (data: { text: string; isUser: boolean; duration?: number }) => void;
   onAmplitude: (cb: (data: { amplitude: number; isPlaying: boolean; isThinking: boolean }) => void) => () => void;
-  onAgentsUpdate: (cb: (data: { agents: AgentData[]; activeAgentId: number | null }) => void) => () => void;
+  onPersonasUpdate: (cb: (data: { personas: PersonaCharacterData[]; activePersonaId: number | null }) => void) => () => void;
   onGestureUpdate: (cb: (data: { gestures: string[] }) => void) => () => void;
   onFaceUpdate: (cb: (data: { faces: string[] }) => void) => () => void;
   onSubtitle: (cb: (data: { text: string; isUser: boolean; duration?: number }) => void) => () => void;

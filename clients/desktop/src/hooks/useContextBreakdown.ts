@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useAgentStore } from '../store/agentStore';
+import { usePersonaStore } from '../store/personaStore';
 import { useAuthStore } from '../store/authStore';
 import { useConversationStore } from '../store/conversationStore';
 import { apiClient } from '../api/client';
-import type { Tool, Skill } from '../api/types';
+import type { Assistant, SubAgent, Tool, Skill } from '../api/types';
 
 export interface ContextBreakdown {
   system_prompt_tokens: number;
@@ -11,7 +11,7 @@ export interface ContextBreakdown {
   compacted_context_tokens: number;
   skills_tokens: number;
   tools_guidance_tokens: number;
-  other_agents_tokens: number;
+  sub_agents_tokens: number;
   message_history_tokens: number;
   message_count: number;
   tool_schemas_tokens: number;
@@ -35,18 +35,26 @@ const TOOLS_GUIDANCE_TEXT =
   'Workflow: list_tools or search_tools → get_tool_schema → call_tool.\n' +
   'You may skip discovery if you already know the tool name from context or a previous turn.';
 
-function subAgentToolName(agentName: string): string {
-  return agentName
+function subAgentToolName(subAgentName: string): string {
+  return subAgentName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
     + '_agent';
 }
 
-export function useContextBreakdown(opts: { agentId: number | null; enabled: boolean }): ContextBreakdown | null {
-  const { agentId, enabled } = opts;
+/**
+ * Estimate what the next turn's context will hold, mirroring the backend's
+ * prompt assembly in `agents/main.py`. The two halves come from two places now:
+ * the PERSONA supplies the identity block (name, system prompt, preferred name)
+ * and the ASSISTANT supplies capability (memory, deferred-tool guidance, the
+ * tool allow-list). Sub-agents are their own resource — every enabled one is
+ * offered as a delegation tool, with no main/sub distinction left to gate on.
+ */
+export function useContextBreakdown(opts: { personaId: number | null; enabled: boolean }): ContextBreakdown | null {
+  const { personaId, enabled } = opts;
 
-  const agents = useAgentStore((s) => s.agents);
+  const personas = usePersonaStore((s) => s.personas);
   const user = useAuthStore((s) => s.user);
   const messages = useConversationStore((s) => s.messages);
   const compactedContext = useConversationStore((s) => s.compactedContext);
@@ -54,6 +62,8 @@ export function useContextBreakdown(opts: { agentId: number | null; enabled: boo
 
   const [tools, setTools] = useState<Tool[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
+  const [assistant, setAssistant] = useState<Assistant | null>(null);
+  const [subAgents, setSubAgents] = useState<SubAgent[]>([]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -63,24 +73,31 @@ export function useContextBreakdown(opts: { agentId: number | null; enabled: boo
     apiClient.listSkills()
       .then(setSkills)
       .catch(() => setSkills([]));
+    apiClient.getAssistant()
+      .then(setAssistant)
+      .catch(() => setAssistant(null));
+    apiClient.listSubAgents()
+      .then(setSubAgents)
+      .catch(() => setSubAgents([]));
   }, [enabled]);
 
   return useMemo(() => {
     if (!enabled) return null;
-    const agent = agents.find((a) => a.id === agentId);
-    if (!agent) return null;
+    const persona = personas.find((p) => p.id === personaId);
+    if (!persona || !assistant) return null;
 
-    // System prompt — mirrors agents/main.py base_prompt assembly
-    const sysParts: string[] = [`You are ${agent.name}.`];
-    if (agent.system_prompt) sysParts.push(agent.system_prompt);
+    // System prompt — mirrors agents/main.py base_prompt assembly. Identity is
+    // the persona's; the user's own prompt and preferred name still apply.
+    const sysParts: string[] = [`You are ${persona.name}.`];
+    if (persona.system_prompt) sysParts.push(persona.system_prompt);
     if (user?.system_prompt) sysParts.push(user.system_prompt);
-    const preferredName = agent.preferred_name || user?.preferred_name;
+    const preferredName = persona.preferred_name || user?.preferred_name;
     if (preferredName) sysParts.push(`The user prefers to be called: ${preferredName}`);
     sysParts.push(`Current time: ${new Date().toISOString()}`);
     const systemPromptText = sysParts.join('\n\n');
 
-    // Memory
-    const memoryText = agent.memory_enabled && agent.memory ? `Your memory:\n${agent.memory}` : '';
+    // Memory — assistant-level: personas do not own memory
+    const memoryText = assistant.memory_enabled && assistant.memory ? `Your memory:\n${assistant.memory}` : '';
 
     // Compacted context (rolling summary)
     const compactedText = compactedContext ? `Conversation context:\n${compactedContext}` : '';
@@ -96,26 +113,24 @@ export function useContextBreakdown(opts: { agentId: number | null; enabled: boo
       + 'always read the skill first and follow its instructions exactly.'
       : '';
 
-    // Deferred-tools guidance
-    const toolsGuidanceText = agent.use_deferred_tools ? TOOLS_GUIDANCE_TEXT : '';
+    // Deferred-tools guidance — assistant-level
+    const toolsGuidanceText = assistant.use_deferred_tools ? TOOLS_GUIDANCE_TEXT : '';
 
-    // Sub-agents (main agents only)
+    // Sub-agents: every enabled one is offered, whichever persona is answering.
     let subAgentsText = '';
-    if (agent.agent_type === 'main') {
-      const subs = agents.filter((a) => a.agent_type === 'sub' && a.enabled);
-      if (subs.length > 0) {
-        const lines = subs.map((sa) => {
-          const tn = subAgentToolName(sa.name);
-          const desc = (sa.description || (sa.system_prompt || '').slice(0, 150) || 'specialized worker').trim();
-          return `- \`${tn}\` — ${sa.name}: ${desc}`;
-        });
-        subAgentsText =
-          '## Available Sub-Agents\n'
-          + 'You can delegate specialized tasks by calling these sub-agent tools:\n'
-          + lines.join('\n')
-          + '\n\nDelegate when a sub-agent is clearly suited to the task; '
-          + 'otherwise handle it yourself.';
-      }
+    const subs = subAgents.filter((sa) => sa.enabled);
+    if (subs.length > 0) {
+      const lines = subs.map((sa) => {
+        const tn = subAgentToolName(sa.name);
+        const desc = (sa.description || (sa.system_prompt || '').slice(0, 150) || 'specialized worker').trim();
+        return `- \`${tn}\` — ${sa.name}: ${desc}`;
+      });
+      subAgentsText =
+        '## Available Sub-Agents\n'
+        + 'You can delegate specialized tasks by calling these sub-agent tools:\n'
+        + lines.join('\n')
+        + '\n\nDelegate when a sub-agent is clearly suited to the task; '
+        + 'otherwise handle it yourself.';
     }
 
     // Message history above compaction watermark
@@ -125,10 +140,11 @@ export function useContextBreakdown(opts: { agentId: number | null; enabled: boo
       messageHistoryTokens += toTokens(m.content) + toTokens(m.thinking);
     }
 
-    // Tool schemas — JSON-stringified, optionally filtered to agent.available_tools
+    // Tool schemas — JSON-stringified, filtered to the assistant's allow-list
+    // (null means every tool)
     let allowedTools = tools;
-    if (Array.isArray(agent.available_tools)) {
-      const allowed = new Set(agent.available_tools);
+    if (Array.isArray(assistant.available_tools)) {
+      const allowed = new Set(assistant.available_tools);
       allowedTools = tools.filter((t) => allowed.has(t.function.name));
     }
     const toolSchemasJson = JSON.stringify(allowedTools);
@@ -140,10 +156,10 @@ export function useContextBreakdown(opts: { agentId: number | null; enabled: boo
     const compactedContextTokens = toTokens(compactedText);
     const skillsTokens = toTokens(skillsText);
     const toolsGuidanceTokens = toTokens(toolsGuidanceText);
-    const otherAgentsTokens = toTokens(subAgentsText);
+    const subAgentsTokens = toTokens(subAgentsText);
 
     const totalTokens = systemPromptTokens + memoryTokens + compactedContextTokens
-      + skillsTokens + toolsGuidanceTokens + otherAgentsTokens
+      + skillsTokens + toolsGuidanceTokens + subAgentsTokens
       + messageHistoryTokens + toolSchemasTokens;
 
     return {
@@ -152,7 +168,7 @@ export function useContextBreakdown(opts: { agentId: number | null; enabled: boo
       compacted_context_tokens: compactedContextTokens,
       skills_tokens: skillsTokens,
       tools_guidance_tokens: toolsGuidanceTokens,
-      other_agents_tokens: otherAgentsTokens,
+      sub_agents_tokens: subAgentsTokens,
       message_history_tokens: messageHistoryTokens,
       message_count: visibleMessages.length,
       tool_schemas_tokens: toolSchemasTokens,
@@ -162,5 +178,5 @@ export function useContextBreakdown(opts: { agentId: number | null; enabled: boo
       loaded_tools: loadedToolNames,
       loaded_skills: skillNames,
     };
-  }, [enabled, agents, agentId, user, messages, compactedContext, compactedUpToId, tools, skills]);
+  }, [enabled, personas, personaId, assistant, subAgents, user, messages, compactedContext, compactedUpToId, tools, skills]);
 }

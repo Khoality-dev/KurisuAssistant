@@ -39,7 +39,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { apiClient } from '../../api/client';
-import type { Agent, CharacterConfigDTO } from '../../api/types';
+import type { Persona, CharacterConfigDTO } from '../../api/types';
 import type { AnimationNode, AnimationEdge, PoseTree, PoseConfig } from '../../videocall/types';
 import { migrateEdgeToTransitions, migratePoseTreeIds } from '../../videocall/types';
 import PoseGraphNode from '../PoseGraphNode';
@@ -53,7 +53,7 @@ import { getEdgeVisuals, getBestHandles, poseTreeToReactFlow, reactFlowToPoseTre
 
 interface CharacterConfigDialogProps {
   open: boolean;
-  agent: Agent;
+  persona: Persona;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -68,7 +68,7 @@ const edgeTypes: EdgeTypes = {
 
 export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
   open,
-  agent,
+  persona,
   onClose,
   onSaved,
 }) => {
@@ -149,7 +149,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
           poseTree = migration.poseTree;
           migrated = true;
           // Rename files on disk via backend
-          apiClient.migrateCharacterIds(agent.id, migration.idMapping).catch((err) => {
+          apiClient.migrateCharacterIds(persona.id, migration.idMapping).catch((err) => {
             console.error('Failed to migrate character asset files:', err);
           });
         }
@@ -202,14 +202,14 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
       setTimeout(() => { initialLoadRef.current = false; }, 100);
     };
 
-    // Fetch fresh agent data from API to avoid stale cache
-    apiClient.getAgent(agent.id).then((freshAgent) => {
-      loadConfig(freshAgent.character_config ?? null);
+    // Fetch the persona fresh from the API to avoid a stale cached config
+    apiClient.getPersona(persona.id).then((fresh) => {
+      loadConfig(fresh.character_config ?? null);
     }).catch(() => {
       // Fallback to prop data if fetch fails
-      loadConfig(agent.character_config ?? null);
+      loadConfig(persona.character_config ?? null);
     });
-  }, [open, agent.id]);
+  }, [open, persona.id]);
 
   // ─── Auto-save (debounced) ───
   useEffect(() => {
@@ -228,11 +228,12 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
           animationNodesRef.current,
           animationEdgesRef.current,
         );
-        await apiClient.updateCharacterConfig(agent.id, { pose_tree: poseTree });
+        await apiClient.updateCharacterConfig(persona.id, { pose_tree: poseTree });
         setSaveStatus('saved');
         onSaved();
-        // Notify ChatWidget to refresh character panel data
-        window.dispatchEvent(new CustomEvent('character-config-saved', { detail: { agentId: agent.id } }));
+        // Notify the character panel to re-fetch this persona's config.
+        // The key must stay `personaId`: useCharacterPanel reads exactly that.
+        window.dispatchEvent(new CustomEvent('character-config-saved', { detail: { personaId: persona.id } }));
       } catch (err: any) {
         setError(err.response?.data?.detail || err.message || 'Auto-save failed');
         setSaveStatus('idle');
@@ -568,7 +569,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
       <Dialog open={open} onClose={handleClose} fullScreen>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Typography variant="h6">Character Graph — {agent.name}</Typography>
+            <Typography variant="h6">Character Graph — {persona.name}</Typography>
             <Button
               variant="outlined"
               size="small"
@@ -665,7 +666,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
       {editingNodeId && (
         <PoseNodeEditor
           open={poseEditorOpen}
-          agentId={agent.id}
+          personaId={persona.id}
           poseId={editingNodeId}
           initialPoseConfig={editingNode?.pose_config || null}
           initialAnimationSettings={editingNode?.animation_settings}
@@ -682,7 +683,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
       {editingEdge && (
         <EdgeEditor
           open={edgeEditorOpen}
-          agentId={agent.id}
+          personaId={persona.id}
           edge={editingEdge}
           fromNodeName={editingEdgeFromName}
           toNodeName={editingEdgeToName}

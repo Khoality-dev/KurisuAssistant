@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from kurisuassistant.agents.base import AgentConfig, AgentContext
+from kurisuassistant.agents.base import AssistantConfig, PersonaConfig, SubAgentConfig, AgentContext
 from kurisuassistant.agents.main import MainAgent
 from kurisuassistant.tools import ToolRegistry
 
@@ -44,7 +44,7 @@ def validate_openai_shape(messages):
 
 
 def agent():
-    return MainAgent(AgentConfig(id=1, name="Tester"), ToolRegistry())
+    return MainAgent(AssistantConfig(id=1), ToolRegistry(), identity=PersonaConfig(id=1, name="Tester"))
 
 
 def context():

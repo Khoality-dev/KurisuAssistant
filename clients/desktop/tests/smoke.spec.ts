@@ -13,7 +13,7 @@ test.describe('smoke', () => {
     await page.getByLabel('Password').fill('password');
     await page.getByRole('button', { name: 'Login' }).click();
 
-    // Chat composer is only mounted once MainLayout has rendered with an agent.
+    // Chat composer is only mounted once MainLayout has rendered.
     await expect(page.getByPlaceholder('Type your message...')).toBeVisible({ timeout: 15_000 });
   });
 

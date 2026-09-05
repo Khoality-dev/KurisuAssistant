@@ -11,15 +11,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.kurisu.assistant.ui.theme.KurisuTheme
+import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatInput(
     text: String,
@@ -30,9 +36,14 @@ fun ChatInput(
     onRemoveImage: (Int) -> Unit,
     selectedImages: List<Uri>,
     isStreaming: Boolean,
-    isMicActive: Boolean,
     isInteractionMode: Boolean,
-    onMicToggle: (() -> Unit)?,
+    /**
+     * Instant at which voice mode gives up, or null when no idle timer is armed
+     * (still streaming, still speaking). Drives the countdown; see
+     * [com.kurisu.assistant.service.VoiceInteractionState.idleDeadlineMs].
+     */
+    voiceIdleDeadlineMs: Long? = null,
+    onStopVoice: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val imagePickerLauncher = rememberLauncherForActivityResult(
@@ -47,67 +58,36 @@ fun ChatInput(
             .background(MaterialTheme.colorScheme.surface)
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        // Voice interaction indicator
+        // Voice bar — replaces the composer while voice mode is on.
         if (isInteractionMode) {
-            Surface(
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.padding(bottom = 6.dp),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Icon(
-                        Icons.Default.GraphicEq,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.secondary,
-                    )
-                    Text(
-                        text = "Voice Active",
-                        color = MaterialTheme.colorScheme.secondary,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
-            }
+            VoiceBar(
+                idleDeadlineMs = voiceIdleDeadlineMs,
+                onStop = onStopVoice,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
         }
 
-        // Slash command autocomplete
-        val suggestions = remember(text) { SlashCommands.autocomplete(text) }
-        if (suggestions.isNotEmpty()) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(12.dp),
-                tonalElevation = 2.dp,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
-            ) {
-                Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                    suggestions.forEach { cmd ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onTextChange("/${cmd.name} ") }
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                        ) {
-                            Text(
-                                text = "/${cmd.name}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.widthIn(min = 84.dp),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = cmd.description,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
+        // Slash commands. A leading "/" opens the palette.
+        //
+        // Two rules keep a MODAL sheet from getting in the way, which the old
+        // inline dropdown never had to care about:
+        //  - only while the command word is still being typed, so picking one
+        //    (which appends a space) closes the sheet instead of re-matching it;
+        //  - dismissing suppresses it until the composer stops being a command,
+        //    so someone typing "/usr/bin/…" is not fought on every keystroke.
+        val isCommandPrefix = text.startsWith("/") && !text.contains(' ')
+        var slashSuppressed by remember { mutableStateOf(false) }
+        LaunchedEffect(isCommandPrefix) { if (!isCommandPrefix) slashSuppressed = false }
+
+        val suggestions = remember(text, isCommandPrefix) {
+            if (isCommandPrefix) SlashCommands.autocomplete(text) else emptyList()
+        }
+        if (!slashSuppressed && suggestions.isNotEmpty()) {
+            SlashCommandSheet(
+                commands = suggestions,
+                onPick = { cmd -> onTextChange("/${cmd.name} ") },
+                onDismiss = { slashSuppressed = true },
+            )
         }
 
         // Image previews
@@ -190,25 +170,6 @@ fun ChatInput(
                     textStyle = MaterialTheme.typography.bodyMedium,
                 )
 
-                // Mic button
-                if (onMicToggle != null) {
-                    IconButton(
-                        onClick = onMicToggle,
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Mic,
-                            contentDescription = "Toggle microphone",
-                            modifier = Modifier.size(20.dp),
-                            tint = if (isMicActive || isInteractionMode) {
-                                MaterialTheme.colorScheme.secondary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    }
-                }
-
                 // Send / Stop
                 if (isStreaming) {
                     FilledIconButton(
@@ -247,5 +208,130 @@ fun ChatInput(
                 }
             }
         }
+    }
+}
+
+/**
+ * "Voice active" bar. Replaces the chip that only ever said the mode was on.
+ *
+ * The countdown is derived from a deadline instant rather than a ticking
+ * counter, so it stays honest across recomposition and a screen that was off:
+ * the bar shows the seconds actually left, not the seconds it managed to count.
+ */
+@Composable
+private fun VoiceBar(
+    idleDeadlineMs: Long?,
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var remainingSeconds by remember(idleDeadlineMs) {
+        mutableStateOf(secondsUntil(idleDeadlineMs))
+    }
+    LaunchedEffect(idleDeadlineMs) {
+        if (idleDeadlineMs == null) {
+            remainingSeconds = null
+            return@LaunchedEffect
+        }
+        while (true) {
+            remainingSeconds = secondsUntil(idleDeadlineMs)
+            if ((remainingSeconds ?: 0) <= 0) break
+            delay(250)
+        }
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        shape = RoundedCornerShape(22.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(13.dp),
+        ) {
+            Icon(
+                Icons.Outlined.GraphicEq,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Voice active — sends when you stop",
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                remainingSeconds?.let { seconds ->
+                    Text(
+                        text = "idle timeout in ${seconds}s",
+                        style = KurisuTheme.extraTypography.metadataSmall,
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
+                    )
+                }
+            }
+            FilledIconButton(
+                onClick = onStop,
+                modifier = Modifier.size(36.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f),
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            ) {
+                Icon(
+                    Icons.Outlined.Stop,
+                    contentDescription = "Stop voice mode",
+                    modifier = Modifier.size(19.dp),
+                )
+            }
+        }
+    }
+}
+
+/** Whole seconds left until [deadlineMs], floored at zero. Null when unarmed. */
+internal fun secondsUntil(deadlineMs: Long?, nowMs: Long = System.currentTimeMillis()): Int? {
+    if (deadlineMs == null) return null
+    val remaining = deadlineMs - nowMs
+    if (remaining <= 0L) return 0
+    return ((remaining + 999L) / 1000L).toInt()
+}
+
+/** The slash-command palette. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SlashCommandSheet(
+    commands: List<SlashCommand>,
+    onPick: (SlashCommand) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Text(
+            text = "Commands",
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 10.dp),
+        )
+        commands.forEach { cmd ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onPick(cmd) }
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+            ) {
+                Text(
+                    text = "/${cmd.name}",
+                    style = KurisuTheme.extraTypography.metadata,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.widthIn(min = 92.dp),
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = cmd.description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.height(16.dp))
     }
 }

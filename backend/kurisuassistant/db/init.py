@@ -7,6 +7,7 @@ from alembic import command
 
 from .session import get_session
 from .repositories import UserRepository
+from kurisuassistant.core.accounts import provision_user
 from kurisuassistant.core.security import hash_password, verify_password
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,11 @@ def init_db():
             user_repo.create_user("admin", hash_password("admin"))
         else:
             logger.info("Admin account already exists")
+
+        # An account is not usable until it has an assistant row and a persona.
+        # Idempotent, so it also repairs an admin seeded before the persona split
+        # on a database the migration ran against while it was empty.
+        provision_user(session, user_repo.get_by_username("admin"))
 
         _warn_on_default_admin_password(user_repo)
 

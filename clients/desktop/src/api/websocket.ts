@@ -3,7 +3,12 @@
  */
 
 import { config } from '../config';
-import { WS_AUTH_SUBPROTOCOL } from '../constants';
+import {
+  WIRE_PROTOCOL,
+  WS_AUTH_SUBPROTOCOL,
+  WS_WIRE_PROTOCOL_MISMATCH,
+  WS_WIRE_SUBPROTOCOL_PREFIX,
+} from '../constants';
 
 // Event types matching backend websocket/events.py
 export type EventType =
@@ -17,7 +22,6 @@ export type EventType =
   | 'stream_chunk'
   | 'tool_approval_request'
   | 'tool_call_request'
-  | 'agent_switch'
   | 'done'
   | 'error'
   | 'vision_result'
@@ -38,6 +42,10 @@ export interface ChatRequestEvent extends BaseEvent {
   text: string;
   model_name: string;
   conversation_id: number | null;
+  // Optional per-turn persona override. Omit it on an ordinary message: a new
+  // conversation silently adopts the assistant's default persona and an existing
+  // one keeps its binding. Sending it rebinds the conversation server-side.
+  persona_id?: number | null;
   images: string[]; // base64 encoded
 }
 
@@ -59,26 +67,24 @@ export interface StreamChunkEvent extends BaseEvent {
   content: string;
   thinking: string | null;
   role: string;
-  agent_id: number | null;
-  name: string | null;
+  // Who is speaking. Set on ASSISTANT chunks only — a tool chunk is not the
+  // persona talking, so both are null there and `name` carries the tool's label.
+  persona_id: number | null;
   persona_name: string | null;
+  name: string | null;
   voice_reference: string | null;
   model_name: string | null;
   provider_type: string | null;
   tool_args: Record<string, unknown> | null;
   tool_status: string | null;  // "success" | "error" | "denied"
+  // Tool-chunk metadata, on tool chunks only. The server emits a tool chunk only
+  // after the call returns, so the client can neither time the call nor tell a
+  // delegation from an ordinary tool call — both have to come from here.
+  tool_kind?: 'tool' | 'sub_agent' | null;
+  duration_ms?: number | null;
   conversation_id: number;
   images: string[] | null;
   token_count: number | null;
-}
-
-export interface AgentSwitchEvent extends BaseEvent {
-  type: 'agent_switch';
-  from_agent_id: number | null;
-  from_agent_name: string | null;
-  to_agent_id: number | null;
-  to_agent_name: string | null;
-  reason: string;
 }
 
 export interface DoneEvent extends BaseEvent {
@@ -97,6 +103,8 @@ export interface ToolApprovalRequestEvent extends BaseEvent {
   approval_id: string;
   tool_name: string;
   tool_args: Record<string, unknown>;
+  // Kept as `agent_id`: it identifies whoever wants the call — the persona, or a
+  // sub-agent running under it. It is not a persona id.
   agent_id: number | null;
   name: string | null;
   description: string;
@@ -138,13 +146,17 @@ export interface ConversationSwitchedEvent extends BaseEvent {
   old_conversation_id: number;
   new_conversation_id: number;
   compacted_context: string;
-  agent_id: number;
+  // The persona carried over to the compacted conversation.
+  persona_id: number;
 }
 
 export interface ConnectedEvent extends BaseEvent {
   type: 'connected';
   chat_active: boolean;
   conversation_id: number | null;
+  // Persona bound to `conversation_id`, so a reconnecting client knows who is
+  // talking before the first chunk. Null when nothing is in flight or unbound.
+  persona_id: number | null;
   vision_active: boolean;
   vision_config: {
     enable_face: boolean;
@@ -156,7 +168,6 @@ export interface ConnectedEvent extends BaseEvent {
 export type ServerEvent =
   | ConnectedEvent
   | StreamChunkEvent
-  | AgentSwitchEvent
   | DoneEvent
   | ErrorEvent
   | ToolApprovalRequestEvent
@@ -235,7 +246,14 @@ class WebSocketManager {
       // can be refreshed for 30 days. A browser WebSocket cannot set headers, so
       // the subprotocol list is the only channel available here.
       const url = `${wsUrl}/ws/chat`;
-      this.ws = new WebSocket(url, [WS_AUTH_SUBPROTOCOL, this.token!]);
+      // A renderer cannot set headers on a WebSocket, so the wire protocol rides
+      // along as a third subprotocol entry. The backend checks it before it
+      // authenticates and closes with 4426 on a mismatch.
+      this.ws = new WebSocket(url, [
+        WS_AUTH_SUBPROTOCOL,
+        this.token!,
+        `${WS_WIRE_SUBPROTOCOL_PREFIX}${WIRE_PROTOCOL}`,
+      ]);
 
       this.ws.onopen = () => {
         this.isConnecting = false;
@@ -284,6 +302,16 @@ class WebSocketManager {
         if (event.code === 4001) {
           // Auth failure — try refresh then reconnect
           this._handleAuthFailure();
+          return;
+        }
+
+        if (event.code === WS_WIRE_PROTOCOL_MISMATCH) {
+          // The client and the server speak different wire protocols. Retrying
+          // cannot fix that, so stop rather than reconnect-loop until one side
+          // is upgraded.
+          console.error(
+            `[WebSocket] Wire protocol mismatch (client speaks ${WIRE_PROTOCOL}): ${event.reason}`,
+          );
           return;
         }
 
@@ -379,6 +407,7 @@ class WebSocketManager {
     conversationId: number | null = null,
     images: string[] = [],
     contextFiles: Array<Record<string, unknown>> = [],
+    personaId: number | null = null,
   ): Promise<void> {
     // Ensure connected
     await this.connect();
@@ -390,6 +419,9 @@ class WebSocketManager {
       conversation_id: conversationId,
       images,
       context_files: contextFiles.length > 0 ? contextFiles : undefined,
+      // Omitted unless the caller is overriding: the server binds a new
+      // conversation to the assistant's default persona on its own.
+      persona_id: personaId ?? undefined,
     });
   }
 

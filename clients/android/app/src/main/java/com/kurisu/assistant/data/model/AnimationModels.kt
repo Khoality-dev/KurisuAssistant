@@ -102,6 +102,10 @@ data class PoseTree(
 
 @Serializable
 data class CharacterConfig(
+    // Still `agent_id`, deliberately. This is the opaque `character_config` blob
+    // the backend stores verbatim; migration 0dacee9f63b8 renamed `agents` to
+    // `personas` PRESERVING ids precisely so neither this key nor the asset paths
+    // keyed on it had to be rewritten. The value is a persona id.
     @SerialName("agent_id") val agentId: Int,
     @SerialName("pose_tree") val poseTree: PoseTree,
 )

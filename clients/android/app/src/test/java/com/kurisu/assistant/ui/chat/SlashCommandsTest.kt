@@ -49,6 +49,19 @@ class SlashCommandsTest {
     }
 
     @Test
+    fun `persona replaces agents — the word agent names nothing the user sees`() {
+        val (cmd, _) = SlashCommands.parse("/persona")!!
+        assertThat(cmd.name).isEqualTo("persona")
+        assertThat(SlashCommands.parse("/agents")).isNull()
+        assertThat(SlashCommands.ALL.map { it.name }).doesNotContain("agents")
+    }
+
+    @Test
+    fun `autocomplete narrows to persona on its prefix`() {
+        assertThat(SlashCommands.autocomplete("/pe").map { it.name }).containsExactly("persona")
+    }
+
+    @Test
     fun `autocomplete returns full list for bare slash`() {
         val matches = SlashCommands.autocomplete("/")
         assertThat(matches).hasSize(SlashCommands.ALL.size)

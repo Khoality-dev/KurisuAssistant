@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches the Compose dark scheme's `background` (Neutral950). -->
+    <color name="window_background">#FF0A0A0A</color>
+</resources>

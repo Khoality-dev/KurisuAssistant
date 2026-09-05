@@ -5,7 +5,9 @@ import {
   Mic as VoiceIcon,
   RecordVoiceOver as TTSIcon,
   Palette as AppearanceIcon,
-  SmartToy as AgentsIcon,
+  Memory as AssistantIcon,
+  AccountCircle as PersonasIcon,
+  Engineering as SubAgentsIcon,
   Extension as ToolsIcon,
   AutoFixHigh as SkillsIcon,
   FolderOpen as HostAccessIcon,
@@ -19,7 +21,9 @@ const AccountSection = React.lazy(() => import('./AccountSection').then(m => ({ 
 const VoiceSection = React.lazy(() => import('./VoiceSection').then(m => ({ default: m.VoiceSection })));
 const TTSSection = React.lazy(() => import('./TTSSection').then(m => ({ default: m.TTSSection })));
 const AppearanceSection = React.lazy(() => import('./AppearanceSection').then(m => ({ default: m.AppearanceSection })));
-const AgentsSection = React.lazy(() => import('./AgentsSection').then(m => ({ default: m.AgentsSection })));
+const AssistantSection = React.lazy(() => import('./AssistantSection').then(m => ({ default: m.AssistantSection })));
+const PersonasSection = React.lazy(() => import('./PersonasSection').then(m => ({ default: m.PersonasSection })));
+const SubAgentsSection = React.lazy(() => import('./SubAgentsSection').then(m => ({ default: m.SubAgentsSection })));
 const ToolsSection = React.lazy(() => import('./ToolsSection').then(m => ({ default: m.ToolsSection })));
 const SkillsSection = React.lazy(() => import('./SkillsSection').then(m => ({ default: m.SkillsSection })));
 const HostAccessSection = React.lazy(() => import('./HostAccessSection').then(m => ({ default: m.HostAccessSection })));
@@ -37,7 +41,9 @@ const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'voice', label: 'Voice', icon: <VoiceIcon /> },
   { id: 'tts', label: 'TTS & ASR', icon: <TTSIcon /> },
   { id: 'appearance', label: 'Appearance', icon: <AppearanceIcon /> },
-  { id: 'agents', label: 'Agents', icon: <AgentsIcon /> },
+  { id: 'assistant', label: 'Assistant', icon: <AssistantIcon /> },
+  { id: 'personas', label: 'Personas', icon: <PersonasIcon /> },
+  { id: 'sub-agents', label: 'Sub-Agents', icon: <SubAgentsIcon /> },
   { id: 'tools', label: 'Tools & MCP', icon: <ToolsIcon /> },
   { id: 'skills', label: 'Skills', icon: <SkillsIcon /> },
   { id: 'host-access', label: 'Host Access', icon: <HostAccessIcon /> },
@@ -51,7 +57,12 @@ function renderSection(sectionId: string) {
     case 'voice': return <VoiceSection />;
     case 'tts': return <TTSSection />;
     case 'appearance': return <AppearanceSection />;
-    case 'agents': return <AgentsSection />;
+    case 'assistant': return <AssistantSection />;
+    case 'personas': return <PersonasSection />;
+    case 'sub-agents': return <SubAgentsSection />;
+    // Legacy route — the single "Agents" section became three. A persisted
+    // 'agents' lands on Personas, the half of it people came for.
+    case 'agents': return <PersonasSection />;
     case 'mcp-servers': return <ToolsSection />; // Legacy route — redirect to merged page
     case 'tools': return <ToolsSection />;
     case 'skills': return <SkillsSection />;

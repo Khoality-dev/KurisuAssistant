@@ -6,7 +6,7 @@ import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.model.ModelInfo
 import com.kurisu.assistant.data.remote.api.DynamicBaseUrlInterceptor
 import com.kurisu.assistant.data.remote.api.KurisuApiService
-import com.kurisu.assistant.data.repository.AgentRepository
+import com.kurisu.assistant.data.repository.AssistantRepository
 import com.kurisu.assistant.data.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,7 +36,7 @@ data class AccountUiState(
 class AccountViewModel @Inject constructor(
     private val api: KurisuApiService,
     private val authRepository: AuthRepository,
-    private val agentRepository: AgentRepository,
+    private val assistantRepository: AssistantRepository,
     private val prefs: PreferencesDataStore,
     private val dynamicBaseUrlInterceptor: DynamicBaseUrlInterceptor,
 ) : ViewModel() {
@@ -70,7 +70,7 @@ class AccountViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isRefreshingModels = true) }
             try {
-                val models = agentRepository.listModels()
+                val models = assistantRepository.listModels()
                 _state.update { it.copy(availableModels = models) }
             } catch (e: Exception) {
                 _state.update { it.copy(message = "Failed to load models: ${e.message}") }

@@ -234,9 +234,9 @@ ipcMain.on('character:amplitude', (_event, data) => {
   }
 });
 
-ipcMain.on('character:agents-update', (_event, data) => {
+ipcMain.on('character:personas-update', (_event, data) => {
   if (characterWindow && !characterWindow.isDestroyed()) {
-    characterWindow.webContents.send('character:agents-update', data);
+    characterWindow.webContents.send('character:personas-update', data);
   }
 });
 

@@ -10,10 +10,10 @@ import {
   InputAdornment,
 } from '@mui/material';
 import {
-  SmartToy as AgentIcon,
+  SmartToy as PersonaIcon,
   Search as SearchIcon,
 } from '@mui/icons-material';
-import { useAgentStore } from '../../store/agentStore';
+import { usePersonaStore } from '../../store/personaStore';
 import { apiClient } from '../../api/client';
 import { storage } from '../../utils/storage';
 import { useConversationStore } from '../../store/conversationStore';
@@ -35,27 +35,27 @@ function formatRelativeTime(dateStr: string | null | undefined): string {
 }
 
 export const ConversationsPage: React.FC = () => {
-  const { agents, selectedAgentId, selectAgent, agentPreviews, loadAgentPreviews } = useAgentStore();
+  const { personas, selectedPersonaId, selectPersona, personaPreviews, loadPersonaPreviews } = usePersonaStore();
   const { loadConversation } = useConversationStore();
   const [search, setSearch] = React.useState('');
 
   useEffect(() => {
-    loadAgentPreviews();
-  }, [loadAgentPreviews]);
+    loadPersonaPreviews();
+  }, [loadPersonaPreviews]);
 
-  const handleSelectAgent = async (id: number) => {
-    selectAgent(id);
-    // Load conversation for this agent
-    const conversationId = storage.getAgentConversationId(id);
+  const handleSelectPersona = async (id: number) => {
+    selectPersona(id);
+    // Load the conversation this persona is mapped to, if any.
+    const conversationId = storage.getPersonaConversationId(id);
     if (conversationId) {
       await loadConversation(conversationId);
     }
   };
 
-  const mainAgents = agents.filter(a => a.agent_type !== 'sub');
-  const filteredAgents = search
-    ? mainAgents.filter(a => a.name.toLowerCase().includes(search.toLowerCase()))
-    : mainAgents;
+  // Every persona is listed: sub-agents are a separate resource and never speak.
+  const filteredPersonas = search
+    ? personas.filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
+    : personas;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -65,7 +65,7 @@ export const ConversationsPage: React.FC = () => {
         <TextField
           size="small"
           fullWidth
-          placeholder="Search agents..."
+          placeholder="Search personas..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           InputProps={{
@@ -78,20 +78,20 @@ export const ConversationsPage: React.FC = () => {
         />
       </Box>
 
-      {/* Agent list */}
+      {/* Persona list */}
       <List sx={{ flex: 1, overflow: 'auto', px: 1.5, py: 0 }}>
-        {filteredAgents.map((agent) => {
-          const preview = agentPreviews[agent.id];
+        {filteredPersonas.map((persona) => {
+          const preview = personaPreviews[persona.id];
           const hasMessage = !!preview?.lastMessage;
           const timestamp = preview?.lastMessage?.created_at;
           const messageText = preview?.lastMessage?.content;
-          const isSelected = agent.id === selectedAgentId;
+          const isSelected = persona.id === selectedPersonaId;
 
           return (
             <ListItemButton
-              key={agent.id}
+              key={persona.id}
               selected={isSelected}
-              onClick={() => handleSelectAgent(agent.id)}
+              onClick={() => handleSelectPersona(persona.id)}
               sx={{
                 py: 1.5,
                 px: 2,
@@ -102,15 +102,15 @@ export const ConversationsPage: React.FC = () => {
             >
               <ListItemAvatar sx={{ minWidth: 0, mr: 1.5 }}>
                 <Avatar
-                  src={agent.avatar_uuid ? apiClient.getImageUrl(agent.avatar_uuid) : undefined}
+                  src={persona.avatar_uuid ? apiClient.getImageUrl(persona.avatar_uuid) : undefined}
                   sx={{
                     width: 40,
                     height: 40,
                     bgcolor: (t) => t.palette.mode === 'light' ? '#F3F4F6' : '#262626',
                   }}
                 >
-                  {!agent.avatar_uuid && (
-                    <AgentIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
+                  {!persona.avatar_uuid && (
+                    <PersonaIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
                   )}
                 </Avatar>
               </ListItemAvatar>
@@ -121,7 +121,7 @@ export const ConversationsPage: React.FC = () => {
                     sx={{ fontWeight: isSelected ? 700 : 500, fontSize: '0.875rem' }}
                     noWrap
                   >
-                    {agent.name}
+                    {persona.name}
                   </Typography>
                   {hasMessage && (
                     <Typography

@@ -15,8 +15,8 @@ const STORAGE_KEYS = {
   BACKEND_URL: 'kurisu_backend_url',
 
   ASR_DEVICE_ID: 'kurisu_asr_device_id',
-  SELECTED_AGENT_ID: 'kurisu_selected_agent_id',
-  AGENT_CONVERSATIONS: 'kurisu_agent_conversations',
+  SELECTED_PERSONA_ID: 'kurisu_selected_persona_id',
+  PERSONA_CONVERSATIONS: 'kurisu_persona_conversations',
   ASR_LANGUAGE: 'kurisu_asr_language',
   ASR_ALWAYS_LISTEN: 'kurisu_asr_always_listen',
   ASR_MODE: 'kurisu_asr_mode',
@@ -24,7 +24,39 @@ const STORAGE_KEYS = {
   ASR_MODEL_MAP: 'kurisu_asr_model_map',
 } as const;
 
+// Keys from before the agent/persona split. Both held a cache that re-derives from
+// the backend on a miss, so nothing is migrated — the old entries are just dropped
+// once at startup so they do not sit in localStorage forever.
+const LEGACY_STORAGE_KEYS = [
+  'kurisu_selected_agent_id',
+  'kurisu_agent_conversations',
+] as const;
+
+/**
+ * A key in the persona → conversation map. A number is a persona id. `'unbound'`
+ * is the bucket for a conversation started while no persona was selected — the
+ * client does not learn who answered until the first `stream_chunk` carries a
+ * `persona_id`, and this keeps that conversation reachable in the meantime.
+ * (It replaces the old `'group'` sentinel, which named a group-chat concept that
+ * no longer exists.)
+ */
+export type PersonaConversationKey = number | 'unbound';
+
 export const storage = {
+  /**
+   * Drop the pre-split cache keys. Safe to call at any time and cheap to repeat;
+   * both keys were caches, so there is nothing to migrate.
+   */
+  clearLegacyAgentKeys(): void {
+    try {
+      for (const key of LEGACY_STORAGE_KEYS) {
+        localStorage.removeItem(key);
+      }
+    } catch (error) {
+      console.error('Failed to clear legacy agent storage keys:', error);
+    }
+  },
+
   /**
    * Save auth token to persistent storage
    */
@@ -318,71 +350,71 @@ export const storage = {
     }
   },
 
-  setSelectedAgentId(id: number): void {
+  setSelectedPersonaId(id: number): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.SELECTED_AGENT_ID, id.toString());
+      localStorage.setItem(STORAGE_KEYS.SELECTED_PERSONA_ID, id.toString());
     } catch (error) {
-      console.error('Failed to save selected agent ID:', error);
+      console.error('Failed to save selected persona ID:', error);
     }
   },
 
-  getSelectedAgentId(): number | null {
+  getSelectedPersonaId(): number | null {
     try {
-      const value = localStorage.getItem(STORAGE_KEYS.SELECTED_AGENT_ID);
+      const value = localStorage.getItem(STORAGE_KEYS.SELECTED_PERSONA_ID);
       return value ? parseInt(value, 10) : null;
     } catch (error) {
-      console.error('Failed to get selected agent ID:', error);
+      console.error('Failed to get selected persona ID:', error);
       return null;
     }
   },
 
-  clearSelectedAgentId(): void {
+  clearSelectedPersonaId(): void {
     try {
-      localStorage.removeItem(STORAGE_KEYS.SELECTED_AGENT_ID);
+      localStorage.removeItem(STORAGE_KEYS.SELECTED_PERSONA_ID);
     } catch (error) {
-      console.error('Failed to clear selected agent ID:', error);
+      console.error('Failed to clear selected persona ID:', error);
     }
   },
 
-  getAgentConversationMap(): Record<string, number> {
+  getPersonaConversationMap(): Record<string, number> {
     try {
-      const raw = localStorage.getItem(STORAGE_KEYS.AGENT_CONVERSATIONS);
+      const raw = localStorage.getItem(STORAGE_KEYS.PERSONA_CONVERSATIONS);
       return raw ? JSON.parse(raw) : {};
     } catch {
       return {};
     }
   },
 
-  getAgentConversationId(agentId: number | 'group'): number | null {
-    const map = this.getAgentConversationMap();
-    return map[String(agentId)] ?? null;
+  getPersonaConversationId(personaId: PersonaConversationKey): number | null {
+    const map = this.getPersonaConversationMap();
+    return map[String(personaId)] ?? null;
   },
 
-  setAgentConversationId(agentId: number | 'group', conversationId: number): void {
+  setPersonaConversationId(personaId: PersonaConversationKey, conversationId: number): void {
     try {
-      const map = this.getAgentConversationMap();
-      map[String(agentId)] = conversationId;
-      localStorage.setItem(STORAGE_KEYS.AGENT_CONVERSATIONS, JSON.stringify(map));
+      const map = this.getPersonaConversationMap();
+      map[String(personaId)] = conversationId;
+      localStorage.setItem(STORAGE_KEYS.PERSONA_CONVERSATIONS, JSON.stringify(map));
     } catch (error) {
-      console.error('Failed to save agent conversation mapping:', error);
+      console.error('Failed to save persona conversation mapping:', error);
     }
   },
 
-  clearAgentConversationId(agentId: number | 'group'): void {
+  clearPersonaConversationId(personaId: PersonaConversationKey): void {
     try {
-      const map = this.getAgentConversationMap();
-      delete map[String(agentId)];
-      localStorage.setItem(STORAGE_KEYS.AGENT_CONVERSATIONS, JSON.stringify(map));
+      const map = this.getPersonaConversationMap();
+      delete map[String(personaId)];
+      localStorage.setItem(STORAGE_KEYS.PERSONA_CONVERSATIONS, JSON.stringify(map));
     } catch (error) {
-      console.error('Failed to clear agent conversation mapping:', error);
+      console.error('Failed to clear persona conversation mapping:', error);
     }
   },
 
-  clearAllAgentConversations(): void {
+  clearAllPersonaConversations(): void {
     try {
-      localStorage.removeItem(STORAGE_KEYS.AGENT_CONVERSATIONS);
+      localStorage.removeItem(STORAGE_KEYS.PERSONA_CONVERSATIONS);
     } catch (error) {
-      console.error('Failed to clear all agent conversations:', error);
+      console.error('Failed to clear all persona conversations:', error);
     }
   },
 

@@ -5,7 +5,11 @@ Owns two threads:
   background DB writes serialized through ``DBService``).
 * **idle_scanner** — periodically scans for conversations that have been
   idle past ``CONVERSATION_IDLE_THRESHOLD_MINUTES`` and submits one
-  ``ConsolidateMemoryTask`` per participating agent.
+  ``ConsolidateMemoryTask`` per idle conversation.
+
+Memory is one document per user (``assistants.memory``), so a conversation
+produces exactly one task — not one per participating agent as it did when
+memory hung off individual agent rows.
 """
 
 import asyncio
@@ -32,10 +36,11 @@ class BackgroundService:
         self._db_queue: Queue = Queue()
         self._stopping = threading.Event()
         self._threads: list[threading.Thread] = []
-        # Track which (conversation_id, agent_id) pairs we've already
-        # queued for the current idle period, so we don't re-queue them
-        # on every scan while the conversation stays idle.
-        self._queued: set[tuple[int, int]] = set()
+        # Track which conversations we've already queued for the current idle
+        # period, so we don't re-queue them on every scan while the conversation
+        # stays idle. One entry per conversation: the consolidation target is the
+        # owning user's single assistant, so there is nothing else to key on.
+        self._queued: set[int] = set()
         self._queued_lock = threading.Lock()
 
     # ------------------------------------------------------------------
@@ -80,7 +85,17 @@ class BackgroundService:
     # ------------------------------------------------------------------
 
     def _db_worker(self):
-        """Process background tasks sequentially."""
+        """Process background tasks sequentially.
+
+        **This thread's serialization is load-bearing.** Memory consolidation is a
+        read-modify-write on ``assistants.memory``, and two idle conversations
+        belonging to the same user now target the *same* row. Running one task at
+        a time — a single thread, one ``asyncio.run`` per task — is the only thing
+        preventing one consolidation from clobbering the other's result. Do not add
+        a second db-worker thread or dispatch these concurrently without first
+        making the read-modify-write atomic (see
+        ``utils.memory_consolidation.consolidate_assistant_memory``).
+        """
         while not self._stopping.is_set():
             task = self._db_queue.get()
             if task is None:
@@ -113,11 +128,10 @@ class BackgroundService:
     # ------------------------------------------------------------------
 
     async def _handle_consolidate(self, task: ConsolidateMemoryTask):
-        from kurisuassistant.utils.memory_consolidation import consolidate_agent_memory
+        from kurisuassistant.utils.memory_consolidation import consolidate_assistant_memory
 
-        await consolidate_agent_memory(
+        await consolidate_assistant_memory(
             user_id=task.user_id,
-            agent_id=task.agent_id,
             conversation_id=task.conversation_id,
             model_name=task.model_name,
             api_url=task.api_url,
@@ -125,53 +139,57 @@ class BackgroundService:
             api_key=task.api_key,
         )
 
-        # After successful consolidation, allow this pair to be re-queued
+        # After successful consolidation, allow this conversation to be re-queued
         # on a future idle cycle.
         with self._queued_lock:
-            self._queued.discard((task.conversation_id, task.agent_id))
+            self._queued.discard(task.conversation_id)
 
     # ------------------------------------------------------------------
     # Idle conversation scanning
     # ------------------------------------------------------------------
 
     def _scan_idle_conversations(self):
-        """Find conversations idle past the threshold and queue consolidation
-        for each participating agent with ``memory_enabled``.
+        """Find conversations idle past the threshold and queue one consolidation
+        each, for users whose assistant has ``memory_enabled``.
 
-        "Participating" = any message in the conversation has ``agent_id=X``.
+        A conversation qualifies when all three hold:
+
+        * ``updated_at`` is older than the idle threshold;
+        * its owner has an ``assistants`` row with ``memory_enabled = true``;
+        * it actually has at least one message.
+
+        The last check is not cosmetic. Consolidation reads the whole transcript
+        before it can decide there is nothing to do, so without it every empty
+        conversation a user ever opened would be queued and fully read on every
+        60-second scan, forever.
         """
         from kurisuassistant.db.service import get_db_service
 
         db = get_db_service()
 
         def _query_idle(session):
-            from kurisuassistant.db.models import Agent, Conversation, Message, User
+            from kurisuassistant.db.models import Assistant, Conversation, Message, User
 
             idle_threshold = timedelta(minutes=CONVERSATION_IDLE_THRESHOLD_MINUTES)
             cutoff = datetime.utcnow() - idle_threshold
 
+            has_messages = (
+                session.query(Message.id)
+                .filter(Message.conversation_id == Conversation.id)
+                .exists()
+            )
+
             idle_convs = (
                 session.query(Conversation.id, Conversation.user_id)
-                .filter(Conversation.updated_at < cutoff)
+                .join(Assistant, Assistant.user_id == Conversation.user_id)
+                .filter(
+                    Conversation.updated_at < cutoff,
+                    Assistant.memory_enabled.is_(True),
+                    has_messages,
+                )
                 .all()
             )
             if not idle_convs:
-                return []
-
-            conv_ids = [c.id for c in idle_convs]
-            # Agents that actually spoke in each conversation AND have memory enabled
-            participation_rows = (
-                session.query(Message.conversation_id, Message.agent_id)
-                .join(Agent, Message.agent_id == Agent.id)
-                .filter(
-                    Message.conversation_id.in_(conv_ids),
-                    Message.agent_id.isnot(None),
-                    Agent.memory_enabled.is_(True),
-                )
-                .distinct()
-                .all()
-            )
-            if not participation_rows:
                 return []
 
             conv_to_user = {c.id: c.user_id for c in idle_convs}
@@ -190,18 +208,17 @@ class BackgroundService:
 
             return [
                 {
-                    "conversation_id": row.conversation_id,
-                    "agent_id": row.agent_id,
-                    "user_id": conv_to_user[row.conversation_id],
-                    "prefs": user_prefs.get(conv_to_user[row.conversation_id], {}),
+                    "conversation_id": conv_id,
+                    "user_id": user_id,
+                    "prefs": user_prefs.get(user_id, {}),
                 }
-                for row in participation_rows
+                for conv_id, user_id in conv_to_user.items()
             ]
 
         candidates = db.execute_sync(_query_idle)
 
         for c in candidates:
-            key = (c["conversation_id"], c["agent_id"])
+            key = c["conversation_id"]
             with self._queued_lock:
                 if key in self._queued:
                     continue
@@ -224,7 +241,6 @@ class BackgroundService:
 
             self.submit(ConsolidateMemoryTask(
                 user_id=c["user_id"],
-                agent_id=c["agent_id"],
                 conversation_id=c["conversation_id"],
                 model_name=summary_model,
                 api_url=prefs.get("ollama_url"),
@@ -232,6 +248,6 @@ class BackgroundService:
                 api_key=api_key,
             ))
             logger.info(
-                "Queued memory consolidation: conversation=%d agent=%d user=%d",
-                c["conversation_id"], c["agent_id"], c["user_id"],
+                "Queued memory consolidation: conversation=%d user=%d",
+                c["conversation_id"], c["user_id"],
             )

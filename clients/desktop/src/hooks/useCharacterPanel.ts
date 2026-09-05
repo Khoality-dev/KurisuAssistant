@@ -4,7 +4,7 @@ import type { AmplitudeState } from '../videocall/CharacterRenderer';
 import type { PoseTree } from '../videocall/types';
 import type { Message } from '../api/types';
 
-interface AgentEntry { name: string; poseTree: PoseTree | null }
+interface PersonaEntry { name: string; poseTree: PoseTree | null }
 
 interface UseCharacterPanelParams {
   characterWindowOpen: boolean;
@@ -23,23 +23,24 @@ export function useCharacterPanel({
     amplitudeRef.current = { ...amplitudeRef.current, amplitude, isPlaying };
   }, []);
 
-  // Character panel state for all agents in the conversation
-  const [agentMap, setAgentMap] = useState<Map<number, AgentEntry>>(new Map());
-  const [activeAgentId, setActiveAgentId] = useState<number | null>(null);
-  const agentCacheRef = useRef<Set<number>>(new Set()); // IDs already fetched
+  // Character panel state for every persona seen in the conversation
+  const [personaMap, setPersonaMap] = useState<Map<number, PersonaEntry>>(new Map());
+  const [activePersonaId, setActivePersonaId] = useState<number | null>(null);
+  const personaCacheRef = useRef<Set<number>>(new Set()); // IDs already fetched
 
   // Subtitle: send TTS segment text + duration to character window for word-by-word reveal
   const onTTSPlaybackStart = useCallback((text: string, duration: number) => {
     window.electron?.characterWindow?.sendSubtitle({ text, isUser: false, duration });
   }, []);
 
-  // Fetch agent and add/update the character panel map
-  // forceRefresh=true bypasses cache (used when agent becomes active, to pick up config changes)
-  const fetchAgentForPanel = useCallback((agentId: number, agentName?: string, forceRefresh = false) => {
-    if (!forceRefresh && agentCacheRef.current.has(agentId)) return;
-    agentCacheRef.current.add(agentId);
-    apiClient.getAgent(agentId).then((agent) => {
-      const cc = agent.character_config;
+  // Fetch a persona and add/update the character panel map.
+  // forceRefresh=true bypasses the cache (used when a persona starts speaking, to
+  // pick up config changes saved since it was last fetched).
+  const fetchPersonaForPanel = useCallback((personaId: number, personaName?: string, forceRefresh = false) => {
+    if (!forceRefresh && personaCacheRef.current.has(personaId)) return;
+    personaCacheRef.current.add(personaId);
+    apiClient.getPersona(personaId).then((persona) => {
+      const cc = persona.character_config;
       const poseTree = cc?.pose_tree ?? null;
       // Migrate legacy video_url to video_urls on edges
       if (poseTree?.edges) {
@@ -51,45 +52,47 @@ export function useCharacterPanel({
           }
         }
       }
-      setAgentMap((prev) => {
+      setPersonaMap((prev) => {
         const next = new Map(prev);
-        next.set(agentId, { name: agent.name, poseTree });
+        next.set(personaId, { name: persona.name, poseTree });
         return next;
       });
     }).catch(() => {
       // Still add to map with null config so we show the name
-      setAgentMap((prev) => {
+      setPersonaMap((prev) => {
         const next = new Map(prev);
-        next.set(agentId, { name: agentName || `Agent ${agentId}`, poseTree: null });
+        next.set(personaId, { name: personaName || `Persona ${personaId}`, poseTree: null });
         return next;
       });
     });
   }, []);
 
-  // Set active agent during streaming (for lip sync)
-  const pushAgentCharacterConfig = useCallback((agentId: number | undefined, agentName?: string) => {
-    if (!agentId) return;
-    setActiveAgentId(agentId);
-    fetchAgentForPanel(agentId, agentName, true);
-  }, [fetchAgentForPanel]);
+  // Set the speaking persona during streaming (for lip sync)
+  const pushPersonaCharacterConfig = useCallback((personaId: number | undefined, personaName?: string) => {
+    if (!personaId) return;
+    setActivePersonaId(personaId);
+    fetchPersonaForPanel(personaId, personaName, true);
+  }, [fetchPersonaForPanel]);
 
-  // Reset agent map when conversation changes
+  // Reset the persona map when the conversation changes
   useEffect(() => {
-    setAgentMap(new Map());
-    agentCacheRef.current.clear();
-    setActiveAgentId(null);
+    setPersonaMap(new Map());
+    personaCacheRef.current.clear();
+    setActivePersonaId(null);
   }, [currentConversationId]);
 
-  // Scan messages for agents to populate the character panel
+  // Scan messages for personas to populate the character panel. Tool messages
+  // carry no persona (the wire sets persona_id/persona_name to null on them), so
+  // they are skipped by the persona_id guard.
   useEffect(() => {
     if (!characterWindowOpen) return;
     for (const msg of messages) {
-      const name = msg.agent?.name || msg.name;
-      if (msg.agent_id && !agentCacheRef.current.has(msg.agent_id)) {
-        fetchAgentForPanel(msg.agent_id, name);
+      const name = msg.persona?.name || msg.name;
+      if (msg.persona_id && !personaCacheRef.current.has(msg.persona_id)) {
+        fetchPersonaForPanel(msg.persona_id, name);
       }
     }
-  }, [messages, characterWindowOpen, fetchAgentForPanel]);
+  }, [messages, characterWindowOpen, fetchPersonaForPanel]);
 
   // IPC bridge: send amplitude to character window at ~30fps
   useEffect(() => {
@@ -102,26 +105,26 @@ export function useCharacterPanel({
     return () => clearInterval(interval);
   }, [characterWindowOpen]);
 
-  // IPC bridge: send agent map + active agent to character window
-  const agentStateRef = useRef({ agentMap, activeAgentId });
-  agentStateRef.current = { agentMap, activeAgentId };
+  // IPC bridge: send persona map + active persona to character window
+  const personaStateRef = useRef({ personaMap, activePersonaId });
+  personaStateRef.current = { personaMap, activePersonaId };
 
-  const sendAgentState = useCallback(() => {
+  const sendPersonaState = useCallback(() => {
     const api = window.electron?.characterWindow;
     if (!api) return;
-    const { agentMap: map, activeAgentId: id } = agentStateRef.current;
-    const agents = Array.from(map.entries()).map(([agentId, entry]) => ({
-      id: agentId,
+    const { personaMap: map, activePersonaId: id } = personaStateRef.current;
+    const personas = Array.from(map.entries()).map(([personaId, entry]) => ({
+      id: personaId,
       name: entry.name,
       poseTree: entry.poseTree,
     }));
-    api.sendAgentsUpdate({ agents, activeAgentId: id });
+    api.sendPersonasUpdate({ personas, activePersonaId: id });
   }, []);
 
   useEffect(() => {
     if (!characterWindowOpen) return;
-    sendAgentState();
-  }, [characterWindowOpen, agentMap, activeAgentId, sendAgentState]);
+    sendPersonaState();
+  }, [characterWindowOpen, personaMap, activePersonaId, sendPersonaState]);
 
   // Re-send state when character window signals it's ready (after loading)
   useEffect(() => {
@@ -129,28 +132,28 @@ export function useCharacterPanel({
     const api = window.electron?.characterWindow;
     if (!api) return;
     const cleanup = api.onCharacterReady(() => {
-      sendAgentState();
+      sendPersonaState();
     });
     return cleanup;
-  }, [characterWindowOpen, sendAgentState]);
+  }, [characterWindowOpen, sendPersonaState]);
 
   // Re-fetch character configs when saved in the editor dialog
   useEffect(() => {
     const handler = (e: Event) => {
-      const agentId = (e as CustomEvent).detail?.agentId as number | undefined;
-      if (agentId && agentMap.has(agentId)) {
-        fetchAgentForPanel(agentId, undefined, true);
+      const personaId = (e as CustomEvent).detail?.personaId as number | undefined;
+      if (personaId && personaMap.has(personaId)) {
+        fetchPersonaForPanel(personaId, undefined, true);
       }
     };
     window.addEventListener('character-config-saved', handler);
     return () => window.removeEventListener('character-config-saved', handler);
-  }, [agentMap, fetchAgentForPanel]);
+  }, [personaMap, fetchPersonaForPanel]);
 
   return {
     amplitudeRef,
-    activeAgentId,
-    setActiveAgentId,
-    pushAgentCharacterConfig,
+    activePersonaId,
+    setActivePersonaId,
+    pushPersonaCharacterConfig,
     onAmplitudeUpdate,
     onTTSPlaybackStart,
   };

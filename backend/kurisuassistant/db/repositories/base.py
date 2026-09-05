@@ -5,6 +5,26 @@ from sqlalchemy import desc
 ModelType = TypeVar("ModelType")
 
 
+class _Unset:
+    """Type of :data:`UNSET`."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "UNSET"
+
+    def __bool__(self) -> bool:
+        return False
+
+
+#: Sentinel meaning "the caller did not supply this argument".
+#:
+#: Partial-update helpers need to tell "leave this column alone" apart from
+#: "write NULL into this column". ``None`` cannot carry both meanings, so
+#: default optional update parameters to ``UNSET`` and let ``None`` mean NULL.
+UNSET: Any = _Unset()
+
+
 class BaseRepository(Generic[ModelType]):
     """Base repository with common CRUD operations."""
 
@@ -101,6 +121,25 @@ class BaseRepository(Generic[ModelType]):
             setattr(instance, key, value)
         self.session.flush()
         return instance
+
+    def update_provided(self, instance: ModelType, **data) -> ModelType:
+        """Update a record with only the fields the caller actually supplied.
+
+        Any value that is :data:`UNSET` is dropped; every other value is written,
+        ``None`` included. Passing ``None`` therefore clears a nullable column
+        instead of being silently ignored.
+
+        Args:
+            instance: Model instance to update
+            **data: Field-value pairs, unsupplied ones passed as UNSET
+
+        Returns:
+            Updated model instance (unchanged if nothing was supplied)
+        """
+        provided = {key: value for key, value in data.items() if value is not UNSET}
+        if not provided:
+            return instance
+        return self.update(instance, **provided)
 
     def delete(self, instance: ModelType) -> None:
         """Delete a record.

@@ -1,5 +1,12 @@
 /**
- * App config tools — let agents manage settings, MCP servers, and vision.
+ * App config tools — let the assistant manage settings, MCP servers, and vision.
+ *
+ * The assistant/persona/sub-agent split is visible here: capability lives on the
+ * one assistant (`app_*_assistant`), presentation on many personas
+ * (`app_*_persona`), and delegated work on sub-agents (`app_*_sub_agent`). Every
+ * name in APP_TOOL_NAMES must have a case in `src/services/appToolsHandler.ts` —
+ * a schema with no handler is advertised to the model, costs tokens in every
+ * tool list, and answers "Unknown app tool" when called.
  *
  * These tools need renderer-side APIs (apiClient, Zustand stores), so the main
  * process forwards calls to the renderer via IPC and waits for the result.
@@ -23,14 +30,16 @@ interface ToolSchema {
 }
 
 const APP_TOOL_NAMES = new Set([
-  'app_get_agents',
-  'app_create_agent',
-  'app_update_agent',
-  'app_delete_agent',
+  'app_get_assistant',
+  'app_update_assistant',
   'app_get_personas',
   'app_create_persona',
   'app_update_persona',
   'app_delete_persona',
+  'app_get_sub_agents',
+  'app_create_sub_agent',
+  'app_update_sub_agent',
+  'app_delete_sub_agent',
   'app_list_mcp_servers',
   'app_add_mcp_server',
   'app_update_mcp_server',
@@ -52,103 +61,80 @@ const APP_TOOL_NAMES = new Set([
 
 function getAppToolSchemas(): ToolSchema[] {
   return [
-    // --- Agent settings ---
+    // --- Assistant (capability: one per user, created at registration) ---
     {
       type: 'function',
       function: {
-        name: 'app_get_agents',
-        description: 'List all agents configured in the app with their settings.',
+        name: 'app_get_assistant',
+        description:
+          "The user's single assistant: model, provider, tool allowlist, reasoning, " +
+          'memory, voice wake word, and the persona new conversations bind to.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'app_update_assistant',
+        description:
+          "Change what the assistant can do. Only send fields you want to change. " +
+          'This is capability only — a name, prompt, voice or avatar belongs to a persona, ' +
+          'so use app_update_persona for those.',
         parameters: {
           type: 'object',
-          properties: {},
+          properties: {
+            model_name: { type: 'string', description: 'LLM model name (e.g. "gemma3:4b").' },
+            provider_type: { type: 'string', enum: ['ollama', 'gemini', 'nvidia'], description: 'LLM provider.' },
+            available_tools: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Allowlist of tool names. Omit to leave alone; send null for every tool.',
+            },
+            think: { type: 'boolean', description: 'Enable extended reasoning.' },
+            use_deferred_tools: { type: 'boolean', description: 'Defer tool schemas until searched for.' },
+            memory: { type: 'string', description: 'Long-term memory notes.' },
+            memory_enabled: { type: 'boolean', description: 'Enable memory injection + consolidation.' },
+            trigger_word: {
+              type: 'string',
+              description:
+                'Voice wake word. Saying it wakes the assistant; the conversation\'s bound persona answers. It selects no persona.',
+            },
+            default_persona_id: {
+              type: 'integer',
+              description: 'Persona a new conversation silently binds to.',
+            },
+          },
           required: [],
         },
       },
     },
-    {
-      type: 'function',
-      function: {
-        name: 'app_create_agent',
-        description: 'Create a new agent with a name, system prompt, and model. Optionally link a persona.',
-        parameters: {
-          type: 'object',
-          properties: {
-            name: { type: 'string', description: 'Display name for the new agent.' },
-            system_prompt: { type: 'string', description: 'System prompt / personality.' },
-            model_name: { type: 'string', description: 'LLM model name (e.g. "gemma3:4b").' },
-            provider_type: { type: 'string', enum: ['ollama', 'gemini'], description: 'LLM provider (default: "ollama").' },
-            think: { type: 'boolean', description: 'Enable extended reasoning.' },
-            persona_id: { type: 'integer', description: 'ID of a persona to link (provides voice, avatar, trigger word, preferred name).' },
-          },
-          required: ['name', 'model_name'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'app_update_agent',
-        description:
-          'Update an agent\'s settings. Only provide fields you want to change.',
-        parameters: {
-          type: 'object',
-          properties: {
-            agent_id: { type: 'integer', description: 'ID of the agent to update.' },
-            name: { type: 'string', description: 'New display name.' },
-            system_prompt: { type: 'string', description: 'New system prompt / personality.' },
-            model_name: { type: 'string', description: 'LLM model name (e.g. "gemma3:4b").' },
-            available_tools: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Allowlist of tool names (null = all tools available).',
-            },
-            think: { type: 'boolean', description: 'Enable extended reasoning.' },
-            memory_enabled: { type: 'boolean', description: 'Enable memory injection + consolidation.' },
-            persona_id: { type: 'integer', description: 'ID of a persona to link (provides voice, avatar, trigger word, preferred name). Use 0 or null to unlink.' },
-          },
-          required: ['agent_id'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'app_delete_agent',
-        description: 'Delete an agent by ID.',
-        parameters: {
-          type: 'object',
-          properties: {
-            agent_id: { type: 'integer', description: 'ID of the agent to delete.' },
-          },
-          required: ['agent_id'],
-        },
-      },
-    },
-    // --- Personas ---
+    // --- Personas (presentation: many per user) ---
     {
       type: 'function',
       function: {
         name: 'app_get_personas',
-        description: 'List all personas. Personas hold identity fields (voice, avatar, trigger word, preferred name, character config) that can be shared across agents.',
-        parameters: {
-          type: 'object',
-          properties: {},
-          required: [],
-        },
+        description:
+          'List the personas the assistant can answer as. A persona is presentation only — ' +
+          'name, description, prompt, how it addresses the user, voice, avatar.',
+        parameters: { type: 'object', properties: {}, required: [] },
       },
     },
     {
       type: 'function',
       function: {
         name: 'app_create_persona',
-        description: 'Create a new persona with identity fields.',
+        description:
+          'Create a persona. It owns no model, no tools and no memory: those stay on the assistant, ' +
+          'so a new persona changes who answers, not what the assistant can do.',
         parameters: {
           type: 'object',
           properties: {
-            name: { type: 'string', description: 'Display name for the persona.' },
+            name: { type: 'string', description: 'Display name.' },
+            description: { type: 'string', description: 'Short description of this persona.' },
             system_prompt: { type: 'string', description: 'System prompt / personality.' },
-            preferred_name: { type: 'string', description: 'How agents with this persona should address the user.' },
-            trigger_word: { type: 'string', description: 'Voice activation trigger word.' },
+            preferred_name: { type: 'string', description: 'What this persona calls the user.' },
+            voice_reference: { type: 'string', description: 'TTS voice reference file name.' },
+            enabled: { type: 'boolean', description: 'Whether the persona can be selected (default: true).' },
           },
           required: ['name'],
         },
@@ -164,9 +150,11 @@ function getAppToolSchemas(): ToolSchema[] {
           properties: {
             persona_id: { type: 'integer', description: 'ID of the persona to update.' },
             name: { type: 'string', description: 'New display name.' },
+            description: { type: 'string', description: 'New description.' },
             system_prompt: { type: 'string', description: 'New system prompt / personality.' },
-            preferred_name: { type: 'string', description: 'How the user wants to be called.' },
-            trigger_word: { type: 'string', description: 'Voice activation trigger word.' },
+            preferred_name: { type: 'string', description: 'What this persona calls the user.' },
+            voice_reference: { type: 'string', description: 'TTS voice reference file name.' },
+            enabled: { type: 'boolean', description: 'Enable or disable the persona.' },
           },
           required: ['persona_id'],
         },
@@ -176,13 +164,91 @@ function getAppToolSchemas(): ToolSchema[] {
       type: 'function',
       function: {
         name: 'app_delete_persona',
-        description: 'Delete a persona by ID. Agents linked to it will have their persona_id cleared.',
+        description:
+          "Delete a persona by ID. The user's last remaining persona cannot be deleted — a " +
+          'conversation needs one to bind to. Deleting the default one is allowed: the oldest ' +
+          'remaining persona becomes the new default.',
         parameters: {
           type: 'object',
           properties: {
             persona_id: { type: 'integer', description: 'ID of the persona to delete.' },
           },
           required: ['persona_id'],
+        },
+      },
+    },
+    // --- Sub-agents (task-only workers) ---
+    {
+      type: 'function',
+      function: {
+        name: 'app_get_sub_agents',
+        description:
+          'List sub-agents. A sub-agent is a worker the assistant delegates a task to mid-answer: ' +
+          'its own model and tools, but no name shown to the user, no voice, no memory.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'app_create_sub_agent',
+        description: 'Create a sub-agent the assistant can delegate to.',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Name the assistant calls it by.' },
+            description: { type: 'string', description: 'What this sub-agent is for — the assistant reads this to decide when to delegate.' },
+            system_prompt: { type: 'string', description: 'Task instructions.' },
+            model_name: { type: 'string', description: "LLM model name. Omit to use the assistant's model." },
+            provider_type: { type: 'string', enum: ['ollama', 'gemini', 'nvidia'], description: 'LLM provider.' },
+            available_tools: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Allowlist of tool names (omit for every tool).',
+            },
+            think: { type: 'boolean', description: 'Enable extended reasoning.' },
+          },
+          required: ['name'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'app_update_sub_agent',
+        description: 'Update a sub-agent. Only provide fields you want to change.',
+        parameters: {
+          type: 'object',
+          properties: {
+            sub_agent_id: { type: 'integer', description: 'ID of the sub-agent to update.' },
+            name: { type: 'string', description: 'New name.' },
+            description: { type: 'string', description: 'New description.' },
+            system_prompt: { type: 'string', description: 'New task instructions.' },
+            model_name: { type: 'string', description: 'LLM model name.' },
+            provider_type: { type: 'string', enum: ['ollama', 'gemini', 'nvidia'], description: 'LLM provider.' },
+            available_tools: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Allowlist of tool names.',
+            },
+            think: { type: 'boolean', description: 'Enable extended reasoning.' },
+            enabled: { type: 'boolean', description: 'Enable or disable the sub-agent.' },
+          },
+          required: ['sub_agent_id'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'app_delete_sub_agent',
+        description: 'Delete a sub-agent by ID.',
+        parameters: {
+          type: 'object',
+          properties: {
+            sub_agent_id: { type: 'integer', description: 'ID of the sub-agent to delete.' },
+          },
+          required: ['sub_agent_id'],
         },
       },
     },

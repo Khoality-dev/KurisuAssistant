@@ -1,12 +1,15 @@
-"""MainAgent — interactive agent with identity that streams to the user.
+"""MainAgent — the assistant answering in a persona's voice.
 
-Owns the persona (voice, avatar, character config, preferred_name,
-trigger_word) and runs the LLM tool-loop. Emits StreamChunkEvents for
-the user.
+Runs on two halves: an :class:`AssistantConfig` (model, tools, memory — one
+per user) and a :class:`PersonaConfig` (name, prompt, voice — the identity
+bound to this conversation). Swapping the persona changes who is speaking
+without changing what the assistant can do or remember. Emits
+StreamChunkEvents for the user.
 """
 
 import json
 import logging
+import time
 import uuid
 from typing import AsyncGenerator, Dict, List
 
@@ -18,19 +21,34 @@ logger = logging.getLogger(__name__)
 
 
 class MainAgent(BaseAgent):
-    """Conversational agent with identity. Streams to the user via StreamChunkEvent.
+    """Conversational agent with a persona. Streams to the user via StreamChunkEvent.
 
-    - Identity + memory + skills + compacted context are folded into the
+    - Persona + memory + skills + compacted context are folded into the
       system prompt by ``_prepare_messages``.
     - ``extra_tools`` is a handler-injected list (SubAgentTool adapters,
       etc.) mixed into the tool schemas presented to the LLM.
     - ``process`` yields StreamChunkEvent for every content/thinking/tool
       chunk produced during the LLM loop.
+
+    Constructed as ``MainAgent(assistant, tool_registry, identity=persona)``.
     """
 
-    def __init__(self, config, tool_registry):
-        super().__init__(config, tool_registry)
+    def __init__(self, capabilities, tool_registry, *, identity=None):
+        super().__init__(capabilities, tool_registry, identity=identity)
         self.turn_data: List[Dict] = []
+
+    def _is_sub_agent_tool(self, tool_name: str) -> bool:
+        """Whether ``tool_name`` resolves to an injected SubAgentTool adapter.
+
+        The client tags a tool chunk as a delegation from this; it cannot work
+        it out itself, because a sub-agent is exposed to the LLM as an ordinary
+        function call with no marker in the name.
+        """
+        from .sub import SubAgentTool
+        for extra_tool in getattr(self, "extra_tools", None) or []:
+            if isinstance(extra_tool, SubAgentTool) and extra_tool.name == tool_name:
+                return True
+        return False
 
     async def _prepare_messages(
         self,
@@ -58,12 +76,12 @@ class MainAgent(BaseAgent):
 
         system_parts = []
 
-        base_prompt = f"You are {self.config.name}."
-        if self.config.system_prompt:
-            base_prompt += "\n\n" + self.config.system_prompt
+        base_prompt = f"You are {self.identity.name}."
+        if self.identity.system_prompt:
+            base_prompt += "\n\n" + self.identity.system_prompt
         if context.user_system_prompt:
             base_prompt += "\n\n" + context.user_system_prompt
-        preferred_name = self.config.preferred_name or context.preferred_name
+        preferred_name = self.identity.preferred_name or context.preferred_name
         if preferred_name:
             base_prompt += f"\n\nThe user prefers to be called: {preferred_name}"
         base_prompt += f"\n\nCurrent time: {datetime.datetime.utcnow().isoformat()}"
@@ -82,7 +100,7 @@ class MainAgent(BaseAgent):
                     "always read the skill first and follow its instructions exactly."
                 )
 
-        if self.config.use_deferred_tools:
+        if self.capabilities.use_deferred_tools:
             system_parts.append(
                 "## Tool Usage\n"
                 "You have access to tools through a discovery system. Use these functions:\n"
@@ -94,8 +112,8 @@ class MainAgent(BaseAgent):
                 "You may skip discovery if you already know the tool name from context or a previous turn."
             )
 
-        if self.config.memory_enabled and self.config.memory:
-            system_parts.append("Your memory:\n" + self.config.memory)
+        if self.capabilities.memory_enabled and self.capabilities.memory:
+            system_parts.append("Your memory:\n" + self.capabilities.memory)
 
         if context.compacted_context:
             system_parts.append("Conversation context:\n" + context.compacted_context)
@@ -151,8 +169,8 @@ class MainAgent(BaseAgent):
         """
         from kurisuassistant.models.llm import create_llm_provider
 
-        model = self.config.model_name or context.model_name
-        provider_type = self.config.provider_type or "ollama"
+        model = self.capabilities.model_name or context.model_name
+        provider_type = self.capabilities.provider_type or "ollama"
 
         api_key = None
         if provider_type == "gemini":
@@ -165,9 +183,13 @@ class MainAgent(BaseAgent):
         messages = await self._prepare_messages(messages, context)
         self.last_prepared_messages = messages
 
-        allowed = set(self.config.available_tools) if self.config.available_tools is not None else None
+        allowed = (
+            set(self.capabilities.available_tools)
+            if self.capabilities.available_tools is not None
+            else None
+        )
 
-        if self.config.use_deferred_tools:
+        if self.capabilities.use_deferred_tools:
             from kurisuassistant.tools.deferred import create_deferred_tools, META_TOOL_NAMES
             proxy, meta_tools = create_deferred_tools(
                 tool_registry=self.tool_registry,
@@ -211,7 +233,7 @@ class MainAgent(BaseAgent):
                     msg["images"] = context.images
                     break
 
-        MAX_TOOL_ROUNDS = 25 if self.config.use_deferred_tools else 10
+        MAX_TOOL_ROUNDS = 25 if self.capabilities.use_deferred_tools else 10
         self.turn_data = []
 
         try:
@@ -224,7 +246,7 @@ class MainAgent(BaseAgent):
                     messages=messages,
                     tools=tool_schemas if tool_schemas else [],
                     stream=True,
-                    think=self.config.think,
+                    think=self.capabilities.think,
                     options={"num_ctx": context.context_size or 8192},
                 )
 
@@ -242,11 +264,12 @@ class MainAgent(BaseAgent):
                             content="",
                             thinking=thinking,
                             role="assistant",
-                            agent_id=self.config.id,
-                            name=self.config.name,
+                            persona_id=self.identity.id,
+                            persona_name=self.identity.name,
+                            name=self.identity.name,
                             conversation_id=context.conversation_id,
                             model_name=model,
-                            provider_type=self.config.provider_type,
+                            provider_type=self.capabilities.provider_type,
                         )
 
                     if msg.content:
@@ -254,11 +277,12 @@ class MainAgent(BaseAgent):
                         yield StreamChunkEvent(
                             content=msg.content,
                             role="assistant",
-                            agent_id=self.config.id,
-                            name=self.config.name,
+                            persona_id=self.identity.id,
+                            persona_name=self.identity.name,
+                            name=self.identity.name,
                             conversation_id=context.conversation_id,
                             model_name=model,
-                            provider_type=self.config.provider_type,
+                            provider_type=self.capabilities.provider_type,
                         )
 
                     if hasattr(msg, 'tool_calls') and msg.tool_calls:
@@ -295,8 +319,9 @@ class MainAgent(BaseAgent):
                 yield StreamChunkEvent(
                     content="",
                     role="assistant",
-                    agent_id=self.config.id,
-                    name=self.config.name,
+                    persona_id=self.identity.id,
+                    persona_name=self.identity.name,
+                    name=self.identity.name,
                     conversation_id=context.conversation_id,
                     tool_calls=tc_list,
                 )
@@ -308,7 +333,12 @@ class MainAgent(BaseAgent):
                     if isinstance(tool_args, str):
                         tool_args = json.loads(tool_args)
 
+                    # Timed here because the tool chunk is emitted only once the
+                    # call has returned: a client sees the result and the elapsed
+                    # time in the same message, and has no way to measure it.
+                    started_at = time.monotonic()
                     result = await self.execute_tool(tool_name, tool_args, context)
+                    duration_ms = int((time.monotonic() - started_at) * 1000)
 
                     display_name = tool_name
                     display_args = tool_args
@@ -316,14 +346,17 @@ class MainAgent(BaseAgent):
                         display_name = tool_args.get("name", "call_tool")
                         display_args = tool_args.get("arguments", {})
 
+                    # A tool chunk is not the persona speaking, so it carries no
+                    # persona_id/persona_name; ``name`` is the tool's own label.
                     yield StreamChunkEvent(
                         content=result.content,
                         role="tool",
-                        agent_id=None,
                         name=display_name,
                         conversation_id=context.conversation_id,
                         tool_args=display_args,
                         tool_status=result.status,
+                        tool_kind="sub_agent" if self._is_sub_agent_tool(display_name) else "tool",
+                        duration_ms=duration_ms,
                         images=result.images or None,
                         tool_call_id=call_ids[call_index],
                     )
@@ -346,7 +379,7 @@ class MainAgent(BaseAgent):
                 # stream otherwise just stopped after the last tool result, with
                 # nothing to distinguish it from a completed answer.
                 logger.warning(
-                    "Agent '%s' hit the %d tool-round cap", self.config.name, MAX_TOOL_ROUNDS,
+                    "Agent '%s' hit the %d tool-round cap", self.identity.name, MAX_TOOL_ROUNDS,
                 )
                 yield StreamChunkEvent(
                     content=(
@@ -354,11 +387,12 @@ class MainAgent(BaseAgent):
                         "without reaching an answer._"
                     ),
                     role="assistant",
-                    agent_id=self.config.id,
-                    name=self.config.name,
+                    persona_id=self.identity.id,
+                    persona_name=self.identity.name,
+                    name=self.identity.name,
                     conversation_id=context.conversation_id,
                     model_name=model,
-                    provider_type=self.config.provider_type,
+                    provider_type=self.capabilities.provider_type,
                 )
 
         except Exception:

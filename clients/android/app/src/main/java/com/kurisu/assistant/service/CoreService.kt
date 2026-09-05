@@ -17,7 +17,7 @@ import com.kurisu.assistant.MainActivity
 import com.kurisu.assistant.R
 import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.remote.websocket.WebSocketManager
-import com.kurisu.assistant.data.repository.AgentRepository
+import com.kurisu.assistant.data.repository.PersonaRepository
 import com.kurisu.assistant.data.repository.AsrRepository
 import com.kurisu.assistant.data.repository.ConversationRepository
 import com.kurisu.assistant.domain.audio.AudioRecorder
@@ -64,7 +64,7 @@ class CoreService : Service() {
     @Inject lateinit var streamProcessor: ChatStreamProcessor
     @Inject lateinit var ttsQueueManager: TtsQueueManager
     @Inject lateinit var voiceInteractionManager: VoiceInteractionManager
-    @Inject lateinit var agentRepository: AgentRepository
+    @Inject lateinit var personaRepository: PersonaRepository
     @Inject lateinit var conversationRepository: ConversationRepository
     @Inject lateinit var asrRepository: AsrRepository
     @Inject lateinit var prefs: PreferencesDataStore
@@ -277,9 +277,25 @@ class CoreService : Service() {
         streamProcessor.onConversationId = { convId ->
             serviceScope.launch {
                 coreState.setConversationId(convId)
-                val agentId = coreState.state.value.selectedAgentId
-                if (agentId != null) {
-                    agentRepository.setConversationIdForAgent(agentId, convId)
+                val personaId = coreState.state.value.currentPersonaId
+                if (personaId != null) {
+                    personaRepository.setConversationIdForPersona(personaId, convId)
+                }
+            }
+        }
+
+        // Compaction (manual /compact or automatic) creates a NEW server-side conversation
+        // seeded with the summary. Adopt it here — CoreService owns the persisted
+        // persona → conversation mapping — or every later message is sent against a
+        // conversation the server has already moved off. ChatViewModel reloads the
+        // transcript on its own when coreState.conversationId changes.
+        streamProcessor.onConversationSwitched = { event ->
+            serviceScope.launch {
+                coreState.setConversationId(event.newConversationId)
+                val personaId = event.personaId.takeIf { it != 0 }
+                    ?: coreState.state.value.currentPersonaId
+                if (personaId != null) {
+                    personaRepository.setConversationIdForPersona(personaId, event.newConversationId)
                 }
             }
         }
@@ -314,6 +330,7 @@ class CoreService : Service() {
     private fun unwireCallbacks() {
         streamProcessor.onSentenceBoundary = null
         streamProcessor.onConversationId = null
+        streamProcessor.onConversationSwitched = null
         streamProcessor.onStreamDone = null
         voiceInteractionManager.onTranscriptSend = null
         ttsObserverJob?.cancel()
@@ -333,12 +350,12 @@ class CoreService : Service() {
 
         serviceScope.launch {
             try {
-                // Backend uses the agent's configured model_name when modelName is empty.
+                // Backend uses the assistant's configured model_name when modelName is empty.
                 wsManager.sendChatRequest(
                     text = text,
                     modelName = "",
                     conversationId = state.conversationId,
-                    agentId = state.selectedAgentId,
+                    personaId = state.currentPersonaId,
                 )
             } catch (e: Exception) {
                 streamProcessor.setError(e.message ?: "Failed to send message")

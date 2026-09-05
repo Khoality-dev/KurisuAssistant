@@ -37,7 +37,7 @@ class TestEventParsing:
             "text": "hello",
             "model_name": "qwen3.5:0.8b",
             "conversation_id": None,
-            "agent_id": None,
+            "persona_id": None,
         }
         event = parse_event(data)
         assert isinstance(event, ChatRequestEvent)
@@ -110,7 +110,7 @@ class TestEventRoundTrip:
             content="hello",
             thinking="let me think...",
             role="assistant",
-            agent_id=3,
+            persona_id=3,
             name="Ayaka",
             persona_name="Ayaka-chan",
             voice_reference="uuid-voice",
@@ -126,7 +126,7 @@ class TestEventRoundTrip:
         assert d["content"] == "hello"
         assert d["thinking"] == "let me think..."
         assert d["role"] == "assistant"
-        assert d["agent_id"] == 3
+        assert d["persona_id"] == 3
         assert d["name"] == "Ayaka"
         assert d["persona_name"] == "Ayaka-chan"
         assert d["voice_reference"] == "uuid-voice"

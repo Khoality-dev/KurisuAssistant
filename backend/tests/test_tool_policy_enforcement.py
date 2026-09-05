@@ -11,7 +11,7 @@ the client's approval answer can only ever narrow it, never widen it.
 
 import pytest
 
-from kurisuassistant.agents.base import AgentConfig, AgentContext
+from kurisuassistant.agents.base import AssistantConfig, PersonaConfig, SubAgentConfig, AgentContext
 from kurisuassistant.agents.main import MainAgent
 from kurisuassistant.tools import ToolRegistry
 from kurisuassistant.tools.base import BaseTool
@@ -61,7 +61,7 @@ class RecordingHandler:
 def agent():
     registry = ToolRegistry()
     registry.register(EchoTool())
-    return MainAgent(AgentConfig(id=1, name="Tester"), registry)
+    return MainAgent(AssistantConfig(id=1), registry, identity=PersonaConfig(id=1, name="Tester"))
 
 
 def context(handler=None, policies=None):

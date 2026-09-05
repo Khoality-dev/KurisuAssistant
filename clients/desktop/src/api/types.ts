@@ -9,11 +9,12 @@ export interface ServerVersionInfo {
   wire_protocol: number;
 }
 
-// Embedded agent info in messages (subset of Agent)
-export interface MessageAgent {
+// Embedded persona stamp on a stored message (subset of Persona) — who said it.
+// The backend attaches it to assistant messages that carry a persona_id; tool
+// messages have neither, and use `name` for the tool label instead.
+export interface MessagePersona {
   id: number;
   name: string;
-  persona_name: string | null;
   avatar_uuid: string | null;
   voice_reference: string | null;
 }
@@ -25,10 +26,10 @@ export interface Message {
   thinking?: string; // Optional thinking content (for assistant messages)
   images?: string[];
   created_at?: string;
-  agent_id?: number; // Which agent sent this message
-  name?: string; // Speaker identity (agent name, tool name, etc.)
+  persona_id?: number; // Which persona spoke this message (assistant messages only)
+  name?: string; // Speaker identity (persona name, tool name, etc.)
   persona_name?: string; // Persona display name (from streaming chunks)
-  agent?: MessageAgent; // Embedded agent info (name, avatar)
+  persona?: MessagePersona; // Embedded persona stamp (name, avatar, voice)
   voice_reference?: string; // Voice reference for TTS (from streaming chunks)
   has_raw_data?: boolean; // Whether raw LLM input/output is available
   model_name?: string; // LLM model that generated this message
@@ -58,7 +59,7 @@ export interface ConversationLastMessage {
 export interface Conversation {
   id: number;
   title: string;
-  main_agent_id: number | null;  // null until first message picks a main agent
+  persona_id: number | null;  // null until the first message binds a persona
   message_count: number;
   created_at: string;
   updated_at: string;
@@ -68,7 +69,7 @@ export interface Conversation {
 export interface ConversationDetail {
   id: number;
   title: string;
-  main_agent_id: number | null;
+  persona_id: number | null;
   created_at: string;
   messages: Message[];
   total_messages: number;
@@ -128,27 +129,62 @@ export interface TTSRequest {
   use_emo_text?: boolean;
 }
 
-export interface Agent {
+/**
+ * The user's single assistant: what it can do. Exactly one per user, created at
+ * registration, addressed with no id (`GET|PATCH /assistant`). It owns capability —
+ * model, provider, tools, reasoning, memory — plus the voice wake word and the
+ * persona new conversations bind to. Personas change who answers; none of this
+ * changes with them.
+ */
+export interface Assistant {
+  id: number;
+  model_name: string | null;
+  provider_type: string;
+  available_tools: string[] | null;  // null = every tool
+  think: boolean;
+  use_deferred_tools: boolean;
+  memory: string | null;
+  memory_enabled: boolean;
+  // Voice wake word. Saying it wakes the assistant; the conversation's bound
+  // persona answers. It selects nothing.
+  trigger_word: string | null;
+  // Persona a new conversation silently adopts. There is no picker on new-chat
+  // and no random fallback.
+  default_persona_id: number | null;
+}
+
+/**
+ * How the assistant sounds: a name, a prompt, a voice, a face. Presentation only —
+ * a persona owns no model, no tools, no memory and no trigger word.
+ */
+export interface Persona {
+  id: number;
+  name: string;
+  description: string;
+  system_prompt: string;
+  preferred_name: string | null;   // what this persona calls the *user*
+  voice_reference: string | null;
+  avatar_uuid: string | null;
+  character_config: CharacterConfigDTO | null;
+  enabled: boolean;
+}
+
+/**
+ * A task-only worker the assistant delegates to mid-answer. Runs its own LLM loop,
+ * so it carries its own model and tools — but it has no identity: no avatar, no
+ * voice, no memory, never bound to a conversation, never shown as the speaker.
+ */
+export interface SubAgent {
   id: number;
   name: string;
   description: string;
   system_prompt: string;
   model_name: string | null;
   provider_type: string;
-  available_tools: string[] | null;
+  available_tools: string[] | null;  // null = every tool
   think: boolean;
-  memory: string | null;
-  memory_enabled: boolean;
-  enabled: boolean;
-  is_system: boolean;
   use_deferred_tools: boolean;
-  agent_type: string;  // "main" or "sub"
-  // Personality fields — MainAgent only
-  voice_reference: string | null;
-  avatar_uuid: string | null;
-  character_config: CharacterConfigDTO | null;
-  preferred_name: string | null;
-  trigger_word: string | null;  // First-message pick hint
+  enabled: boolean;
 }
 
 // Character asset types (backend responses)
@@ -179,42 +215,85 @@ export interface UploadVideoResponseDTO {
   video_url: string;
 }
 
-export interface AgentCreate {
+export interface PersonaCreate {
   name: string;
   description?: string;
   system_prompt?: string;
-  model_name: string;
-  provider_type?: string;
-  available_tools?: string[];
-  think?: boolean;
-  use_deferred_tools?: boolean;
-  agent_type?: string;  // "main" or "sub"
-  // Personality fields — MainAgent only
+  preferred_name?: string;
   voice_reference?: string;
   avatar_uuid?: string;
   character_config?: CharacterConfigDTO;
-  preferred_name?: string;
-  trigger_word?: string;
+  enabled?: boolean;
 }
 
-export interface AgentUpdate {
+/**
+ * PATCH /personas/{id}. Omit a field to leave it alone; send an explicit `null` to
+ * clear it. `name`, `description` and `enabled` may not be null.
+ */
+export interface PersonaUpdate {
   name?: string;
+  description?: string;
+  system_prompt?: string;
+  preferred_name?: string | null;
+  voice_reference?: string | null;
+  avatar_uuid?: string | null;
+  character_config?: CharacterConfigDTO | null;
+  enabled?: boolean;
+}
+
+/**
+ * PATCH /assistant. Omit a field to leave it alone; send an explicit `null` to
+ * clear it — `available_tools: null` is the only way to say "every tool" again.
+ * `provider_type`, `think`, `use_deferred_tools` and `memory_enabled` may not be null.
+ */
+export interface AssistantUpdate {
+  model_name?: string | null;
+  provider_type?: string;
+  available_tools?: string[] | null;
+  think?: boolean;
+  use_deferred_tools?: boolean;
+  memory?: string | null;
+  memory_enabled?: boolean;
+  trigger_word?: string | null;
+  default_persona_id?: number | null;
+}
+
+export interface SubAgentCreate {
+  name: string;
   description?: string;
   system_prompt?: string;
   model_name?: string;
   provider_type?: string;
   available_tools?: string[];
   think?: boolean;
-  memory?: string;
-  memory_enabled?: boolean;
   use_deferred_tools?: boolean;
-  agent_type?: string;
-  // Personality fields — MainAgent only
-  voice_reference?: string | null;
-  avatar_uuid?: string | null;
-  character_config?: CharacterConfigDTO | null;
-  preferred_name?: string | null;
-  trigger_word?: string | null;
+  enabled?: boolean;
+}
+
+/**
+ * PATCH /sub-agents/{id}. Same null semantics as the others: `model_name: null`
+ * means "the assistant's model", `available_tools: null` means "every tool".
+ */
+export interface SubAgentUpdate {
+  name?: string;
+  description?: string;
+  system_prompt?: string;
+  model_name?: string | null;
+  provider_type?: string;
+  available_tools?: string[] | null;
+  think?: boolean;
+  use_deferred_tools?: boolean;
+  enabled?: boolean;
+}
+
+/**
+ * PATCH /conversations/{id}. Replaces the old POST, which only ever renamed.
+ * `persona_id: null` unbinds the conversation, so the next message falls back to
+ * the assistant's default persona.
+ */
+export interface ConversationUpdate {
+  title?: string;
+  persona_id?: number | null;
 }
 
 // MCP Server types

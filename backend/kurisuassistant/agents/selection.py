@@ -1,48 +1,80 @@
-"""Main-agent selection for new conversations.
+"""Persona selection for a conversation.
 
-Runs once when a conversation has no ``main_agent_id`` yet. First
-message is scanned for any enabled main agent's ``trigger_word``
-(case-insensitive, word-boundary); if none matches, a random main
-agent is chosen. No LLM call — this is deterministic + cheap.
+Runs when a conversation has no ``persona_id`` yet, or when the client sends
+an explicit override. The order is fixed and deterministic:
+
+1. an explicit override — the conversation's existing binding, or the
+   ``persona_id`` on this ``chat_request``;
+2. the user's ``assistants.default_persona_id``;
+3. the user's first enabled persona, by id, so the same input always yields
+   the same persona;
+4. otherwise ``ValueError`` — a user with no enabled persona has no voice.
+
+There is no trigger-word scan here and no random fallback. The trigger word is
+a voice *wake word* and lives on the assistant: saying it wakes the assistant
+and the conversation's bound persona answers. A new conversation silently
+adopts the default persona; nothing rolls dice.
 """
 
 import logging
-import random
-import re
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
-from .base import AgentConfig
+from .base import PersonaConfig
 
 logger = logging.getLogger(__name__)
 
 
-def _normalize_trigger(trigger: Optional[str]) -> Optional[str]:
-    if trigger is None:
-        return None
-    trigger = trigger.strip()
-    return trigger or None
+def _by_id(personas: Iterable[PersonaConfig]) -> List[PersonaConfig]:
+    """Personas ordered by id — the tie-break that makes step 3 deterministic."""
+    return sorted(personas, key=lambda p: (p.id is None, p.id or 0))
 
 
-def pick_main_agent(first_message: str, main_agents: List[AgentConfig]) -> AgentConfig:
-    """Pick a main agent for a conversation.
+def pick_persona(
+    personas: List[PersonaConfig],
+    override_id: Optional[int] = None,
+    default_persona_id: Optional[int] = None,
+) -> PersonaConfig:
+    """Pick the persona that answers in a conversation.
 
-    Order: first-matching trigger word wins; otherwise random choice.
-    Raises ``ValueError`` if ``main_agents`` is empty.
+    Args:
+        personas: The user's enabled personas. Only these are eligible; a
+            disabled persona cannot be revived by pointing at its id.
+        override_id: An explicit choice — the conversation's stored binding or
+            the id on this request. Ignored with a warning if it names a
+            persona that is not enabled (deleted, disabled, or another user's).
+        default_persona_id: ``assistants.default_persona_id``. Same treatment
+            if it dangles.
+
+    Returns:
+        The chosen PersonaConfig.
+
+    Raises:
+        ValueError: If ``personas`` is empty.
     """
-    if not main_agents:
-        raise ValueError("No main agents available for selection")
+    if not personas:
+        raise ValueError("No enabled personas available for selection")
 
-    text = (first_message or "")
-    if text:
-        for agent in main_agents:
-            trigger = _normalize_trigger(agent.trigger_word)
-            if not trigger:
-                continue
-            pattern = r"\b" + re.escape(trigger) + r"\b"
-            if re.search(pattern, text, re.IGNORECASE):
-                logger.info("Matched trigger word '%s' → agent '%s'", trigger, agent.name)
-                return agent
+    ordered = _by_id(personas)
+    by_id = {p.id: p for p in ordered if p.id is not None}
 
-    chosen = random.choice(main_agents)
-    logger.info("No trigger word match — randomly picked '%s'", chosen.name)
+    if override_id is not None:
+        chosen = by_id.get(override_id)
+        if chosen is not None:
+            return chosen
+        logger.warning(
+            "Requested persona %s is not enabled for this user — falling back",
+            override_id,
+        )
+
+    if default_persona_id is not None:
+        chosen = by_id.get(default_persona_id)
+        if chosen is not None:
+            return chosen
+        logger.warning(
+            "Default persona %s is not enabled for this user — falling back",
+            default_persona_id,
+        )
+
+    chosen = ordered[0]
+    logger.info("No persona pinned — using '%s' (id=%s)", chosen.name, chosen.id)
     return chosen

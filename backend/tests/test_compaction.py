@@ -38,10 +38,10 @@ def find_event(ws, event_type: str):
     return None
 
 
-def setup_db_prefs(monkeypatch, summary_model="qwen3:1.7b", agent_id=42):
+def setup_db_prefs(monkeypatch, summary_model="qwen3:1.7b", persona_id=42):
     """Patch get_db_service so handler reads canned user prefs + agent id."""
     db = MagicMock()
-    # _get_prefs returns (summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key, agent_id)
+    # _get_prefs returns (summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key, persona_id)
     # _get_ctx returns context_size
     # _create runs the create_summary_conversation closure (returns new id)
     def execute_sync(fn):
@@ -50,7 +50,7 @@ def setup_db_prefs(monkeypatch, summary_model="qwen3:1.7b", agent_id=42):
 
     def dispatch(fn):
         return {
-            "_get_prefs": (summary_model, "ollama", None, None, None, agent_id),
+            "_get_prefs": (summary_model, "ollama", None, None, None, persona_id),
             "_get_ctx": 8192,
         }.get(fn.__name__, execute_sync(fn))
 
@@ -83,7 +83,7 @@ class TestHandleCompactContext:
         assert switched["old_conversation_id"] == 123
         assert switched["new_conversation_id"] == 999
         assert switched["compacted_context"] == "SUMMARY TEXT"
-        assert switched["agent_id"] == 42
+        assert switched["persona_id"] == 42
 
         # The compacting=true heads-up should also have fired before the switch
         info = find_event(ws, "context_info")
@@ -164,11 +164,11 @@ class TestEventShape:
             old_conversation_id=10,
             new_conversation_id=11,
             compacted_context="…",
-            agent_id=5,
+            persona_id=5,
         )
         d = evt.to_dict()
         assert d["type"] == "conversation_switched"
         assert d["old_conversation_id"] == 10
         assert d["new_conversation_id"] == 11
         assert d["compacted_context"] == "…"
-        assert d["agent_id"] == 5
+        assert d["persona_id"] == 5

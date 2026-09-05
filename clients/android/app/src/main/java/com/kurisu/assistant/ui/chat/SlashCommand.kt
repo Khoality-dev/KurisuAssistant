@@ -12,7 +12,7 @@ object SlashCommands {
         SlashCommand("delete", "Permanently delete the current conversation"),
         SlashCommand("resume", "Pick a previous conversation to resume"),
         SlashCommand("context", "Show context breakdown for this chat"),
-        SlashCommand("agents", "Pick an agent to chat with"),
+        SlashCommand("persona", "Switch the persona answering this chat"),
         SlashCommand("refresh", "Reload the current conversation from the server"),
         SlashCommand("compact", "Compact the current conversation now"),
     )

@@ -35,6 +35,12 @@ class ChatStreamProcessor @Inject constructor(
     var onConnected: ((ConnectedEvent) -> Unit)? = null
     var onContextInfo: ((ContextInfoEvent) -> Unit)? = null
 
+    /**
+     * Compaction moved the chat to a new server-side conversation. Wired in CoreService,
+     * which owns the persisted agent → conversation mapping.
+     */
+    var onConversationSwitched: ((ConversationSwitchedEvent) -> Unit)? = null
+
     private var currentRole: String? = null
     private var currentContent = StringBuilder()
     private var currentThinking = StringBuilder()
@@ -62,7 +68,8 @@ class ChatStreamProcessor @Inject constructor(
                     is ErrorEvent -> handleError(event)
                     is ConnectedEvent -> onConnected?.invoke(event)
                     is ContextInfoEvent -> onContextInfo?.invoke(event)
-                    is AgentSwitchEvent -> { /* handled in UI */ }
+                    is ConversationSwitchedEvent -> onConversationSwitched?.invoke(event)
+                    is ToolCallRequestEvent -> refuseClientTool(event)
                     else -> { /* media, vision, etc. handled elsewhere */ }
                 }
             }
@@ -156,8 +163,10 @@ class ChatStreamProcessor @Inject constructor(
                 providerType = event.providerType,
                 toolArgs = event.toolArgs,
                 toolStatus = event.toolStatus,
+                toolKind = event.toolKind,
+                durationMs = event.durationMs,
                 images = event.images,
-                agentId = event.agentId,
+                personaId = event.personaId,
             )
             _state.update { it.copy(
                 streamingMessages = it.streamingMessages + newMsg,
@@ -179,6 +188,8 @@ class ChatStreamProcessor @Inject constructor(
                         thinking = currentThinking.toString().ifEmpty { null },
                         images = currentImages.ifEmpty { null },
                         toolStatus = event.toolStatus ?: last.toolStatus,
+                        toolKind = event.toolKind ?: last.toolKind,
+                        durationMs = event.durationMs ?: last.durationMs,
                     )
                 }
                 s.copy(streamingMessages = msgs)
@@ -202,6 +213,23 @@ class ChatStreamProcessor @Inject constructor(
         flushTTSBuffer()
         _state.update { it.copy(isStreaming = false, typingAgentName = null) }
         onStreamDone?.invoke()
+    }
+
+    /**
+     * Android registers no client tools, but the backend caches session handlers per user
+     * and reuses them across reconnects — a tool list registered by the desktop client can
+     * therefore route a call to this socket. Answering immediately turns a 120s-per-call
+     * stall (up to 10 tool rounds a turn) into an instant, honest failure.
+     *
+     * This is deliberately a refusal, not an execution path: the Android client does not
+     * run client-side tools.
+     */
+    private fun refuseClientTool(event: ToolCallRequestEvent) {
+        wsManager.sendToolCallResponse(
+            requestId = event.requestId,
+            content = "Client tools are not supported on the Android client",
+            isError = true,
+        )
     }
 
     private fun handleError(event: ErrorEvent) {

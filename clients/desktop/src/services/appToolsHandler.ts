@@ -3,6 +3,11 @@
  *
  * Listens for `app-tools:execute` IPC from main process,
  * dispatches to apiClient / Zustand stores, returns result.
+ *
+ * Every name advertised in `electron/appTools.ts` needs a case in `dispatch`, and
+ * every case needs a schema there. A schema with no case is worse than a missing
+ * tool: the model is told it exists, spends tokens on it in every request, and is
+ * answered "Unknown app tool" when it finally calls it.
  */
 
 import { apiClient } from '../api/client';
@@ -30,57 +35,145 @@ function err(message: string): ToolResult {
 
 // --- Tool handlers ---
 
-async function handleGetAgents(): Promise<ToolResult> {
-  const agents = await apiClient.listAgents();
-  if (agents.length === 0) return ok('No agents configured.');
-  const lines = agents.map(a => {
-    const desc = a.description ? ` — ${a.description}` : '';
-    return `- **${a.name}** (#${a.id}) — ${a.model_name || 'no model'} [${a.agent_type}]${desc}`;
+// --- Assistant (capability: one per user) ---
+
+async function handleGetAssistant(): Promise<ToolResult> {
+  const a = await apiClient.getAssistant();
+  const lines = [
+    `- Model: ${a.model_name || 'not set'} (${a.provider_type})`,
+    `- Tools: ${a.available_tools === null ? 'every tool' : a.available_tools.join(', ') || 'none'}`,
+    `- Extended thinking: ${a.think ? 'on' : 'off'}`,
+    `- Deferred tools: ${a.use_deferred_tools ? 'on' : 'off'}`,
+    `- Memory: ${a.memory_enabled ? 'on' : 'off'}`,
+    `- Wake word: ${a.trigger_word || 'none'}`,
+    `- Default persona: ${a.default_persona_id ?? 'none'}`,
+  ];
+  return ok(lines.join('\n'));
+}
+
+/**
+ * Capability only. Presentation — name, prompt, voice, avatar — belongs to a
+ * persona, so it goes through handleUpdatePersona instead. The pre-split tool
+ * took both in one allowlist and could not say which resource it was writing.
+ */
+async function handleUpdateAssistant(args: Record<string, unknown>): Promise<ToolResult> {
+  const update: Record<string, unknown> = {};
+  for (const key of [
+    'model_name', 'provider_type', 'available_tools', 'think',
+    'use_deferred_tools', 'memory', 'memory_enabled', 'trigger_word',
+    'default_persona_id',
+  ]) {
+    if (args[key] !== undefined) update[key] = args[key];
+  }
+  if (Object.keys(update).length === 0) return err('No fields to update.');
+
+  const a = await apiClient.updateAssistant(update);
+  return ok(`Assistant updated — model ${a.model_name || 'not set'} (${a.provider_type}).`);
+}
+
+// --- Personas (presentation: many per user) ---
+
+async function handleGetPersonas(): Promise<ToolResult> {
+  const personas = await apiClient.listPersonas();
+  if (personas.length === 0) return ok('No personas configured.');
+  const lines = personas.map(p => {
+    const desc = p.description ? ` — ${p.description}` : '';
+    return `- **${p.name}** (#${p.id})${p.enabled ? '' : ' (disabled)'}${desc}`;
   });
   return ok(lines.join('\n'));
 }
 
-async function handleCreateAgent(args: Record<string, unknown>): Promise<ToolResult> {
+async function handleCreatePersona(args: Record<string, unknown>): Promise<ToolResult> {
   const name = args.name as string;
-  const modelName = args.model_name as string;
   if (!name) return err('name is required.');
-  if (!modelName) return err('model_name is required.');
 
-  const agent = await apiClient.createAgent({
+  const persona = await apiClient.createPersona({
     name,
-    model_name: modelName,
     description: args.description as string | undefined,
     system_prompt: args.system_prompt as string | undefined,
-    provider_type: args.provider_type as string | undefined,
-    think: args.think as boolean | undefined,
-    agent_type: args.agent_type as string | undefined,
-    voice_reference: args.voice_reference as string | undefined,
     preferred_name: args.preferred_name as string | undefined,
+    voice_reference: args.voice_reference as string | undefined,
+    enabled: args.enabled as boolean | undefined,
   });
-  return ok(`Agent created: **${agent.name}** (#${agent.id})`);
+  return ok(`Persona created: **${persona.name}** (#${persona.id})`);
 }
 
-async function handleUpdateAgent(args: Record<string, unknown>): Promise<ToolResult> {
-  const agentId = args.agent_id as number;
-  if (!agentId) return err('agent_id is required.');
+async function handleUpdatePersona(args: Record<string, unknown>): Promise<ToolResult> {
+  const personaId = args.persona_id as number;
+  if (!personaId) return err('persona_id is required.');
 
   const update: Record<string, unknown> = {};
-  for (const key of ['name', 'description', 'system_prompt', 'model_name', 'available_tools', 'think', 'memory_enabled', 'agent_type', 'voice_reference', 'preferred_name']) {
+  for (const key of [
+    'name', 'description', 'system_prompt', 'preferred_name',
+    'voice_reference', 'enabled',
+  ]) {
     if (args[key] !== undefined) update[key] = args[key];
   }
-
   if (Object.keys(update).length === 0) return err('No fields to update.');
 
-  const agent = await apiClient.updateAgent(agentId, update);
-  return ok(`Agent updated: **${agent.name}** (#${agent.id})`);
+  const persona = await apiClient.updatePersona(personaId, update);
+  return ok(`Persona updated: **${persona.name}** (#${persona.id})`);
 }
 
-async function handleDeleteAgent(args: Record<string, unknown>): Promise<ToolResult> {
-  const agentId = args.agent_id as number;
-  if (!agentId) return err('agent_id is required.');
+async function handleDeletePersona(args: Record<string, unknown>): Promise<ToolResult> {
+  const personaId = args.persona_id as number;
+  if (!personaId) return err('persona_id is required.');
 
-  await apiClient.deleteAgent(agentId);
-  return ok(`Agent #${agentId} deleted.`);
+  await apiClient.deletePersona(personaId);
+  return ok(`Persona #${personaId} deleted.`);
+}
+
+// --- Sub-agents (task-only workers) ---
+
+async function handleGetSubAgents(): Promise<ToolResult> {
+  const subAgents = await apiClient.listSubAgents();
+  if (subAgents.length === 0) return ok('No sub-agents configured.');
+  const lines = subAgents.map(s => {
+    const desc = s.description ? ` — ${s.description}` : '';
+    return `- **${s.name}** (#${s.id}) — ${s.model_name || "the assistant's model"}${s.enabled ? '' : ' (disabled)'}${desc}`;
+  });
+  return ok(lines.join('\n'));
+}
+
+async function handleCreateSubAgent(args: Record<string, unknown>): Promise<ToolResult> {
+  const name = args.name as string;
+  if (!name) return err('name is required.');
+
+  const subAgent = await apiClient.createSubAgent({
+    name,
+    description: args.description as string | undefined,
+    system_prompt: args.system_prompt as string | undefined,
+    model_name: args.model_name as string | undefined,
+    provider_type: args.provider_type as string | undefined,
+    available_tools: args.available_tools as string[] | undefined,
+    think: args.think as boolean | undefined,
+  });
+  return ok(`Sub-agent created: **${subAgent.name}** (#${subAgent.id})`);
+}
+
+async function handleUpdateSubAgent(args: Record<string, unknown>): Promise<ToolResult> {
+  const subAgentId = args.sub_agent_id as number;
+  if (!subAgentId) return err('sub_agent_id is required.');
+
+  const update: Record<string, unknown> = {};
+  for (const key of [
+    'name', 'description', 'system_prompt', 'model_name', 'provider_type',
+    'available_tools', 'think', 'use_deferred_tools', 'enabled',
+  ]) {
+    if (args[key] !== undefined) update[key] = args[key];
+  }
+  if (Object.keys(update).length === 0) return err('No fields to update.');
+
+  const subAgent = await apiClient.updateSubAgent(subAgentId, update);
+  return ok(`Sub-agent updated: **${subAgent.name}** (#${subAgent.id})`);
+}
+
+async function handleDeleteSubAgent(args: Record<string, unknown>): Promise<ToolResult> {
+  const subAgentId = args.sub_agent_id as number;
+  if (!subAgentId) return err('sub_agent_id is required.');
+
+  await apiClient.deleteSubAgent(subAgentId);
+  return ok(`Sub-agent #${subAgentId} deleted.`);
 }
 
 async function handleListMCPServers(): Promise<ToolResult> {
@@ -282,10 +375,16 @@ async function handleNavigate(args: Record<string, unknown>): Promise<ToolResult
 
 async function dispatch(name: string, args: Record<string, unknown>): Promise<ToolResult> {
   switch (name) {
-    case 'app_get_agents': return handleGetAgents();
-    case 'app_create_agent': return handleCreateAgent(args);
-    case 'app_update_agent': return handleUpdateAgent(args);
-    case 'app_delete_agent': return handleDeleteAgent(args);
+    case 'app_get_assistant': return handleGetAssistant();
+    case 'app_update_assistant': return handleUpdateAssistant(args);
+    case 'app_get_personas': return handleGetPersonas();
+    case 'app_create_persona': return handleCreatePersona(args);
+    case 'app_update_persona': return handleUpdatePersona(args);
+    case 'app_delete_persona': return handleDeletePersona(args);
+    case 'app_get_sub_agents': return handleGetSubAgents();
+    case 'app_create_sub_agent': return handleCreateSubAgent(args);
+    case 'app_update_sub_agent': return handleUpdateSubAgent(args);
+    case 'app_delete_sub_agent': return handleDeleteSubAgent(args);
     case 'app_list_mcp_servers': return handleListMCPServers();
     case 'app_add_mcp_server': return handleAddMCPServer(args);
     case 'app_update_mcp_server': return handleUpdateMCPServer(args);

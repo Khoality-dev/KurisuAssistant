@@ -64,7 +64,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     storage.clearToken();
     storage.clearRefreshToken();
     storage.setRememberMe(false);
-    storage.clearAllAgentConversations();
+    storage.clearAllPersonaConversations();
     set({ isAuthenticated: false, user: null, rememberMe: false });
   },
 
@@ -74,6 +74,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   initializeAuth: async () => {
+    // Drop the pre-split cache keys once per launch. Both were caches that
+    // re-derive from the backend, so there is nothing to migrate.
+    storage.clearLegacyAgentKeys();
+
     const token = storage.getToken();
     const refreshToken = storage.getRefreshToken();
     const rememberMe = storage.getRememberMe();

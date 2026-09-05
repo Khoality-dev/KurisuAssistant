@@ -2,10 +2,12 @@ package com.kurisu.assistant.domain.chat
 
 import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
+import com.kurisu.assistant.data.model.ConversationSwitchedEvent
 import com.kurisu.assistant.data.model.DoneEvent
 import com.kurisu.assistant.data.model.ErrorEvent
 import com.kurisu.assistant.data.model.ServerEvent
 import com.kurisu.assistant.data.model.StreamChunkEvent
+import com.kurisu.assistant.data.model.ToolCallRequestEvent
 import com.kurisu.assistant.data.remote.websocket.WebSocketManager
 import io.mockk.every
 import io.mockk.just
@@ -206,6 +208,43 @@ class ChatStreamProcessorTest {
         advanceUntilIdle()
 
         assertThat(ids).containsExactly(42)
+    }
+
+    @Test
+    fun `conversation_switched forwards the new conversation to its callback`() = runTest {
+        val switches = mutableListOf<ConversationSwitchedEvent>()
+        processor.onConversationSwitched = { switches.add(it) }
+        processor.startCollecting()
+
+        eventsFlow.emit(
+            ConversationSwitchedEvent(
+                oldConversationId = 7,
+                newConversationId = 8,
+                compactedContext = "summary",
+                personaId = 3,
+            )
+        )
+        advanceUntilIdle()
+
+        assertThat(switches).hasSize(1)
+        assertThat(switches[0].newConversationId).isEqualTo(8)
+        assertThat(switches[0].personaId).isEqualTo(3)
+    }
+
+    @Test
+    fun `tool_call_request is refused immediately instead of timing out`() = runTest {
+        processor.startCollecting()
+
+        eventsFlow.emit(ToolCallRequestEvent(requestId = "r1", toolName = "clipboard_read"))
+        advanceUntilIdle()
+
+        verify(exactly = 1) {
+            wsManager.sendToolCallResponse(
+                requestId = "r1",
+                content = "Client tools are not supported on the Android client",
+                isError = true,
+            )
+        }
     }
 
     @Test

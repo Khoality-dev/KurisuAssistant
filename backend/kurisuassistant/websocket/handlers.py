@@ -1,8 +1,9 @@
-"""WebSocket session handler — one conversation, one main agent, optional sub-agent delegation."""
+"""WebSocket session handler — one conversation, one persona, optional sub-agent delegation."""
 
 import asyncio
 import json
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -19,7 +20,6 @@ from .events import (
     DoneEvent,
     ErrorEvent,
     CancelEvent,
-    AgentSwitchEvent,
     VisionStartEvent,
     VisionFrameEvent,
     VisionStopEvent,
@@ -31,16 +31,26 @@ from .events import (
     CompactContextEvent,
     parse_event,
 )
-from kurisuassistant.agents import AgentConfig, AgentContext, MainAgent, SubAgent, SubAgentTool
-from kurisuassistant.agents.selection import pick_main_agent
+from kurisuassistant.agents import (
+    AgentContext,
+    AssistantConfig,
+    MainAgent,
+    PersonaConfig,
+    SubAgent,
+    SubAgentConfig,
+    SubAgentTool,
+)
+from kurisuassistant.agents.selection import pick_persona
 from kurisuassistant.tools import tool_registry
 from kurisuassistant.vision import VisionProcessor
 from sqlalchemy import desc
 from kurisuassistant.db.models import Conversation, Message
 from kurisuassistant.db.repositories import (
-    AgentRepository,
+    AssistantRepository,
     ConversationRepository,
     MessageRepository,
+    PersonaRepository,
+    SubAgentRepository,
     UserRepository,
 )
 from kurisuassistant.core.errors import GENERIC_MESSAGE, log_internal_error
@@ -54,16 +64,43 @@ logger = logging.getLogger(__name__)
 MAX_QUEUED_MESSAGES = 20
 
 
+@dataclass
+class _TurnSetup:
+    """Everything a turn needs from the database, read in one round trip.
+
+    The assistant row is read here rather than alongside the personas: it is a
+    single row keyed by user, so folding it into the setup query costs nothing
+    and saves a second trip to the DB thread.
+    """
+    conversation_id: int
+    # The conversation's current persona binding — None until the first message
+    # binds it.
+    persona_id: Optional[int]
+    assistant: AssistantConfig
+    default_persona_id: Optional[int]
+    system_messages: List[Dict] = field(default_factory=list)
+    user_system_prompt: str = ""
+    preferred_name: str = ""
+    ollama_url: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+    nvidia_api_key: Optional[str] = None
+    summary_model: Optional[str] = None
+    summary_provider: str = "ollama"
+    context_size: Optional[int] = None
+    tool_policies: Dict[str, str] = field(default_factory=dict)
+
+
 class ChatSessionHandler:
     """Handles a single WebSocket chat session.
 
     Flow:
     1. User sends a message
-    2. Resolve/create conversation. If ``main_agent_id`` is null, pick one
-       (trigger-word scan → random) and persist.
-    3. Run MainAgent with SubAgentTool adapters for each enabled SubAgent.
+    2. Resolve/create conversation. If ``persona_id`` is null, bind it —
+       explicit override → the assistant's default persona — and persist.
+    3. Run MainAgent (the user's single assistant, speaking as that persona)
+       with SubAgentTool adapters for each enabled SubAgent.
     4. Stream response; save messages with ``conversation_id`` as they complete.
-    5. On idle, background worker consolidates agent memory from the conversation.
+    5. On idle, background worker consolidates assistant memory from the conversation.
     """
 
     def __init__(self, websocket: WebSocket, user_id: int):
@@ -74,6 +111,7 @@ class ChatSessionHandler:
         self._send_lock = asyncio.Lock()
 
         self._task_conversation_id: Optional[int] = None
+        self._task_persona_id: Optional[int] = None
         self._task_done: bool = False
 
         self._client_tools: List[Dict] = []
@@ -164,52 +202,44 @@ class ChatSessionHandler:
     # ------------------------------------------------------------------
 
     async def _run_chat(self, event: ChatRequestEvent, extra_messages: Optional[List] = None):
-        """Pick main agent if needed, then run it with sub-agent tools."""
+        """Bind the conversation to a persona if needed, then run the assistant."""
         from fastapi import WebSocketDisconnect
         try:
             setup = await self._setup_conversation(event)
-            (conversation_id, system_messages, user_system_prompt, preferred_name,
-             ollama_url, gemini_api_key, nvidia_api_key,
-             summary_model, summary_provider, context_size,
-             existing_main_agent_id, tool_policies) = setup
+            conversation_id = setup.conversation_id
+            assistant = setup.assistant
 
             self._task_conversation_id = conversation_id
             self._task_done = False
 
-            all_agents = await self._load_enabled_agents()
-            main_agents = [a for a in all_agents if a.agent_type == 'main']
-            sub_agents = [a for a in all_agents if a.agent_type == 'sub']
+            personas, sub_agents = await self._load_agents()
 
-            if not main_agents:
+            if not personas:
                 await self.send_event(ErrorEvent(
-                    error="No main agents available. Please create at least one main agent.",
-                    code="NO_MAIN_AGENTS",
+                    error="No personas available. Please create at least one persona.",
+                    code="NO_PERSONAS",
                 ))
                 return
 
-            # Resolve current main agent (persisted on conversation, or pick now).
-            current_agent: Optional[AgentConfig] = None
-            if existing_main_agent_id is not None:
-                current_agent = next(
-                    (a for a in main_agents if a.id == existing_main_agent_id),
-                    None,
-                )
-                if current_agent is None:
-                    logger.warning(
-                        "Conversation %d main_agent_id=%d not in enabled main agents — re-picking",
-                        conversation_id, existing_main_agent_id,
-                    )
-            if current_agent is None:
-                current_agent = pick_main_agent(event.text, main_agents)
-                await self._persist_main_agent(conversation_id, current_agent.id)
-
-            await self.send_event(AgentSwitchEvent(
-                from_agent_id=None,
-                from_agent_name=None,
-                to_agent_id=current_agent.id,
-                to_agent_name=current_agent.name,
-                reason=f"Selected {current_agent.name}",
-            ))
+            # Binding precedence: an explicit choice for this turn (``persona_id``
+            # on this chat_request, or a PATCH that already wrote
+            # ``conversations.persona_id``) → the conversation's existing
+            # binding → the assistant's default persona. A new conversation
+            # adopts the default silently; nothing scans for a trigger word and
+            # nothing is picked at random.
+            override_id = (
+                event.persona_id if event.persona_id is not None else setup.persona_id
+            )
+            persona = pick_persona(
+                personas,
+                override_id=override_id,
+                default_persona_id=setup.default_persona_id,
+            )
+            self._task_persona_id = persona.id
+            if persona.id != setup.persona_id:
+                # Runs on a rebind too, not only on the first bind: an override
+                # that is not written back is forgotten by the next message.
+                await self._persist_persona(conversation_id, persona.id)
 
             # Save user's images to disk
             image_uuids: List[str] = []
@@ -257,29 +287,34 @@ class ChatSessionHandler:
             # Context compaction if near context-window limit. The pending user
             # message + extras are NOT included in the summary — they land as
             # the first messages of the new conversation that gets created.
-            context_limit = context_size or 8192
-            pre_check_messages = system_messages + context_messages + [user_message] + extra_msgs_prepared
+            context_limit = setup.context_size or 8192
+            pre_check_messages = (
+                setup.system_messages + context_messages + [user_message] + extra_msgs_prepared
+            )
             token_count = self._estimate_tokens(pre_check_messages)
 
-            if token_count > context_limit * 0.9 and summary_model:
+            if token_count > context_limit * 0.9 and setup.summary_model:
                 await self.send_event(ContextInfoEvent(
                     conversation_id=conversation_id, compacting=True,
                 ))
                 summary_api_key = (
-                    gemini_api_key if summary_provider == "gemini"
-                    else nvidia_api_key if summary_provider == "nvidia"
+                    setup.gemini_api_key if setup.summary_provider == "gemini"
+                    else setup.nvidia_api_key if setup.summary_provider == "nvidia"
                     else None
                 )
-                summary_input = system_messages + context_messages
+                summary_input = setup.system_messages + context_messages
                 summary = await asyncio.to_thread(
                     self._generate_summary,
                     context_limit, summary_input,
-                    summary_model, ollama_url, summary_provider, summary_api_key,
+                    setup.summary_model, setup.ollama_url, setup.summary_provider,
+                    summary_api_key,
                 )
                 if summary:
+                    # The new conversation carries the persona binding — without
+                    # it a compacted conversation comes back with no voice.
                     new_conversation_id = await asyncio.to_thread(
                         self._create_summary_conversation,
-                        current_agent.id, summary,
+                        persona.id, summary,
                     )
                     old_conversation_id = conversation_id
                     conversation_id = new_conversation_id
@@ -291,14 +326,16 @@ class ChatSessionHandler:
                         old_conversation_id=old_conversation_id,
                         new_conversation_id=new_conversation_id,
                         compacted_context=summary,
-                        agent_id=current_agent.id or 0,
+                        persona_id=persona.id or 0,
                     ))
 
             # Save the pending user message + extras to the (possibly new) conversation
             await self._save_message(user_message, conversation_id)
             for extra_msg in extra_msgs_prepared:
                 await self._save_message(extra_msg, conversation_id)
-            conversation_messages = system_messages + context_messages + [user_message] + extra_msgs_prepared
+            conversation_messages = (
+                setup.system_messages + context_messages + [user_message] + extra_msgs_prepared
+            )
             token_count = self._estimate_tokens(conversation_messages)
 
             self._initial_token_count = token_count
@@ -320,28 +357,31 @@ class ChatSessionHandler:
             agent_context = AgentContext(
                 user_id=self.user_id,
                 conversation_id=conversation_id,
-                model_name=current_agent.model_name or event.model_name,
+                # The fallback model for anything that has none of its own. It
+                # now comes from the ASSISTANT rather than from the selected
+                # main agent: a sub-agent with a null ``model_name`` inherits
+                # the assistant's model, not the persona's (a persona has none).
+                model_name=assistant.model_name or event.model_name,
                 handler=self,
-                available_agents=sub_agents,
-                user_system_prompt=user_system_prompt,
-                preferred_name=preferred_name,
-                api_url=ollama_url,
-                gemini_api_key=gemini_api_key,
-                nvidia_api_key=nvidia_api_key,
+                user_system_prompt=setup.user_system_prompt,
+                preferred_name=setup.preferred_name,
+                api_url=setup.ollama_url,
+                gemini_api_key=setup.gemini_api_key,
+                nvidia_api_key=setup.nvidia_api_key,
                 client_tools=self._client_tools,
                 client_tool_callback=self._execute_client_tool,
                 images=event.images if event.images else None,
-                context_size=context_size,
+                context_size=setup.context_size,
                 compacted_context=compacted_context,
-                tool_policies=tool_policies,
+                tool_policies=setup.tool_policies,
             )
 
-            agent = MainAgent(current_agent, tool_registry)
+            agent = MainAgent(assistant, tool_registry, identity=persona)
             agent.extra_tools = sub_agent_tools
 
             await self._stream_and_save_agent(
                 agent=agent,
-                agent_config=current_agent,
+                persona=persona,
                 messages=conversation_messages,
                 context=agent_context,
                 conversation_id=conversation_id,
@@ -369,7 +409,7 @@ class ChatSessionHandler:
     async def _stream_and_save_agent(
         self,
         agent: MainAgent,
-        agent_config: AgentConfig,
+        persona: PersonaConfig,
         messages: List[Dict],
         context: AgentContext,
         conversation_id: int,
@@ -377,7 +417,7 @@ class ChatSessionHandler:
     ) -> str:
         """Stream a MainAgent's response and persist messages as role boundaries cross."""
         current_role = "assistant"
-        current_name = agent_config.name
+        current_name = persona.name
         chunk_content = ""
         chunk_thinking = ""
         current_images: List[str] = []
@@ -403,8 +443,13 @@ class ChatSessionHandler:
             if chunk.provider_type:
                 last_provider_type = chunk.provider_type
 
-            chunk.voice_reference = agent_config.voice_reference
-            chunk.persona_name = agent_config.name
+            # The voice belongs to the persona, and only an assistant chunk is
+            # the persona speaking; a tool chunk keeps its own ``name`` and no
+            # persona attribution.
+            if chunk.role == "assistant":
+                chunk.voice_reference = persona.voice_reference
+                chunk.persona_id = persona.id
+                chunk.persona_name = persona.name
             chunk.token_count = self._initial_token_count + int(self._response_word_count * 1.3)
             await self.send_event(chunk)
 
@@ -429,7 +474,7 @@ class ChatSessionHandler:
                         "role": current_role,
                         "content": chunk_content,
                         "thinking": chunk_thinking if chunk_thinking else None,
-                        "agent_id": agent_config.id if current_role == "assistant" else None,
+                        "persona_id": persona.id if current_role == "assistant" else None,
                         "name": current_name,
                         "raw_input": raw_in,
                         "raw_output": chunk_content if current_role == "assistant" else None,
@@ -445,13 +490,13 @@ class ChatSessionHandler:
                     conversation_messages.append({
                         "role": current_role,
                         "content": chunk_content,
-                        "agent_id": agent_config.id if current_role == "assistant" else None,
+                        "persona_id": persona.id if current_role == "assistant" else None,
                         "name": current_name,
                     })
                     if current_role == "assistant":
                         final_assistant_content += chunk_content
                 current_role = chunk.role
-                current_name = chunk.name or agent_config.name
+                current_name = chunk.name or persona.name
                 chunk_content = chunk.content
                 chunk_thinking = chunk.thinking or ""
                 current_images = []
@@ -478,7 +523,7 @@ class ChatSessionHandler:
                 "role": current_role,
                 "content": chunk_content,
                 "thinking": chunk_thinking if chunk_thinking else None,
-                "agent_id": agent_config.id if current_role == "assistant" else None,
+                "persona_id": persona.id if current_role == "assistant" else None,
                 "name": current_name,
                 "raw_input": raw_in,
                 "raw_output": chunk_content if current_role == "assistant" else None,
@@ -492,7 +537,7 @@ class ChatSessionHandler:
             conversation_messages.append({
                 "role": current_role,
                 "content": chunk_content,
-                "agent_id": agent_config.id if current_role == "assistant" else None,
+                "persona_id": persona.id if current_role == "assistant" else None,
                 "name": current_name,
             })
             if current_role == "assistant":
@@ -504,10 +549,12 @@ class ChatSessionHandler:
     # Setup helpers
     # ------------------------------------------------------------------
 
-    async def _setup_conversation(self, event: ChatRequestEvent):
-        """Return (conversation_id, system_messages, user_sys_prompt, preferred_name,
-        ollama_url, gemini_api_key, nvidia_api_key, summary_model, summary_provider,
-        context_size, main_agent_id, tool_policies).
+    async def _setup_conversation(self, event: ChatRequestEvent) -> "_TurnSetup":
+        """Read everything this turn needs from the DB in one round trip.
+
+        The user's assistant row is read (and created on first use) here rather
+        than with the personas: it is one row keyed by user, so it costs nothing
+        to fold in and saves a second hop to the DB thread.
         """
         db = get_db_service()
 
@@ -529,78 +576,116 @@ class ChatSessionHandler:
             # so a policy decision never needs a DB round trip mid-stream.
             tool_policies = dict((user.tool_policies or {}).get("tools", {}))
 
+            # Exactly one assistant per user. Created on demand so a user who
+            # predates the split, or was made without one, can still chat.
+            assistant_row = AssistantRepository(session).get_or_create_for_user(self.user_id)
+            assistant = self._to_assistant_config(assistant_row)
+            default_persona_id = assistant_row.default_persona_id
+
             if event.conversation_id is None:
                 title = (event.text[:80] + "...") if len(event.text) > 80 else event.text
                 conversation = conv_repo.create_conversation(self.user_id, title=title)
                 conversation_id = conversation.id
-                main_agent_id = None
+                persona_id = None
             else:
                 conversation_id = event.conversation_id
                 conv = conv_repo.get_by_user_and_id(self.user_id, conversation_id)
-                main_agent_id = conv.main_agent_id if conv else None
+                persona_id = conv.persona_id if conv else None
 
             system_prompt, preferred_name = user_repo.get_preferences(user)
 
-            return (conversation_id, system_prompt, preferred_name,
-                    ollama_url, gemini_api_key, nvidia_api_key,
-                    summary_model, summary_provider, context_size,
-                    main_agent_id, tool_policies)
+            return _TurnSetup(
+                conversation_id=conversation_id,
+                persona_id=persona_id,
+                assistant=assistant,
+                default_persona_id=default_persona_id,
+                system_messages=build_system_messages(system_prompt, preferred_name),
+                user_system_prompt=system_prompt,
+                preferred_name=preferred_name or "",
+                ollama_url=ollama_url,
+                gemini_api_key=gemini_api_key,
+                nvidia_api_key=nvidia_api_key,
+                summary_model=summary_model,
+                summary_provider=summary_provider,
+                context_size=context_size,
+                tool_policies=tool_policies,
+            )
 
-        (conversation_id, system_prompt, preferred_name,
-         ollama_url, gemini_api_key, nvidia_api_key,
-         summary_model, summary_provider, context_size,
-         main_agent_id, tool_policies) = await db.execute(_do_setup)
+        return await db.execute(_do_setup)
 
-        system_messages = build_system_messages(system_prompt, preferred_name)
+    async def _persist_persona(self, conversation_id: int, persona_id: int) -> None:
+        """Write the conversation's persona binding.
 
-        return (conversation_id, system_messages, system_prompt, preferred_name or "",
-                ollama_url, gemini_api_key, nvidia_api_key,
-                summary_model, summary_provider, context_size,
-                main_agent_id, tool_policies)
-
-    async def _persist_main_agent(self, conversation_id: int, agent_id: int) -> None:
-        """Save the picked main agent on the conversation (one-time at first message)."""
+        Runs on the first bind and on every later override, so a rebind
+        survives to the next message.
+        """
         db = get_db_service()
 
         def _update(session):
             conv_repo = ConversationRepository(session)
             conv = conv_repo.get_by_id(conversation_id)
             if conv:
-                conv_repo.update_main_agent(conv, agent_id)
+                conv_repo.update_persona(conv, persona_id)
 
         await db.execute(_update)
 
-    async def _load_enabled_agents(self) -> List[AgentConfig]:
+    async def _load_agents(self) -> tuple[List[PersonaConfig], List[SubAgentConfig]]:
+        """Load the user's enabled personas and sub-agents in one round trip."""
         db = get_db_service()
 
         def _query(session):
-            agents = AgentRepository(session).list_enabled_for_user(self.user_id)
-            return [self._agent_to_config(agent) for agent in agents]
+            personas = [
+                self._to_persona_config(p)
+                for p in PersonaRepository(session).list_enabled_by_user(self.user_id)
+            ]
+            sub_agents = [
+                self._to_sub_agent_config(sa)
+                for sa in SubAgentRepository(session).list_enabled_by_user(self.user_id)
+            ]
+            return personas, sub_agents
 
         return await db.execute(_query)
 
     @staticmethod
-    def _agent_to_config(agent) -> AgentConfig:
-        return AgentConfig(
-            id=agent.id,
-            name=agent.name,
-            description=agent.description or "",
-            system_prompt=agent.system_prompt or "",
-            model_name=agent.model_name,
-            provider_type=getattr(agent, 'provider_type', 'ollama') or 'ollama',
-            available_tools=agent.available_tools,
-            think=agent.think,
-            memory=agent.memory,
-            memory_enabled=agent.memory_enabled,
-            enabled=agent.enabled,
-            is_system=agent.is_system,
-            use_deferred_tools=getattr(agent, 'use_deferred_tools', False),
-            voice_reference=getattr(agent, 'voice_reference', None),
-            avatar_uuid=getattr(agent, 'avatar_uuid', None),
-            character_config=getattr(agent, 'character_config', None),
-            preferred_name=getattr(agent, 'preferred_name', None),
-            trigger_word=getattr(agent, 'trigger_word', None),
-            agent_type=getattr(agent, 'agent_type', 'main'),
+    def _to_assistant_config(assistant) -> AssistantConfig:
+        return AssistantConfig(
+            id=assistant.id,
+            model_name=assistant.model_name,
+            provider_type=assistant.provider_type or 'ollama',
+            available_tools=assistant.available_tools,
+            think=assistant.think,
+            use_deferred_tools=assistant.use_deferred_tools,
+            memory=assistant.memory,
+            memory_enabled=assistant.memory_enabled,
+            trigger_word=assistant.trigger_word,
+        )
+
+    @staticmethod
+    def _to_persona_config(persona) -> PersonaConfig:
+        return PersonaConfig(
+            id=persona.id,
+            name=persona.name,
+            description=persona.description or "",
+            system_prompt=persona.system_prompt or "",
+            preferred_name=persona.preferred_name,
+            voice_reference=persona.voice_reference,
+            avatar_uuid=persona.avatar_uuid,
+            character_config=persona.character_config,
+            enabled=persona.enabled,
+        )
+
+    @staticmethod
+    def _to_sub_agent_config(sub_agent) -> SubAgentConfig:
+        return SubAgentConfig(
+            id=sub_agent.id,
+            name=sub_agent.name,
+            description=sub_agent.description or "",
+            system_prompt=sub_agent.system_prompt or "",
+            model_name=sub_agent.model_name,
+            provider_type=sub_agent.provider_type or 'ollama',
+            available_tools=sub_agent.available_tools,
+            think=sub_agent.think,
+            use_deferred_tools=sub_agent.use_deferred_tools,
         )
 
     async def _update_timestamps(self, conversation_id: int):
@@ -641,17 +726,17 @@ class ChatSessionHandler:
             if not user:
                 return None, None, None, None, None, None
             conv = ConversationRepository(session).get_by_user_and_id(self.user_id, conversation_id)
-            agent_id = conv.main_agent_id if conv else None
+            persona_id = conv.persona_id if conv else None
             return (
                 user.summary_model,
                 getattr(user, 'summary_provider', 'ollama'),
                 user.ollama_url,
                 getattr(user, 'gemini_api_key', None),
                 getattr(user, 'nvidia_api_key', None),
-                agent_id,
+                persona_id,
             )
 
-        summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key, agent_id = await db.execute(_get_prefs)
+        summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key, persona_id = await db.execute(_get_prefs)
 
         if not summary_model:
             await self.send_event(ErrorEvent(error="No summary model configured.", code="NO_SUMMARY_MODEL"))
@@ -684,15 +769,17 @@ class ChatSessionHandler:
             await self.send_event(ErrorEvent(error="Compaction produced empty output.", code="COMPACT_EMPTY"))
             return
 
+        # The persona binding follows the conversation across the split.
         new_conversation_id = await asyncio.to_thread(
-            self._create_summary_conversation, agent_id, summary,
+            self._create_summary_conversation, persona_id, summary,
         )
+        self._task_persona_id = persona_id
 
         await self.send_event(ConversationSwitchedEvent(
             old_conversation_id=conversation_id,
             new_conversation_id=new_conversation_id,
             compacted_context=summary,
-            agent_id=agent_id or 0,
+            persona_id=persona_id or 0,
         ))
 
     async def _handle_vision_start(self, event: VisionStartEvent):
@@ -788,9 +875,13 @@ class ChatSessionHandler:
 
     async def send_connected_state(self):
         chat_active = self.current_task is not None and not self.current_task.done()
+        show_conversation = chat_active or self._task_done
         await self.send_event(ConnectedEvent(
             chat_active=chat_active,
-            conversation_id=self._task_conversation_id if chat_active or self._task_done else None,
+            conversation_id=self._task_conversation_id if show_conversation else None,
+            # Who that conversation is bound to, so a reconnecting client can
+            # render the right name and avatar before the first chunk.
+            persona_id=self._task_persona_id if show_conversation else None,
             vision_active=self._vision_processor is not None,
             vision_config=self._vision_config,
         ))
@@ -882,8 +973,8 @@ class ChatSessionHandler:
                 entry = {"role": msg.role, "content": msg.message}
                 if msg.name:
                     entry["name"] = msg.name
-                if msg.agent_id:
-                    entry["agent_id"] = msg.agent_id
+                if msg.persona_id:
+                    entry["persona_id"] = msg.persona_id
                 if msg.thinking:
                     entry["thinking"] = msg.thinking
                 if getattr(msg, "tool_calls", None):
@@ -900,11 +991,14 @@ class ChatSessionHandler:
         word_count = sum(len(m.get("content", "").split()) for m in messages)
         return int(word_count * 1.3)
 
-    def _create_summary_conversation(self, agent_id: Optional[int], summary: str) -> int:
+    def _create_summary_conversation(self, persona_id: Optional[int], summary: str) -> int:
         """Create a new conversation seeded with ``summary`` as compacted_context.
 
         Used after manual /compact or auto-compaction so the next message
         starts in a fresh conversation with the summary visible at the top.
+        The persona binding is carried over — a compacted conversation that
+        arrived unbound would silently fall back to the default persona and
+        change voice mid-thread.
         """
         db = get_db_service()
 
@@ -913,7 +1007,7 @@ class ChatSessionHandler:
             conv = conv_repo.create_conversation(
                 user_id=self.user_id,
                 title="Continued conversation",
-                main_agent_id=agent_id,
+                persona_id=persona_id,
             )
             conv_repo.update_compacted_context(conv, summary, 0)
             return conv.id
@@ -997,7 +1091,7 @@ class ChatSessionHandler:
             message=msg["content"],
             conversation_id=conversation_id,
             thinking=msg.get("thinking"),
-            agent_id=msg.get("agent_id"),
+            persona_id=msg.get("persona_id"),
             name=msg.get("name"),
             raw_input=msg.get("raw_input"),
             raw_output=msg.get("raw_output"),

@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
                         if (versionCheck !is VersionCheck.Mismatch) {
                             startDestination = try {
                                 val user = authRepository.initializeAuth()
-                                if (user != null) Routes.CHAT else Routes.LOGIN
+                                if (user != null) Routes.CONVERSATIONS else Routes.LOGIN
                             } catch (_: Exception) {
                                 Routes.LOGIN
                             }

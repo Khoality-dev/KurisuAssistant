@@ -4,7 +4,8 @@
  * Exercises navigation between sections and a subset of controls:
  *   - Settings navigation renders all sections
  *   - Appearance section toggles theme
- *   - Agents section loads and lists the mock agent
+ *   - Personas section loads and lists the mock persona
+ *   - Assistant section shows the single assistant's capability form
  *   - Account section shows the logged-in user's profile
  */
 
@@ -33,9 +34,17 @@ test.describe('settings', () => {
     await login(page);
     await openSettings(page);
 
-    for (const label of ['Account', 'Voice', 'TTS & ASR', 'Appearance', 'Agents', 'Tools & MCP', 'Skills', 'Host Access', 'Face Identities', 'Extensions']) {
+    // The old single "Agents" section is gone: capability, presentation and the
+    // task-only workers are three different resources now, so they are three
+    // sections. Order is not asserted — only that every one is reachable.
+    for (const label of [
+      'Account', 'Voice', 'TTS & ASR', 'Appearance',
+      'Assistant', 'Personas', 'Sub-Agents',
+      'Tools & MCP', 'Skills', 'Host Access', 'Face Identities', 'Extensions',
+    ]) {
       await expect(page.getByText(label, { exact: true }).first()).toBeVisible();
     }
+    await expect(page.getByText('Agents', { exact: true })).toHaveCount(0);
   });
 
   test('appearance section renders theme toggle', async ({ page }) => {
@@ -60,13 +69,25 @@ test.describe('settings', () => {
     await expect(light).toHaveAttribute('aria-pressed', 'true');
   });
 
-  test('agents section lists the mock agent', async ({ page }) => {
+  test('personas section lists the mock persona', async ({ page }) => {
     await login(page);
     await openSettings(page);
 
-    await page.getByText('Agents', { exact: true }).first().click();
-    // Agent name from mock backend (fixtures.ts defaults to one agent named "Kurisu").
+    await page.getByText('Personas', { exact: true }).first().click();
+    // Persona name from the mock backend (one persona named "Kurisu" by default).
     await expect(page.getByText('Kurisu').first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('assistant section shows the wake word from the backend', async ({ page, mock }) => {
+    await login(page);
+    await openSettings(page);
+
+    await page.getByText('Assistant', { exact: true }).first().click();
+    // The wake word is assistant-level and selects no persona. The mock now
+    // serves `trigger_word`, which it used to omit even though the client type
+    // declares it non-optional.
+    const wakeWord = mock.getAssistant().trigger_word!;
+    await expect(page.getByLabel('Wake word')).toHaveValue(wakeWord, { timeout: 10_000 });
   });
 
   test('account section shows logged-in username', async ({ page }) => {

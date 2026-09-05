@@ -19,13 +19,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kurisu.assistant.data.model.MCPServer
 import com.kurisu.assistant.data.model.Tool
+import com.kurisu.assistant.ui.theme.JetBrainsMono
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -118,7 +118,7 @@ fun ToolsMcpScreen(
                             Text(
                                 text = tool.function.parameters.toString(),
                                 style = MaterialTheme.typography.bodySmall.copy(
-                                    fontFamily = FontFamily.Monospace, fontSize = 11.sp,
+                                    fontFamily = JetBrainsMono, fontSize = 11.sp,
                                 ),
                                 modifier = Modifier.padding(8.dp),
                             )

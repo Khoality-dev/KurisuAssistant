@@ -117,9 +117,9 @@ export interface PoseTree {
   edges: AnimationEdge[];
 }
 
-/** Complete character configuration for one agent */
+/** Complete character configuration for one persona */
 export interface CharacterConfig {
-  agent_id: number;
+  persona_id: number;
   pose_tree: PoseTree;
 }
 

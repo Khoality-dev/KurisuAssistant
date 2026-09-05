@@ -43,7 +43,7 @@ import { useVisionStore } from '../../store/visionStore';
 import { useCharacterPanel } from '../../hooks/useCharacterPanel';
 import { useInteractiveASR } from '../../hooks/useInteractiveASR';
 import { useMicStore } from '../../store/micStore';
-import { useAgentStore } from '../../store/agentStore';
+import { usePersonaStore } from '../../store/personaStore';
 import { useStreamingChat } from '../../hooks/useStreamingChat';
 import { useContextBreakdown } from '../../hooks/useContextBreakdown';
 import { InteractiveCallBar } from '../InteractiveCallBar';
@@ -54,12 +54,12 @@ import { ToolApprovalBar, ApprovalRequest } from './ToolApprovalBar';
 
 interface ChatWidgetProps {
   characterWindowOpen?: boolean;
-  agentId?: number | null;
+  personaId?: number | null;
 }
 
-export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = false, agentId: agentIdProp = null }) => {
-  const storeAgentId = useAgentStore((s) => s.selectedAgentId);
-  const agentId = agentIdProp ?? storeAgentId;
+export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = false, personaId: personaIdProp = null }) => {
+  const storePersonaId = usePersonaStore((s) => s.selectedPersonaId);
+  const personaId = personaIdProp ?? storePersonaId;
   const {
     messages,
     currentConversation,
@@ -77,8 +77,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   const [resumeLoading, setResumeLoading] = useState(false);
   const [resumeConversations, setResumeConversations] = useState<Conversation[]>([]);
   const [resumeActiveIdx, setResumeActiveIdx] = useState(0);
-  const [agentPickerOpen, setAgentPickerOpen] = useState(false);
-  const [agentActiveIdx, setAgentActiveIdx] = useState(0);
+  const [personaSheetOpen, setPersonaSheetOpen] = useState(false);
+  const [personaActiveIdx, setPersonaActiveIdx] = useState(0);
+  const [personaSheetError, setPersonaSheetError] = useState('');
 
   // Message search
   const [searchOpen, setSearchOpen] = useState(false);
@@ -125,8 +126,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   // Character panel hook
   const {
     amplitudeRef,
-    setActiveAgentId,
-    pushAgentCharacterConfig,
+    setActivePersonaId,
+    pushPersonaCharacterConfig,
     onAmplitudeUpdate,
     onTTSPlaybackStart,
   } = useCharacterPanel({
@@ -137,15 +138,15 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
   // TTS (with amplitude callback for character lip sync)
   const { speak, stop: stopTTS, isPlaying: isTTSPlaying, queueText, clearQueue, isQueueActive } = useTTS(onAmplitudeUpdate, onTTSPlaybackStart);
-  const setActiveAgentForTTS = useCallback((agentIdVal: number | null) => {
-    setActiveAgentId(agentIdVal);
-  }, [setActiveAgentId]);
-  const ttsRef = useRef({ speak, stopTTS, clearQueue, isTTSPlaying, setActiveAgentForTTS });
-  ttsRef.current = { speak, stopTTS, clearQueue, isTTSPlaying, setActiveAgentForTTS };
+  const setActivePersonaForTTS = useCallback((id: number | null) => {
+    setActivePersonaId(id);
+  }, [setActivePersonaId]);
+  const ttsRef = useRef({ speak, stopTTS, clearQueue, isTTSPlaying, setActivePersonaForTTS });
+  ttsRef.current = { speak, stopTTS, clearQueue, isTTSPlaying, setActivePersonaForTTS };
 
   // Streaming chat hook
   const streaming = useStreamingChat({
-    agentId,
+    personaId,
     currentConversation,
     messages,
     hasMoreMessages,
@@ -156,28 +157,30 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     queueText,
     clearQueue,
     amplitudeRef,
-    pushAgentCharacterConfig,
+    pushPersonaCharacterConfig,
   });
 
-  // Context breakdown is computed locally from current stores — no backend
-  const agents = useAgentStore((s) => s.agents);
-  const breakdownAgentId = currentConversation?.main_agent_id ?? agentId;
-  const breakdownAgentName = useMemo(
-    () => agents.find((a) => a.id === breakdownAgentId)?.name || '',
-    [agents, breakdownAgentId],
+  // Who is answering here. The server binding on the loaded conversation wins
+  // over the client-side selection: the conversation is bound backend-side and
+  // that binding is what the next turn will actually use.
+  const personas = usePersonaStore((s) => s.personas);
+  const activePersonaId = currentConversation?.persona_id ?? personaId;
+  const activePersona = useMemo(
+    () => personas.find((p) => p.id === activePersonaId) || null,
+    [personas, activePersonaId],
   );
   const breakdownData = useContextBreakdown({
-    agentId: breakdownAgentId,
+    personaId: activePersonaId,
     enabled: breakdownDialogOpen,
   });
 
   // Clear active speaker when TTS queue finishes playing
   useEffect(() => {
     if (!isQueueActive && !streaming.isStreaming) {
-      setActiveAgentId(null);
+      setActivePersonaId(null);
       amplitudeRef.current = { amplitude: 0, isPlaying: false, isThinking: false };
     }
-  }, [isQueueActive, streaming.isStreaming, setActiveAgentId, amplitudeRef]);
+  }, [isQueueActive, streaming.isStreaming, setActivePersonaId, amplitudeRef]);
 
   // /context slash command opens the breakdown dialog
   useEffect(() => {
@@ -197,23 +200,21 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   useEffect(() => {
     if (!resumeDialogOpen) return;
     setResumeLoading(true);
-    apiClient.getConversations(agentId ?? undefined)
+    apiClient.getConversations(personaId ?? undefined)
       .then((convs) => setResumeConversations(convs))
       .catch((err) => {
         console.error('Failed to load conversations:', err);
         setResumeConversations([]);
       })
       .finally(() => setResumeLoading(false));
-  }, [resumeDialogOpen, agentId]);
+  }, [resumeDialogOpen, personaId]);
 
   const handleResumeSelect = useCallback(async (conv: Conversation) => {
     setResumeDialogOpen(false);
     if (conv.id === currentConversation?.id) return;
     await loadConversation(conv.id);
-    if (agentId) {
-      storage.setAgentConversationId(agentId, conv.id);
-    }
-  }, [agentId, currentConversation?.id, loadConversation]);
+    storage.setPersonaConversationId(conv.persona_id ?? personaId ?? 'unbound', conv.id);
+  }, [personaId, currentConversation?.id, loadConversation]);
 
   // Reset highlight when the resume picker opens
   useEffect(() => {
@@ -243,60 +244,79 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     return () => window.removeEventListener('keydown', handler);
   }, [resumeDialogOpen, resumeConversations, resumeActiveIdx, handleResumeSelect]);
 
-  // /agents slash command opens the agent picker
+  // /persona slash command opens the persona sheet
   useEffect(() => {
-    const handler = () => setAgentPickerOpen(true);
-    window.addEventListener('kurisu:open-agent-picker', handler);
-    return () => window.removeEventListener('kurisu:open-agent-picker', handler);
+    const handler = () => setPersonaSheetOpen(true);
+    window.addEventListener('kurisu:open-persona-picker', handler);
+    return () => window.removeEventListener('kurisu:open-persona-picker', handler);
   }, []);
 
-  const selectAgent = useAgentStore((s) => s.selectAgent);
-  const handleAgentPick = useCallback((id: number) => {
-    setAgentPickerOpen(false);
-    if (id !== storeAgentId) {
-      selectAgent(id);
-    }
-  }, [selectAgent, storeAgentId]);
+  const selectPersona = usePersonaStore((s) => s.selectPersona);
 
-  // Main agents are the only selectable ones in the picker — derive once.
-  const pickerMainAgents = useMemo(
-    () => agents.filter((a) => a.agent_type !== 'sub' && a.enabled),
-    [agents],
+  // Picking a persona is a per-conversation override, not a global mode switch:
+  // PATCH /conversations/{id} rebinds the open conversation so the next turn —
+  // and any other client — sees the same answerer. With no conversation open yet
+  // there is nothing to patch; the selection alone decides who the conversation
+  // about to be created binds to.
+  const handlePersonaPick = useCallback(async (id: number) => {
+    setPersonaSheetError('');
+    const convId = currentConversation?.id;
+    if (convId && id !== currentConversation?.persona_id) {
+      try {
+        await apiClient.patchConversation(convId, { persona_id: id });
+        storage.setPersonaConversationId(id, convId);
+        await loadConversation(convId);
+      } catch (err: any) {
+        setPersonaSheetError(err?.response?.data?.detail || err?.message || 'Failed to switch persona');
+        return;
+      }
+    }
+    if (id !== storePersonaId) {
+      selectPersona(id);
+    }
+    setPersonaSheetOpen(false);
+  }, [currentConversation?.id, currentConversation?.persona_id, loadConversation, selectPersona, storePersonaId]);
+
+  // A disabled persona cannot answer, so it is not offered.
+  const selectablePersonas = useMemo(
+    () => personas.filter((p) => p.enabled),
+    [personas],
   );
 
-  // Reset highlight when the agent picker opens — start on the current agent if any.
+  // Reset highlight when the sheet opens — start on whoever is answering.
   useEffect(() => {
-    if (!agentPickerOpen) return;
-    const idx = pickerMainAgents.findIndex((a) => a.id === storeAgentId);
-    setAgentActiveIdx(idx >= 0 ? idx : 0);
-  }, [agentPickerOpen, pickerMainAgents, storeAgentId]);
+    if (!personaSheetOpen) return;
+    setPersonaSheetError('');
+    const idx = selectablePersonas.findIndex((p) => p.id === activePersonaId);
+    setPersonaActiveIdx(idx >= 0 ? idx : 0);
+  }, [personaSheetOpen, selectablePersonas, activePersonaId]);
 
-  // Keyboard navigation for the agent picker
+  // Keyboard navigation for the persona sheet
   useEffect(() => {
-    if (!agentPickerOpen) return;
+    if (!personaSheetOpen) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        setAgentPickerOpen(false);
+        setPersonaSheetOpen(false);
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setAgentActiveIdx((i) => Math.min(i + 1, Math.max(0, pickerMainAgents.length - 1)));
+        setPersonaActiveIdx((i) => Math.min(i + 1, Math.max(0, selectablePersonas.length - 1)));
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setAgentActiveIdx((i) => Math.max(0, i - 1));
+        setPersonaActiveIdx((i) => Math.max(0, i - 1));
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        const agent = pickerMainAgents[agentActiveIdx];
-        if (agent) handleAgentPick(agent.id);
+        const persona = selectablePersonas[personaActiveIdx];
+        if (persona) void handlePersonaPick(persona.id);
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [agentPickerOpen, pickerMainAgents, agentActiveIdx, handleAgentPick]);
+  }, [personaSheetOpen, selectablePersonas, personaActiveIdx, handlePersonaPick]);
 
   // Interactive ASR hook
   const asr = useInteractiveASR({
-    agentId,
+    personaId,
     currentConversationId: streaming.activeConversationId,
     isStreaming: streaming.isStreaming,
     isQueueActive,
@@ -369,7 +389,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         approvalId: data.approvalId,
         request: {
           toolName: data.ruleKey,
-          description: `An agent wants to use ${data.ruleKey}`,
+          description: `The assistant wants to use ${data.ruleKey}`,
           detail: data.detail,
           options: data.options.map((label) => ({
             label,
@@ -534,9 +554,32 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%', position: 'relative' }}>
 
-      {/* Token usage */}
-      {currentConversation && (
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', px: 2, py: 0.5 }}>
+      {/* Header: who is answering (click to override for this conversation) + token usage */}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, px: 2, py: 0.5 }}>
+        <Tooltip title={currentConversation ? 'Change who answers in this conversation' : 'Choose who answers'}>
+          <ListItemButton
+            onClick={() => setPersonaSheetOpen(true)}
+            sx={{ flex: '0 1 auto', minWidth: 0, gap: 1, px: 1, py: 0.25, borderRadius: 1 }}
+          >
+            <Avatar
+              src={activePersona?.avatar_uuid ? apiClient.getImageUrl(activePersona.avatar_uuid) : undefined}
+              sx={{
+                width: 22,
+                height: 22,
+                bgcolor: (t) => (t.palette.mode === 'light' ? '#F3F4F6' : '#262626'),
+                flexShrink: 0,
+              }}
+            >
+              {!activePersona?.avatar_uuid && (
+                <SmartToyIcon sx={{ fontSize: 13, color: 'text.secondary' }} />
+              )}
+            </Avatar>
+            <Typography variant="caption" sx={{ fontWeight: 600, minWidth: 0 }} noWrap>
+              {activePersona?.name || 'Default persona'}
+            </Typography>
+          </ListItemButton>
+        </Tooltip>
+        {currentConversation && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Typography
               variant="caption"
@@ -561,8 +604,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
               </Tooltip>
             )}
           </Box>
-        </Box>
-      )}
+        )}
+      </Box>
 
       {/* Search bar */}
       {searchOpen && (
@@ -620,7 +663,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
               .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
               .join('\n'),
             executionLocation: streaming.pendingApproval!.execution_location,
-            agentName: streaming.pendingApproval!.name || undefined,
+            requesterName: streaming.pendingApproval!.name || undefined,
           }}
           onRespond={hostApproval
             ? handleHostApprovalRespond
@@ -638,7 +681,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         />
       ) : (
         <ChatComposer
-          scopeKey={`${agentId ?? 'group'}:${streaming.activeConversationId ?? 'new'}`}
+          scopeKey={`${personaId ?? 'unbound'}:${streaming.activeConversationId ?? 'new'}`}
           externalDraft={streaming.externalDraft}
           externalDraftVersion={streaming.externalDraftVersion}
           isStreaming={streaming.isStreaming}
@@ -675,7 +718,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         fullWidth
       >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          Context Breakdown {breakdownAgentName ? `- ${breakdownAgentName}` : ''}
+          Context Breakdown {activePersona ? `- ${activePersona.name}` : ''}
           <IconButton size="small" onClick={() => setBreakdownDialogOpen(false)}>
             <CloseIcon fontSize="small" />
           </IconButton>
@@ -741,7 +784,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
                   </TableRow>
                   {breakdownData.memory_tokens > 0 && (
                     <TableRow>
-                      <TableCell>Agent Memory</TableCell>
+                      <TableCell>Assistant Memory</TableCell>
                       <TableCell align="right">{breakdownData.memory_tokens.toLocaleString()}</TableCell>
                     </TableRow>
                   )}
@@ -763,10 +806,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
                       <TableCell align="right">{breakdownData.tools_guidance_tokens.toLocaleString()}</TableCell>
                     </TableRow>
                   )}
-                  {breakdownData.other_agents_tokens > 0 && (
+                  {breakdownData.sub_agents_tokens > 0 && (
                     <TableRow>
-                      <TableCell>Other Agents Info</TableCell>
-                      <TableCell align="right">{breakdownData.other_agents_tokens.toLocaleString()}</TableCell>
+                      <TableCell>Sub-Agent Delegation Guide</TableCell>
+                      <TableCell align="right">{breakdownData.sub_agents_tokens.toLocaleString()}</TableCell>
                     </TableRow>
                   )}
                   <TableRow>
@@ -909,8 +952,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         </Box>
       )}
 
-      {/* Agent picker — full-pane overlay, dismiss with Esc */}
-      {agentPickerOpen && (
+      {/* Persona sheet — full-pane overlay, dismiss with Esc. A per-conversation
+          override: picking someone rebinds the open conversation. */}
+      {personaSheetOpen && (
         <Box
           sx={{
             position: 'absolute',
@@ -923,31 +967,38 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         >
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 3, py: 2, borderBottom: 1, borderColor: 'divider' }}>
             <Box>
-              <Typography variant="h6">Select Agent</Typography>
+              <Typography variant="h6">Who should answer?</Typography>
               <Typography variant="caption" color="text.secondary">
-                Press Esc to cancel
+                {currentConversation
+                  ? 'Switches the persona for this conversation. Press Esc to cancel.'
+                  : 'Press Esc to cancel'}
               </Typography>
             </Box>
-            <IconButton size="small" onClick={() => setAgentPickerOpen(false)}>
+            <IconButton size="small" onClick={() => setPersonaSheetOpen(false)}>
               <CloseIcon fontSize="small" />
             </IconButton>
           </Box>
+          {personaSheetError && (
+            <Alert severity="error" sx={{ m: 2 }} onClose={() => setPersonaSheetError('')}>
+              {personaSheetError}
+            </Alert>
+          )}
           <Box sx={{ flex: 1, overflowY: 'auto' }}>
-            {pickerMainAgents.length === 0 ? (
+            {selectablePersonas.length === 0 ? (
               <Typography color="text.secondary" sx={{ p: 4, textAlign: 'center' }}>
-                No main agents available.
+                No personas available.
               </Typography>
             ) : (
                 <List disablePadding>
-                  {pickerMainAgents.map((agent, idx) => {
-                    const isCurrent = agent.id === storeAgentId;
-                    const isActive = idx === agentActiveIdx;
+                  {selectablePersonas.map((persona, idx) => {
+                    const isCurrent = persona.id === activePersonaId;
+                    const isActive = idx === personaActiveIdx;
                     return (
-                      <React.Fragment key={agent.id}>
+                      <React.Fragment key={persona.id}>
                         {idx > 0 && <Divider component="li" />}
                         <ListItemButton
-                          onClick={() => handleAgentPick(agent.id)}
-                          onMouseEnter={() => setAgentActiveIdx(idx)}
+                          onClick={() => { void handlePersonaPick(persona.id); }}
+                          onMouseEnter={() => setPersonaActiveIdx(idx)}
                           selected={isCurrent}
                           ref={(el) => {
                             if (isActive && el) el.scrollIntoView({ block: 'nearest' });
@@ -960,7 +1011,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
                           }}
                         >
                           <Avatar
-                            src={agent.avatar_uuid ? apiClient.getImageUrl(agent.avatar_uuid) : undefined}
+                            src={persona.avatar_uuid ? apiClient.getImageUrl(persona.avatar_uuid) : undefined}
                             sx={{
                               width: 40,
                               height: 40,
@@ -968,19 +1019,19 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
                               flexShrink: 0,
                             }}
                           >
-                            {!agent.avatar_uuid && (
+                            {!persona.avatar_uuid && (
                               <SmartToyIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
                             )}
                           </Avatar>
                           <ListItemText
                             primary={
                               <Typography variant="body2" sx={{ fontWeight: isCurrent ? 600 : 500 }}>
-                                {agent.name}
+                                {persona.name}
                               </Typography>
                             }
-                            secondary={agent.description ? (
+                            secondary={persona.description ? (
                               <Typography variant="caption" color="text.secondary" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
-                                {agent.description}
+                                {persona.description}
                               </Typography>
                             ) : null}
                           />

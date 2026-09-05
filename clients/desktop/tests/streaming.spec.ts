@@ -8,7 +8,9 @@
  *   - cancel during stream preserves partial content
  *   - messages survive sending a follow-up
  *   - thinking chunks render collapsible
- *   - agent handoff creates a new bubble
+ *   - a tool call splits the assistant text into separate bubbles
+ *   - a persona handoff mid-stream splits the assistant text into separate bubbles
+ *   - /compact moves the chat to a new conversation carrying the same persona
  */
 
 import { test, expect } from './fixtures';
@@ -154,7 +156,10 @@ test.describe('streaming', () => {
     mock.setStream({
       chunks: [
         { content: 'Let me check. ', role: 'assistant', delayMs: 150 },
-        { content: '{"result":"42"}', role: 'tool', delayMs: 150 },
+        {
+          content: '{"result":"42"}', role: 'tool', delayMs: 150,
+          name: 'lookup', toolKind: 'tool', durationMs: 87,
+        },
         { content: 'The result is 42.', role: 'assistant', delayMs: 150 },
       ],
     });
@@ -166,12 +171,68 @@ test.describe('streaming', () => {
     await expect(page.getByText('Let me check.').first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('The result is 42.').first()).toBeVisible({ timeout: 10_000 });
 
-    // The tool bubble is collapsed by default — its header "Tool" is visible,
-    // but the JSON payload only renders after the user clicks to expand.
-    const toolHeader = page.getByText('Tool', { exact: true }).first();
+    // The tool bubble is collapsed by default — its header carries the tool's
+    // own label, but the JSON payload only renders after a click to expand.
+    // (The generic "Tool" header is a fallback for a nameless tool; the backend
+    // always names one, and so does the mock.)
+    const toolHeader = page.getByText('lookup', { exact: true }).first();
     await expect(toolHeader).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('{"result":"42"}')).toHaveCount(0);
     await toolHeader.click();
     await expect(page.getByText('{"result":"42"}').first()).toBeVisible({ timeout: 5_000 });
+  });
+
+  test('a persona handoff mid-stream splits the reply into two bubbles', async ({ page, mock }) => {
+    // The client starts a new bubble when the role changes OR the speaker does,
+    // and on assistant chunks the speaker is `persona_id`. A script that varies
+    // only `role` therefore never exercises the persona half of that rule — the
+    // reason this case was documented but not actually covered. Two personas and
+    // a persona_id change mid-stream is the only way to reach it.
+    const amadeus = mock.addPersona({ name: 'Amadeus' });
+    mock.setStream({
+      chunks: [
+        { content: 'Kurisu speaking.', role: 'assistant', delayMs: 150 },
+        { content: 'Amadeus speaking.', role: 'assistant', delayMs: 150, personaId: amadeus.id },
+      ],
+    });
+
+    await login(page);
+    await send(page, 'who is there');
+
+    await expect(page.getByText('Kurisu speaking.').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Amadeus speaking.').first()).toBeVisible({ timeout: 10_000 });
+
+    // The split is the point: if the two chunks had been accumulated into one
+    // bubble, a single element would hold both sentences.
+    await expect(page.getByText('Kurisu speaking.Amadeus speaking.')).toHaveCount(0);
+    await expect(page.getByText('Kurisu speaking. Amadeus speaking.')).toHaveCount(0);
+  });
+
+  test('/compact switches to a new conversation carrying the same persona', async ({ page, mock }) => {
+    // `conversation_switched` is the only thing that keeps the persona →
+    // conversation mapping correct after a compaction, and nothing in the mock
+    // used to emit it — so this whole path shipped untested. /compact sends
+    // `compact_context`, the mock answers context_info then conversation_switched,
+    // and the client is expected to load the new conversation and say so.
+    mock.setStream({ chunks: [{ content: 'Something to compact.', role: 'assistant', delayMs: 10 }] });
+
+    await login(page);
+    await send(page, 'fill the context');
+    await expect(page.getByText('Something to compact.').first()).toBeVisible({ timeout: 10_000 });
+
+    const before = mock.getConversations();
+    expect(before).toHaveLength(1);
+
+    await send(page, '/compact');
+
+    await expect(page.getByText(/Compacted — opened a new conversation/)).toBeVisible({ timeout: 10_000 });
+
+    // A second conversation exists, it is not the one we were in, and the
+    // persona followed it across the split.
+    const after = mock.getConversations();
+    expect(after).toHaveLength(2);
+    const created = after.find((c) => c.id !== before[0].id)!;
+    expect(created.persona_id).toBe(before[0].persona_id);
+    expect(created.compacted_context).toContain('Summary of conversation');
   });
 });

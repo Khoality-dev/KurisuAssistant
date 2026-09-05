@@ -30,7 +30,7 @@ import type { AnimationEdge, EdgeTransition, TransitionCondition } from '../vide
 
 export interface EdgeEditorProps {
   open: boolean;
-  agentId: number;
+  personaId: number;
   edge: AnimationEdge;
   fromNodeName: string;
   toNodeName: string;
@@ -79,7 +79,7 @@ function defaultTransitionState(): TransitionState {
 
 export const EdgeEditor: React.FC<EdgeEditorProps> = ({
   open,
-  agentId,
+  personaId,
   edge,
   fromNodeName,
   toNodeName,
@@ -222,7 +222,7 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
           const entry = ts.videos[vi];
           if (entry.pendingFile) {
             const storageId = `${edge.id}_t${ti}_${vi}`;
-            const result = await apiClient.uploadTransitionVideo(agentId, storageId, entry.pendingFile);
+            const result = await apiClient.uploadTransitionVideo(personaId, storageId, entry.pendingFile);
             finalUrls.push(result.video_url);
           } else if (entry.url) {
             finalUrls.push(entry.url);

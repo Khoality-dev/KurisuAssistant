@@ -1,6 +1,7 @@
 package com.kurisu.assistant.data.remote.api
 
 import com.kurisu.assistant.data.model.*
+import kotlinx.serialization.json.JsonObject
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
@@ -38,7 +39,7 @@ interface KurisuApiService {
     // Conversations
     @GET("/conversations")
     suspend fun getConversations(
-        @Query("agent_id") agentId: Int? = null,
+        @Query("persona_id") personaId: Int? = null,
     ): List<Conversation>
 
     @GET("/conversations/{id}")
@@ -51,10 +52,20 @@ interface KurisuApiService {
     @DELETE("/conversations/{id}")
     suspend fun deleteConversation(@Path("id") id: Int)
 
-    @POST("/conversations/{id}")
-    suspend fun updateConversation(
+    /**
+     * Rename a conversation, rebind its persona, or both. Replaces the old
+     * `POST /conversations/{id}`, which only ever renamed.
+     *
+     * The body is a raw [JsonObject] because this route reads it through
+     * `model_fields_set`: an ABSENT key is left alone, while an explicit
+     * `"persona_id": null` UNBINDS the conversation so the next message falls
+     * back to the assistant's default persona. A typed DTO cannot tell those two
+     * apart. Build the body with [com.kurisu.assistant.data.repository.ConversationRepository].
+     */
+    @PATCH("/conversations/{id}")
+    suspend fun patchConversation(
         @Path("id") id: Int,
-        @Body body: Map<String, String>,
+        @Body body: JsonObject,
     )
 
     // Messages
@@ -108,28 +119,65 @@ interface KurisuApiService {
     @GET("/asr/models")
     suspend fun listAsrModels(): AsrModelsResponse
 
-    // Agents
-    @GET("/agents")
-    suspend fun listAgents(): List<Agent>
+    // Assistant — exactly one per user, created at registration, so it is
+    // addressed with no id and has no POST and no DELETE.
+    @GET("/assistant")
+    suspend fun getAssistant(): Assistant
 
-    @GET("/agents/{id}")
-    suspend fun getAgent(@Path("id") id: Int): Agent
+    @PATCH("/assistant")
+    suspend fun updateAssistant(@Body data: AssistantUpdate): Assistant
 
-    @POST("/agents")
-    suspend fun createAgent(@Body data: AgentCreate): Agent
+    // Personas — presentation. `/agents` is gone and is NOT aliased.
+    @GET("/personas")
+    suspend fun listPersonas(): List<Persona>
 
-    @PATCH("/agents/{id}")
-    suspend fun updateAgent(@Path("id") id: Int, @Body data: AgentUpdate): Agent
+    @GET("/personas/{id}")
+    suspend fun getPersona(@Path("id") id: Int): Persona
+
+    @POST("/personas")
+    suspend fun createPersona(@Body data: PersonaCreate): Persona
+
+    @PATCH("/personas/{id}")
+    suspend fun updatePersona(@Path("id") id: Int, @Body data: PersonaUpdate): Persona
+
+    @DELETE("/personas/{id}")
+    suspend fun deletePersona(@Path("id") id: Int)
+
+    @PATCH("/personas/{id}/enabled")
+    suspend fun setPersonaEnabled(@Path("id") id: Int, @Body body: EnabledUpdate): Persona
+
+    @GET("/personas/{id}/export")
+    suspend fun exportPersona(@Path("id") id: Int): ResponseBody
 
     @Multipart
-    @PATCH("/agents/{id}/avatar")
-    suspend fun updateAgentAvatar(
-        @Path("id") id: Int,
-        @Part avatar: MultipartBody.Part,
-    ): Agent
+    @POST("/personas/import")
+    suspend fun importPersona(@Part file: MultipartBody.Part): Persona
 
-    @DELETE("/agents/{id}")
-    suspend fun deleteAgent(@Path("id") id: Int)
+    // Sub-agents — task-only workers. No identity, no memory.
+    @GET("/sub-agents")
+    suspend fun listSubAgents(): List<SubAgent>
+
+    @GET("/sub-agents/{id}")
+    suspend fun getSubAgent(@Path("id") id: Int): SubAgent
+
+    @POST("/sub-agents")
+    suspend fun createSubAgent(@Body data: SubAgentCreate): SubAgent
+
+    @PATCH("/sub-agents/{id}")
+    suspend fun updateSubAgent(@Path("id") id: Int, @Body data: SubAgentUpdate): SubAgent
+
+    @DELETE("/sub-agents/{id}")
+    suspend fun deleteSubAgent(@Path("id") id: Int)
+
+    @PATCH("/sub-agents/{id}/enabled")
+    suspend fun setSubAgentEnabled(@Path("id") id: Int, @Body body: EnabledUpdate): SubAgent
+
+    @GET("/sub-agents/{id}/export")
+    suspend fun exportSubAgent(@Path("id") id: Int): ResponseBody
+
+    @Multipart
+    @POST("/sub-agents/import")
+    suspend fun importSubAgent(@Part file: MultipartBody.Part): SubAgent
 
     // Tools & MCP
     @GET("/tools")
@@ -154,7 +202,7 @@ interface KurisuApiService {
     @Multipart
     @POST("/character-assets/upload-base")
     suspend fun uploadCharacterBase(
-        @Query("agent_id") agentId: Int,
+        @Query("persona_id") personaId: Int,
         @Query("pose_id") poseId: String,
         @Part file: MultipartBody.Part,
     ): UploadBaseResponseDTO
@@ -162,7 +210,7 @@ interface KurisuApiService {
     @Multipart
     @POST("/character-assets/compute-patch")
     suspend fun computeCharacterPatch(
-        @Query("agent_id") agentId: Int,
+        @Query("persona_id") personaId: Int,
         @Query("pose_id") poseId: String,
         @Query("part") part: String,
         @Query("index") index: Int,
@@ -172,20 +220,20 @@ interface KurisuApiService {
     @Multipart
     @POST("/character-assets/upload-video")
     suspend fun uploadTransitionVideo(
-        @Query("agent_id") agentId: Int,
+        @Query("persona_id") personaId: Int,
         @Query("edge_id") edgeId: String,
         @Part file: MultipartBody.Part,
     ): UploadVideoResponseDTO
 
-    @POST("/character-assets/{agentId}/migrate-ids")
+    @POST("/character-assets/{personaId}/migrate-ids")
     suspend fun migrateCharacterIds(
-        @Path("agentId") agentId: Int,
+        @Path("personaId") personaId: Int,
         @Body body: Map<String, Map<String, String>>,
     )
 
-    @PATCH("/character-assets/{agentId}/character-config")
+    @PATCH("/character-assets/{personaId}/character-config")
     suspend fun updateCharacterConfig(
-        @Path("agentId") agentId: Int,
+        @Path("personaId") personaId: Int,
         @Body config: Map<String, @JvmSuppressWildcards Any>,
     )
 

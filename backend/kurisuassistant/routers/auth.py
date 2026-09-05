@@ -11,6 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
+from kurisuassistant.core.accounts import provision_user
+from kurisuassistant.core.errors import internal_error
 from kurisuassistant.core.security import (
     create_access_token,
     create_refresh_token,
@@ -138,11 +140,20 @@ async def register(request: Request, form_data: OAuth2PasswordRequestForm = Depe
 
     _enforce_rate_limit(request, "register")
 
+    def _register(session):
+        user = UserRepository(session).create_user(
+            form_data.username, hash_password(form_data.password),
+        )
+        # In the same transaction as the account itself: an assistant row and a
+        # first persona are what make the account able to chat at all, and a user
+        # who lands halfway through has no way to create either. Rolling the whole
+        # registration back is recoverable — they can register again.
+        provision_user(session, user)
+        return user.username
+
     try:
         db = get_db_service()
-        await db.execute(lambda s: UserRepository(s).create_user(
-            form_data.username, hash_password(form_data.password),
-        ))
+        await db.execute(_register)
     except ValueError:
         raise HTTPException(status_code=400, detail="User already exists")
     except Exception as e:

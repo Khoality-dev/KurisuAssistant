@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useMicStore } from '../store/micStore';
 
 interface UseInteractiveASRParams {
-  agentId: number | null;
+  personaId: number | null;
   currentConversationId: number | null;
   isStreaming: boolean;
   isQueueActive: boolean;
@@ -12,7 +12,7 @@ interface UseInteractiveASRParams {
 }
 
 export function useInteractiveASR({
-  agentId,
+  personaId,
   currentConversationId,
   isStreaming,
   isQueueActive,
@@ -108,7 +108,7 @@ export function useInteractiveASR({
     }
   }, [asrResult]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Deactivate interaction when agent or conversation changes
+  // Deactivate interaction when the persona or the conversation changes
   useEffect(() => {
     const state = useMicStore.getState();
     if (state.interactionActive) {
@@ -118,7 +118,7 @@ export function useInteractiveASR({
         interactionTimerRef.current = null;
       }
     }
-  }, [agentId, currentConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [personaId, currentConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 30s idle timer — only for trigger word flow (not PTT)
   useEffect(() => {

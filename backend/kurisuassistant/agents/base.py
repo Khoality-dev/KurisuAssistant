@@ -24,13 +24,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def estimate_tokens(text: str) -> int:
-    """Estimate token count from text (words * 1.3 approximation)."""
-    if not text:
-        return 0
-    return int(len(text.split()) * 1.3)
-
-
 _SENTINEL = object()
 
 
@@ -49,37 +42,60 @@ async def async_iterate(sync_iterator):
 
 
 @dataclass
-class AgentConfig:
-    """Configuration shared by MainAgent and SubAgent.
+class AssistantConfig:
+    """What the assistant can do — one per user, independent of the voice.
 
-    MainAgent requires identity fields (voice_reference, avatar_uuid,
-    character_config, preferred_name, trigger_word). SubAgent ignores them.
+    Model, tools, reasoning switches and the single memory document, plus the
+    voice wake word. A persona swap changes who is speaking; none of this moves
+    with it. Mirrors ``db.models.Assistant``.
+    """
+    id: Optional[int] = None
+    model_name: Optional[str] = None
+    provider_type: str = "ollama"
+    available_tools: Optional[List[str]] = None  # None = every tool
+    think: bool = False
+    use_deferred_tools: bool = False
+    memory: Optional[str] = None
+    memory_enabled: bool = True
+    # Voice wake word. Saying it wakes the assistant; it selects nothing.
+    trigger_word: Optional[str] = None
+
+
+@dataclass
+class PersonaConfig:
+    """How the assistant sounds — the identity half. Mirrors ``db.models.Persona``.
+
+    Presentation only: no model, no tools, no memory, no trigger word. A
+    conversation binds to exactly one of these.
     """
     id: Optional[int] = None
     name: str = ""
     description: str = ""
     system_prompt: str = ""
-
-    # Identity (MainAgent only)
+    preferred_name: Optional[str] = None  # what this persona calls the *user*
     voice_reference: Optional[str] = None
     avatar_uuid: Optional[str] = None
     character_config: Optional[Dict] = None
-    preferred_name: Optional[str] = None
-    trigger_word: Optional[str] = None  # First-message selection hint
+    enabled: bool = True
 
-    # Inference config
+
+@dataclass
+class SubAgentConfig:
+    """A task-only worker. Mirrors ``db.models.SubAgent``.
+
+    Carries both halves at once because a sub-agent is its own capability and
+    its own (internal) label: it runs its own LLM loop but never speaks to the
+    user, is never bound to a conversation, and holds no memory.
+    """
+    id: Optional[int] = None
+    name: str = ""
+    description: str = ""
+    system_prompt: str = ""
     model_name: Optional[str] = None
     provider_type: str = "ollama"
-    available_tools: Optional[List[str]] = None  # None = all tools
+    available_tools: Optional[List[str]] = None  # None = every tool
     think: bool = False
     use_deferred_tools: bool = False
-
-    # State
-    agent_type: str = "main"  # 'main' or 'sub'
-    memory: Optional[str] = None
-    memory_enabled: bool = True
-    enabled: bool = True
-    is_system: bool = False
 
 
 @dataclass
@@ -89,7 +105,6 @@ class AgentContext:
     conversation_id: int = 0
     model_name: str = ""
     handler: Optional["ChatSessionHandler"] = None
-    available_agents: List[AgentConfig] = field(default_factory=list)
     user_system_prompt: str = ""
     preferred_name: str = ""
     api_url: Optional[str] = None
@@ -152,8 +167,23 @@ class BaseAgent(ABC):
     for both.
     """
 
-    def __init__(self, config: AgentConfig, tool_registry: ToolRegistry):
-        self.config = config
+    def __init__(
+        self,
+        capabilities,
+        tool_registry: ToolRegistry,
+        *,
+        identity=None,
+    ):
+        """Bind the two halves an agent runs on.
+
+        ``capabilities`` answers "what can this run" — model, tools, reasoning
+        (an :class:`AssistantConfig` for MainAgent, a :class:`SubAgentConfig`
+        for SubAgent). ``identity`` answers "who is speaking" — name, prompt,
+        voice (a :class:`PersonaConfig` for MainAgent). A SubAgent is both at
+        once, so it passes one object and ``identity`` defaults to it.
+        """
+        self.capabilities = capabilities
+        self.identity = identity if identity is not None else capabilities
         self.tool_registry = tool_registry
 
     async def execute_tool(
@@ -177,7 +207,7 @@ class BaseAgent(ABC):
         # interpreter gives up.
         if tool_name == "call_tool":
             if _depth >= 1:
-                logger.warning("Refusing nested call_tool from agent '%s'", self.config.name)
+                logger.warning("Refusing nested call_tool from agent '%s'", self.identity.name)
                 return ToolResult(
                     content="call_tool cannot invoke call_tool. Name the tool you want to run.",
                     status="error",
@@ -232,9 +262,10 @@ class BaseAgent(ABC):
         if tool is None and tool_name in client_tool_names:
             execution_location = "frontend"
 
-        if self.config.available_tools is not None and tool_name not in self.config.available_tools:
+        allowed_tools = self.capabilities.available_tools
+        if allowed_tools is not None and tool_name not in allowed_tools:
             if not (tool and tool.built_in):
-                logger.warning(f"Agent '{self.config.name}' tried to use unavailable tool: {tool_name}")
+                logger.warning(f"Agent '{self.identity.name}' tried to use unavailable tool: {tool_name}")
                 return ToolResult(content=f"Tool not available: {tool_name}", status="error")
 
         # The stored policy is the server's own decision and is applied first.
@@ -271,8 +302,8 @@ class BaseAgent(ABC):
             approval_request = ToolApprovalRequestEvent(
                 tool_name=tool_name,
                 tool_args=tool_args,
-                agent_id=self.config.id,
-                name=self.config.name,
+                agent_id=self.identity.id,
+                name=self.identity.name,
                 description=description,
                 execution_location=execution_location,
             )
@@ -291,7 +322,10 @@ class BaseAgent(ABC):
             exec_args["conversation_id"] = context.conversation_id
         if context.user_id:
             exec_args["user_id"] = context.user_id
-        exec_args["agent_id"] = self.config.id
+        # Identity of the caller: the persona for a MainAgent, the sub-agent
+        # itself for a SubAgent. Kept under the generic name because it is part
+        # of the argument contract handed to client- and MCP-side tools.
+        exec_args["agent_id"] = self.identity.id
         if context.handler:
             exec_args["_handler"] = context.handler
         exec_args["_context"] = context

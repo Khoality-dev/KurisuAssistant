@@ -14,14 +14,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from kurisuassistant.agents.base import AgentConfig, AgentContext
+from kurisuassistant.agents.base import AssistantConfig, PersonaConfig, SubAgentConfig, AgentContext
 from kurisuassistant.agents.main import MainAgent
 from kurisuassistant.agents.sub import SubAgent, SubAgentTool
 from kurisuassistant.tools import ToolRegistry
 
 
 def agent():
-    return MainAgent(AgentConfig(id=1, name="Tester"), ToolRegistry())
+    return MainAgent(AssistantConfig(id=1), ToolRegistry(), identity=PersonaConfig(id=1, name="Tester"))
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +211,7 @@ class TestSubAgentToolNames:
         registry = ToolRegistry()
         taken: set = set()
         names = [
-            SubAgentTool(SubAgent(AgentConfig(id=i, name=n), registry), taken).name
+            SubAgentTool(SubAgent(SubAgentConfig(id=i, name=n), registry), taken).name
             for i, n in enumerate(["Web Search", "web-search"])
         ]
         assert len(set(names)) == 2
