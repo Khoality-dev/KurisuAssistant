@@ -54,12 +54,13 @@ uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --reload --reload-d
 docker compose up -d       # Start all
 docker compose logs -f api # View logs
 
-# Dev deployment: separate worktree (../KurisuAssistant-dev, detached at the commit
-# under test — there is no dev branch) running docker-compose.dev.yml: own API,
-# Postgres and data/, shared GPU services. Production deploys from a backend-vX.Y.Z
-# tag. See docs/development.md "Dev Deployment". Never run the dev overlay from this
-# tree, and never `git checkout` under a running container without restarting it in
-# the same step — the API bind-mounts ./kurisuassistant, so the code changes live.
+# Deployments: production runs from the ../KurisuAssistant-prod worktree, detached at
+# a backend-vX.Y.Z tag. Move it with `git fetch --tags && git checkout <tag> &&
+# docker compose up -d --build` in ONE step — the API bind-mounts ./kurisuassistant,
+# so a bare checkout changes the live code. This checkout is main. To try main
+# against a second instance, `docker compose -f docker-compose.dev.yml up -d --build`
+# from HERE (own project, database and data/); never run it from -prod.
+# See docs/development.md "Dev Deployment".
 
 # Migrations (Alembic, auto-run on container startup via docker-entrypoint.sh)
 cd kurisuassistant/db && alembic revision --autogenerate -m "description"

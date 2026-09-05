@@ -28,28 +28,31 @@ A second, isolated copy of the API runs next to production from its own checkout
 
 | | Production | Dev |
 |---|---|---|
-| Checkout | `KurisuAssistant/` — `main`, deployed from a `backend-vX.Y.Z` tag | `KurisuAssistant-dev/` — git worktree, detached at whatever is under test (usually `origin/main`) |
+| Checkout | `KurisuAssistant-prod/` — git worktree, detached at a `backend-vX.Y.Z` tag | `KurisuAssistant/` — `main`, the working checkout; the overlay runs from here |
 | Compose project | `kurisuassistant` | `kurisuassistant-dev` |
 | API container | `kurisu-api` | `kurisu-api-dev` |
 | Database | `postgres-container`, volume `kurisuassistant_postgres-data` | `postgres-dev`, volume `kurisuassistant-dev_postgres-data` |
-| Data | `KurisuAssistant/backend/data/` | `KurisuAssistant-dev/backend/data/` |
+| Data | `KurisuAssistant-prod/backend/data/` | `KurisuAssistant/backend/data/` |
 | URL | `https://<host>:15597` | `https://<host>:15598` |
 
 Setup, once:
 
 ```bash
-git worktree add --detach ../KurisuAssistant-dev origin/main   # from the monorepo root; no branch, see below
-cd ../KurisuAssistant-dev/backend
-ln -s docker-compose.dev.yml compose.yaml           # plain `docker compose` then uses the dev file
-cp ../../KurisuAssistant/backend/.env .             # same credentials, separate database
-mkdir -p data
+# production — from the monorepo root, once
+git worktree add --detach ../KurisuAssistant-prod backend-vX.Y.Z
+cd ../KurisuAssistant-prod/backend
+cp ../../KurisuAssistant/backend/.env .             # same credentials
+mkdir -p data                                       # or move the existing data/ here
 docker compose up -d --build
+
+# a second instance to try main against — from KurisuAssistant/backend, never from -prod
+docker compose -f docker-compose.dev.yml up -d --build
 ```
 
-There is no long-lived `dev` branch. Work happens on short-lived branches merged into `main` through pull requests, and `main` is the only line of development. The two deployments differ only in *which commit they have checked out*:
+There is no long-lived `dev` branch, and no branch for production either. Work happens on short-lived branches merged into `main` through pull requests; `main` is the only line of development, and `KurisuAssistant/` — this checkout — is where it happens. Production is a second worktree, `KurisuAssistant-prod/`, detached at a release tag:
 
-- **Dev** tracks `main`. In the dev checkout: `git fetch && git checkout --detach origin/main && docker compose up -d --build`.
-- **Production** runs a release. Tag `main` as `backend-vX.Y.Z`, with X.Y.Z equal to `__version__` in `version.py`, then in the production checkout: `git checkout backend-vX.Y.Z && docker compose up -d --build`. The tag *is* the release; nothing else marks one, and there is no publish workflow for the backend.
+- **Production** runs a release. Tag `main` as `backend-vX.Y.Z`, with X.Y.Z equal to `__version__` in `version.py`, then in `KurisuAssistant-prod/backend`: `git fetch --tags && git checkout backend-vX.Y.Z && docker compose up -d --build`. The tag *is* the release; nothing else marks one, and there is no publish workflow for the backend. `docker-compose.yml` pins `name: kurisuassistant`, so the project adopts the same containers and volumes whichever directory it is started from.
+- **Dev** is `main` itself. Run the tests here. To try `main` against a running instance, the overlay starts a second one from this same directory — `docker compose -f docker-compose.dev.yml up -d --build` — as its own project (`kurisuassistant-dev`) with its own database and `data/`. Never run the overlay from `KurisuAssistant-prod/`.
 
 Checkout and restart belong in the same step. The API bind-mounts `./kurisuassistant`, so a bare `git checkout` changes the running container's code on disk immediately, and a process still running on its old imports can then lazy-load modules from the new commit. Never move a deployment's checkout without restarting its container in the same command. Migrations run on container start, so the restart is also what applies them.
 

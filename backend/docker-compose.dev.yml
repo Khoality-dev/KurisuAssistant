@@ -1,22 +1,17 @@
 # Dev overlay for the backend — a second, isolated API + database on this box.
 #
-# Use it from a SEPARATE checkout, never from the production tree: the API
-# bind-mounts ./kurisuassistant and ./data, so two projects sharing one
-# directory would run the same code against the same files.
+# Run it from the MAIN checkout (KurisuAssistant/backend) to try main against a
+# second, isolated API. Never from KurisuAssistant-prod/: the API bind-mounts
+# ./kurisuassistant and ./data, so two projects sharing one directory would run
+# the same code against the same files.
 #
-#   git worktree add --detach ../KurisuAssistant-dev origin/main   # from the monorepo root
-#   cd ../KurisuAssistant-dev/backend
-#   ln -s docker-compose.dev.yml compose.yaml           # plain `docker compose` picks this file first
-#                                                      # (it warns about two config files; that is expected)
-#   cp ../../KurisuAssistant/backend/.env .             # same credentials, separate database
-#   mkdir -p data
-#   docker compose up -d --build
+#   cd KurisuAssistant/backend
+#   docker compose -f docker-compose.dev.yml up -d --build
 #
-# There is no dev branch. To move this checkout forward, check out and restart in
-# ONE step — `git fetch && git checkout --detach origin/main && docker compose up
-# -d --build` — because the bind mount below means a bare checkout changes the
-# running container's code on disk. Production checks out a backend-vX.Y.Z tag
-# the same way.
+# It is its own project (kurisuassistant-dev) with its own database and data/,
+# and reads the same env file as production. Production itself runs from the
+# KurisuAssistant-prod worktree, detached at a backend-vX.Y.Z tag — see
+# docs/development.md "Dev Deployment".
 #
 # Duplicated for dev: the API (kurisu-api-dev), Postgres (postgres-dev, own
 # volume, own alembic_version) and ./data (images, avatars, character assets,
