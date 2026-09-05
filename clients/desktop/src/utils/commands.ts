@@ -7,7 +7,7 @@
 
 export interface CommandContext {
   activeConversationId: number | null;
-  agentId: number | null;
+  personaId: number | null;
 }
 
 interface Command {
@@ -25,10 +25,10 @@ const commands: Command[] = [
       const { storage } = await import('./storage');
       const convStore = useConversationStore.getState();
       convStore.clearCurrentConversation();
-      if (ctx.agentId) {
-        storage.clearAgentConversationId(ctx.agentId);
+      if (ctx.personaId) {
+        storage.clearPersonaConversationId(ctx.personaId);
       } else {
-        storage.clearAgentConversationId('group');
+        storage.clearPersonaConversationId('unbound');
       }
       return 'Started a new conversation';
     },
@@ -44,10 +44,10 @@ const commands: Command[] = [
       const { storage } = await import('./storage');
       const convStore = useConversationStore.getState();
       await convStore.deleteConversation(ctx.activeConversationId);
-      if (ctx.agentId) {
-        storage.clearAgentConversationId(ctx.agentId);
+      if (ctx.personaId) {
+        storage.clearPersonaConversationId(ctx.personaId);
       } else {
-        storage.clearAgentConversationId('group');
+        storage.clearPersonaConversationId('unbound');
       }
       return 'Conversation deleted';
     },
@@ -56,8 +56,8 @@ const commands: Command[] = [
     name: 'resume',
     description: 'Pick a previous conversation to resume',
     execute: (_args, ctx) => {
-      if (!ctx.agentId) {
-        return 'No agent selected';
+      if (!ctx.personaId) {
+        return 'No persona selected';
       }
       window.dispatchEvent(new Event('kurisu:open-resume-picker'));
       return '';
@@ -75,10 +75,10 @@ const commands: Command[] = [
     },
   },
   {
-    name: 'agents',
-    description: 'Pick a main agent to chat with',
+    name: 'persona',
+    description: 'Switch the persona answering in this conversation',
     execute: () => {
-      window.dispatchEvent(new Event('kurisu:open-agent-picker'));
+      window.dispatchEvent(new Event('kurisu:open-persona-picker'));
       return '';
     },
   },

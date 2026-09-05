@@ -3,14 +3,14 @@ import { CharacterRenderer } from './videocall/CharacterRenderer';
 import type { AmplitudeState } from './videocall/CharacterRenderer';
 import type { PoseTree } from './videocall/types';
 
-interface AgentEntry {
+interface PersonaEntry {
   name: string;
   poseTree: PoseTree | null;
 }
 
 export const CharacterWindowApp: React.FC = () => {
-  const [agentMap, setAgentMap] = useState<Map<number, AgentEntry>>(new Map());
-  const [activeAgentId, setActiveAgentId] = useState<number | null>(null);
+  const [personaMap, setPersonaMap] = useState<Map<number, PersonaEntry>>(new Map());
+  const [activePersonaId, setActivePersonaId] = useState<number | null>(null);
   const [subtitleText, setSubtitleText] = useState('');
   const [subtitleVisible, setSubtitleVisible] = useState(false);
   const [subtitleIsUser, setSubtitleIsUser] = useState(false);
@@ -30,27 +30,27 @@ export const CharacterWindowApp: React.FC = () => {
       amplitudeRef.current = data;
     });
 
-    const cleanupAgents = api.onAgentsUpdate((data) => {
-      setActiveAgentId(data.activeAgentId);
-      // Only rebuild agentMap if agents actually changed (avoids re-triggering loadPoseTree)
-      setAgentMap((prev) => {
-        if (prev.size === data.agents.length) {
+    const cleanupPersonas = api.onPersonasUpdate((data) => {
+      setActivePersonaId(data.activePersonaId);
+      // Only rebuild personaMap if the personas actually changed (avoids re-triggering loadPoseTree)
+      setPersonaMap((prev) => {
+        if (prev.size === data.personas.length) {
           let same = true;
-          for (const agent of data.agents) {
-            const existing = prev.get(agent.id);
-            if (!existing || existing.name !== agent.name ||
-                JSON.stringify(existing.poseTree?.default_pose_ids) !== JSON.stringify(agent.poseTree?.default_pose_ids) ||
-                existing.poseTree?.nodes?.length !== agent.poseTree?.nodes?.length ||
-                existing.poseTree?.edges?.length !== agent.poseTree?.edges?.length) {
+          for (const persona of data.personas) {
+            const existing = prev.get(persona.id);
+            if (!existing || existing.name !== persona.name ||
+                JSON.stringify(existing.poseTree?.default_pose_ids) !== JSON.stringify(persona.poseTree?.default_pose_ids) ||
+                existing.poseTree?.nodes?.length !== persona.poseTree?.nodes?.length ||
+                existing.poseTree?.edges?.length !== persona.poseTree?.edges?.length) {
               same = false;
               break;
             }
           }
           if (same) return prev;
         }
-        const map = new Map<number, AgentEntry>();
-        for (const agent of data.agents) {
-          map.set(agent.id, { name: agent.name, poseTree: agent.poseTree });
+        const map = new Map<number, PersonaEntry>();
+        for (const persona of data.personas) {
+          map.set(persona.id, { name: persona.name, poseTree: persona.poseTree });
         }
         return map;
       });
@@ -110,7 +110,7 @@ export const CharacterWindowApp: React.FC = () => {
         const displayMs = Math.max(1500, words.length * 350);
         subtitleTimerRef.current = setTimeout(() => setSubtitleVisible(false), displayMs);
       } else {
-        // Agent text: split into sentences, push to queue, let drain handle timing
+        // Persona text: split into sentences, push to queue, let drain handle timing
         const chunkDurationMs = (data.duration || 4) * 1000;
         const sentences = splitSentences(data.text);
         if (!sentences.length) return;
@@ -129,7 +129,7 @@ export const CharacterWindowApp: React.FC = () => {
 
     return () => {
       cleanupAmplitude();
-      cleanupAgents();
+      cleanupPersonas();
       cleanupGestures();
       cleanupFaces();
       cleanupSubtitle();
@@ -189,7 +189,7 @@ export const CharacterWindowApp: React.FC = () => {
         </div>
       </div>
 
-      {agentMap.size === 0 ? (
+      {personaMap.size === 0 ? (
         <div
           style={{
             flex: 1,
@@ -199,11 +199,11 @@ export const CharacterWindowApp: React.FC = () => {
           }}
         >
           <span style={{ color: 'rgba(0,0,0,0.4)', fontSize: 14 }}>
-            Send a message to see agents here
+            Send a message to see personas here
           </span>
         </div>
       ) : (
-        Array.from(agentMap.entries()).map(([id, entry]) => (
+        Array.from(personaMap.entries()).map(([id, entry]) => (
           <div
             key={id}
             style={{
@@ -216,7 +216,7 @@ export const CharacterWindowApp: React.FC = () => {
               position: 'relative',
               overflow: 'hidden',
               borderBottom: '1px solid rgba(0,0,0,0.1)',
-              ...(activeAgentId === id
+              ...(activePersonaId === id
                 ? { boxShadow: 'inset 0 0 20px rgba(37, 99, 235, 0.3)' }
                 : {}),
             }}
@@ -224,9 +224,9 @@ export const CharacterWindowApp: React.FC = () => {
             {entry.poseTree ? (
               <CharacterRenderer
                 poseTree={entry.poseTree}
-                amplitudeRef={activeAgentId === id ? amplitudeRef : silentRef}
-                gesturesRef={activeAgentId === id || activeAgentId === null ? gesturesRef : undefined}
-                facesRef={activeAgentId === id || activeAgentId === null ? facesRef : undefined}
+                amplitudeRef={activePersonaId === id ? amplitudeRef : silentRef}
+                gesturesRef={activePersonaId === id || activePersonaId === null ? gesturesRef : undefined}
+                facesRef={activePersonaId === id || activePersonaId === null ? facesRef : undefined}
               />
             ) : (
               <span style={{ color: 'rgba(0,0,0,0.3)', fontSize: 14 }}>
@@ -240,8 +240,8 @@ export const CharacterWindowApp: React.FC = () => {
                 left: 0,
                 right: 0,
                 textAlign: 'center',
-                color: activeAgentId === id ? '#2563eb' : 'rgba(0,0,0,0.5)',
-                fontWeight: activeAgentId === id ? 600 : 400,
+                color: activePersonaId === id ? '#2563eb' : 'rgba(0,0,0,0.5)',
+                fontWeight: activePersonaId === id ? 600 : 400,
                 fontSize: 18,
                 textShadow: '0 1px 4px rgba(255,255,255,0.5)',
               }}

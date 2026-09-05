@@ -12,12 +12,13 @@ import ReactMarkdown from 'react-markdown';
 import { apiClient } from '../../api/client';
 import { config } from '../../config';
 import { storage } from '../../utils/storage';
-import type { Message } from '../../api/types';
+
+import type { StreamingMessage } from '../../hooks/useStreamingChat';
 import { MessageToolbar } from './MessageToolbar';
 import { RawDataDialog } from './RawDataDialog';
 import { useExplorerStore } from '../../store/explorerStore';
 import { useLayoutStore } from '../../store/layoutStore';
-import { useAgentStore } from '../../store/agentStore';
+import { usePersonaStore } from '../../store/personaStore';
 
 const MotionBox = motion(Box);
 
@@ -69,7 +70,9 @@ const HighlightWrapper: React.FC<{ query?: string; children: React.ReactNode }> 
 };
 
 interface MessageBubbleProps {
-  message: Message;
+  // StreamingMessage, not Message: `tool_kind` and `duration_ms` reach the bubble
+  // on live tool chunks only and are absent from anything reloaded from the DB.
+  message: StreamingMessage;
   index: number;
   consecutive?: boolean;
   isLast: boolean;
@@ -82,7 +85,7 @@ interface MessageBubbleProps {
   expandedThinking: Set<number>;
   onToggleThinking: (index: number) => void;
   searchHighlight?: string;
-  ttsRef: React.RefObject<{ speak: (text: string, voice?: string, language?: string, backend?: string, emotionParams?: { emo_audio?: string; emo_alpha?: number; use_emo_text?: boolean }) => Promise<void>; stopTTS: () => void; clearQueue: () => void; isTTSPlaying: boolean; setActiveAgentForTTS: (agentId: number | null) => void }>;
+  ttsRef: React.RefObject<{ speak: (text: string, voice?: string, language?: string, backend?: string, emotionParams?: { emo_audio?: string; emo_alpha?: number; use_emo_text?: boolean }) => Promise<void>; stopTTS: () => void; clearQueue: () => void; isTTSPlaying: boolean; setActivePersonaForTTS: (personaId: number | null) => void }>;
   isQueueActive?: boolean;
 }
 
@@ -126,14 +129,14 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
       // Stop both manual playback and streaming auto-play queue
       ttsRef.current?.stopTTS();
       ttsRef.current?.clearQueue();
-      ttsRef.current?.setActiveAgentForTTS(null);
+      ttsRef.current?.setActivePersonaForTTS(null);
       setLocalPlaying(false);
     } else {
       try {
         setLocalPlaying(true);
-        // Activate this agent's character panel for lip sync
-        if (message.agent?.id) {
-          ttsRef.current?.setActiveAgentForTTS(message.agent.id);
+        // Activate this persona's character panel for lip sync
+        if (message.persona?.id) {
+          ttsRef.current?.setActivePersonaForTTS(message.persona.id);
         }
         const currentBackend = storage.getTTSBackend() || 'vixtts';
         const emotionParams =
@@ -144,13 +147,13 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
               }
             : undefined;
 
-        const voice = message.voice_reference || message.agent?.voice_reference || undefined;
+        const voice = message.voice_reference || message.persona?.voice_reference || undefined;
         await ttsRef.current?.speak(message.content, voice, undefined, currentBackend, emotionParams);
       } catch (error) {
         console.error('Failed to play TTS:', error);
       } finally {
         setLocalPlaying(false);
-        ttsRef.current?.setActiveAgentForTTS(null);
+        ttsRef.current?.setActivePersonaForTTS(null);
       }
     }
   };
@@ -192,25 +195,29 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
       label = message.name || 'Tool';
     }
   } else {
-    // Assistant: persona name as main label
-    const personaName = message.persona_name || message.agent?.persona_name;
-    const agentRole = message.agent?.name || message.name;
-    label = personaName || agentRole || message.role.charAt(0).toUpperCase() + message.role.slice(1);
+    // Assistant: the persona is the speaker. `persona_name` comes from streaming
+    // chunks, `persona` is the stamp embedded on a stored message; neither exists
+    // on a tool message, which is handled above. `name` is the last resort — on
+    // an assistant message it is the persona name the backend stored.
+    label = message.persona_name
+      || message.persona?.name
+      || message.name
+      || message.role.charAt(0).toUpperCase() + message.role.slice(1);
   }
 
-  // Get avatar URL for agent. Fall back to the agent store keyed by agent_id —
-  // streaming chunks carry agent_id but no embedded `agent` (with avatar_uuid),
-  // so without the fallback the avatar would be missing during streaming and
-  // then pop in after the post-done reload, flashing the bubble. Select the
-  // uuid string (not the agent object) so Zustand's Object.is equality keeps
-  // the selector stable across unrelated agent-list updates.
-  const storeAvatarUuid = useAgentStore((s) =>
-    message.agent_id != null
-      ? s.agents.find((a) => a.id === message.agent_id)?.avatar_uuid ?? null
+  // Avatar. Fall back to the persona store keyed by persona_id — streaming
+  // chunks carry persona_id but no embedded `persona` (with avatar_uuid), so
+  // without the fallback the avatar would be missing during streaming and then
+  // pop in after the post-done reload, flashing the bubble. Select the uuid
+  // string (not the persona object) so Zustand's Object.is equality keeps the
+  // selector stable across unrelated persona-list updates.
+  const storeAvatarUuid = usePersonaStore((s) =>
+    message.persona_id != null
+      ? s.personas.find((p) => p.id === message.persona_id)?.avatar_uuid ?? null
       : null,
   );
-  const avatarUuid = message.agent?.avatar_uuid ?? storeAvatarUuid;
-  const agentAvatarUrl = avatarUuid
+  const avatarUuid = message.persona?.avatar_uuid ?? storeAvatarUuid;
+  const personaAvatarUrl = avatarUuid
     ? `${config.apiBaseUrl}/images/${avatarUuid}`
     : undefined;
 
@@ -281,7 +288,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
       {/* Avatar for non-user messages */}
       {!isUser && (
         <Avatar
-          src={isTool ? undefined : agentAvatarUrl}
+          src={isTool ? undefined : personaAvatarUrl}
           alt={label}
           sx={{
             width: 36,
@@ -290,7 +297,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
             flexShrink: 0,
           }}
         >
-          {isTool ? <BuildIcon sx={{ fontSize: 20, color: 'text.secondary' }} /> : !agentAvatarUrl && <SmartToyIcon sx={{ fontSize: 20 }} />}
+          {isTool ? <BuildIcon sx={{ fontSize: 20, color: 'text.secondary' }} /> : !personaAvatarUrl && <SmartToyIcon sx={{ fontSize: 20 }} />}
         </Avatar>
       )}
       <Box sx={{ maxWidth: '80%' }}>
@@ -329,6 +336,18 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
             {message.queued && (
               <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic', ml: 0.5 }}>
                 Queued
+              </Typography>
+            )}
+            {/* `tool_kind` and `duration_ms` ride on live tool chunks only — the
+                client cannot derive either, and neither survives a reload. */}
+            {isTool && message.tool_kind === 'sub_agent' && (
+              <Chip label="sub-agent" size="small" sx={{ height: 18, fontSize: '0.65rem', ml: 0.5 }} />
+            )}
+            {isTool && message.duration_ms != null && (
+              <Typography variant="caption" sx={{ color: 'text.secondary', ml: 0.5 }}>
+                {message.duration_ms < 1000
+                  ? `${message.duration_ms}ms`
+                  : `${(message.duration_ms / 1000).toFixed(1)}s`}
               </Typography>
             )}
             <Box sx={{ flex: 1 }} />

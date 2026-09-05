@@ -63,7 +63,7 @@ interface CategoryPatch extends PatchInfo {
 
 export interface PoseNodeEditorProps {
   open: boolean;
-  agentId: number;
+  personaId: number;
   poseId: string;
   initialPoseConfig: PoseConfig | null;
   initialAnimationSettings?: AnimationSettings;
@@ -74,7 +74,7 @@ export interface PoseNodeEditorProps {
 
 export const PoseNodeEditor: React.FC<PoseNodeEditorProps> = ({
   open,
-  agentId,
+  personaId,
   poseId,
   initialPoseConfig,
   initialAnimationSettings,
@@ -131,8 +131,8 @@ export const PoseNodeEditor: React.FC<PoseNodeEditorProps> = ({
     }
   }, [open]);
 
-  // Helper: build the canonical base image URL from agentId + poseId
-  const baseAssetUrl = `/character-assets/${agentId}/${poseId}/base`;
+  // Helper: build the canonical base image URL from personaId + poseId
+  const baseAssetUrl = `/character-assets/${personaId}/${poseId}/base`;
 
   const loadFromPoseConfig = (pc: PoseConfig) => {
     try {
@@ -181,7 +181,7 @@ export const PoseNodeEditor: React.FC<PoseNodeEditorProps> = ({
     setUploading(true);
     setError('');
     try {
-      await apiClient.uploadCharacterBase(agentId, poseId, file);
+      await apiClient.uploadCharacterBase(personaId, poseId, file);
       setHasBase(true);
       // Use canonical URL with cache-bust to show updated image
       setBaseImageUrl(`${config.apiBaseUrl}${baseAssetUrl}?t=${Date.now()}`);
@@ -205,11 +205,11 @@ export const PoseNodeEditor: React.FC<PoseNodeEditorProps> = ({
     try {
       const categoryCount = patches.filter((p) => p.category === selectedCategory).length;
       const result = await apiClient.computeCharacterPatch(
-        agentId, poseId, file, selectedCategory, categoryCount,
+        personaId, poseId, file, selectedCategory, categoryCount,
       );
       const newPatch: CategoryPatch = {
         ...result.patch,
-        image_url: `/character-assets/${agentId}/${poseId}/${selectedCategory}_${categoryCount}`,
+        image_url: `/character-assets/${personaId}/${poseId}/${selectedCategory}_${categoryCount}`,
         category: selectedCategory,
       };
       setPatches((prev) => [...prev, newPatch]);

@@ -4,7 +4,7 @@ import { ActivityBar } from './ActivityBar';
 import { ChatPanel } from './ChatPanel';
 import { ResizeHandle } from './ResizeHandle';
 import { useLayoutStore } from '../../store/layoutStore';
-import { useAgentStore } from '../../store/agentStore';
+import { usePersonaStore } from '../../store/personaStore';
 import { ConversationsPage } from '../conversations/ConversationsPage';
 import { SettingsPage } from '../settings/SettingsPage';
 import { FileExplorerPage } from '../explorer/FileExplorerPage';
@@ -14,13 +14,13 @@ const MAX_CHAT_WIDTH = 700;
 
 export const MainLayout: React.FC = () => {
   const { activePage, chatPanelWidth } = useLayoutStore();
-  const { loadAgents, loadAgentPreviews } = useAgentStore();
+  const { loadPersonas, loadPersonaPreviews } = usePersonaStore();
   const chatPanelRef = useRef<HTMLDivElement>(null);
 
-  // Load agents on mount
+  // Load personas on mount
   useEffect(() => {
-    loadAgents().then(() => loadAgentPreviews());
-  }, [loadAgents, loadAgentPreviews]);
+    loadPersonas().then(() => loadPersonaPreviews());
+  }, [loadPersonas, loadPersonaPreviews]);
 
   const handleChatResizeEnd = useCallback((size: number) => {
     useLayoutStore.getState().setChatPanelWidth(size);

@@ -14,7 +14,8 @@ export interface ApprovalRequest {
   description: string;
   detail?: string;
   executionLocation?: 'backend' | 'frontend';
-  agentName?: string;
+  // Whoever asked for the call: the persona answering, or a sub-agent under it.
+  requesterName?: string;
   options?: ApprovalOption[];
 }
 
@@ -102,9 +103,9 @@ export const ToolApprovalBar: React.FC<ToolApprovalBarProps> = ({ request, onRes
           color={isExternal ? 'info' : 'default'}
           variant="outlined"
         />
-        {request.agentName && (
+        {request.requesterName && (
           <Typography variant="caption" sx={{ color: 'text.secondary', ml: 'auto' }}>
-            by {request.agentName}
+            by {request.requesterName}
           </Typography>
         )}
       </Box>

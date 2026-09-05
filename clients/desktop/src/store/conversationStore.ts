@@ -28,10 +28,10 @@ interface ConversationState {
   updateCompactionData: (compactedUpToId: number, compactedContext: string) => void;
 }
 
-const emptyConversation = (id: number, title = '', main_agent_id: number | null = null): Conversation => ({
+const emptyConversation = (id: number, title = '', persona_id: number | null = null): Conversation => ({
   id,
   title,
-  main_agent_id,
+  persona_id,
   message_count: 0,
   created_at: '',
   updated_at: '',
@@ -90,7 +90,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       currentConversation: {
         id,
         title: data.title,
-        main_agent_id: data.main_agent_id,
+        persona_id: data.persona_id,
         message_count: data.total_messages,
         created_at: data.created_at,
         updated_at: '',

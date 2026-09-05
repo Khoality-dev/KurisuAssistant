@@ -25,8 +25,8 @@ vi.mock('../store/conversationStore', () => {
 vi.mock('./storage', () => {
   return {
     storage: {
-      clearAgentConversationId: vi.fn(),
-      setAgentConversationId: vi.fn(),
+      clearPersonaConversationId: vi.fn(),
+      setPersonaConversationId: vi.fn(),
     },
   };
 });
@@ -34,7 +34,7 @@ vi.mock('./storage', () => {
 vi.mock('../api/client', () => {
   return {
     apiClient: {
-      getLatestConversationForAgent: vi.fn(async (_id: number) => null),
+      getLatestConversationForPersona: vi.fn(async (_id: number) => null),
     },
   };
 });
@@ -63,12 +63,12 @@ describe('slash commands', () => {
   it('exposes the expected command set', () => {
     const names = getCommands().map((c) => c.name).sort();
     expect(names).toEqual([
-      'agents',
       'clear',
       'compact',
       'context',
       'delete',
       'live-animate',
+      'persona',
       'refresh',
       'resume',
       'vision',
@@ -76,31 +76,31 @@ describe('slash commands', () => {
   });
 
   it('returns null for non-command input', async () => {
-    expect(await handleCommand('hello there', { activeConversationId: null, agentId: null })).toBeNull();
-    expect(await handleCommand('not-a-command', { activeConversationId: 1, agentId: 1 })).toBeNull();
+    expect(await handleCommand('hello there', { activeConversationId: null, personaId: null })).toBeNull();
+    expect(await handleCommand('not-a-command', { activeConversationId: 1, personaId: 1 })).toBeNull();
   });
 
   it('returns null for unknown command', async () => {
-    expect(await handleCommand('/notARealCommand', { activeConversationId: 1, agentId: 1 })).toBeNull();
+    expect(await handleCommand('/notARealCommand', { activeConversationId: 1, personaId: 1 })).toBeNull();
   });
 
   describe('/clear', () => {
     it('clears store + storage without deleting from DB', async () => {
       const { useConversationStore } = await import('../store/conversationStore');
       const { storage } = await import('./storage');
-      const result = await handleCommand('/clear', { activeConversationId: 7, agentId: 3 });
+      const result = await handleCommand('/clear', { activeConversationId: 7, personaId: 3 });
 
       expect(result).toBe('Started a new conversation');
       const state = (useConversationStore as any).__state;
       expect(state.clearCurrentConversation).toHaveBeenCalledOnce();
       expect(state.deleteConversation).not.toHaveBeenCalled();
-      expect(storage.clearAgentConversationId).toHaveBeenCalledWith(3);
+      expect(storage.clearPersonaConversationId).toHaveBeenCalledWith(3);
     });
 
-    it('falls back to "group" key when no agent is selected', async () => {
+    it('falls back to the "unbound" key when no persona is selected', async () => {
       const { storage } = await import('./storage');
-      await handleCommand('/clear', { activeConversationId: 7, agentId: null });
-      expect(storage.clearAgentConversationId).toHaveBeenCalledWith('group');
+      await handleCommand('/clear', { activeConversationId: 7, personaId: null });
+      expect(storage.clearPersonaConversationId).toHaveBeenCalledWith('unbound');
     });
   });
 
@@ -108,17 +108,17 @@ describe('slash commands', () => {
     it('calls deleteConversation and clears the storage mapping', async () => {
       const { useConversationStore } = await import('../store/conversationStore');
       const { storage } = await import('./storage');
-      const result = await handleCommand('/delete', { activeConversationId: 7, agentId: 3 });
+      const result = await handleCommand('/delete', { activeConversationId: 7, personaId: 3 });
 
       expect(result).toBe('Conversation deleted');
       const state = (useConversationStore as any).__state;
       expect(state.deleteConversation).toHaveBeenCalledWith(7);
-      expect(storage.clearAgentConversationId).toHaveBeenCalledWith(3);
+      expect(storage.clearPersonaConversationId).toHaveBeenCalledWith(3);
     });
 
     it('refuses when there is no active conversation', async () => {
       const { useConversationStore } = await import('../store/conversationStore');
-      const result = await handleCommand('/delete', { activeConversationId: null, agentId: 3 });
+      const result = await handleCommand('/delete', { activeConversationId: null, personaId: 3 });
       expect(result).toBe('No active conversation');
       const state = (useConversationStore as any).__state;
       expect(state.deleteConversation).not.toHaveBeenCalled();
@@ -128,17 +128,17 @@ describe('slash commands', () => {
   describe('/resume', () => {
     it('dispatches the picker event', async () => {
       const spy = vi.spyOn(window, 'dispatchEvent');
-      const result = await handleCommand('/resume', { activeConversationId: 1, agentId: 3 });
+      const result = await handleCommand('/resume', { activeConversationId: 1, personaId: 3 });
       expect(result).toBe('');
       expect(spy).toHaveBeenCalled();
       const evt = spy.mock.calls[0][0] as Event;
       expect(evt.type).toBe('kurisu:open-resume-picker');
     });
 
-    it('refuses when no agent is selected', async () => {
+    it('refuses when no persona is selected', async () => {
       const spy = vi.spyOn(window, 'dispatchEvent');
-      const result = await handleCommand('/resume', { activeConversationId: 1, agentId: null });
-      expect(result).toBe('No agent selected');
+      const result = await handleCommand('/resume', { activeConversationId: 1, personaId: null });
+      expect(result).toBe('No persona selected');
       expect(spy).not.toHaveBeenCalled();
     });
   });
@@ -146,36 +146,36 @@ describe('slash commands', () => {
   describe('/context', () => {
     it('dispatches the breakdown event', async () => {
       const spy = vi.spyOn(window, 'dispatchEvent');
-      await handleCommand('/context', { activeConversationId: 1, agentId: 3 });
+      await handleCommand('/context', { activeConversationId: 1, personaId: 3 });
       expect(spy.mock.calls[0][0].type).toBe('kurisu:open-context-breakdown');
     });
 
     it('refuses when no active conversation', async () => {
       const spy = vi.spyOn(window, 'dispatchEvent');
-      const result = await handleCommand('/context', { activeConversationId: null, agentId: 3 });
+      const result = await handleCommand('/context', { activeConversationId: null, personaId: 3 });
       expect(result).toBe('No active conversation');
       expect(spy).not.toHaveBeenCalled();
     });
   });
 
-  describe('/agents', () => {
-    it('dispatches the agent-picker event', async () => {
+  describe('/persona', () => {
+    it('dispatches the persona-picker event', async () => {
       const spy = vi.spyOn(window, 'dispatchEvent');
-      await handleCommand('/agents', { activeConversationId: null, agentId: null });
-      expect(spy.mock.calls[0][0].type).toBe('kurisu:open-agent-picker');
+      await handleCommand('/persona', { activeConversationId: null, personaId: null });
+      expect(spy.mock.calls[0][0].type).toBe('kurisu:open-persona-picker');
     });
   });
 
   describe('/refresh', () => {
     it('dispatches the refresh event', async () => {
       const spy = vi.spyOn(window, 'dispatchEvent');
-      await handleCommand('/refresh', { activeConversationId: 1, agentId: 3 });
+      await handleCommand('/refresh', { activeConversationId: 1, personaId: 3 });
       expect(spy.mock.calls[0][0].type).toBe('kurisu:refresh-conversation');
     });
 
     it('refuses when no active conversation', async () => {
       const spy = vi.spyOn(window, 'dispatchEvent');
-      const result = await handleCommand('/refresh', { activeConversationId: null, agentId: 3 });
+      const result = await handleCommand('/refresh', { activeConversationId: null, personaId: 3 });
       expect(result).toBe('No active conversation');
       expect(spy).not.toHaveBeenCalled();
     });
@@ -184,7 +184,7 @@ describe('slash commands', () => {
   describe('/live-animate', () => {
     it('dispatches the toggle-character event', async () => {
       const spy = vi.spyOn(window, 'dispatchEvent');
-      await handleCommand('/live-animate', { activeConversationId: null, agentId: null });
+      await handleCommand('/live-animate', { activeConversationId: null, personaId: null });
       expect(spy.mock.calls[0][0].type).toBe('kurisu:toggle-character');
     });
   });
@@ -192,7 +192,7 @@ describe('slash commands', () => {
   describe('/vision', () => {
     it('dispatches the toggle-vision event', async () => {
       const spy = vi.spyOn(window, 'dispatchEvent');
-      await handleCommand('/vision', { activeConversationId: null, agentId: null });
+      await handleCommand('/vision', { activeConversationId: null, personaId: null });
       expect(spy.mock.calls[0][0].type).toBe('kurisu:toggle-vision');
     });
   });
@@ -200,14 +200,14 @@ describe('slash commands', () => {
   describe('/compact', () => {
     it('sends compact_context over the WebSocket', async () => {
       const { wsManager } = await import('../api/websocket');
-      const result = await handleCommand('/compact', { activeConversationId: 42, agentId: 3 });
+      const result = await handleCommand('/compact', { activeConversationId: 42, personaId: 3 });
       expect(result).toBe('Compacting context…');
       expect(wsManager.send).toHaveBeenCalledWith({ type: 'compact_context', conversation_id: 42 });
     });
 
     it('refuses when no active conversation', async () => {
       const { wsManager } = await import('../api/websocket');
-      const result = await handleCommand('/compact', { activeConversationId: null, agentId: 3 });
+      const result = await handleCommand('/compact', { activeConversationId: null, personaId: 3 });
       expect(result).toBe('No active conversation');
       expect(wsManager.send).not.toHaveBeenCalled();
     });

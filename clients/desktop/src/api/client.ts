@@ -13,9 +13,15 @@ import type {
   TTSModelsResponse,
   PullModelResponse,
   TTSRequest,
-  Agent,
-  AgentCreate,
-  AgentUpdate,
+  Assistant,
+  AssistantUpdate,
+  Persona,
+  PersonaCreate,
+  PersonaUpdate,
+  SubAgent,
+  SubAgentCreate,
+  SubAgentUpdate,
+  ConversationUpdate,
   ToolsResponse,
   MCPServer,
   MCPServerCreate,
@@ -192,18 +198,23 @@ class APIClient {
     return response.data;
   }
 
-  async getConversations(agentId?: number): Promise<Conversation[]> {
+  async getConversations(personaId?: number): Promise<Conversation[]> {
     const response = await this.client.get<Conversation[]>('/conversations', {
       headers: this.getHeaders(),
-      params: agentId ? { agent_id: agentId } : undefined,
+      params: personaId ? { persona_id: personaId } : undefined,
     });
     return response.data;
   }
 
-  async getLatestConversationForAgent(agentId: number): Promise<Conversation | null> {
+  /**
+   * The latest conversation bound to a persona, or null. `?persona_id=` returns a
+   * one-element list with no message_count and no last_message, so only the id is
+   * dependable here.
+   */
+  async getLatestConversationForPersona(personaId: number): Promise<Conversation | null> {
     const response = await this.client.get<Conversation[]>('/conversations', {
       headers: this.getHeaders(),
-      params: { agent_id: agentId },
+      params: { persona_id: personaId },
     });
     return response.data.length > 0 ? response.data[0] : null;
   }
@@ -226,12 +237,21 @@ class APIClient {
     });
   }
 
-  async updateConversation(id: number, title: string): Promise<void> {
-    await this.client.post(
+  /**
+   * Rename a conversation, rebind it to a persona, or both. Replaces the old
+   * POST /conversations/{id}. Omitted fields are untouched; `persona_id: null`
+   * unbinds, so the next message falls back to the assistant's default persona.
+   */
+  async patchConversation(
+    id: number,
+    data: ConversationUpdate,
+  ): Promise<{ id: number; title: string; persona_id: number | null }> {
+    const response = await this.client.patch<{ id: number; title: string; persona_id: number | null }>(
       `/conversations/${id}`,
-      { title },
+      data,
       { headers: this.getHeaders() }
     );
+    return response.data;
   }
 
   async getMessageRaw(messageId: number): Promise<MessageRawData> {
@@ -453,85 +473,154 @@ class APIClient {
     return response.data.data || [];
   }
 
-  // Agent Methods
+  // Assistant Methods
+  //
+  // One assistant per user, created at registration: no id in the path, no POST,
+  // no DELETE.
 
-  /**
-   * List all agents for the current user
-   */
-  async listAgents(): Promise<Agent[]> {
-    const response = await this.client.get<Agent[]>('/agents', {
+  /** Get the user's assistant (capability + default persona). */
+  async getAssistant(): Promise<Assistant> {
+    const response = await this.client.get<Assistant>('/assistant', {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /** Update the assistant. Omitted fields untouched; explicit null clears. */
+  async updateAssistant(data: AssistantUpdate): Promise<Assistant> {
+    const response = await this.client.patch<Assistant>('/assistant', data, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  // Persona Methods
+
+  /** List the user's personas, enabled or not, oldest first. */
+  async listPersonas(): Promise<Persona[]> {
+    const response = await this.client.get<Persona[]>('/personas', {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async getPersona(id: number): Promise<Persona> {
+    const response = await this.client.get<Persona>(`/personas/${id}`, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /** Create a persona. The user's first persona also becomes their default. */
+  async createPersona(data: PersonaCreate): Promise<Persona> {
+    const response = await this.client.post<Persona>('/personas', data, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async updatePersona(id: number, data: PersonaUpdate): Promise<Persona> {
+    const response = await this.client.patch<Persona>(`/personas/${id}`, data, {
       headers: this.getHeaders(),
     });
     return response.data;
   }
 
   /**
-   * Get a specific agent by ID
+   * Delete a persona. The backend refuses (400) to delete the last one — a user
+   * with no persona cannot start a conversation.
    */
-  async getAgent(id: number): Promise<Agent> {
-    const response = await this.client.get<Agent>(`/agents/${id}`, {
+  async deletePersona(id: number): Promise<void> {
+    await this.client.delete(`/personas/${id}`, {
+      headers: this.getHeaders(),
+    });
+  }
+
+  /** Enable/disable a persona. Disabling the default is refused (400). */
+  async togglePersonaEnabled(id: number, enabled: boolean): Promise<Persona> {
+    const response = await this.client.patch<Persona>(`/personas/${id}/enabled`, { enabled }, {
       headers: this.getHeaders(),
     });
     return response.data;
   }
 
   /**
-   * Create a new agent
+   * Export a persona as JSON. Media does not travel: avatar, voice reference and
+   * character config are handles to files on this server and are left out.
    */
-  async createAgent(data: AgentCreate): Promise<Agent> {
-    const response = await this.client.post<Agent>('/agents', data, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  /**
-   * Update an existing agent
-   */
-  async updateAgent(id: number, data: AgentUpdate): Promise<Agent> {
-    const response = await this.client.patch<Agent>(`/agents/${id}`, data, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  /**
-   * Delete an agent
-   */
-  async deleteAgent(id: number): Promise<void> {
-    await this.client.delete(`/agents/${id}`, {
-      headers: this.getHeaders(),
-    });
-  }
-
-  /**
-   * Toggle agent enabled state
-   */
-  async toggleAgentEnabled(id: number, enabled: boolean): Promise<Agent> {
-    const response = await this.client.patch(`/agents/${id}/enabled`, { enabled }, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  /**
-   * Export an agent as JSON
-   */
-  async exportAgent(id: number): Promise<Blob> {
-    const response = await this.client.get(`/agents/${id}/export`, {
+  async exportPersona(id: number): Promise<Blob> {
+    const response = await this.client.get(`/personas/${id}/export`, {
       headers: this.getHeaders(),
       responseType: 'blob',
     });
     return response.data;
   }
 
-  /**
-   * Import an agent from a JSON file
-   */
-  async importAgent(file: File): Promise<Agent> {
+  async importPersona(file: File): Promise<Persona> {
     const formData = new FormData();
     formData.append('file', file);
-    const response = await this.client.post<Agent>('/agents/import', formData, {
+    const response = await this.client.post<Persona>('/personas/import', formData, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  // Sub-Agent Methods
+
+  /** List the user's sub-agents, enabled or not, oldest first. */
+  async listSubAgents(): Promise<SubAgent[]> {
+    const response = await this.client.get<SubAgent[]>('/sub-agents', {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async getSubAgent(id: number): Promise<SubAgent> {
+    const response = await this.client.get<SubAgent>(`/sub-agents/${id}`, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async createSubAgent(data: SubAgentCreate): Promise<SubAgent> {
+    const response = await this.client.post<SubAgent>('/sub-agents', data, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async updateSubAgent(id: number, data: SubAgentUpdate): Promise<SubAgent> {
+    const response = await this.client.patch<SubAgent>(`/sub-agents/${id}`, data, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async deleteSubAgent(id: number): Promise<void> {
+    await this.client.delete(`/sub-agents/${id}`, {
+      headers: this.getHeaders(),
+    });
+  }
+
+  async toggleSubAgentEnabled(id: number, enabled: boolean): Promise<SubAgent> {
+    const response = await this.client.patch<SubAgent>(`/sub-agents/${id}/enabled`, { enabled }, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async exportSubAgent(id: number): Promise<Blob> {
+    const response = await this.client.get(`/sub-agents/${id}/export`, {
+      headers: this.getHeaders(),
+      responseType: 'blob',
+    });
+    return response.data;
+  }
+
+  async importSubAgent(file: File): Promise<SubAgent> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await this.client.post<SubAgent>('/sub-agents/import', formData, {
       headers: this.getHeaders(),
     });
     return response.data;
@@ -604,7 +693,7 @@ class APIClient {
   /**
    * Upload a base portrait image for character animation
    */
-  async uploadCharacterBase(agentId: number, poseId: string, file: File): Promise<UploadBaseResponseDTO> {
+  async uploadCharacterBase(personaId: number, poseId: string, file: File): Promise<UploadBaseResponseDTO> {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -613,7 +702,7 @@ class APIClient {
       formData,
       {
         headers: this.getHeaders(),
-        params: { agent_id: agentId, pose_id: poseId },
+        params: { persona_id: personaId, pose_id: poseId },
       }
     );
     return response.data;
@@ -623,7 +712,7 @@ class APIClient {
    * Upload a keyframe image and compute diff patch against the pose's base image
    */
   async computeCharacterPatch(
-    agentId: number,
+    personaId: number,
     poseId: string,
     keyframeFile: File,
     part: string,
@@ -637,7 +726,7 @@ class APIClient {
       formData,
       {
         headers: this.getHeaders(),
-        params: { agent_id: agentId, pose_id: poseId, part, index },
+        params: { persona_id: personaId, pose_id: poseId, part, index },
       }
     );
     return response.data;
@@ -646,7 +735,7 @@ class APIClient {
   /**
    * Upload a transition video for an animation edge
    */
-  async uploadTransitionVideo(agentId: number, edgeId: string, file: File): Promise<UploadVideoResponseDTO> {
+  async uploadTransitionVideo(personaId: number, edgeId: string, file: File): Promise<UploadVideoResponseDTO> {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -655,7 +744,7 @@ class APIClient {
       formData,
       {
         headers: this.getHeaders(),
-        params: { agent_id: agentId, edge_id: edgeId },
+        params: { persona_id: personaId, edge_id: edgeId },
         timeout: 60000,
       }
     );
@@ -672,9 +761,9 @@ class APIClient {
   /**
    * Migrate character asset IDs (rename pose folders and edge video files on disk)
    */
-  async migrateCharacterIds(agentId: number, idMapping: Record<string, string>): Promise<any> {
+  async migrateCharacterIds(personaId: number, idMapping: Record<string, string>): Promise<any> {
     const response = await this.client.post(
-      `/character-assets/${agentId}/migrate-ids`,
+      `/character-assets/${personaId}/migrate-ids`,
       { id_mapping: idMapping },
       { headers: this.getHeaders() }
     );
@@ -682,11 +771,11 @@ class APIClient {
   }
 
   /**
-   * Update an agent's character animation config (pose tree)
+   * Update a persona's character animation config (pose tree)
    */
-  async updateCharacterConfig(agentId: number, characterConfig: CharacterConfigDTO): Promise<any> {
+  async updateCharacterConfig(personaId: number, characterConfig: CharacterConfigDTO): Promise<any> {
     const response = await this.client.patch(
-      `/character-assets/${agentId}/character-config`,
+      `/character-assets/${personaId}/character-config`,
       characterConfig,
       { headers: this.getHeaders() }
     );

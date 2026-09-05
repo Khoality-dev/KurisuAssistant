@@ -5,13 +5,24 @@ import { useToolPermissionsStore } from '../store/toolPermissionsStore';
 import { storage } from '../utils/storage';
 import { stripNarration, fileToBase64 } from '../utils/chat';
 import { useExplorerStore } from '../store/explorerStore';
-import { useAgentStore } from '../store/agentStore';
+import { usePersonaStore } from '../store/personaStore';
 import type { Message } from '../api/types';
 import type { AmplitudeState } from '../videocall/CharacterRenderer';
 import { handleCommand } from '../utils/commands';
 
+/**
+ * A streaming bubble, plus the two tool-call fields the wire sends but the stored
+ * `Message` has no room for. `tool_kind` and `duration_ms` arrive only on tool
+ * chunks and are never persisted, so they live on the streaming message alone —
+ * a client cannot derive either.
+ */
+export type StreamingMessage = Message & {
+  tool_kind?: 'tool' | 'sub_agent' | null;
+  duration_ms?: number | null;
+};
+
 export interface UseStreamingChatParams {
-  agentId: number | null;
+  personaId: number | null;
   currentConversation: { id: number } | null;
   messages: Message[];
   hasMoreMessages: boolean;
@@ -24,12 +35,12 @@ export interface UseStreamingChatParams {
   clearQueue: () => void;
   // Character panel
   amplitudeRef: React.MutableRefObject<AmplitudeState>;
-  pushAgentCharacterConfig: (agentId: number | undefined, agentName?: string) => void;
+  pushPersonaCharacterConfig: (personaId: number | undefined, personaName?: string) => void;
 }
 
 export interface UseStreamingChatReturn {
   isStreaming: boolean;
-  streamingMessages: Message[];
+  streamingMessages: StreamingMessage[];
   streamingContent: string;
   streamingThinking: string;
   justFinishedStreaming: boolean;
@@ -58,7 +69,7 @@ export interface UseStreamingChatReturn {
 }
 
 export function useStreamingChat({
-  agentId,
+  personaId,
   currentConversation,
   messages,
   hasMoreMessages,
@@ -69,10 +80,10 @@ export function useStreamingChat({
   queueText,
   clearQueue,
   amplitudeRef,
-  pushAgentCharacterConfig,
+  pushPersonaCharacterConfig,
 }: UseStreamingChatParams): UseStreamingChatReturn {
   const [isStreaming, setIsStreaming] = useState(false);
-  const [streamingMessages, setStreamingMessages] = useState<Message[]>([]);
+  const [streamingMessages, setStreamingMessages] = useState<StreamingMessage[]>([]);
   const [streamingContent, setStreamingContent] = useState('');
   const [streamingThinking, setStreamingThinking] = useState('');
   const [justFinishedStreaming, setJustFinishedStreaming] = useState(false);
@@ -96,8 +107,10 @@ export function useStreamingChat({
   // Refs for streaming state (to avoid stale closures in callbacks)
   const streamingStateRef = useRef({
     currentRole: null as string | null,
-    currentAgentId: undefined as number | undefined,
-    currentAgentName: undefined as string | undefined,
+    currentPersonaId: undefined as number | undefined,
+    // Speaker label of the bubble being written: the persona name on assistant
+    // chunks, the tool label on tool chunks.
+    currentName: undefined as string | undefined,
     accumulatedContent: '',
     accumulatedThinking: '',
     hasPlaceholder: false,
@@ -125,11 +138,11 @@ export function useStreamingChat({
   // chunk's handler — or handleDone — read this ref, returning a stale array
   // and dropping the in-progress bubble. The ref is the source of truth now;
   // setStreamingMessages is just a notifier.
-  const streamingMessagesRef = useRef<Message[]>([]);
+  const streamingMessagesRef = useRef<StreamingMessage[]>([]);
   const updateStreaming = useCallback(
-    (updater: Message[] | ((prev: Message[]) => Message[])) => {
+    (updater: StreamingMessage[] | ((prev: StreamingMessage[]) => StreamingMessage[])) => {
       const next = typeof updater === 'function'
-        ? (updater as (prev: Message[]) => Message[])(streamingMessagesRef.current)
+        ? (updater as (prev: StreamingMessage[]) => StreamingMessage[])(streamingMessagesRef.current)
         : updater;
       streamingMessagesRef.current = next;
       setStreamingMessages(next);
@@ -207,8 +220,8 @@ export function useStreamingChat({
     ttsVoiceRef.current = undefined;
     streamingStateRef.current = {
       currentRole: null,
-      currentAgentId: undefined,
-      currentAgentName: undefined,
+      currentPersonaId: undefined,
+      currentName: undefined,
       accumulatedContent: '',
       accumulatedThinking: '',
       hasPlaceholder: false,
@@ -297,27 +310,41 @@ export function useStreamingChat({
       setActiveConversationId(event.conversation_id);
       setCurrentConversationId(event.conversation_id);
 
-      // Save agent-conversation mapping
-      if (agentId) {
-        storage.setAgentConversationId(agentId, event.conversation_id);
-      } else {
-        storage.setAgentConversationId('group', event.conversation_id);
-      }
+      // Save the persona → conversation mapping. With no persona selected the
+      // conversation lands under 'unbound' until a chunk tells us who answered.
+      storage.setPersonaConversationId(personaId ?? 'unbound', event.conversation_id);
     }
 
     const messageRole = event.role;
-    const agentName = event.name || undefined;
-    const eventAgentId = event.agent_id ?? undefined;
+    // `name` is the persona name on assistant chunks and the tool label on tool
+    // chunks; `persona_id`/`persona_name` are null on tool chunks.
+    const chunkName = event.name || undefined;
+    const eventPersonaId = event.persona_id ?? undefined;
 
-    // Check if we need to create a new bubble:
-    // - Role changed (user -> assistant -> tool)
-    // - Agent changed (handoff between main agents) - compare by name
+    // A conversation started with no persona selected sits under the 'unbound'
+    // key. The first assistant chunk names the persona the backend bound it to,
+    // so re-key it now — that is the only moment the client can learn it.
+    if (state.conversationId && eventPersonaId && !personaId
+        && storage.getPersonaConversationId('unbound') === state.conversationId) {
+      storage.setPersonaConversationId(eventPersonaId, state.conversationId);
+      storage.clearPersonaConversationId('unbound');
+    }
+
+    // Start a new bubble when the role changes (user → assistant → tool) or the
+    // speaker changes. The speaker is the persona on assistant chunks — compare
+    // persona_id, which is authoritative and survives two personas sharing a
+    // name. Tool chunks carry no persona at all, so there the speaker is the
+    // tool label in `name`: a different tool gets its own bubble.
     const roleChanged = state.currentRole && messageRole !== state.currentRole;
-    const agentChanged = state.hasStarted && state.currentAgentName !== agentName;
-    const needsNewBubble = roleChanged || agentChanged;
+    const speakerChanged = state.hasStarted && (
+      messageRole === 'tool'
+        ? state.currentName !== chunkName
+        : state.currentPersonaId !== eventPersonaId
+    );
+    const needsNewBubble = roleChanged || speakerChanged;
 
     if (needsNewBubble) {
-      // Flush TTS buffer from previous agent before switching
+      // Flush TTS buffer from the previous speaker before switching
       if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
         const cleaned = stripNarration(ttsBufferRef.current);
         if (cleaned) queueText(cleaned, ttsVoiceRef.current);
@@ -340,59 +367,65 @@ export function useStreamingChat({
         updated.push({
           role: messageRole,
           content: '',
-          name: agentName,
-          agent_id: eventAgentId,
+          name: chunkName,
+          persona_id: eventPersonaId,
           voice_reference: event.voice_reference || undefined,
           persona_name: event.persona_name || undefined,
           model_name: event.model_name || undefined,
           provider_type: event.provider_type || undefined,
           tool_args: event.tool_args || undefined,
           tool_status: event.tool_status || undefined,
+          tool_kind: event.tool_kind ?? undefined,
+          duration_ms: event.duration_ms ?? undefined,
           _clientKey: crypto.randomUUID(),
         });
         return updated;
       });
 
       state.currentRole = messageRole;
-      state.currentAgentId = eventAgentId;
-      state.currentAgentName = agentName;
+      state.currentPersonaId = eventPersonaId;
+      state.currentName = chunkName;
       state.accumulatedContent = event.content || '';
       state.accumulatedThinking = '';
 
-      // Update TTS voice for new agent
+      // Update TTS voice for the new speaker
       ttsVoiceRef.current = event.voice_reference || undefined;
 
-      // Update character panel with active agent
-      pushAgentCharacterConfig(eventAgentId, agentName);
+      // Point the character panel at the persona now speaking (no-op on tool
+      // chunks, which carry no persona id)
+      pushPersonaCharacterConfig(eventPersonaId, chunkName);
 
       scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
     } else if (!state.hasStarted) {
       // First message chunk - update placeholder bubble
       state.hasStarted = true;
       state.currentRole = messageRole;
-      state.currentAgentId = eventAgentId;
-      state.currentAgentName = agentName;
+      state.currentPersonaId = eventPersonaId;
+      state.currentName = chunkName;
       state.accumulatedContent = event.content || '';
       state.accumulatedThinking = '';
 
-      // Update character panel with active agent
-      pushAgentCharacterConfig(eventAgentId, agentName);
+      // Point the character panel at the persona now speaking
+      pushPersonaCharacterConfig(eventPersonaId, chunkName);
 
       if (state.hasPlaceholder) {
-        // Update placeholder with actual role/agent info
+        // Update placeholder with the real role/speaker info
         updateStreaming(prev => {
           const updated = [...prev];
           if (updated.length > 0) {
             updated[updated.length - 1] = {
               ...updated[updated.length - 1],
               role: messageRole,
-              name: agentName,
-              agent_id: eventAgentId,
+              name: chunkName,
+              persona_id: eventPersonaId,
+              persona_name: event.persona_name || undefined,
               voice_reference: event.voice_reference || undefined,
               model_name: event.model_name || undefined,
               provider_type: event.provider_type || undefined,
               tool_args: event.tool_args || undefined,
               tool_status: event.tool_status || undefined,
+              tool_kind: event.tool_kind ?? undefined,
+              duration_ms: event.duration_ms ?? undefined,
             };
           }
           return updated;
@@ -402,21 +435,23 @@ export function useStreamingChat({
         updateStreaming(prev => [...prev, {
           role: messageRole,
           content: '',
-          name: agentName,
-          agent_id: eventAgentId,
+          name: chunkName,
+          persona_id: eventPersonaId,
           voice_reference: event.voice_reference || undefined,
           persona_name: event.persona_name || undefined,
           model_name: event.model_name || undefined,
           provider_type: event.provider_type || undefined,
           tool_args: event.tool_args || undefined,
           tool_status: event.tool_status || undefined,
+          tool_kind: event.tool_kind ?? undefined,
+          duration_ms: event.duration_ms ?? undefined,
           _clientKey: crypto.randomUUID(),
         }]);
       }
 
       scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
     } else {
-      // Same role and agent, accumulate content
+      // Same role and same speaker — accumulate content
       if (event.content) {
         state.accumulatedContent += event.content;
         scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
@@ -471,7 +506,7 @@ export function useStreamingChat({
         // If < 10 words, keep accumulating — don't update buffer
       }
     }
-  }, [setCurrentConversationId, scheduleStreamUpdate, queueText, pushAgentCharacterConfig]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [setCurrentConversationId, scheduleStreamUpdate, queueText, pushPersonaCharacterConfig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDone = useCallback((event: DoneEvent) => {
     cancelledRef.current = false;
@@ -491,8 +526,8 @@ export function useStreamingChat({
       if (cleaned) queueText(cleaned, ttsVoiceRef.current);
     }
     ttsBufferRef.current = '';
-    ttsVoiceRef.current = undefined;    // Do not clear activeAgentId here; TTS may still be playing after streaming ends.
-    // activeAgentId is cleared when isQueueActive becomes false (see effect below).
+    ttsVoiceRef.current = undefined;    // Do not clear activePersonaId here; TTS may still be playing after streaming ends.
+    // activePersonaId is cleared when isQueueActive becomes false (see effect below).
 
     // Build the finalized array directly from the ref + accumulator instead of
     // routing it through setStreamingMessages → flushSync → ref. The previous
@@ -532,12 +567,12 @@ export function useStreamingChat({
     // Drop any queued messages — backend will stream them next.
     setQueuedMessages([]);
 
-    // Refresh agent previews (last-message snippet on the sidebar). No
+    // Refresh persona previews (last-message snippet on the sidebar). No
     // conversation reload: streaming chunks already deliver every field the
     // bubble needs, and resend/delete/raw-data have been removed, so the
     // missing DB ids are no longer load-bearing on the client.
     if (event.conversation_id) {
-      useAgentStore.getState().loadAgentPreviews();
+      usePersonaStore.getState().loadPersonaPreviews();
     }
   }, [queueText]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -553,7 +588,7 @@ export function useStreamingChat({
 
   const handleConnected = useCallback((event: ConnectedEvent) => {
     if (event.chat_active && event.conversation_id) {      // Server still has an active streaming task; enter streaming mode and load
-      // already-persisted messages (user msg + any completed agent messages)
+      // already-persisted messages (user msg + any completed assistant messages)
       if (!isStreamingRef.current) {
         setIsStreaming(true);
         isStreamingRef.current = true;
@@ -616,11 +651,12 @@ export function useStreamingChat({
       }
     };
     const onConversationSwitched = (e: ConversationSwitchedEvent) => {
-      // Compaction (manual or auto) created a new conversation seeded with
-      // the rolling summary. Update the agent → conversation mapping and
-      // load the new one. The summary will be visible at the top.
-      if (e.agent_id) {
-        storage.setAgentConversationId(e.agent_id, e.new_conversation_id);
+      // Compaction (manual or auto) created a new conversation seeded with the
+      // rolling summary. Update the persona → conversation mapping and load the
+      // new one. The summary will be visible at the top. This handler is the only
+      // thing keeping the mapping correct after a compaction.
+      if (e.persona_id) {
+        storage.setPersonaConversationId(e.persona_id, e.new_conversation_id);
       }
       void useConversationStore.getState().loadConversation(e.new_conversation_id);
       setInfoToast('Compacted — opened a new conversation with the summary on top.');
@@ -750,8 +786,8 @@ export function useStreamingChat({
       // Reset streaming state
       streamingStateRef.current = {
         currentRole: null,
-        currentAgentId: undefined,
-        currentAgentName: undefined,
+        currentPersonaId: undefined,
+        currentName: undefined,
         accumulatedContent: '',
         accumulatedThinking: '',
         hasPlaceholder: true,
@@ -763,13 +799,18 @@ export function useStreamingChat({
       setStreamingThinking('');
       setJustFinishedStreaming(false);
 
-      // Send via WebSocket
+      // Send via WebSocket. The persona override is sent only when starting a
+      // new conversation: it tells the backend to bind the conversation it is
+      // about to create to the persona the user has selected instead of the
+      // assistant's default. An existing conversation already carries its
+      // binding server-side, so nothing is overridden per turn.
       await wsManager.sendChatRequest(
         text,
         '', // Model determined by backend
         activeConversationId,
         imageBase64,
         contextFiles,
+        activeConversationId === null ? personaId : null,
       );
     } catch (err: any) {
       console.error('Chat error:', err);
@@ -787,7 +828,7 @@ export function useStreamingChat({
       setStreamingThinking('');
       setIsStreaming(false);
     }
-  }, [activeConversationId, agentId, clearQueue, setCurrentConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeConversationId, personaId, clearQueue, setCurrentConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = useCallback(async (text: string, imageFiles: File[]) => {
     if (!text.trim()) return;
@@ -795,7 +836,7 @@ export function useStreamingChat({
 
     // Slash commands are always client-side — never send to backend
     if (trimmed.startsWith('/')) {
-      const feedback = await handleCommand(trimmed, { activeConversationId, agentId });
+      const feedback = await handleCommand(trimmed, { activeConversationId, personaId });
       if (feedback) setInfoToast(feedback);
       return;
     }
@@ -820,7 +861,7 @@ export function useStreamingChat({
     }
 
     await _doSend(trimmed, imageFiles);
-  }, [_doSend, activeConversationId, agentId]);
+  }, [_doSend, activeConversationId, personaId]);
 
   const handleCancel = () => {
     cancelledRef.current = true;
