@@ -23,7 +23,7 @@ import uuid
 import pytest
 import sqlalchemy as sa
 
-pytestmark = pytest.mark.integration
+pytestmark = pytest.mark.db
 
 SPLIT_REVISION = "0dacee9f63b8"
 PRE_SPLIT_REVISION = "d7b3e1c05a92"

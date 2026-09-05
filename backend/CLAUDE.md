@@ -62,6 +62,12 @@ docker compose logs -f api # View logs
 
 # Migrations (Alembic, auto-run on container startup via docker-entrypoint.sh)
 cd kurisuassistant/db && alembic revision --autogenerate -m "description"
+
+# Tests: `pytest -m "not integration"` is what CI runs. Anything that talks to a
+# model talks to tests/mock_ollama (in-process; script with Reply(...)); the
+# db-marked migration + system tests need Postgres (POSTGRES_HOST/PORT, else
+# skipped; CI provides one). `integration` = a live model — by hand only, it
+# costs money. See docs/development.md "Tests".
 ```
 
 ## Alembic Migrations

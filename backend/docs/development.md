@@ -49,9 +49,29 @@ It publishes no port and is not part of any reverse-proxy setup; reach it on the
 ## Tests
 
 ```bash
-pytest                       # unit tests
-pytest -m integration        # tests that need Postgres / Ollama
+pytest -m "not integration"                          # what CI runs: unit + mock-Ollama + (with Postgres) db tests
+POSTGRES_HOST=localhost POSTGRES_PORT=55432 pytest -m db   # migrations + system tests against a throwaway Postgres
+pytest -m integration                                # a live Ollama / paid provider — by hand only, it costs money
 ```
+
+Three markers, registered in `pytest.ini`:
+
+- **unmarked** — pure unit tests, no services.
+- **`db`** — needs Postgres: the migration tests and the *system tests* (`tests/test_system_chat.py`), which run the real app on a fresh database created for the session, log in as the seeded `admin`, open `/ws/chat` and drive whole turns — streaming, thinking, the tool loop with its approval gate, compaction — with the model played by the mock Ollama. CI provides Postgres (`backend-test.yml`); locally they skip unless `POSTGRES_HOST`/`POSTGRES_PORT` point at one. A throwaway is `docker run --rm -d -p 127.0.0.1:55432:5432 -e POSTGRES_USER=kurisu -e POSTGRES_PASSWORD=kurisu -e POSTGRES_DB=kurisu pgvector/pgvector:pg16`.
+- **`integration`** — needs a real external service. Never runs in CI: a live model call costs money on a paid provider and needs a GPU otherwise.
+
+### Mock Ollama
+
+`tests/mock_ollama/` is an Ollama that answers deterministically: `GET /api/tags`, `POST /api/show|pull|chat|generate`, `DELETE /api/delete`, served to the real `ollama` client so its pydantic parsing is exercised. With nothing scripted, `/api/chat` echoes `You said: <message>` a word per chunk, adds a `thinking` chunk when `think` is set, turns `call <tool> {json}` into a tool call when that tool was offered, and acknowledges a `tool` message with `The tool returned: …`. Tests script exact replies — content, thinking, tool calls, chunking, delay, or an HTTP error — with `mock_ollama.state.script(Reply(...))` and assert on `mock_ollama.state.requests_to("/api/chat")`; the `mock_ollama` fixture (`conftest.py`) resets it between tests.
+
+It is also a plain process, for driving a client against a real backend that needs no GPU or paid model — two terminals, no containers:
+
+```bash
+python -m tests.mock_ollama --port 11435                                        # the model
+LLM_API_URL=http://127.0.0.1:11435 uvicorn kurisuassistant.main:app --port 15597 # the backend, pointed at it
+```
+
+Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `GET /_mock/requests`, `DELETE /_mock/requests`, `POST /_mock/reset`, `GET /_mock/state`. (For a backend running in Docker, `LLM_API_URL=http://host.docker.internal:11435` reaches a mock on the host.)
 
 ## Environment Variables
 

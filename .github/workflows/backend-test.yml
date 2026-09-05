@@ -9,9 +9,12 @@
 # nvidia-* wheels onto the runner for tests that never touch them. See the header
 # of that file for what is included and why.
 #
-# Integration-marked tests are deselected: every one of them calls pytest.skip()
-# when Ollama or Postgres is unreachable, so running them here would be green and
-# meaningless.
+# Integration-marked tests are deselected: they need a live Ollama or a paid
+# provider, which would cost money on every run — they are for a developer's
+# machine, by hand. Everything that talks to a model here talks to the mock
+# Ollama in backend/tests/mock_ollama, which runs in-process. The db-marked
+# tests (migrations, the system tests over the WebSocket) get the Postgres
+# service below; CI=true makes them fail rather than skip if it is missing.
 
 name: Backend – Tests
 
@@ -44,6 +47,26 @@ jobs:
     env:
       # core/security.py generates and writes a key at import when this is unset.
       JWT_SECRET_KEY: ci-not-a-real-secret
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: kurisu
+      POSTGRES_PASSWORD: kurisu
+
+    services:
+      postgres:
+        # The same image the stack runs; the migration chain needs pgvector.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: kurisu
+          POSTGRES_PASSWORD: kurisu
+          POSTGRES_DB: kurisu
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kurisu"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout
