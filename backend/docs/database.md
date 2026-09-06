@@ -135,15 +135,27 @@ its result when history is replayed. Ollama tolerates the pairing being absent;
 OpenAI-compatible endpoints, which the NVIDIA provider speaks, reject it.
 
 **Cascades are uneven.** `messages → conversations`,
-`face_photos → face_identities`, and the three user-owned tables from the split
-(`assistants`, `personas`, `sub_agents`) cascade in the database. The remaining
-user-owned foreign keys — `conversations`, `skills`, `mcp_servers`,
-`face_identities` — declare their cascade only on the ORM relationship, so a delete
-that does not go through a loaded SQLAlchemy relationship leaves orphans.
+`face_photos → face_identities`, and every user-owned table cascades in the
+database as well as in the ORM. It was ORM-only for `conversations`, `skills`,
+`mcp_servers` and `face_identities` until `4022208dbec1`, so any delete that did
+not go through a loaded SQLAlchemy relationship left orphans (#95).
 
-**Indexing is thin.** `messages.conversation_id` is the only indexed foreign key,
-and it is indexed alone rather than covering the sort. `face_photos.embedding`
-has no vector index, so face matching is a sequential scan.
+**Every foreign key a hot read filters on is indexed**, and `messages` is indexed
+on `(conversation_id, id DESC)` — composite, because both hot reads sort as well
+as filter: the paged history the UI loads, and the context rebuild on every turn,
+which also compares `id` against the compaction watermark. A lone index on
+`conversation_id` did not cover the sort, so the database walked and re-sorted
+every conversation read.
+
+**Face embeddings have an hnsw index** over cosine distance
+(`ix_face_photos_embedding_hnsw`), created by `20486507cf9d`. This document used
+to say there was none, which was true only of one deployment that had somehow
+lost it: the index was never declared on the model, so every
+`alembic revision --autogenerate` proposed dropping it and nothing tied the model
+to the migration. `FacePhoto` declares it now, `4022208dbec1` recreates it if
+missing, and `tests/test_schema_matches_models.py` fails when the models and the
+migration chain disagree at all — which is the check that would have caught this
+at the source rather than by diffing a live database by hand (#162).
 
 ## Access
 
@@ -171,7 +183,7 @@ session; they never open one.
 
 ## Migrations
 
-Alembic, 54 revisions with a single head (`c2d999801f26`, add_consolidation_state_to_conversations), replayable onto an empty
+Alembic, 55 revisions with a single head (`4022208dbec1`, add_missing_indexes_and_cascades), replayable onto an empty
 database. Run automatically by `docker-entrypoint.sh` before the app starts.
 
 ```bash

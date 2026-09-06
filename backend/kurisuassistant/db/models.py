@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, ForeignKey, JSON, UniqueConstraint, false
+from sqlalchemy import Boolean, Column, Index, Integer, String, Text, DateTime, ForeignKey, JSON, UniqueConstraint, false, text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from pgvector.sqlalchemy import Vector
@@ -40,7 +40,7 @@ class Conversation(Base):
     __tablename__ = 'conversations'
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     title = Column(Text, default='New conversation')
     # Persona bound to this conversation — who answers. Null = not yet bound; the next
     # incoming message binds it to the user's default persona (or an explicit override)
@@ -87,9 +87,20 @@ class Message(Base):
     tool_call_id = Column(String, nullable=True)
     context_files = Column(JSON, nullable=True)
     images = Column(JSON, nullable=True)
-    conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), nullable=False, index=True)
+    conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), nullable=False)
     persona_id = Column(Integer, ForeignKey('personas.id', ondelete='SET NULL'), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        # Both hot reads filter on the conversation and order by id: the paged
+        # history the UI loads, and the context rebuild on every turn, which
+        # also compares id against the compaction watermark. A lone index on
+        # conversation_id does not cover the sort, so the database still walked
+        # and re-sorted every conversation read (#95). Keyed on id rather than
+        # created_at because id is monotonic and unique, and created_at ties
+        # within a fast turn.
+        Index('ix_messages_conversation_id_id', 'conversation_id', text('id DESC')),
+    )
 
     conversation = relationship("Conversation", back_populates="messages")
     persona = relationship("Persona")
@@ -107,7 +118,7 @@ class Persona(Base):
     __tablename__ = 'personas'
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     name = Column(String, nullable=False)
     description = Column(String, default='', nullable=False)
     system_prompt = Column(Text, default='')
@@ -178,7 +189,7 @@ class SubAgent(Base):
     __tablename__ = 'sub_agents'
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     name = Column(String, nullable=False)
     description = Column(String, default='', nullable=False)
     system_prompt = Column(Text, default='')
@@ -202,7 +213,7 @@ class Skill(Base):
     __tablename__ = 'skills'
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     name = Column(String, nullable=False)
     instructions = Column(Text, default='')
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -217,7 +228,7 @@ class MCPServer(Base):
     __tablename__ = 'mcp_servers'
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     name = Column(String, nullable=False)
     transport_type = Column(String, nullable=False)
     url = Column(String, nullable=True)
@@ -237,7 +248,7 @@ class FaceIdentity(Base):
     __tablename__ = 'face_identities'
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     name = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -251,9 +262,22 @@ class FacePhoto(Base):
     __tablename__ = 'face_photos'
 
     id = Column(Integer, primary_key=True)
-    identity_id = Column(Integer, ForeignKey('face_identities.id', ondelete='CASCADE'), nullable=False)
+    identity_id = Column(Integer, ForeignKey('face_identities.id', ondelete='CASCADE'), nullable=False, index=True)
     embedding = Column(Vector(512), nullable=False)
     photo_uuid = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        # Created by migration 20486507cf9d, but never declared here — so every
+        # `alembic revision --autogenerate` proposed dropping it, and one
+        # long-running deployment ended up without it while its migration
+        # history said otherwise (#162). Declared now, which is also what makes
+        # the models-versus-migrations check meaningful.
+        Index(
+            'ix_face_photos_embedding_hnsw', 'embedding',
+            postgresql_using='hnsw',
+            postgresql_ops={'embedding': 'vector_cosine_ops'},
+        ),
+    )
 
     identity = relationship("FaceIdentity", back_populates="photos")
