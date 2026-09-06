@@ -7,9 +7,11 @@ and at least one persona for a conversation to bind to. A new conversation reads
 so an account missing either row can log in, see an empty chat, and get nothing
 back when it sends a message.
 
-Every path that mints an account calls :func:`provision_user`: registration, and
-the seeded ``admin`` at startup. It is idempotent, so calling it on an account that
-is already whole costs one query and changes nothing.
+There is exactly one path that mints an account — registration — and it calls
+:func:`provision_user` in the same transaction. (There used to be a second: a
+seeded ``admin`` account at startup, removed in #148.) It is idempotent, so
+calling it on an account that is already whole costs one query and changes
+nothing.
 """
 
 import logging
@@ -77,3 +79,10 @@ def provision_user(session, user) -> None:
         logger.info("assistant for user %s now defaults to persona %s",
                     user.username, personas[0].id)
 
+
+# The one sentence a user sees while their account is waiting. It is a user's
+# whole explanation of why a correct password does not let them in, so it says
+# who can fix it rather than only that something is wrong.
+ACCOUNT_INACTIVE_DETAIL = (
+    "This account is not activated yet. Ask the server operator to activate it."
+)

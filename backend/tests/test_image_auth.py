@@ -20,13 +20,19 @@ from kurisuassistant.routers import images
 
 
 class FakeUser:
-    def __init__(self, username):
+    def __init__(self, username, is_active=True):
         self.id = hash(username) % 1000
         self.username = username
+        # This router resolves the caller itself, so it carries its own copy of
+        # the activation gate (#148) and the stub has to model it.
+        self.is_active = is_active
 
 
 class FakeUserRepository:
     """Records the username the router looked up."""
+
+    # Usernames this fake should report as not yet activated.
+    inactive_usernames: set = set()
 
     looked_up = []
 
@@ -35,7 +41,9 @@ class FakeUserRepository:
 
     def get_by_username(self, username):
         FakeUserRepository.looked_up.append(username)
-        return FakeUser(username) if username != "ghost" else None
+        if username == "ghost":
+            return None
+        return FakeUser(username, is_active=username not in self.inactive_usernames)
 
 
 @pytest.fixture
@@ -73,6 +81,23 @@ class TestRejectsBadTokens:
         with pytest.raises(HTTPException) as exc:
             await images._get_user_from_token(create_refresh_token({"sub": "alice"}))
         assert exc.value.status_code == 401
+
+
+class TestActivationGate:
+    """This router resolves its own caller, so `get_authenticated_user`'s
+    activation gate never sees these calls (#148). A hole here would be
+    trusted."""
+
+    async def test_an_inactive_account_is_refused(self, fake_db, monkeypatch):
+        monkeypatch.setattr(FakeUserRepository, "inactive_usernames", {"dormant"})
+        with pytest.raises(HTTPException) as exc:
+            await images._get_user_from_token(create_access_token({"sub": "dormant"}))
+        assert exc.value.status_code == 403
+        assert "activated" in exc.value.detail.lower()
+
+    async def test_an_activated_account_still_resolves(self, fake_db):
+        user = await images._get_user_from_token(create_access_token({"sub": "alice"}))
+        assert user.username == "alice"
 
 
 class TestResolvesTheTokenHolder:

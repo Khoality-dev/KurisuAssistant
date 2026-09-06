@@ -7,6 +7,37 @@ the whole of the user documentation and deliberately stops at a working server.
 
 Everything here runs from `backend/`.
 
+## Accounts
+
+Nothing is seeded. Anyone may register — that is open by default — and the
+account they create is **inactive**: it can hold a password and nothing else.
+Every authenticated route, the chat socket, the image routes and token refresh
+refuse it until you say otherwise, and you say so in the database.
+
+See who is waiting (the API also logs this at startup):
+
+```bash
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT username, is_active FROM users ORDER BY id;
+SQL
+```
+
+Activate one:
+
+```bash
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+UPDATE users SET is_active = true WHERE username = 'name';
+SQL
+```
+
+Revoking is the same statement with `false`, and it takes effect on that
+account's next request rather than when its token expires.
+
+This replaced a seeded `admin` / `admin` account whose password no endpoint
+could change and which came back on the next start if you deleted it (#148).
+There is still no password-change endpoint: someone who forgets theirs needs a
+new row, or a new hash written into the old one.
+
 ## Back up
 
 The database, `data/` and the environment file are **one unit**. Rows are handles
@@ -111,9 +142,9 @@ certificate work without installing it on each device. So `--profile tls` stops
 passive listening on the same network and stops nothing else. Anything reachable
 from the internet wants a real certificate and a proxy you configure yourself.
 
-**There is no admin role.** The `admin` account is an ordinary account,
-privileged in name only, and its password cannot be changed (#148). Every account
-sees only its own data.
+**There is no admin role**, and no account is special. "Operator" means whoever
+can reach the database; that is the only privilege the system recognises. Every
+account sees only its own data.
 
 **A server-wide provider key is spendable by every account**, whether or not that
 provider appears in their model picker: a user can point their assistant at the

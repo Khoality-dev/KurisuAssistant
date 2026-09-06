@@ -11,6 +11,8 @@ locally without it, fails on CI.
 
 import pytest
 
+from tests.conftest import SYSTEM_TEST_PASSWORD, SYSTEM_TEST_USER
+
 from kurisuassistant.version import WIRE_PROTOCOL
 from tests.mock_ollama import DEFAULT_MODEL, Reply, ToolCall
 
@@ -21,7 +23,10 @@ TOOL = "history_list"  # a built-in that needs only the database
 
 @pytest.fixture(scope="module")
 def token(system_client):
-    resp = system_client.post("/login", data={"username": "admin", "password": "admin"})
+    resp = system_client.post(
+        "/login",
+        data={"username": SYSTEM_TEST_USER, "password": SYSTEM_TEST_PASSWORD},
+    )
     assert resp.status_code == 200, resp.text
     return resp.json()["access_token"]
 

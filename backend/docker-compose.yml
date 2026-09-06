@@ -184,7 +184,7 @@ services:
       # the server ran on its built-in defaults whatever the operator wrote.
       # Registration and TLS verification are the two that matter most —
       # ALLOW_REGISTRATION=true was simply ignored.
-      - ALLOW_REGISTRATION=${ALLOW_REGISTRATION:-false}
+      - ALLOW_REGISTRATION=${ALLOW_REGISTRATION:-true}
       - MCP_TLS_VERIFY=${MCP_TLS_VERIFY:-true}
       - AUTH_RATE_LIMIT_MAX_ATTEMPTS=${AUTH_RATE_LIMIT_MAX_ATTEMPTS:-10}
       - AUTH_RATE_LIMIT_WINDOW_SECONDS=${AUTH_RATE_LIMIT_WINDOW_SECONDS:-300}

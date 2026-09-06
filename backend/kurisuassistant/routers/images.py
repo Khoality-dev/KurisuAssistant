@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer
 
 from kurisuassistant.core.deps import get_authenticated_user
+from kurisuassistant.core.accounts import ACCOUNT_INACTIVE_DETAIL
 from kurisuassistant.core.security import get_current_user
 from kurisuassistant.db.models import User
 from kurisuassistant.db.service import get_db_service
@@ -49,6 +50,11 @@ async def _get_user_from_token(token: Optional[str]) -> User:
         user = user_repo.get_by_username(username)
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        # This router does its own token resolution, so the activation gate in
+        # `get_authenticated_user` never sees these calls. A gate with a hole in
+        # it is worse than none, because it is trusted.
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail=ACCOUNT_INACTIVE_DETAIL)
         session.expunge(user)
         return user
 

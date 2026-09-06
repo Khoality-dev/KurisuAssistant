@@ -133,10 +133,11 @@ class UserRepository(BaseRepository[User]):
         """
         return user.agent_avatar_uuid
 
-    def admin_exists(self) -> bool:
-        """Check if admin account exists.
+    def list_inactive(self):
+        """Accounts that have registered and are waiting to be activated.
 
-        Returns:
-            True if admin exists, False otherwise
+        Replaces ``admin_exists()``, which existed to decide whether to seed the
+        default account. There is no default account now, and no username is
+        special (#148).
         """
-        return self.exists(username="admin")
+        return self.session.query(self.model).filter_by(is_active=False).all()
