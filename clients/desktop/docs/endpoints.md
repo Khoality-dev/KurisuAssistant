@@ -29,6 +29,7 @@ The REST and WebSocket surface this client calls. The contract itself lives in t
 - `GET /skills`, `POST /skills`, `PATCH /skills/{id}`, `DELETE /skills/{id}` — Skill CRUD (user-editable instruction blocks)
 - `GET /mcp-servers`, `POST /mcp-servers`, `PATCH /mcp-servers/{id}`, `DELETE /mcp-servers/{id}` — MCP server CRUD (location: server|client)
 - `POST /mcp-servers/{id}/test` — Test MCP server connectivity (server-side only)
+- **Kurisu Drive** (#17) — `GET /drive/nodes` (`?parent_id=`, omitted for the top), `GET /drive/nodes/{id}`, `GET /drive/resolve?path=`, `POST /drive/folders`, `POST /drive/files` (multipart, `?overwrite=`), `GET|PUT /drive/files/{id}/content`, `PATCH|DELETE /drive/nodes/{id}`, `GET /drive/usage`. Everything is addressed by **node id**, not path — `src/api/fileSource.ts` is what turns the explorer's `drive://…` strings into ids, and `/drive/resolve` is only for a cold start. A node belonging to another account is `404`, never `403`. Downloads come back as `attachment` with `nosniff`; `?inline=1` is honoured only for types that cannot execute. Transfers do not go through axios: `electron/driveTransfers.ts` streams them in the main process, because a drive file can be gigabytes.
 
 
 ## Vision frames are binary

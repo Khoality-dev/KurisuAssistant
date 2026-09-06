@@ -84,6 +84,28 @@ export interface ExplorerAPI {
   onSearchContentDone: (cb: (error: string | null) => void) => () => void;
 }
 
+export interface DrivePickedFile {
+  path: string;
+  name: string;
+  size: number;
+}
+
+export interface DriveTransferAPI {
+  pickFiles: () => Promise<DrivePickedFile[]>;
+  upload: (
+    id: string,
+    req: { baseUrl: string; token: string; localPath: string; parentId: number | null; name: string; overwrite?: boolean },
+  ) => Promise<{ node?: unknown; error?: string; cancelled?: boolean }>;
+  download: (
+    id: string,
+    req: { baseUrl: string; token: string; nodeId: number; fileName: string },
+  ) => Promise<{ path?: string; error?: string; cancelled?: boolean }>;
+  cancel: (id: string) => Promise<{ cancelled: boolean }>;
+  onTransferProgress: (
+    cb: (progress: { id: string; loaded: number; total: number | null }) => void,
+  ) => () => void;
+}
+
 export interface MCPAPI {
   startServers: (configs: MCPServerConfig[]) => Promise<Array<{ name: string; ok: boolean; error?: string }>>;
   startServer: (config: MCPServerConfig) => Promise<{ name: string; ok: boolean; error?: string }>;
@@ -140,6 +162,7 @@ export interface ElectronAPI {
   appTools: AppToolsAPI;
   hostTools: HostToolsAPI;
   explorer: ExplorerAPI;
+  drive: DriveTransferAPI;
   mcp: MCPAPI;
   mcpServer: McpServerAPI;
   credentials: CredentialsAPI;

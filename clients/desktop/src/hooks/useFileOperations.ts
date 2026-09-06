@@ -6,20 +6,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useExplorerStore, type FileEntry } from '../store/explorerStore';
-
-const OPERATING_SYSTEM = window.electron?.platform ?? 'win32';
-const SEP = OPERATING_SYSTEM === 'win32' ? '\\' : '/';
-
-/** Join path segments, handling trailing separators and normalizing slashes. */
-function joinPath(base: string, ...parts: string[]): string {
-  let result = base;
-  for (const part of parts) {
-    if (!result.endsWith(SEP) && !result.endsWith('/')) result += SEP;
-    result += part;
-  }
-  // Normalize doubled separators (but preserve leading \\ for UNC paths)
-  return result.replace(/(?<!^)[\\/]{2,}/g, SEP);
-}
+import { dirnameOf, fileSource, joinPath } from '../api/fileSource';
 
 interface UseFileOperationsParams {
   currentPath: string;
@@ -28,6 +15,15 @@ interface UseFileOperationsParams {
   setSelectedEntries: React.Dispatch<React.SetStateAction<Set<string>>>;
   loadEntries: (path: string) => void;
   searchInputRef: React.RefObject<HTMLInputElement>;
+  /**
+   * Where a refusal goes.
+   *
+   * Local operations mostly fail for reasons a user can see coming; drive ones
+   * fail with a sentence the server wrote — the name is taken, the drive is
+   * full — and swallowing those into `console.error` leaves the explorer
+   * looking as though nothing happened.
+   */
+  onError?: (message: string) => void;
 }
 
 export function useFileOperations({
@@ -37,6 +33,7 @@ export function useFileOperations({
   setSelectedEntries,
   loadEntries,
   searchInputRef,
+  onError,
 }: UseFileOperationsParams) {
   const { addSelection } = useExplorerStore();
 
@@ -51,23 +48,23 @@ export function useFileOperations({
       setRenaming(null);
       return;
     }
-    const dir = renaming.path.replace(/[\\/][^\\/]+$/, '');
-    const newPath = joinPath(dir, renameValue.trim());
-    const result = await window.electron?.explorer?.rename(renaming.path, newPath);
-    if (result?.error) console.error('Rename failed:', result.error);
+    const newPath = joinPath(dirnameOf(renaming.path), renameValue.trim());
+    const result = await fileSource.rename(renaming.path, newPath);
+    if (result?.error) onError?.(result.error);
     setRenaming(null);
     loadEntries(currentPath);
-  }, [renaming, renameValue, currentPath, loadEntries]);
+  }, [renaming, renameValue, currentPath, loadEntries, onError]);
 
   const handleDelete = useCallback(async (targetPath?: string) => {
     const paths = targetPath ? [targetPath] : entries.filter(e => selectedEntries.has(e.fullPath)).map(e => e.fullPath);
     if (paths.length === 0) return;
     for (const p of paths) {
-      await window.electron?.explorer?.delete(p);
+      const result = await fileSource.delete(p);
+      if (result?.error) onError?.(result.error);
     }
     setSelectedEntries(new Set());
     loadEntries(currentPath);
-  }, [entries, selectedEntries, setSelectedEntries, currentPath, loadEntries]);
+  }, [entries, selectedEntries, setSelectedEntries, currentPath, loadEntries, onError]);
 
   const handleCopy = useCallback((path: string, name: string) => {
     setClipboard({ path, name, cut: false });
@@ -80,32 +77,33 @@ export function useFileOperations({
   const handlePaste = useCallback(async () => {
     if (!clipboard || !currentPath) return;
     const dest = joinPath(currentPath, clipboard.name);
-    if (clipboard.cut) {
-      await window.electron?.explorer?.rename(clipboard.path, dest);
-      setClipboard(null);
-    } else {
-      await window.electron?.explorer?.copy(clipboard.path, dest);
-    }
+    const result = clipboard.cut
+      ? await fileSource.rename(clipboard.path, dest)
+      : await fileSource.copy(clipboard.path, dest);
+    if (result?.error) onError?.(result.error);
+    else if (clipboard.cut) setClipboard(null);
     loadEntries(currentPath);
-  }, [clipboard, currentPath, loadEntries]);
+  }, [clipboard, currentPath, loadEntries, onError]);
 
   const handleCreateFile = useCallback(async () => {
     if (!newItemName.trim() || !currentPath) return;
     const filePath = joinPath(currentPath, newItemName.trim());
-    await window.electron?.explorer?.createFile(filePath);
+    const result = await fileSource.createFile(filePath);
+    if (result?.error) onError?.(result.error);
     setNewItemType(null);
     setNewItemName('');
     loadEntries(currentPath);
-  }, [newItemName, currentPath, loadEntries]);
+  }, [newItemName, currentPath, loadEntries, onError]);
 
   const handleCreateFolder = useCallback(async () => {
     if (!newItemName.trim() || !currentPath) return;
     const dirPath = joinPath(currentPath, newItemName.trim());
-    await window.electron?.explorer?.createFolder(dirPath);
+    const result = await fileSource.createFolder(dirPath);
+    if (result?.error) onError?.(result.error);
     setNewItemType(null);
     setNewItemName('');
     loadEntries(currentPath);
-  }, [newItemName, currentPath, loadEntries]);
+  }, [newItemName, currentPath, loadEntries, onError]);
 
   // Keyboard shortcuts
   useEffect(() => {

@@ -40,7 +40,7 @@ test.describe('settings', () => {
     for (const label of [
       'Account', 'Voice', 'TTS & ASR', 'Appearance',
       'Assistant', 'Personas', 'Sub-Agents',
-      'Tools & MCP', 'Skills', 'Host Access', 'Face Identities', 'Extensions',
+      'Tools & MCP', 'Skills', 'Kurisu Drive', 'Host Access', 'Face Identities', 'Extensions',
     ]) {
       await expect(page.getByText(label, { exact: true }).first()).toBeVisible();
     }

@@ -119,6 +119,24 @@ contextBridge.exposeInMainWorld('electron', {
     },
   },
 
+  // Kurisu Drive transfers. Streamed in the main process, because a drive file
+  // can be gigabytes and the renderer would have to hold the whole thing.
+  drive: {
+    pickFiles: () =>
+      ipcRenderer.invoke('drive:pick-files'),
+    upload: (id: string, req: { baseUrl: string; token: string; localPath: string; parentId: number | null; name: string; overwrite?: boolean }) =>
+      ipcRenderer.invoke('drive:upload', id, req),
+    download: (id: string, req: { baseUrl: string; token: string; nodeId: number; fileName: string }) =>
+      ipcRenderer.invoke('drive:download', id, req),
+    cancel: (id: string) =>
+      ipcRenderer.invoke('drive:cancel', id),
+    onTransferProgress: (cb: (progress: { id: string; loaded: number; total: number | null }) => void) => {
+      const handler = (_event: any, progress: any) => cb(progress);
+      ipcRenderer.on('drive:transfer-progress', handler);
+      return () => ipcRenderer.removeListener('drive:transfer-progress', handler);
+    },
+  },
+
   onMCPToolsChanged: (cb: () => void) => {
     const handler = () => cb();
     ipcRenderer.on('mcp:tools-changed', handler);

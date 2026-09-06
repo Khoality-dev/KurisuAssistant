@@ -9,6 +9,7 @@ import { registerMCPHandlers, cleanupMCP } from './mcp';
 import { registerHostToolIPC } from './hostTools';
 import { registerAppToolIPC } from './appTools';
 import { registerExplorerIPC } from './explorerIPC';
+import { registerDriveTransferIPC } from './driveTransfers';
 import { startMcpServer, stopMcpServer, registerMcpServerIPC } from './mcpServer';
 import { loadSettings, saveSettings } from './settings';
 import { registerCredentialsIPC } from './credentials';
@@ -497,6 +498,7 @@ app.whenReady().then(() => {
   registerHostToolIPC();
   registerAppToolIPC();
   registerExplorerIPC();
+  registerDriveTransferIPC();
   registerCredentialsIPC();
   registerMcpServerIPC();
   // The port is fixed in normal use; the E2E run overrides it so the suite

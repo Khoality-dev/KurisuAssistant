@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { dirnameOf, fileSource } from '../api/fileSource';
 
 export interface FileEntry {
   name: string;
@@ -23,10 +24,8 @@ export interface OpenFile {
 export type ExplorerViewMode = 'list' | 'grid';
 
 interface ExplorerState {
-  currentPath: string;
-  entries: FileEntry[];
-  isLoading: boolean;
-  isRoot: boolean;
+  // Browsing state lives in `FullExplorer`, which is the only thing that
+  // renders it. This store owns the editor: open files, tabs, selections.
   openFiles: OpenFile[];
   activeFileIndex: number;
   viewMode: ExplorerViewMode;
@@ -52,7 +51,6 @@ interface ExplorerState {
     endColumn: number;
     isWholeFile: boolean;
   }>;
-  navigate: (path: string) => Promise<void>;
   openFile: (entry: FileEntry) => Promise<void>;
   forceOpenBinary: (index: number) => Promise<void>;
   closeFile: (index: number) => void;
@@ -136,10 +134,6 @@ export function isImageFile(filename: string): boolean {
 
 
 export const useExplorerStore = create<ExplorerState>((set, get) => ({
-  currentPath: '',
-  entries: [],
-  isLoading: false,
-  isRoot: true,
   openFiles: [],
   activeFileIndex: -1,
   viewMode: (localStorage.getItem('kurisu_explorer_view') as ExplorerViewMode) || 'list',
@@ -148,22 +142,6 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   liveSelections: [],
   revealSelection: null,
   diffReview: null,
-
-  navigate: async (navPath: string) => {
-    set({ isLoading: true });
-    try {
-      const result = await window.electron.explorer.listDirectory(navPath);
-      set({
-        currentPath: result.path,
-        entries: result.entries,
-        isRoot: result.isRoot,
-        isLoading: false,
-      });
-    } catch (err) {
-      console.error('Failed to navigate:', err);
-      set({ isLoading: false });
-    }
-  },
 
   openFile: async (entry: FileEntry) => {
     const { openFiles } = get();
@@ -177,14 +155,12 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 
     try {
       // Check binary via raw buffer in main process (not utf-8 which corrupts binary)
-      const binary = window.electron.explorer.isBinary
-        ? await window.electron.explorer.isBinary(entry.fullPath)
-        : false;
+      const binary = await fileSource.isBinary(entry.fullPath);
 
       let content = '';
       let error: string | undefined;
       if (!binary) {
-        const result = await window.electron.explorer.readFile(entry.fullPath);
+        const result = await fileSource.readFile(entry.fullPath);
         if (result.error) {
           error = result.error;
         } else {
@@ -203,10 +179,11 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         error,
       };
 
-      // Set workspace root to file's parent dir (or current browsed path)
-      const parentDir = entry.fullPath.replace(/[\\/][^\\/]+$/, '');
-      const { currentPath, workspaceRoot } = get();
-      const newRoot = workspaceRoot || currentPath || parentDir;
+      // Set workspace root to the file's parent folder. `dirnameOf` picks the
+      // separator from the path, so a drive path keeps its POSIX shape on
+      // Windows.
+      const { workspaceRoot } = get();
+      const newRoot = workspaceRoot || dirnameOf(entry.fullPath);
 
       set({
         openFiles: [...openFiles, newFile],
@@ -224,7 +201,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     if (!file) return;
 
     try {
-      const result = await window.electron.explorer.readFile(file.path);
+      const result = await fileSource.readFile(file.path);
       if (result.error) return;
 
       const content = result.content ?? '';
@@ -243,13 +220,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 
     if (newFiles.length === 0) {
       newActive = -1;
-      // Restore explorer to the workspace folder the user was in
-      const { workspaceRoot } = get();
       set({ openFiles: newFiles, activeFileIndex: newActive, workspaceRoot: '' });
-      // Re-navigate to the folder so FullExplorer shows it
-      if (workspaceRoot) {
-        get().navigate(workspaceRoot);
-      }
       return;
     } else if (index === activeFileIndex) {
       newActive = Math.min(index, newFiles.length - 1);
@@ -290,7 +261,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     if (!file) return;
 
     try {
-      const result = await window.electron.explorer.writeFile(file.path, file.content);
+      const result = await fileSource.writeFile(file.path, file.content);
       if (result.error) {
         console.error('Failed to save file:', result.error);
         return;

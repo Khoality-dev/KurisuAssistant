@@ -11,6 +11,7 @@ import {
   Extension as ToolsIcon,
   AutoFixHigh as SkillsIcon,
   FolderOpen as HostAccessIcon,
+  Cloud as DriveIcon,
   Face as FacesIcon,
   GetApp as ExtensionsIcon,
 } from '@mui/icons-material';
@@ -27,6 +28,7 @@ const SubAgentsSection = React.lazy(() => import('./SubAgentsSection').then(m =>
 const ToolsSection = React.lazy(() => import('./ToolsSection').then(m => ({ default: m.ToolsSection })));
 const SkillsSection = React.lazy(() => import('./SkillsSection').then(m => ({ default: m.SkillsSection })));
 const HostAccessSection = React.lazy(() => import('./HostAccessSection').then(m => ({ default: m.HostAccessSection })));
+const DriveSection = React.lazy(() => import('./DriveSection').then(m => ({ default: m.DriveSection })));
 const FacesSection = React.lazy(() => import('./FacesSection').then(m => ({ default: m.FacesSection })));
 const ExtensionsSection = React.lazy(() => import('./ExtensionsSection').then(m => ({ default: m.ExtensionsSection })));
 
@@ -46,6 +48,7 @@ const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'sub-agents', label: 'Sub-Agents', icon: <SubAgentsIcon /> },
   { id: 'tools', label: 'Tools & MCP', icon: <ToolsIcon /> },
   { id: 'skills', label: 'Skills', icon: <SkillsIcon /> },
+  { id: 'drive', label: 'Kurisu Drive', icon: <DriveIcon /> },
   { id: 'host-access', label: 'Host Access', icon: <HostAccessIcon /> },
   { id: 'faces', label: 'Face Identities', icon: <FacesIcon /> },
   { id: 'extensions', label: 'Extensions', icon: <ExtensionsIcon /> },
@@ -66,6 +69,7 @@ function renderSection(sectionId: string) {
     case 'mcp-servers': return <ToolsSection />; // Legacy route — redirect to merged page
     case 'tools': return <ToolsSection />;
     case 'skills': return <SkillsSection />;
+    case 'drive': return <DriveSection />;
     case 'host-access': return <HostAccessSection />;
     case 'faces': return <FacesSection />;
     case 'extensions': return <ExtensionsSection />;

@@ -11,6 +11,8 @@ import { useLayoutStore } from '../../store/layoutStore';
 import { getFileIcon } from './FileIcon';
 import { SearchBar, Highlight } from './SearchPanel';
 import { useExplorerStore, type FileEntry } from '../../store/explorerStore';
+import { DRIVE_ROOT_LABEL, dirnameOf, fileSource, isDrivePath } from '../../api/fileSource';
+import { DriveQuotaBar } from './DriveQuotaBar';
 
 interface TreeNode {
   entry: FileEntry;
@@ -29,12 +31,30 @@ interface SearchResults {
   matches: Array<{ path: string; line: number; snippet: string }>;
 }
 
-export const FileTreeSidebar: React.FC = () => {
+interface FileTreeSidebarProps {
+  /**
+   * What the tree is rooted at. Omitted, it follows the editor's workspace
+   * folder, which is what editor mode wants.
+   *
+   * Passing `''` gives the **sources** tree: this computer's roots and Kurisu
+   * Drive side by side, which is what the browse page shows. That listing is
+   * composed in `fileSource`, not in the main process — `explorerIPC` enumerates
+   * this machine's own drives and cannot know a server exists.
+   */
+  rootPath?: string;
+  /** Show how full the drive is at the foot of the tree. */
+  showQuota?: boolean;
+}
+
+export const FileTreeSidebar: React.FC<FileTreeSidebarProps> = ({ rootPath, showQuota }) => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
   const { workspaceTreeWidth } = useLayoutStore();
   const { openFile, workspaceRoot } = useExplorerStore();
   const sidebarRef = useRef<HTMLDivElement>(null);
+
+  const treeRoot = rootPath ?? workspaceRoot;
+  const isSourcesTree = rootPath === '';
 
   const [rootNodes, setRootNodes] = useState<TreeNode[]>([]);
   const [isLoadingRoots, setIsLoadingRoots] = useState(true);
@@ -90,7 +110,10 @@ export const FileTreeSidebar: React.FC = () => {
     setSearchQuery(query);
     setSearchCaseSensitive(opts.caseSensitive);
 
-    if (!query.trim() || !workspaceRoot || !window.electron?.explorer) {
+    // ripgrep runs on this machine. There is no drive-side search yet (#6), so
+    // rather than searching the wrong tree, the sources view and any drive
+    // folder simply do not offer it.
+    if (!query.trim() || !workspaceRoot || !fileSource.supportsSearch(workspaceRoot) || !window.electron?.explorer) {
       setSearchResults(null);
       setIsSearching(false);
       return;
@@ -129,16 +152,18 @@ export const FileTreeSidebar: React.FC = () => {
     setShowTreeFilter(false);
   }, [cancelSearch]);
 
-  // Load workspace root folder contents
+  // Load the tree's root contents
   useEffect(() => {
-    if (!window.electron?.explorer || !workspaceRoot) {
+    // `''` is a real root here — the sources listing — so an empty string only
+    // means "nothing yet" when no rootPath was given at all.
+    if (!window.electron?.explorer || (!treeRoot && !isSourcesTree)) {
       setRootNodes([]);
       setIsLoadingRoots(false);
       return;
     }
 
     setIsLoadingRoots(true);
-    window.electron.explorer.listDirectory(workspaceRoot).then((result) => {
+    fileSource.listDirectory(treeRoot).then((result) => {
       const nodes: TreeNode[] = result.entries.map((e) => ({
         entry: e,
         children: [],
@@ -151,7 +176,7 @@ export const FileTreeSidebar: React.FC = () => {
     }).catch(() => {
       setIsLoadingRoots(false);
     });
-  }, [workspaceRoot]);
+  }, [treeRoot, isSourcesTree]);
 
   // Toggle expand/collapse for a folder node
   const toggleExpand = useCallback(async (nodePath: string[]) => {
@@ -174,7 +199,7 @@ export const FileTreeSidebar: React.FC = () => {
       target.isExpanded = true;
 
       // Trigger async load
-      window.electron.explorer.listDirectory(target.entry.fullPath).then((result) => {
+      fileSource.listDirectory(target.entry.fullPath).then((result) => {
         setRootNodes((current) => {
           const c = deepCloneNodes(current);
           const t = findNode(c, nodePath);
@@ -259,23 +284,22 @@ export const FileTreeSidebar: React.FC = () => {
             gap: 0.5,
           }}
         >
-          <Tooltip title="Go to parent folder" placement="bottom">
-            <IconButton
-              size="small"
-              onClick={() => {
-                if (!workspaceRoot) return;
-                const sep = workspaceRoot.includes('\\') ? '\\' : '/';
-                const parts = workspaceRoot.split(sep).filter(Boolean);
-                parts.pop();
-                const parent = parts.length === 0 ? '' : (workspaceRoot.startsWith('/') ? '/' : '') + parts.join(sep) + (workspaceRoot.includes('\\') ? '\\' : '');
-                useExplorerStore.setState({ workspaceRoot: parent || workspaceRoot });
-              }}
-              sx={{ color: 'text.secondary', p: 0.5 }}
-            >
-              <UpIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title={workspaceRoot} enterDelay={500} placement="bottom">
+          {!isSourcesTree && (
+            <Tooltip title="Go to parent folder" placement="bottom">
+              <IconButton
+                size="small"
+                onClick={() => {
+                  if (!workspaceRoot) return;
+                  const parent = dirnameOf(workspaceRoot);
+                  useExplorerStore.setState({ workspaceRoot: parent || workspaceRoot });
+                }}
+                sx={{ color: 'text.secondary', p: 0.5 }}
+              >
+                <UpIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+          )}
+          <Tooltip title={isSourcesTree ? '' : workspaceRoot} enterDelay={500} placement="bottom">
             <Typography
               variant="caption"
               noWrap
@@ -289,7 +313,11 @@ export const FileTreeSidebar: React.FC = () => {
                 minWidth: 0,
               }}
             >
-              {workspaceRoot ? workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || 'Explorer' : 'Explorer'}
+              {isSourcesTree
+                ? 'Sources'
+                : (isDrivePath(workspaceRoot)
+                    ? (workspaceRoot.split('/').filter(Boolean).pop() || DRIVE_ROOT_LABEL)
+                    : (workspaceRoot ? workspaceRoot.split(/[\\/]/).filter(Boolean).pop() || 'Explorer' : 'Explorer'))}
             </Typography>
           </Tooltip>
         </Box>
@@ -423,6 +451,8 @@ export const FileTreeSidebar: React.FC = () => {
             </>
           )}
         </Box>
+
+        {showQuota && <DriveQuotaBar />}
       </Box>
 
       <ResizeHandle
