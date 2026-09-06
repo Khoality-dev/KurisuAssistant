@@ -7,8 +7,9 @@ account's third-party API keys straight out of the profile endpoint.
 
 Registration was closed by default while a seeded ``admin`` account existed.
 There is no seeded account now, so registering is how an account comes to exist
-— and it grants nothing until the operator activates it (#148). An operator who
-wants to refuse even the request still can, with ALLOW_REGISTRATION=false.
+— and it grants nothing until the operator activates it (#148). The switch that
+refused the request itself is gone: it was a second gate saying what activation
+already said (#184).
 """
 
 from unittest.mock import MagicMock, patch
@@ -57,40 +58,29 @@ def credentials(username="newuser", password="hunter2"):
     return {"username": username, "password": password}
 
 
-class TestRegistrationIsOpenByDefault:
-    def test_allowed_when_unset(self, auth_client, monkeypatch):
-        """Registering is a request now, not an entry: the account it creates is
+class TestRegistrationIsOpenAndInert:
+    def test_anyone_may_ask(self, auth_client):
+        """Registering is a request, not an entry: the account it creates is
         inactive until the operator says otherwise."""
-        monkeypatch.delenv("ALLOW_REGISTRATION", raising=False)
         db = FakeDBService(result="newuser")
         with patch.object(auth, "get_db_service", lambda: db):
             response = auth_client.post("/register", data=credentials())
         assert response.status_code == 200
         assert response.json()["pending_activation"] is True
 
-    @pytest.mark.parametrize("value", ["true", "1", "yes", "on", "TRUE", " True "])
-    def test_allowed_for_affirmative_values(self, auth_client, monkeypatch, value):
+    @pytest.mark.parametrize("value", ["false", "0", "no", "off", "", "maybe"])
+    def test_the_old_switch_no_longer_closes_anything(self, auth_client, monkeypatch, value):
+        """There is one gate and it is activation (#184).
+
+        Setting the variable that used to refuse the request must do nothing at
+        all now, or the second gate has grown back somewhere.
+        """
         monkeypatch.setenv("ALLOW_REGISTRATION", value)
         db = FakeDBService(result="newuser")
         with patch.object(auth, "get_db_service", lambda: db):
             response = auth_client.post("/register", data=credentials())
         assert response.status_code == 200
-        assert "access_token" in response.json()
-
-
-class TestRegistrationCanStillBeClosed:
-    @pytest.mark.parametrize("value", ["false", "0", "no", "off", "", "maybe"])
-    def test_rejected_for_non_affirmative_values(self, auth_client, monkeypatch, value):
-        monkeypatch.setenv("ALLOW_REGISTRATION", value)
-        assert auth_client.post("/register", data=credentials()).status_code == 403
-
-    def test_no_account_is_created_while_closed(self, auth_client, monkeypatch):
-        """The refusal must happen before anything touches the database."""
-        monkeypatch.setenv("ALLOW_REGISTRATION", "false")
-        db = FakeDBService(result="newuser")
-        with patch.object(auth, "get_db_service", lambda: db):
-            auth_client.post("/register", data=credentials())
-        assert db.calls == 0
+        assert response.json()["pending_activation"] is True
 
 
 class TestRateLimiting:

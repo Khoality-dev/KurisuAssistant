@@ -179,9 +179,10 @@ def test_env_template_documents_every_variable_the_base_file_reads():
 def test_every_setting_the_server_reads_reaches_the_container():
     """A knob the operator can set has to arrive where it is read.
 
-    `ALLOW_REGISTRATION`, `MCP_TLS_VERIFY` and the rate-limit pair were in the
-    environment template and documented in two tables, and none of them were
-    passed into the api service — so setting them did nothing at all.
+    `MCP_TLS_VERIFY` and the rate-limit pair were in the environment template
+    and documented in two tables, and none of them were passed into the api
+    service — so setting them did nothing at all. (`ALLOW_REGISTRATION` was in
+    that set too; it has since been removed altogether, #184.)
     """
     source_files = [
         path

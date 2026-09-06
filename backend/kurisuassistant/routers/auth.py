@@ -28,23 +28,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
 
 
-def _registration_open() -> bool:
-    """Whether anyone may create an account on this server.
-
-    Open by default now, because registering no longer grants anything: an
-    account is created inactive and stays inactive until the operator activates
-    it in the database. Registration is a request, not an entry.
-
-    It was closed by default when a fresh server came with a seeded ``admin``
-    account, and leaving it open then handed a working account — with the model
-    providers, the GPU and the agent tool loop behind it — to anyone who could
-    reach the port. Set ``ALLOW_REGISTRATION=false`` to refuse even the request.
-
-    Read per call rather than at import so it can be flipped without a rebuild.
-    """
-    return os.getenv("ALLOW_REGISTRATION", "true").strip().lower() in ("1", "true", "yes", "on")
-
-
 # ---------------------------------------------------------------------------
 # Rate limiting
 #
@@ -227,21 +210,19 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
 async def register(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     """Create an account, inactive until the operator activates it.
 
+    Anyone who can reach the server may ask. Asking grants nothing: the account
+    is inactive and every authenticated route and the chat socket refuse it
+    until the operator sets ``is_active``. There used to be a switch that
+    refused the request itself, from when a fresh server came with a seeded
+    ``admin`` account and registering handed over a working one — activation
+    closed that hole and made the switch a second gate saying the same thing,
+    so it is gone (#184). The gate is activation.
+
     The response keeps the token shape an older client expects and adds
     ``pending_activation``. Those tokens open nothing — every authenticated
     route and the chat socket refuse an inactive account — so a client that
     ignores the flag simply meets the same explanation on its next request.
     """
-    if not _registration_open():
-        logger.warning(
-            "Rejected registration for '%s': registration is closed on this server",
-            form_data.username,
-        )
-        raise HTTPException(
-            status_code=403,
-            detail="Registration is closed on this server. Ask the operator for an account.",
-        )
-
     _enforce_rate_limit(request, "register", form_data.username)
 
     def _register(session):

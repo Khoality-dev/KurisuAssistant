@@ -182,9 +182,7 @@ services:
       # Everything below was documented as configurable and reached nothing:
       # the template offered these knobs, the container never received them, so
       # the server ran on its built-in defaults whatever the operator wrote.
-      # Registration and TLS verification are the two that matter most —
-      # ALLOW_REGISTRATION=true was simply ignored.
-      - ALLOW_REGISTRATION=${ALLOW_REGISTRATION:-true}
+      # TLS verification is the one that matters most.
       - MCP_TLS_VERIFY=${MCP_TLS_VERIFY:-true}
       - AUTH_RATE_LIMIT_MAX_ATTEMPTS=${AUTH_RATE_LIMIT_MAX_ATTEMPTS:-10}
       - AUTH_RATE_LIMIT_WINDOW_SECONDS=${AUTH_RATE_LIMIT_WINDOW_SECONDS:-300}
