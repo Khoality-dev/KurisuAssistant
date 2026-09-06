@@ -5,11 +5,13 @@
  * for the renderer to start/stop servers, list tools, and call tools.
  */
 
-import { ipcMain } from 'electron';
+import { ipcMain, dialog, BrowserWindow } from 'electron';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { getSetting, setSetting } from './settings';
+import { commandLineFor, describeSpawn, hasConsent, withConsent } from './mcpConsent';
 
 export interface MCPServerConfig {
   name: string;
@@ -29,6 +31,67 @@ interface ManagedServer {
 // Active server instances keyed by server name
 const servers = new Map<string, ManagedServer>();
 
+const CONSENT_SETTING = 'mcp_stdio_consent';
+const PLAYWRIGHT_AUTOSTART_SETTING = 'mcp_playwright_autostart';
+
+function approvedCommandLines(): string[] {
+  const stored = getSetting<string[]>(CONSENT_SETTING);
+  return Array.isArray(stored) ? stored : [];
+}
+
+/**
+ * Ask before running a program on the user's machine.
+ *
+ * A native dialog rather than the in-chat approval bar: this can fire before
+ * any renderer is ready (a server starting on connect) and it is not part of a
+ * conversation. Anything but an explicit yes — dismissal, no window to attach
+ * to — is a refusal.
+ */
+async function askToSpawn(config: MCPServerConfig): Promise<boolean> {
+  const parent = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+  if (!parent) {
+    console.warn(`[MCP] Refusing to start "${config.name}": no window to ask in`);
+    return false;
+  }
+
+  const { response } = await dialog.showMessageBox(parent, {
+    type: 'warning',
+    title: 'Run a local MCP server?',
+    message: 'An MCP server wants to run a program on this computer.',
+    detail: describeSpawn(config),
+    buttons: ['Cancel', 'Allow once', 'Always allow'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  });
+
+  if (response === 0) return false;
+  if (response === 2) {
+    setSetting(CONSENT_SETTING, withConsent(approvedCommandLines(), config));
+  }
+  return true;
+}
+
+/** Command lines the user has approved permanently, for the settings UI. */
+export function getApprovedSpawns(): string[] {
+  return approvedCommandLines();
+}
+
+/** Forget one approved command line. */
+export function revokeApprovedSpawn(commandLine: string): string[] {
+  const remaining = approvedCommandLines().filter((entry) => entry !== commandLine);
+  setSetting(CONSENT_SETTING, remaining);
+  return remaining;
+}
+
+export function getPlaywrightAutostart(): boolean {
+  return getSetting<boolean>(PLAYWRIGHT_AUTOSTART_SETTING) === true;
+}
+
+export function setPlaywrightAutostart(enabled: boolean): void {
+  setSetting(PLAYWRIGHT_AUTOSTART_SETTING, enabled);
+}
+
 export async function startServer(config: MCPServerConfig): Promise<void> {
   // Stop existing server with same name if any
   if (servers.has(config.name)) {
@@ -43,6 +106,11 @@ export async function startServer(config: MCPServerConfig): Promise<void> {
   let transport: StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport;
 
   if (config.transport_type === 'stdio' && config.command) {
+    // Consent first: this is about to execute `config.command`, which may have
+    // been composed by a model or handed over by the backend.
+    if (!hasConsent(approvedCommandLines(), config) && !(await askToSpawn(config))) {
+      throw new Error(`Refused by user: ${commandLineFor(config)}`);
+    }
     transport = new StdioClientTransport({
       command: config.command,
       args: config.args || [],
@@ -213,6 +281,19 @@ export function registerMCPHandlers(): void {
   ipcMain.handle('mcp:is-server-running', (_event, name: string) => {
     return servers.has(name);
   });
+
+  ipcMain.handle('mcp:get-playwright-autostart', () => getPlaywrightAutostart());
+
+  ipcMain.handle('mcp:set-playwright-autostart', (_event, enabled: boolean) => {
+    setPlaywrightAutostart(enabled === true);
+    return getPlaywrightAutostart();
+  });
+
+  ipcMain.handle('mcp:get-approved-spawns', () => getApprovedSpawns());
+
+  ipcMain.handle('mcp:revoke-approved-spawn', (_event, commandLine: string) =>
+    revokeApprovedSpawn(commandLine),
+  );
 
   ipcMain.handle('mcp:stop-servers', async () => {
     await stopAllServers();

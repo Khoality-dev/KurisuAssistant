@@ -136,6 +136,12 @@ contextBridge.exposeInMainWorld('electron', {
     listToolsByServer: () => ipcRenderer.invoke('mcp:list-tools-by-server'),
     callTool: (toolName: string, args: Record<string, unknown>) =>
       ipcRenderer.invoke('mcp:call-tool', toolName, args),
+    getPlaywrightAutostart: () => ipcRenderer.invoke('mcp:get-playwright-autostart'),
+    setPlaywrightAutostart: (enabled: boolean) =>
+      ipcRenderer.invoke('mcp:set-playwright-autostart', enabled),
+    getApprovedSpawns: () => ipcRenderer.invoke('mcp:get-approved-spawns'),
+    revokeApprovedSpawn: (commandLine: string) =>
+      ipcRenderer.invoke('mcp:revoke-approved-spawn', commandLine),
   },
 
   // The app's own MCP endpoint — the one external clients connect *to*.

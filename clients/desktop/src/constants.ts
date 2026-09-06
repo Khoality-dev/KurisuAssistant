@@ -17,3 +17,14 @@ export const WS_WIRE_SUBPROTOCOL_PREFIX = 'kurisu.wire.';
 // Close code the backend uses for a wire-protocol mismatch (mirrors HTTP 426).
 // Reconnecting cannot fix it, so the socket manager stops retrying on it.
 export const WS_WIRE_PROTOCOL_MISMATCH = 4426;
+
+// The Playwright MCP server, pinned to an exact version.
+//
+// It is fetched from the npm registry at spawn time — the package is not
+// bundled into the app — so an unpinned `npx @playwright/mcp` runs whatever
+// that name resolves to on the day, with no consent step of its own. `-y`
+// suppresses npx's install prompt, which otherwise blocks forever when there is
+// no TTY. Keep the version equal to the `@playwright/mcp` dependency in
+// package.json.
+export const PLAYWRIGHT_MCP_PACKAGE = '@playwright/mcp@0.0.68';
+export const PLAYWRIGHT_MCP_ARGS = ['-y', PLAYWRIGHT_MCP_PACKAGE];

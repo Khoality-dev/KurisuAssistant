@@ -4,9 +4,19 @@
  * Approval gate with 4 levels per tool call:
  *   - Deny:    reject this call
  *   - Once:    approve this call, ask again next time
- *   - Session: approve for this tool until app restart
- *   - Always:  persist approval (path tools → add dir to allowed_paths,
- *              other tools → persistent tool policy)
+ *   - Session: approve until app restart
+ *   - Always:  persist approval (file tools → the exact path joins
+ *              allowed_paths, bash → a policy under the full command)
+ *
+ * `allowed_paths` is a **boundary**, not just an auto-approve list. A file tool
+ * whose target is outside every grant is refused after the gate, not merely
+ * asked about — approving one call cannot be spent on a different path. The
+ * grants a call can be inside are the persisted list, whatever this session has
+ * approved, and the path just approved for this call.
+ *
+ * `host_bash` is outside that: its unit of approval is the exact command, shown
+ * in full in the prompt. A shell command can reach anywhere regardless of where
+ * it starts, so treating its working directory as a boundary would be theatre.
  *
  * Cross-platform: Windows + Linux.
  */
@@ -16,6 +26,14 @@ import fs from 'fs';
 import path from 'path';
 import * as fsOps from './fsOps';
 import { loadSettings, saveSettings } from './settings';
+import {
+  HOST_TOOL_NAMES,
+  alwaysGrantFor,
+  isPathAllowed,
+  resolveForPolicy,
+  ruleKeyFor,
+  targetPathsFor,
+} from './hostToolPolicy';
 
 // --- Global allowed paths (persistent path-level approval, shared across all agents) ---
 
@@ -30,10 +48,10 @@ function setAllowedPaths(paths: string[]): void {
   saveSettings(settings);
 }
 
-function addAllowedPath(dirPath: string): void {
+function addAllowedPath(target: string): void {
   const paths = getAllowedPaths();
-  const resolved = path.resolve(dirPath);
-  if (!paths.some((p) => path.resolve(p) === resolved)) {
+  const resolved = alwaysGrantFor(target);
+  if (!paths.some((p) => resolveForPolicy(p) === resolved)) {
     paths.push(resolved);
     setAllowedPaths(paths);
   }
@@ -66,16 +84,17 @@ function removeToolPolicy(toolName: string): void {
   saveSettings(settings);
 }
 
-// --- Session approvals (in-memory, cleared on restart) ---
+// --- Session grants (in-memory, cleared on restart) ---
 
-const sessionApprovals = new Set<string>(); // tool names
+const sessionApprovals = new Set<string>(); // rule keys
+const sessionPaths = new Set<string>(); // resolved paths granted for this session
 
-function hasSessionApproval(toolName: string): boolean {
-  return sessionApprovals.has(toolName);
+function hasSessionApproval(ruleKey: string): boolean {
+  return sessionApprovals.has(ruleKey);
 }
 
-function addSessionApproval(toolName: string): void {
-  sessionApprovals.add(toolName);
+function addSessionApproval(ruleKey: string): void {
+  sessionApprovals.add(ruleKey);
 }
 
 function getSessionApprovals(): string[] {
@@ -84,47 +103,16 @@ function getSessionApprovals(): string[] {
 
 function clearSessionApprovals(): void {
   sessionApprovals.clear();
-}
-
-// --- Path helpers ---
-
-function isPathAllowed(filePath: string, allowedPaths: string[]): boolean {
-  if (allowedPaths.length === 0) return false;
-  const resolved = path.resolve(filePath);
-  return allowedPaths.some((allowed) => {
-    const allowedResolved = path.resolve(allowed);
-    return resolved === allowedResolved || resolved.startsWith(allowedResolved + path.sep);
-  });
+  sessionPaths.clear();
 }
 
 // --- Generic approval gate ---
 
 type ApprovalDecision = 'deny' | 'once' | 'session' | 'always';
 
-/**
- * Derive the rule key for a tool call.
- *
- * - host_list, host_search: key includes the resolved directory path
- *   so approval is per-folder (e.g. "host_list:/home/user/project").
- * - host_bash: key includes the base command (first word)
- *   so each command is tracked separately (e.g. "host_bash:git").
- * - Others (host_read, host_write, host_edit): just the tool name;
- *   path-level approval is handled via allowed_paths.
- */
-function getRuleKey(toolName: string, args: Record<string, unknown>, allowedPaths: string[]): string {
-  if (toolName === 'host_list' || toolName === 'host_search') {
-    const targetPath = args.path as string | undefined;
-    const effective = targetPath
-      ? path.resolve(targetPath)
-      : (allowedPaths.length > 0 ? path.resolve(allowedPaths[0]) : null);
-    if (effective) return `${toolName}:${effective}`;
-  }
-  if (toolName === 'host_bash') {
-    const command = (args.command as string || '').trim();
-    const baseCmd = command.split(/[\s;&|]/)[0].replace(/^.*[/\\]/, ''); // strip path
-    if (baseCmd) return `host_bash:${baseCmd}`;
-  }
-  return toolName;
+/** Bash is approved per command, so its working directory is not a boundary. */
+function isBoundedByPath(toolName: string): boolean {
+  return HOST_TOOL_NAMES.has(toolName) && toolName !== 'host_bash';
 }
 
 function describeToolCall(name: string, args: Record<string, unknown>): string {
@@ -165,58 +153,72 @@ async function showApprovalDialog(ruleKey: string, detail: string): Promise<Appr
   });
 }
 
+/** What a gate decision permits: the call, plus any path it grants for it. */
+interface GateResult {
+  approved: boolean;
+  /** Granted for this call only — "Once" on a path outside every rule. */
+  callPaths: string[];
+}
+
+const REFUSED: GateResult = { approved: false, callPaths: [] };
+
 /**
  * Generic tool call gate.
  *
- * @param autoApprove  — return true to skip the dialog entirely
+ * Order: stored deny → already inside a grant → stored allow → session →
+ * dialog. "Already inside a grant" comes before the stored allow so that a file
+ * tool inside `allowed_paths` never depends on a tool-name policy existing.
  *
- * Checks in order: persistent policy → session → autoApprove condition → dialog.
- * Dialog result is stored according to the user's choice.
+ * The answer only ever grants what the prompt showed: "Once" covers this call's
+ * paths, "Session" adds them until restart, "Always" writes the exact path into
+ * `allowed_paths` (a directory brings its subtree; a file brings only itself).
+ * Bash persists a policy under its full command instead.
  */
 async function gateToolCall(
   toolName: string,
   args: Record<string, unknown>,
   allowedPaths: string[],
-  autoApprove: () => boolean,
-): Promise<boolean> {
-  const ruleKey = getRuleKey(toolName, args, allowedPaths);
+  targets: string[],
+): Promise<GateResult> {
+  const ruleKey = ruleKeyFor(toolName, args, allowedPaths);
+  const granted = [...allowedPaths, ...sessionPaths];
 
-  // 1. Persistent tool policy
   const policy = getToolPolicy(ruleKey);
-  if (policy === 'auto') return true;
-  if (policy === 'deny') return false;
+  if (policy === 'deny') return REFUSED;
 
-  // 2. Session approval
-  if (hasSessionApproval(ruleKey)) return true;
+  // Inside an existing grant: no prompt. Never for bash, whose command — not
+  // its working directory — is what an approval is about.
+  if (
+    isBoundedByPath(toolName) &&
+    targets.length > 0 &&
+    targets.every((target) => isPathAllowed(target, granted))
+  ) {
+    return { approved: true, callPaths: [] };
+  }
 
-  // 3. Caller-defined auto-approve condition (e.g. path in allowed_paths)
-  if (autoApprove()) return true;
+  if (policy === 'auto') return { approved: true, callPaths: [] };
+  if (hasSessionApproval(ruleKey)) return { approved: true, callPaths: [] };
 
-  // 4. Prompt user
   const decision = await showApprovalDialog(ruleKey, describeToolCall(toolName, args));
 
   switch (decision) {
     case 'deny':
-      return false;
+      return REFUSED;
     case 'once':
-      return true;
+      return { approved: true, callPaths: targets };
     case 'session':
       addSessionApproval(ruleKey);
-      return true;
+      for (const target of targets) sessionPaths.add(resolveForPolicy(target));
+      return { approved: true, callPaths: targets };
     case 'always': {
-      // For path-based tools: add the parent directory to allowed_paths
-      const targetPath = args.path as string | undefined;
-      if (targetPath && toolName !== 'host_bash') {
-        const resolved = path.resolve(targetPath);
-        const dirToAdd = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()
-          ? resolved
-          : path.dirname(resolved);
-        addAllowedPath(dirToAdd);
+      if (isBoundedByPath(toolName) && targets.length > 0) {
+        // The exact path, not its parent: choosing Always on one file used to
+        // hand over the whole directory it happened to sit in.
+        for (const target of targets) addAllowedPath(target);
       } else {
-        // Bash and non-path tools: persist rule-key-level policy
         setToolPolicy(ruleKey, 'auto');
       }
-      return true;
+      return { approved: true, callPaths: targets };
     }
   }
 }
@@ -250,8 +252,6 @@ interface ToolSchema {
     parameters: Record<string, unknown>;
   };
 }
-
-const HOST_TOOL_NAMES = new Set(['host_read', 'host_write', 'host_edit', 'host_search', 'host_list', 'host_bash']);
 
 function getHostToolSchemas(): ToolSchema[] {
   return [
@@ -586,21 +586,30 @@ async function executeHostTool(
     } catch { /* ignore diff display errors */ }
   }
 
-  const approved = await gateToolCall(name, args, allowedPaths, () => {
-    // Bash: never auto-approve (always goes to policy/session/dialog checks)
-    if (name === 'host_bash') return false;
+  const targets = targetPathsFor(name, args, allowedPaths);
+  const gate = await gateToolCall(name, args, allowedPaths, targets);
 
-    // Path-based tools: auto-approve if target path is within allowed_paths
-    const targetPath = args.path as string | undefined;
-    if (targetPath) return isPathAllowed(targetPath, allowedPaths);
-
-    // No explicit path (e.g. host_search defaults to first allowed path)
-    return allowedPaths.length > 0;
-  });
-
-  if (!approved) {
+  if (!gate.approved) {
     clearDiffView();
     return { content: JSON.stringify({ error: 'Denied by user.' }), isError: true };
+  }
+
+  // The boundary. An approval covers the paths it was shown and nothing else,
+  // so a stored allow — for the tool, or for a different file — cannot be spent
+  // on a target outside every grant. Without this the executors did no scope
+  // check at all and `allowed_paths` only decided whether to prompt.
+  if (isBoundedByPath(name)) {
+    const effective = [...allowedPaths, ...sessionPaths, ...gate.callPaths];
+    const outside = targets.find((target) => !isPathAllowed(target, effective));
+    if (outside) {
+      clearDiffView();
+      return {
+        content: JSON.stringify({
+          error: `Path is outside the allowed paths: ${outside}. Add it in Settings → Host Access, or approve a call that targets it.`,
+        }),
+        isError: true,
+      };
+    }
   }
 
   switch (name) {

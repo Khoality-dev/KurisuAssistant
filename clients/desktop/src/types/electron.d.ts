@@ -92,6 +92,12 @@ export interface MCPAPI {
   listTools: () => Promise<Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }>>;
   listToolsByServer: () => Promise<Record<string, Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }>>>;
   callTool: (toolName: string, args: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
+  /** Whether Playwright starts on its own when the socket connects. Off by default. */
+  getPlaywrightAutostart: () => Promise<boolean>;
+  setPlaywrightAutostart: (enabled: boolean) => Promise<boolean>;
+  /** Command lines the user answered "Always allow" to when asked to spawn one. */
+  getApprovedSpawns: () => Promise<string[]>;
+  revokeApprovedSpawn: (commandLine: string) => Promise<string[]>;
 }
 
 /** The app's own MCP endpoint, the one external clients connect to. */
