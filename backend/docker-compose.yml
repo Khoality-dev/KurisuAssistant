@@ -200,6 +200,12 @@ services:
       - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS:-30}
       - CONVERSATION_IDLE_THRESHOLD_MINUTES=${CONVERSATION_IDLE_THRESHOLD_MINUTES:-30}
       - MAX_IMAGE_BYTES=${MAX_IMAGE_BYTES:-16777216}
+      # Kurisu Drive. The quota is per account and registration is open by
+      # default, so an unmetered drive is a disk-exhaustion surface for the
+      # whole host. Raising the file ceiling past nginx's client_max_body_size
+      # only helps when nothing is proxying (see nginx/nginx.conf).
+      - DRIVE_QUOTA_BYTES=${DRIVE_QUOTA_BYTES:-16106127360}
+      - DRIVE_MAX_FILE_BYTES=${DRIVE_MAX_FILE_BYTES:-2147483648}
       # How long the entrypoint waits for the database before failing loudly.
       - DB_WAIT_ATTEMPTS=${DB_WAIT_ATTEMPTS:-60}
       - DB_WAIT_INTERVAL=${DB_WAIT_INTERVAL:-2}

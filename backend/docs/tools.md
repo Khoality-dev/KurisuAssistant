@@ -15,6 +15,41 @@ There are no music or routing tools in the registry. `play_music`,
 `music_control`, `get_music_queue`, `route_to_agent` and `route_to_user` were
 removed; anything like them now arrives as an MCP tool.
 
+## Drive tools
+
+Registered in the same place but **deliberately not `built_in`**: file access
+must not arrive through the allowlist bypass, so narrowing an account's
+`available_tools` takes the drive away. `user_id` is injected the same way, and
+is not in the declared schema — the model cannot name another account.
+
+- `drive_list` — folder contents
+- `drive_read` — text only, bounded at 256 KB; binary is refused rather than
+  returned as noise that costs context
+- `drive_write` — the parent folder must already exist; `if_exists` is `fail`
+  unless the model asks for `overwrite`
+- `drive_delete` — hard delete, no trash; a non-empty folder needs
+  `recursive: true`, so "delete the notes folder" cannot quietly take a subtree
+  nobody mentioned
+
+They all go through the same repository and blob store as `routers/drive.py`, so
+the assistant cannot reach anything the HTTP API would refuse. Renaming and
+moving are not exposed: those stay human actions. See `drive.md`.
+
+### The three-way Drive policy
+
+Settings → Kurisu Drive offers *Read only*, *Ask before writing* and *Full
+access*. That is not a new column — it is a view over `users.tool_policies`:
+
+| Setting | `drive_list` / `drive_read` | `drive_write` / `drive_delete` |
+| --- | --- | --- |
+| Read only | `allow` | `deny` |
+| Ask before writing (default) | `allow` | *unset* → the approval bar |
+| Full access | `allow` | `allow` |
+
+A combination matching none of the three is shown as *Custom* and left to
+Tools & MCP. One source of truth, one enforcement point, no second policy to keep
+in step.
+
 ## Deferred (meta) tools
 
 When `assistants.use_deferred_tools` is set, the agent is not handed every schema

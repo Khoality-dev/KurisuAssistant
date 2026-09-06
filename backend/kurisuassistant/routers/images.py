@@ -6,19 +6,18 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
-from fastapi.security import OAuth2PasswordBearer
-
-from kurisuassistant.core.deps import get_authenticated_user
-from kurisuassistant.core.accounts import ACCOUNT_INACTIVE_DETAIL
+from kurisuassistant.core.deps import (
+    get_authenticated_user,
+    optional_oauth2_scheme,
+    resolve_user_from_token,
+)
 from kurisuassistant.core.image_access import references_image
-from kurisuassistant.core.security import get_current_user
 from kurisuassistant.db.models import User
 from kurisuassistant.db.service import get_db_service
-from kurisuassistant.db.repositories import UserRepository
 from kurisuassistant.utils.images import upload_image, get_image_path, get_user_image_path
 
 # Auto_error=False so missing header doesn't 401 (query param may provide token)
-_optional_oauth2 = OAuth2PasswordBearer(tokenUrl="login", auto_error=False)
+_optional_oauth2 = optional_oauth2_scheme
 
 logger = logging.getLogger(__name__)
 
@@ -42,29 +41,13 @@ async def create_image(
 async def _get_user_from_token(token: Optional[str]) -> User:
     """Resolve and verify the caller from an access token (header or query param).
 
-    The token is verified exactly as `get_authenticated_user` verifies it; the
-    query-param variant exists only because `<img src=...>` cannot send an
-    Authorization header.
+    The token is verified exactly as `get_authenticated_user` verifies it,
+    activation gate included; the query-param variant exists only because
+    `<img src=...>` cannot send an Authorization header. The verification itself
+    lives in `core/deps.py` so this router and the drive's download route cannot
+    drift apart.
     """
-    username = get_current_user(token) if token else None
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    def _fetch_user(session):
-        user_repo = UserRepository(session)
-        user = user_repo.get_by_username(username)
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-        # This router does its own token resolution, so the activation gate in
-        # `get_authenticated_user` never sees these calls. A gate with a hole in
-        # it is worse than none, because it is trusted.
-        if not user.is_active:
-            raise HTTPException(status_code=403, detail=ACCOUNT_INACTIVE_DETAIL)
-        session.expunge(user)
-        return user
-
-    db = get_db_service()
-    return await db.execute(_fetch_user)
+    return await resolve_user_from_token(token)
 
 
 @router.get("/u/{image_uuid}")

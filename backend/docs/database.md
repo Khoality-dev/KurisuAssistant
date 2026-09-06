@@ -1,6 +1,6 @@
 # Database
 
-Postgres, via `pgvector/pgvector:pg16`. Ten tables, defined in
+Postgres, via `pgvector/pgvector:pg16`. Eleven tables, defined in
 `kurisuassistant/db/models.py`. That file is the source of truth; this one
 describes it.
 
@@ -73,12 +73,34 @@ mcp_servers     id, user_id→users, name, transport_type('sse'|'stdio'),
 face_identities id, user_id→users, name, created_at                 unique (user_id, name)
 face_photos     id, identity_id→face_identities (CASCADE),
                 embedding(vector(512)), photo_uuid, created_at
+
+drive_nodes     id, user_id→users (CASCADE, indexed)               Kurisu Drive: one tree per account
+                parent_id→drive_nodes (CASCADE, indexed)?          null at the root
+                name, is_dir, size(BigInteger)
+                mime?, checksum?(sha256 hex), storage_key?(uuid4)  null on a folder
+                created_at, updated_at
+                unique (user_id, parent_id, name) where parent_id is not null
+                unique (user_id, name)            where parent_id is null
 ```
 
-Media is not stored here. Images, voice clips and character assets are files
-under `data/`, referenced by the UUID columns above.
+Media is not stored here. Images, voice clips, character assets and drive files
+are files under `data/`, referenced by the UUID columns above.
 
 ## Things worth knowing
+
+**`drive_nodes` needs two unique indexes, not one constraint.** Postgres treats
+NULLs as distinct, so a plain `UNIQUE (user_id, parent_id, name)` would allow two
+folders called `Reports` at the root — `parent_id` is NULL in both rows, and NULL
+never equals NULL. The two partial indexes above cover the root and the non-root
+case separately, and double as the index every folder listing reads. There is no
+synthetic per-user root row: the root is the absence of a parent.
+
+`size` is the schema's only `BigInteger`, because `Integer` stops at 2 GB and a
+drive file will not. `checksum` is populated from the first migration so #6 can
+attribute embedded chunks to a file and re-embed when its bytes change, rather
+than having to rehash a full drive later. The bytes themselves live at
+`data/drive/{user_id}/{storage_key}` — see `drive.md`.
+
 
 **Capability and presentation are separate rows.** `assistants` is one row per
 user and holds everything the assistant can *do*; `personas` holds everything it

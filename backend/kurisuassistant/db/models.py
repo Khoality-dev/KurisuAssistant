@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Index, Integer, String, Text, DateTime, ForeignKey, JSON, UniqueConstraint, false, text
+from sqlalchemy import BigInteger, Boolean, Column, Index, Integer, String, Text, DateTime, ForeignKey, JSON, UniqueConstraint, false, text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from pgvector.sqlalchemy import Vector
@@ -281,3 +281,60 @@ class FacePhoto(Base):
     )
 
     identity = relationship("FaceIdentity", back_populates="photos")
+
+
+class DriveNode(Base):
+    """One entry in a user's Kurisu Drive — a folder, or a file with bytes on disk.
+
+    The drive is a tree: ``parent_id`` is null at the root and points at a folder
+    otherwise. A file's bytes live under ``data/drive/{user_id}/{storage_key}``;
+    ``storage_key`` is a server-generated UUID and is the **only** thing a
+    filesystem path is ever built from, so no name a user types reaches the disk.
+    Directories carry no ``storage_key``, ``checksum`` or ``mime``.
+
+    ``checksum`` is here from the start for #6: chunks embedded from a file have
+    to be attributable, and re-embedded when the bytes change.
+    """
+
+    __tablename__ = 'drive_nodes'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    # Self-referencing, cascading: deleting a folder row takes its subtree with
+    # it in one statement. The blobs those rows named are unlinked afterwards,
+    # which is why delete returns the storage keys it removed.
+    parent_id = Column(Integer, ForeignKey('drive_nodes.id', ondelete='CASCADE'), nullable=True, index=True)
+    name = Column(String, nullable=False)
+    is_dir = Column(Boolean, nullable=False, default=False, server_default=false())
+    # BigInteger, unlike every other integer column here: Integer stops at 2 GB
+    # and a drive file will not. Always 0 for a directory.
+    size = Column(BigInteger, nullable=False, default=0, server_default="0")
+    mime = Column(String, nullable=True)
+    checksum = Column(String, nullable=True)  # sha256 hex of the bytes
+    storage_key = Column(String, nullable=True)  # uuid4 naming the blob on disk
+    created_at = Column(DateTime, default=datetime.utcnow)
+    # Maintained by hand in DriveNodeRepository. There is no `onupdate` anywhere
+    # in this schema and conversations.updated_at is bumped explicitly too, so
+    # following the convention matters more than the convenience would.
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        # Two indexes rather than one UniqueConstraint, because Postgres treats
+        # NULLs as distinct: a plain constraint over (user_id, parent_id, name)
+        # would let a user create "Reports" at the root twice. The partial pair
+        # covers both cases and doubles as the listing index.
+        Index(
+            'uq_drive_node_user_id_parent_id_name',
+            'user_id', 'parent_id', 'name',
+            unique=True,
+            postgresql_where=text('parent_id IS NOT NULL'),
+        ),
+        Index(
+            'uq_drive_node_user_id_name_root',
+            'user_id', 'name',
+            unique=True,
+            postgresql_where=text('parent_id IS NULL'),
+        ),
+    )
+
+    user = relationship("User")

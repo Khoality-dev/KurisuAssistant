@@ -18,6 +18,7 @@ from .character import router as character_router
 from .vision import router as vision_router
 from .skills import router as skills_router
 from .version import router as version_router
+from .drive import router as drive_router
 
 __all__ = [
     "auth_router",
@@ -38,4 +39,5 @@ __all__ = [
     "vision_router",
     "skills_router",
     "version_router",
+    "drive_router",
 ]

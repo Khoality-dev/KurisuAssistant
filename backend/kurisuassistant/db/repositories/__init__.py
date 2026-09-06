@@ -8,6 +8,7 @@ from .sub_agent import SubAgentRepository
 from .face import FaceIdentityRepository, FacePhotoRepository
 from .skill import SkillRepository
 from .mcp_server import MCPServerRepository
+from .drive import DriveNodeRepository, split_path
 
 __all__ = [
     "BaseRepository",
@@ -22,4 +23,6 @@ __all__ = [
     "FacePhotoRepository",
     "SkillRepository",
     "MCPServerRepository",
+    "DriveNodeRepository",
+    "split_path",
 ]
