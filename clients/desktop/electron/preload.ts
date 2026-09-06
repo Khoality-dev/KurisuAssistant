@@ -1,5 +1,4 @@
-import * as electron from 'electron';
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
@@ -133,8 +132,7 @@ contextBridge.exposeInMainWorld('electron', {
      * main process to stream, so a drop would silently do nothing.
      */
     pathForFile: (file: File): string => {
-      const utils = (electron as unknown as { webUtils?: { getPathForFile(f: File): string } }).webUtils;
-      if (utils?.getPathForFile) return utils.getPathForFile(file);
+      if (typeof webUtils?.getPathForFile === 'function') return webUtils.getPathForFile(file);
       return (file as File & { path?: string }).path ?? '';
     },
     pickFiles: () =>
