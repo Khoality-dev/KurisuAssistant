@@ -208,12 +208,11 @@ test.describe('streaming', () => {
     await expect(page.getByText('Kurisu speaking. Amadeus speaking.')).toHaveCount(0);
   });
 
-  test('/compact switches to a new conversation carrying the same persona', async ({ page, mock }) => {
-    // `conversation_switched` is the only thing that keeps the persona →
-    // conversation mapping correct after a compaction, and nothing in the mock
-    // used to emit it — so this whole path shipped untested. /compact sends
-    // `compact_context`, the mock answers context_info then conversation_switched,
-    // and the client is expected to load the new conversation and say so.
+  test('/compact trims the conversation it is in, and does not open another', async ({ page, mock }) => {
+    // Compaction used to fork: a second conversation seeded with the summary,
+    // announced by `conversation_switched`, so one thread became several in the
+    // history list. It now happens in place — same conversation, same id, the
+    // summary on the row and the watermark moved (#99).
     mock.setStream({ chunks: [{ content: 'Something to compact.', role: 'assistant', delayMs: 10 }] });
 
     await login(page);
@@ -225,14 +224,17 @@ test.describe('streaming', () => {
 
     await send(page, '/compact');
 
-    await expect(page.getByText(/Compacted — opened a new conversation/)).toBeVisible({ timeout: 10_000 });
+    // The summary lands on the conversation that was already open.
+    await expect
+      .poll(() => mock.getConversation(before[0].id)?.compacted_context, { timeout: 10_000 })
+      .toContain('Summary of conversation');
 
-    // A second conversation exists, it is not the one we were in, and the
-    // persona followed it across the split.
     const after = mock.getConversations();
-    expect(after).toHaveLength(2);
-    const created = after.find((c) => c.id !== before[0].id)!;
-    expect(created.persona_id).toBe(before[0].persona_id);
-    expect(created.compacted_context).toContain('Summary of conversation');
+    expect(after, 'compaction must not create a second conversation').toHaveLength(1);
+    expect(after[0].id).toBe(before[0].id);
+    expect(after[0].compacted_up_to_id).toBeGreaterThan(0);
+
+    // The transcript is still there: only the model's view was trimmed.
+    await expect(page.getByText('Something to compact.').first()).toBeVisible();
   });
 });

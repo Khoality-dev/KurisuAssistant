@@ -41,11 +41,6 @@ class ChatStreamProcessor @Inject constructor(
     var onConnected: ((ConnectedEvent) -> Unit)? = null
     var onContextInfo: ((ContextInfoEvent) -> Unit)? = null
 
-    /**
-     * Compaction moved the chat to a new server-side conversation. Wired in CoreService,
-     * which owns the persisted agent → conversation mapping.
-     */
-    var onConversationSwitched: ((ConversationSwitchedEvent) -> Unit)? = null
 
     private var currentRole: String? = null
     private var currentContent = StringBuilder()
@@ -74,7 +69,6 @@ class ChatStreamProcessor @Inject constructor(
                     is ErrorEvent -> handleError(event)
                     is ConnectedEvent -> onConnected?.invoke(event)
                     is ContextInfoEvent -> onContextInfo?.invoke(event)
-                    is ConversationSwitchedEvent -> onConversationSwitched?.invoke(event)
                     is ToolCallRequestEvent -> refuseClientTool(event)
                     else -> { /* media, vision, etc. handled elsewhere */ }
                 }

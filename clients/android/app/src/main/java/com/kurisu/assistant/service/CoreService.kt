@@ -284,21 +284,9 @@ class CoreService : Service() {
             }
         }
 
-        // Compaction (manual /compact or automatic) creates a NEW server-side conversation
-        // seeded with the summary. Adopt it here — CoreService owns the persisted
-        // persona → conversation mapping — or every later message is sent against a
-        // conversation the server has already moved off. ChatViewModel reloads the
-        // transcript on its own when coreState.conversationId changes.
-        streamProcessor.onConversationSwitched = { event ->
-            serviceScope.launch {
-                coreState.setConversationId(event.newConversationId)
-                val personaId = event.personaId.takeIf { it != 0 }
-                    ?: coreState.state.value.currentPersonaId
-                if (personaId != null) {
-                    personaRepository.setConversationIdForPersona(personaId, event.newConversationId)
-                }
-            }
-        }
+        // Compaction is in place since #99: the server trims the conversation it
+        // is already in and reports it with `context_info`, so there is no new
+        // conversation to adopt and the persona mapping stays valid.
 
         streamProcessor.onStreamDone = {
             serviceScope.launch {
@@ -330,7 +318,6 @@ class CoreService : Service() {
     private fun unwireCallbacks() {
         streamProcessor.onSentenceBoundary = null
         streamProcessor.onConversationId = null
-        streamProcessor.onConversationSwitched = null
         streamProcessor.onStreamDone = null
         voiceInteractionManager.onTranscriptSend = null
         ttsObserverJob?.cancel()

@@ -27,7 +27,6 @@ from .events import (
     ClientToolsRegisterEvent,
     ToolCallResponseEvent,
     ContextInfoEvent,
-    ConversationSwitchedEvent,
     CompactContextEvent,
     parse_event,
 )
@@ -57,6 +56,7 @@ from kurisuassistant.core.accounts import NO_MODEL_SELECTED_DETAIL
 from kurisuassistant.core.errors import GENERIC_MESSAGE, log_internal_error
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.utils.prompts import build_system_messages
+from kurisuassistant.utils.tokens import chars_to_tokens, estimate_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +135,10 @@ class ChatSessionHandler:
 
         self._vision_processor: Optional[VisionProcessor] = None
         self._vision_config: Optional[dict] = None
+        # The running context counter the client displays: what the turn started
+        # with, plus what the response has produced so far.
+        self._initial_token_count: int = 0
+        self._response_chars: int = 0
 
     async def run(self):
         from fastapi import WebSocketDisconnect
@@ -264,7 +268,9 @@ class ChatSessionHandler:
                     except Exception as e:
                         logger.warning(f"Failed to save image: {e}")
 
-            compacted_context, compacted_up_to_id, context_messages = await self._load_context_messages(conversation_id)
+            (
+                compacted_context, compacted_up_to_id, context_messages, last_message_id,
+            ) = await self._load_context_messages(conversation_id)
 
             content = event.text
             if event.context_files:
@@ -297,50 +303,60 @@ class ChatSessionHandler:
                             extra_msg["images"] = extra_imgs
                     extra_msgs_prepared.append(extra_msg)
 
-            # Context compaction if near context-window limit. The pending user
-            # message + extras are NOT included in the summary — they land as
-            # the first messages of the new conversation that gets created.
+            # Context compaction if near the context-window limit. The pending
+            # user message and extras are not summarized — they are what the
+            # turn is about, and they stay after the watermark.
+            #
+            # In place, on this conversation: the summary becomes
+            # ``compacted_context`` and ``compacted_up_to_id`` moves to the last
+            # message it covers, which is what `_load_context_messages` already
+            # trims on. Compaction used to fork instead — a new conversation
+            # seeded with the summary — so a long conversation quietly became
+            # several in the history list while the watermark it set (0) trimmed
+            # nothing (#99).
             context_limit = setup.context_size or 8192
             pre_check_messages = (
                 setup.system_messages + context_messages + [user_message] + extra_msgs_prepared
             )
             token_count = self._estimate_tokens(pre_check_messages)
 
-            if token_count > context_limit * 0.9 and setup.summary_model:
-                await self.send_event(ContextInfoEvent(
-                    conversation_id=conversation_id, compacting=True,
-                ))
-                summary_api_key = (
-                    setup.gemini_api_key if setup.summary_provider == "gemini"
-                    else setup.nvidia_api_key if setup.summary_provider == "nvidia"
-                    else setup.poe_api_key if setup.summary_provider == "poe"
-                    else None
-                )
-                summary_input = setup.system_messages + context_messages
-                summary = await asyncio.to_thread(
-                    self._generate_summary,
-                    context_limit, summary_input,
-                    setup.summary_model, setup.ollama_url, setup.summary_provider,
-                    summary_api_key,
-                )
-                if summary:
-                    # The new conversation carries the persona binding — without
-                    # it a compacted conversation comes back with no voice.
-                    new_conversation_id = await asyncio.to_thread(
-                        self._create_summary_conversation,
-                        persona.id, summary,
+            if token_count > context_limit * 0.9 and setup.summary_model and last_message_id:
+                try:
+                    await self.send_event(ContextInfoEvent(
+                        conversation_id=conversation_id, compacting=True,
+                    ))
+                    summary_api_key = (
+                        setup.gemini_api_key if setup.summary_provider == "gemini"
+                        else setup.nvidia_api_key if setup.summary_provider == "nvidia"
+                        else setup.poe_api_key if setup.summary_provider == "poe"
+                        else None
                     )
-                    old_conversation_id = conversation_id
-                    conversation_id = new_conversation_id
-                    self._task_conversation_id = new_conversation_id
-                    compacted_context = summary
-                    compacted_up_to_id = 0
-                    context_messages = []
-                    await self.send_event(ConversationSwitchedEvent(
-                        old_conversation_id=old_conversation_id,
-                        new_conversation_id=new_conversation_id,
-                        compacted_context=summary,
-                        persona_id=persona.id or 0,
+                    summary_input = setup.system_messages + context_messages
+                    summary = await asyncio.to_thread(
+                        self._generate_summary,
+                        context_limit, summary_input,
+                        setup.summary_model, setup.ollama_url, setup.summary_provider,
+                        summary_api_key,
+                    )
+                    if summary:
+                        await self._compact_in_place(conversation_id, summary, last_message_id)
+                        compacted_context = summary
+                        compacted_up_to_id = last_message_id
+                        context_messages = []
+                    else:
+                        logger.warning(
+                            "Compaction of conversation %s produced no summary; "
+                            "continuing with the full context",
+                            conversation_id,
+                        )
+                finally:
+                    # Every exit path, including a failed summary call: the
+                    # client shows a spinner until this arrives (#99).
+                    await self.send_event(ContextInfoEvent(
+                        conversation_id=conversation_id,
+                        compacting=False,
+                        compacted_up_to_id=compacted_up_to_id,
+                        compacted_context=compacted_context,
                     ))
 
             # Save the pending user message + extras to the (possibly new) conversation
@@ -353,7 +369,7 @@ class ChatSessionHandler:
             token_count = self._estimate_tokens(conversation_messages)
 
             self._initial_token_count = token_count
-            self._response_word_count = 0
+            self._response_chars = 0
 
             if image_uuids:
                 await self.send_event(StreamChunkEvent(
@@ -465,9 +481,9 @@ class ChatSessionHandler:
             chunk = event
 
             if chunk.content:
-                self._response_word_count += len(chunk.content.split())
+                self._response_chars += len(chunk.content)
             if chunk.thinking:
-                self._response_word_count += len(chunk.thinking.split())
+                self._response_chars += len(chunk.thinking)
 
             if chunk.model_name:
                 last_model_name = chunk.model_name
@@ -481,7 +497,9 @@ class ChatSessionHandler:
                 chunk.voice_reference = persona.voice_reference
                 chunk.persona_id = persona.id
                 chunk.persona_name = persona.name
-            chunk.token_count = self._initial_token_count + int(self._response_word_count * 1.3)
+            # Same accounting as the window check, so the number the user watches
+            # and the number that triggers compaction cannot disagree (#99).
+            chunk.token_count = self._initial_token_count + chars_to_tokens(self._response_chars)
             await self.send_event(chunk)
 
             if chunk.images:
@@ -783,8 +801,8 @@ class ChatSessionHandler:
             await self.send_event(ErrorEvent(error="No summary model configured.", code="NO_SUMMARY_MODEL"))
             return
 
-        _, _, context_messages = await self._load_context_messages(conversation_id)
-        if not context_messages:
+        _, _, context_messages, last_message_id = await self._load_context_messages(conversation_id)
+        if not context_messages or not last_message_id:
             return
 
         def _get_ctx(session):
@@ -795,34 +813,39 @@ class ChatSessionHandler:
 
         await self.send_event(ContextInfoEvent(conversation_id=conversation_id, compacting=True))
 
-        summary_api_key = (
-            gemini_api_key if summary_provider == "gemini"
-            else nvidia_api_key if summary_provider == "nvidia"
-            else poe_api_key if summary_provider == "poe"
-            else None
-        )
-        summary = await asyncio.to_thread(
-            self._generate_summary,
-            context_limit, [{"role": "system", "content": ""}] + context_messages,
-            summary_model, ollama_url, summary_provider, summary_api_key,
-        )
+        summary = ""
+        try:
+            summary_api_key = (
+                gemini_api_key if summary_provider == "gemini"
+                else nvidia_api_key if summary_provider == "nvidia"
+                else poe_api_key if summary_provider == "poe"
+                else None
+            )
+            summary = await asyncio.to_thread(
+                self._generate_summary,
+                context_limit, [{"role": "system", "content": ""}] + context_messages,
+                summary_model, ollama_url, summary_provider, summary_api_key,
+            )
 
-        if not summary:
-            await self.send_event(ErrorEvent(error="Compaction produced empty output.", code="COMPACT_EMPTY"))
-            return
+            if not summary:
+                await self.send_event(ErrorEvent(
+                    error="Compaction produced empty output.", code="COMPACT_EMPTY",
+                ))
+                return
 
-        # The persona binding follows the conversation across the split.
-        new_conversation_id = await asyncio.to_thread(
-            self._create_summary_conversation, persona_id, summary,
-        )
-        self._task_persona_id = persona_id
-
-        await self.send_event(ConversationSwitchedEvent(
-            old_conversation_id=conversation_id,
-            new_conversation_id=new_conversation_id,
-            compacted_context=summary,
-            persona_id=persona_id or 0,
-        ))
+            # In place: the conversation keeps its id, its title and its history,
+            # and only the model's view of it is trimmed (#99).
+            await self._compact_in_place(conversation_id, summary, last_message_id)
+            self._task_persona_id = persona_id
+        finally:
+            # The spinner is the client's, and only this turns it off — the
+            # empty-summary path used to return without ever doing so (#99).
+            await self.send_event(ContextInfoEvent(
+                conversation_id=conversation_id,
+                compacting=False,
+                compacted_up_to_id=last_message_id if summary else 0,
+                compacted_context=summary,
+            ))
 
     async def _handle_vision_start(self, event: VisionStartEvent):
         await self._handle_vision_stop()
@@ -990,14 +1013,18 @@ class ChatSessionHandler:
     # Context loading + compaction
     # ------------------------------------------------------------------
 
-    async def _load_context_messages(self, conversation_id: int) -> tuple[str, int, list]:
-        """Load (compacted_context, compacted_up_to_id, messages_after_watermark)."""
+    async def _load_context_messages(self, conversation_id: int) -> tuple[str, int, list, int]:
+        """Load (compacted_context, compacted_up_to_id, messages_after_watermark, last_id).
+
+        ``last_id`` is the id of the newest message loaded — where the watermark
+        goes if these messages are compacted. It is 0 when there are none.
+        """
         db = get_db_service()
 
         def _query(session):
             conv = session.query(Conversation).filter_by(id=conversation_id).first()
             if not conv:
-                return "", 0, []
+                return "", 0, [], 0
 
             compacted_context = conv.compacted_context or ""
             compacted_up_to_id = conv.compacted_up_to_id or 0
@@ -1011,7 +1038,9 @@ class ChatSessionHandler:
             )
 
             result = []
+            last_id = 0
             for msg in messages:
+                last_id = max(last_id, msg.id)
                 entry = {"role": msg.role, "content": msg.message}
                 if msg.name:
                     entry["name"] = msg.name
@@ -1024,37 +1053,38 @@ class ChatSessionHandler:
                 if getattr(msg, "tool_call_id", None):
                     entry["tool_call_id"] = msg.tool_call_id
                 result.append(entry)
-            return compacted_context, compacted_up_to_id, result
+            return compacted_context, compacted_up_to_id, result, last_id
 
         return await db.execute(_query)
 
     @staticmethod
     def _estimate_tokens(messages: list) -> int:
-        word_count = sum(len(m.get("content", "").split()) for m in messages)
-        return int(word_count * 1.3)
+        """Everything that reaches the model, not just ``content`` (#99)."""
+        return estimate_tokens(messages)
 
-    def _create_summary_conversation(self, persona_id: Optional[int], summary: str) -> int:
-        """Create a new conversation seeded with ``summary`` as compacted_context.
+    async def _compact_in_place(self, conversation_id: int, summary: str, up_to_id: int) -> None:
+        """Replace everything up to ``up_to_id`` with ``summary``, on this conversation.
 
-        Used after manual /compact or auto-compaction so the next message
-        starts in a fresh conversation with the summary visible at the top.
-        The persona binding is carried over — a compacted conversation that
-        arrived unbound would silently fall back to the default persona and
-        change voice mid-thread.
+        The conversation keeps its id, its title, its persona binding and its
+        stored messages; only what is loaded into the model's context changes,
+        because `_load_context_messages` reads messages after the watermark.
+        Compaction used to create a second conversation instead, which is how a
+        single thread became several in the history list (#99).
         """
         db = get_db_service()
 
-        def _create(session):
+        def _write(session):
             conv_repo = ConversationRepository(session)
-            conv = conv_repo.create_conversation(
-                user_id=self.user_id,
-                title="Continued conversation",
-                persona_id=persona_id,
-            )
-            conv_repo.update_compacted_context(conv, summary, 0)
-            return conv.id
+            conv = session.query(Conversation).filter_by(id=conversation_id).first()
+            if not conv:
+                return
+            conv_repo.update_compacted_context(conv, summary, up_to_id)
 
-        return db.execute_sync(_create)
+        await db.execute(_write)
+        logger.info(
+            "Compacted conversation %s in place up to message %s (%d chars of summary)",
+            conversation_id, up_to_id, len(summary),
+        )
 
     def _generate_summary(
         self,

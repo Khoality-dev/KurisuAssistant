@@ -1030,7 +1030,7 @@ subprotocol entry; a mismatch closes with `4426` **before** authentication.
 `vision_frame`, `vision_stop`.
 
 **Server → Client:** `connected`, `stream_chunk`, `tool_approval_request`,
-`tool_call_request`, `context_info`, `conversation_switched`, `done`, `error`,
+`tool_call_request`, `context_info`, `done`, `error`,
 `vision_result`.
 
 `chat_request` takes an optional `persona_id` (a per-turn override that rebinds the
@@ -1084,10 +1084,17 @@ reference — raw exception text carries failing SQL, internal URLs and server p
 ### Context compaction
 
 When the estimated context passes 90% of `users.context_size` (default 8192) and
-`users.summary_model` is set, the turn is compacted. Compaction **forks**: a new
-conversation is created, seeded with the summary as its `compacted_context` and
-carrying the persona binding, and `conversation_switched` announces both ids and
-the persona. `compact_context` triggers the same path manually.
+`users.summary_model` is set, the turn is compacted **in place**: the summary is
+written to the conversation's `compacted_context` and `compacted_up_to_id` moves
+to the last message it covers, so the next turn sends the summary instead of
+those messages. The conversation keeps its id and its history.
+`context_info` announces the start and the finish; `compact_context` triggers the
+same path manually.
+
+The estimate behind the trigger — and behind the running token counter on
+`stream_chunk` — counts message framing, text, thinking, tool arguments and
+images (`utils/tokens.py`). It used to be a word count over `content` alone,
+which charged nothing for a picture or a tool payload (#99).
 
 ### Image handling
 

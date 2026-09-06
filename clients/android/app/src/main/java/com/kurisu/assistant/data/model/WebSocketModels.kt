@@ -134,25 +134,6 @@ data class ContextInfoEvent(
     @SerialName("compacted_context") val compactedContext: String = "",
 ) : ServerEvent
 
-/**
- * Compaction (manual `/compact` or automatic) moved the chat to a NEW conversation
- * seeded with the rolling summary. The client must adopt [newConversationId] or it
- * keeps talking to a conversation the server has already left behind.
- *
- * Mirrors `ConversationSwitchedEvent` in backend/kurisuassistant/websocket/events.py.
- */
-@Serializable
-data class ConversationSwitchedEvent(
-    override val type: String = "conversation_switched",
-    @SerialName("event_id") override val eventId: String = "",
-    override val timestamp: String = "",
-    @SerialName("old_conversation_id") val oldConversationId: Int = 0,
-    @SerialName("new_conversation_id") val newConversationId: Int = 0,
-    @SerialName("compacted_context") val compactedContext: String = "",
-    // The persona carried over to the new conversation. Without it a compacted
-    // conversation loses its voice.
-    @SerialName("persona_id") val personaId: Int = 0,
-) : ServerEvent
 
 /**
  * Server asks the client to run one of ITS OWN registered tools.

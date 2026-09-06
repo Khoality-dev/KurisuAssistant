@@ -93,14 +93,18 @@ class TestNoBlockingDatabaseCallsOnTheLoop:
             f"whole query: {offenders}. Use `await db.execute(...)` instead."
         )
 
-    def test_the_remaining_execute_sync_is_a_worker_thread_target(self):
-        """_create_summary_conversation is legitimately sync: it runs under to_thread."""
+    def test_no_execute_sync_is_left_in_the_handler(self):
+        """The last one went with the forking compaction path (#99).
+
+        ``_create_summary_conversation`` was the one legitimate caller — a sync
+        function run under ``to_thread``. In-place compaction is a single update
+        the coroutine can await, so nothing in this module needs the blocking
+        form any more, and reintroducing one is a regression.
+        """
         source = Path(inspect.getfile(handlers_module)).read_text()
-        assert source.count("execute_sync") == 1, (
-            "Exactly one execute_sync should remain, in _create_summary_conversation"
+        assert source.count("execute_sync") == 0, (
+            "execute_sync is back in the WebSocket handler; await db.execute(...) instead"
         )
-        assert "asyncio.to_thread(\n            self._create_summary_conversation" in source or \
-               "self._create_summary_conversation," in source
 
 
 class TestSkillLookupIsAwaited:

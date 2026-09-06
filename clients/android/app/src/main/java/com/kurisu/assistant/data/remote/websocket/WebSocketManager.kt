@@ -397,7 +397,6 @@ internal fun parseServerEvent(text: String): ServerEvent? {
         "vision_result" -> parserJson.decodeFromString<VisionResultEvent>(text)
         "connected" -> parserJson.decodeFromString<ConnectedEvent>(text)
         "context_info" -> parserJson.decodeFromString<ContextInfoEvent>(text)
-        "conversation_switched" -> parserJson.decodeFromString<ConversationSwitchedEvent>(text)
         else -> null
     }
 }

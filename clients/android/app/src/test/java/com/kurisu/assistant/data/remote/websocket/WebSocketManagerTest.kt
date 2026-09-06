@@ -3,7 +3,6 @@ package com.kurisu.assistant.data.remote.websocket
 import com.google.common.truth.Truth.assertThat
 import com.kurisu.assistant.data.model.ConnectedEvent
 import com.kurisu.assistant.data.model.ContextInfoEvent
-import com.kurisu.assistant.data.model.ConversationSwitchedEvent
 import com.kurisu.assistant.data.model.DoneEvent
 import com.kurisu.assistant.data.model.ErrorEvent
 import com.kurisu.assistant.data.model.ServerEvent
@@ -75,11 +74,6 @@ class WebSocketManagerTest {
             """{"type":"context_info","event_id":"e9","timestamp":"t","conversation_id":7,"compacting":true}""",
             ContextInfoEvent::class,
         ),
-        Row(
-            "conversation_switched",
-            """{"type":"conversation_switched","event_id":"e10","timestamp":"t","old_conversation_id":7,"new_conversation_id":8,"compacted_context":"summary","persona_id":3}""",
-            ConversationSwitchedEvent::class,
-        ),
     )
 
     @Test
@@ -116,16 +110,13 @@ class WebSocketManagerTest {
     // ── Field-level contracts that issue #92 depends on ─────────────────
 
     @Test
-    fun `conversation_switched carries the new conversation and persona`() {
-        val event = parseServerEvent(table.first { it.type == "conversation_switched" }.payload)
-                as ConversationSwitchedEvent
-        assertThat(event.oldConversationId).isEqualTo(7)
-        assertThat(event.newConversationId).isEqualTo(8)
-        assertThat(event.compactedContext).isEqualTo("summary")
-        // Wire protocol 4 renamed this from `agent_id`. It is NOT aliased: parsing
-        // the old name would silently yield 0 and strand the new conversation
-        // without a voice.
-        assertThat(event.personaId).isEqualTo(3)
+    fun `conversation_switched is no longer a server event`() {
+        // Compaction happens in place since #99 — the server trims the
+        // conversation it is in and says so with context_info, so nothing sends
+        // this any more and nothing here should claim to understand it.
+        val payload = """{"type":"conversation_switched","event_id":"e10","timestamp":"t",""" +
+            """"old_conversation_id":7,"new_conversation_id":8,"compacted_context":"s","persona_id":3}"""
+        assertThat(parseServerEvent(payload)).isNull()
     }
 
     @Test

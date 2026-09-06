@@ -61,8 +61,8 @@ new-chat.
 
 The choice is written back to `conversations.persona_id` on the first bind **and on
 every later override**, so a per-turn switch survives to the next message and
-across a reconnect. Compaction carries the binding to the conversation it forks,
-and announces it in `conversation_switched.persona_id`.
+across a reconnect. Compaction no longer moves the conversation at all, so the
+binding it carries is simply the one already on the row (#99).
 
 `POST /personas` and `POST /personas/import` adopt the new persona as the default
 when the assistant has none, deleting the default hands it to the oldest remaining

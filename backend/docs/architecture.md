@@ -122,9 +122,11 @@ utils/                   prompt assembly, image storage, memory consolidation
 4. Context is loaded: the conversation's `compacted_context` plus every message
    after `compacted_up_to_id`.
 5. If the estimated size exceeds 90% of the context window and a summary model is
-   configured, the conversation is compacted. Compaction creates a **new**
-   conversation seeded with the summary, carries the persona binding over, and
-   emits `conversation_switched`.
+   configured, the conversation is compacted **in place**: the summary becomes
+   `compacted_context` and `compacted_up_to_id` moves to the last message it
+   covers, on the same conversation. `context_info` reports the start and the
+   finish. The estimate counts text, images, tool payloads and thinking
+   (`utils/tokens.py`), not words (#99).
 6. `MainAgent.process` runs the LLM loop — capability from the user's one
    `assistants` row, identity from the bound persona — at most 10 tool rounds, or
    25 with deferred tools. It yields a `stream_chunk` per content, thinking and
