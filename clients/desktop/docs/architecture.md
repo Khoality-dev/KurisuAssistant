@@ -17,7 +17,7 @@ electron/mcpServer.ts     — The app *as* an MCP server: publishes every host a
 electron/mcpServerAuth.ts — The guard in front of that server, electron-free so it is unit-tested directly (`tests/mcpServerAuth.test.ts`): refuses anything carrying browser headers (Origin, Referer, Sec-Fetch-*) and requires the bearer token everywhere but /health.
 electron/settings.ts      — The main process's settings.json under userData (host-tool approvals, MCP token, first-run flags). One loader/saver: three modules had private copies, and two writes in the same tick dropped each other's keys.
 electron/preload.ts       — contextBridge: hostTools, appTools, explorer, mcp, mcpServer, credentials, characterWindow, extensions, updater
-src/api/client.ts         — Axios + WebSocket singleton; streaming + media via wsManager; assistant/persona/sub-agent REST; migrateCharacterIds()
+src/api/client.ts         — Axios + WebSocket singleton; streaming + media via wsManager; assistant/persona/sub-agent REST; migrateCharacterIds(). Interceptors: 401 → refresh, 426 → `onProtocolMismatch` (the update screen); `getModelsWithStatus()` carries `/models`' `unavailable` list
 src/api/types.ts          — TypeScript interfaces for API (Assistant / Persona / SubAgent — the old `Agent` is split three ways)
 src/constants.ts          — WIRE_PROTOCOL (4), the `kurisu.auth.bearer` / `kurisu.wire.<n>` WebSocket subprotocol names, and `WS_ERROR_NO_MODEL_SELECTED` (the one `error` code this client branches on)
 src/components/
@@ -61,7 +61,7 @@ src/components/
   InteractiveCallBar.tsx   — Voice mode call bar: transcript, mic button with pulse, hang up
   chat/
     ChatWidget.tsx         — Chat UI with streaming, TTS, image attach, pagination, voice mode, selection context chips, display mode toggle (All/Context), token usage bar
-    ChatComposer.tsx       — Message input composer with file attach, voice input, slash command autocomplete, prompt history (up/down arrows)
+    ChatComposer.tsx       — Message input composer with file attach, voice input, slash command autocomplete, prompt history (up/down arrows). Keyed on `personaId`/`conversationId`; drops the draft only when leaving a concrete conversation, never when the scope resolves (#145, docs/chat.md)
     SelectionChips.tsx     — File selection context chips
     MessageBubble.tsx      — Individual bubble: role styling, thinking collapse, TTS, resend/delete
     MessageToolbar.tsx     — Hover toolbar: copy, TTS play, raw data, resend/regenerate, delete
@@ -79,8 +79,9 @@ src/components/
   EdgeEditor.tsx           — Transition edge editor: video upload, condition config
   PoseGraphNode.tsx        — Custom React Flow node component
   UpdateDialog.tsx         — Auto-update notification
+  UpdateRequiredScreen.tsx — The wire-protocol gate: both numbers, which side is behind (`utils/wireProtocol.ts`), and "Change server" back to the login form (#150)
 src/hooks/
-  useTTS.ts               — TTS synthesis/playback: speak(), queueText(), clearQueue(), onPlaybackStart subtitle callback, WAV duration parsing
+  useTTS.ts               — TTS synthesis/playback: speak(), queueText(), clearQueue(), onPlaybackStart subtitle callback, WAV duration parsing. `backends` is only what `/tts/models` lists (no fallback list), `backendsError` says why it is empty (#151)
   useAudioAmplitude.ts    — Web Audio API amplitude for lip sync (AudioBufferSourceNode + time-domain RMS)
   useConnectionStatus.ts  — Hook subscribing to wsManager.onStatusChange() for connection status (connected/connecting/disconnected)
   useWebcamCapture.ts    — Webcam stream management: startWebcam(), stopWebcam(), captureFrame() → CapturedPhoto (File + preview). Refs for video/canvas elements. Cleanup on unmount.

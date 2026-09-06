@@ -4,6 +4,8 @@ import android.util.Log
 import com.kurisu.assistant.BuildConfig
 import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.model.*
+import com.kurisu.assistant.data.remote.api.ProtocolMismatchSignal
+import com.kurisu.assistant.data.repository.VersionRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -22,9 +24,14 @@ import javax.inject.Singleton
 class WebSocketManager @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val preferencesDataStore: PreferencesDataStore,
+    private val protocolMismatchSignal: ProtocolMismatchSignal,
+    private val versionRepository: VersionRepository,
 ) {
     companion object {
         private const val TAG = "WebSocketManager"
+
+        /** The backend's close code for a wire-protocol mismatch (mirrors HTTP 426). */
+        const val WIRE_PROTOCOL_MISMATCH_CLOSE_CODE = 4426
     }
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
@@ -150,6 +157,15 @@ class WebSocketManager @Inject constructor(
                     ws = null
 
                     deferred.completeExceptionally(Exception("WebSocket closed: $code $reason"))
+
+                    if (code == WIRE_PROTOCOL_MISMATCH_CLOSE_CODE) {
+                        // Retrying cannot fix a protocol mismatch — reconnecting
+                        // would loop until one side is upgraded. Raise the update
+                        // gate instead. The close reason carries no numbers, so
+                        // ask /version (exempt from the gate) for them (#150).
+                        onWireProtocolMismatch()
+                        return
+                    }
 
                     if (wasConnected && !intentionalClose && token != null) {
                         emitConnectionLostError()
@@ -313,6 +329,14 @@ class WebSocketManager @Inject constructor(
                 error = "Unhandled server event: $type",
                 code = WsErrorCodes.UNKNOWN_EVENT,
             ))
+        }
+    }
+
+    private fun onWireProtocolMismatch() {
+        scope.launch {
+            val info = versionRepository.fetchServerVersion() ?: ProtocolMismatchSignal.unknown
+            Log.e(TAG, "Wire protocol mismatch: server ${info.backendVersion} speaks ${info.wireProtocol}")
+            protocolMismatchSignal.signal(info)
         }
     }
 

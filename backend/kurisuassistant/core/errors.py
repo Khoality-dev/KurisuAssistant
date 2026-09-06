@@ -14,11 +14,15 @@ import logging
 import uuid
 from typing import Optional
 
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+
+from kurisuassistant.db.service import DBUnavailableError
 
 logger = logging.getLogger(__name__)
 
 GENERIC_MESSAGE = "Something went wrong on the server."
+DB_UNAVAILABLE_MESSAGE = "The database is not responding."
 
 
 def new_reference() -> str:
@@ -49,6 +53,25 @@ def internal_error(
         except Exception as e:
             raise internal_error(e, "listing conversations")
     """
+    if isinstance(exc, DBUnavailableError):
+        # A stuck database is not the handler's fault and not permanent: say so
+        # with a 503, whatever status the caller would have used (#153).
+        status_code = 503
+        public_detail = DB_UNAVAILABLE_MESSAGE
     reference = log_internal_error(exc, context)
     message = public_detail or GENERIC_MESSAGE
     return HTTPException(status_code=status_code, detail=f"{message} (reference: {reference})")
+
+
+def install_exception_handlers(app: FastAPI) -> None:
+    """Catch what no router wrapped — a dependency such as ``get_authenticated_user``
+    talks to the database before any handler runs, so its timeout would
+    otherwise surface as a bare 500."""
+
+    @app.exception_handler(DBUnavailableError)
+    async def _db_unavailable(request: Request, exc: DBUnavailableError) -> JSONResponse:
+        reference = log_internal_error(exc, f"{request.method} {request.url.path}")
+        return JSONResponse(
+            status_code=503,
+            content={"detail": f"{DB_UNAVAILABLE_MESSAGE} (reference: {reference})"},
+        )

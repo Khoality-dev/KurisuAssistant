@@ -136,6 +136,18 @@ time. `await db.execute(op)` from the event loop; `execute_sync(op)` only from a
 worker thread. The engine's pool is configured for 10 connections plus 20
 overflow, which the single-threaded owner never uses.
 
+That one thread must not be blockable without notice (#153). A failing operation
+is logged with its traceback in `DBService._worker` before the exception reaches
+the caller — refusals an operation raises on purpose (`HTTPException`,
+`ValueError`) are logged at debug only. Both `execute` paths wait at most
+`DB_OPERATION_TIMEOUT_SECONDS` (60) and then raise `DBUnavailableError`, which
+`core/errors.py::internal_error` maps to a 503 and an app-level handler catches
+when it escapes a dependency; an operation still queued when its caller gives up
+is cancelled and never runs. The engine carries `connect_timeout`
+(`DB_CONNECT_TIMEOUT_SECONDS`, 5) and a libpq `statement_timeout`
+(`DB_STATEMENT_TIMEOUT_SECONDS`, 30) — Alembic builds its own engine in
+`alembic/env.py`, so a long migration is not cut short.
+
 Repositories live in `db/repositories/`, one per table over a generic
 `BaseRepository` (`assistant.py`, `persona.py`, `sub_agent.py`, `conversation.py`,
 `message.py`, `user.py`, `skill.py`, `mcp_server.py`, `face.py`). They take a

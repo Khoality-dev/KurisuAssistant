@@ -152,6 +152,10 @@ async def enforce_wire_protocol(request: Request, call_next):
     return await call_next(request)
 
 
+from kurisuassistant.core.errors import install_exception_handlers  # noqa: E402
+
+install_exception_handlers(app)
+
 # Include routers
 app.include_router(version_router)
 app.include_router(auth_router)

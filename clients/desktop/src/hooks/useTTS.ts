@@ -3,7 +3,6 @@ import { apiClient } from '../api/client';
 import { storage } from '../utils/storage';
 import { useAudioAmplitude } from './useAudioAmplitude';
 
-const TTS_FALLBACK_MODELS = ['vixtts', 'gpt-sovits', 'vieneu:turbo'];
 
 /**
  * Parse WAV header to get audio duration in seconds.
@@ -40,7 +39,12 @@ export function useTTS(
 ) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [voices, setVoices] = useState<string[]>([]);
-  const [backends, setBackends] = useState<string[]>([...TTS_FALLBACK_MODELS]);
+  // Only what the server actually lists: no invented models. `backendsError`
+  // says why the list is empty when it is — the speech service being down
+  // used to be papered over by a static list, so the picker offered models
+  // that did not exist and synthesis failed later (#151).
+  const [backends, setBackends] = useState<string[]>([]);
+  const [backendsError, setBackendsError] = useState<string | null>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
 
@@ -70,15 +74,15 @@ export function useTTS(
   const loadBackends = useCallback(async () => {
     try {
       const models = await apiClient.listTTSModels();
-      if (models.length > 0) {
-        setBackends(models);
-        return models;
-      }
-    } catch (error) {
+      setBackends(models);
+      setBackendsError(null);
+      return models;
+    } catch (error: any) {
       console.error('Failed to load TTS models:', error);
+      setBackends([]);
+      setBackendsError(error.response?.data?.detail || 'The speech service is unreachable.');
+      return [];
     }
-    setBackends([...TTS_FALLBACK_MODELS]);
-    return [...TTS_FALLBACK_MODELS];
   }, []);
 
   /**
@@ -303,6 +307,7 @@ export function useTTS(
     voices,
     loadVoices,
     backends,
+    backendsError,
     loadBackends,
   };
 }

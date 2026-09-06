@@ -35,10 +35,11 @@ Workflows live at the repo root. `.github/workflows/desktop-build.yml` triggers 
 
 ## The parts that bite
 
-Five things that are not obvious from the code and have each cost a debugging session:
+Six things that are not obvious from the code and have each cost a debugging session:
 
 - **The protocol is retyped by hand.** `src/constants.ts` holds `WIRE_PROTOCOL`; the event names are string literals in `src/api/websocket.ts`, matching a Python enum in the backend and Kotlin literals in Android. Nothing checks that the three agree (#93). A backend event change is not done until this client and the docs move with it.
 - **`allowed_paths` is a boundary, not a preference.** A host tool aimed outside it is refused, not prompted — see [docs/security.md](docs/security.md).
 - **The e2e suite cannot run on a headless host**, and it is the only one that catches WebSocket reconnect regressions. `npm run test:e2e:docker` needs nothing but Docker.
 - **One WebSocket error code is not an error.** `NO_MODEL_SELECTED` means the account has never had a model chosen — every new account, since provisioning cannot pick one — so it renders as `NoModelPrompt` above the composer with a button onto Settings → Assistant, and the refused message goes back into the composer, instead of the red toast the other codes get ([docs/chat.md](docs/chat.md), #149). **Android mirrors this**, with one difference that matters for copy: there, Assistant is a top-level drawer entry, not a Settings row, so neither client should spell out the other's path.
+- **The composer's scope resolves after login, and a draft must survive that.** `ChatComposer` is keyed on `personaId` and `conversationId`, both of which arrive asynchronously; it drops the draft only when *leaving* a concrete conversation, never on `null → id`. It used to clear on any change, which lost keystrokes and made Windows CI fail with a disabled Send right after `fill()` (#145, [docs/chat.md](docs/chat.md)). The e2e `send()` helpers deliberately stay naive.
 - **Two different things are called "MCP" here.** The servers this client starts and calls ([docs/mcp.md](docs/mcp.md)), and the endpoint this app *is* for an external client ([docs/security.md](docs/security.md#the-built-in-mcp-server)).

@@ -153,7 +153,23 @@ provider and the key is used as the fallback.
 **Behind a proxy the login rate limiter collapses to one bucket** (#155): it keys
 on the socket peer, and uvicorn runs without `--proxy-headers`.
 
-**The vision pipeline needs a GPU the base stack does not reserve** (#152).
+**Camera vision runs on the CPU unless a GPU is reserved.** Gesture detection
+picks `cuda` when the container can see a GPU and `cpu` otherwise (`VISION_DEVICE`
+forces one); the base stack reserves no GPU, so a default install gets the slower
+CPU path. The override block that reserves one is in `development.md`.
+
+**A stuck database answers 503, not silence.** Every request waits at most
+`DB_OPERATION_TIMEOUT_SECONDS` (60) for the single database thread, the engine
+gives up connecting after `DB_CONNECT_TIMEOUT_SECONDS` (5) and any one statement
+after `DB_STATEMENT_TIMEOUT_SECONDS` (30, `0` disables). Each failure is in the
+API log with a traceback and a reference the response also carries (#153).
+
+**An unreachable provider is an error, not an empty list.** `GET /models` answers
+502 when no model provider can be reached, and otherwise names the ones it could
+not reach in `unavailable`; `GET /tts/models` answers 502 when universal-voice is
+down instead of a made-up list (#151). On Linux, the host's Ollama must be started
+with `OLLAMA_HOST=0.0.0.0` or it refuses the container — that now reads as "The
+Ollama server is unreachable" in the model picker.
 
 **Logs are capped** at 10 MB × 5 per service. They were unbounded.
 

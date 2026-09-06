@@ -196,6 +196,16 @@ services:
       # How long the entrypoint waits for the database before failing loudly.
       - DB_WAIT_ATTEMPTS=${DB_WAIT_ATTEMPTS:-60}
       - DB_WAIT_INTERVAL=${DB_WAIT_INTERVAL:-2}
+      # Ceilings that keep a stuck database from silently hanging every request
+      # (#153): TCP connect, one statement, and how long a request waits for the
+      # single database thread. 0 disables the statement timeout.
+      - DB_CONNECT_TIMEOUT_SECONDS=${DB_CONNECT_TIMEOUT_SECONDS:-5}
+      - DB_STATEMENT_TIMEOUT_SECONDS=${DB_STATEMENT_TIMEOUT_SECONDS:-30}
+      - DB_OPERATION_TIMEOUT_SECONDS=${DB_OPERATION_TIMEOUT_SECONDS:-60}
+      # Where YOLOv8-Pose runs for gesture detection: cpu, cuda, or empty to
+      # use a GPU when torch can see one (#152). The base stack reserves no GPU;
+      # docs/development.md shows the override that does.
+      - VISION_DEVICE=${VISION_DEVICE:-}
       # No silent defaults on the credentials: an empty environment file used to
       # start Postgres with a blank password and an API that could not log into
       # it, which reads as a hang rather than as a configuration error.

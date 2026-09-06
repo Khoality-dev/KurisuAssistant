@@ -9,6 +9,7 @@ localStorage.**
 ## Login and refresh
 - Login → POST /login → access token (1h) + refresh token (30d) → held by apiClient and in `storage`'s module memory; written to the OS keychain only if rememberMe. Memory holds them either way, so authed asset URLs work in a no-remember-me session.
 - App startup: `initializeAuth()` → sets refresh token on apiClient → validates via GET /users/me → auto-refreshes on 401 via axios interceptor
+- Before that, `App.tsx` calls `GET /version`; a wire-protocol mismatch shows `UpdateRequiredScreen` instead of the login form. Its "Change server" button calls the auth store's `logout()` (tokens dropped, remember-me off) and clears the gate, so the login form renders with the stored Server URL editable. A 426 on any later request, or a 4426 socket close, raises the same screen the same way (#150; see [endpoints.md](endpoints.md))
 - Token refresh: `POST /auth/refresh` with refresh_token body → returns new access_token. Coalesced (concurrent 401s share one refresh call). On success, persists new token if rememberMe. On failure, triggers logout.
 - WebSocket auth failure (4001): wsManager auto-refreshes via apiClient.tryRefresh() then reconnects
 

@@ -353,16 +353,17 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         return [m["id"] for m in data.get("data", []) if "id" in m and self._model_filter(m)]
 
     def list_models(self) -> List[str]:
-        """List chat models; an unreachable or refusing endpoint yields an empty list."""
+        """List chat models. An unreachable or refusing endpoint raises: the
+        caller (``GET /models``) reports the provider as unavailable instead of
+        showing an empty list that reads as "no models" (#151)."""
         try:
             return self._list_models_raw()
         except Exception as e:
             logger.error("Failed to list %s models: %s", self.PROVIDER_NAME, e, exc_info=True)
-            return []
+            raise
 
     def validate_key(self) -> int:
-        # Unlike list_models this lets the refusal through: a bad key must read as
-        # invalid, not as "valid, zero models".
+        # A bad key must read as invalid, not as "valid, zero models".
         return len(self._list_models_raw())
 
     def generate(

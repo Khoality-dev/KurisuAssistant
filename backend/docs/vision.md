@@ -1,13 +1,17 @@
 # Vision Pipeline
 
-**Needs a GPU, and the default stack has none.** The gesture detector passes
-`device="cuda"` to YOLOv8-Pose unconditionally
-(`models/gesture_detection/mediapipe_provider.py:62`, `:139`), while the base
-Compose file reserves no device — a reservation makes `up` fail outright on a
-host without the NVIDIA runtime, which is why it moved to
-`docker-compose.override.yml` (see `development.md`). So on a default install
-this pipeline fails at the point of use rather than reporting itself
-unavailable. Tracked in #152. Chat, tools, memory and speech are unaffected.
+**Runs without a GPU, slower.** YOLOv8-Pose used to be sent to `device="cuda"`
+unconditionally, so on the CPU-only default stack camera vision failed at the
+point of use (#152). `resolve_device()` in
+`models/gesture_detection/mediapipe_provider.py` now picks the device once per
+process: `VISION_DEVICE` if set (`cpu`, `cuda`, `cuda:1`), otherwise `cuda` when
+torch can see a GPU and `cpu` when it cannot, and logs the choice at startup of
+the detector — so "why is gesture detection slow" (`device: cpu`) and "why does
+it not work" read differently in the log. Forcing `cuda` on a host without one
+falls back to the CPU with a warning rather than failing per frame. Reserving a
+GPU for the `api` service is a `docker-compose.override.yml` matter (see
+`development.md`), because a device reservation in the base file makes `up`
+fail outright on a host without the NVIDIA runtime.
 
 ## Architecture
 
@@ -26,7 +30,7 @@ REST endpoints (`/faces`, `/faces/{id}`, `/faces/{id}/photos`). Photo uploaded �
 ## Gesture Detection
 
 Provider (`mediapipe_provider.py`) only extracts raw landmarks:
-- **Body pose**: YOLOv8n-Pose on CUDA (17 COCO keypoints)
+- **Body pose**: YOLOv8n-Pose on the resolved device — CUDA or CPU (17 COCO keypoints)
 - **Hands**: MediaPipe Hands on CPU (21 landmarks/hand + handedness)
 
 Returns `{pose_landmarks, hands: [{landmarks, handedness}]}`.

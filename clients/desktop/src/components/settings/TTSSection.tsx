@@ -3,6 +3,7 @@ import {
   Box,
   Typography,
   FormControl,
+  FormHelperText,
   InputLabel,
   Select,
   MenuItem,
@@ -45,7 +46,7 @@ const COMMON_LANGUAGES = [
 ];
 
 export const TTSSection: React.FC = () => {
-  const { backends, loadBackends } = useTTS();
+  const { backends, backendsError, loadBackends } = useTTS();
 
   // ASR settings
   const [asrMode, setAsrModeState] = useState(storage.getASRMode());
@@ -238,7 +239,7 @@ export const TTSSection: React.FC = () => {
         <FormControl fullWidth>
           <InputLabel>TTS Model</InputLabel>
           <Select
-            value={ttsBackend}
+            value={backends.includes(ttsBackend) ? ttsBackend : ''}
             label="TTS Model"
             onChange={(e) => setTtsBackend(e.target.value)}
           >
@@ -248,6 +249,11 @@ export const TTSSection: React.FC = () => {
               </MenuItem>
             ))}
           </Select>
+          {backendsError ? (
+            <FormHelperText error>{backendsError}</FormHelperText>
+          ) : backends.length === 0 ? (
+            <FormHelperText>The speech service lists no TTS models.</FormHelperText>
+          ) : null}
         </FormControl>
       </Box>
 

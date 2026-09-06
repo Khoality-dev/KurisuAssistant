@@ -81,6 +81,11 @@ Two-level state managed by `useMicStore` (Zustand, `src/store/micStore.ts`): `in
 - Commands return feedback strings shown as info toasts
 - `handleCommand()` is async, returns `Promise<string | null>`
 
+## Composer scope
+- `ChatComposer` takes `personaId` and `conversationId` (both nullable) rather than a string key. Both resolve asynchronously after login — the persona store settles, the latest conversation loads — and a draft typed in that window must survive it.
+- The scope effect clears `input` and `images` only when **leaving a concrete scope**: the previous persona was bound *and* the previous conversation had an id, and either changed. `null → id` is the scope becoming known, not a switch, so the draft stays. Before this the effect cleared on any change, which lost real keystrokes and is what left the e2e composer disabled right after `fill()` on Windows CI (#145).
+- Prompt history is repopulated from the store's messages on every scope change, as before.
+
 ## Prompt History
 - Session-scoped prompt history tracked in `ChatComposer` via `promptHistoryRef`
 - Arrow Up: browse previous prompts (saves current draft in `draftRef`)

@@ -57,6 +57,8 @@ export const AssistantSection: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Providers the server could not reach: the list below is real but partial.
+  const [modelsWarning, setModelsWarning] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
   const { toolGroups } = useAvailableTools(setError);
@@ -68,10 +70,16 @@ export const AssistantSection: React.FC = () => {
 
   const loadModels = async () => {
     try {
-      setModels(await apiClient.getModels());
+      const { models: list, unavailable } = await apiClient.getModelsWithStatus();
+      setModels(list);
+      setModelsWarning(
+        unavailable.length > 0
+          ? unavailable.map((u) => `${u.provider}: ${u.detail}`).join(' ')
+          : '',
+      );
     } catch (err: any) {
       console.error('Failed to load models:', err);
-      setError('Failed to load the model list');
+      setError(err.response?.data?.detail || 'Failed to load the model list');
     }
   };
 
@@ -169,6 +177,7 @@ export const AssistantSection: React.FC = () => {
 
       {successMessage && <Alert severity="success" sx={{ mb: 2 }}>{successMessage}</Alert>}
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {modelsWarning && <Alert severity="warning" sx={{ mb: 2 }}>{modelsWarning}</Alert>}
 
       <Paper elevation={0} sx={{ p: 3, border: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 3 }}>
         <ModelPicker

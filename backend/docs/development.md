@@ -152,7 +152,7 @@ Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `G
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | — | Database connection |
-| `LLM_API_URL` | `http://localhost:11434` in-process, `http://host.docker.internal:11434` under Compose | Ollama server URL. The two defaults differ, and only the Compose one applies to a deployment. On Linux the host's Ollama must be started with `OLLAMA_HOST=0.0.0.0` or it refuses the container, which surfaces as an empty model list rather than an error (#151) |
+| `LLM_API_URL` | `http://localhost:11434` in-process, `http://host.docker.internal:11434` under Compose | Ollama server URL. The two defaults differ, and only the Compose one applies to a deployment. On Linux the host's Ollama must be started with `OLLAMA_HOST=0.0.0.0` or it refuses the container, which `GET /models` reports as a 502 naming this variable (#151) |
 | `GEMINI_API_KEY`, `NVIDIA_API_KEY`, `POE_API_KEY` | — | Cloud LLM providers; fallbacks when the user has no key stored |
 | `ASR_API_URL`, `UVOICE_URL` | (docker-compose) | Speech recognition / universal voice service |
 | `JWT_SECRET_KEY` | generated | Overrides the secret persisted to `data/jwt_secret.key` |
@@ -162,6 +162,9 @@ Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `G
 | `MCP_TLS_VERIFY` | `true` | Set to `false` to skip TLS verification on server-side MCP connections |
 | `ALLOW_REGISTRATION` | `true` | Whether anyone may request an account. Open by default because registering grants nothing: the account is inactive until `users.is_active` is set by hand (#148). `false` refuses even the request |
 | `AUTH_RATE_LIMIT_MAX_ATTEMPTS`, `AUTH_RATE_LIMIT_WINDOW_SECONDS` | `10`, `300` | Brute-force limit on `/login` and `/register`, per client address; `0` disables |
+| `DB_CONNECT_TIMEOUT_SECONDS`, `DB_STATEMENT_TIMEOUT_SECONDS` | `5`, `30` | libpq ceilings on the engine: TCP connect, and any one statement (`0` disables). Alembic builds its own engine and is not subject to them (#153) |
+| `DB_OPERATION_TIMEOUT_SECONDS` | `60` | How long a request waits for the single database thread before answering 503 (#153) |
+| `VISION_DEVICE` | — | `cpu` or `cuda` for gesture detection; empty picks `cuda` when torch sees a GPU, else `cpu` (#152) |
 
 Read by Compose rather than by the server:
 

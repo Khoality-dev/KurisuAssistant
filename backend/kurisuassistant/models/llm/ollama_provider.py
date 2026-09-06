@@ -79,15 +79,15 @@ class OllamaProvider(BaseLLMProvider):
     def list_models(self) -> List[str]:
         """List available Ollama models.
 
+        Raises when the host cannot be reached: an empty list means "this
+        server has no models", which is not what an unreachable host means,
+        and the two were indistinguishable to a first-run user (#151).
+
         Returns:
             List of model names
         """
-        try:
-            resp = self.client.list()
-            return [m.model for m in getattr(resp, "models", [])]
-        except Exception as e:
-            logger.error(f"Failed to list Ollama models: {e}", exc_info=True)
-            return []
+        resp = self.client.list()
+        return [m.model for m in getattr(resp, "models", [])]
 
     def generate(
         self,

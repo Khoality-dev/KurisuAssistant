@@ -56,7 +56,7 @@ export const SubAgentsSection: React.FC = () => {
       setModels(await apiClient.getModels());
     } catch (err: any) {
       console.error('Failed to load models:', err);
-      setError('Failed to load the model list');
+      setError(err.response?.data?.detail || 'Failed to load the model list');
     }
   };
 

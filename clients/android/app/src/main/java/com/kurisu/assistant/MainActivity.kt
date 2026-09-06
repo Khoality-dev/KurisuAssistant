@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
 import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.remote.api.DynamicBaseUrlInterceptor
+import com.kurisu.assistant.data.remote.api.ProtocolMismatchSignal
 import com.kurisu.assistant.data.repository.AuthRepository
 import com.kurisu.assistant.data.repository.UpdateRepository
 import com.kurisu.assistant.data.repository.VersionCheck
@@ -34,6 +35,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var dynamicBaseUrlInterceptor: DynamicBaseUrlInterceptor
     @Inject lateinit var versionRepository: VersionRepository
     @Inject lateinit var updateRepository: UpdateRepository
+    @Inject lateinit var protocolMismatchSignal: ProtocolMismatchSignal
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,6 +51,9 @@ class MainActivity : ComponentActivity() {
                 ) {
                     var versionCheck by remember { mutableStateOf<VersionCheck?>(null) }
                     var startDestination by remember { mutableStateOf<String?>(null) }
+                    // "Change server" on the update gate (#150): the mismatch stands,
+                    // but the user has asked for the login form to correct the URL.
+                    var gateDismissed by remember { mutableStateOf(false) }
                     val scope = rememberCoroutineScope()
 
                     LaunchedEffect(Unit) {
@@ -69,8 +74,18 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    when (val check = versionCheck) {
-                        is VersionCheck.Mismatch -> UpdateRequiredScreen(
+                    // A 426 or a 4426 close mid-session: the server changed protocol
+                    // under a signed-in client. Same gate as the startup check (#150).
+                    val liveMismatch by protocolMismatchSignal.mismatch.collectAsState()
+                    LaunchedEffect(liveMismatch) {
+                        val info = liveMismatch ?: return@LaunchedEffect
+                        versionCheck = VersionCheck.Mismatch(info)
+                        gateDismissed = false
+                    }
+
+                    val check = versionCheck
+                    when {
+                        check is VersionCheck.Mismatch && !gateDismissed -> UpdateRequiredScreen(
                             info = check.info,
                             onCheckForUpdate = {
                                 scope.launch {
@@ -82,6 +97,18 @@ class MainActivity : ComponentActivity() {
                                             installApk(this@MainActivity, file)
                                         }
                                     }
+                                }
+                            },
+                            onChangeServer = {
+                                scope.launch {
+                                    // The session belongs to the server that was just
+                                    // refused; drop it so the login form starts clean.
+                                    // LoginViewModel prefills the URL from prefs and
+                                    // re-caches it in DynamicBaseUrlInterceptor on submit.
+                                    authRepository.logout()
+                                    protocolMismatchSignal.clear()
+                                    startDestination = Routes.LOGIN
+                                    gateDismissed = true
                                 }
                             },
                         )

@@ -9,6 +9,17 @@ export interface ServerVersionInfo {
   wire_protocol: number;
 }
 
+/** A provider `GET /models` could not reach; `detail` is what the server says about it. */
+export interface UnavailableProvider {
+  provider: string;
+  detail: string;
+}
+
+export interface ModelsResponse {
+  models: Array<{ name: string; provider: string }>;
+  unavailable: UnavailableProvider[];
+}
+
 // Embedded persona stamp on a stored message (subset of Persona) — who said it.
 // The backend attaches it to assistant messages that carry a persona_id; tool
 // messages have neither, and use `name` for the tool label instead.

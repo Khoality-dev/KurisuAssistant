@@ -13,6 +13,24 @@ POSTGRES_DB = os.getenv("POSTGRES_DB", "kurisu")
 
 DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
+# Ceilings on the two ways a database can hold the db-service thread forever
+# (#153): accepting TCP and never finishing the handshake, and running one
+# pathological query indefinitely. Both are libpq settings, so they cover
+# every session on this engine and nothing else — Alembic builds its own engine
+# and a migration may legitimately take longer than a statement.
+CONNECT_TIMEOUT_SECONDS = int(os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "5"))
+STATEMENT_TIMEOUT_SECONDS = int(os.getenv("DB_STATEMENT_TIMEOUT_SECONDS", "30"))
+
+
+def connect_args(connect_timeout: int = CONNECT_TIMEOUT_SECONDS,
+                 statement_timeout: int = STATEMENT_TIMEOUT_SECONDS) -> dict:
+    """psycopg2 connection arguments; ``0`` disables the statement timeout."""
+    args: dict = {"connect_timeout": connect_timeout}
+    if statement_timeout > 0:
+        args["options"] = f"-c statement_timeout={statement_timeout * 1000}"
+    return args
+
+
 # Create engine with connection pooling
 engine = create_engine(
     DATABASE_URL,
@@ -21,6 +39,7 @@ engine = create_engine(
     max_overflow=20,
     pool_pre_ping=True,  # Verify connections before using
     pool_recycle=3600,   # Recycle connections after 1 hour
+    connect_args=connect_args(),
 )
 
 # Create session factory

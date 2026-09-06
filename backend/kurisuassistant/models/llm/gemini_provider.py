@@ -399,13 +399,10 @@ class GeminiProvider(BaseLLMProvider):
                 models.append(name)
             return models
         except Exception as e:
+            # No fabricated catalogue: an unreachable API used to answer with
+            # four hard-coded names that may not exist (#151).
             logger.error(f"Failed to list Gemini models: {e}", exc_info=True)
-            return [
-                "gemini-2.5-flash-preview-05-20",
-                "gemini-2.5-pro-preview-05-06",
-                "gemini-2.0-flash",
-                "gemini-2.0-flash-lite",
-            ]
+            raise
 
     def generate(
         self,

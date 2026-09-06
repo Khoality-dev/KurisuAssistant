@@ -183,6 +183,14 @@ export class MockBackend {
     conversationId: null,
     personaId: null,
   };
+  /**
+   * The wire protocol this backend speaks. Defaults to the client's own so the
+   * suite boots; a spec sets another to drive the update-required gate — over
+   * `/version`, a 426 on every other request, and 4426 on the socket (#150).
+   */
+  private wireProtocol: number = WIRE_PROTOCOL;
+  /** Endpoints answering 502 as if the service behind them were down (#151). */
+  private unreachable: Set<'/tts/models' | '/models'> = new Set();
   public lastChatRequest: any = null;
   public lastMcpServerCreate: any = null;
   /** Body of the most recent `PATCH /conversations/{id}`, with the id it hit. */
@@ -286,8 +294,8 @@ export class MockBackend {
       this.wss.handleUpgrade(req, socket, head, (ws) => {
         // Checked before authenticating, like the backend: a client on the wrong
         // protocol is closed with 4426 and must not be served.
-        if (clientProtocol !== null && !Number.isNaN(clientProtocol) && clientProtocol !== WIRE_PROTOCOL) {
-          ws.close(WS_WIRE_PROTOCOL_MISMATCH, `wire_protocol_mismatch (server ${WIRE_PROTOCOL})`);
+        if (clientProtocol !== null && !Number.isNaN(clientProtocol) && clientProtocol !== this.wireProtocol) {
+          ws.close(WS_WIRE_PROTOCOL_MISMATCH, `wire_protocol_mismatch (server ${this.wireProtocol})`);
           return;
         }
         this.handleWs(ws);
@@ -315,6 +323,17 @@ export class MockBackend {
 
   setStream(stream: StreamScript) {
     this.stream = stream;
+  }
+
+  /** Speak another wire protocol from now on; see `wireProtocol`. */
+  setWireProtocol(n: number) {
+    this.wireProtocol = n;
+  }
+
+  /** Make `/tts/models` or `/models` answer 502, as the backend does when the service behind it is down. */
+  setUnreachable(path: '/tts/models' | '/models', down = true) {
+    if (down) this.unreachable.add(path);
+    else this.unreachable.delete(path);
   }
 
   setTools(tools: { mcp?: MockTool[]; builtin?: MockTool[] }) {
@@ -556,7 +575,25 @@ export class MockBackend {
     // and every later locator times out. Taken from the client constant rather
     // than hardcoded, so a protocol bump cannot silently break the whole suite.
     if (pathOnly === '/version' && method === 'GET') {
-      return this.json(res, { backend_version: '0.4.0', wire_protocol: WIRE_PROTOCOL });
+      return this.json(res, { backend_version: '0.4.0', wire_protocol: this.wireProtocol });
+    }
+
+    // The backend's middleware: any request stamped with another protocol is
+    // refused with 426 and the body shape the client reads its numbers from.
+    // `/health` and `/version` are exempt so a mismatched client can recover.
+    const clientWire = req.headers['x-wire-protocol'];
+    if (clientWire !== undefined && pathOnly !== '/health') {
+      const declared = Number.parseInt(String(clientWire), 10);
+      if (Number.isNaN(declared) || declared !== this.wireProtocol) {
+        res.setHeader('Content-Type', 'application/json');
+        res.statusCode = 426;
+        return res.end(JSON.stringify({
+          detail: 'wire_protocol_mismatch',
+          client_wire_protocol: Number.isNaN(declared) ? -1 : declared,
+          server_wire_protocol: this.wireProtocol,
+          backend_version: '0.4.0',
+        }));
+      }
     }
 
     // Auth endpoints
@@ -812,7 +849,10 @@ export class MockBackend {
 
     // Models and misc empty lists
     if (pathOnly === '/models') {
-      return this.json(res, { models: [{ name: 'test-model', provider: 'mock' }] });
+      if (this.unreachable.has('/models')) {
+        return this.error(res, 502, 'The model host (Ollama) is unreachable. (reference: mock)');
+      }
+      return this.json(res, { models: [{ name: 'test-model', provider: 'mock' }], unavailable: [] });
     }
     if (pathOnly === '/tools') {
       const toToolFn = (t: MockTool) => ({
@@ -867,7 +907,12 @@ export class MockBackend {
     if (pathOnly === '/faces') return this.json(res, []);
     if (pathOnly === '/tts/backends') return this.json(res, { backends: [] });
     if (pathOnly === '/tts/voices' || pathOnly.startsWith('/tts/voices')) return this.json(res, { voices: [] });
-    if (pathOnly === '/tts/models') return this.json(res, { models: [] });
+    if (pathOnly === '/tts/models') {
+      if (this.unreachable.has('/tts/models')) {
+        return this.error(res, 502, 'The speech service is unavailable. (reference: mock)');
+      }
+      return this.json(res, { models: [] });
+    }
 
     // Default: empty object, 200
     return this.json(res, {});

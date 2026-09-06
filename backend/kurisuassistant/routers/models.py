@@ -7,7 +7,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from kurisuassistant.core.errors import internal_error
+from kurisuassistant.core.errors import internal_error, log_internal_error
 from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.db.models import User
 from kurisuassistant.models.llm import list_models as llm_list_models, pull_model as llm_pull_model, create_llm_provider
@@ -35,51 +35,62 @@ class PullModelResponse(BaseModel):
     message: str
 
 
+# Providers whose models are listed when the user has stored a key for them.
+_KEYED_PROVIDERS = (
+    ("gemini", "gemini_api_key", "Google Gemini"),
+    ("nvidia", "nvidia_api_key", "NVIDIA NIM"),
+    ("poe", "poe_api_key", "Poe"),
+)
+
+
+def _unreachable(provider: str, label: str, exc: Exception) -> dict:
+    """One entry of the ``unavailable`` list, logged in full with a reference."""
+    reference = log_internal_error(exc, f"listing {label} models")
+    if provider == "ollama":
+        detail = ("The Ollama server is unreachable. Check the server's LLM_API_URL, "
+                  "or the Ollama URL in your account settings.")
+    else:
+        detail = f"{label} could not be reached with the stored key."
+    return {"provider": provider, "detail": f"{detail} (reference: {reference})"}
+
+
 @router.get("")
 async def list_models(
     user: User = Depends(get_authenticated_user),
 ) -> dict:
-    """List available LLM models."""
+    """List available LLM models across the providers the user can use.
+
+    A provider that cannot be reached is reported in ``unavailable`` rather
+    than silently contributing nothing, and when *no* provider answered the
+    response is a 502 — an empty picker used to be the only symptom of a wrong
+    ``LLM_API_URL``, and it reads as "no models installed" (#151).
+    """
+    models: list = []
+    unavailable: list = []
+
     try:
-        user_ollama_url = user.ollama_url
-        ollama_models = await asyncio.to_thread(llm_list_models, api_url=user_ollama_url)
-
-        # Build model list: [{name, provider}]
-        models = [{"name": m, "provider": "ollama"} for m in ollama_models]
-
-        # Add Gemini models if user has API key
-        gemini_api_key = getattr(user, 'gemini_api_key', None)
-        if gemini_api_key:
-            try:
-                gemini_provider = create_llm_provider("gemini", api_key=gemini_api_key)
-                gemini_models = await asyncio.to_thread(gemini_provider.list_models)
-                models.extend({"name": m, "provider": "gemini"} for m in gemini_models)
-            except Exception as ge:
-                logger.warning(f"Failed to list Gemini models: {ge}")
-
-        # Add NVIDIA NIM models if user has API key
-        nvidia_api_key = getattr(user, 'nvidia_api_key', None)
-        if nvidia_api_key:
-            try:
-                nvidia_provider = create_llm_provider("nvidia", api_key=nvidia_api_key)
-                nvidia_models = await asyncio.to_thread(nvidia_provider.list_models)
-                models.extend({"name": m, "provider": "nvidia"} for m in nvidia_models)
-            except Exception as ne:
-                logger.warning(f"Failed to list NVIDIA models: {ne}")
-
-        # Add Poe models if user has API key
-        poe_api_key = getattr(user, 'poe_api_key', None)
-        if poe_api_key:
-            try:
-                poe_provider = create_llm_provider("poe", api_key=poe_api_key)
-                poe_models = await asyncio.to_thread(poe_provider.list_models)
-                models.extend({"name": m, "provider": "poe"} for m in poe_models)
-            except Exception as pe:
-                logger.warning(f"Failed to list Poe models: {pe}")
-
-        return {"models": models}
+        ollama_models = await asyncio.to_thread(llm_list_models, api_url=user.ollama_url)
+        models.extend({"name": m, "provider": "ollama"} for m in ollama_models)
     except Exception as e:
-        raise internal_error(e, "Error fetching models")
+        unavailable.append(_unreachable("ollama", "Ollama", e))
+
+    for provider, key_attr, label in _KEYED_PROVIDERS:
+        api_key = getattr(user, key_attr, None)
+        if not api_key:
+            continue
+        try:
+            llm_provider = create_llm_provider(provider, api_key=api_key)
+            names = await asyncio.to_thread(llm_provider.list_models)
+            models.extend({"name": m, "provider": provider} for m in names)
+        except Exception as e:
+            unavailable.append(_unreachable(provider, label, e))
+
+    if not models and unavailable:
+        raise HTTPException(
+            status_code=502,
+            detail=" ".join(entry["detail"] for entry in unavailable),
+        )
+    return {"models": models, "unavailable": unavailable}
 
 
 @router.get("/details")

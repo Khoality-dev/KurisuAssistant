@@ -61,7 +61,13 @@ const MicIndicator: React.FC = () => {
 };
 
 export interface ChatComposerProps {
-  scopeKey: string;
+  /**
+   * The scope the draft belongs to. Both halves resolve asynchronously after
+   * login (the persona store settles, the latest conversation loads), and a
+   * draft typed while they resolve must survive that — see the scope effect.
+   */
+  personaId: number | null;
+  conversationId: number | null;
   externalDraft: string;
   externalDraftVersion: number;
   isStreaming: boolean;
@@ -73,7 +79,8 @@ export interface ChatComposerProps {
 const promptHistory: string[] = [];
 
 export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
-  scopeKey,
+  personaId,
+  conversationId,
   externalDraft,
   externalDraftVersion,
   isStreaming,
@@ -103,9 +110,29 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
 
   const showCommands = filteredCommands.length > 0 && !isStreaming && !commandSelected;
 
+  // The scope the draft was typed into, so a change can be told apart from a
+  // scope that is only now resolving.
+  const scopeRef = useRef({ personaId, conversationId });
+
   useEffect(() => {
-    setInput('');
-    setImages([]);
+    const previous = scopeRef.current;
+    scopeRef.current = { personaId, conversationId };
+
+    // Drop the draft only when the user LEAVES a concrete conversation. After
+    // login the persona resolves from null and the latest conversation loads
+    // from null, both asynchronously; a draft typed in that window used to be
+    // wiped by this effect, which is also how the e2e composer sat disabled on
+    // a slow CI runner (#145). `null → id` is the same scope becoming known,
+    // not a switch, so the draft stays.
+    const leavingConcreteScope =
+      previous.personaId !== null &&
+      previous.conversationId !== null &&
+      (previous.personaId !== personaId || previous.conversationId !== conversationId);
+    if (leavingConcreteScope) {
+      setInput('');
+      setImages([]);
+    }
+
     // Pre-populate prompt history from conversation's user messages
     promptHistory.length = 0;
     historyIdxRef.current = -1;
@@ -113,7 +140,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
     for (const m of msgs) {
       if (m.role === 'user' && m.content) promptHistory.push(m.content);
     }
-  }, [scopeKey]);
+  }, [personaId, conversationId]);
 
   useEffect(() => {
     setInput(externalDraft);
