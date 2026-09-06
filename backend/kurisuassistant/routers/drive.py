@@ -336,7 +336,13 @@ async def upload_file(
         # Someone created the same name between the check and the write.
         await drive_storage.delete_blobs(user.id, [storage_key])
         raise HTTPException(status_code=409, detail=f"'{final_name}' already exists here")
+    except LookupError:
+        # ...or removed the folder it was going into.
+        await drive_storage.delete_blobs(user.id, [storage_key])
+        raise HTTPException(status_code=404, detail="Not found")
     except BaseException as e:
+        # BaseException so a client hanging up mid-request — which arrives as a
+        # cancellation, not an Exception — still releases the bytes.
         await drive_storage.delete_blobs(user.id, [storage_key])
         if isinstance(e, HTTPException):
             raise
