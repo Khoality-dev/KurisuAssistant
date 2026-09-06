@@ -394,14 +394,14 @@ internal fun parseServerEvent(text: String): ServerEvent? {
     val type = jsonElement.jsonObject["type"]?.jsonPrimitive?.content ?: return null
 
     return when (type) {
-        "stream_chunk" -> parserJson.decodeFromString<StreamChunkEvent>(text)
-        "done" -> parserJson.decodeFromString<DoneEvent>(text)
-        "error" -> parserJson.decodeFromString<ErrorEvent>(text)
-        "tool_approval_request" -> parserJson.decodeFromString<ToolApprovalRequestEvent>(text)
-        "tool_call_request" -> parserJson.decodeFromString<ToolCallRequestEvent>(text)
-        "vision_result" -> parserJson.decodeFromString<VisionResultEvent>(text)
-        "connected" -> parserJson.decodeFromString<ConnectedEvent>(text)
-        "context_info" -> parserJson.decodeFromString<ContextInfoEvent>(text)
+        ProtocolEvents.STREAM_CHUNK -> parserJson.decodeFromString<StreamChunkEvent>(text)
+        ProtocolEvents.DONE -> parserJson.decodeFromString<DoneEvent>(text)
+        ProtocolEvents.ERROR -> parserJson.decodeFromString<ErrorEvent>(text)
+        ProtocolEvents.TOOL_APPROVAL_REQUEST -> parserJson.decodeFromString<ToolApprovalRequestEvent>(text)
+        ProtocolEvents.TOOL_CALL_REQUEST -> parserJson.decodeFromString<ToolCallRequestEvent>(text)
+        ProtocolEvents.VISION_RESULT -> parserJson.decodeFromString<VisionResultEvent>(text)
+        ProtocolEvents.CONNECTED -> parserJson.decodeFromString<ConnectedEvent>(text)
+        ProtocolEvents.CONTEXT_INFO -> parserJson.decodeFromString<ContextInfoEvent>(text)
         else -> null
     }
 }

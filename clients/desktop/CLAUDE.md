@@ -38,7 +38,7 @@ Workflows live at the repo root. `.github/workflows/desktop-build.yml` triggers 
 
 Six things that are not obvious from the code and have each cost a debugging session:
 
-- **The protocol is retyped by hand.** `src/constants.ts` holds `WIRE_PROTOCOL`; the event names are string literals in `src/api/websocket.ts`, matching a Python enum in the backend and Kotlin literals in Android. Nothing checks that the three agree (#93). A backend event change is not done until this client and the docs move with it.
+- **The protocol is checked, not trusted.** `src/constants.ts` holds `WIRE_PROTOCOL` and `src/api/websocket.ts` holds the event names, both still written here rather than generated — but `src/api/protocol.test.ts` compares them against `protocol/events.json`, which the backend generates, so a mismatch fails `npm test` instead of shipping (#93). The union type is derived from the runtime array, so adding a name to one and not the other is a type error. A backend event change is still not done until this client and the docs move with it.
 - **`allowed_paths` is a boundary, not a preference.** A host tool aimed outside it is refused, not prompted — see [docs/security.md](docs/security.md).
 - **Client tests run against the mock, never a deployed backend** — unit, e2e, instrumented, screenshot capture. `tests/mock/server.ts` mirrors `backend/kurisuassistant/`; when they disagree the backend wins and the mock is fixed in the same PR as the protocol change. `npm run mock:backend` starts it on its own (#126).
 - **The e2e suite cannot run on a headless host**, and it is the only one that catches WebSocket reconnect regressions. `npm run test:e2e:docker` needs nothing but Docker.

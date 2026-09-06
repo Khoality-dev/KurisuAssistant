@@ -5,11 +5,17 @@ on:
     branches: [main]
     paths:
       - 'clients/desktop/**'
+      # The protocol manifest is shared: a change to it has to run this
+      # suite too, or the drift check only fires for whoever edited last (#93).
+      - 'protocol/**'
       - '.github/workflows/desktop-test.yml'
   pull_request:
     branches: [main]
     paths:
       - 'clients/desktop/**'
+      # The protocol manifest is shared: a change to it has to run this
+      # suite too, or the drift check only fires for whoever edited last (#93).
+      - 'protocol/**'
       - '.github/workflows/desktop-test.yml'
   workflow_dispatch:
 
