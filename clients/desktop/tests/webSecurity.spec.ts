@@ -10,16 +10,27 @@
 
 import { test, expect } from './fixtures';
 
+/**
+ * Deliberately unresolvable: the guards must refuse before anything is
+ * fetched, so the assertion should not depend on the runner having a network,
+ * or on how quickly a real host answers.
+ */
+const REMOTE = 'https://blocked.invalid/';
+
 test.describe('window navigation guards', () => {
   test('window.open on a remote URL creates no second renderer', async ({ page, electronApp }) => {
     const before = electronApp.windows().length;
 
-    await page.evaluate(() => {
-      window.open('https://example.com/', '_blank');
-    });
+    // Fire and forget. When the guard blocks the attempt Chromium can leave the
+    // renderer with a pending navigation, and then the evaluate call's own
+    // promise never settles — which is a hang on Linux CI rather than a
+    // failure, at exactly the test timeout. What is being asserted is what the
+    // app did, not what the injected script returned.
+    void page
+      .evaluate((url) => { window.open(url, '_blank'); }, REMOTE)
+      .catch(() => { /* the context may go away mid-call; that is the point */ });
 
-    // A denied handler resolves nothing; give a window time to appear if the
-    // guard were missing, then assert none did.
+    // Give a window time to appear if the guard were missing, then assert none did.
     await page.waitForTimeout(1_500);
 
     expect(electronApp.windows().length).toBe(before);
@@ -37,9 +48,9 @@ test.describe('window navigation guards', () => {
       .toBeVisible();
     const before = page.url();
 
-    await page.evaluate(() => {
-      window.location.href = 'https://example.com/';
-    });
+    void page
+      .evaluate((url) => { window.location.href = url; }, REMOTE)
+      .catch(() => { /* see above: a blocked navigation can strand the call */ });
     await page.waitForTimeout(1_500);
 
     expect(page.url()).toBe(before);
