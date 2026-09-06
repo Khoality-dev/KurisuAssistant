@@ -89,6 +89,19 @@ Keep a deployment's checkout separate from the one you develop in. The checkout 
 git fetch --tags && git checkout backend-vX.Y.Z && docker compose up -d --build
 ```
 
+**Moving an existing deployment onto the profile split needs two things written
+down once.** The base file no longer hardcodes what one machine happened to
+have, so a deployment that relied on either must say so in its environment file
+or its override:
+
+- `LLM_API_URL` now defaults to the host's Ollama. If yours runs as a container
+  on a Docker network — the usual arrangement when Ollama is shared with other
+  stacks — set `LLM_API_URL=http://<its container name>:11434` explicitly, or
+  the API will look for an Ollama on the host and find none.
+- The `central` network attachment and any GPU reservation are in
+  `docker-compose.override.yml` now (block above). Without it the API is
+  published on `API_PORT` instead of being reachable through the proxy.
+
 Migrations run on container start, so the restart is also what applies them. `docker-compose.yml` pins `name: kurisuassistant`, so the project adopts the same containers and volumes (`postgres-container`, `kurisuassistant_postgres-data`) whichever directory it is started from — a checkout under a new path continues the same database instead of silently creating an empty one.
 
 When a release bumps `WIRE_PROTOCOL`, publish the client releases first — `android-v*` and `desktop-v*` tags trigger the publish workflows — and deploy the backend tag after. The backend rejects a mismatched client with 426 and Android hard-gates on it, so deploying first locks every installed app out.
