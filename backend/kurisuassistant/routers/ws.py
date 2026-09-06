@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from kurisuassistant.core.accounts import ACCOUNT_INACTIVE_DETAIL
 from kurisuassistant.core.security import get_current_user
 from kurisuassistant.version import WIRE_PROTOCOL
 from kurisuassistant.websocket.manager import manager
@@ -126,12 +127,20 @@ async def websocket_chat(websocket: WebSocket):
     def _get_user_id(session):
         user_repo = UserRepository(session)
         user = user_repo.get_by_username(username)
-        return user.id if user else None
+        if not user:
+            return None
+        # The socket authenticates on its own, so the activation gate in
+        # `get_authenticated_user` does not cover it. An unactivated account
+        # holding a valid token must not get a chat session.
+        return user.id if user.is_active else False
 
     db = get_db_service()
     user_id = await db.execute(_get_user_id)
     if user_id is None:
         return await reject("User not found")
+    if user_id is False:
+        logger.info("WS rejected: account '%s' is not activated", username)
+        return await reject(ACCOUNT_INACTIVE_DETAIL)
 
     await manager.connect(websocket, user_id, subprotocol=subprotocol)
 

@@ -30,9 +30,15 @@ db_url = f"postgresql://{_user}:{_password}@{_host}:{_port}/{_db}"
 config.set_main_option("sqlalchemy.url", db_url)
 
 # Interpret the config file for Python logging.
-# This line sets up loggers basically.
+#
+# `disable_existing_loggers=False` matters: alembic.ini names only root,
+# sqlalchemy and alembic, and fileConfig's default is to switch off every logger
+# that already exists. Migrations run inside the API's own startup, so the
+# default silently muted `kurisuassistant.*` for the rest of the process —
+# which is why the account-activation hint and the default-password warning
+# after `command.upgrade` never reached the log.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # add your model's MetaData object here
 # for 'autogenerate' support

@@ -30,7 +30,7 @@ You need a Kurisu Assistant server URL and an account. If someone else hosts the
 
 1. Install the [desktop client](https://github.com/Khoality-dev/KurisuAssistant-Client-Desktop/releases/latest) or [Android client](https://github.com/Khoality-dev/KurisuAssistant-Client-Android/releases/latest).
 2. Open the app and enter the complete server URL, including `http://` or `https://`.
-3. On a fresh self-hosted server, sign in with `admin` / `admin`. Registration is closed by default even though the clients show a **Register** tab.
+3. On a fresh self-hosted server, register in the app, then ask the server operator to activate your account before signing in.
 4. On desktop, open **Settings → Assistant**; on Android, open **Assistant** from the drawer. Select a model. The first message fails until a model is selected.
 5. Keep the default persona or create one using the client-specific guide, then start chatting. Grant microphone or camera permission only when you want those features.
 
@@ -58,8 +58,17 @@ The first start downloads several gigabytes. When it finishes, open
 ```
 
 Follow the quick start above, using `http://localhost:15597` on the server
-computer or `http://<server-address>:15597` on another device. Sign in with
-`admin` / `admin`.
+computer or `http://<server-address>:15597` on another device. Register in the
+app, then activate the account by running this from `backend/`, replacing
+`name` with its username:
+
+```bash
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+UPDATE users SET is_active = true WHERE username = 'name';
+SQL
+```
+
+The user can now sign in.
 
 For a cloud model, add its API key under **Settings → Account**. For Ollama,
 leave the default URL if it runs on the server computer; on Linux, start it with
@@ -72,7 +81,7 @@ Android drawer before sending your first message.
 - **Cannot connect:** open `/health` with the same host and port; on a phone, replace `localhost` with the server's LAN address.
 - **No models appear:** check that Ollama is reachable from Docker, or save a valid cloud provider key and refresh the model list.
 - **The first message fails:** select and save a model under **Assistant**.
-- **Registration is closed:** use `admin` / `admin`, or set `ALLOW_REGISTRATION=true` in `backend/.env` and run `docker compose up -d` again.
+- **The account is not activated yet:** ask the server operator to activate it using the command above; waiting accounts are listed in the API startup log.
 - **The server does not start:** from `backend/`, run `docker compose logs api` and check the first reported error.
 
 For backup, restore, updates, and removal, see [server operations](backend/docs/operations.md).
@@ -87,7 +96,7 @@ For voice conversations, select an ASR language/model and TTS backend, then enab
 
 ## Common safety notes
 
-- A fresh self-hosted server seeds `admin` / `admin`, and there is currently no way to change that password. Do not expose a fresh server on an untrusted network.
+- A fresh self-hosted server has no default account or password; registered accounts must be activated by the server operator.
 - Treat login QR codes and API keys like passwords.
 - Only enable tools you trust. Desktop host tools can access files or run commands within paths allowed under **Host Access**.
 - Back up the database, `data/`, and `.env` together by following [Server operations](backend/docs/operations.md).

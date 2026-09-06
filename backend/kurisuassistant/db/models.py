@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, ForeignKey, JSON, UniqueConstraint
+from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, ForeignKey, JSON, UniqueConstraint, false
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from pgvector.sqlalchemy import Vector
@@ -11,6 +11,10 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     username = Column(String, unique=True, nullable=False)
     password = Column(Text, nullable=False)
+    # Registration is open; activation is the gate. A new account is inactive
+    # until the operator flips this in the database — there is no admin account
+    # and no endpoint that can do it (#148).
+    is_active = Column(Boolean, nullable=False, server_default=false())
     system_prompt = Column(Text, default='')
     preferred_name = Column(Text, default='')
     agent_avatar_uuid = Column(String, nullable=True)

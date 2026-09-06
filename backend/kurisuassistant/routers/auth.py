@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
-from kurisuassistant.core.accounts import provision_user
+from kurisuassistant.core.accounts import ACCOUNT_INACTIVE_DETAIL, provision_user
 from kurisuassistant.core.errors import internal_error
 from kurisuassistant.core.security import (
     create_access_token,
@@ -31,14 +31,18 @@ router = APIRouter(tags=["auth"])
 def _registration_open() -> bool:
     """Whether anyone may create an account on this server.
 
-    Closed by default. A self-hosted server is seeded with an ``admin`` account,
-    so the operator never needs open registration to get started, and leaving it
-    open hands an account — and with it the model providers, the GPU and the
-    agent tool loop — to anyone who can reach the port.
+    Open by default now, because registering no longer grants anything: an
+    account is created inactive and stays inactive until the operator activates
+    it in the database. Registration is a request, not an entry.
+
+    It was closed by default when a fresh server came with a seeded ``admin``
+    account, and leaving it open then handed a working account — with the model
+    providers, the GPU and the agent tool loop behind it — to anyone who could
+    reach the port. Set ``ALLOW_REGISTRATION=false`` to refuse even the request.
 
     Read per call rather than at import so it can be flipped without a rebuild.
     """
-    return os.getenv("ALLOW_REGISTRATION", "false").strip().lower() in ("1", "true", "yes", "on")
+    return os.getenv("ALLOW_REGISTRATION", "true").strip().lower() in ("1", "true", "yes", "on")
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +121,11 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
         user = user_repo.get_by_username(form_data.username)
         if not user or not verify_password(form_data.password, user.password):
             raise HTTPException(status_code=400, detail="Incorrect username or password")
+        # Refused here as well as on every authenticated request, so the answer
+        # to a correct password is the reason rather than a token that fails
+        # against everything a moment later.
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail=ACCOUNT_INACTIVE_DETAIL)
         return user.username
 
     db = get_db_service()
@@ -127,7 +136,13 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
 
 @router.post("/register")
 async def register(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
-    """Register a new user account and return tokens."""
+    """Create an account, inactive until the operator activates it.
+
+    The response keeps the token shape an older client expects and adds
+    ``pending_activation``. Those tokens open nothing — every authenticated
+    route and the chat socket refuse an inactive account — so a client that
+    ignores the flag simply meets the same explanation on its next request.
+    """
     if not _registration_open():
         logger.warning(
             "Rejected registration for '%s': registration is closed on this server",
@@ -159,7 +174,17 @@ async def register(request: Request, form_data: OAuth2PasswordRequestForm = Depe
     except Exception as e:
         raise internal_error(e, f"Error registering user {form_data.username}")
 
-    return _make_token_response(form_data.username)
+    logger.info(
+        "Registered '%s'. It is inactive until the operator activates it: "
+        "UPDATE users SET is_active = true WHERE username = '%s';",
+        form_data.username,
+        form_data.username,
+    )
+    return {
+        **_make_token_response(form_data.username),
+        "pending_activation": True,
+        "detail": ACCOUNT_INACTIVE_DETAIL,
+    }
 
 
 class RefreshRequest(BaseModel):
@@ -173,9 +198,13 @@ async def refresh(body: RefreshRequest):
     if not username:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-    # Verify user still exists
+    # Still exists, and still activated: otherwise a deactivated account keeps
+    # minting fresh access tokens from a refresh token issued while it worked.
     def _check(session):
-        return UserRepository(session).get_by_username(username) is not None
+        user = UserRepository(session).get_by_username(username)
+        if user and not user.is_active:
+            raise HTTPException(status_code=403, detail=ACCOUNT_INACTIVE_DETAIL)
+        return user is not None
 
     db = get_db_service()
     if not await db.execute(_check):

@@ -129,7 +129,7 @@ pytest -m integration                                # a live Ollama / paid prov
 Three markers, registered in `pytest.ini`:
 
 - **unmarked** — pure unit tests, no services.
-- **`db`** — needs Postgres: the migration tests and the *system tests* (`tests/test_system_chat.py`), which run the real app on a fresh database created for the session, log in as the seeded `admin`, open `/ws/chat` and drive whole turns — streaming, thinking, the tool loop with its approval gate, compaction — with the model played by the mock Ollama. CI provides Postgres (`backend-test.yml`); locally they skip unless `POSTGRES_HOST`/`POSTGRES_PORT` point at one. A throwaway is `docker run --rm -d -p 127.0.0.1:55432:5432 -e POSTGRES_USER=kurisu -e POSTGRES_PASSWORD=kurisu -e POSTGRES_DB=kurisu pgvector/pgvector:pg16`.
+- **`db`** — needs Postgres: the migration tests and the *system tests* (`tests/test_system_chat.py`), which run the real app on a fresh database created for the session, create and activate their own account, log in as it, open `/ws/chat` and drive whole turns — streaming, thinking, the tool loop with its approval gate, compaction — with the model played by the mock Ollama. CI provides Postgres (`backend-test.yml`); locally they skip unless `POSTGRES_HOST`/`POSTGRES_PORT` point at one. A throwaway is `docker run --rm -d -p 127.0.0.1:55432:5432 -e POSTGRES_USER=kurisu -e POSTGRES_PASSWORD=kurisu -e POSTGRES_DB=kurisu pgvector/pgvector:pg16`.
 - **`integration`** — needs a real external service. Never runs in CI: a live model call costs money on a paid provider and needs a GPU otherwise.
 
 ### Mock Ollama
@@ -160,7 +160,7 @@ Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `G
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
 | `CONVERSATION_IDLE_THRESHOLD_MINUTES` | `30` | Idle time before a conversation's memory is consolidated |
 | `MCP_TLS_VERIFY` | `true` | Set to `false` to skip TLS verification on server-side MCP connections |
-| `ALLOW_REGISTRATION` | — | Registration is closed unless this says otherwise |
+| `ALLOW_REGISTRATION` | `true` | Whether anyone may request an account. Open by default because registering grants nothing: the account is inactive until `users.is_active` is set by hand (#148). `false` refuses even the request |
 | `AUTH_RATE_LIMIT_MAX_ATTEMPTS`, `AUTH_RATE_LIMIT_WINDOW_SECONDS` | `10`, `300` | Brute-force limit on `/login` and `/register`, per client address; `0` disables |
 
 Read by Compose rather than by the server:
@@ -191,4 +191,4 @@ Place voice reference files in `data/voice_storage/` (.wav/.mp3/.flac/.ogg).
 
 ## Default Account
 
-A fresh database is seeded with an `admin` / `admin` account — not by a migration, but by `init_db()` after `alembic upgrade head` returns. It logs a warning banner while that password is still in place. There is currently no way to change it (issue filed), so do not put a fresh server on an untrusted network.
+A fresh database is seeded with nothing. Accounts come from registration, which is open by default, and each one is inactive until an operator sets `users.is_active` (#148) — see [Operations](operations.md#accounts). `init_db()` logs which accounts are waiting.

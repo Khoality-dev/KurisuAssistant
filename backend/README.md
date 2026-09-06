@@ -34,7 +34,15 @@ curl localhost:15597/health
 
 The health check should return `{"status":"ok","service":"llm-hub"}`. Clients connect to `http://<server-address>:15597`.
 
-Default account: `admin` / `admin`. Migrations run automatically on container start (`docker-entrypoint.sh`). There is currently no way to change the default admin password, so do not expose a fresh server on an untrusted network. Before the first message, select a model in the **Assistant** screen. See [Set up your own server](../README.md#set-up-your-own-server).
+No account is created for you. Register in the client, then activate the account yourself — accounts are inactive until you do:
+
+```bash
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+UPDATE users SET is_active = true WHERE username = 'name';
+SQL
+```
+
+Migrations run automatically on container start (`docker-entrypoint.sh`). Before the first message, select a model in the **Assistant** screen. See [Set up your own server](../README.md#set-up-your-own-server) and [server operations](docs/operations.md#accounts).
 
 ### Local Development
 
@@ -64,7 +72,7 @@ Environment variables read by the server (see `.env.template` for the full list 
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
 | `CONVERSATION_IDLE_THRESHOLD_MINUTES` | `30` | Idle time before a conversation's memory is consolidated |
 | `MCP_TLS_VERIFY` | `true` | Set to `false` to skip TLS verification on server-side MCP connections |
-| `ALLOW_REGISTRATION` | `false` | Registration is closed unless this is enabled |
+| `ALLOW_REGISTRATION` | `true` | Whether anyone may request an account. A new account is inactive until you activate it; set `false` to refuse the request entirely |
 | `AUTH_RATE_LIMIT_MAX_ATTEMPTS` | `10` | Login and registration attempts allowed per client address and window; `0` disables the limit |
 | `AUTH_RATE_LIMIT_WINDOW_SECONDS` | `300` | Authentication rate-limit window |
 

@@ -15,7 +15,7 @@ The app checks for updates when it starts.
 
 ## Sign in
 
-Enter your server's complete URL, including `http://` or `https://`, then enter your username and password. Registration is closed by default; on a fresh self-hosted server, sign in with `admin` / `admin`. Under **Settings → Account**, you can generate a QR code after re-entering your password for Android sign-in. The QR contains the username and password in plain text, so treat it as a credential.
+Enter your server's complete URL, including `http://` or `https://`, then enter your username and password. On a fresh self-hosted server, register in the app; you cannot sign in until the server operator activates your account by following the [server setup tutorial](../../README.md#set-up-your-own-server). Under **Settings → Account**, you can generate a QR code after re-entering your password for Android sign-in. The QR contains the username and password in plain text, so treat it as a credential.
 
 ## Everyday use
 

@@ -152,7 +152,8 @@ python -m scripts.migrate                       # apply
 cd kurisuassistant/db && alembic revision -m "description"
 ```
 
-The first run also seeds an `admin` / `admin` account and warns at startup while
+The first run seeds nothing (#148); accounts are registered and then activated by
+hand via `users.is_active`. It used to seed an `admin` / `admin` account and warn at startup while
 that password is unchanged. Seeding — and registration — also calls
 `core/accounts.py::provision_user`, which gives the account its one `assistants`
 row and a first persona named `Assistant`. Without both, the account can log in

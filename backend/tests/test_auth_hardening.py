@@ -1,9 +1,14 @@
-"""Account creation is closed by default, guessing is rate limited, and
-provider API keys are never read back.
+"""Account creation is open but inert, guessing is rate limited, and provider
+API keys are never read back.
 
 Cover for the three halves of the same problem: anyone who could reach the
 server could create an account, guess a password without limit, and read the
 account's third-party API keys straight out of the profile endpoint.
+
+Registration was closed by default while a seeded ``admin`` account existed.
+There is no seeded account now, so registering is how an account comes to exist
+— and it grants nothing until the operator activates it (#148). An operator who
+wants to refuse even the request still can, with ALLOW_REGISTRATION=false.
 """
 
 from unittest.mock import MagicMock, patch
@@ -50,28 +55,17 @@ def credentials(username="newuser", password="hunter2"):
     return {"username": username, "password": password}
 
 
-class TestRegistrationIsClosedByDefault:
-    def test_rejected_when_unset(self, auth_client, monkeypatch):
-        monkeypatch.delenv("ALLOW_REGISTRATION", raising=False)
-        response = auth_client.post("/register", data=credentials())
-        assert response.status_code == 403
-        assert "closed" in response.json()["detail"].lower()
-
-    @pytest.mark.parametrize("value", ["false", "0", "no", "off", "", "maybe"])
-    def test_rejected_for_non_affirmative_values(self, auth_client, monkeypatch, value):
-        monkeypatch.setenv("ALLOW_REGISTRATION", value)
-        assert auth_client.post("/register", data=credentials()).status_code == 403
-
-    def test_no_account_is_created_while_closed(self, auth_client, monkeypatch):
-        """The refusal must happen before anything touches the database."""
+class TestRegistrationIsOpenByDefault:
+    def test_allowed_when_unset(self, auth_client, monkeypatch):
+        """Registering is a request now, not an entry: the account it creates is
+        inactive until the operator says otherwise."""
         monkeypatch.delenv("ALLOW_REGISTRATION", raising=False)
         db = FakeDBService(result="newuser")
         with patch.object(auth, "get_db_service", lambda: db):
-            auth_client.post("/register", data=credentials())
-        assert db.calls == 0
+            response = auth_client.post("/register", data=credentials())
+        assert response.status_code == 200
+        assert response.json()["pending_activation"] is True
 
-
-class TestRegistrationCanBeOpened:
     @pytest.mark.parametrize("value", ["true", "1", "yes", "on", "TRUE", " True "])
     def test_allowed_for_affirmative_values(self, auth_client, monkeypatch, value):
         monkeypatch.setenv("ALLOW_REGISTRATION", value)
@@ -80,6 +74,21 @@ class TestRegistrationCanBeOpened:
             response = auth_client.post("/register", data=credentials())
         assert response.status_code == 200
         assert "access_token" in response.json()
+
+
+class TestRegistrationCanStillBeClosed:
+    @pytest.mark.parametrize("value", ["false", "0", "no", "off", "", "maybe"])
+    def test_rejected_for_non_affirmative_values(self, auth_client, monkeypatch, value):
+        monkeypatch.setenv("ALLOW_REGISTRATION", value)
+        assert auth_client.post("/register", data=credentials()).status_code == 403
+
+    def test_no_account_is_created_while_closed(self, auth_client, monkeypatch):
+        """The refusal must happen before anything touches the database."""
+        monkeypatch.setenv("ALLOW_REGISTRATION", "false")
+        db = FakeDBService(result="newuser")
+        with patch.object(auth, "get_db_service", lambda: db):
+            auth_client.post("/register", data=credentials())
+        assert db.calls == 0
 
 
 class TestRateLimiting:

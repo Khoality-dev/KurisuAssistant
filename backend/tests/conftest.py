@@ -77,9 +77,31 @@ def _postgres_admin_url() -> str:
     return f"postgresql://{user}:{password}@{host}:{port}/postgres"
 
 
+SYSTEM_TEST_USER = "tester"
+SYSTEM_TEST_PASSWORD = "tester-password"
+
+
+def _create_activated_user(username: str, password: str) -> None:
+    """Register an account and activate it, as the operator would by hand."""
+    from kurisuassistant.core.accounts import provision_user
+    from kurisuassistant.core.security import hash_password
+    from kurisuassistant.db.repositories import UserRepository
+    from kurisuassistant.db.session import get_session
+
+    with get_session() as session:
+        repo = UserRepository(session)
+        user = repo.create_user(username, hash_password(password))
+        provision_user(session, user)
+        user.is_active = True
+
+
 @pytest.fixture(scope="session")
 def system_db():
-    """A fresh database migrated to head with the seeded ``admin`` account.
+    """A fresh database migrated to head, with one activated test account.
+
+    Nothing is seeded any more (#148), so the suite makes its own account and
+    activates it the way an operator would — which also keeps the activation
+    gate itself under test rather than assumed.
 
     Skips when no Postgres answers — except on CI, where the workflow provides one
     and a skip would hide a broken suite.
@@ -99,6 +121,7 @@ def system_db():
     from kurisuassistant.db.init import init_db
 
     init_db()
+    _create_activated_user(SYSTEM_TEST_USER, SYSTEM_TEST_PASSWORD)
     yield db_name
 
     from kurisuassistant.db.session import engine

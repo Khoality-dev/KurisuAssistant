@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordBearer
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
 from kurisuassistant.db.repositories import UserRepository
+from kurisuassistant.core.accounts import ACCOUNT_INACTIVE_DETAIL
 from kurisuassistant.core.security import get_current_user
 
 # OAuth2 scheme for token-based authentication
@@ -19,7 +20,8 @@ def get_authenticated_user(token: str = Depends(oauth2_scheme)) -> User:
         User object of the authenticated user (detached from session)
 
     Raises:
-        HTTPException: If token is invalid or user not found
+        HTTPException: 401 if the token is invalid or the user is gone, 403 if
+            the account has not been activated.
     """
     username = get_current_user(token)
     if not username:
@@ -30,6 +32,10 @@ def get_authenticated_user(token: str = Depends(oauth2_scheme)) -> User:
         user = user_repo.get_by_username(username)
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        # Checked here rather than only at login, so revoking access takes
+        # effect on the next request instead of when the token expires.
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail=ACCOUNT_INACTIVE_DETAIL)
         session.expunge(user)
         return user
 
