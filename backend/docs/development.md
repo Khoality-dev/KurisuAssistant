@@ -18,13 +18,13 @@ docker compose up -d       # Start all services
 docker compose logs -f api # View API logs
 ```
 
-Migrations auto-run on container startup via `docker-entrypoint.sh`. The API container mounts `kurisuassistant/`, `scripts/`, `tests/`, and `data/` from this directory.
+Migrations auto-run on container startup via `docker-entrypoint.sh`. The image carries the application code — the Dockerfile copies `kurisuassistant/` and `scripts/` in — and the only thing the API container mounts from this directory is `data/`, which is runtime state. So a code change reaches the container through `docker compose up -d --build`, not by editing the checkout. To edit without rebuilding, use the dev overlay below: it mounts the source back over the image's copy.
 
 ## Releases and Deployment
 
 There is no long-lived `dev` branch. Work happens on short-lived branches merged into `main` through pull requests, and a release is a tag on `main`: `backend-vX.Y.Z`, with X.Y.Z equal to `__version__` in `version.py`. The tag *is* the release — nothing else marks one, and the backend has no publish workflow. A deployment is a checkout of a release tag with `docker compose up -d --build` run from its `backend/`.
 
-Keep a deployment's checkout separate from the one you develop in. The API container bind-mounts `./kurisuassistant`, `./scripts` and `./data` from the directory it was started from, so that working tree *is* the running code: editing or checking out in a deployment's tree changes the live server immediately, and a process still on its old imports can lazy-load modules from the new commit. Move a deployment with checkout and restart in one step:
+Keep a deployment's checkout separate from the one you develop in. The checkout is a build context, an env file and a `data/` directory — the running code comes from the image, so editing the tree changes nothing until the next `--build`, and the image keeps running if the tree moves. What still makes a shared tree a bad idea is `data/` and the fixed project name: a second stack started from the same directory writes into the same user data. Move a deployment with checkout and rebuild in one step:
 
 ```bash
 git fetch --tags && git checkout backend-vX.Y.Z && docker compose up -d --build
@@ -44,7 +44,7 @@ cp /path/to/deployment/backend/.env .     # same credentials, separate database
 docker compose -f docker-compose.dev.yml up -d --build
 ```
 
-It publishes no port and is not part of any reverse-proxy setup; reach it on the Docker network, or add a `ports:` mapping while you need it. Run the overlay only from a checkout that is not also running the plain stack: both bind-mount the same `./kurisuassistant` and `./data`, so two projects sharing one directory would run the same code against the same files. See the file's header for what is and is not shared.
+Unlike the plain stack, the overlay mounts `./kurisuassistant`, `./scripts`, `./tests` and `./pytest.ini` over the image's copy, so an edit takes effect on `docker compose -f docker-compose.dev.yml restart api` and `pytest` can run inside the container. That is also why it must be run from a checkout that is not also running the plain stack: the two would share `./data`, and the overlay would be editing the code of a tree a deployment builds from. It publishes no port and is not part of any reverse-proxy setup; reach it on the Docker network, or add a `ports:` mapping while you need it. See the file's header for what is and is not shared.
 
 ## Tests
 

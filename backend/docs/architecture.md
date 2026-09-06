@@ -19,8 +19,9 @@ Ollama is not part of this stack. It is reached over the `central` network at a
 URL each user configures.
 
 `docker-compose.dev.yml` is an overlay that runs a second, isolated API and
-database from a separate checkout. It inherits the api service's volumes from the
-base file.
+database from a separate checkout. It inherits the api service's `data/` mount
+from the base file and adds the source and test mounts on top, so an edit in
+that checkout is live in the dev container without a rebuild.
 
 ## Package layout
 

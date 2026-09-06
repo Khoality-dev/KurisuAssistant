@@ -2,8 +2,9 @@
 #
 # For trying main against a running backend without touching a deployment. Run it
 # from the backend/ of the checkout you want to run — never from a deployment's
-# tree: the API bind-mounts ./kurisuassistant and ./data, so two projects sharing
-# one directory would run the same code against the same files.
+# tree: this overlay mounts ./kurisuassistant over the image's copy and shares
+# ./data, so two projects in one directory would edit the deployment's code and
+# write into its user data.
 #
 #   cp /path/to/deployment/backend/.env .   # same credentials, separate database
 #   docker compose -f docker-compose.dev.yml up -d --build
@@ -33,6 +34,16 @@ services:
       service: api
     # Container names are global on `central`, so it must differ from production's.
     container_name: kurisu-api-dev
+    # The source, mounted over what the image already carries — this is the one
+    # place that happens, and it is why this overlay must not be run from a
+    # deployment's tree. `--build` still bakes the code in; the mount is what
+    # lets an edit take effect on `docker compose restart api` instead of a
+    # rebuild. Appended to the base service's ./data mount.
+    volumes:
+      - ./kurisuassistant:/app/kurisuassistant
+      - ./scripts:/app/scripts
+      - ./tests:/app/tests
+      - ./pytest.ini:/app/pytest.ini
     # !override replaces the inherited list: the GPU services belong to production.
     depends_on: !override
       - postgres-dev

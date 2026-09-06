@@ -1,6 +1,25 @@
 venv/
-__pycache__/
+# `__pycache__/` alone matches only the top level — the bytecode that matters is
+# nested under kurisuassistant/, and it was landing in the image.
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
 
 # Runtime data is bind-mounted, never copied into the image; without this every
-# build ships the whole directory (over a gigabyte) as context for nothing.
+# build ships the whole directory (over a gigabyte) as context for nothing, and
+# the COPY below it would bake user data into a distributable artefact.
 data/
+
+# Credentials. Compose reads the env file on the host and passes values through
+# `environment:`; nothing inside the image should carry them.
+.env
+.env.*
+
+# Not part of the running server: the suite is mounted by the dev overlay, and
+# the rest is documentation or Compose input.
+tests/
+docs/
+nginx/
+*.md
+pytest.ini
+docker-compose*.yml
