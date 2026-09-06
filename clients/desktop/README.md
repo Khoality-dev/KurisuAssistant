@@ -31,7 +31,11 @@ Enter your server's complete URL, including `http://` or `https://`, then enter 
 
 Typing `/` in the composer shows `/clear`, `/delete`, `/resume`, `/context`, `/persona`, `/refresh`, `/compact`, `/live-animate`, and `/vision`. There is no `/agents` command.
 
-Before the first message, open **Settings → Assistant** and select a model. See the [desktop manual](../../docs/manual/desktop.md) for the settings list and camera limitation.
+Before the first message, open **Settings → Assistant** and select a model. The first message fails when no model is selected.
+
+The settings sections are **Account**, **Voice**, **TTS & ASR**, **Appearance**, **Assistant**, **Personas**, **Sub-Agents**, **Tools & MCP**, **Skills**, **Host Access**, **Face Identities**, and **Extensions**.
+
+`/vision` uses the server's camera pipeline. Its body-pose stage requires CUDA, and the default server does not give the API a GPU. Text, tools, memory, and speech still work on a CPU-only server.
 
 ## Security
 

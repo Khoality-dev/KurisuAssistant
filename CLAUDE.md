@@ -10,6 +10,8 @@ Each package keeps its own toolchain, `.gitignore`, tests, and commands. Run the
 
 Every package's `CLAUDE.md` is an index: a page you can read whole, linking to topic files under that package's `docs/`. Put detail in the topic file and a line in the index, not a fourteenth section in the index.
 
+**There is no user manual, on purpose.** The root `README.md` carries one deployment tutorial — install Docker, three commands, sign in, pick a model — and that is the whole of the user documentation. Anything an operator needs afterwards (backup, restore, updating, removal) is `backend/docs/operations.md`; anything about how the code works is the package's own `docs/`. A nine-page manual was written first and thrown away: wire-protocol numbers and `pg_restore` flags, which the owner correctly called dev documentation. Prose for users is Codex's to write — the split is by audience, not by file type — while the facts it works from, and the check afterwards, are ours.
+
 **Documentation moves with the code.** A change that leaves a document describing what the code used to do is not finished — that is how an architecture map came to point at a screen nothing rendered (#138) and a security section came to present a filed vulnerability as a design decision (#91). Update the package's `docs/` and, for anything cross-cutting, this file, in the same commit.
 
 ## Cross-cutting rules
