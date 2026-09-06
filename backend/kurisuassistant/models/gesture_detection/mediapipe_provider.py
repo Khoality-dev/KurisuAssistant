@@ -1,4 +1,4 @@
-"""Gesture detection: YOLOv8-Pose (GPU) for body + MediaPipe Hands (CPU) for hand landmarks."""
+"""Gesture detection: YOLOv8-Pose (GPU when there is one) for body + MediaPipe Hands (CPU) for hand landmarks."""
 
 import logging
 import os
@@ -16,6 +16,44 @@ MODEL_DIR = Path("data/gesture_detection/models")
 
 HAND_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
 HAND_MODEL_FILE = "hand_landmarker.task"
+
+
+def _cuda_available() -> bool:
+    try:
+        import torch
+        return bool(torch.cuda.is_available())
+    except Exception:  # torch missing or broken: there is no GPU to use
+        return False
+
+
+def resolve_device() -> str:
+    """The torch device YOLOv8-Pose runs on: ``cuda`` or ``cpu``.
+
+    The device used to be hard-coded to ``cuda``, which failed per frame on the
+    CPU-only default stack (#152). Now: ``VISION_DEVICE`` if set (``cpu``,
+    ``cuda``, ``cuda:1`` …), otherwise ``cuda`` when torch can see a GPU and
+    ``cpu`` when it cannot. The choice is logged so "why is gesture detection
+    slow" and "why does it not work" read differently in the log.
+    """
+    requested = os.getenv("VISION_DEVICE", "").strip().lower()
+    cuda = _cuda_available()
+    if requested:
+        if requested.startswith("cuda") and not cuda:
+            logger.warning(
+                "VISION_DEVICE=%s but no CUDA device is available; "
+                "gesture detection falls back to the CPU", requested,
+            )
+            return "cpu"
+        logger.info("Gesture detection device: %s (from VISION_DEVICE)", requested)
+        return requested
+    if cuda:
+        logger.info("Gesture detection device: cuda (CUDA device found)")
+        return "cuda"
+    logger.info(
+        "Gesture detection device: cpu (no CUDA device; pose detection works but is slower. "
+        "Reserve a GPU for the api service and set VISION_DEVICE=cuda to force it)"
+    )
+    return "cpu"
 
 
 def _ensure_model(filename: str, url: str) -> str:
@@ -41,15 +79,23 @@ class KeyPoint:
 
 
 class MediaPipeGestureDetector(BaseGestureDetector):
-    """Gesture detection: YOLOv8-Pose (CUDA) for body pose + MediaPipe Hands (CPU)."""
+    """Gesture detection: YOLOv8-Pose (CUDA or CPU, see :func:`resolve_device`) for body pose + MediaPipe Hands (CPU)."""
 
     def __init__(self):
         self._hand_landmarker = None
         self._yolo_pose = None
+        self._device: Optional[str] = None
         self._frame_ts = 0
 
+    @property
+    def device(self) -> str:
+        """Resolved once per detector; the singleton lives for the process."""
+        if self._device is None:
+            self._device = resolve_device()
+        return self._device
+
     def _ensure_pose(self):
-        """Load YOLOv8-Pose on GPU if not already loaded."""
+        """Load YOLOv8-Pose on the resolved device if not already loaded."""
         if self._yolo_pose is not None:
             return
         from ultralytics import YOLO
@@ -59,9 +105,9 @@ class MediaPipeGestureDetector(BaseGestureDetector):
         self._yolo_pose = YOLO(str(yolo_model_path))
         self._yolo_pose.predict(
             np.zeros((480, 640, 3), dtype=np.uint8),
-            device="cuda", verbose=False,
+            device=self.device, verbose=False,
         )
-        logger.info("YOLOv8-Pose loaded on CUDA")
+        logger.info("YOLOv8-Pose loaded on %s", self.device)
 
     def _ensure_hands(self):
         """Load MediaPipe Hands on CPU if not already loaded."""
@@ -132,11 +178,11 @@ class MediaPipeGestureDetector(BaseGestureDetector):
 
         import cv2
 
-        # --- YOLO Pose (GPU) ---
+        # --- YOLO Pose (GPU when there is one) ---
         pose_landmarks = None
         if enable_pose and self._yolo_pose:
             yolo_results = self._yolo_pose.predict(
-                image, device="cuda", verbose=False, conf=0.5
+                image, device=self.device, verbose=False, conf=0.5
             )
             if yolo_results and yolo_results[0].keypoints is not None:
                 kpts = yolo_results[0].keypoints

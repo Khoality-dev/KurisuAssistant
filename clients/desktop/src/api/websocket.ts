@@ -194,6 +194,7 @@ class WebSocketManager {
   private _reconnectAttempt = 0;
   private _maxReconnectDelay = 30000; // 30s cap
   private _intentionalClose = false;
+  private _onProtocolMismatch: (() => void) | null = null;
 
   /**
    * Set the authentication token.
@@ -312,6 +313,7 @@ class WebSocketManager {
           console.error(
             `[WebSocket] Wire protocol mismatch (client speaks ${WIRE_PROTOCOL}): ${event.reason}`,
           );
+          this._onProtocolMismatch?.();
           return;
         }
 
@@ -530,6 +532,15 @@ class WebSocketManager {
    */
   get connectionStatus(): ConnectionStatus {
     return this._connectionStatus;
+  }
+
+  /**
+   * Called once per 4426 close: the server refused our wire protocol before
+   * authenticating. Reconnecting cannot fix that, so the app shows the update
+   * screen instead (#150).
+   */
+  onProtocolMismatch(handler: () => void) {
+    this._onProtocolMismatch = handler;
   }
 
   /**

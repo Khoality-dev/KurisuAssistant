@@ -204,22 +204,16 @@ class TestListModels:
         assert not any(b["id"] == "whisper:base" for b in backends)
 
     @patch("kurisuassistant.routers.tts.get_client")
-    def test_list_backends_returns_fallback_when_service_down(self, mock_get_client, client):
-        """When universal-voice is unreachable, return fallback models instead of 502."""
+    def test_an_unreachable_service_is_a_502_like_voices(self, mock_get_client, client):
+        """No fabricated list: three hard-coded ids used to come back as a 200 (#151)."""
         mock_get_client.return_value = MagicMock(get=AsyncMock(side_effect=httpx.ConnectError("refused")))
 
         resp = client.get("/tts/models")
-        assert resp.status_code == 200
-        backends = resp.json()["models"]
-        assert len(backends) == 3
-        ids = [b["id"] for b in backends]
-        assert "vixtts" in ids
-        assert "gpt-sovits" in ids
-        assert "vieneu:turbo" in ids
+        assert resp.status_code == 502
+        assert resp.json()["detail"].startswith("The speech service is unavailable.")
 
     @patch("kurisuassistant.routers.tts.get_client")
-    def test_list_backends_returns_fallback_when_empty(self, mock_get_client, client):
-        """When universal-voice returns no TTS models, return fallback."""
+    def test_a_reachable_service_with_no_tts_models_lists_none(self, mock_get_client, client):
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"object": "list", "data": [
             {"id": "whisper:base", "type": "asr", "loaded": True},
@@ -229,8 +223,7 @@ class TestListModels:
 
         resp = client.get("/tts/models")
         assert resp.status_code == 200
-        backends = resp.json()["models"]
-        assert len(backends) == 3  # fallback models
+        assert resp.json() == {"models": []}
 
 
 # ---------------------------------------------------------------------------

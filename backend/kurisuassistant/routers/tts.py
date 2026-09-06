@@ -123,27 +123,24 @@ async def check_tts_health(
         return {"ok": False, "message": str(e)}
 
 
-# Returned when universal-voice is unreachable
-_FALLBACK_TTS_MODELS = [
-    {"id": "vixtts", "object": "model", "type": "tts", "loaded": None},
-    {"id": "gpt-sovits", "object": "model", "type": "tts", "loaded": None},
-    {"id": "vieneu:turbo", "object": "model", "type": "tts", "loaded": None},
-]
-
-
 @router.get("/models")
 async def list_tts_models(
     _user=Depends(get_authenticated_user)
 ):
-    """List available TTS models from universal-voice, with fallback."""
+    """List the TTS models universal-voice serves.
+
+    502 when the service is unreachable, like ``/tts/voices``; a hard-coded list
+    of three model ids used to be returned as a normal 200, so the picker
+    offered models that did not exist and synthesis failed later (#151). An
+    empty list is what a reachable service that serves no TTS model gets.
+    """
     try:
         r = await get_client().get(f"{UVOICE_URL}/v1/models", timeout=5)
         r.raise_for_status()
-        models = r.json().get("data", [])
-        tts_models = [m for m in models if m.get("type") == "tts"]
-        if tts_models:
-            return {"models": tts_models}
     except httpx.HTTPError as e:
-        logger.warning("TTS service unavailable, returning fallback models: %s", e)
-
-    return {"models": _FALLBACK_TTS_MODELS}
+        raise internal_error(
+            e, "TTS models request failed", status_code=502,
+            public_detail="The speech service is unavailable.",
+        )
+    models = r.json().get("data", [])
+    return {"models": [m for m in models if m.get("type") == "tts"]}

@@ -8,17 +8,33 @@ import { MainLayout } from './components/layout/MainLayout';
 import { UpdateDialog } from './components/UpdateDialog';
 import { UpdateRequiredScreen } from './components/UpdateRequiredScreen';
 import { apiClient } from './api/client';
+import { wsManager } from './api/websocket';
 import { WIRE_PROTOCOL } from './constants';
-import type { ServerVersionInfo } from './api/types';
 // Side-effect import: registers WebSocket listener for client-side MCP servers
 import './services/mcpService';
 
+/** What the update screen needs to say: the server's numbers, or null where it would not tell us. */
+interface VersionMismatch {
+  backend_version: string | null;
+  wire_protocol: number | null;
+}
+
 const MainApp: React.FC = () => {
   const [initializing, setInitializing] = useState(true);
-  const [versionMismatch, setVersionMismatch] = useState<ServerVersionInfo | null>(null);
-  const { isAuthenticated, initializeAuth } = useAuthStore();
+  const [versionMismatch, setVersionMismatch] = useState<VersionMismatch | null>(null);
+  const { isAuthenticated, initializeAuth, logout } = useAuthStore();
 
   useEffect(() => {
+    // A mismatch can also surface after startup — a 426 on any request, or the
+    // socket closing with 4426 — when the server is updated under a running
+    // client, or the user points it at another server (#150).
+    apiClient.onProtocolMismatch((info) => {
+      setVersionMismatch({ backend_version: info.backend_version, wire_protocol: info.server_wire_protocol });
+    });
+    wsManager.onProtocolMismatch(() => {
+      void apiClient.reportProtocolMismatch();
+    });
+
     const init = async () => {
       // Wire-protocol handshake. On unreachable backend we proceed (offline launch
       // still works); only a confirmed mismatch is a hard gate.
@@ -38,6 +54,13 @@ const MainApp: React.FC = () => {
     init();
   }, [initializeAuth]);
 
+  // The way out of the gate: drop the session and show the login form, whose
+  // Server URL field is the thing the user needs to reach.
+  const changeServer = () => {
+    logout();
+    setVersionMismatch(null);
+  };
+
   if (initializing) {
     return (
       <Box
@@ -55,7 +78,7 @@ const MainApp: React.FC = () => {
   }
 
   if (versionMismatch) {
-    return <UpdateRequiredScreen info={versionMismatch} />;
+    return <UpdateRequiredScreen info={versionMismatch} onChangeServer={changeServer} />;
   }
 
   return isAuthenticated ? <MainLayout /> : <LoginWindow />;

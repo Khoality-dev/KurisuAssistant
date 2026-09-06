@@ -36,7 +36,19 @@ import type {
   Skill,
   SkillCreate,
   SkillUpdate,
+  ModelsResponse,
+  UnavailableProvider,
 } from './types';
+
+/**
+ * What a live server says when it refuses our wire protocol: the body of its
+ * HTTP 426. `server_wire_protocol` is null when the refusal reached us with no
+ * body to read (the WebSocket close, or a proxy that ate it).
+ */
+export interface ProtocolMismatch {
+  backend_version: string | null;
+  server_wire_protocol: number | null;
+}
 
 class APIClient {
   private client: AxiosInstance;
@@ -44,6 +56,7 @@ class APIClient {
   private refreshToken: string | null = null;
   private refreshPromise: Promise<string> | null = null;
   private _onAuthFailure: (() => void) | null = null;
+  private _onProtocolMismatch: ((info: ProtocolMismatch) => void) | null = null;
 
   constructor() {
     this.client = axios.create({
@@ -59,10 +72,21 @@ class APIClient {
       return reqConfig;
     });
 
-    // Auto-refresh on 401 responses
+    // Auto-refresh on 401 responses; a 426 from a live server is the same
+    // situation the startup check gates on, so it raises the same screen
+    // instead of surfacing as a generic request failure (#150).
     this.client.interceptors.response.use(
       (response) => response,
       async (error) => {
+        if (error.response?.status === 426) {
+          const body = error.response.data ?? {};
+          const serverWire = Number(body.server_wire_protocol);
+          this._onProtocolMismatch?.({
+            backend_version: typeof body.backend_version === 'string' ? body.backend_version : null,
+            server_wire_protocol: Number.isFinite(serverWire) ? serverWire : null,
+          });
+          return Promise.reject(error);
+        }
         const original = error.config;
         if (
           error.response?.status === 401 &&
@@ -87,6 +111,27 @@ class APIClient {
 
   onAuthFailure(callback: () => void) {
     this._onAuthFailure = callback;
+  }
+
+  /** Called when any request is refused with HTTP 426 (wire-protocol mismatch). */
+  onProtocolMismatch(callback: (info: ProtocolMismatch) => void) {
+    this._onProtocolMismatch = callback;
+  }
+
+  /**
+   * Report a mismatch noticed off the HTTP path — the WebSocket close 4426 —
+   * through the same callback. The close carries no version, so this asks
+   * `/version` (exempt from the gate) and falls back to "unknown".
+   */
+  async reportProtocolMismatch(): Promise<void> {
+    let info: ProtocolMismatch = { backend_version: null, server_wire_protocol: null };
+    try {
+      const version = await this.getServerVersion();
+      info = { backend_version: version.backend_version, server_wire_protocol: version.wire_protocol };
+    } catch {
+      // unreachable now — still show the screen, with the numbers unknown
+    }
+    this._onProtocolMismatch?.(info);
   }
 
   setToken(token: string) {
@@ -261,14 +306,24 @@ class APIClient {
     return response.data;
   }
 
-  async getModels(): Promise<Array<{ name: string; provider: string }>> {
-    const response = await this.client.get<{ models: any[] }>('/models', {
+  /**
+   * The model list, plus the providers the server could not reach. A 502 means
+   * no provider answered at all; a 200 with `unavailable` entries means the
+   * list is partial — Gemini answered, say, while Ollama was down (#151).
+   */
+  async getModelsWithStatus(): Promise<ModelsResponse> {
+    const response = await this.client.get<{ models: any[]; unavailable?: UnavailableProvider[] }>('/models', {
       headers: this.getHeaders(),
     });
     // Handle both old format (string[]) and new format ({name, provider}[])
-    return response.data.models.map((m: any) =>
+    const models = response.data.models.map((m: any) =>
       typeof m === 'string' ? { name: m, provider: 'ollama' } : m
     );
+    return { models, unavailable: response.data.unavailable ?? [] };
+  }
+
+  async getModels(): Promise<Array<{ name: string; provider: string }>> {
+    return (await this.getModelsWithStatus()).models;
   }
 
   async validateApiKey(provider: string, apiKey: string): Promise<{ valid: boolean; model_count?: number; error?: string }> {

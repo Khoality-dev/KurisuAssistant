@@ -219,6 +219,9 @@ single worker; `await db.execute(op)` suspends the caller, `execute_sync(op)`
 blocks and belongs only in worker threads. This is a deliberate serialization
 point and also the throughput ceiling: the engine's connection pool never has
 more than one connection in use.
+It is bounded: a caller waits at most `DB_OPERATION_TIMEOUT_SECONDS` before a
+503, every failure is logged with a traceback in the worker, and the engine has
+connect and statement timeouts (`docs/database.md`, #153).
 
 ## Conventions
 

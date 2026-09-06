@@ -9,19 +9,27 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.kurisu.assistant.BuildConfig
 import com.kurisu.assistant.data.model.ServerVersionInfo
 
-/** Hard gate shown on wire-protocol mismatch — user must update before proceeding. */
+/**
+ * Hard gate shown on wire-protocol mismatch. It says which side to update, and
+ * it is not a dead end: "Change server" signs out and returns to the login
+ * form, where the stored URL is editable (#150) — the stored URL is the one
+ * thing a user who mistyped it needs to reach.
+ */
 @Composable
 fun UpdateRequiredScreen(
     info: ServerVersionInfo,
     onCheckForUpdate: () -> Unit,
+    onChangeServer: () -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxSize().padding(24.dp)) {
         Column(
@@ -34,8 +42,9 @@ fun UpdateRequiredScreen(
                 style = MaterialTheme.typography.headlineSmall,
             )
             Text(
-                "This app is incompatible with the server. Please update.",
+                UpdateRequiredCopy.explain(BuildConfig.WIRE_PROTOCOL, info.wireProtocol),
                 style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
             )
             Text(
                 "App: ${BuildConfig.VERSION_NAME} (wire ${BuildConfig.WIRE_PROTOCOL})",
@@ -48,6 +57,7 @@ fun UpdateRequiredScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Button(onClick = onCheckForUpdate) { Text("Check for updates") }
+            OutlinedButton(onClick = onChangeServer) { Text("Change server") }
         }
     }
 }

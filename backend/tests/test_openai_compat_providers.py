@@ -244,9 +244,12 @@ class TestCatalogue:
         with patch(GET, return_value=FakeResponse(json_data={"data": [{"id": "a"}, {"id": "b"}]})):
             assert NvidiaProvider(api_key="k").list_models() == ["a", "b"]
 
-    def test_list_models_swallows_failures(self):
+    def test_list_models_raises_on_failure(self):
+        """An empty list would read as "no models"; GET /models reports the
+        provider as unavailable instead (#151)."""
         with patch(GET, return_value=FakeResponse(status=401, json_data={"error": {"message": "nope"}})):
-            assert NvidiaProvider(api_key="bad").list_models() == []
+            with pytest.raises(Exception):
+                NvidiaProvider(api_key="bad").list_models()
 
 
 class TestValidateKey:

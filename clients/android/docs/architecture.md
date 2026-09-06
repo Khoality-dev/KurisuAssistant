@@ -14,7 +14,7 @@ com.kurisu.assistant/
 ├── MainActivity.kt              -- Single activity, NavHost
 ├── data/
 │   ├── local/                   -- DataStore, EncryptedPrefs, StorageKeys
-│   ├── remote/api/              -- Retrofit service, interceptors
+│   ├── remote/api/              -- Retrofit service, interceptors, ProtocolMismatchSignal (live 426 / 4426 → update gate)
 │   ├── remote/websocket/        -- OkHttp WebSocket, event payloads
 │   ├── model/                   -- Data classes (API, WS, Animation, UpdateModels)
 │   └── repository/              -- Auth, Assistant, Persona, SubAgent, Conversation, TTS, ASR, Vision, Tools, Face, Update repos
@@ -35,6 +35,7 @@ com.kurisu.assistant/
 │   ├── settings/                -- Settings index + Account, Appearance, TTS & ASR, Tools & MCP, Skills screens
 │   ├── faces/                   -- Face Identities CRUD (camera capture via TakePicture intent + FileProvider)
 │   ├── update/                  -- UpdateDialog composable (in-app update from GitHub Releases)
+│   ├── version/                 -- Wire-protocol gate: UpdateRequiredScreen + UpdateRequiredCopy (which side to update)
 │   └── character/               -- Character canvas, video player, screen + ViewModel
 ├── service/                     -- CoreService (foreground service), CoreState (shared singleton), VoiceInteractionManager
 └── di/                          -- Hilt modules (App, Network)
@@ -43,6 +44,12 @@ com.kurisu.assistant/
 ## Navigation flow
 
 ```
+Launch → GET /version against the stored URL (MainActivity)
+  ├── wire protocol matches, or server unreachable → Login | Conversations (remember-me)
+  └── mismatch → UpdateRequiredScreen (a gate, not a destination)
+        ├── "Check for updates" → in-app update
+        └── "Change server" → sign out, then Login with the stored URL editable (#150)
+Mid-session: HTTP 426 (WireProtocolInterceptor) or WebSocket close 4426 → the same gate
 Login → Conversations ("Chats", the start destination; hamburger → app drawer)
   ├── Tap a row / New chat FAB → Chat
   ├── Say the wake word (mic strip) → Chat + auto voice interaction
@@ -54,6 +61,17 @@ Chat header (face icon) → character overlay (a sheet, not a destination)
 Back everywhere → navController.popBackStack()
 ```
 
+- The gate is state in `MainActivity`, not a route: a `VersionCheck.Mismatch` renders
+  `UpdateRequiredScreen` instead of the `NavHost`. "Change server" calls `AuthRepository.logout()`,
+  sets the start destination to `LOGIN` and marks the gate dismissed, so the NavHost mounts on the
+  login form; `LoginViewModel` prefills the Server URL from `PreferencesDataStore` and re-caches
+  whatever the user submits in `DynamicBaseUrlInterceptor`. The mismatch is not re-checked until
+  the next launch — the server the user is about to log in to may be a different one.
+- The gate also fires **during** a session. `ProtocolMismatchSignal` (`data/remote/api/`) is a
+  singleton `StateFlow<ServerVersionInfo?>`: `WireProtocolInterceptor` sets it from the body of any
+  HTTP 426, and `WebSocketManager` sets it on a 4426 close (after asking `GET /version` for the
+  numbers, and without reconnecting — a retry cannot fix a protocol mismatch). `MainActivity`
+  collects it into `versionCheck = Mismatch(...)`, re-arming the gate; "Change server" clears it.
 - `Routes.CONVERSATIONS` = landing page after login: one row per conversation, showing the persona
   bound to it. `Routes.CHAT` carries **no** nav arguments — the conversation to show is passed through
   `CoreState.setConversationId(...)` before navigating, and `ChatViewModel` picks it up from there.

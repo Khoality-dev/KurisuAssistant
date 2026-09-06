@@ -125,7 +125,9 @@ equal the server's is rejected with `426 Upgrade Required`:
 }
 ```
 
-`/health` and `/version` are exempt, so a stale client can still discover why it is
+Both clients read `server_wire_protocol` and `backend_version` out of this body to
+show their update screen when a 426 arrives mid-session (#150), so those two keys
+are part of the contract. `/health` and `/version` are exempt, so a stale client can still discover why it is
 being refused. The WebSocket handshake enforces the same number and closes with
 `4426`; see [websocket.md](websocket.md).
 
@@ -138,13 +140,21 @@ being refused. The WebSocket handshake enforces the same number and closes with
 **Response:** `200 OK`
 ```json
 {"models": [{"name": "llama3.2:latest", "provider": "ollama"},
-            {"name": "gemini-2.0-flash", "provider": "gemini"}]}
+            {"name": "gemini-2.0-flash", "provider": "gemini"}],
+ "unavailable": []}
 ```
 
 Ollama models come from the user's `ollama_url`. Gemini, NVIDIA and Poe models are
 added only when the user has stored that provider's key. Poe's catalogue also lists
 image, video and audio bots; only text-output models that serve chat completions
 are offered.
+
+A provider that cannot be reached is listed in `unavailable` as
+`{"provider": "ollama", "detail": "The Ollama server is unreachable. … (reference: …)"}`
+rather than silently contributing nothing; an empty `models` with an empty
+`unavailable` means the providers answered and have no models. When **no**
+provider answered the response is `502` with those details joined — an empty
+picker used to be the only symptom of a wrong `LLM_API_URL` (#151).
 
 ### GET /models/details
 
@@ -746,8 +756,10 @@ universal-voice.
 
 ### GET /tts/models
 
-→ `{"models": [{"id": "vixtts", "type": "tts", …}]}`. Falls back to a static list
-(`vixtts`, `gpt-sovits`, `vieneu:turbo`) when universal-voice is unreachable.
+→ `{"models": [{"id": "vixtts", "type": "tts", …}]}`. `502` when universal-voice
+is unreachable, like `/tts/voices`; an empty list when it is up and serves no TTS
+model. (A static list of three ids used to be returned as a normal 200, so the
+picker offered models that did not exist — #151.)
 
 There is no `GET /tts/backends`.
 

@@ -696,7 +696,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         />
       ) : (
         <ChatComposer
-          scopeKey={`${personaId ?? 'unbound'}:${streaming.activeConversationId ?? 'new'}`}
+          personaId={personaId ?? null}
+          conversationId={streaming.activeConversationId ?? null}
           externalDraft={streaming.externalDraft}
           externalDraftVersion={streaming.externalDraftVersion}
           isStreaming={streaming.isStreaming}
