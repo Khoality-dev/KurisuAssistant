@@ -257,3 +257,46 @@ class TestIncomingSweep:
         await self._upload(tmp_path, monkeypatch)
 
         assert in_flight.exists()
+
+
+class TestReadTextTruncationBoundary:
+    """Cutting at a byte count can land mid-character."""
+
+    async def _store(self, tmp_path, monkeypatch, payload):
+        monkeypatch.setattr(drive_storage, "DRIVE_DIR", tmp_path)
+
+        async def _one():
+            yield payload
+
+        key, _, _ = await drive_storage.store_stream(1, _one(), quota_remaining=10_000)
+        return key
+
+    async def test_a_split_character_is_dropped_not_called_binary(
+        self, tmp_path, monkeypatch
+    ):
+        # "é" is two bytes; reading 3 of "aéb" splits it. Calling that file
+        # binary would tell the model an ordinary note is unreadable, and the
+        # more accented text it holds the likelier that gets.
+        key = await self._store(tmp_path, monkeypatch, "aéb".encode("utf-8"))
+
+        text, truncated = await drive_storage.read_text(1, key, 2)
+
+        assert text == "a"
+        assert truncated is True
+
+    async def test_a_four_byte_character_split_anywhere_still_reads(
+        self, tmp_path, monkeypatch
+    ):
+        key = await self._store(tmp_path, monkeypatch, "a😀b".encode("utf-8"))
+        for cut in (2, 3, 4):
+            text, truncated = await drive_storage.read_text(1, key, cut)
+            assert text == "a", cut
+            assert truncated is True
+
+    async def test_genuinely_broken_bytes_are_still_refused(
+        self, tmp_path, monkeypatch
+    ):
+        # A bad byte early in the file is not a truncation artefact.
+        key = await self._store(tmp_path, monkeypatch, b"\xff\xfe hello there")
+        with pytest.raises(ValueError):
+            await drive_storage.read_text(1, key, 1024)

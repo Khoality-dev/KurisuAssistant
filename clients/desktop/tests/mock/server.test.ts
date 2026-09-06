@@ -403,6 +403,22 @@ describe('Kurisu Drive', () => {
     return { status: res.status, body: await res.json() };
   };
 
+  /** Raw body, destination in the query string — the real upload's shape. */
+  const upload = (
+    name: string,
+    content: string | Uint8Array,
+    options: { parentId?: number; overwrite?: boolean } = {},
+  ) => {
+    const params = new URLSearchParams({ name });
+    if (options.parentId !== undefined) params.set('parent_id', String(options.parentId));
+    if (options.overwrite) params.set('overwrite', 'true');
+    return fetch(`${drive.url}/drive/files?${params}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+  };
+
   it('lists the top of the drive, folders first', async () => {
     const { status, body } = await driveGet('/drive/nodes');
     expect(status).toBe(200);
@@ -444,14 +460,10 @@ describe('Kurisu Drive', () => {
     expect(await res.text()).toBe('# Reading list');
   });
 
-  it('accepts a multipart upload and lists it afterwards', async () => {
-    const form = new FormData();
-    form.append('file', new Blob(['hello drive']), 'greeting.txt');
-    form.append('name', 'greeting.txt');
+  it('accepts a raw-body upload and lists it afterwards', async () => {
+    const res = await upload('greeting.txt', 'hello drive');
 
-    const res = await fetch(`${drive.url}/drive/files`, { method: 'POST', body: form });
     const node = await res.json();
-
     expect(res.status).toBe(200);
     expect(node.name).toBe('greeting.txt');
     expect(node.size).toBe('hello drive'.length);
@@ -461,34 +473,18 @@ describe('Kurisu Drive', () => {
 
   it('uploads a file with binary bytes intact', async () => {
     const bytes = new Uint8Array([0, 1, 2, 255, 254, 0, 10, 13]);
-    const form = new FormData();
-    form.append('file', new Blob([bytes]), 'raw.bin');
-    form.append('name', 'raw.bin');
-    await fetch(`${drive.url}/drive/files`, { method: 'POST', body: form });
+    await upload('raw.bin', bytes);
 
     const node = (await driveGet('/drive/resolve?path=/raw.bin')).body;
     const res = await fetch(`${drive.url}/drive/files/${node.id}/content`);
-    const returned = new Uint8Array(await res.arrayBuffer());
 
-    // The parser splits on the boundary as bytes for exactly this reason: a
-    // round-trip through a string would mangle these.
-    expect(Array.from(returned)).toEqual(Array.from(bytes));
+    expect(Array.from(new Uint8Array(await res.arrayBuffer()))).toEqual(Array.from(bytes));
   });
 
   it('refuses a duplicate name and accepts an overwrite', async () => {
-    const send = (overwrite: boolean, content: string) => {
-      const form = new FormData();
-      form.append('file', new Blob([content]), 'twice.txt');
-      form.append('name', 'twice.txt');
-      return fetch(`${drive.url}/drive/files${overwrite ? '?overwrite=true' : ''}`, {
-        method: 'POST',
-        body: form,
-      });
-    };
-
-    expect((await send(false, 'first')).status).toBe(200);
-    expect((await send(false, 'second')).status).toBe(409);
-    expect((await send(true, 'second')).status).toBe(200);
+    expect((await upload('twice.txt', 'first')).status).toBe(200);
+    expect((await upload('twice.txt', 'second')).status).toBe(409);
+    expect((await upload('twice.txt', 'second', { overwrite: true })).status).toBe(200);
 
     const node = (await driveGet('/drive/resolve?path=/twice.txt')).body;
     const res = await fetch(`${drive.url}/drive/files/${node.id}/content`);
@@ -501,13 +497,55 @@ describe('Kurisu Drive', () => {
     await drive.start();
     mock = drive;
 
-    const form = new FormData();
-    form.append('file', new Blob(['far too many bytes']), 'big.bin');
-    form.append('name', 'big.bin');
-
-    const res = await fetch(`${drive.url}/drive/files`, { method: 'POST', body: form });
-    expect(res.status).toBe(507);
+    expect((await upload('big.bin', 'far too many bytes')).status).toBe(507);
   });
+
+  it('lets an overwrite reuse the bytes it is replacing', async () => {
+    // The backend subtracts what a replaced file releases before checking the
+    // quota. A mock that forgot to would answer 507 where the server answers
+    // 200 — and a spec written against it would be wrong about the server.
+    await drive.stop();
+    drive = new MockBackend({ driveQuotaBytes: 10 });
+    await drive.start();
+    mock = drive;
+
+    expect((await upload('exact.bin', '0123456789')).status).toBe(200);
+    expect((await upload('exact.bin', 'abcdefghij', { overwrite: true })).status).toBe(200);
+  });
+
+  it('decides a duplicate name before it decides the quota', async () => {
+    await drive.stop();
+    drive = new MockBackend({ driveQuotaBytes: 4 });
+    await drive.start();
+    mock = drive;
+
+    await upload('taken.txt', 'abcd');
+    // Over quota *and* a duplicate. The backend answers 409, because it settles
+    // the name before it ever reads the body.
+    expect((await upload('taken.txt', 'far too many bytes')).status).toBe(409);
+  });
+
+  it('refuses an upload into a parent that is not there', async () => {
+    expect((await upload('orphan.txt', 'x', { parentId: 9999 })).status).toBe(404);
+    expect(drive.getDrivePaths()).not.toContain('/orphan.txt');
+  });
+
+  it('refuses a name the backend would refuse, on upload as well as on mkdir', async () => {
+    for (const name of ['..', 'a/b', ' leading', 'trailing ', '']) {
+      expect((await upload(name, 'x')).status, name).toBe(400);
+    }
+  });
+
+  it('answers 400 when an id names the wrong kind of node', async () => {
+    const reports = (await driveGet('/drive/resolve?path=/Reports')).body;
+    const file = (await driveGet('/drive/resolve?path=/Reports/Q3-revenue-notes.md')).body;
+
+    // A folder is not a file...
+    expect((await fetch(`${drive.url}/drive/files/${reports.id}/content`)).status).toBe(400);
+    // ...and a file is not a folder.
+    expect((await driveGet(`/drive/nodes?parent_id=${file.id}`)).status).toBe(400);
+  });
+
 
   it('creates a folder, and refuses a name that would look like a path', async () => {
     const create = (name: string) =>

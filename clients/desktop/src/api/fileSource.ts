@@ -264,20 +264,26 @@ export const fileSource = {
   /**
    * Whether a file should open in the editor at all.
    *
-   * Locally this reads the first 512 bytes and looks for a NUL. Downloading a
-   * drive file to answer the same question would mean fetching it twice, so the
-   * stored MIME type answers instead — which is what the server guessed from the
-   * extension, and is the same information the local check approximates.
+   * The same question the local side answers, answered the same way: read the
+   * first bytes and look for a NUL. It is a `Range` request, so it costs 512
+   * bytes rather than the whole file.
+   *
+   * The stored MIME type is not enough on its own. It is guessed from the
+   * extension, so a Dockerfile, a Makefile, a LICENSE and every unmapped
+   * extension come back as `application/octet-stream` — and calling those
+   * binary would refuse to open files whose local twins open fine.
    */
   async isBinary(filePath: string): Promise<boolean> {
     if (!isDrivePath(filePath)) return window.electron.explorer.isBinary(filePath);
     try {
       const id = await driveNodeId(filePath);
       if (id === null) return false;
-      const node = await apiClient.getDriveNode(id);
-      const mime = node.mime ?? '';
-      return !(mime.startsWith('text/') || TEXTUAL_MIMES.has(mime));
+      const head = new Uint8Array(await apiClient.readDriveFileHead(id, BINARY_SNIFF_BYTES));
+      return head.includes(0);
     } catch {
+      // Unreadable for some other reason — call it text and let `readFile`
+      // report the real error, rather than showing the binary warning for what
+      // is actually a network failure.
       return false;
     }
   },
@@ -314,12 +320,14 @@ export const fileSource = {
     oldPath: string,
     newPath: string,
   ): Promise<{ status?: string; error?: string }> {
-    if (!isDrivePath(oldPath)) return window.electron.explorer.rename(oldPath, newPath);
-    if (!isDrivePath(newPath)) {
-      // Renaming across the two roots is a copy, not a rename: the bytes have to
-      // move. The explorer offers that as Upload/Download instead.
+    // Renaming across the two roots is a copy, not a rename: the bytes have to
+    // move. Checked in both directions — a local source with a drive
+    // destination would otherwise fall through to the Electron rename and make
+    // a local file literally called `drive://…`.
+    if (isDrivePath(oldPath) !== isDrivePath(newPath)) {
       return { error: 'Move a file between the drive and this computer with Upload or Download.' };
     }
+    if (!isDrivePath(oldPath)) return window.electron.explorer.rename(oldPath, newPath);
     try {
       const id = await driveNodeId(oldPath);
       if (id === null) return { error: 'The drive itself cannot be renamed.' };
@@ -366,18 +374,5 @@ export const fileSource = {
   },
 };
 
-/**
- * Types the editor can open even though they are not `text/*`.
- *
- * `mimetypes` calls JSON `application/json` and Markdown `text/markdown`; the
- * first would otherwise land in the binary warning.
- */
-const TEXTUAL_MIMES = new Set([
-  'application/json',
-  'application/xml',
-  'application/javascript',
-  'application/x-yaml',
-  'application/x-sh',
-  'application/toml',
-  'application/sql',
-]);
+/** As many bytes as `electron/explorerIPC.ts` reads to answer the same question. */
+const BINARY_SNIFF_BYTES = 512;

@@ -365,3 +365,113 @@ class TestApprovalSentences:
 
     def test_a_read_does_not_pretend_to_be_dangerous(self):
         assert "Read /a.md" in DriveReadTool().describe_call({"path": "/a.md"})
+
+
+class TestModelSuppliedArguments:
+    """Every value here comes from a language model, so a field the schema calls
+    a string can arrive as anything at all.
+
+    `describe_call` is the sharp edge: `BaseAgent.execute_tool` does not wrap it,
+    so an exception raised while building the approval sentence fails the whole
+    chat turn — for a call the user may already have set to allow.
+    """
+
+    @pytest.mark.parametrize("path", [None, 42, ["/a"], {"p": "/a"}, "", "   "])
+    def test_describe_call_survives_any_path(self, path):
+        for tool in (DriveListTool(), DriveReadTool(), DriveDeleteTool()):
+            assert isinstance(tool.describe_call({"path": path}), str), tool.name
+        assert isinstance(
+            DriveWriteTool().describe_call({"path": path, "content": "x"}), str
+        )
+
+    @pytest.mark.parametrize("content", [None, 42, ["a"], {"c": "a"}])
+    def test_describe_call_survives_any_content(self, content):
+        sentence = DriveWriteTool().describe_call({"path": "/a.md", "content": content})
+        assert isinstance(sentence, str)
+        assert "/a.md" in sentence
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            (True, True), (False, False), (None, False),
+            ("true", True), ("True", True), ("yes", True), ("1", True),
+            # The one that matters: `bool("false")` is True, and this flag guards
+            # an irreversible recursive delete.
+            ("false", False), ("False", False), ("no", False), ("0", False), ("", False),
+        ],
+    )
+    def test_recursive_is_parsed_not_coerced(self, value, expected):
+        sentence = DriveDeleteTool().describe_call({"path": "/Reports", "recursive": value})
+        assert ("everything inside it" in sentence) is expected, value
+
+    async def test_a_string_false_does_not_delete_a_folder(self, db_running, accounts):
+        owner, _ = accounts
+        from kurisuassistant.db.repositories import DriveNodeRepository
+        from kurisuassistant.db.service import get_db_service
+
+        await get_db_service().execute(
+            lambda s: DriveNodeRepository(s).create_folder(owner, None, "Survives")
+        )
+        await _write(owner, "/Survives/inside.md", "still here")
+
+        result = await DriveDeleteTool().execute(
+            {"user_id": owner, "path": "/Survives", "recursive": "false"}
+        )
+
+        assert "recursive=true" in result
+        assert "still here" in await DriveReadTool().execute(
+            {"user_id": owner, "path": "/Survives/inside.md"}
+        )
+
+    async def test_a_non_string_path_is_refused_rather_than_crashing(
+        self, db_running, accounts
+    ):
+        owner, _ = accounts
+        for tool in (DriveListTool(), DriveReadTool(), DriveDeleteTool()):
+            result = await tool.execute({"user_id": owner, "path": 42})
+            assert isinstance(result, str), tool.name
+
+
+class TestListIsBounded:
+    async def test_a_huge_folder_does_not_become_the_whole_context(
+        self, db_running, accounts
+    ):
+        """`drive_read` is bounded and the history tools paginate; a folder with
+        thousands of files must not be the one call that fills the window."""
+        from kurisuassistant.tools.drive import MAX_LIST_ENTRIES
+
+        owner, _ = accounts
+        for i in range(MAX_LIST_ENTRIES + 15):
+            await _write(owner, f"/many-{i:04d}.md", "x")
+
+        result = await DriveListTool().execute({"user_id": owner, "path": "/"})
+
+        assert result.count("\n- ") == MAX_LIST_ENTRIES
+        assert "15 more, not listed" in result
+
+
+class TestDriveSchemeReferences:
+    """A chat message's `context_files` carry the client's own path spelling to
+    the model verbatim, so the most natural thing for a model to do is hand it
+    back. That has to work rather than be a mistake."""
+
+    @pytest.mark.parametrize(
+        "given,shown",
+        [
+            ("drive://Reports/Q3.md", "/Reports/Q3.md"),
+            ("drive://Q3.md", "/Q3.md"),
+            ("drive://", "/"),
+            ("/Reports/Q3.md", "/Reports/Q3.md"),
+            ("Reports/Q3.md", "/Reports/Q3.md"),
+        ],
+    )
+    def test_the_approval_sentence_shows_a_plain_path(self, given, shown):
+        assert DriveReadTool().describe_call({"path": given}) == f"Read {shown} from the drive"
+
+    async def test_a_scheme_reference_reads_the_same_file(self, db_running, accounts):
+        owner, _ = accounts
+        await _write(owner, "/scheme-check.md", "found it")
+
+        assert "found it" in await DriveReadTool().execute(
+            {"user_id": owner, "path": "drive://scheme-check.md"}
+        )

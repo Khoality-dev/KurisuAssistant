@@ -970,34 +970,31 @@ class APIClient {
   }
 
   /**
-   * Upload one file. `onProgress` drives the transfer tray, and `signal` is
-   * what its Cancel button aborts.
+   * Upload one file.
+   *
+   * The body is the raw bytes and the destination rides the query string —
+   * not multipart. A route declaring an `UploadFile` makes the server parse and
+   * spool the whole body before it has even authenticated the caller, so the
+   * size ceiling and the quota arrive too late to refuse anything.
+   *
+   * Anything large goes through `electron/driveTransfers.ts` instead, which
+   * streams from disk; this is for the small blobs the renderer already holds.
    */
   async uploadDriveFile(
     parentId: number | null,
     name: string,
     body: Blob,
-    options: {
-      overwrite?: boolean;
-      onProgress?: (loaded: number, total: number | null) => void;
-      signal?: AbortSignal;
-    } = {},
+    options: { overwrite?: boolean; signal?: AbortSignal } = {},
   ): Promise<DriveNode> {
-    const formData = new FormData();
-    formData.append('file', body, name);
-    formData.append('name', name);
-    if (parentId !== null) formData.append('parent_id', String(parentId));
-
-    const response = await this.client.post<DriveNode>('/drive/files', formData, {
-      headers: this.getHeaders(),
-      params: options.overwrite ? { overwrite: true } : {},
+    const response = await this.client.post<DriveNode>('/drive/files', body, {
+      headers: { ...this.getHeaders(), 'Content-Type': 'application/octet-stream' },
+      params: {
+        name,
+        ...(parentId !== null ? { parent_id: parentId } : {}),
+        ...(options.overwrite ? { overwrite: true } : {}),
+      },
       signal: options.signal,
-      // A drive file is not a 30s request. The default timeout would abort a
-      // large upload halfway and report it as a network failure.
       timeout: 0,
-      onUploadProgress: options.onProgress
-        ? (event) => options.onProgress!(event.loaded, event.total ?? null)
-        : undefined,
     });
     return response.data;
   }
@@ -1012,6 +1009,22 @@ class APIClient {
         timeout: 0,
       },
     );
+    return response.data;
+  }
+
+  /**
+   * The first `bytes` of a drive file.
+   *
+   * A `Range` request, which the drive answers with a 206 — that is what makes
+   * "is this text?" answerable without downloading the whole file. A server
+   * that ignored the range would return everything, which is still correct,
+   * only wasteful.
+   */
+  async readDriveFileHead(id: number, bytes: number): Promise<ArrayBuffer> {
+    const response = await this.client.get<ArrayBuffer>(`/drive/files/${id}/content`, {
+      headers: { ...this.getHeaders(), Range: `bytes=0-${bytes - 1}` },
+      responseType: 'arraybuffer',
+    });
     return response.data;
   }
 

@@ -62,16 +62,19 @@ def drive_root(tmp_path, monkeypatch):
 
 
 def _upload(client, headers, name, data, parent_id=None, overwrite=False):
-    form = {}
+    """Upload is a raw body with the destination in the query string.
+
+    Not multipart: a handler declaring an ``UploadFile`` makes FastAPI parse and
+    spool the whole body *before* it resolves dependencies, so the bytes would
+    land on the server's disk before the auth check, the size ceiling and the
+    quota ever ran.
+    """
+    params = {"name": name}
     if parent_id is not None:
-        form["parent_id"] = str(parent_id)
-    form["name"] = name
-    return client.post(
-        "/drive/files" + ("?overwrite=true" if overwrite else ""),
-        files={"file": (name, data, "application/octet-stream")},
-        data=form,
-        headers=headers,
-    )
+        params["parent_id"] = str(parent_id)
+    if overwrite:
+        params["overwrite"] = "true"
+    return client.post("/drive/files", params=params, content=data, headers=headers)
 
 
 def _folder(client, headers, name, parent_id=None):
@@ -92,6 +95,7 @@ class TestUnauthenticated:
             ("get", "/drive/usage"),
             ("get", "/drive/resolve?path=/x"),
             ("post", "/drive/folders"),
+            ("post", "/drive/files?name=x.txt"),
         ],
     )
     def test_no_token_is_refused(self, system_client, method, path):
@@ -117,6 +121,44 @@ class TestUnauthenticated:
             headers={"X-Wire-Protocol": str(WIRE_PROTOCOL)},
         )
         assert resp.status_code == 401
+
+
+class TestTheBodyIsNotReadBeforeTheCallerIs:
+    """An upload must not cost the server anything before it is authenticated.
+
+    A handler declaring ``UploadFile`` makes FastAPI call ``request.form()``
+    before ``solve_dependencies``, so the whole body is parsed and spooled to
+    disk before ``get_authenticated_user`` runs — an unauthenticated caller
+    could push whatever the proxy allows onto the server's filesystem and only
+    then be told 401. The route takes a raw stream instead.
+    """
+
+    def test_the_route_declares_no_body_field(self):
+        """The property, checked where it is decided rather than inferred.
+
+        FastAPI pre-reads exactly when a handler has a body parameter. Nothing
+        observable from the outside distinguishes "refused after reading" from
+        "refused before", so the signature is the thing to pin.
+        """
+        import inspect
+
+        from kurisuassistant.routers import drive as drive_router
+
+        signature = inspect.signature(drive_router.upload_file)
+        annotations = [p.annotation for p in signature.parameters.values()]
+        rendered = [str(a) for a in annotations]
+        assert not any("UploadFile" in r for r in rendered), rendered
+        assert any("Request" in r for r in rendered), rendered
+
+    def test_an_unauthenticated_upload_is_refused(self, system_client, drive_root):
+        resp = system_client.post(
+            "/drive/files",
+            params={"name": "sneaky.bin"},
+            content=b"x" * 1024,
+            headers={"X-Wire-Protocol": str(WIRE_PROTOCOL)},
+        )
+        assert resp.status_code == 401
+        assert not [p for p in drive_root.rglob("*") if p.is_file()]
 
 
 class TestRoundTrip:
@@ -482,6 +524,34 @@ class TestLimits:
         _, headers = owner
         _upload(system_client, headers, "too-big2.bin", b"x" * 500)
         assert not [p for p in drive_root.rglob("*") if p.is_file()]
+
+    def test_a_full_drive_is_refused_even_when_it_fills_up_mid_upload(
+        self, system_client, owner, monkeypatch, drive_root
+    ):
+        """The quota is measured before the bytes arrive and nothing reserves
+        the space, so the check that has to hold is the one inside the write
+        transaction — which runs on the single database thread, and is
+        therefore atomic against every other upload."""
+        from kurisuassistant.utils import drive_storage
+
+        _, headers = owner
+        # Room at the start; none by the time the row is written.
+        monkeypatch.setattr(drive_storage, "QUOTA_BYTES", 10_000)
+        sizes = iter([0, 10_000])
+        real_usage = __import__(
+            "kurisuassistant.db.repositories.drive", fromlist=["DriveNodeRepository"]
+        ).DriveNodeRepository.usage
+        monkeypatch.setattr(
+            "kurisuassistant.db.repositories.drive.DriveNodeRepository.usage",
+            lambda self, user_id: (next(sizes, 10_000), 0),
+        )
+
+        resp = _upload(system_client, headers, "late.bin", b"x" * 100)
+
+        assert resp.status_code == 507, resp.text
+        # ...and the bytes it had already written are released.
+        assert not [p for p in drive_root.rglob("*") if p.is_file()]
+        assert real_usage  # referenced so the patch target is obviously the real one
 
     def test_a_full_drive_is_refused(self, system_client, owner, monkeypatch):
         from kurisuassistant.utils import drive_storage

@@ -14,18 +14,9 @@ envelope.
 """
 
 import logging
-from typing import AsyncIterator, Optional
+from typing import Optional
 
-from fastapi import (
-    APIRouter,
-    Depends,
-    File,
-    Form,
-    HTTPException,
-    Query,
-    Request,
-    UploadFile,
-)
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
@@ -77,12 +68,9 @@ def _require_node(repo: DriveNodeRepository, user_id: int, node_id: int) -> Driv
     return node
 
 
-async def _upload_chunks(file: UploadFile) -> AsyncIterator[bytes]:
-    while True:
-        chunk = await file.read(drive_storage.CHUNK_SIZE)
-        if not chunk:
-            break
-        yield chunk
+class _OverQuota(Exception):
+    """The bytes arrived, but no longer fit. Raised inside the write
+    transaction, where the check and the insert are atomic."""
 
 
 # ── reads ──────────────────────────────────────────────────────────────────
@@ -261,19 +249,31 @@ async def create_folder(
 
 @router.post("/files")
 async def upload_file(
-    file: UploadFile = File(...),
-    parent_id: Optional[int] = Form(None),
-    name: Optional[str] = Form(None),
+    request: Request,
+    name: str = Query(...),
+    parent_id: Optional[int] = Query(None),
     overwrite: bool = Query(False),
     user: User = Depends(get_authenticated_user),
 ):
-    """Store an uploaded file, streaming it to disk as it arrives.
+    """Store a file, streaming the raw request body to disk as it arrives.
 
-    The bytes are written before the row exists, because the size and checksum
-    are only known once the stream ends. If the row then cannot be created the
-    blob is unlinked, so a refused upload leaves nothing behind.
+    **The body is raw bytes, not multipart, and that is load-bearing.** A
+    handler that declares an ``UploadFile`` makes FastAPI call
+    ``await request.form()`` *before* it resolves dependencies — so the whole
+    body is parsed and spooled to the container's disk before
+    ``get_authenticated_user`` runs, before ``MAX_FILE_BYTES`` and before the
+    quota. An unauthenticated caller could push whatever nginx allows onto the
+    server's filesystem and only then be told 401, and a legitimate upload paid
+    for its bytes twice: once into starlette's spool, once copying out of it.
+    Taking the body as a stream is what makes every promise in
+    ``utils/drive_storage`` true on this route as well as on ``PUT``.
+
+    The name and the destination therefore travel as query parameters. The bytes
+    are written before the row exists, because the size and checksum are only
+    known once the stream ends; if the row then cannot be created the blob is
+    unlinked, so a refused upload leaves nothing behind.
     """
-    final_name = drive_storage.validate_name(name or file.filename or "")
+    final_name = drive_storage.validate_name(name)
 
     try:
         def _plan(session):
@@ -312,19 +312,31 @@ async def upload_file(
         )
 
     storage_key, size, checksum = await drive_storage.store_stream(
-        user.id, _upload_chunks(file), plan["quota_remaining"]
+        user.id, request.stream(), plan["quota_remaining"]
     )
     mime = drive_storage.guess_mime(final_name)
 
     try:
         def _persist(session):
             repo = DriveNodeRepository(session)
-            if plan["existing_id"] is not None:
-                node = repo.get_by_user_and_id(user.id, plan["existing_id"])
-                if node is not None:
-                    replaced = repo.replace_file(node, size, mime, checksum, storage_key)
-                    repo.touch_parents(node)
-                    return _node_to_response(node), replaced
+            node = (
+                repo.get_by_user_and_id(user.id, plan["existing_id"])
+                if plan["existing_id"] is not None
+                else None
+            )
+            # The quota was measured before the bytes arrived, and nothing
+            # reserved the space in between. Re-measuring here is what makes
+            # concurrent uploads safe: every `_persist` runs on the single
+            # database thread, so this check and the insert are atomic with
+            # respect to every other upload.
+            used, _ = repo.usage(user.id)
+            reclaimed = node.size if node is not None else 0
+            if used - reclaimed + size > drive_storage.QUOTA_BYTES:
+                raise _OverQuota()
+            if node is not None:
+                replaced = repo.replace_file(node, size, mime, checksum, storage_key)
+                repo.touch_parents(node)
+                return _node_to_response(node), replaced
             node = repo.create_file(
                 user.id, parent_id, final_name, size, mime, checksum, storage_key
             )
@@ -332,6 +344,12 @@ async def upload_file(
             return _node_to_response(node), None
 
         body, replaced_key = await get_db_service().execute(_persist)
+    except _OverQuota:
+        await drive_storage.delete_blobs(user.id, [storage_key])
+        raise HTTPException(
+            status_code=507,
+            detail="Your drive is full. Remove something, or ask for more space.",
+        )
     except (ValueError, IntegrityError):
         # Someone created the same name between the check and the write.
         await drive_storage.delete_blobs(user.id, [storage_key])

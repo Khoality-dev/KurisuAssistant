@@ -31,13 +31,13 @@ import type { DriveUsage } from '../../api/types';
 const READ_TOOLS = ['drive_list', 'drive_read'] as const;
 const WRITE_TOOLS = ['drive_write', 'drive_delete'] as const;
 
-type DrivePolicy = 'read' | 'ask' | 'full' | 'custom';
+type DrivePolicy = 'read' | 'ask' | 'full' | 'unset' | 'custom';
 
 interface PolicyChoice {
   id: Exclude<DrivePolicy, 'custom'>;
   label: string;
   description: string;
-  isDefault?: boolean;
+  isRecommended?: boolean;
 }
 
 const CHOICES: PolicyChoice[] = [
@@ -52,7 +52,9 @@ const CHOICES: PolicyChoice[] = [
     label: 'Ask before writing',
     description:
       'Reads run silently. Anything that changes the drive stops at the approval bar first, with the file and the size named.',
-    isDefault: true,
+    // Marks the choice to make, not a state anything is already in: a fresh
+    // account has no drive policies at all.
+    isRecommended: true,
   },
   {
     id: 'full',
@@ -62,13 +64,21 @@ const CHOICES: PolicyChoice[] = [
   },
 ];
 
-/** Which of the three the stored policies add up to, if any. */
+/**
+ * Which of the three the stored policies add up to, if any.
+ *
+ * `unset` is its own answer and not the same as `ask`. A fresh account has no
+ * drive policies at all, which means *every* drive call stops at the approval
+ * bar — reads included. "Ask before writing" is the state where reads are
+ * explicitly allowed and only writes prompt, and nothing reaches it by default.
+ */
 function readPolicy(tools: Record<string, 'allow' | 'deny'>): DrivePolicy {
   const reads = READ_TOOLS.map((t) => tools[t]);
   const writes = WRITE_TOOLS.map((t) => tools[t]);
   const allReads = (value: string | undefined) => reads.every((r) => r === value);
   const allWrites = (value: string | undefined) => writes.every((w) => w === value);
 
+  if (allReads(undefined) && allWrites(undefined)) return 'unset';
   if (allReads('allow') && allWrites('deny')) return 'read';
   if (allReads('allow') && allWrites(undefined)) return 'ask';
   if (allReads('allow') && allWrites('allow')) return 'full';
@@ -155,6 +165,13 @@ export const DriveSection: React.FC = () => {
         Assistant access
       </Typography>
 
+      {current === 'unset' && (
+        <Alert severity="info" sx={{ mb: 1.5 }}>
+          Nothing is settled yet, so every drive call — reads included — stops at the
+          approval bar. Pick one of these to change that.
+        </Alert>
+      )}
+
       {current === 'custom' && (
         <Alert severity="info" sx={{ mb: 1.5 }}>
           The drive tools are set individually in Tools &amp; MCP. Choosing one of these
@@ -188,7 +205,7 @@ export const DriveSection: React.FC = () => {
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
                     {choice.label}
                   </Typography>
-                  {choice.isDefault && (
+                  {choice.isRecommended && (
                     <Typography
                       variant="caption"
                       sx={{
@@ -201,7 +218,7 @@ export const DriveSection: React.FC = () => {
                         letterSpacing: '0.06em',
                       }}
                     >
-                      default
+                      recommended
                     </Typography>
                   )}
                 </Box>

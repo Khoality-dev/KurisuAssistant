@@ -43,12 +43,18 @@ access*. That is not a new column — it is a view over `users.tool_policies`:
 | Setting | `drive_list` / `drive_read` | `drive_write` / `drive_delete` |
 | --- | --- | --- |
 | Read only | `allow` | `deny` |
-| Ask before writing (default) | `allow` | *unset* → the approval bar |
+| Ask before writing (recommended) | `allow` | *unset* → the approval bar |
 | Full access | `allow` | `allow` |
 
-A combination matching none of the three is shown as *Custom* and left to
-Tools & MCP. One source of truth, one enforcement point, no second policy to keep
-in step.
+**A fresh account is in none of these.** It has no drive policies at all, which
+means every drive call stops at the approval bar — reads included — until
+someone picks one. That is not the same as "ask before writing", where reads are
+explicitly allowed and only writes prompt, so the settings screen names the
+unset state as its own rather than pretending it is the middle row. A
+combination matching none of the presets is shown as *Custom* and left to
+Tools & MCP.
+
+One source of truth, one enforcement point, no second policy to keep in step.
 
 ## Deferred (meta) tools
 

@@ -813,15 +813,21 @@ the name is taken.
 
 ### POST /drive/files
 
-`multipart/form-data`: `file`, plus optional `parent_id` and `name` form fields
-(`name` defaults to the uploaded filename). `?overwrite=true` replaces an
-existing file of that name instead of refusing.
+The **raw bytes** as the body, with `?name=` required and `?parent_id=` and
+`?overwrite=true` optional. Not `multipart/form-data`, deliberately: a handler
+declaring an `UploadFile` makes FastAPI call `request.form()` *before* it
+resolves dependencies, so the whole body would be parsed and spooled to the
+server's disk before the caller was even authenticated — and before the size
+ceiling and the quota. An unauthenticated caller could push whatever the proxy
+allows onto the filesystem and only then be told `401`.
 
 Streamed to disk as it arrives, so the limits below are enforced before the
 upload has been paid for rather than after.
 
-**Errors:** `400` bad name, `404` no such parent, `409` the name is taken (or is
-a folder), `413` over `DRIVE_MAX_FILE_BYTES`, `507` over `DRIVE_QUOTA_BYTES`.
+**Errors:** `400` bad name or a parent that is a file, `404` no such parent,
+`409` the name is taken (or is a folder), `413` over `DRIVE_MAX_FILE_BYTES`,
+`507` over `DRIVE_QUOTA_BYTES` — re-checked inside the write transaction, so
+concurrent uploads cannot overshoot it between them.
 
 ### GET /drive/files/{node_id}/content
 

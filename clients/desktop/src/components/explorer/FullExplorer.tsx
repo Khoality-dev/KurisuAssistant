@@ -223,7 +223,10 @@ export const FullExplorer: React.FC = () => {
     setSearchQuery(query);
     setSearchCaseSensitive(opts.caseSensitive);
 
-    if (!query.trim() || !currentPath || !window.electron?.explorer) {
+    // ripgrep runs on this machine. There is no drive-side search yet (#6), so
+    // searching a drive folder would search a local path that does not exist
+    // and report "no results" — an answer, and a wrong one.
+    if (!query.trim() || !currentPath || !fileSource.supportsSearch(currentPath) || !window.electron?.explorer) {
       setSearchResults(null);
       setIsSearching(false);
       return;

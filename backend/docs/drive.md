@@ -95,6 +95,21 @@ A node belonging to someone else is **404, never 403**.
 `os.replace`s the file into place only when the stream ends. A refused,
 cancelled or abandoned upload leaves nothing behind.
 
+**Both write routes take a raw body, and that is load-bearing rather than a
+style choice.** A handler declaring an `UploadFile` makes FastAPI call
+`await request.form()` *before* `solve_dependencies` — so the body is parsed and
+spooled to the container's disk before `get_authenticated_user` runs, before
+`MAX_FILE_BYTES` and before the quota. An unauthenticated caller could push
+whatever nginx allows onto the filesystem and only then be told 401, and a
+legitimate upload paid for its bytes twice: once into starlette's spool, once
+copying out of it. So `POST /drive/files` takes its name and destination as
+query parameters and its bytes as the body, exactly as `PUT` does.
+
+The quota is measured before the bytes arrive and nothing reserves the space, so
+it is measured **again inside the write transaction**, where the check and the
+insert are atomic — every write runs on the single database thread. Without
+that, concurrent uploads each see the same headroom and overshoot it together.
+
 Nothing else in this backend streams: all nine other `UploadFile` routes read the
 whole body into memory first, so their size ceiling is checked after the upload
 has already been paid for. Here the file ceiling and the account's quota are both

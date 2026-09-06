@@ -15,7 +15,6 @@
  */
 
 import { app, dialog, ipcMain, net } from 'electron';
-import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -63,76 +62,32 @@ function safeLocalName(name: string): string {
   return base.trim() || 'download';
 }
 
-/** `report.pdf` → `report (2).pdf` when the first one is already there. */
-function uniqueDestination(dir: string, name: string): string {
+/**
+ * Claim a free destination, atomically.
+ *
+ * The `.part` file is created with `wx` — fail if it exists — inside the same
+ * loop that picks the name. Checking whether the *final* name is free and then
+ * writing to `<final>.part` is a race two simultaneous downloads of the same
+ * file lose: both see the final name free, both open the same part file, and
+ * their bytes interleave into one corrupt result.
+ *
+ * Returns the final path and an already-open handle on its part file.
+ */
+function claimDestination(dir: string, name: string): { destination: string; partial: string; handle: number } {
   const ext = path.extname(name);
   const stem = path.basename(name, ext);
-  let candidate = path.join(dir, name);
-  let n = 1;
-  while (fs.existsSync(candidate)) {
-    n += 1;
-    candidate = path.join(dir, `${stem} (${n})${ext}`);
+  for (let n = 1; n < 1000; n += 1) {
+    const destination = n === 1 ? path.join(dir, name) : path.join(dir, `${stem} (${n})${ext}`);
+    const partial = `${destination}.part`;
+    if (fs.existsSync(destination)) continue;
+    try {
+      return { destination, partial, handle: fs.openSync(partial, 'wx') };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw error;
+    }
   }
-  return candidate;
-}
-
-/**
- * A fresh boundary per upload.
- *
- * Not a constant: a boundary is only a delimiter because it does not occur in
- * the body, and a fixed one is a string an uploaded file can contain — a file
- * that happens to hold it would be silently truncated at that point. 16 random
- * bytes make that a non-event.
- */
-function newBoundary(): string {
-  return `----KurisuDrive${randomBytes(16).toString('hex')}`;
-}
-
-/**
- * A value safe to put inside a multipart header line.
- *
- * A quote would end the quoted string and a CR or LF would start a new header,
- * so a name carrying either could forge parts of the request. The backend
- * refuses such names, but this side must not depend on that: it also sends
- * names that came back *from* the drive.
- */
-function headerSafe(value: string): string {
-  // eslint-disable-next-line no-control-regex
-  return value.replace(/[\r\n"\\]/g, '_');
-}
-
-/**
- * Multipart, written by hand because the body has to stream.
- *
- * `FormData` in the renderer would buffer the file; here the preamble and the
- * epilogue are small strings and the file itself is piped between them.
- */
-function multipartPreamble(req: UploadRequest, boundary: string): Buffer {
-  const parts: string[] = [];
-  if (req.parentId !== null) {
-    parts.push(
-      `--${boundary}\r\n`,
-      'Content-Disposition: form-data; name="parent_id"\r\n\r\n',
-      `${req.parentId}\r\n`,
-    );
-  }
-  parts.push(
-    `--${boundary}\r\n`,
-    'Content-Disposition: form-data; name="name"\r\n\r\n',
-    // A field *value*, not a header, so only the line breaks that would end the
-    // part matter here.
-    `${req.name.replace(/[\r\n]/g, '_')}\r\n`,
-  );
-  parts.push(
-    `--${boundary}\r\n`,
-    `Content-Disposition: form-data; name="file"; filename="${headerSafe(req.name)}"\r\n`,
-    'Content-Type: application/octet-stream\r\n\r\n',
-  );
-  return Buffer.from(parts.join(''), 'utf-8');
-}
-
-function multipartEpilogue(boundary: string): Buffer {
-  return Buffer.from(`\r\n--${boundary}--\r\n`, 'utf-8');
+  throw new Error('Too many downloads of that name are already here.');
 }
 
 function readBody(response: Electron.IncomingMessage): Promise<string> {
@@ -140,6 +95,7 @@ function readBody(response: Electron.IncomingMessage): Promise<string> {
     const chunks: Buffer[] = [];
     response.on('data', (chunk: Buffer) => chunks.push(chunk));
     response.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+    response.on('error', () => resolve(Buffer.concat(chunks).toString('utf-8')));
   });
 }
 
@@ -171,38 +127,57 @@ async function uploadOne(
     return { error: 'Folders cannot be uploaded yet — upload the files inside it.' };
   }
 
-  const boundary = newBoundary();
-  const preamble = multipartPreamble(req, boundary);
-  const epilogue = multipartEpilogue(boundary);
   const total = stat.size;
 
   return new Promise((resolve) => {
+    // The body is the file's raw bytes and the destination rides the query
+    // string. Multipart would mean hand-writing a streaming encoder here, and
+    // on the server it would mean FastAPI parsing and spooling the whole body
+    // to disk before it had even authenticated the caller.
     const url = new URL('/drive/files', req.baseUrl);
+    url.searchParams.set('name', req.name);
+    if (req.parentId !== null) url.searchParams.set('parent_id', String(req.parentId));
     if (req.overwrite) url.searchParams.set('overwrite', 'true');
 
     const request = net.request({ method: 'POST', url: url.toString() });
     request.setHeader('Authorization', `Bearer ${req.token}`);
-    request.setHeader('Content-Type', `multipart/form-data; boundary=${boundary}`);
+    request.setHeader('Content-Type', 'application/octet-stream');
     // Electron's own advice for a large body: without this the request is
     // buffered in the main process rather than streamed.
     request.chunkedEncoding = true;
 
     let settled = false;
     let cancelled = false;
-    const finish = (result: { node?: unknown; error?: string; cancelled?: boolean }) => {
-      if (settled) return;
-      settled = true;
-      inFlight.delete(id);
-      resolve(result);
-    };
+    const source = fs.createReadStream(req.localPath);
 
-    inFlight.set(id, () => {
-      cancelled = true;
+    /**
+     * Stop everything, once.
+     *
+     * Both halves matter. Destroying the read stream is what releases the file
+     * handle — a paused stream waiting on a write callback that will never
+     * resume would otherwise sit open forever. Aborting the request is what
+     * stops a server that refused mid-body from being fed the rest of the file.
+     */
+    const stop = () => {
+      source.destroy();
       try {
         request.abort();
       } catch {
         // Already finished.
       }
+    };
+
+    const finish = (result: { node?: unknown; error?: string; cancelled?: boolean }) => {
+      if (settled) return;
+      settled = true;
+      inFlight.delete(id);
+      stop();
+      resolve(result);
+    };
+
+    inFlight.set(id, () => {
+      cancelled = true;
+      stop();
     });
 
     request.on('response', async (response) => {
@@ -223,15 +198,9 @@ async function uploadOne(
     });
     request.on('abort', () => finish({ cancelled: true }));
 
-    request.write(preamble);
-
     let sent = 0;
-    const source = fs.createReadStream(req.localPath);
     source.on('data', (chunk: Buffer) => {
-      if (cancelled) {
-        source.destroy();
-        return;
-      }
+      if (cancelled || settled) return;
       // Backpressure. A local disk feeds far faster than a network socket, so
       // writing without waiting buffers the whole file inside the main process
       // — the one thing streaming was for. `write`'s callback fires when the
@@ -239,22 +208,16 @@ async function uploadOne(
       // use instead.
       source.pause();
       request.write(chunk, undefined, () => {
-        if (!cancelled) source.resume();
+        if (!cancelled && !settled) source.resume();
       });
       sent += chunk.length;
       emitProgress(event, { id, loaded: sent, total });
     });
     source.on('end', () => {
-      if (cancelled) return;
-      request.write(epilogue);
+      if (cancelled || settled) return;
       request.end();
     });
     source.on('error', (error) => {
-      try {
-        request.abort();
-      } catch {
-        // Already gone.
-      }
       finish({ error: error.message });
     });
   });
@@ -266,10 +229,14 @@ async function downloadOne(
   req: DownloadRequest,
 ): Promise<{ path?: string; error?: string; cancelled?: boolean }> {
   const dir = app.getPath('downloads');
-  const destination = uniqueDestination(dir, safeLocalName(req.fileName));
-  // Written under a partial name and renamed at the end, so an interrupted
-  // download never looks like a complete file.
-  const partial = `${destination}.part`;
+  let claim: { destination: string; partial: string; handle: number };
+  try {
+    // Written under a partial name and renamed at the end, so an interrupted
+    // download never looks like a complete file.
+    claim = claimDestination(dir, safeLocalName(req.fileName));
+  } catch (error) {
+    return { error: (error as Error).message };
+  }
 
   return new Promise((resolve) => {
     const url = new URL(`/drive/files/${req.nodeId}/content`, req.baseUrl);
@@ -278,22 +245,25 @@ async function downloadOne(
 
     let settled = false;
     let cancelled = false;
-    let sink: fs.WriteStream | null = null;
-
-    const cleanUp = () => {
-      sink?.destroy();
-      try {
-        fs.rmSync(partial, { force: true });
-      } catch {
-        // Nothing to remove.
-      }
-    };
+    const sink = fs.createWriteStream('', { fd: claim.handle });
 
     const finish = (result: { path?: string; error?: string; cancelled?: boolean }) => {
       if (settled) return;
       settled = true;
       inFlight.delete(id);
-      if (result.path === undefined) cleanUp();
+      if (result.path === undefined) {
+        sink.destroy();
+        try {
+          request.abort();
+        } catch {
+          // Already finished.
+        }
+        try {
+          fs.rmSync(claim.partial, { force: true });
+        } catch {
+          // Nothing to remove.
+        }
+      }
       resolve(result);
     };
 
@@ -305,6 +275,8 @@ async function downloadOne(
         // Already finished.
       }
     });
+
+    sink.on('error', (error) => finish({ error: error.message }));
 
     request.on('response', (response) => {
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -319,30 +291,31 @@ async function downloadOne(
       const total = declared ? Number(declared) : null;
       let received = 0;
 
-      sink = fs.createWriteStream(partial);
-      sink.on('error', (error) => finish({ error: error.message }));
-
-      response.on('data', (chunk: Buffer) => {
-        if (cancelled) return;
-        sink!.write(chunk);
+      // Electron's IncomingMessage implements the Readable interface — its
+      // typings say only EventEmitter — and piping is what gives backpressure:
+      // writing every chunk as it arrives would buffer a file the disk cannot
+      // keep up with in main-process memory, which is what this module exists
+      // to avoid.
+      const readable = response as unknown as NodeJS.ReadableStream;
+      readable.pipe(sink);
+      readable.on('data', (chunk: Buffer) => {
         received += chunk.length;
         emitProgress(event, { id, loaded: received, total });
       });
-      response.on('end', () => {
+      readable.on('error', (error: Error) => finish({ error: error.message }));
+
+      sink.on('finish', () => {
         if (cancelled) {
           finish({ cancelled: true });
           return;
         }
-        sink!.end(() => {
-          try {
-            fs.renameSync(partial, destination);
-            finish({ path: destination });
-          } catch (error) {
-            finish({ error: (error as Error).message });
-          }
-        });
+        try {
+          fs.renameSync(claim.partial, claim.destination);
+          finish({ path: claim.destination });
+        } catch (error) {
+          finish({ error: (error as Error).message });
+        }
       });
-      response.on('error', (error: Error) => finish({ error: error.message }));
     });
 
     request.on('error', (error) => {

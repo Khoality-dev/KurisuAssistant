@@ -118,56 +118,6 @@ const DEFAULT_STREAM: StreamScript = {
   ],
 };
 
-/**
- * Enough of multipart/form-data to read a drive upload.
- *
- * Not a general parser: it expects the shape this client actually sends — a
- * couple of plain text fields and one file part. Anything else is ignored
- * rather than guessed at.
- */
-export function parseMultipart(
-  body: Buffer,
-  contentType: string,
-): { fields: Record<string, string>; file?: Buffer; fileName?: string } {
-  const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/);
-  if (!boundaryMatch) return { fields: {} };
-  const boundary = `--${boundaryMatch[1] ?? boundaryMatch[2]}`;
-
-  const fields: Record<string, string> = {};
-  let file: Buffer | undefined;
-  let fileName: string | undefined;
-
-  // Split on the boundary as bytes, so a binary body is not mangled by a
-  // round-trip through a string.
-  const marker = Buffer.from(`\r\n${boundary}`, 'utf8');
-  const framed = Buffer.concat([Buffer.from('\r\n', 'utf8'), body]);
-  let cursor = framed.indexOf(marker);
-  while (cursor !== -1) {
-    const start = cursor + marker.length;
-    if (framed.slice(start, start + 2).toString() === '--') break; // closing boundary
-    const next = framed.indexOf(marker, start);
-    if (next === -1) break;
-
-    const part = framed.slice(start, next);
-    const headerEnd = part.indexOf('\r\n\r\n');
-    if (headerEnd !== -1) {
-      const headers = part.slice(0, headerEnd).toString('utf8');
-      const value = part.slice(headerEnd + 4);
-      const nameMatch = headers.match(/name="([^"]*)"/);
-      const fileMatch = headers.match(/filename="([^"]*)"/);
-      if (fileMatch) {
-        file = value;
-        fileName = fileMatch[1];
-      } else if (nameMatch) {
-        fields[nameMatch[1]] = value.toString('utf8');
-      }
-    }
-    cursor = next;
-  }
-
-  return { fields, file, fileName };
-}
-
 export interface MockTool {
   name: string;
   description: string;
@@ -1033,8 +983,13 @@ export class MockBackend {
     if (pathOnly === '/drive/nodes' && method === 'GET') {
       const raw = query.get('parent_id');
       const parentId = raw === null ? null : Number(raw);
-      if (parentId !== null && !this.driveNodes.some((n) => n.id === parentId)) {
-        return this.error(res, 404, 'Not found');
+      if (parentId !== null) {
+        const parent = this.driveNodes.find((n) => n.id === parentId);
+        if (!parent) return this.error(res, 404, 'Not found');
+        // 400, not 404: the backend distinguishes "no such node" from "that
+        // node is a file", and a client that treated them alike would pass here
+        // and misreport against the real server.
+        if (!parent.is_dir) return this.error(res, 400, 'That is a file, not a folder.');
       }
       const children = this.driveNodes
         .filter((n) => n.parent_id === parentId)
@@ -1045,7 +1000,8 @@ export class MockBackend {
     const driveContentMatch = pathOnly.match(/^\/drive\/files\/(\d+)\/content$/);
     if (driveContentMatch) {
       const node = this.driveNodes.find((n) => n.id === Number(driveContentMatch[1]));
-      if (!node || node.is_dir) return this.error(res, 404, 'Not found');
+      if (!node) return this.error(res, 404, 'Not found');
+      if (node.is_dir) return this.error(res, 400, 'That is a folder, not a file.');
       if (method === 'GET') {
         res.statusCode = 200;
         res.setHeader('Content-Type', 'application/octet-stream');
@@ -1070,6 +1026,10 @@ export class MockBackend {
       if (method === 'GET') return this.json(res, this.driveResponse(node));
       if (method === 'PATCH') {
         const body = await this.readJson(req);
+        if (body.name !== undefined) {
+          const nameError = this.driveNameError(body.name);
+          if (nameError) return this.error(res, 400, nameError);
+        }
         const name = body.name ?? node.name;
         const parentId = body.parent_id === undefined ? node.parent_id : body.parent_id;
         const clash = this.driveChild(parentId, name);
@@ -1094,8 +1054,10 @@ export class MockBackend {
     if (pathOnly === '/drive/folders' && method === 'POST') {
       const body = await this.readJson(req);
       const parentId = body.parent_id ?? null;
-      if (!body.name || /[\\/]/.test(body.name) || body.name === '..') {
-        return this.error(res, 400, 'A name cannot contain a slash or a null byte.');
+      const nameError = this.driveNameError(body.name);
+      if (nameError) return this.error(res, 400, nameError);
+      if (parentId !== null && !this.driveNodes.some((n) => n.id === parentId && n.is_dir)) {
+        return this.error(res, 404, 'Not found');
       }
       if (this.driveChild(parentId, body.name)) {
         return this.error(res, 409, `'${body.name}' already exists here`);
@@ -1104,21 +1066,57 @@ export class MockBackend {
     }
 
     if (pathOnly === '/drive/files' && method === 'POST') {
-      const parsed = parseMultipart(await this.readRaw(req), req.headers['content-type'] ?? '');
-      const name = parsed.fields.name ?? parsed.fileName ?? 'upload';
-      const parentId = parsed.fields.parent_id ? Number(parsed.fields.parent_id) : null;
+      // Raw body, destination in the query string — not multipart. A route
+      // declaring an UploadFile makes FastAPI parse and spool the whole body
+      // before it resolves dependencies, i.e. before it has authenticated the
+      // caller or checked the size ceiling and the quota.
+      const name = query.get('name') ?? '';
+      const rawParent = query.get('parent_id');
+      const parentId = rawParent === null ? null : Number(rawParent);
       const overwrite = query.get('overwrite') === 'true';
-      const content = parsed.file ?? Buffer.alloc(0);
 
-      if (this.driveUsedBytes() + content.length > this.driveQuotaBytes) {
+      const nameError = this.driveNameError(name);
+      if (nameError) {
+        await this.readRaw(req);
+        return this.error(res, 400, nameError);
+      }
+      // The backend refuses an unknown or non-folder parent before it writes
+      // anything; accepting one here would create an orphan the real server
+      // never would.
+      if (parentId !== null) {
+        const parent = this.driveNodes.find((n) => n.id === parentId);
+        if (!parent) {
+          await this.readRaw(req);
+          return this.error(res, 404, 'Not found');
+        }
+        if (!parent.is_dir) {
+          await this.readRaw(req);
+          return this.error(res, 400, 'That is a file, not a folder.');
+        }
+      }
+
+      const existing = this.driveChild(parentId, name);
+      // Order matters, and it is the backend's: the name clash is decided
+      // before the quota, so a duplicate is 409 rather than 507.
+      if (existing && !overwrite) {
+        await this.readRaw(req);
+        return this.error(res, 409, `'${name}' already exists here`);
+      }
+      if (existing && existing.is_dir) {
+        await this.readRaw(req);
+        return this.error(res, 409, 'A folder of that name is already here.');
+      }
+
+      const content = await this.readRaw(req);
+      // Replacing a file releases its bytes, so they are not spent twice —
+      // without this an overwrite of a file that fills the quota is refused
+      // where the backend accepts it.
+      const reclaimed = existing ? existing.size : 0;
+      if (this.driveUsedBytes() - reclaimed + content.length > this.driveQuotaBytes) {
         return this.error(res, 507, 'Your drive is full. Remove something, or ask for more space.');
       }
       this.lastDriveUpload = { name, parent_id: parentId, bytes: content.length };
 
-      const existing = this.driveChild(parentId, name);
-      if (existing && !overwrite) {
-        return this.error(res, 409, `'${name}' already exists here`);
-      }
       if (existing) {
         existing.content = content;
         existing.size = content.length;
@@ -1149,6 +1147,27 @@ export class MockBackend {
   // the bytes alongside. Ownership is not modelled — this mock authenticates
   // nobody, so who-may-read-what is tested against the real backend's `db`
   // suite, not here.
+
+  /**
+   * The backend's `drive_storage.validate_name`, mirrored.
+   *
+   * The standing rule is that when the mock and the backend disagree the
+   * backend wins — so a name the server would refuse with a 400 has to be
+   * refused here too, or a spec passes against a server that would not have
+   * accepted it.
+   */
+  private driveNameError(name: unknown): string | null {
+    if (typeof name !== 'string' || name.trim() === '') return 'A name is required.';
+    if (name.trim() !== name) return 'A name cannot start or end with a space.';
+    if (Buffer.byteLength(name, 'utf8') > 255) return 'A name cannot be longer than 255 bytes.';
+    if (name.includes('/') || name.includes('\\')) {
+      return 'A name cannot contain a slash or a null byte.';
+    }
+    // eslint-disable-next-line no-control-regex
+    if (/[\x00-\x1f\x7f]/.test(name)) return 'A name cannot contain control characters.';
+    if (name === '.' || name === '..') return 'That name is reserved.';
+    return null;
+  }
 
   private driveChild(parentId: number | null, name: string) {
     return this.driveNodes.find((n) => n.parent_id === parentId && n.name === name);

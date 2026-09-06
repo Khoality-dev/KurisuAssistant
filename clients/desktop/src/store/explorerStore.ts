@@ -57,6 +57,9 @@ interface ExplorerState {
   setActiveFile: (index: number) => void;
   updateFileContent: (index: number, content: string) => void;
   saveFile: (index: number) => Promise<void>;
+  /** Why the last save failed, for whoever is showing the editor. */
+  saveError: string | null;
+  clearSaveError: () => void;
   setViewMode: (mode: ExplorerViewMode) => void;
   revealSelection: ExplorerState['selections'][number] | null;
   diffReview: {
@@ -142,6 +145,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   liveSelections: [],
   revealSelection: null,
   diffReview: null,
+  saveError: null,
 
   openFile: async (entry: FileEntry) => {
     const { openFiles } = get();
@@ -263,9 +267,14 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     try {
       const result = await fileSource.writeFile(file.path, file.content);
       if (result.error) {
-        console.error('Failed to save file:', result.error);
+        // A drive save is refused for reasons the user can act on — the drive is
+        // full, the file is gone, they are signed out — and a console line is
+        // not telling them. Without this the tab looks saved and the edits go
+        // when it is closed.
+        set({ saveError: result.error });
         return;
       }
+      set({ saveError: null });
 
       const updated = [...openFiles];
       updated[index] = { ...updated[index], originalContent: file.content };
@@ -290,6 +299,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   removeSelection: (id) => {
     set({ selections: get().selections.filter(s => s.id !== id) });
   },
+  clearSaveError: () => set({ saveError: null }),
   setLiveSelections: (sels) => set({ liveSelections: sels }),
   clearAllSelections: () => set({ selections: [], liveSelections: [] }),
 }));

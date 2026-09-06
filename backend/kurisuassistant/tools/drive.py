@@ -19,7 +19,7 @@ ones name the file and the size rather than dumping the arguments.
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from .base import BaseTool
 
@@ -31,7 +31,16 @@ logger = logging.getLogger(__name__)
 DEFAULT_READ_BYTES = 64 * 1024
 MAX_READ_BYTES = 256 * 1024
 
+#: A folder listing costs context too. `drive_read` is bounded and the history
+#: tools paginate; a folder with ten thousand files must not be the one call
+#: that fills the window.
+MAX_LIST_ENTRIES = 200
+
 NO_USER = "Error: No user context available."
+
+#: How the desktop client spells a drive path in a chat reference. The tools
+#: accept it because that is the string the model is shown.
+DRIVE_SCHEME = "drive://"
 
 
 def _format_size(size: int) -> str:
@@ -44,9 +53,52 @@ def _format_size(size: int) -> str:
     return f"{size / (1024 * 1024 * 1024):.1f} GB"
 
 
-def _normalise(path: Optional[str]) -> str:
-    path = (path or "/").strip()
+def _normalise(path: Any) -> str:
+    """A path, whatever the model actually sent.
+
+    Every value here comes from a language model, which means a field the schema
+    calls a string can arrive as a number, a list or nothing. `describe_call` is
+    not wrapped by ``BaseAgent.execute_tool``, so an AttributeError raised while
+    building the approval sentence does not fail the *tool* — it fails the whole
+    chat turn, for a call the user may already have set to allow.
+    """
+    if path is None:
+        return "/"
+    if not isinstance(path, str):
+        path = str(path)
+    path = path.strip()
+    if not path:
+        return "/"
+    # The desktop client writes drive references as `drive://Reports/Q3.md`, and
+    # a chat message's context_files carry that string to the model verbatim —
+    # so the most natural thing for a model to do is hand it straight back. Take
+    # it rather than making it a mistake.
+    if path.startswith(DRIVE_SCHEME):
+        path = "/" + path[len(DRIVE_SCHEME):]
     return path if path.startswith("/") else "/" + path
+
+
+def _as_text(value: Any) -> str:
+    """Content, whatever the model actually sent."""
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else str(value)
+
+
+def _as_bool(value: Any) -> bool:
+    """A flag, whatever the model actually sent.
+
+    ``bool("false")`` is True, and this flag guards an irreversible recursive
+    delete: a model that spells the refusal it was asked for must not get the
+    deletion instead.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "y", "on"}
+    if value is None:
+        return False
+    return bool(value)
 
 
 def _split_parent(path: str):
@@ -125,13 +177,18 @@ class DriveListTool(BaseTool):
         if not rows:
             return f"{path} is empty."
 
+        shown = rows[:MAX_LIST_ENTRIES]
         lines = [f"{path} — {len(rows)} item{'s' if len(rows) != 1 else ''}:"]
-        for name, is_dir, size, updated in rows:
+        for name, is_dir, size, updated in shown:
             when = updated.isoformat() + "Z" if updated else "unknown"
             if is_dir:
                 lines.append(f"- {name}/ (folder, changed {when})")
             else:
                 lines.append(f"- {name} ({_format_size(size)}, changed {when})")
+        if len(rows) > len(shown):
+            lines.append(
+                f"…and {len(rows) - len(shown)} more, not listed. Open a subfolder to narrow it down."
+            )
         return "\n".join(lines)
 
 
@@ -264,8 +321,8 @@ class DriveWriteTool(BaseTool):
 
     def describe_call(self, args: Dict[str, Any]) -> str:
         path = _normalise(args.get("path"))
-        size = len((args.get("content") or "").encode("utf-8"))
-        if (args.get("if_exists") or "fail") == "overwrite":
+        size = len(_as_text(args.get("content")).encode("utf-8"))
+        if _as_text(args.get("if_exists")) == "overwrite":
             return f"Write {_format_size(size)} to {path} on the drive, replacing it if it exists"
         return f"Create {path} on the drive ({_format_size(size)}). Nothing existing is overwritten"
 
@@ -279,12 +336,10 @@ class DriveWriteTool(BaseTool):
             return NO_USER
 
         path = _normalise(args.get("path"))
-        content = args.get("content")
-        if content is None:
+        if args.get("content") is None:
             return "Nothing to write: content is required."
-        if not isinstance(content, str):
-            content = str(content)
-        overwrite = (args.get("if_exists") or "fail") == "overwrite"
+        content = _as_text(args.get("content"))
+        overwrite = _as_text(args.get("if_exists")) == "overwrite"
 
         parent_path, name = _split_parent(path)
         if not name:
@@ -401,7 +456,7 @@ class DriveDeleteTool(BaseTool):
 
     def describe_call(self, args: Dict[str, Any]) -> str:
         path = _normalise(args.get("path"))
-        if args.get("recursive"):
+        if _as_bool(args.get("recursive")):
             return f"Permanently delete {path} from the drive, and everything inside it"
         return f"Permanently delete {path} from the drive. This cannot be undone"
 
@@ -417,7 +472,7 @@ class DriveDeleteTool(BaseTool):
         path = _normalise(args.get("path"))
         if path == "/":
             return "The top of the drive cannot be deleted."
-        recursive = bool(args.get("recursive"))
+        recursive = _as_bool(args.get("recursive"))
 
         def _delete(session):
             repo = DriveNodeRepository(session)

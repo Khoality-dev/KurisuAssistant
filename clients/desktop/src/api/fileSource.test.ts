@@ -4,6 +4,7 @@ vi.mock('./client', () => ({
   apiClient: {
     listDriveNodes: vi.fn(),
     getDriveNode: vi.fn(),
+    readDriveFileHead: vi.fn(),
     resolveDrivePath: vi.fn(),
     createDriveFolder: vi.fn(),
     uploadDriveFile: vi.fn(),
@@ -248,19 +249,50 @@ describe('rename and move on the drive', () => {
 });
 
 describe('deciding whether a drive file opens in the editor', () => {
-  it('trusts the stored type rather than downloading the file twice', async () => {
+  const head = (bytes: number[]) => new Uint8Array(bytes).buffer;
+
+  it('sniffs the first bytes, the way the local side does', async () => {
     (apiClient.resolveDrivePath as any).mockResolvedValue({ id: 3 });
-    (apiClient.getDriveNode as any).mockResolvedValue({ mime: 'text/markdown' });
+
+    (apiClient.readDriveFileHead as any).mockResolvedValue(head([0x23, 0x20, 0x51, 0x33]));
     expect(await fileSource.isBinary('drive://notes.md')).toBe(false);
 
-    (apiClient.getDriveNode as any).mockResolvedValue({ mime: 'image/png' });
+    (apiClient.readDriveFileHead as any).mockResolvedValue(head([0x89, 0x50, 0x00, 0x0d]));
     expect(await fileSource.isBinary('drive://photo.png')).toBe(true);
   });
 
-  it('opens JSON, which is not text/* but is text', async () => {
+  it('costs 512 bytes, not the file', async () => {
+    // A Range request, which is exactly what serving through FileResponse
+    // bought us on the server side.
     (apiClient.resolveDrivePath as any).mockResolvedValue({ id: 3 });
-    (apiClient.getDriveNode as any).mockResolvedValue({ mime: 'application/json' });
-    expect(await fileSource.isBinary('drive://data.json')).toBe(false);
+    (apiClient.readDriveFileHead as any).mockResolvedValue(head([0x61]));
+
+    await fileSource.isBinary('drive://notes.md');
+
+    expect(apiClient.readDriveFileHead).toHaveBeenCalledWith(3, 512);
+    expect(apiClient.readDriveFile).not.toHaveBeenCalled();
+  });
+
+  it('opens files whose extension says nothing', async () => {
+    // The stored MIME is guessed from the extension, so a Dockerfile, a
+    // Makefile, a LICENSE and every unmapped extension come back as
+    // application/octet-stream. Trusting that would refuse to open files whose
+    // local twins open fine.
+    (apiClient.resolveDrivePath as any).mockResolvedValue({ id: 3 });
+    (apiClient.readDriveFileHead as any).mockResolvedValue(
+      head([0x46, 0x52, 0x4f, 0x4d, 0x20, 0x6e]),
+    );
+
+    expect(await fileSource.isBinary('drive://Dockerfile')).toBe(false);
+    expect(await fileSource.isBinary('drive://LICENSE')).toBe(false);
+  });
+
+  it('calls it text when the sniff itself fails', async () => {
+    // Otherwise a network blip shows the binary warning for an ordinary file;
+    // `readFile` reports the real error instead.
+    (apiClient.resolveDrivePath as any).mockResolvedValue({ id: 3 });
+    (apiClient.readDriveFileHead as any).mockRejectedValue(new Error('offline'));
+    expect(await fileSource.isBinary('drive://notes.md')).toBe(false);
   });
 });
 
@@ -324,5 +356,21 @@ describe('forgetting cached ids', () => {
     await fileSource.listDirectory('drive://Reports');
 
     expect(apiClient.resolveDrivePath).toHaveBeenCalledWith('/Reports');
+  });
+});
+
+describe('moving between the two roots', () => {
+  it('refuses a rename in either direction, not just off the drive', async () => {
+    const explorer = stubElectron();
+    (apiClient.resolveDrivePath as any).mockResolvedValue({ id: 5 });
+
+    const off = await fileSource.rename('drive://a.md', '/home/kho/a.md');
+    const onto = await fileSource.rename('/home/kho/a.md', 'drive://a.md');
+
+    expect(off.error).toMatch(/Upload or Download/);
+    // Without the second check this fell through to the Electron rename and
+    // made a *local* file literally called "drive://a.md".
+    expect(onto.error).toMatch(/Upload or Download/);
+    expect(explorer.rename).not.toHaveBeenCalled();
   });
 });

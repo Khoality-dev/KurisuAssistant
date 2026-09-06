@@ -246,6 +246,13 @@ async def read_text(user_id: int, storage_key: str, max_bytes: int) -> Tuple[str
     try:
         return raw.decode("utf-8"), truncated
     except UnicodeDecodeError as exc:
+        # Cutting at a byte count can land in the middle of a multi-byte
+        # character, and treating that as "not text" would tell the caller an
+        # ordinary UTF-8 file is binary — the more accented characters it has,
+        # the likelier it is to happen. A partial sequence can only be the last
+        # few bytes; anything failing earlier really is not text.
+        if truncated and exc.start >= len(raw) - 3:
+            return raw[: exc.start].decode("utf-8"), True
         raise ValueError("binary") from exc
 
 
