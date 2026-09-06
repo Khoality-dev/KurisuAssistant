@@ -143,9 +143,16 @@ says so explicitly.
 
 It is rewritten in the background. `workers/service.py` scans every 60s for
 conversations idle past `CONVERSATION_IDLE_THRESHOLD_MINUTES` (default 30) whose
-owner's assistant has memory enabled and which actually contain messages, and
-queues **one** `ConsolidateMemoryTask` per conversation — the target is derived
-from `user_id`, there is no agent id.
+owner's assistant has memory enabled, which actually contain messages, and which
+have not been consolidated since they last changed (`conversations.consolidated_at`
+null or older than `updated_at`) — oldest first, at most 50 per scan, over an index
+on `updated_at`. It queues **one** `ConsolidateMemoryTask` per conversation — the
+target is derived from `user_id`, there is no agent id. The outcome goes back on
+the row: success stamps `consolidated_at`; a failure (unreachable model, bad
+summary model) schedules a retry with doubling backoff from 5 minutes, and after
+five failures the conversation is stamped and left alone until it changes again.
+Because that state is in the database, a restart loses nothing and a failure no
+longer wedges a conversation for the life of the process (#96).
 `utils/memory_consolidation.py::consolidate_assistant_memory` feeds the model the
 bound persona's system prompt as "session instructions", the current memory, the
 conversation's `compacted_context` and its transcript, and stores the result

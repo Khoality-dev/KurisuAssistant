@@ -27,6 +27,21 @@ CONVERSATION_IDLE_THRESHOLD_MINUTES = int(
     os.getenv("CONVERSATION_IDLE_THRESHOLD_MINUTES", "30")
 )
 SCAN_INTERVAL_SECONDS = 60
+# At most this many conversations are queued per scan, oldest first. Anything
+# beyond it is picked up by a later scan; the queue is one thread deep anyway.
+SCAN_LIMIT = 50
+# A failed consolidation is retried after 5, 10, 20, 40, 80 minutes (capped at
+# RETRY_MAX_MINUTES); after MAX_ATTEMPTS the conversation is stamped as
+# consolidated and left alone until it changes again.
+RETRY_BASE_MINUTES = 5
+RETRY_MAX_MINUTES = 6 * 60
+MAX_ATTEMPTS = 5
+
+
+def retry_delay(attempts: int) -> timedelta:
+    """Backoff for the ``attempts``-th failure (1-based): doubling, capped."""
+    minutes = min(RETRY_BASE_MINUTES * (2 ** max(attempts - 1, 0)), RETRY_MAX_MINUTES)
+    return timedelta(minutes=minutes)
 
 
 class BackgroundService:
@@ -36,10 +51,10 @@ class BackgroundService:
         self._db_queue: Queue = Queue()
         self._stopping = threading.Event()
         self._threads: list[threading.Thread] = []
-        # Track which conversations we've already queued for the current idle
-        # period, so we don't re-queue them on every scan while the conversation
-        # stays idle. One entry per conversation: the consolidation target is the
-        # owning user's single assistant, so there is nothing else to key on.
+        # Conversations queued and not yet processed, so a scan that runs while
+        # the worker is busy does not queue the same one twice. Only the
+        # in-flight window lives here: what has been consolidated, and when a
+        # failed one may be retried, is on the ``conversations`` row (#96).
         self._queued: set[int] = set()
         self._queued_lock = threading.Lock()
 
@@ -130,19 +145,81 @@ class BackgroundService:
     async def _handle_consolidate(self, task: ConsolidateMemoryTask):
         from kurisuassistant.utils.memory_consolidation import consolidate_assistant_memory
 
-        await consolidate_assistant_memory(
-            user_id=task.user_id,
-            conversation_id=task.conversation_id,
-            model_name=task.model_name,
-            api_url=task.api_url,
-            provider_type=task.provider_type,
-            api_key=task.api_key,
-        )
+        try:
+            await consolidate_assistant_memory(
+                user_id=task.user_id,
+                conversation_id=task.conversation_id,
+                model_name=task.model_name,
+                api_url=task.api_url,
+                provider_type=task.provider_type,
+                api_key=task.api_key,
+            )
+        except Exception as e:
+            self._record_failure(task.conversation_id, e)
+        else:
+            self._record_success(task.conversation_id)
+        finally:
+            # Whatever happened, the reservation is released: the row now says
+            # whether and when this conversation is due again.
+            with self._queued_lock:
+                self._queued.discard(task.conversation_id)
 
-        # After successful consolidation, allow this conversation to be re-queued
-        # on a future idle cycle.
-        with self._queued_lock:
-            self._queued.discard(task.conversation_id)
+    def _record_success(self, conversation_id: int):
+        """Stamp the row so the scan skips it until the conversation changes."""
+        from kurisuassistant.db.service import get_db_service
+
+        def _stamp(session):
+            from kurisuassistant.db.models import Conversation
+
+            conv = session.get(Conversation, conversation_id)
+            if conv is None:
+                return
+            conv.consolidated_at = datetime.utcnow()
+            conv.consolidation_attempts = 0
+            conv.consolidation_next_retry_at = None
+
+        get_db_service().execute_sync(_stamp)
+
+    def _record_failure(self, conversation_id: int, exc: Exception):
+        """Schedule a retry with backoff; give up after MAX_ATTEMPTS.
+
+        Giving up stamps ``consolidated_at`` — the conversation is treated as
+        done until it changes again, so a permanently broken one stops costing
+        a model call every few hours without being wedged forever.
+        """
+        from kurisuassistant.db.service import get_db_service
+
+        def _schedule(session):
+            from kurisuassistant.db.models import Conversation
+
+            conv = session.get(Conversation, conversation_id)
+            if conv is None:
+                return None
+            conv.consolidation_attempts = (conv.consolidation_attempts or 0) + 1
+            if conv.consolidation_attempts >= MAX_ATTEMPTS:
+                conv.consolidated_at = datetime.utcnow()
+                conv.consolidation_next_retry_at = None
+                return (conv.consolidation_attempts, None)
+            delay = retry_delay(conv.consolidation_attempts)
+            conv.consolidation_next_retry_at = datetime.utcnow() + delay
+            return (conv.consolidation_attempts, delay)
+
+        outcome = get_db_service().execute_sync(_schedule)
+        if outcome is None:
+            return
+        attempts, delay = outcome
+        if delay is None:
+            logger.error(
+                "Memory consolidation for conversation %d failed %d times (%s); "
+                "giving up until the conversation changes again",
+                conversation_id, attempts, exc,
+            )
+        else:
+            logger.warning(
+                "Memory consolidation for conversation %d failed (attempt %d/%d): %s; "
+                "retrying in %s",
+                conversation_id, attempts, MAX_ATTEMPTS, exc, delay,
+            )
 
     # ------------------------------------------------------------------
     # Idle conversation scanning
@@ -152,26 +229,38 @@ class BackgroundService:
         """Find conversations idle past the threshold and queue one consolidation
         each, for users whose assistant has ``memory_enabled``.
 
-        A conversation qualifies when all three hold:
+        A conversation qualifies when all of these hold:
 
         * ``updated_at`` is older than the idle threshold;
+        * it has not been consolidated since it last changed
+          (``consolidated_at`` null or older than ``updated_at``);
+        * no retry is pending in the future (``consolidation_next_retry_at``);
         * its owner has an ``assistants`` row with ``memory_enabled = true``;
         * it actually has at least one message.
 
-        The last check is not cosmetic. Consolidation reads the whole transcript
-        before it can decide there is nothing to do, so without it every empty
-        conversation a user ever opened would be queued and fully read on every
-        60-second scan, forever.
+        Oldest first, at most ``SCAN_LIMIT`` per scan. Before #96 the scan
+        selected *every* idle conversation the user had ever finished, every
+        minute, forever — a full scan competing with live chat on the single
+        database thread — and dedupe lived only in memory, so a failure wedged a
+        conversation until restart and a restart forgot what was pending.
+
+        The has-messages check is not cosmetic either. Consolidation reads the
+        whole transcript before it can decide there is nothing to do, so
+        without it every empty conversation a user ever opened would be queued
+        and fully read.
         """
         from kurisuassistant.db.service import get_db_service
 
         db = get_db_service()
 
         def _query_idle(session):
+            from sqlalchemy import or_
+
             from kurisuassistant.db.models import Assistant, Conversation, Message, User
 
+            now = datetime.utcnow()
             idle_threshold = timedelta(minutes=CONVERSATION_IDLE_THRESHOLD_MINUTES)
-            cutoff = datetime.utcnow() - idle_threshold
+            cutoff = now - idle_threshold
 
             has_messages = (
                 session.query(Message.id)
@@ -184,9 +273,19 @@ class BackgroundService:
                 .join(Assistant, Assistant.user_id == Conversation.user_id)
                 .filter(
                     Conversation.updated_at < cutoff,
+                    or_(
+                        Conversation.consolidated_at.is_(None),
+                        Conversation.consolidated_at < Conversation.updated_at,
+                    ),
+                    or_(
+                        Conversation.consolidation_next_retry_at.is_(None),
+                        Conversation.consolidation_next_retry_at <= now,
+                    ),
                     Assistant.memory_enabled.is_(True),
                     has_messages,
                 )
+                .order_by(Conversation.updated_at)
+                .limit(SCAN_LIMIT)
                 .all()
             )
             if not idle_convs:

@@ -50,7 +50,9 @@ conversations
   persona_id→personas (SET NULL)    null until the first message binds one
   compacted_context(text, not null, default '')
   compacted_up_to_id(int, not null, default 0)
-  created_at, updated_at
+  created_at, updated_at(indexed)
+  consolidated_at, consolidation_attempts(int, not null, default 0),
+  consolidation_next_retry_at            memory-consolidation state, see below
 
 messages
   id, role, message
@@ -106,6 +108,18 @@ only ever joined through what is now `messages.persona_id`, which only ever held
 main-agent ids, so a sub-agent's memory could never have been written. The split
 dropped the column rather than keep one nothing could fill.
 
+**Memory consolidation keeps its state on the conversation row** (#96). A
+conversation is due when it has been idle past the threshold and
+`consolidated_at` is null or older than `updated_at`; success stamps
+`consolidated_at`, a failure counts `consolidation_attempts` and sets
+`consolidation_next_retry_at` with doubling backoff (5 min → 6 h cap), and after
+five failures the row is stamped as consolidated and left alone until it changes.
+`updated_at` is indexed because the scan ranges on it once a minute, oldest first,
+50 rows at a time. Migration `c2d999801f26` backfilled `consolidated_at =
+updated_at` on every existing row: before it, each of those had been
+re-consolidated on every scan since it went idle, so nothing was lost, and an
+upgrade does not queue the user's whole history at once.
+
 **Compaction uses a watermark, but the live path forks instead.**
 `compacted_up_to_id` exists so context can be trimmed in place, and
 `_load_context_messages` honours it. The current compaction path creates a *new*
@@ -155,7 +169,7 @@ session; they never open one.
 
 ## Migrations
 
-Alembic, 52 revisions with a single head (`485f1296faf8`, add_poe_api_key_to_users), replayable onto an empty
+Alembic, 54 revisions with a single head (`c2d999801f26`, add_consolidation_state_to_conversations), replayable onto an empty
 database. Run automatically by `docker-entrypoint.sh` before the app starts.
 
 ```bash
