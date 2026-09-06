@@ -18,16 +18,6 @@ from kurisuassistant.version import WIRE_PROTOCOL
 pytestmark = pytest.mark.db
 
 
-@pytest.fixture(autouse=True)
-def _registration_default(monkeypatch):
-    """Run against the shipped default, not the developer's environment file.
-
-    `main.py` loads one at import, so a local file setting ALLOW_REGISTRATION
-    would otherwise decide the outcome of these tests.
-    """
-    monkeypatch.delenv("ALLOW_REGISTRATION", raising=False)
-
-
 def _register(client, username, password="a-password"):
     return client.post("/register", data={"username": username, "password": password})
 
@@ -53,15 +43,10 @@ class TestRegistration:
         with get_session() as session:
             assert UserRepository(session).get_by_username("pending-user").is_active is False
 
-    def test_registration_is_open_by_default(self, system_client):
-        """It was closed by default when a seeded admin existed."""
-        assert _register(system_client, "open-by-default").status_code == 200
-
-    def test_an_operator_can_still_refuse_the_request_entirely(self, system_client, monkeypatch):
-        monkeypatch.setenv("ALLOW_REGISTRATION", "false")
-        resp = _register(system_client, "refused-user")
-        assert resp.status_code == 403
-        assert "closed" in resp.json()["detail"].lower()
+    def test_registration_is_open(self, system_client):
+        """It was closed by default when a seeded admin existed. Activation is
+        the gate now, and the only one (#184)."""
+        assert _register(system_client, "open-to-anyone").status_code == 200
 
 
 class TestTheGate:

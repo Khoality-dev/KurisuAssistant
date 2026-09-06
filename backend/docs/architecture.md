@@ -175,8 +175,9 @@ browser clients, which cannot set headers on a socket — by offering
 `kurisu.auth.bearer, <token>` as the subprotocol, which the server echoes on
 accept.
 
-Registration is closed unless `ALLOW_REGISTRATION` says otherwise. Login and
-registration are rate limited per client address.
+Registration is open to anyone who can reach the server, and grants nothing: the
+account is inactive until the operator activates it (#184). Login and registration
+are rate limited per client address.
 
 ## Versioning
 

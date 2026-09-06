@@ -76,8 +76,9 @@ until someone picks one (`PATCH /assistant`).
 
 **Response:** `200 OK` — same token pair as `/login`.
 
-**Errors:** `400` user already exists; `403` registration is closed on this server
-(`ALLOW_REGISTRATION`); `429` rate limited.
+**Errors:** `400` user already exists; `429` rate limited. Anyone who can reach
+the server may register; the account is inactive until the operator activates it,
+so there is nothing to refuse at this point.
 
 ---
 
