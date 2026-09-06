@@ -66,8 +66,8 @@ src/components/
     MessageBubble.tsx      — Individual bubble: role styling, thinking collapse, TTS, resend/delete
     MessageToolbar.tsx     — Hover toolbar: copy, TTS play, raw data, resend/regenerate, delete
     RawDataDialog.tsx      — Dialog showing raw LLM input/output JSON (self-contained fetch)
-    ToolApprovalBar.tsx    — Approve/deny bar above the composer for a pending tool call
-    NoModelPrompt.tsx      — Bar above the composer when the account has no model chosen yet: "Choose a model" opens Settings → Assistant (#149)
+    ToolApprovalBar.tsx    — Approve/deny bar for a pending tool call; replaces the composer while one is waiting
+    NoModelPrompt.tsx      — Bar above the composer (not in place of it) when the account has no model chosen yet: "Choose a model" opens Settings → Assistant (#149)
   CharacterConfigDialog.tsx — Re-exports from character/ subfolder
   character/
     CharacterConfigDialog.tsx — React Flow graph editor: multi-pose nodes, edges with transition videos
