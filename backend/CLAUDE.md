@@ -83,5 +83,6 @@ cd kurisuassistant/db && alembic revision --autogenerate -m "description"
 - **Always** use `cd kurisuassistant/db && alembic revision --autogenerate -m "short_snake_case"` — never hand-write migration files.
 - Naming: `-m` becomes the filename slug. Use `add_foo_to_bar`, `remove_baz_column`, `create_widgets_table`.
 - After generating, verify single head: `cd kurisuassistant/db && alembic heads`. If multiple heads, merge with `alembic merge heads -m "merge_heads"`.
+- **Declare every index on the model, including ones written in raw SQL.** An index a migration creates but the model does not declare is invisible to autogenerate, which then proposes dropping it on every run — and a deployment can silently end up without it while its migration history says otherwise (#162). `tests/test_schema_matches_models.py` runs `compare_metadata` against a freshly migrated database and fails when the two disagree.
 - Review the generated `upgrade()`/`downgrade()` — autogenerate misses renames and data migrations.
 - Never use plain-text revision IDs — always let Alembic generate the hash.
