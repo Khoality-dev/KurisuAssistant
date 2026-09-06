@@ -30,10 +30,16 @@ on:
     branches: [main]
     paths:
       - 'clients/android/**'
+      # The protocol manifest is shared: a change to it has to run this
+      # suite too, or the drift check only fires for whoever edited last (#93).
+      - 'protocol/**'
       - '.github/workflows/android-test.yml'
   pull_request:
     paths:
       - 'clients/android/**'
+      # The protocol manifest is shared: a change to it has to run this
+      # suite too, or the drift check only fires for whoever edited last (#93).
+      - 'protocol/**'
       - '.github/workflows/android-test.yml'
   workflow_dispatch:
 

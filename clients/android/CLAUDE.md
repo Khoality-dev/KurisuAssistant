@@ -59,6 +59,18 @@
 - `app/src/main/res/raw/start_effect.wav` — Voice interaction start sound (optional)
 - `app/src/main/res/raw/stop_effect.wav` — Voice interaction stop sound (optional)
 
+## The protocol is checked, not trusted
+
+Event names live in `data/remote/websocket/ProtocolEvents.kt` and the wire
+protocol in the `buildConfigField`. Both are still written here rather than
+generated, but `ProtocolEventsTest` compares them against `protocol/events.json`
+— which the backend generates from `websocket/events.py` — so a rename, an
+addition or a protocol bump that misses this client fails `testDevDebugUnitTest`
+instead of silently dropping events (#93). It also parses one payload per
+server-to-client event, because the drift that prompted the issue was a dropped
+event rather than a missing constant. `vision_frame` is deliberately in neither
+set: a webcam frame is a binary message with its own envelope (#111).
+
 ## Storage Keys
 
 Same as desktop/mobile clients: `kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_persona_conversations`, etc.

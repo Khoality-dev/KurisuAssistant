@@ -31,6 +31,39 @@ class EventType(str, Enum):
     CONTEXT_INFO = "context_info"
 
 
+
+# Which way each event travels, and how it is carried. This is data rather than
+# a section comment because it is the source three languages are generated from
+# (`scripts/generate_protocol.py` writes `protocol/events.json`, and each client
+# has a test that fails when its own copy drifts from it — #93). A new event
+# that is not listed here fails `tests/test_protocol_manifest.py`.
+CLIENT_TO_SERVER = frozenset({
+    EventType.CHAT_REQUEST,
+    EventType.TOOL_APPROVAL_RESPONSE,
+    EventType.CANCEL,
+    EventType.VISION_START,
+    EventType.VISION_FRAME,
+    EventType.VISION_STOP,
+    EventType.CLIENT_TOOLS_REGISTER,
+    EventType.TOOL_CALL_RESPONSE,
+    EventType.COMPACT_CONTEXT,
+})
+
+SERVER_TO_CLIENT = frozenset({
+    EventType.CONNECTED,
+    EventType.STREAM_CHUNK,
+    EventType.TOOL_APPROVAL_REQUEST,
+    EventType.TOOL_CALL_REQUEST,
+    EventType.DONE,
+    EventType.ERROR,
+    EventType.VISION_RESULT,
+    EventType.CONTEXT_INFO,
+})
+
+# Everything is a JSON text frame except the webcam frame, which is a binary
+# message with its own envelope and never reaches the JSON dispatch (#111).
+BINARY_EVENTS = frozenset({EventType.VISION_FRAME})
+
 @dataclass
 class BaseEvent:
     """Base class for all events."""
