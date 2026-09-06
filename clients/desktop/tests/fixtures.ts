@@ -44,6 +44,53 @@ function freePort(): Promise<number> {
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const MAIN_ENTRY = path.join(PROJECT_ROOT, 'dist-electron', 'main.js');
 
+/**
+ * Close the app, and do not let a stuck renderer take the whole worker down.
+ *
+ * `close()` waits for the app to exit cleanly, which it will not do while a
+ * renderer holds a navigation that was blocked on purpose — which is exactly
+ * what the navigation-guard tests provoke. On Linux CI that surfaced as
+ * "Worker teardown timeout of 60000ms exceeded", failing tests whose own
+ * assertions had already passed. The process is a child of this run and its
+ * state is discarded either way, so killing it when it will not leave is
+ * correct, not a workaround.
+ */
+async function shutDown(app: ElectronApplication): Promise<void> {
+  // Read the pid while the app object is still live. Once Playwright has
+  // disposed it, `app.process()` throws — and a timer that ran late did
+  // exactly that during the *next* test, which Playwright then failed with an
+  // uncaught TypeError from a fixture the test had never touched.
+  let pid: number | undefined;
+  try { pid = app.process().pid; } catch { pid = undefined; }
+
+  // Playwright launches Electron detached, so its pid is a process-group id and
+  // a negative pid kills the whole tree: main, zygote, GPU and renderers.
+  // Killing only the parent leaves orphans holding the stdio pipes open, and
+  // Playwright's launcher waits for those pipes to close before it considers
+  // the app gone.
+  const kill = () => {
+    if (!pid) return;
+    try { process.kill(-pid, 'SIGKILL'); } catch { /* no group, or already gone */ }
+    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+  };
+
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      app.close(),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => { kill(); resolve(); }, 3_000);
+      }),
+    ]);
+  } catch {
+    kill();
+  } finally {
+    // The clean close usually wins; the timer must not outlive this call and
+    // fire into whatever test runs next.
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export const test = base.extend<Fixtures>({
   mock: async ({}, use) => {
     const server = new MockBackend();
@@ -77,7 +124,14 @@ export const test = base.extend<Fixtures>({
     }
 
     const app = await electron.launch({
-      args: [MAIN_ENTRY],
+      // `--no-sandbox` on Linux only, and only here in the tests: Ubuntu 24.04,
+      // which is what `ubuntu-latest` is, blocks the unprivileged user
+      // namespaces Chromium's sandbox needs, and Electron 43 hangs on shutdown
+      // rather than failing outright — every test passes and then the worker
+      // dies with "Worker teardown timeout". Windows and the Playwright
+      // container are unaffected, which is why this only ever showed on CI.
+      // The shipped app is not launched this way.
+      args: process.platform === 'linux' ? [MAIN_ENTRY, '--no-sandbox'] : [MAIN_ENTRY],
       cwd: PROJECT_ROOT,
       env: {
         ...process.env,
@@ -117,7 +171,7 @@ export const test = base.extend<Fixtures>({
     try {
       await use(app);
     } finally {
-      try { await app.close(); } catch { /* noop */ }
+      await shutDown(app);
     }
   },
 

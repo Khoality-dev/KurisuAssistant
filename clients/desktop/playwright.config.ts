@@ -6,7 +6,9 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  timeout: 60_000,
+  // The slowest test takes about seven seconds. A hang should say so in
+  // seconds, not burn a minute per test before failing.
+  timeout: 30_000,
   expect: { timeout: 10_000 },
   reporter: [['list']],
   use: {

@@ -6,7 +6,9 @@
 
 ## Tech Stack
 
-React 18, Electron 28, MUI v5, Framer Motion, Zustand, Axios, Vite, react-markdown, electron-updater, @modelcontextprotocol/sdk, TypeScript (strict mode)
+React 18, Electron 43, MUI v5, Framer Motion, Zustand, Axios, Vite, react-markdown, electron-updater, @modelcontextprotocol/sdk, TypeScript (strict mode)
+
+**Electron must stay on a supported major.** Only the newest three get security fixes, and this app renders remote content in front of a privileged IPC surface — it sat on 28 for over two years (#90). Bumping it drags three other pins with it: `electron-builder`, `@playwright/test` **and** the Docker image tag that mirrors it, and the `node-version` in both desktop workflows (Electron's tooling needs Node ≥ 22.12).
 
 ## Commands
 

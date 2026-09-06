@@ -14,7 +14,7 @@
     "test:e2e:build": "vite build",
     "test:e2e:build:dev": "vite build --mode development",
     "test:e2e": "playwright test",
-    "test:e2e:docker": "docker run --rm --init --user \"$(id -u):$(id -g)\" -e HOME=/tmp -e CI=1 --shm-size=1g -v \"$PWD\":/w -w /w mcr.microsoft.com/playwright:v1.59.1-noble bash -lc \"xvfb-run -a ./node_modules/.bin/playwright test\"",
+    "test:e2e:docker": "docker run --rm --init --user \"$(id -u):$(id -g)\" -e HOME=/tmp -e CI=1 --shm-size=1g -v \"$PWD\":/w -w /w mcr.microsoft.com/playwright:v1.63.0-noble bash -lc \"xvfb-run -a ./node_modules/.bin/playwright test\"",
     "test:e2e:dev": "vite build --mode development && playwright test",
     "test:e2e:headed": "playwright test --headed",
     "mock:backend:build": "esbuild tests/mock/cli.ts --bundle --platform=node --format=cjs --external:bufferutil --external:utf-8-validate --log-level=warning --outfile=dist-mock/cli.js",
@@ -51,7 +51,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.59.1",
+    "@playwright/test": "^1.63.0",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
@@ -59,8 +59,8 @@
     "@vitejs/plugin-react": "^4.2.1",
     "@vitest/expect": "^2.1.9",
     "concurrently": "^8.2.2",
-    "electron": "^28.2.0",
-    "electron-builder": "^24.9.1",
+    "electron": "^43.6.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.21.5",
     "happy-dom": "^20.9.0",
     "jsdom": "^29.1.0",

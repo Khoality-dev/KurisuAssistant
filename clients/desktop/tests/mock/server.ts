@@ -322,12 +322,28 @@ export class MockBackend {
     return this._port;
   }
 
+  /**
+   * Shut down without waiting on sockets nobody is going to close.
+   *
+   * `close()` on an http server resolves only once every connection has ended,
+   * and a client that was killed rather than asked to leave — an Electron
+   * stuck on a blocked navigation, say — never ends its socket. This is the
+   * last fixture to tear down, so that stall surfaced as "Worker teardown
+   * timeout of 60000ms exceeded" after every test had already passed. Sockets
+   * are therefore terminated rather than asked, and the wait is bounded.
+   */
   async stop(): Promise<void> {
-    for (const client of this.wss.clients) client.close();
-    await new Promise<void>((resolve) => this.wss.close(() => resolve()));
-    await new Promise<void>((resolve, reject) =>
-      this.httpServer.close((err) => (err ? reject(err) : resolve())),
-    );
+    for (const client of this.wss.clients) client.terminate();
+    this.httpServer.closeAllConnections?.();
+
+    const bounded = (close: (done: () => void) => void) =>
+      Promise.race([
+        new Promise<void>((resolve) => close(() => resolve())),
+        new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
+      ]);
+
+    await bounded((done) => this.wss.close(() => done()));
+    await bounded((done) => this.httpServer.close(() => done()));
   }
 
   get url(): string {
