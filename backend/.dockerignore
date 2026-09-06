@@ -5,6 +5,13 @@ venv/
 **/*.py[cod]
 .pytest_cache/
 
+# MCP servers installed at runtime under the package directory. None of it is
+# tracked by git, nothing imports it (`kurisuassistant.mcp_tools` is a different
+# package), and it was putting 103 MB of node_modules into the image the moment
+# the Dockerfile started copying the source in.
+**/node_modules/
+kurisuassistant/core/mcp_tools/
+
 # Runtime data is bind-mounted, never copied into the image; without this every
 # build ships the whole directory (over a gigabyte) as context for nothing, and
 # the COPY below it would bake user data into a distributable artefact.

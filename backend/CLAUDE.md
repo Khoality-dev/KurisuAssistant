@@ -4,7 +4,7 @@
 
 KurisuAssistant is a voice-based AI assistant platform combining STT (faster-whisper), TTS (GPT-SoVITS/viXTTS), and LLM (Ollama). Microservices architecture with Docker Compose.
 
-This is the `backend/` package of the KurisuAssistant monorepo (see the root `CLAUDE.md`). The desktop and Android clients live in `../clients/`. Run every command below from `backend/`: the server resolves `data/` relative to the working directory.
+This is the `backend/` package of the KurisuAssistant monorepo (see the root `CLAUDE.md`). The desktop and Android clients live in `../clients/`. Run every command below from `backend/` — that is where `docker-compose.yml` lives. (`data/` is resolved from the package location, not the working directory: `core/paths.py`.)
 
 ## Documentation Index
 

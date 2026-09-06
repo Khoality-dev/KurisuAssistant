@@ -4,6 +4,15 @@ import logging
 from contextlib import asynccontextmanager
 
 import dotenv
+
+# Before the router imports below, not after them. Several modules read their
+# configuration at import time — the auth token lifetimes, the rate limiter's
+# window, the LLM and speech URLs — so loading the environment file afterwards
+# left every one of them on its hardcoded default for a local (non-Docker) run,
+# while the same variables worked under Compose because Compose puts them in the
+# real environment.
+dotenv.load_dotenv()
+
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,7 +49,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-dotenv.load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

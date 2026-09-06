@@ -22,6 +22,11 @@ whisper-finetuned/
 configs/default.json
 mcp_config.json
 
+# One machine's Compose extras — a GPU reservation, an existing reverse-proxy
+# network. Compose loads this automatically; it describes a host, not the
+# project, which is why it is not committed. See docs/development.md.
+docker-compose.override.yml
+
 # IDE
 .vscode/
 .idea/

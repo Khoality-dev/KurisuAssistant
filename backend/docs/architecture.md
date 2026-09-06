@@ -5,23 +5,41 @@ if this file and the code disagree, the code is right and this file is a bug.
 
 ## Services
 
-The stack in `docker-compose.yml`:
+`docker-compose.yml` is the whole stack for text chat, and runs on a machine
+that has nothing but Docker:
 
-- **api** (internal 15597) — the FastAPI app, `kurisuassistant/main.py`. Reached
-  through an external `central` network rather than a bundled reverse proxy.
-- **postgres** (internal 5432) — `pgvector/pgvector:pg16`. Not exposed to the host.
-- **universal-voice** (internal 14213) — speech recognition and synthesis. The API
-  proxies to it; it in turn fronts the two synthesis backends.
-- **vixtts** (internal 19770) and **gpt-sovits** (internal 9880) — synthesis backends,
-  reached through universal-voice rather than directly.
+- **api** (published on `API_PORT`, 15597) — the FastAPI app,
+  `kurisuassistant/main.py`. CPU-only by default.
+- **postgres** (internal 5432) — `pgvector/pgvector:pg16`. Not published; the
+  API waits for its healthcheck before starting.
 
-Ollama is not part of this stack. It is reached over the `central` network at a
-URL each user configures.
+Everything else is a profile in the same file, off unless asked for, because
+everything else needs something this repository does not contain — a GPU, or a
+checkout of another project:
 
-`docker-compose.dev.yml` is an overlay that runs a second, isolated API and
-database from a separate checkout. It inherits the api service's `data/` mount
-from the base file and adds the source and test mounts on top, so an edit in
-that checkout is live in the dev container without a rebuild.
+- **`--profile voice`** — **universal-voice** (internal 14213), which fronts
+  synthesis and recognition, and **vixtts** (19770) behind it. Built from the
+  checkouts named by `VIXTTS_ROOT` and `UVOICE_ROOT`.
+- **`--profile sovits`** — **gpt-sovits** (9880), the second synthesis backend,
+  reached only through universal-voice.
+- **`--profile tls`** — **nginx** on 443, terminating TLS with
+  `nginx/nginx.conf` and a self-signed certificate.
+
+A GPU reservation for the API and attachment to someone else's reverse-proxy
+network change fields rather than adding services, so they cannot be profiles;
+they live in an untracked `docker-compose.override.yml`, which Compose loads
+automatically. `docs/development.md` has the block to paste.
+
+Ollama is not part of any of this. `LLM_API_URL` defaults to
+`http://host.docker.internal:11434`, which reaches an Ollama on the host itself;
+point it elsewhere, or use a cloud provider key, and each user picks their
+provider in the app.
+
+`docker-compose.dev.yml` is a different kind of overlay: a second, isolated API
+and database as its own Compose project, for running `main` beside a deployment.
+It inherits the api service's `data/` mount from the base file, adds the source
+and test mounts on top so an edit is live without a rebuild, and republishes the
+API on `API_DEV_PORT` (15598, loopback) so it cannot collide with the first.
 
 ## Package layout
 
@@ -83,7 +101,7 @@ db/
   session.py             engine and sessionmaker
   service.py             DBService: the single thread all DB access goes through
   repositories/          one per table, over a generic BaseRepository
-  alembic/               51 revisions, single head
+  alembic/               52 revisions, single head (485f1296faf8)
 
 vision/processor.py      per-frame face and gesture pipeline
 workers/                 background threads: idle scan, memory consolidation

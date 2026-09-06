@@ -32,9 +32,16 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+from kurisuassistant.core.paths import DATA_DIR
+
 logger = logging.getLogger("alembic.runtime.migration")
 
-CHAR_ASSETS_DIR = Path(os.environ.get("DATA_DIR", "/app/data")) / "character_assets"
+# Resolved the way the running server resolves it. This read `DATA_DIR` from the
+# environment — a variable nothing sets and no document lists — so outside the
+# container it fell back to the literal `/app/data`, a path that does not exist
+# on a developer's machine, silently skipping the asset renames the migration
+# exists to perform.
+CHAR_ASSETS_DIR = DATA_DIR / "character_assets"
 
 
 def _rewrite_config_urls(config: dict, old_id: int, new_id: int) -> dict:

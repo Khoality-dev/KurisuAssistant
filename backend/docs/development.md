@@ -1,6 +1,6 @@
 # Development
 
-Everything below runs from the `backend/` directory. The server resolves `data/` relative to the working directory, and `docker compose` reads `docker-compose.yml` from here.
+Everything below runs from the `backend/` directory, because `docker compose` reads `docker-compose.yml` from here. `data/` is not why: the server resolves it from the installed package's location (`core/paths.py`), so it is always the `data/` beside `kurisuassistant/`, wherever you started the process.
 
 ## Local Setup
 
@@ -14,11 +14,70 @@ uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --reload --reload-d
 ## Docker
 
 ```bash
-docker compose up -d       # Start all services
+docker compose up -d       # API + database, published on API_PORT (15597)
 docker compose logs -f api # View API logs
+curl localhost:15597/health
 ```
 
-Migrations auto-run on container startup via `docker-entrypoint.sh`. The image carries the application code — the Dockerfile copies `kurisuassistant/` and `scripts/` in — and the only thing the API container mounts from this directory is `data/`, which is runtime state. So a code change reaches the container through `docker compose up -d --build`, not by editing the checkout. To edit without rebuilding, use the dev overlay below: it mounts the source back over the image's copy.
+That is the whole stack for text chat. There are two Compose files in the
+project — this one and `docker-compose.dev.yml` — and everything optional is a
+profile inside the first:
+
+| Profile | Adds | Needs |
+| --- | --- | --- |
+| `voice` | universal-voice and vixtts | `VIXTTS_ROOT` and `UVOICE_ROOT` pointing at those checkouts, and an NVIDIA runtime |
+| `sovits` | gpt-sovits, the second synthesis backend | the `voice` profile as well |
+| `tls` | nginx on 443 with the bundled config | `./nginx/generate-certs.sh` run once |
+
+```bash
+VIXTTS_ROOT=~/src/viXTTS UVOICE_ROOT=~/src/universal-asr \
+  docker compose --profile voice --profile tls up -d --build
+```
+
+This is the fix for #98. All of it used to be unconditional, so a clean machine
+could not start anything: the speech services built from absolute paths under
+one developer's home directory, the API reserved `count: all` NVIDIA GPUs,
+`central` was declared external and nothing creates it, and no service published
+a port — a successful `up` produced a server no client could reach.
+`tests/test_deployment_config.py` asserts each of those properties, and that
+there are still only two Compose files, so none of it can quietly come back.
+
+### Machine-specific extras
+
+Two things cannot be profiles, because they change fields on an existing service
+rather than adding one: a GPU reservation for the API's vision pipeline, and
+attaching the API to a reverse-proxy network that some other stack owns. Those
+go in `docker-compose.override.yml`, which Compose loads automatically and which
+is gitignored precisely because it describes one machine:
+
+```yaml
+# backend/docker-compose.override.yml — not committed
+services:
+  api:
+    # The vision pipeline (face recognition, gesture detection) on a GPU.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    # An existing reverse proxy reaches the API over its own network, so the
+    # published port is not needed.
+    ports: !reset []
+    networks:
+      - default
+      - central
+
+networks:
+  central:
+    external: true
+    name: central
+```
+
+Migrations auto-run on container startup via `docker-entrypoint.sh`, which now
+waits a bounded number of attempts and prints the connection error rather than
+retrying silently for ever. The image carries the application code — the Dockerfile copies `kurisuassistant/` and `scripts/` in — and the only thing the API container mounts from this directory is `data/`, which is runtime state. So a code change reaches the container through `docker compose up -d --build`, not by editing the checkout. To edit without rebuilding, use the dev overlay below: it mounts the source back over the image's copy.
 
 ## Releases and Deployment
 
@@ -29,6 +88,19 @@ Keep a deployment's checkout separate from the one you develop in. The checkout 
 ```bash
 git fetch --tags && git checkout backend-vX.Y.Z && docker compose up -d --build
 ```
+
+**Moving an existing deployment onto the profile split needs two things written
+down once.** The base file no longer hardcodes what one machine happened to
+have, so a deployment that relied on either must say so in its environment file
+or its override:
+
+- `LLM_API_URL` now defaults to the host's Ollama. If yours runs as a container
+  on a Docker network — the usual arrangement when Ollama is shared with other
+  stacks — set `LLM_API_URL=http://<its container name>:11434` explicitly, or
+  the API will look for an Ollama on the host and find none.
+- The `central` network attachment and any GPU reservation are in
+  `docker-compose.override.yml` now (block above). Without it the API is
+  published on `API_PORT` instead of being reachable through the proxy.
 
 Migrations run on container start, so the restart is also what applies them. `docker-compose.yml` pins `name: kurisuassistant`, so the project adopts the same containers and volumes (`postgres-container`, `kurisuassistant_postgres-data`) whichever directory it is started from — a checkout under a new path continues the same database instead of silently creating an empty one.
 
@@ -44,7 +116,7 @@ cp /path/to/deployment/backend/.env .     # same credentials, separate database
 docker compose -f docker-compose.dev.yml up -d --build
 ```
 
-Unlike the plain stack, the overlay mounts `./kurisuassistant`, `./scripts`, `./tests` and `./pytest.ini` over the image's copy, so an edit takes effect on `docker compose -f docker-compose.dev.yml restart api` and `pytest` can run inside the container. That is also why it must be run from a checkout that is not also running the plain stack: the two would share `./data`, and the overlay would be editing the code of a tree a deployment builds from. It publishes no port and is not part of any reverse-proxy setup; reach it on the Docker network, or add a `ports:` mapping while you need it. See the file's header for what is and is not shared.
+Unlike the plain stack, the overlay mounts `./kurisuassistant`, `./scripts`, `./tests` and `./pytest.ini` over the image's copy, so an edit takes effect on `docker compose -f docker-compose.dev.yml restart api` and `pytest` can run inside the container. That is also why it must be run from a checkout that is not also running the plain stack: the two would share `./data`, and the overlay would be editing the code of a tree a deployment builds from. It publishes `API_DEV_PORT` (15598) on loopback only — the plain stack already has 15597 — and it requires the two external networks in its header, which exist only where a production stack and a reverse proxy are already running. See the file's header for what is and is not shared.
 
 ## Tests
 
@@ -80,7 +152,7 @@ Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `G
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | — | Database connection |
-| `LLM_API_URL` | `http://localhost:11434` | Ollama server URL |
+| `LLM_API_URL` | `http://localhost:11434` in-process, `http://host.docker.internal:11434` under Compose | Ollama server URL. The two defaults differ, and only the Compose one applies to a deployment. On Linux the host's Ollama must be started with `OLLAMA_HOST=0.0.0.0` or it refuses the container, which surfaces as an empty model list rather than an error (#151) |
 | `GEMINI_API_KEY`, `NVIDIA_API_KEY`, `POE_API_KEY` | — | Cloud LLM providers; fallbacks when the user has no key stored |
 | `ASR_API_URL`, `UVOICE_URL` | (docker-compose) | Speech recognition / universal voice service |
 | `JWT_SECRET_KEY` | generated | Overrides the secret persisted to `data/jwt_secret.key` |
@@ -89,9 +161,20 @@ Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `G
 | `CONVERSATION_IDLE_THRESHOLD_MINUTES` | `30` | Idle time before a conversation's memory is consolidated |
 | `MCP_TLS_VERIFY` | `true` | Set to `false` to skip TLS verification on server-side MCP connections |
 | `ALLOW_REGISTRATION` | — | Registration is closed unless this says otherwise |
-| `VIXTTS_ROOT`, `UVOICE_ROOT` | (docker-compose) | Sibling checkouts used as build contexts and mounts for the TTS and ASR services |
+| `AUTH_RATE_LIMIT_MAX_ATTEMPTS`, `AUTH_RATE_LIMIT_WINDOW_SECONDS` | `10`, `300` | Brute-force limit on `/login` and `/register`, per client address; `0` disables |
 
-There is **no `DATA_DIR` variable**. `core/paths.py` resolves `data/` from the package location and never reads the environment, which is why every command has to be run from `backend/`.
+Read by Compose rather than by the server:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_PORT`, `API_BIND` | `15597`, `0.0.0.0` | Where the API is published on the host. `API_BIND=127.0.0.1` keeps it off the network when a proxy fronts it |
+| `API_DEV_PORT` | `15598` | The dev overlay's port, always on loopback |
+| `HTTPS_PORT` | `443` | nginx's port, under `--profile tls` |
+| `VIXTTS_ROOT`, `UVOICE_ROOT` | — | Checkouts the speech services build from, under `--profile voice`. The fallback is a placeholder naming the variable, so forgetting it fails on a path that says what to set rather than on somebody's home directory |
+| `HF_TOKEN` | — | Hugging Face token for universal-voice's gated models |
+| `DB_WAIT_ATTEMPTS`, `DB_WAIT_INTERVAL` | `60`, `2` | How long the entrypoint waits for Postgres before failing loudly |
+
+There is **no `DATA_DIR` variable** for the server: `core/paths.py` resolves `data/` from the package location and never reads the environment, so it is the `data/` beside the installed `kurisuassistant/` regardless of where a command is run. One migration used to read a `DATA_DIR` env var that nothing sets, and therefore looked for character assets under the literal `/app/data` outside the container; it now imports the same constant as everything else.
 
 MCP tool-specific env vars (e.g. `SERPAPI_KEY`) are configured in each tool's own `.env` in the separate `mcp-servers` repo.
 
@@ -108,4 +191,4 @@ Place voice reference files in `data/voice_storage/` (.wav/.mp3/.flac/.ogg).
 
 ## Default Account
 
-First migration seeds an `admin:admin` account.
+A fresh database is seeded with an `admin` / `admin` account — not by a migration, but by `init_db()` after `alembic upgrade head` returns. It logs a warning banner while that password is still in place. There is currently no way to change it (issue filed), so do not put a fresh server on an untrusted network.
