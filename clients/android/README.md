@@ -20,16 +20,22 @@ After signing in, open **Chats** to resume conversations or **Personas** to choo
 
 The drawer contains **Chats**, **Assistant**, **Personas**, **Tools & MCP**, **Skills**, then **Settings** and **Logout**. In chat, type `/` to use `/clear`, `/delete`, `/resume`, `/context`, `/persona`, `/refresh`, and `/compact`. There is no `/agents` command. Tap the face button in the chat header to open the animated character view.
 
-Before the first message, open **Assistant** and select a model. See the [Android manual](../../docs/manual/android.md) for navigation and the camera limitation.
+Before the first message, open **Assistant** and select a model. The first message fails when no model is selected.
 
 ## Settings and permissions
 
 - **Server:** change and save the backend URL.
 - **Account:** set your preferred name, Ollama URL, and Gemini, NVIDIA NIM, or Poe API keys.
+- **Appearance:** choose the app theme and display options.
+- **Skills:** create and enable reusable instructions.
+- **Tools & MCP:** connect tool servers and choose which tools the assistant may use.
 - **TTS & ASR:** choose a TTS backend, ASR mode/language, microphone device, and always-listening behaviour.
-- **Auto-update:** check for and install new Android releases.
+- **Face Identities:** manage the faces used by camera features.
+- **Auto-update and About:** check for releases and view app information.
 
 Grant microphone permission for voice features, camera permission for QR sign-in and face capture, and package-install permission when installing an in-app update.
+
+Microphone capture, voice-activity detection, and playback happen on the phone. Recorded audio and captured images are sent to the server when you use those features. The server's body-pose camera stage requires CUDA, and the default server does not give the API a GPU. Text, tools, memory, and speech still work on a CPU-only server.
 
 ## Build from source
 

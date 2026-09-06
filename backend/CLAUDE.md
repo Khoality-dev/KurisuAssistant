@@ -18,6 +18,7 @@ This is the `backend/` package of the KurisuAssistant monorepo (see the root `CL
 - [Vision Pipeline](docs/vision.md) — face recognition, gesture detection, character animation
 - [Database](docs/database.md) — schema, session management, migrations
 - [Development](docs/development.md) — local setup, Docker, env vars, volumes
+- [Operations](docs/operations.md) — backup and restore, updating, removal, and what persists. Everything after a server is running; getting one running is the deployment tutorial in the root `README.md`.
 - [API Reference](docs/API.md) — comprehensive endpoint documentation
 - [GPT-SoVITS Setup](docs/gpt-sovits.md) — voice synthesis backend configuration
 - [MCP Configuration](docs/mcp-config.md) — how MCP servers are configured

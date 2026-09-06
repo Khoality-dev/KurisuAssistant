@@ -19,7 +19,7 @@ The API server behind the [desktop](../clients/desktop/) and [Android](../client
 - Docker Engine 24 or newer and Docker Compose v2.24 or newer
 - [Ollama](https://ollama.ai) reachable from the stack, or a cloud provider key (Gemini, NVIDIA NIM, or Poe)
 
-No GPU or external checkout is required for the base stack. The optional `voice` profile requires an NVIDIA GPU, the NVIDIA container runtime, and external viXTTS and universal-asr trees. See the [voice manual](../docs/manual/voice.md).
+No GPU or external checkout is required for the base stack. The optional `voice` profile requires an NVIDIA GPU, the NVIDIA container runtime, and external viXTTS and universal-asr trees.
 
 ## Getting Started
 
@@ -34,7 +34,7 @@ curl localhost:15597/health
 
 The health check should return `{"status":"ok","service":"llm-hub"}`. Clients connect to `http://<server-address>:15597`.
 
-Default account: `admin` / `admin`. Migrations run automatically on container start (`docker-entrypoint.sh`). There is currently no way to change the default admin password, so do not expose a fresh server on an untrusted network. Before the first message, select a model in the **Assistant** screen. See [First run](../docs/manual/first-run.md).
+Default account: `admin` / `admin`. Migrations run automatically on container start (`docker-entrypoint.sh`). There is currently no way to change the default admin password, so do not expose a fresh server on an untrusted network. Before the first message, select a model in the **Assistant** screen. See [Set up your own server](../README.md#set-up-your-own-server).
 
 ### Local Development
 
@@ -76,7 +76,7 @@ Voice reference files go in `data/voice_storage/` (.wav/.mp3/.flac/.ogg).
 
 ## Backup & Restore
 
-The database, `data/`, and `.env` must be captured and restored as one unit. The named database volume is `kurisuassistant_postgres-data`. Follow the complete, ordered [backup and restore procedure](../docs/manual/backup-and-restore.md); restoring mismatched database and file state can delete persona assets.
+The database, `data/`, and `.env` must be captured and restored as one unit. The named database volume is `kurisuassistant_postgres-data`. Follow the complete, ordered [backup and restore procedure](docs/operations.md#back-up); restoring mismatched database and file state can delete persona assets.
 
 ## Documentation
 
