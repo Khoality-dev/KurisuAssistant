@@ -47,7 +47,7 @@ yourself first (`mkdir -p data/voice_storage data/sovits/{output,logs,weights}`)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `is_half` | `False` | Use FP16 inference (set `True` for GPUs with good FP16 support) |
+| `is_half` | `True` | FP16 inference. The Compose file sets `True`; the container's own default is `False` |
 | `is_share` | `False` | Enable Gradio public sharing |
 
 ## Data Volumes

@@ -1,5 +1,14 @@
 # Vision Pipeline
 
+**Needs a GPU, and the default stack has none.** The gesture detector passes
+`device="cuda"` to YOLOv8-Pose unconditionally
+(`models/gesture_detection/mediapipe_provider.py:62`, `:139`), while the base
+Compose file reserves no device — a reservation makes `up` fail outright on a
+host without the NVIDIA runtime, which is why it moved to
+`docker-compose.override.yml` (see `development.md`). So on a default install
+this pipeline fails at the point of use rather than reporting itself
+unavailable. Tracked in #152. Chat, tools, memory and speech are unaffected.
+
 ## Architecture
 
 Frontend (getUserMedia webcam capture) → WebSocket (base64 JPEG frames via backpressure, max 5 in-flight) → Backend (VisionProcessor runs face + gesture detection) → WebSocket (metadata results to frontend). Frontend renders webcam preview locally at native FPS via `<video>` element; backend never returns image data.

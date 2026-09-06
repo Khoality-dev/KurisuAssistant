@@ -2,13 +2,23 @@
 
 ## Provider
 
-faster-whisper (CTranslate2-based, much faster than HuggingFace transformers pipeline).
+faster-whisper (CTranslate2-based), running inside the **universal-voice**
+service — not inside the API. The API is a proxy: `routers/asr.py` forwards to
+`ASR_API_URL` and returns 502 "The speech service is unavailable." when that
+service is not running (it is behind `--profile voice`).
 
 ## Configuration
 
-- **Model**: `ASR_MODEL` env var. Defaults to `data/asr/whisper-ct2` (local) or `base` (downloaded)
-- **Device**: CPU by default. Override via `ASR_DEVICE` env var (`cuda`/`cpu`)
-- **Lazy loading**: Model loaded on first transcription request, not at startup
+The backend reads **no ASR settings of its own**. `ASR_MODEL` and `ASR_DEVICE`
+were documented here for years and are read by nothing — `grep` finds neither in
+`kurisuassistant/`. What exists:
+
+- `ASR_API_URL` — where the API sends audio. Defaults to the
+  `universal-voice` service on the Compose network.
+- The model and device belong to universal-voice, configured by the `UVOICE_*`
+  variables the Compose file sets on that service (`UVOICE_DEFAULT_MODEL`
+  defaults to `base`, `UVOICE_DEVICE=auto`).
+- The client picks a model per request; see the ASR settings in either client.
 
 ## API
 

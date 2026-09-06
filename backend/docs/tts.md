@@ -34,8 +34,11 @@ VIXTTS_ROOT=/path/to/viXTTS UVOICE_ROOT=/path/to/universal-asr \
   docker compose --profile voice up -d --build
 ```
 
-Both variables are required with no default — Compose refuses with a message
-naming the missing one. They were defaulted to absolute paths under one
+Both variables fall back to a placeholder that names the variable
+(`/VIXTTS_ROOT-is-not-set`), so forgetting one fails on a path that says what to
+set. It cannot be `${VAR:?message}`: Compose interpolates every service in the
+file, including ones a profile has switched off, so a `:?` here would break the
+plain `docker compose up`. They used to default to absolute paths under one
 developer's home directory, which is why a fresh install could not start (#98).
 The viXTTS tree is a working copy of the upstream model, not a repository this
 project distributes; running speech locally means obtaining it yourself, and
