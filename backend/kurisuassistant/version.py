@@ -15,6 +15,16 @@ Bumping rules:
 - Bump rarely; treat each bump as a coordinated release across all clients.
 
 Update log (most recent first):
+- 6: Webcam frames leave the JSON envelope. `vision_frame` is no longer a JSON
+     event; a frame is a WebSocket **binary** message
+     `[version][type][header length][JSON header][JPEG]`, described in
+     `websocket/binary.py` and `docs/websocket.md`. Breaking for any client that
+     sends camera frames: base64-in-JSON is gone, and a JSON `vision_frame` now
+     falls through to the unknown-event error. `vision_start` and `vision_stop`
+     are unchanged JSON events. The reason is transport, not features — a frame
+     in the send buffer used to delay the assistant's next token, base64 added a
+     third to every frame, and each one was parsed as JSON before its payload
+     was looked at (#111).
 - 5: `GET /images/{image_uuid}` is no longer public. It serves account avatars,
      persona avatars and face photos, and now returns them only to the account
      that owns them — authenticated by `Authorization: Bearer` header or, for an
@@ -79,5 +89,5 @@ Update log (most recent first):
 - 1: Initial wire protocol baseline.
 """
 
-__version__ = "0.5.0"
-WIRE_PROTOCOL = 5
+__version__ = "0.6.0"
+WIRE_PROTOCOL = 6

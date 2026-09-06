@@ -16,7 +16,7 @@ def make_mock_ws(client_state="CONNECTED"):
     ws.client_state = MagicMock()
     ws.client_state.name = client_state
     ws.send_json = AsyncMock()
-    ws.receive_json = AsyncMock()
+    ws.receive = AsyncMock()
     ws.close = AsyncMock()
     ws.accept = AsyncMock()
     return ws

@@ -15,7 +15,7 @@ fail outright on a host without the NVIDIA runtime.
 
 ## Architecture
 
-Frontend (getUserMedia webcam capture) → WebSocket (base64 JPEG frames via backpressure, max 5 in-flight) → Backend (VisionProcessor runs face + gesture detection) → WebSocket (metadata results to frontend). Frontend renders webcam preview locally at native FPS via `<video>` element; backend never returns image data.
+Frontend (getUserMedia webcam capture) → WebSocket **binary** frames (JPEG bytes behind a 4-byte header, backpressure-limited in-flight) → Backend (VisionProcessor runs face + gesture detection) → WebSocket (metadata results to frontend, as JSON). Frontend renders webcam preview locally at native FPS via `<video>` element; backend never returns image data.
 
 ## Face Recognition
 
@@ -43,13 +43,21 @@ All classification lives in `VisionProcessor`:
 
 Models lazy-loaded/offloaded on demand via enable flags.
 
+## Transport
+
+Frames travel as WebSocket binary messages so they never share the JSON path with
+chat. `websocket/binary.py` parses the envelope; a malformed or over-long message
+answers `error` with `BAD_BINARY_MESSAGE` and leaves the socket open, because a
+bad frame from a camera is not a reason to drop a conversation. The cap is 4 MiB
+per message and 4 KiB of header.
+
 ## Processing
 
-`VisionProcessor.process_frame()` decodes base64 JPEG, runs face + gesture detection sequentially in thread executor. Frame dropping via `_processing` flag (skips frame if previous inference still running). In-memory face embedding cache (numpy dot product) for ~0ms matching.
+`VisionProcessor.process_frame()` takes raw JPEG bytes, runs face + gesture detection sequentially in thread executor. Frame dropping via `_processing` flag (skips frame if previous inference still running). In-memory face embedding cache (numpy dot product) for ~0ms matching.
 
 ## WebSocket Events
 
-- **Client→Server**: `VisionStartEvent` (enable_face/enable_pose/enable_hands flags), `VisionFrameEvent` (base64 JPEG), `VisionStopEvent`
+- **Client→Server**: `VisionStartEvent` and `VisionStopEvent` are JSON events. A **frame is a binary message**, not JSON — `[version][type][header length][JSON header][JPEG]`, see [websocket.md](websocket.md#vision) and `websocket/binary.py`. It was base64 inside JSON until protocol 6: a third more bytes, a JSON parse per frame, and the pixels queued ahead of the assistant's next token on the same socket (#111)
 - **Server→Client**: `VisionResultEvent` (faces + gestures metadata only)
 
 ## Character Animation Integration

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -30,6 +31,7 @@ from .events import (
     CompactContextEvent,
     parse_event,
 )
+from .binary import BinaryFrameError, BinaryMessageType, parse_binary_message
 from kurisuassistant.agents import (
     AgentContext,
     AssistantConfig,
@@ -146,7 +148,19 @@ class ChatSessionHandler:
         ws = self.websocket
         while True:
             try:
-                data = await ws.receive_json()
+                # Two kinds of message share this socket. Control and chat are
+                # JSON text; a webcam frame is a binary message whose pixels are
+                # never parsed as JSON and never base64 (#111).
+                message = await ws.receive()
+                if message["type"] == "websocket.disconnect":
+                    raise WebSocketDisconnect(message.get("code", 1000))
+
+                payload = message.get("bytes")
+                if payload is not None:
+                    await self._handle_binary_message(payload)
+                    continue
+
+                data = json.loads(message["text"])
                 if data.get("type") == "pong":
                     # Clients still answer the old application-level ping. The
                     # server no longer sends one, so this just ignores stragglers.
@@ -163,6 +177,32 @@ class ChatSessionHandler:
                     error=f"{GENERIC_MESSAGE} (reference: {reference})",
                     code="INTERNAL_ERROR",
                 ))
+
+    async def _handle_binary_message(self, data: bytes):
+        """Route a binary message. A bad one is refused, not fatal.
+
+        A camera that sends something malformed should get an error event and
+        keep its conversation; only the frame is dropped.
+        """
+        try:
+            message = parse_binary_message(data)
+        except BinaryFrameError as e:
+            # The reason goes to the log with a reference the client can quote;
+            # the socket never echoes exception text, whatever produced it
+            # (tests/test_error_disclosure.py).
+            reference = log_internal_error(e, f"parsing a binary message from user {self.user_id}")
+            await self.send_event(ErrorEvent(
+                error=f"That binary message could not be read and was dropped. (reference: {reference})",
+                code="BAD_BINARY_MESSAGE",
+            ))
+            return
+
+        if message.type is BinaryMessageType.VISION_FRAME:
+            await self._handle_vision_frame(VisionFrameEvent(
+                event_id=message.header.get("event_id", str(uuid.uuid4())),
+                timestamp=message.header.get("timestamp", datetime.utcnow().isoformat() + "Z"),
+                frame=message.payload,
+            ))
 
     async def _handle_event(self, event: BaseEvent):
         if isinstance(event, ChatRequestEvent):

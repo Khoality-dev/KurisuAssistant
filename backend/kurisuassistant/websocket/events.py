@@ -111,9 +111,15 @@ class VisionStartEvent(BaseEvent):
 
 @dataclass
 class VisionFrameEvent(BaseEvent):
-    """Client sends a webcam frame for inference."""
+    """A webcam frame for inference.
+
+    Built from a WebSocket **binary** message, never from JSON: `frame` is the
+    JPEG itself. It used to be a base64 string inside a JSON event, which cost a
+    third of the wire, a JSON parse per frame, and put the pixels in front of the
+    assistant's next token (#111). See `websocket/binary.py`.
+    """
     type: EventType = field(default=EventType.VISION_FRAME)
-    frame: str = ""  # Base64 JPEG
+    frame: bytes = b""  # Raw JPEG
 
 
 @dataclass
@@ -287,13 +293,6 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
             enable_face=data.get("enable_face", True),
             enable_pose=data.get("enable_pose", True),
             enable_hands=data.get("enable_hands", True),
-        )
-
-    elif event_type == EventType.VISION_FRAME.value:
-        return VisionFrameEvent(
-            event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
-            frame=data.get("frame", ""),
         )
 
     elif event_type == EventType.VISION_STOP.value:

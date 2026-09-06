@@ -30,7 +30,11 @@ def make_mock_ws(client_state="CONNECTED"):
     ws.client_state = MagicMock()
     ws.client_state.name = client_state
     ws.send_json = AsyncMock()
-    ws.receive_json = AsyncMock()
+    # `run()` reads raw ASGI messages, because a webcam frame arrives as binary
+    # and must never go through a JSON decode (#111). A mock that only stubs
+    # `receive_json` leaves the real `receive` returning a MagicMock, which the
+    # loop treats as a message forever — the suite hangs rather than fails.
+    ws.receive = AsyncMock()
     ws.close = AsyncMock()
     ws.accept = AsyncMock()
     return ws
@@ -209,10 +213,10 @@ class TestRunLoop:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return {"type": "pong"}
+                return {"type": "websocket.receive", "text": json.dumps({"type": "pong"})}
             raise WebSocketDisconnect()
 
-        ws.receive_json = receive_side_effect
+        ws.receive = receive_side_effect
 
         with pytest.raises(WebSocketDisconnect):
             await handler.run()
@@ -233,10 +237,13 @@ class TestRunLoop:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return {"type": "nonexistent_event_type", "data": "bad"}
+                return {
+                    "type": "websocket.receive",
+                    "text": json.dumps({"type": "nonexistent_event_type", "data": "bad"}),
+                }
             raise WebSocketDisconnect()
 
-        ws.receive_json = receive_side_effect
+        ws.receive = receive_side_effect
 
         with pytest.raises(WebSocketDisconnect):
             await handler.run()

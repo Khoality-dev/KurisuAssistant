@@ -3,10 +3,9 @@
 Architecture:
 - Frontend captures webcam via getUserMedia, sends JPEG frames at DETECT_FPS
 - Backend decodes frame, runs face + gesture detection, returns metadata
-- No RTSP/MediaMTX — frames arrive directly over WebSocket
+- No RTSP/MediaMTX — frames arrive directly over WebSocket, as binary messages
 """
 
-import base64
 import logging
 from collections import deque
 from typing import Optional
@@ -59,7 +58,7 @@ def _batch_detect(
 class VisionProcessor:
     """Processes individual webcam frames for face/gesture detection.
 
-    Frames are received from the frontend via WebSocket (base64 JPEG).
+    Frames are received from the frontend via WebSocket binary messages (JPEG).
     Detection results are returned as metadata (no image encoding).
     """
 
@@ -82,15 +81,18 @@ class VisionProcessor:
         logger.info("Vision processor initialized for user %d (face=%s, pose=%s, hands=%s)",
                      user_id, enable_face, enable_pose, enable_hands)
 
-    def process_frame(self, frame_b64: str) -> Optional[dict]:
-        """Decode a base64 JPEG frame and run detection. Returns result dict or None if busy."""
+    def process_frame(self, frame_bytes: bytes) -> Optional[dict]:
+        """Decode a JPEG frame and run detection. Returns result dict or None if busy.
+
+        The frame arrives as raw bytes from a binary WebSocket message; it used
+        to be base64 inside JSON, decoded here per frame (#111).
+        """
         if self._processing:
             return None  # Skip frame — previous inference still running
         self._processing = True
 
         try:
-            # Decode base64 JPEG → numpy array
-            frame_bytes = base64.b64decode(frame_b64)
+            # Decode JPEG → numpy array
             frame_arr = np.frombuffer(frame_bytes, dtype=np.uint8)
             frame = cv2.imdecode(frame_arr, cv2.IMREAD_COLOR)
             if frame is None:

@@ -29,3 +29,12 @@ The REST and WebSocket surface this client calls. The contract itself lives in t
 - `GET /skills`, `POST /skills`, `PATCH /skills/{id}`, `DELETE /skills/{id}` — Skill CRUD (user-editable instruction blocks)
 - `GET /mcp-servers`, `POST /mcp-servers`, `PATCH /mcp-servers/{id}`, `DELETE /mcp-servers/{id}` — MCP server CRUD (location: server|client)
 - `POST /mcp-servers/{id}/test` — Test MCP server connectivity (server-side only)
+
+
+## Vision frames are binary
+
+A webcam frame goes out as a WebSocket binary message built by
+`src/api/binaryFrame.ts` — `[version][type][header length][JSON header][JPEG]` —
+rather than base64 inside a JSON event, so pixels never queue in front of the
+assistant's next token (#111, wire protocol 6). `vision_start` and `vision_stop`
+remain JSON events.

@@ -305,11 +305,38 @@ with `NO_SUMMARY_MODEL` / `COMPACT_EMPTY`, still followed by the closing
 
 ### Vision
 
+Start and stop are ordinary JSON events:
+
 ```json
 {"type": "vision_start", "enable_face": true, "enable_pose": true, "enable_hands": true}
-{"type": "vision_frame", "frame": "<base64 JPEG>"}
 {"type": "vision_stop"}
 ```
+
+A **frame is a binary message**, not JSON (protocol 6, #111). Pixels in the JSON
+path cost a third of the wire to base64, a JSON parse per frame, and — worst — put
+a few hundred kilobytes in front of the assistant's next token in the same send
+buffer. The envelope:
+
+```
+0        1        2                 4              4+H
++--------+--------+-----------------+---------------+------------------+
+| version| type   | header length   | header (JSON) | payload (bytes)  |
+| uint8  | uint8  | uint16 big-end. | UTF-8, H long | JPEG             |
++--------+--------+-----------------+---------------+------------------+
+```
+
+- `version` — `1`, the envelope's own version (`BINARY_PROTOCOL_VERSION`). It is
+  not the wire protocol: the handshake already gates that, and this byte lets a
+  message type be added later without a connection-wide bump.
+- `type` — `1` = vision frame. Nothing else yet.
+- `header` — the JSON object carrying what the old event carried besides the
+  image: `event_id` and `timestamp`, both optional. At most 4096 bytes.
+- `payload` — the JPEG itself. The whole message is capped at 4 MiB.
+
+A malformed or over-long message is answered with `error` (`BAD_BINARY_MESSAGE`)
+and the socket stays open — a bad frame is not a reason to drop a conversation.
+Backpressure is unchanged: the server skips a frame while inference is still
+running, and the client refills on each `vision_result`.
 
 ## Removed
 
