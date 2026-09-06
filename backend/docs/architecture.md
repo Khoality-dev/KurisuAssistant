@@ -101,7 +101,7 @@ db/
   session.py             engine and sessionmaker
   service.py             DBService: the single thread all DB access goes through
   repositories/          one per table, over a generic BaseRepository
-  alembic/               52 revisions, single head (485f1296faf8)
+  alembic/               54 revisions, single head (c2d999801f26)
 
 vision/processor.py      per-frame face and gesture pipeline
 workers/                 background threads: idle scan, memory consolidation

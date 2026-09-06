@@ -50,7 +50,16 @@ class Conversation(Base):
     compacted_context = Column(Text, nullable=False, default="", server_default="")
     compacted_up_to_id = Column(Integer, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    # Indexed: the idle scanner ranges on it once a minute (#96).
+    updated_at = Column(DateTime, default=datetime.utcnow, index=True)
+    # Memory-consolidation bookkeeping, kept on the row so it survives a restart
+    # and so the idle scan can skip what is already done (#96). A conversation is
+    # due when consolidated_at is null or older than updated_at; a failed attempt
+    # sets consolidation_next_retry_at with backoff, and after enough failures the
+    # row is stamped as consolidated so it is left alone until it changes again.
+    consolidated_at = Column(DateTime, nullable=True)
+    consolidation_attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    consolidation_next_retry_at = Column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")

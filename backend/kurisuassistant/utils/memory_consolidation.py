@@ -96,8 +96,12 @@ async def consolidate_assistant_memory(
     There is one assistant — and therefore one memory document — per user, so
     the assistant is derived from ``user_id``; no agent id is passed in.
 
-    Fire-and-forget — errors are logged, never raised. Empty LLM output
-    is logged (so missing updates are visible), not silently dropped.
+    Returns normally when there was nothing to do (no assistant, memory
+    disabled, empty transcript, unchanged document) — those are outcomes, not
+    failures. A failure (unreachable model, a bad summary model, a database
+    error) is logged and then **raised**, so the caller can schedule a retry
+    instead of forgetting the conversation (#96). Empty LLM output is logged
+    (so missing updates are visible), not silently dropped.
 
     .. warning::
        **This is a read-modify-write on a row shared by the whole user.** The
@@ -228,3 +232,4 @@ async def consolidate_assistant_memory(
             "Failed to consolidate memory for user %d (conversation %d): %s",
             user_id, conversation_id, e, exc_info=True,
         )
+        raise
