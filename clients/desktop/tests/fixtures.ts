@@ -44,6 +44,31 @@ function freePort(): Promise<number> {
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const MAIN_ENTRY = path.join(PROJECT_ROOT, 'dist-electron', 'main.js');
 
+/**
+ * Close the app, and do not let a stuck renderer take the whole worker down.
+ *
+ * `close()` waits for the app to exit cleanly, which it will not do while a
+ * renderer holds a navigation that was blocked on purpose — which is exactly
+ * what the navigation-guard tests provoke. On Linux CI that surfaced as
+ * "Worker teardown timeout of 60000ms exceeded", failing tests whose own
+ * assertions had already passed. The process is a child of this run and its
+ * state is discarded either way, so killing it when it will not leave is
+ * correct, not a workaround.
+ */
+async function shutDown(app: ElectronApplication): Promise<void> {
+  const kill = () => {
+    try { app.process().kill('SIGKILL'); } catch { /* already gone */ }
+  };
+  try {
+    await Promise.race([
+      app.close(),
+      new Promise<void>((resolve) => setTimeout(() => { kill(); resolve(); }, 10_000)),
+    ]);
+  } catch {
+    kill();
+  }
+}
+
 export const test = base.extend<Fixtures>({
   mock: async ({}, use) => {
     const server = new MockBackend();
@@ -117,7 +142,7 @@ export const test = base.extend<Fixtures>({
     try {
       await use(app);
     } finally {
-      try { await app.close(); } catch { /* noop */ }
+      await shutDown(app);
     }
   },
 
