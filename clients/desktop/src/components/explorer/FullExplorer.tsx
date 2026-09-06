@@ -446,13 +446,16 @@ export const FullExplorer: React.FC = () => {
     setIsDropTarget(false);
     if (!onDrive) return;
     event.preventDefault();
-    // Electron puts the real path on a dropped File; a browser would not, and
-    // without one there is nothing for the main process to stream.
-    const dropped = Array.from(event.dataTransfer.files) as Array<File & { path?: string }>;
-    const withPaths = dropped.filter((f) => !!f.path);
-    if (withPaths.length === 0) return;
-    for (const file of withPaths) {
-      await upload(file.path!, currentPath, { name: file.name, size: file.size });
+    // A dropped File carries no usable path of its own any more — Electron 32
+    // removed `File.path` — so preload resolves it through `webUtils`. Without
+    // a path there is nothing for the main process to stream.
+    const dropped = Array.from(event.dataTransfer.files);
+    const resolved = dropped
+      .map((file) => ({ file, path: window.electron.drive.pathForFile(file) }))
+      .filter((entry) => !!entry.path);
+    if (resolved.length === 0) return;
+    for (const { file, path } of resolved) {
+      await upload(path, currentPath, { name: file.name, size: file.size });
     }
     loadDirectory(currentPath);
   }, [onDrive, upload, currentPath, loadDirectory]);

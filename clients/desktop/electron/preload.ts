@@ -1,3 +1,4 @@
+import * as electron from 'electron';
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electron', {
@@ -122,6 +123,20 @@ contextBridge.exposeInMainWorld('electron', {
   // Kurisu Drive transfers. Streamed in the main process, because a drive file
   // can be gigabytes and the renderer would have to hold the whole thing.
   drive: {
+    /**
+     * The real path of a dragged-in file.
+     *
+     * `File.path` was removed in Electron 32; `webUtils.getPathForFile` is its
+     * replacement and has to be called here, in preload, not in the renderer.
+     * The fallback keeps this working on the older Electron a stale
+     * `node_modules` may still hold. Without a path there is nothing for the
+     * main process to stream, so a drop would silently do nothing.
+     */
+    pathForFile: (file: File): string => {
+      const utils = (electron as unknown as { webUtils?: { getPathForFile(f: File): string } }).webUtils;
+      if (utils?.getPathForFile) return utils.getPathForFile(file);
+      return (file as File & { path?: string }).path ?? '';
+    },
     pickFiles: () =>
       ipcRenderer.invoke('drive:pick-files'),
     upload: (id: string, req: { baseUrl: string; token: string; localPath: string; parentId: number | null; name: string; overwrite?: boolean }) =>

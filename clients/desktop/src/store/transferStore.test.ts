@@ -24,6 +24,7 @@ let progressListener: ((p: { id: string; loaded: number; total: number | null })
 
 function stubDriveBridge() {
   const drive = {
+    pathForFile: vi.fn((f: any) => `/home/kho/${f.name}`),
     pickFiles: vi.fn(),
     upload: vi.fn(),
     download: vi.fn(),

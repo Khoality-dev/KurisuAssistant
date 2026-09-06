@@ -91,6 +91,8 @@ export interface DrivePickedFile {
 }
 
 export interface DriveTransferAPI {
+  /** The real path of a dragged-in file — `File.path` is gone as of Electron 32. */
+  pathForFile: (file: File) => string;
   pickFiles: () => Promise<DrivePickedFile[]>;
   upload: (
     id: string,
