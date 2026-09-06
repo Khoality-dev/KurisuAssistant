@@ -41,11 +41,13 @@ new row, or a new hash written into the old one.
 ## Back up
 
 The database, `data/` and the environment file are **one unit**. Rows are handles
-to files: `personas.avatar_uuid`, `face_photos.photo_uuid` and `messages.images`
-all name files under `data/`. Restoring a database beside an older `data/` is
-destructive rather than merely lossy — persona asset cleanup deletes files the
-restored configuration does not reference. And `data/jwt_secret.key` has to
-survive, or every signed-in client is logged out.
+to files: `personas.avatar_uuid`, `face_photos.photo_uuid`, `messages.images` and
+`drive_nodes.storage_key` all name files under `data/`. Restoring a database
+beside an older `data/` is destructive rather than merely lossy — persona asset
+cleanup deletes files the restored configuration does not reference, and a
+restored drive row whose blob is missing is a file the explorer lists and nothing
+can open. And `data/jwt_secret.key` has to survive, or every signed-in client is
+logged out.
 
 ```bash
 set -a; . ./.env; set +a
@@ -73,6 +75,23 @@ environment file holds the database password.
 With `--profile voice`, also archive `${VIXTTS_ROOT}/models` and
 `${UVOICE_ROOT}/data`; with `--profile sovits`, `data/sovits/weights`.
 
+**`data/drive/` is the part that grows.** Everything else under `data/` is
+avatars and model caches; the drive is whatever users put in it, up to
+`DRIVE_QUOTA_BYTES` per account, so the single-shot `tar` above scales with it
+and so does the stop-the-world window. It sits in its own top-level subtree for
+exactly that reason. To archive it separately — incrementally, or on a different
+schedule — split the two:
+
+```bash
+sudo tar -C . --exclude=./data/drive -czf "$OUT/data.tar.gz" data
+sudo tar -C . -czf "$OUT/data-drive.tar.gz" data/drive
+```
+
+Both halves still describe the same moment as the database dump, so both are
+taken with the API stopped, and **both must be restored together**: the rows in
+`drive_nodes` are handles to the files in `data/drive/`. Leaving the drive out of
+a backup is a decision to lose those files, not a way to make the backup cheaper.
+
 ## Restore
 
 `data/` must be in place **before the API starts**, or it generates a new signing
@@ -84,6 +103,9 @@ cp /backup/<stamp>/env .env && set -a && . ./.env && set +a
 docker compose down
 docker volume rm kurisuassistant_postgres-data
 sudo rm -rf data && sudo tar -C . -xzf /backup/<stamp>/data.tar.gz
+# If the drive was archived separately, unpack it now — before the API starts,
+# and from the same moment as the dump.
+[ -f /backup/<stamp>/data-drive.tar.gz ] && sudo tar -C . -xzf /backup/<stamp>/data-drive.tar.gz
 docker compose up -d postgres
 until docker compose exec -T postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"; do sleep 2; done
 docker compose exec -T postgres pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
@@ -189,6 +211,7 @@ Ollama server is unreachable" in the model picker.
 | --- | --- | --- |
 | Accounts, conversations, memory, personas | volume `kurisuassistant_postgres-data` | everything textual |
 | Images, avatars, face photos, voices, character assets | `backend/data/` | the media those rows point at |
+| Drive files | `backend/data/drive/` | every file users stored, from every device |
 | Session signing key | `backend/data/jwt_secret.key` | every client signed out |
 | Database password, provider keys | `backend/.env` | the API cannot open its own database |
 | TLS certificate | `backend/nginx/certs/` | regenerate with the script |

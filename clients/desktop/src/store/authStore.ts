@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { apiClient } from '../api/client';
+import { forgetDriveCache } from '../api/fileSource';
 import { storage } from '../utils/storage';
 import { useToolPermissionsStore } from './toolPermissionsStore';
 import type { UserProfile } from '../api/types';
@@ -58,6 +59,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: () => {
     apiClient.clearToken();
     storage.clearTokens();
+    // Node ids are per account. Keeping the map across a sign-out would
+    // point the next account's paths at the previous one's rows.
+    forgetDriveCache();
     storage.setRememberMe(false);
     storage.clearAllPersonaConversations();
     set({ isAuthenticated: false, user: null, rememberMe: false });

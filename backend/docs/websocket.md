@@ -5,7 +5,7 @@ execution, context compaction and vision. Every frame is a JSON object.
 `websocket/events.py` is the source of truth for the shapes below; `parse_event()`
 there is the only thing that accepts a client event, and an unknown `type` raises.
 
-Wire protocol **5**. See `version.py` for the changelog.
+Wire protocol **6**. See `version.py` for the changelog.
 
 ## Handshake
 

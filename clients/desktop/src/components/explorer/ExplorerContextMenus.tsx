@@ -12,6 +12,7 @@ import {
   Typography,
 } from '@mui/material';
 import { type FileEntry } from '../../store/explorerStore';
+import { isDrivePath } from '../../api/fileSource';
 
 interface ExplorerContextMenusProps {
   // File context menu
@@ -29,6 +30,10 @@ interface ExplorerContextMenusProps {
   currentPath: string;
   // Handlers
   onAddToChat: (entries: FileEntry[]) => void;
+  /** Send these drive files to this machine's Downloads folder. */
+  onDownload: (paths: string[]) => void;
+  /** Put these local files on the drive. */
+  onUploadToDrive: (entries: FileEntry[]) => void;
   onRename: (path: string, name: string) => void;
   onCopy: (path: string, name: string) => void;
   onCut: (path: string, name: string) => void;
@@ -50,6 +55,8 @@ export const ExplorerContextMenus: React.FC<ExplorerContextMenusProps> = ({
   isRoot,
   currentPath,
   onAddToChat,
+  onDownload,
+  onUploadToDrive,
   onRename,
   onCopy,
   onCut,
@@ -58,6 +65,17 @@ export const ExplorerContextMenus: React.FC<ExplorerContextMenusProps> = ({
   onNewFile,
   onNewFolder,
 }) => {
+  /** The right-clicked entry, or the whole selection when it is part of it. */
+  const targets = (): FileEntry[] => {
+    if (!contextMenu) return [];
+    return selectedEntries.has(contextMenu.entry.fullPath)
+      ? entries.filter((e) => selectedEntries.has(e.fullPath))
+      : [contextMenu.entry];
+  };
+
+  const fileTargets = () => targets().filter((e) => e.type === 'file');
+  const onDrive = !!contextMenu && isDrivePath(contextMenu.entry.fullPath);
+
   const handleOpenInVSCode = () => {
     if (contextMenu) {
       window.electron?.explorer?.openInVSCode(contextMenu.entry.fullPath);
@@ -94,6 +112,35 @@ export const ExplorerContextMenus: React.FC<ExplorerContextMenusProps> = ({
           </ListItemText>
           <Typography variant="caption" sx={{ ml: 2, color: 'text.secondary' }}>F3</Typography>
         </MenuItem>
+        {!isRoot && contextMenu?.entry.type === 'file' && (
+          onDrive ? (
+            <MenuItem
+              onClick={() => {
+                onDownload(fileTargets().map((e) => e.fullPath));
+                onCloseContextMenu();
+              }}
+              sx={{ fontSize: '0.8rem' }}
+            >
+              <ListItemText>
+                {fileTargets().length > 1 ? `Download ${fileTargets().length} copies` : 'Download a copy'}
+              </ListItemText>
+            </MenuItem>
+          ) : (
+            <MenuItem
+              onClick={() => {
+                onUploadToDrive(fileTargets());
+                onCloseContextMenu();
+              }}
+              sx={{ fontSize: '0.8rem' }}
+            >
+              <ListItemText>
+                {fileTargets().length > 1
+                  ? `Upload ${fileTargets().length} files to Kurisu Drive`
+                  : 'Upload to Kurisu Drive'}
+              </ListItemText>
+            </MenuItem>
+          )
+        )}
         {!isRoot && (<>
         <MenuItem
           onClick={() => {

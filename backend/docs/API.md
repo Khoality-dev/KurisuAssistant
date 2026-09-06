@@ -19,6 +19,7 @@ routers disagree, the routers are right and this file is a bug.
 - [User Profile](#user-profile)
 - [Tool Policies](#tool-policies)
 - [Images](#images)
+- [Drive](#drive)
 - [Text-to-Speech](#text-to-speech)
 - [Speech Recognition](#speech-recognition)
 - [Tools & MCP Servers](#tools--mcp-servers)
@@ -755,6 +756,123 @@ The check on the way *in* matters as much as the one on the way out.
 (`400 Unknown image.`). Without that, the fetch check would be self-serving:
 attach a UUID overheard from a proxy log to your own persona, and the row would
 then make it yours.
+
+---
+
+## Drive
+
+Account-scoped file storage: one tree per account, browsable from every signed-in
+client. Bytes come back exactly as they went in — this is the one upload path in
+the API that does not re-encode what it stores. `docs/drive.md` covers the model,
+the path-safety rule and the limits.
+
+Every route takes the usual bearer token and is scoped to the caller. **A node
+belonging to someone else is `404`, never `403`** — telling a caller that an id
+exists is the same leak in a smaller envelope.
+
+Everything except `GET /drive/resolve` addresses a node by **id**, not by path.
+Nothing here joins caller-supplied text onto a filesystem path.
+
+A node looks like:
+
+```json
+{
+  "id": 42, "parent_id": 7, "name": "Q3-revenue-notes.md",
+  "is_dir": false, "size": 18432, "mime": "text/markdown",
+  "checksum": "9f86d0…", "created_at": "…Z", "updated_at": "…Z"
+}
+```
+
+`mime`, `checksum` and `size` are null/0 for a folder.
+
+### GET /drive/nodes
+
+Children of `?parent_id=`. Omit it for the top of the drive. Folders first, then
+name.
+
+**Errors:** `404` no such folder (or not yours), `400` the id names a file.
+
+### GET /drive/nodes/{node_id}
+
+One node.
+
+### GET /drive/resolve?path=/Reports/Q3.md
+
+The one route that takes a path, for deep links and cold starts. Walked segment
+by segment against rows, so `..` matches no name and simply does not resolve.
+
+**Errors:** `404` nothing at that path.
+
+### POST /drive/folders
+
+`{"parent_id": 7 | null, "name": "Reports"}` → the new node.
+
+**Errors:** `400` a name that would look like a path (a separator, `.`, `..`, a
+null byte, leading/trailing space, over 255 bytes), `404` no such parent, `409`
+the name is taken.
+
+### POST /drive/files
+
+The **raw bytes** as the body, with `?name=` required and `?parent_id=` and
+`?overwrite=true` optional. Not `multipart/form-data`, deliberately: a handler
+declaring an `UploadFile` makes FastAPI call `request.form()` *before* it
+resolves dependencies, so the whole body would be parsed and spooled to the
+server's disk before the caller was even authenticated — and before the size
+ceiling and the quota. An unauthenticated caller could push whatever the proxy
+allows onto the filesystem and only then be told `401`.
+
+Streamed to disk as it arrives, so the limits below are enforced before the
+upload has been paid for rather than after.
+
+**Errors:** `400` bad name or a parent that is a file, `404` no such parent,
+`409` the name is taken (or is a folder), `413` over `DRIVE_MAX_FILE_BYTES`,
+`507` over `DRIVE_QUOTA_BYTES` — re-checked inside the write transaction, so
+concurrent uploads cannot overshoot it between them.
+
+### GET /drive/files/{node_id}/content
+
+The bytes back, byte-identical. Authenticated by header **or** `?token=`, because
+a streamed download in the Electron main process and a `<video src=…>` cannot set
+a header.
+
+Served as `Content-Disposition: attachment`, typed `application/octet-stream`,
+with `X-Content-Type-Options: nosniff` and `Cache-Control: private, no-store`.
+`?inline=1` serves the stored type inline **only** for `image/*`, `audio/*`,
+`video/*`, `application/pdf` and `text/plain`, minus `image/svg+xml`; anything
+else stays an attachment, because an uploaded page served inline would execute on
+the API's own origin with the caller's session behind it.
+
+`Range` requests are answered with `206` (Starlette's `FileResponse`).
+
+**Errors:** `401` no token, `404` not yours or gone, `400` the id names a folder.
+
+### PUT /drive/files/{node_id}/content
+
+Replace an existing file's bytes with the raw request body — what the editor's
+Save calls. Streamed, like the upload.
+
+**Errors:** `404` not yours or gone, `400` the id names a folder, `413`/`507` as
+above.
+
+### PATCH /drive/nodes/{node_id}
+
+`{"name": "…", "parent_id": 7 | null}` — rename, move, or both. Omitting
+`parent_id` leaves the node where it is; sending `null` moves it to the top.
+
+**Errors:** `400` bad name, `404` no such node or parent, `409` the name is taken
+there, or the move would put a folder inside itself.
+
+### DELETE /drive/nodes/{node_id}
+
+Permanent. A folder takes its whole subtree, and every blob under it. There is no
+trash.
+
+**Errors:** `404` not yours or gone.
+
+### GET /drive/usage
+
+`{"used_bytes": …, "quota_bytes": …, "file_count": …, "max_file_bytes": …}` —
+what the explorer's quota bar and Settings → Kurisu Drive read.
 
 ---
 

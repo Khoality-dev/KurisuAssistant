@@ -3,9 +3,11 @@
  * Displays a browseable file/folder list with breadcrumb navigation.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Box,
+  Button,
   Typography,
   Table,
   TableBody,
@@ -14,14 +16,21 @@ import {
   TableHead,
   TableRow,
   Breadcrumbs,
+  LinearProgress,
   Link,
   CircularProgress,
   IconButton,
+  Snackbar,
   Tooltip,
   TextField,
 } from '@mui/material';
 import {
   ArrowUpward as UpIcon,
+  Cloud as CloudIcon,
+  CloudUpload as CloudUploadIcon,
+  Computer as ComputerIcon,
+  CreateNewFolder as NewFolderIcon,
+  Download as DownloadIcon,
   Home as HomeIcon,
   ViewList as ListViewIcon,
   GridView as GridViewIcon,
@@ -30,11 +39,22 @@ import { getFileIcon } from './FileIcon';
 import { SearchBar, Highlight } from './SearchPanel';
 import { ExplorerContextMenus } from './ExplorerContextMenus';
 import { ExplorerDialogs } from './ExplorerDialogs';
+import { FileTreeSidebar } from './FileTreeSidebar';
 import { useExplorerStore, type FileEntry } from '../../store/explorerStore';
 import { useFileOperations } from '../../hooks/useFileOperations';
+import { useTransferStore } from '../../store/transferStore';
+import {
+  DRIVE_ROOT,
+  DRIVE_ROOT_LABEL,
+  LOCAL_ROOT_LABEL,
+  dirnameOf,
+  drivePathSegments,
+  fileSource,
+  isDrivePath,
+} from '../../api/fileSource';
 
 const OPERATING_SYSTEM = window.electron?.platform ?? 'win32';
-const SEP = OPERATING_SYSTEM === 'win32' ? '\\' : '/';
+const LOCAL_SEP = OPERATING_SYSTEM === 'win32' ? '\\' : '/';
 
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return '—';
@@ -56,6 +76,35 @@ interface SearchResults {
   names: Array<{ path: string; name: string; type: 'file' | 'directory' }>;
   matches: Array<{ path: string; line: number; snippet: string }>;
 }
+
+/**
+ * Where a row's file actually is.
+ *
+ * This is the column that makes two roots in one explorer legible: the point of
+ * putting the drive beside this computer is that "where does this live" becomes
+ * something you read rather than a mode you have to remember you are in.
+ */
+const WhereItLives: React.FC<{ path: string; uploadPercent?: number }> = ({ path, uploadPercent }) => {
+  const onDrive = isDrivePath(path);
+  if (uploadPercent !== undefined) {
+    return (
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, maxWidth: 170 }}>
+        <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'info.main' }}>
+          Uploading… {uploadPercent}%
+        </Typography>
+        <LinearProgress variant="determinate" value={uploadPercent} sx={{ height: 3, borderRadius: 2 }} />
+      </Box>
+    );
+  }
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, color: 'text.secondary' }}>
+      {onDrive ? <CloudIcon sx={{ fontSize: 15 }} /> : <ComputerIcon sx={{ fontSize: 15 }} />}
+      <Typography variant="body2" sx={{ fontSize: '0.75rem' }}>
+        {onDrive ? DRIVE_ROOT_LABEL : LOCAL_ROOT_LABEL}
+      </Typography>
+    </Box>
+  );
+};
 
 export const FullExplorer: React.FC = () => {
   const { openFile, viewMode, setViewMode, addSelection, setLiveSelections } = useExplorerStore();
@@ -82,6 +131,35 @@ export const FullExplorer: React.FC = () => {
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
+  const [notice, setNotice] = useState<{ severity: 'error' | 'info'; message: string } | null>(null);
+  const [isDropTarget, setIsDropTarget] = useState(false);
+
+  const upload = useTransferStore((s) => s.upload);
+  const download = useTransferStore((s) => s.download);
+  const transfers = useTransferStore((s) => s.transfers);
+
+  const onDrive = isDrivePath(currentPath);
+
+  const selectedFiles = entries.filter(
+    (e) => selectedEntries.has(e.fullPath) && e.type === 'file',
+  );
+
+  /**
+   * Rows that are still being uploaded into the folder on screen.
+   *
+   * The design puts progress on the row itself rather than only in the tray, so
+   * a file that is still arriving reads as "Uploading… 40%" in the column that
+   * otherwise says where it lives.
+   */
+  const uploadsHere = useMemo(() => {
+    const byPath = new Map<string, number>();
+    for (const t of transfers) {
+      if (t.direction !== 'up' || t.status !== 'active' || !t.destinationPath) continue;
+      if (dirnameOf(t.destinationPath) !== currentPath) continue;
+      byPath.set(t.destinationPath, t.bytes ? Math.round((t.transferred / t.bytes) * 100) : 0);
+    }
+    return byPath;
+  }, [transfers, currentPath]);
   const contentCleanupRef = useRef<Array<() => void>>([]);
 
   const cancelSearch = useCallback(() => {
@@ -95,10 +173,13 @@ export const FullExplorer: React.FC = () => {
     setIsLoading(true);
     setSelectedEntries(new Set());
     try {
-      const result = await window.electron.explorer.listDirectory(dirPath);
+      const result = await fileSource.listDirectory(dirPath);
       setCurrentPath(result.path);
       setEntries(result.entries);
       setIsRoot(result.isRoot);
+      // A drive folder can fail for reasons the user can act on — signed out,
+      // server unreachable — so the message is shown rather than logged.
+      if (result.error) setNotice({ severity: 'error', message: result.error });
     } catch {
       setEntries([]);
     }
@@ -142,7 +223,10 @@ export const FullExplorer: React.FC = () => {
     setSearchQuery(query);
     setSearchCaseSensitive(opts.caseSensitive);
 
-    if (!query.trim() || !currentPath || !window.electron?.explorer) {
+    // ripgrep runs on this machine. There is no drive-side search yet (#6), so
+    // searching a drive folder would search a local path that does not exist
+    // and report "no results" — an answer, and a wrong one.
+    if (!query.trim() || !currentPath || !fileSource.supportsSearch(currentPath) || !window.electron?.explorer) {
       setSearchResults(null);
       setIsSearching(false);
       return;
@@ -244,6 +328,7 @@ export const FullExplorer: React.FC = () => {
     setSelectedEntries,
     loadEntries: loadDirectory,
     searchInputRef,
+    onError: (message) => setNotice({ severity: 'error', message }),
   });
 
   // Lasso (rubber-band) selection
@@ -309,9 +394,14 @@ export const FullExplorer: React.FC = () => {
 
   const handleGoUp = () => {
     if (isRoot || !currentPath) return;
-    const parts = currentPath.split(SEP).filter(Boolean);
+    if (isDrivePath(currentPath)) {
+      // One segment up, or back to the root listing where both sources are.
+      loadDirectory(drivePathSegments(currentPath).length <= 1 ? '' : dirnameOf(currentPath));
+      return;
+    }
+    const parts = currentPath.split(LOCAL_SEP).filter(Boolean);
     parts.pop();
-    const parent = parts.length === 0 ? '' : (OPERATING_SYSTEM === 'win32' ? '' : '/') + parts.join(SEP) + (OPERATING_SYSTEM === 'win32' ? SEP : '');
+    const parent = parts.length === 0 ? '' : (OPERATING_SYSTEM === 'win32' ? '' : '/') + parts.join(LOCAL_SEP) + (OPERATING_SYSTEM === 'win32' ? LOCAL_SEP : '');
     loadDirectory(parent || '');
   };
 
@@ -319,14 +409,76 @@ export const FullExplorer: React.FC = () => {
     loadDirectory('');
   };
 
+  /** Pick local files and put them on the drive, into the folder on screen. */
+  const handleUpload = useCallback(async (destination: string) => {
+    const picked = await window.electron.drive.pickFiles();
+    if (picked.length === 0) return;
+    for (const file of picked) {
+      await upload(file.path, destination, { name: file.name, size: file.size });
+    }
+    if (destination === currentPath) loadDirectory(currentPath);
+  }, [upload, currentPath, loadDirectory]);
+
+  /**
+   * Send the selected local files to the drive.
+   *
+   * From a local folder there is no obvious destination, so they land at the top
+   * of the drive — the one place that always exists — and the tray says where
+   * they went.
+   */
+  const handleUploadSelectionToDrive = useCallback(async () => {
+    const chosen = entries.filter((e) => selectedEntries.has(e.fullPath) && e.type === 'file');
+    if (chosen.length === 0) {
+      await handleUpload(DRIVE_ROOT);
+      return;
+    }
+    for (const entry of chosen) {
+      await upload(entry.fullPath, DRIVE_ROOT, { name: entry.name, size: entry.size });
+    }
+  }, [entries, selectedEntries, upload, handleUpload]);
+
+  const handleDownload = useCallback(async (paths: string[]) => {
+    for (const path of paths) {
+      const entry = entries.find((e) => e.fullPath === path);
+      await download(path, { size: entry?.size });
+    }
+  }, [entries, download]);
+
+  /** Files dragged from the desktop onto a drive folder. */
+  const handleDrop = useCallback(async (event: React.DragEvent) => {
+    setIsDropTarget(false);
+    if (!onDrive) return;
+    event.preventDefault();
+    // A dropped File carries no usable path of its own any more — Electron 32
+    // removed `File.path` — so preload resolves it through `webUtils`. Without
+    // a path there is nothing for the main process to stream.
+    const dropped = Array.from(event.dataTransfer.files);
+    const resolved = dropped
+      .map((file) => ({ file, path: window.electron.drive.pathForFile(file) }))
+      .filter((entry) => !!entry.path);
+    if (resolved.length === 0) return;
+    for (const { file, path } of resolved) {
+      await upload(path, currentPath, { name: file.name, size: file.size });
+    }
+    loadDirectory(currentPath);
+  }, [onDrive, upload, currentPath, loadDirectory]);
+
   // Build breadcrumb segments from currentPath
   const breadcrumbSegments: { label: string; path: string }[] = [];
-  if (currentPath) {
-    const sep = SEP;
-    const parts = currentPath.split(sep).filter(Boolean);
+  if (isDrivePath(currentPath)) {
+    // The drive's own crumb comes first, so its trail reads the way the
+    // sidebar does: Kurisu Drive › Reports › weekly.
+    breadcrumbSegments.push({ label: DRIVE_ROOT_LABEL, path: DRIVE_ROOT });
+    let accumulated = DRIVE_ROOT;
+    for (const part of drivePathSegments(currentPath)) {
+      accumulated = accumulated === DRIVE_ROOT ? DRIVE_ROOT + part : `${accumulated}/${part}`;
+      breadcrumbSegments.push({ label: part, path: accumulated });
+    }
+  } else if (currentPath) {
+    const parts = currentPath.split(LOCAL_SEP).filter(Boolean);
     let accumulated = currentPath.startsWith('/') ? '/' : '';
     for (const part of parts) {
-      accumulated += (accumulated && !accumulated.endsWith(sep) ? sep : '') + part;
+      accumulated += (accumulated && !accumulated.endsWith(LOCAL_SEP) ? LOCAL_SEP : '') + part;
       breadcrumbSegments.push({ label: part, path: accumulated });
     }
   }
@@ -347,7 +499,36 @@ export const FullExplorer: React.FC = () => {
   const hasResults = nameOnlyMatches.length > 0 || totalContentMatches > 0;
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+    <Box sx={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+      {/* Sources: this computer and Kurisu Drive, one tree. */}
+      <FileTreeSidebar rootPath="" showQuota />
+
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          flex: 1,
+          minWidth: 0,
+          height: '100%',
+          overflow: 'hidden',
+          position: 'relative',
+          ...(isDropTarget && {
+            outline: '2px dashed',
+            outlineColor: 'info.main',
+            outlineOffset: '-4px',
+          }),
+        }}
+        onDragOver={(e) => {
+          if (!onDrive) return;
+          e.preventDefault();
+          setIsDropTarget(true);
+        }}
+        onDragLeave={(e) => {
+          if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+          setIsDropTarget(false);
+        }}
+        onDrop={handleDrop}
+      >
       {/* Toolbar */}
       <Box
         sx={{
@@ -386,7 +567,7 @@ export const FullExplorer: React.FC = () => {
                 const input = pathInput.trim();
                 if (input) {
                   // Try listing as directory first; if it fails, try opening as file
-                  const result = await window.electron.explorer.listDirectory(input);
+                  const result = await fileSource.listDirectory(input);
                   if (result.entries.length > 0 || !result.error) {
                     loadDirectory(input);
                   } else {
@@ -440,6 +621,54 @@ export const FullExplorer: React.FC = () => {
             onSearch={handleSearch}
             searching={isSearching}
           />
+        </Box>
+
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
+          {onDrive ? (
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<CloudUploadIcon fontSize="small" />}
+              onClick={() => handleUpload(currentPath)}
+              sx={{ textTransform: 'none', fontSize: '0.78rem', py: 0.25 }}
+            >
+              Upload
+            </Button>
+          ) : (
+            currentPath && (
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<CloudUploadIcon fontSize="small" />}
+                onClick={handleUploadSelectionToDrive}
+                sx={{ textTransform: 'none', fontSize: '0.78rem', py: 0.25 }}
+              >
+                Upload to Drive
+              </Button>
+            )
+          )}
+          {onDrive && selectedFiles.length > 0 && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<DownloadIcon fontSize="small" />}
+              onClick={() => handleDownload(selectedFiles.map((e) => e.fullPath))}
+              sx={{ textTransform: 'none', fontSize: '0.78rem', py: 0.25 }}
+            >
+              Download
+            </Button>
+          )}
+          {currentPath && (
+            <Tooltip title="New folder">
+              <IconButton
+                size="small"
+                onClick={() => { setNewItemType('folder'); setNewItemName(''); }}
+                sx={{ color: 'text.secondary' }}
+              >
+                <NewFolderIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
         </Box>
 
         <Box sx={{ display: 'flex', gap: 0.25 }}>
@@ -694,6 +923,7 @@ export const FullExplorer: React.FC = () => {
                     <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', color: 'text.secondary', py: 0.75 }}>Name</TableCell>
                     <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', color: 'text.secondary', py: 0.75, width: 100 }} align="right">Size</TableCell>
                     <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', color: 'text.secondary', py: 0.75, width: 180 }}>Modified</TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', color: 'text.secondary', py: 0.75, width: 190 }}>Where it lives</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -732,12 +962,17 @@ export const FullExplorer: React.FC = () => {
                           {formatDate(entry.modified)}
                         </Typography>
                       </TableCell>
+                      <TableCell>
+                        <WhereItLives path={entry.fullPath} uploadPercent={uploadsHere.get(entry.fullPath)} />
+                      </TableCell>
                     </TableRow>
                   ))}
                   {entries.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={3} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
-                        Empty directory
+                      <TableCell colSpan={4} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
+                        {onDrive
+                          ? 'This folder is empty. Upload from the toolbar, drop files here, or ask Kurisu to put something in it.'
+                          : 'Empty directory'}
                       </TableCell>
                     </TableRow>
                   )}
@@ -787,6 +1022,12 @@ export const FullExplorer: React.FC = () => {
           }
           setSelectedEntries(new Set());
         }}
+        onDownload={handleDownload}
+        onUploadToDrive={async (chosen) => {
+          for (const entry of chosen) {
+            await upload(entry.fullPath, DRIVE_ROOT, { name: entry.name, size: entry.size });
+          }
+        }}
         onRename={(path, name) => {
           setRenaming({ path, name });
           setRenameValue(name);
@@ -812,6 +1053,23 @@ export const FullExplorer: React.FC = () => {
         onCreateFolder={handleCreateFolder}
         onNewItemCancel={() => setNewItemType(null)}
       />
+
+      <Snackbar
+        open={!!notice}
+        autoHideDuration={notice?.severity === 'error' ? 6000 : 3000}
+        onClose={() => setNotice(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setNotice(null)}
+          severity={notice?.severity ?? 'info'}
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {notice?.message}
+        </Alert>
+      </Snackbar>
+      </Box>
     </Box>
   );
 };

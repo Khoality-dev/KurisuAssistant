@@ -372,3 +372,247 @@ describe('mock backend: handshake', () => {
     expect(first.type).toBe('connected');
   });
 });
+
+describe('Kurisu Drive', () => {
+  /**
+   * The mock is the only description of the drive the Playwright suite sees, so
+   * a wrong shape here does not fail loudly — it makes the specs agree with a
+   * server that does not exist. These pin the shapes `fileSource` reads.
+   *
+   * Ownership is deliberately not tested here: this mock authenticates nobody.
+   * Who may read whose files is settled in the backend's own `db` suite.
+   */
+
+  let drive: MockBackend;
+
+  beforeEach(async () => {
+    await mock.stop();
+    drive = new MockBackend({
+      drive: [
+        { path: '/Reports/Q3-revenue-notes.md', content: '# Q3 revenue notes' },
+        { path: '/Reports/weekly', isDir: true },
+        { path: '/Notes/reading-list.md', content: '# Reading list' },
+      ],
+    });
+    await drive.start();
+    mock = drive;
+  });
+
+  const driveGet = async (path: string) => {
+    const res = await fetch(`${drive.url}${path}`);
+    return { status: res.status, body: await res.json() };
+  };
+
+  /** Raw body, destination in the query string — the real upload's shape. */
+  const upload = (
+    name: string,
+    content: string | Uint8Array,
+    options: { parentId?: number; overwrite?: boolean } = {},
+  ) => {
+    const params = new URLSearchParams({ name });
+    if (options.parentId !== undefined) params.set('parent_id', String(options.parentId));
+    if (options.overwrite) params.set('overwrite', 'true');
+    return fetch(`${drive.url}/drive/files?${params}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+  };
+
+  it('lists the top of the drive, folders first', async () => {
+    const { status, body } = await driveGet('/drive/nodes');
+    expect(status).toBe(200);
+    expect(body.map((n: any) => n.name)).toEqual(['Notes', 'Reports']);
+    expect(body.every((n: any) => n.is_dir)).toBe(true);
+  });
+
+  it('lists a folder by its parent id', async () => {
+    const roots = (await driveGet('/drive/nodes')).body;
+    const reports = roots.find((n: any) => n.name === 'Reports');
+
+    const { body } = await driveGet(`/drive/nodes?parent_id=${reports.id}`);
+
+    expect(body.map((n: any) => n.name)).toEqual(['weekly', 'Q3-revenue-notes.md']);
+  });
+
+  it('resolves a path to the node it names', async () => {
+    const { status, body } = await driveGet('/drive/resolve?path=/Reports/Q3-revenue-notes.md');
+    expect(status).toBe(200);
+    expect(body.name).toBe('Q3-revenue-notes.md');
+    expect(body.is_dir).toBe(false);
+    expect(body.mime).toBe('text/markdown');
+  });
+
+  it('404s a path that is not there, rather than answering an empty object', async () => {
+    // The catch-all below the drive routes returns `{}` with a 200. A missing
+    // route would look like an empty folder; this proves the route exists.
+    const { status } = await driveGet('/drive/resolve?path=/Nowhere');
+    expect(status).toBe(404);
+  });
+
+  it('serves a file back as an attachment', async () => {
+    const node = (await driveGet('/drive/resolve?path=/Notes/reading-list.md')).body;
+    const res = await fetch(`${drive.url}/drive/files/${node.id}/content`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-disposition')).toContain('attachment');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(await res.text()).toBe('# Reading list');
+  });
+
+  it('accepts a raw-body upload and lists it afterwards', async () => {
+    const res = await upload('greeting.txt', 'hello drive');
+
+    const node = await res.json();
+    expect(res.status).toBe(200);
+    expect(node.name).toBe('greeting.txt');
+    expect(node.size).toBe('hello drive'.length);
+    expect(drive.lastDriveUpload).toEqual({ name: 'greeting.txt', parent_id: null, bytes: 11 });
+    expect(drive.getDrivePaths()).toContain('/greeting.txt');
+  });
+
+  it('uploads a file with binary bytes intact', async () => {
+    const bytes = new Uint8Array([0, 1, 2, 255, 254, 0, 10, 13]);
+    await upload('raw.bin', bytes);
+
+    const node = (await driveGet('/drive/resolve?path=/raw.bin')).body;
+    const res = await fetch(`${drive.url}/drive/files/${node.id}/content`);
+
+    expect(Array.from(new Uint8Array(await res.arrayBuffer()))).toEqual(Array.from(bytes));
+  });
+
+  it('refuses a duplicate name and accepts an overwrite', async () => {
+    expect((await upload('twice.txt', 'first')).status).toBe(200);
+    expect((await upload('twice.txt', 'second')).status).toBe(409);
+    expect((await upload('twice.txt', 'second', { overwrite: true })).status).toBe(200);
+
+    const node = (await driveGet('/drive/resolve?path=/twice.txt')).body;
+    const res = await fetch(`${drive.url}/drive/files/${node.id}/content`);
+    expect(await res.text()).toBe('second');
+  });
+
+  it('refuses an upload that would overrun the quota', async () => {
+    await drive.stop();
+    drive = new MockBackend({ driveQuotaBytes: 8 });
+    await drive.start();
+    mock = drive;
+
+    expect((await upload('big.bin', 'far too many bytes')).status).toBe(507);
+  });
+
+  it('lets an overwrite reuse the bytes it is replacing', async () => {
+    // The backend subtracts what a replaced file releases before checking the
+    // quota. A mock that forgot to would answer 507 where the server answers
+    // 200 — and a spec written against it would be wrong about the server.
+    await drive.stop();
+    drive = new MockBackend({ driveQuotaBytes: 10 });
+    await drive.start();
+    mock = drive;
+
+    expect((await upload('exact.bin', '0123456789')).status).toBe(200);
+    expect((await upload('exact.bin', 'abcdefghij', { overwrite: true })).status).toBe(200);
+  });
+
+  it('decides a duplicate name before it decides the quota', async () => {
+    await drive.stop();
+    drive = new MockBackend({ driveQuotaBytes: 4 });
+    await drive.start();
+    mock = drive;
+
+    await upload('taken.txt', 'abcd');
+    // Over quota *and* a duplicate. The backend answers 409, because it settles
+    // the name before it ever reads the body.
+    expect((await upload('taken.txt', 'far too many bytes')).status).toBe(409);
+  });
+
+  it('refuses an upload into a parent that is not there', async () => {
+    expect((await upload('orphan.txt', 'x', { parentId: 9999 })).status).toBe(404);
+    expect(drive.getDrivePaths()).not.toContain('/orphan.txt');
+  });
+
+  it('refuses a name the backend would refuse, on upload as well as on mkdir', async () => {
+    for (const name of ['..', 'a/b', ' leading', 'trailing ', '']) {
+      expect((await upload(name, 'x')).status, name).toBe(400);
+    }
+  });
+
+  it('answers 400 when an id names the wrong kind of node', async () => {
+    const reports = (await driveGet('/drive/resolve?path=/Reports')).body;
+    const file = (await driveGet('/drive/resolve?path=/Reports/Q3-revenue-notes.md')).body;
+
+    // A folder is not a file...
+    expect((await fetch(`${drive.url}/drive/files/${reports.id}/content`)).status).toBe(400);
+    // ...and a file is not a folder.
+    expect((await driveGet(`/drive/nodes?parent_id=${file.id}`)).status).toBe(400);
+  });
+
+
+  it('creates a folder, and refuses a name that would look like a path', async () => {
+    const create = (name: string) =>
+      fetch(`${drive.url}/drive/folders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, parent_id: null }),
+      });
+
+    expect((await create('Receipts')).status).toBe(200);
+    expect((await create('Receipts')).status).toBe(409);
+    expect((await create('a/b')).status).toBe(400);
+    expect((await create('..')).status).toBe(400);
+  });
+
+  it('renames and moves', async () => {
+    const notes = (await driveGet('/drive/resolve?path=/Notes')).body;
+    const file = (await driveGet('/drive/resolve?path=/Reports/Q3-revenue-notes.md')).body;
+
+    const res = await fetch(`${drive.url}/drive/nodes/${file.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'q3.md', parent_id: notes.id }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(drive.getDrivePaths()).toContain('/Notes/q3.md');
+  });
+
+  it('refuses to move a folder into itself', async () => {
+    const reports = (await driveGet('/drive/resolve?path=/Reports')).body;
+    const weekly = (await driveGet('/drive/resolve?path=/Reports/weekly')).body;
+
+    const res = await fetch(`${drive.url}/drive/nodes/${reports.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parent_id: weekly.id }),
+    });
+
+    expect(res.status).toBe(409);
+  });
+
+  it('deletes a folder and everything under it', async () => {
+    const reports = (await driveGet('/drive/resolve?path=/Reports')).body;
+
+    const res = await fetch(`${drive.url}/drive/nodes/${reports.id}`, { method: 'DELETE' });
+
+    expect(res.status).toBe(200);
+    expect(drive.getDrivePaths()).toEqual(['/Notes', '/Notes/reading-list.md']);
+  });
+
+  it('writes a file in place, which is what the editor Save does', async () => {
+    const node = (await driveGet('/drive/resolve?path=/Notes/reading-list.md')).body;
+
+    await fetch(`${drive.url}/drive/files/${node.id}/content`, {
+      method: 'PUT',
+      body: '# Rewritten',
+    });
+
+    const res = await fetch(`${drive.url}/drive/files/${node.id}/content`);
+    expect(await res.text()).toBe('# Rewritten');
+  });
+
+  it('reports usage, counting files and not folders', async () => {
+    const { body } = await driveGet('/drive/usage');
+    expect(body.file_count).toBe(2);
+    expect(body.used_bytes).toBe('# Q3 revenue notes'.length + '# Reading list'.length);
+    expect(body.quota_bytes).toBeGreaterThan(0);
+  });
+});

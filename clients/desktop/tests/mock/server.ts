@@ -124,8 +124,22 @@ export interface MockTool {
   builtin?: boolean;
 }
 
+/**
+ * One entry in the mock's Kurisu Drive, given as a path.
+ *
+ * Paths rather than parent ids, because a spec wants to say "there is a
+ * /Reports/Q3.md" without inventing a tree first; the mock builds the folders.
+ */
+export interface MockDriveEntry {
+  path: string;
+  content?: string;
+  isDir?: boolean;
+}
+
 export interface MockBackendOptions {
   personas?: MockPersona[];
+  drive?: MockDriveEntry[];
+  driveQuotaBytes?: number;
   assistant?: MockAssistant;
   subAgents?: MockSubAgent[];
   stream?: StreamScript;
@@ -200,6 +214,17 @@ export class MockBackend {
   private wireProtocol: number = WIRE_PROTOCOL;
   /** Endpoints answering 502 as if the service behind them were down (#151). */
   private unreachable: Set<'/tts/models' | '/models'> = new Set();
+  /** The mock's drive: flat rows with parent links, as the real table is. */
+  private driveNodes: Array<{
+    id: number; parent_id: number | null; name: string; is_dir: boolean;
+    size: number; mime: string | null; checksum: string | null;
+    created_at: string; updated_at: string; content: Buffer;
+  }> = [];
+  private nextDriveId = 1;
+  private driveQuotaBytes = 15 * 1024 * 1024 * 1024;
+  /** The most recent upload, so a spec can assert what was sent. */
+  public lastDriveUpload: { name: string; parent_id: number | null; bytes: number } | null = null;
+
   public lastChatRequest: any = null;
   public lastMcpServerCreate: any = null;
   /** Body of the most recent `PATCH /conversations/{id}`, with the id it hit. */
@@ -271,6 +296,9 @@ export class MockBackend {
       });
       this.nextMcpServerId = Math.max(this.nextMcpServerId, (s.id ?? 0) + 1);
     }
+
+    if (opts.driveQuotaBytes !== undefined) this.driveQuotaBytes = opts.driveQuotaBytes;
+    for (const entry of opts.drive ?? []) this.seedDriveEntry(entry);
 
     this.httpServer = http.createServer((req, res) => this.handleHttp(req, res));
     this.wss = new WebSocketServer({ noServer: true });
@@ -933,6 +961,171 @@ export class MockBackend {
       res.statusCode = 204;
       return res.end();
     }
+    // ── Kurisu Drive ───────────────────────────────────────────────────────
+    // Above the catch-all below on purpose: that returns `{}` with a 200, so an
+    // unimplemented drive route would look like an empty folder rather than a
+    // missing endpoint.
+    if (pathOnly === '/drive/usage' && method === 'GET') {
+      return this.json(res, {
+        used_bytes: this.driveUsedBytes(),
+        quota_bytes: this.driveQuotaBytes,
+        file_count: this.driveNodes.filter((n) => !n.is_dir).length,
+        max_file_bytes: 2 * 1024 * 1024 * 1024,
+      });
+    }
+
+    if (pathOnly === '/drive/resolve' && method === 'GET') {
+      const node = this.driveResolve(query.get('path') ?? '/');
+      if (!node) return this.error(res, 404, 'Not found');
+      return this.json(res, this.driveResponse(node));
+    }
+
+    if (pathOnly === '/drive/nodes' && method === 'GET') {
+      const raw = query.get('parent_id');
+      const parentId = raw === null ? null : Number(raw);
+      if (parentId !== null) {
+        const parent = this.driveNodes.find((n) => n.id === parentId);
+        if (!parent) return this.error(res, 404, 'Not found');
+        // 400, not 404: the backend distinguishes "no such node" from "that
+        // node is a file", and a client that treated them alike would pass here
+        // and misreport against the real server.
+        if (!parent.is_dir) return this.error(res, 400, 'That is a file, not a folder.');
+      }
+      const children = this.driveNodes
+        .filter((n) => n.parent_id === parentId)
+        .sort((a, b) => (a.is_dir === b.is_dir ? a.name.localeCompare(b.name) : a.is_dir ? -1 : 1));
+      return this.json(res, children.map((n) => this.driveResponse(n)));
+    }
+
+    const driveContentMatch = pathOnly.match(/^\/drive\/files\/(\d+)\/content$/);
+    if (driveContentMatch) {
+      const node = this.driveNodes.find((n) => n.id === Number(driveContentMatch[1]));
+      if (!node) return this.error(res, 404, 'Not found');
+      if (node.is_dir) return this.error(res, 400, 'That is a folder, not a file.');
+      if (method === 'GET') {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="${node.name}"`);
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Content-Length', String(node.content.length));
+        return res.end(node.content);
+      }
+      if (method === 'PUT') {
+        node.content = await this.readRaw(req);
+        node.size = node.content.length;
+        node.updated_at = new Date().toISOString();
+        return this.json(res, this.driveResponse(node));
+      }
+    }
+
+    const driveNodeMatch = pathOnly.match(/^\/drive\/nodes\/(\d+)$/);
+    if (driveNodeMatch) {
+      const id = Number(driveNodeMatch[1]);
+      const node = this.driveNodes.find((n) => n.id === id);
+      if (!node) return this.error(res, 404, 'Not found');
+      if (method === 'GET') return this.json(res, this.driveResponse(node));
+      if (method === 'PATCH') {
+        const body = await this.readJson(req);
+        if (body.name !== undefined) {
+          const nameError = this.driveNameError(body.name);
+          if (nameError) return this.error(res, 400, nameError);
+        }
+        const name = body.name ?? node.name;
+        const parentId = body.parent_id === undefined ? node.parent_id : body.parent_id;
+        const clash = this.driveChild(parentId, name);
+        if (clash && clash.id !== node.id) {
+          return this.error(res, 409, `'${name}' already exists here`);
+        }
+        if (parentId !== null && this.driveSubtreeIds(node.id).includes(parentId)) {
+          return this.error(res, 409, 'A folder cannot be moved into itself');
+        }
+        node.name = name;
+        node.parent_id = parentId;
+        node.updated_at = new Date().toISOString();
+        return this.json(res, this.driveResponse(node));
+      }
+      if (method === 'DELETE') {
+        const doomed = new Set(this.driveSubtreeIds(id));
+        this.driveNodes = this.driveNodes.filter((n) => !doomed.has(n.id));
+        return this.json(res, { deleted: true });
+      }
+    }
+
+    if (pathOnly === '/drive/folders' && method === 'POST') {
+      const body = await this.readJson(req);
+      const parentId = body.parent_id ?? null;
+      const nameError = this.driveNameError(body.name);
+      if (nameError) return this.error(res, 400, nameError);
+      if (parentId !== null && !this.driveNodes.some((n) => n.id === parentId && n.is_dir)) {
+        return this.error(res, 404, 'Not found');
+      }
+      if (this.driveChild(parentId, body.name)) {
+        return this.error(res, 409, `'${body.name}' already exists here`);
+      }
+      return this.json(res, this.driveResponse(this.makeDriveNode(parentId, body.name, true, Buffer.alloc(0))));
+    }
+
+    if (pathOnly === '/drive/files' && method === 'POST') {
+      // Raw body, destination in the query string — not multipart. A route
+      // declaring an UploadFile makes FastAPI parse and spool the whole body
+      // before it resolves dependencies, i.e. before it has authenticated the
+      // caller or checked the size ceiling and the quota.
+      const name = query.get('name') ?? '';
+      const rawParent = query.get('parent_id');
+      const parentId = rawParent === null ? null : Number(rawParent);
+      const overwrite = query.get('overwrite') === 'true';
+
+      const nameError = this.driveNameError(name);
+      if (nameError) {
+        await this.readRaw(req);
+        return this.error(res, 400, nameError);
+      }
+      // The backend refuses an unknown or non-folder parent before it writes
+      // anything; accepting one here would create an orphan the real server
+      // never would.
+      if (parentId !== null) {
+        const parent = this.driveNodes.find((n) => n.id === parentId);
+        if (!parent) {
+          await this.readRaw(req);
+          return this.error(res, 404, 'Not found');
+        }
+        if (!parent.is_dir) {
+          await this.readRaw(req);
+          return this.error(res, 400, 'That is a file, not a folder.');
+        }
+      }
+
+      const existing = this.driveChild(parentId, name);
+      // Order matters, and it is the backend's: the name clash is decided
+      // before the quota, so a duplicate is 409 rather than 507.
+      if (existing && !overwrite) {
+        await this.readRaw(req);
+        return this.error(res, 409, `'${name}' already exists here`);
+      }
+      if (existing && existing.is_dir) {
+        await this.readRaw(req);
+        return this.error(res, 409, 'A folder of that name is already here.');
+      }
+
+      const content = await this.readRaw(req);
+      // Replacing a file releases its bytes, so they are not spent twice —
+      // without this an overwrite of a file that fills the quota is refused
+      // where the backend accepts it.
+      const reclaimed = existing ? existing.size : 0;
+      if (this.driveUsedBytes() - reclaimed + content.length > this.driveQuotaBytes) {
+        return this.error(res, 507, 'Your drive is full. Remove something, or ask for more space.');
+      }
+      this.lastDriveUpload = { name, parent_id: parentId, bytes: content.length };
+
+      if (existing) {
+        existing.content = content;
+        existing.size = content.length;
+        existing.updated_at = new Date().toISOString();
+        return this.json(res, this.driveResponse(existing));
+      }
+      return this.json(res, this.driveResponse(this.makeDriveNode(parentId, name, false, content)));
+    }
+
     if (pathOnly === '/skills') return this.json(res, []);
     if (pathOnly === '/faces') return this.json(res, []);
     if (pathOnly === '/tts/backends') return this.json(res, { backends: [] });
@@ -946,6 +1139,130 @@ export class MockBackend {
 
     // Default: empty object, 200
     return this.json(res, {});
+  }
+
+  // ── Kurisu Drive ─────────────────────────────────────────────────────────
+  //
+  // A tree in memory, shaped like `drive_nodes`: rows with a parent link, and
+  // the bytes alongside. Ownership is not modelled — this mock authenticates
+  // nobody, so who-may-read-what is tested against the real backend's `db`
+  // suite, not here.
+
+  /**
+   * The backend's `drive_storage.validate_name`, mirrored.
+   *
+   * The standing rule is that when the mock and the backend disagree the
+   * backend wins — so a name the server would refuse with a 400 has to be
+   * refused here too, or a spec passes against a server that would not have
+   * accepted it.
+   */
+  private driveNameError(name: unknown): string | null {
+    if (typeof name !== 'string' || name.trim() === '') return 'A name is required.';
+    if (name.trim() !== name) return 'A name cannot start or end with a space.';
+    if (Buffer.byteLength(name, 'utf8') > 255) return 'A name cannot be longer than 255 bytes.';
+    if (name.includes('/') || name.includes('\\')) {
+      return 'A name cannot contain a slash or a null byte.';
+    }
+    // eslint-disable-next-line no-control-regex
+    if (/[\x00-\x1f\x7f]/.test(name)) return 'A name cannot contain control characters.';
+    if (name === '.' || name === '..') return 'That name is reserved.';
+    return null;
+  }
+
+  private driveChild(parentId: number | null, name: string) {
+    return this.driveNodes.find((n) => n.parent_id === parentId && n.name === name);
+  }
+
+  private driveMime(name: string): string {
+    const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase();
+    const known: Record<string, string> = {
+      md: 'text/markdown', txt: 'text/plain', json: 'application/json',
+      png: 'image/png', jpg: 'image/jpeg', pdf: 'application/pdf', wav: 'audio/x-wav',
+    };
+    return known[ext] ?? 'application/octet-stream';
+  }
+
+  private makeDriveNode(parentId: number | null, name: string, isDir: boolean, content: Buffer) {
+    const now = new Date().toISOString();
+    const node = {
+      id: this.nextDriveId++,
+      parent_id: parentId,
+      name,
+      is_dir: isDir,
+      size: isDir ? 0 : content.length,
+      mime: isDir ? null : this.driveMime(name),
+      checksum: isDir ? null : `mock-${content.length}`,
+      created_at: now,
+      updated_at: now,
+      content,
+    };
+    this.driveNodes.push(node);
+    return node;
+  }
+
+  /** `/Reports/Q3.md` → the folders it implies, then the file. */
+  private seedDriveEntry(entry: MockDriveEntry) {
+    const segments = entry.path.split('/').filter(Boolean);
+    if (segments.length === 0) return;
+    const leaf = segments.pop()!;
+    let parentId: number | null = null;
+    for (const segment of segments) {
+      const existing = this.driveChild(parentId, segment);
+      parentId = existing ? existing.id : this.makeDriveNode(parentId, segment, true, Buffer.alloc(0)).id;
+    }
+    if (this.driveChild(parentId, leaf)) return;
+    this.makeDriveNode(parentId, leaf, entry.isDir ?? false, Buffer.from(entry.content ?? '', 'utf8'));
+  }
+
+  private driveResponse(node: (typeof this.driveNodes)[number]) {
+    return {
+      id: node.id,
+      parent_id: node.parent_id,
+      name: node.name,
+      is_dir: node.is_dir,
+      size: node.size,
+      mime: node.mime,
+      checksum: node.checksum,
+      created_at: node.created_at,
+      updated_at: node.updated_at,
+    };
+  }
+
+  private driveResolve(path: string) {
+    let node: (typeof this.driveNodes)[number] | undefined;
+    for (const segment of path.split('/').filter(Boolean)) {
+      node = this.driveChild(node ? node.id : null, segment);
+      if (!node) return undefined;
+    }
+    return node;
+  }
+
+  private driveSubtreeIds(id: number): number[] {
+    const found = [id];
+    let frontier = [id];
+    while (frontier.length) {
+      const next = this.driveNodes.filter((n) => n.parent_id !== null && frontier.includes(n.parent_id));
+      frontier = next.map((n) => n.id);
+      found.push(...frontier);
+    }
+    return found;
+  }
+
+  private driveUsedBytes(): number {
+    return this.driveNodes.filter((n) => !n.is_dir).reduce((sum, n) => sum + n.size, 0);
+  }
+
+  /** Seed or inspect the drive from a spec. */
+  public addDriveEntry(entry: MockDriveEntry): void {
+    this.seedDriveEntry(entry);
+  }
+
+  public getDrivePaths(): string[] {
+    const pathOf = (node: (typeof this.driveNodes)[number]): string => {
+      const parent = this.driveNodes.find((n) => n.id === node.parent_id);
+      return parent ? `${pathOf(parent)}/${node.name}` : `/${node.name}`;
+    };
+    return this.driveNodes.map(pathOf).sort();
   }
 
   private messageResponse(m: StoredMessage) {
@@ -990,6 +1307,12 @@ export class MockBackend {
     res.setHeader('Content-Type', 'application/json');
     res.statusCode = status;
     res.end(JSON.stringify({ detail }));
+  }
+
+  private async readRaw(req: http.IncomingMessage): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    return Buffer.concat(chunks);
   }
 
   private async readJson(req: http.IncomingMessage): Promise<any> {

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { Box } from '@mui/material';
 import { ActivityBar } from './ActivityBar';
+import { TransferTray } from '../explorer/TransferTray';
 import { ChatPanel } from './ChatPanel';
 import { ResizeHandle } from './ResizeHandle';
 import { useLayoutStore } from '../../store/layoutStore';
@@ -58,6 +59,10 @@ export const MainLayout: React.FC = () => {
       <Box ref={chatPanelRef} sx={{ width: chatPanelWidth, flexShrink: 0, overflow: 'hidden' }}>
         <ChatPanel />
       </Box>
+
+      {/* Transfers, over everything: a drive transfer outlives the page that
+          started it. */}
+      <TransferTray />
     </Box>
   );
 };

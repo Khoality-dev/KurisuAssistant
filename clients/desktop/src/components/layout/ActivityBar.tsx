@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, IconButton, Tooltip } from '@mui/material';
+import { Badge, Box, IconButton, Tooltip } from '@mui/material';
 import {
   FolderOutlined as FolderIcon,
   Folder as FolderFilledIcon,
@@ -8,11 +8,13 @@ import {
   SettingsOutlined as SettingsIcon,
   Settings as SettingsFilledIcon,
   Logout as LogoutIcon,
+  SwapVert as TransfersIcon,
 } from '@mui/icons-material';
 import { useLayoutStore, type ActivePage } from '../../store/layoutStore';
 import { useConnectionStatus } from '../../hooks/useConnectionStatus';
 import { wsManager } from '../../api/websocket';
 import { useAuthStore } from '../../store/authStore';
+import { useTransferStore } from '../../store/transferStore';
 
 interface NavItem {
   id: ActivePage;
@@ -31,6 +33,9 @@ export const ActivityBar: React.FC = () => {
   const { activePage, setActivePage } = useLayoutStore();
   const connectionStatus = useConnectionStatus();
   const { logout } = useAuthStore();
+  const toggleTray = useTransferStore((s) => s.toggleTray);
+  const transfers = useTransferStore((s) => s.transfers);
+  const activeTransfers = transfers.filter((t) => t.status === 'active').length;
 
   const statusColor = connectionStatus === 'connected' ? 'success.main'
     : connectionStatus === 'connecting' ? 'warning.main' : 'error.main';
@@ -89,6 +94,21 @@ export const ActivityBar: React.FC = () => {
 
       {/* Bottom utility icons */}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'center' }}>
+        {/* Transfers. Here rather than in the explorer's own chrome, because a
+            transfer keeps running while the user is in a chat or in Settings —
+            the badge is how they know. */}
+        <Tooltip title="Transfers" placement="right">
+          <IconButton
+            size="small"
+            onClick={() => toggleTray()}
+            sx={{ color: activeTransfers > 0 ? 'primary.main' : 'text.secondary' }}
+          >
+            <Badge badgeContent={activeTransfers} color="primary" overlap="circular">
+              <TransfersIcon fontSize="small" />
+            </Badge>
+          </IconButton>
+        </Tooltip>
+
         {/* Connection status */}
         <Tooltip title={`${connectionStatus === 'connected' ? 'Online' : connectionStatus === 'connecting' ? 'Connecting' : 'Offline'}`} placement="right">
           <IconButton

@@ -5,9 +5,13 @@ entirely, so any non-empty token value was served the admin account's private
 per-user images.
 
 `GET /images/u/{uuid}` accepts the token as a query parameter because an
-`<img src=...>` tag cannot send an Authorization header. That makes it the one
-place where the token arrives outside the usual dependency, so it needs its
-own cover.
+`<img src=...>` tag cannot send an Authorization header. That is where the token
+arrives outside the usual dependency, so it needs its own cover.
+
+The verification itself now lives in `core/deps.resolve_user_from_token`, shared
+with the drive's download route (#17) so the two cannot drift; these tests still
+drive it through `images._get_user_from_token`, which is what a caller uses, and
+patch the module that actually reaches the database.
 """
 
 from unittest.mock import MagicMock, patch
@@ -15,6 +19,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
+from kurisuassistant.core import deps
 from kurisuassistant.core.security import create_access_token, create_refresh_token
 from kurisuassistant.routers import images
 
@@ -48,15 +53,15 @@ class FakeUserRepository:
 
 @pytest.fixture
 def fake_db():
-    """Patch the router's DB service so the operation runs against a stub session."""
+    """Patch the DB service the resolver uses, so it runs against a stub session."""
     FakeUserRepository.looked_up = []
 
     class FakeDBService:
         async def execute(self, operation):
             return operation(MagicMock())
 
-    with patch.object(images, "get_db_service", lambda: FakeDBService()), \
-         patch.object(images, "UserRepository", FakeUserRepository):
+    with patch.object(deps, "get_db_service", lambda: FakeDBService()), \
+         patch.object(deps, "UserRepository", FakeUserRepository):
         yield
 
 

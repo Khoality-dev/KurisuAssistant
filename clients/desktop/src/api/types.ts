@@ -439,3 +439,25 @@ export interface MediaTrack {
   thumbnail: string | null;
   artist: string | null;
 }
+
+
+// Kurisu Drive — account-scoped storage on the server (#17)
+
+export interface DriveNode {
+  id: number;
+  parent_id: number | null;
+  name: string;
+  is_dir: boolean;
+  size: number;
+  mime: string | null;
+  checksum: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface DriveUsage {
+  used_bytes: number;
+  quota_bytes: number;
+  file_count: number;
+  max_file_bytes: number;
+}

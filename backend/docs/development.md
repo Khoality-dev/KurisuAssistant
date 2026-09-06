@@ -167,6 +167,8 @@ Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `G
 | `DB_CONNECT_TIMEOUT_SECONDS`, `DB_STATEMENT_TIMEOUT_SECONDS` | `5`, `30` | libpq ceilings on the engine: TCP connect, and any one statement (`0` disables). Alembic builds its own engine and is not subject to them (#153) |
 | `DB_OPERATION_TIMEOUT_SECONDS` | `60` | How long a request waits for the single database thread before answering 503 (#153) |
 | `VISION_DEVICE` | — | `cpu` or `cuda` for gesture detection; empty picks `cuda` when torch sees a GPU, else `cpu` (#152) |
+| `DRIVE_QUOTA_BYTES` | `16106127360` (15 GB) | How much Kurisu Drive one account may store. Registration is open by default, so an unmetered drive is a disk-exhaustion surface for the host; over it is `507` |
+| `DRIVE_MAX_FILE_BYTES` | `2147483648` (2 GB) | Largest single drive file, enforced as the bytes arrive rather than after; over it is `413`. Behind `--profile tls`, nginx's `client_max_body_size` for `/drive/` applies too and the smaller of the two wins |
 
 Read by Compose rather than by the server:
 
@@ -189,6 +191,9 @@ Back up these volumes/directories:
 
 - `postgres-data` — PostgreSQL database
 - `./data` — images, avatars, voices, character assets, JWT secret
+- `./data/drive` — Kurisu Drive, whatever users have stored. Its own subtree so it
+  can be archived on its own schedule; it is the only part of `data/` that grows
+  without bound. See [Operations](operations.md#back-up).
 
 ## Voice Files
 

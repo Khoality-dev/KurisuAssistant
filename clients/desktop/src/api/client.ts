@@ -38,6 +38,8 @@ import type {
   SkillUpdate,
   ModelsResponse,
   UnavailableProvider,
+  DriveNode,
+  DriveUsage,
 } from './types';
 
 /**
@@ -926,6 +928,146 @@ class APIClient {
     await this.client.delete(`/skills/${id}`, {
       headers: this.getHeaders(),
     });
+  }
+
+  // Kurisu Drive (#17)
+  //
+  // Everything is addressed by node id, not by path: the server builds no
+  // filesystem path out of anything sent here. `fileSource.ts` is what turns
+  // the explorer's `drive://…` strings into these ids.
+
+  async listDriveNodes(parentId: number | null): Promise<DriveNode[]> {
+    const response = await this.client.get<DriveNode[]>('/drive/nodes', {
+      headers: this.getHeaders(),
+      params: parentId === null ? {} : { parent_id: parentId },
+    });
+    return response.data;
+  }
+
+  async getDriveNode(id: number): Promise<DriveNode> {
+    const response = await this.client.get<DriveNode>(`/drive/nodes/${id}`, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /** Resolve `/Reports/Q3.md` to a node. Throws 404 when nothing is there. */
+  async resolveDrivePath(path: string): Promise<DriveNode> {
+    const response = await this.client.get<DriveNode>('/drive/resolve', {
+      headers: this.getHeaders(),
+      params: { path },
+    });
+    return response.data;
+  }
+
+  async createDriveFolder(parentId: number | null, name: string): Promise<DriveNode> {
+    const response = await this.client.post<DriveNode>(
+      '/drive/folders',
+      { parent_id: parentId, name },
+      { headers: this.getHeaders() },
+    );
+    return response.data;
+  }
+
+  /**
+   * Upload one file.
+   *
+   * The body is the raw bytes and the destination rides the query string —
+   * not multipart. A route declaring an `UploadFile` makes the server parse and
+   * spool the whole body before it has even authenticated the caller, so the
+   * size ceiling and the quota arrive too late to refuse anything.
+   *
+   * Anything large goes through `electron/driveTransfers.ts` instead, which
+   * streams from disk; this is for the small blobs the renderer already holds.
+   */
+  async uploadDriveFile(
+    parentId: number | null,
+    name: string,
+    body: Blob,
+    options: { overwrite?: boolean; signal?: AbortSignal } = {},
+  ): Promise<DriveNode> {
+    const response = await this.client.post<DriveNode>('/drive/files', body, {
+      headers: { ...this.getHeaders(), 'Content-Type': 'application/octet-stream' },
+      params: {
+        name,
+        ...(parentId !== null ? { parent_id: parentId } : {}),
+        ...(options.overwrite ? { overwrite: true } : {}),
+      },
+      signal: options.signal,
+      timeout: 0,
+    });
+    return response.data;
+  }
+
+  /** Replace an existing file's bytes — what the editor's Save calls. */
+  async writeDriveFile(id: number, content: string): Promise<DriveNode> {
+    const response = await this.client.put<DriveNode>(
+      `/drive/files/${id}/content`,
+      content,
+      {
+        headers: { ...this.getHeaders(), 'Content-Type': 'application/octet-stream' },
+        timeout: 0,
+      },
+    );
+    return response.data;
+  }
+
+  /**
+   * The first `bytes` of a drive file.
+   *
+   * A `Range` request, which the drive answers with a 206 — that is what makes
+   * "is this text?" answerable without downloading the whole file. A server
+   * that ignored the range would return everything, which is still correct,
+   * only wasteful.
+   */
+  async readDriveFileHead(id: number, bytes: number): Promise<ArrayBuffer> {
+    const response = await this.client.get<ArrayBuffer>(`/drive/files/${id}/content`, {
+      headers: { ...this.getHeaders(), Range: `bytes=0-${bytes - 1}` },
+      responseType: 'arraybuffer',
+    });
+    return response.data;
+  }
+
+  async readDriveFile(id: number): Promise<Blob> {
+    const response = await this.client.get<Blob>(`/drive/files/${id}/content`, {
+      headers: this.getHeaders(),
+      responseType: 'blob',
+      timeout: 0,
+    });
+    return response.data;
+  }
+
+  async updateDriveNode(
+    id: number,
+    changes: { name?: string; parent_id?: number | null },
+  ): Promise<DriveNode> {
+    const response = await this.client.patch<DriveNode>(`/drive/nodes/${id}`, changes, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async deleteDriveNode(id: number): Promise<void> {
+    await this.client.delete(`/drive/nodes/${id}`, { headers: this.getHeaders() });
+  }
+
+  async getDriveUsage(): Promise<DriveUsage> {
+    const response = await this.client.get<DriveUsage>('/drive/usage', {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /**
+   * A URL the Electron main process can stream from.
+   *
+   * The token rides the query string because the download runs outside the
+   * renderer and cannot set an Authorization header — the same reason the
+   * images routes accept one.
+   */
+  driveDownloadUrl(id: number): string {
+    const token = this.token ?? '';
+    return `${config.apiBaseUrl}/drive/files/${id}/content?token=${encodeURIComponent(token)}`;
   }
 }
 

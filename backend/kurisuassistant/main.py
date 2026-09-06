@@ -37,6 +37,7 @@ from kurisuassistant.routers import (
     vision_router,
     skills_router,
     version_router,
+    drive_router,
 )
 from kurisuassistant.version import WIRE_PROTOCOL, __version__
 
@@ -96,6 +97,7 @@ app = FastAPI(
         {"name": "tts", "description": "Text-to-speech synthesis"},
         {"name": "character", "description": "Character animation assets for video call"},
         {"name": "vision", "description": "Face recognition and gesture detection"},
+        {"name": "drive", "description": "Kurisu Drive: account-scoped file storage"},
     ]
 )
 
@@ -174,6 +176,7 @@ app.include_router(character_router)
 app.include_router(vision_router)
 app.include_router(mcp_router)
 app.include_router(skills_router)
+app.include_router(drive_router)
 app.include_router(ws_router)
 
 
