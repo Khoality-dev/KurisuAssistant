@@ -305,8 +305,12 @@ export class MockBackend {
     });
   }
 
-  async start(port = 0): Promise<number> {
-    await new Promise<void>((resolve) => this.httpServer.listen(port, '127.0.0.1', resolve));
+  /**
+   * Listen on `port` (0 = any free port). Loopback only by default; the CLI in
+   * `cli.ts` passes `0.0.0.0` so an Android emulator can reach it at 10.0.2.2.
+   */
+  async start(port = 0, host = '127.0.0.1'): Promise<number> {
+    await new Promise<void>((resolve) => this.httpServer.listen(port, host, resolve));
     this._port = (this.httpServer.address() as AddressInfo).port;
     return this._port;
   }

@@ -19,7 +19,34 @@ E2E tests live in `tests/` and run via Playwright's Electron support.
   - `firstRun.spec.ts` puts the mock in the state a brand-new account is in — `mock.setAssistantModel(null)` — and asserts the first message gets the `NoModelPrompt` and its way onto the Assistant screen rather than the red toast, that the refused text comes back to the composer, and that choosing a model lets the same message through (#149).
   - `mcpServer.spec.ts` drives the built-in MCP server over HTTP — token minted, anonymous refused, browser refused, SSE stream opens, nothing reachable off loopback. It talks to the app other than through the UI, and it earned that: the header heuristic in `mcpServerAuth.ts` passed every unit test while refusing every real client, because Node's `fetch` sends `sec-fetch-mode`.
   - `credentials.spec.ts` logs in and checks that no token reaches localStorage, then forks on `credentials.isSecure()`: with a keychain the session survives a reload and the stored file holds no readable token; without one (a CI container has no secret service) nothing is written and the reload lands back on the login form.
-- Unit tests (vitest, `*.test.ts`) run with no Electron build: `tests/mock/server.test.ts` pins the mock's own shapes against the backend contract, `tests/appTools.test.ts` fails the build if an app tool is advertised without a handler, `tests/hostToolPolicy.test.ts` / `tests/mcpConsent.test.ts` / `tests/mcpServerAuth.test.ts` cover the three security decisions the main process makes — which paths a host tool may touch, which programs may be spawned, who may reach the built-in MCP server — `src/utils/storage.test.ts` pins the negative property that no token is ever written to localStorage, `src/store/conversationStore.test.ts` and `src/utils/commands.test.ts` cover the conversation store and the slash-command parser, `src/components/chat/ChatComposer.test.tsx` renders the composer (react-dom + `act`, no testing-library) and pins that a draft survives its scope resolving and is dropped when leaving a conversation, and `src/utils/wireProtocol.test.ts` pins the update screen's copy. `vitest.config.ts` includes `tests/**/*.test.ts` alongside `src/**`; the `.spec.ts` / `.test.ts` split is what keeps the two runners apart.
+- Unit tests (vitest, `*.test.ts`) run with no Electron build: `tests/mock/server.test.ts` pins the mock's own shapes against the backend contract, `tests/mock/cli.test.ts` pins the standalone entry's argument parsing and starts every scenario once, `tests/appTools.test.ts` fails the build if an app tool is advertised without a handler, `tests/hostToolPolicy.test.ts` / `tests/mcpConsent.test.ts` / `tests/mcpServerAuth.test.ts` cover the three security decisions the main process makes — which paths a host tool may touch, which programs may be spawned, who may reach the built-in MCP server — `src/utils/storage.test.ts` pins the negative property that no token is ever written to localStorage, `src/store/conversationStore.test.ts` and `src/utils/commands.test.ts` cover the conversation store and the slash-command parser, `src/components/chat/ChatComposer.test.tsx` renders the composer (react-dom + `act`, no testing-library) and pins that a draft survives its scope resolving and is dropped when leaving a conversation, and `src/utils/wireProtocol.test.ts` pins the update screen's copy. `vitest.config.ts` includes `tests/**/*.test.ts` alongside `src/**`; the `.spec.ts` / `.test.ts` split is what keeps the two runners apart.
+## The standalone mock
+
+`npm run mock:backend -- --port 15597 [--host 0.0.0.0] [--scenario <name>]` starts the same
+`MockBackend` on its own and keeps it running until Ctrl-C (#126). `tests/mock/cli.ts` is the
+entry; `package.json` bundles it with esbuild into the gitignored `dist-mock/` first, so a checkout
+needs `npm ci` and nothing else. Any username and password sign in. `--host 0.0.0.0` is for an
+Android emulator, which reaches the host at `http://10.0.2.2:<port>`, or for a phone on the LAN.
+`MOCK_DEBUG=1` logs every socket event.
+
+Scenarios (`tests/mock/scenarios.ts`, `--list` prints them) are the states the specs script by
+hand, so what you see driving a client is what the suite asserts on — keep them in step with the
+specs:
+
+| Scenario | State |
+| --- | --- |
+| `default` | Two personas (Kurisu answers, Amadeus available), a model chosen, a short streamed reply |
+| `tool-call` | Assistant text interrupted by a `lookup` tool result, then the answer |
+| `sub-agent` | A step delegated to a sub-agent mid-answer — the `sub-agent` tag and duration |
+| `handoff` | Kurisu starts the answer, Amadeus finishes it: two bubbles, two speakers |
+| `thinking` | A thinking chunk before the answer (the collapsible "Thinking" block) |
+| `slow` | One chunk every 400 ms for a while — long enough to press Stop |
+| `no-model` | A fresh account with no model chosen: the first message is refused with `NO_MODEL_SELECTED` |
+
+The mock has no tool-approval flow: nothing in the client is driven by `tool_approval_request` from
+here yet, and adding it means adding it to the mock first.
+
+**Client tests — unit, e2e, instrumented, screenshot capture — run against the mock backend, never against a deployed one. The mock mirrors `backend/kurisuassistant/`; when the two disagree, the backend wins and the mock is fixed in the same PR as the protocol change.**
 
 Commands: `npm test` (vitest, no build needed), and `npm run test:e2e:build` (vite build → `dist/` + `dist-electron/`) then `npm run test:e2e` (or `test:e2e:headed` for debugging).
 

@@ -76,6 +76,9 @@ The capture lives in [`tests/screenshots/capture.screens.ts`](../tests/screensho
 It is deliberately **not** a `*.spec.ts`, and it has its own Playwright config, so
 `npm run test:e2e` never picks it up.
 
-If you want the real Electron window instead — including the OS chrome — install `xvfb` and run the
-e2e path the way CI does (`xvfb-run -a`, see `.github/workflows/desktop-test.yml`). Electron cannot
-run without a display.
+If you want the real Electron window instead — including the OS chrome — start the mock on its own,
+`npm run mock:backend -- --scenario tool-call` (see [testing.md](testing.md#the-standalone-mock) for
+the scenarios), point the app's Server URL at it and sign in with anything. On a headless machine
+install `xvfb` and run Electron under `xvfb-run -a`, as `.github/workflows/desktop-test.yml` does;
+Electron cannot run without a display. Either way the backend behind a screenshot is the mock, never
+a deployed one.

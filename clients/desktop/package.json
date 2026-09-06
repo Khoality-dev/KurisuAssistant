@@ -16,7 +16,9 @@
     "test:e2e": "playwright test",
     "test:e2e:docker": "docker run --rm --init --user \"$(id -u):$(id -g)\" -e HOME=/tmp -e CI=1 --shm-size=1g -v \"$PWD\":/w -w /w mcr.microsoft.com/playwright:v1.59.1-noble bash -lc \"xvfb-run -a ./node_modules/.bin/playwright test\"",
     "test:e2e:dev": "vite build --mode development && playwright test",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "mock:backend:build": "esbuild tests/mock/cli.ts --bundle --platform=node --format=cjs --external:bufferutil --external:utf-8-validate --log-level=warning --outfile=dist-mock/cli.js",
+    "mock:backend": "npm run -s mock:backend:build && node dist-mock/cli.js"
   },
   "keywords": [
     "electron",
@@ -59,6 +61,7 @@
     "concurrently": "^8.2.2",
     "electron": "^28.2.0",
     "electron-builder": "^24.9.1",
+    "esbuild": "^0.21.5",
     "happy-dom": "^20.9.0",
     "jsdom": "^29.1.0",
     "typescript": "^5.3.3",

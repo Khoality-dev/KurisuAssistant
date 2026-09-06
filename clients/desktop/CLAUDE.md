@@ -14,6 +14,7 @@ React 18, Electron 28, MUI v5, Framer Motion, Zustand, Axios, Vite, react-markdo
 - Build: `npm run electron:build` (tsc + Vite + electron-builder → `release/`)
 - Unit tests: `npm test` (vitest, no build needed)
 - E2E tests: `npm run test:e2e:build` then `npm run test:e2e` — and `npm run test:e2e:docker` on a machine with no display. See [docs/testing.md](docs/testing.md).
+- Mock backend, standalone: `npm run mock:backend -- --port 15597 [--host 0.0.0.0] [--scenario <name>]` (`--list` names the scenarios). The same mock the e2e fixtures start per test, kept running for manual testing and for the Android instrumented suite (#126). See [docs/testing.md](docs/testing.md#the-standalone-mock).
 
 ## Documentation Index
 
@@ -39,6 +40,7 @@ Six things that are not obvious from the code and have each cost a debugging ses
 
 - **The protocol is retyped by hand.** `src/constants.ts` holds `WIRE_PROTOCOL`; the event names are string literals in `src/api/websocket.ts`, matching a Python enum in the backend and Kotlin literals in Android. Nothing checks that the three agree (#93). A backend event change is not done until this client and the docs move with it.
 - **`allowed_paths` is a boundary, not a preference.** A host tool aimed outside it is refused, not prompted — see [docs/security.md](docs/security.md).
+- **Client tests run against the mock, never a deployed backend** — unit, e2e, instrumented, screenshot capture. `tests/mock/server.ts` mirrors `backend/kurisuassistant/`; when they disagree the backend wins and the mock is fixed in the same PR as the protocol change. `npm run mock:backend` starts it on its own (#126).
 - **The e2e suite cannot run on a headless host**, and it is the only one that catches WebSocket reconnect regressions. `npm run test:e2e:docker` needs nothing but Docker.
 - **One WebSocket error code is not an error.** `NO_MODEL_SELECTED` means the account has never had a model chosen — every new account, since provisioning cannot pick one — so it renders as `NoModelPrompt` above the composer with a button onto Settings → Assistant, and the refused message goes back into the composer, instead of the red toast the other codes get ([docs/chat.md](docs/chat.md), #149). **Android mirrors this**, with one difference that matters for copy: there, Assistant is a top-level drawer entry, not a Settings row, so neither client should spell out the other's path.
 - **The composer's scope resolves after login, and a draft must survive that.** `ChatComposer` is keyed on `personaId` and `conversationId`, both of which arrive asynchronously; it drops the draft only when *leaving* a concrete conversation, never on `null → id`. It used to clear on any change, which lost keystrokes and made Windows CI fail with a disabled Send right after `fill()` (#145, [docs/chat.md](docs/chat.md)). The e2e `send()` helpers deliberately stay naive.
