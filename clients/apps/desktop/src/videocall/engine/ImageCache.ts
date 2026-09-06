@@ -6,7 +6,7 @@
  * token attached and handed to the image as an object URL instead.
  */
 
-import { storage } from '../../utils/storage';
+import { storage } from '@kurisu/api';
 
 const cache = new Map<string, HTMLImageElement>();
 const objectUrls = new Set<string>();

@@ -33,7 +33,7 @@ import {
   Computer as ComputerIcon,
   Cloud as CloudIcon,
 } from '@mui/icons-material';
-import { apiClient } from '../../api/client';
+import { apiClient } from '@kurisu/api';
 import {
   PLAYWRIGHT_MCP_ARGS,
   PLAYWRIGHT_MCP_PACKAGE,
@@ -42,7 +42,7 @@ import {
   type Tool,
 } from '@kurisu/models';
 import type { McpServerInfo } from '@kurisu/platform';
-import { refreshClientMCPServers, getClientTools, getClientToolsByServer } from '../../services/mcpService';
+import { refreshClientMCPServers, getClientTools, getClientToolsByServer } from '@kurisu/state';
 
 // --- Local server detection ---
 

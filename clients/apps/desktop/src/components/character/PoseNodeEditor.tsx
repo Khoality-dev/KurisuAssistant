@@ -34,11 +34,11 @@ import {
   Face as FaceIcon,
 } from '@mui/icons-material';
 import { Slider, Divider } from '@mui/material';
-import { apiClient } from '../../api/client';
-import { config } from '../../config';
+import { apiClient } from '@kurisu/api';
+import { config } from '@kurisu/api';
 import type { PatchInfo, PoseConfig, AnimationSettings } from '@kurisu/models';
 import { PreviewCanvas, PREVIEW_W, PREVIEW_H } from './PreviewCanvas';
-import { useAuthedAssetUrl } from '../../utils/authedAsset';
+import { useAuthedAssetUrl } from '@kurisu/hooks';
 
 const STEPS = ['Base Image', 'Keyframes', 'Preview'];
 

@@ -17,7 +17,7 @@ import {
   Save as SaveIcon,
   Videocam as CharacterIcon,
 } from '@mui/icons-material';
-import { apiClient } from '../../api/client';
+import { apiClient } from '@kurisu/api';
 import type { Persona, PersonaCreate, PersonaUpdate } from '@kurisu/models';
 import { CharacterConfigDialog } from '../character/CharacterConfigDialog';
 

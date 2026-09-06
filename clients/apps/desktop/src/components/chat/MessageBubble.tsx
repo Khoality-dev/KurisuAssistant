@@ -9,15 +9,15 @@ import {
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
-import { apiClient } from '../../api/client';
-import { storage } from '../../utils/storage';
+import { apiClient } from '@kurisu/api';
+import { storage } from '@kurisu/api';
 
-import type { StreamingMessage } from '../../hooks/useStreamingChat';
+import type { StreamingMessage } from '@kurisu/hooks';
 import { MessageToolbar } from './MessageToolbar';
 import { RawDataDialog } from './RawDataDialog';
-import { useExplorerStore } from '../../store/explorerStore';
-import { useLayoutStore } from '../../store/layoutStore';
-import { usePersonaStore } from '../../store/personaStore';
+import { useExplorerStore } from '@kurisu/state';
+import { useLayoutStore } from '@kurisu/state';
+import { usePersonaStore } from '@kurisu/state';
 
 const MotionBox = motion(Box);
 

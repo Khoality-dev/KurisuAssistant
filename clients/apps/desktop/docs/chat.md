@@ -27,7 +27,7 @@ How a turn behaves on screen: streaming, speech, the voice call mode, and the co
 - **Subtitles**: `useTTS` parses WAV header for duration, calls `onPlaybackStart(text, duration)` before each queue item plays. On TTS error, falls back to 4s duration. ChatWidget forwards to character window via IPC.
 
 ## Interactive Mode
-Two-level state managed by `useMicStore` (Zustand, `src/store/micStore.ts`): `interactiveMode` (outer) + `interactionActive` (inner substate).
+Two-level state managed by `useMicStore` (Zustand, `@kurisu/state`'s `micStore.ts`): `interactiveMode` (outer) + `interactionActive` (inner substate).
 
 **Typing (default, `interactiveMode: false`)**:
 - Mic on → ASR transcript placed into input field as dictation text → user presses Send manually
@@ -71,7 +71,7 @@ Two-level state managed by `useMicStore` (Zustand, `src/store/micStore.ts`): `in
 - Store tracks `compactedUpToId`, `compactedContext`, `systemPromptTokenCount` from `GET /conversations/{id}` response. `ContextInfoEvent` updates watermark live after compaction
 - Compacted messages: resend disabled (backend blocks deletion too)
 
-## Slash Commands (`src/utils/commands.ts`)
+## Slash Commands (`@kurisu/state`'s `commands.ts`)
 - `/clear`, `/delete`, `/resume`, `/context`, `/persona`, `/refresh`, `/live-animate`, `/vision`, `/compact` (lazy imports to avoid circular deps)
 - `/persona` — opens the chat header's persona sheet (`kurisu:open-persona-picker`). A per-conversation override, persisted with `PATCH /conversations/{id}`
 - `/compact` — compact conversation context (sends `compact_context` WebSocket event). The backend answers `context_info` twice, `compacting: true` then `compacting: false` carrying the summary and the new watermark, and compacts **in place**: same conversation, same id, same transcript on screen. `useStreamingChat` records the watermark and reloads the conversation. It used to fork into a new conversation announced by `conversation_switched`; that event is gone (#99)

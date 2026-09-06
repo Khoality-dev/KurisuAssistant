@@ -24,8 +24,8 @@ import {
   Delete as DeleteIcon,
   Add as AddIcon,
 } from '@mui/icons-material';
-import { apiClient } from '../api/client';
-import { config } from '../config';
+import { apiClient } from '@kurisu/api';
+import { config } from '@kurisu/api';
 import type { AnimationEdge, EdgeTransition, TransitionCondition } from '@kurisu/models';
 
 export interface EdgeEditorProps {

@@ -10,18 +10,21 @@ electron/mcp.ts           — MCP server manager: start/stop stdio/SSE servers, 
 electron/hostTools.ts     — Host tools: host_read/write/edit/search/bash, and the approval gate around them. `allowed_paths` (in settings.json, one global list — not per-agent, not per-persona) is a hard boundary: a file tool whose target is outside every grant is refused after the gate, not merely prompted. Grants are the persisted list, this session's approvals, and the path just approved for this call. Bash is exempt and approved per exact command instead, because a shell command reaches wherever it likes from any directory.
 electron/hostToolPolicy.ts — The gate's rules, electron-free so they are unit-tested directly (`tests/hostToolPolicy.test.ts`): the rule key a decision is stored under, the paths a call would touch, and whether a path is inside a grant (via realpath, so a symlink out of an allowed directory does not pass a prefix test).
 electron/mcpConsent.ts    — Which local MCP spawns the user has agreed to, keyed on the command line rather than the server's name: renaming a server keeps consent, editing what it runs asks again.
-electron/appTools.ts      — App config tools: assistant capability (`app_get/update_assistant`), persona CRUD, sub-agent CRUD, MCP servers, skills, vision, UI navigation, browser launch (CDP). Forwards to the renderer via IPC round-trip; every advertised name must have a case in `src/services/appToolsHandler.ts` (`tests/appTools.test.ts` enforces it).
-electron/explorerIPC.ts   — Unsandboxed file explorer IPC: list-directory, read-file, write-file, is-binary, has-vscode, open-in-vscode. Its root listing enumerates *this machine's* drives only; Kurisu Drive is appended in the renderer by `src/api/fileSource.ts`, because the main process cannot know a server exists.
+electron/appTools.ts      — App config tools: assistant capability (`app_get/update_assistant`), persona CRUD, sub-agent CRUD, MCP servers, skills, vision, UI navigation, browser launch (CDP). Forwards to the renderer via IPC round-trip; every advertised name must have a case in `@kurisu/state`'s `appToolsHandler.ts` (`tests/appTools.test.ts` enforces it).
+electron/explorerIPC.ts   — Unsandboxed file explorer IPC: list-directory, read-file, write-file, is-binary, has-vscode, open-in-vscode. Its root listing enumerates *this machine's* drives only; Kurisu Drive is appended in the renderer by `@kurisu/api`'s `fileSource.ts`, because the main process cannot know a server exists.
 electron/driveTransfers.ts — Streamed Kurisu Drive uploads and downloads. In main rather than the renderer because a drive file can be gigabytes: bytes go straight between disk and socket, and progress comes back over `drive:transfer-progress`. Writes multipart by hand so the body can stream, and downloads to a `.part` name renamed on completion. IPC: drive:pick-files, drive:upload, drive:download, drive:cancel.
 electron/credentials.ts   — Session tokens, encrypted with `safeStorage` (OS keychain) into `credentials.json` in userData. With no keychain available nothing is written at all and `isSecure` says so, rather than falling back to plaintext. IPC: credentials:is-secure|read|write|clear.
 electron/mcpServer.ts     — The app *as* an MCP server: publishes every host and app tool over SSE for an external client (Claude Code). 127.0.0.1 only, no CORS headers, and a bearer token minted on first run into settings.json — shown in Settings → Tools & MCP. IPC: mcp-server:get-info, mcp-server:rotate-token.
 electron/mcpServerAuth.ts — The guard in front of that server, electron-free so it is unit-tested directly (`tests/mcpServerAuth.test.ts`): refuses anything carrying browser headers (Origin, Referer, Sec-Fetch-*) and requires the bearer token everywhere but /health.
 electron/settings.ts      — The main process's settings.json under userData (host-tool approvals, MCP token, first-run flags). One loader/saver: three modules had private copies, and two writes in the same tick dropped each other's keys.
 electron/preload.ts       — contextBridge: hostTools, appTools, explorer, drive, mcp, mcpServer, credentials, characterWindow, extensions, updater. Anything added here must also be declared in `@kurisu/platform`'s `types.ts` (`src/types/electron.d.ts` only declares the global) or it is untyped, and reached through `resolveBridge()` rather than `window.electron` by anything below a component.
-src/api/client.ts         — Axios + WebSocket singleton; streaming + media via wsManager; assistant/persona/sub-agent REST; migrateCharacterIds(). Interceptors: 401 → refresh, 426 → `onProtocolMismatch` (the update screen); `getModelsWithStatus()` carries `/models`' `unavailable` list
+@kurisu/api client.ts     — Axios + WebSocket singleton; streaming + media via wsManager; assistant/persona/sub-agent REST; migrateCharacterIds(). Interceptors: 401 → refresh, 426 → `onProtocolMismatch` (the update screen); `getModelsWithStatus()` carries `/models`' `unavailable` list
 @kurisu/models            — the wire protocol, shared by every TS app: API interfaces (Assistant / Persona / SubAgent — the old `Agent` is split three ways; DriveNode / DriveUsage), the event-name unions, `WIRE_PROTOCOL`, the binary vision frame, `FileEntry`, and the character/pose types. Lives in `clients/packages/models` (#128)
-src/api/fileSource.ts     — **One explorer, two roots.** The same 9 members as `window.electron.explorer`, dispatching on a `drive://` prefix: local paths pass straight through to the bridge, drive paths go to the REST API. Owns `joinPath`/`dirnameOf`/`basenameOf`, which pick the separator from the path — a drive path is POSIX-shaped on every platform, and four modules used to hard-code the host separator and get that wrong on Windows. Also owns the path→node-id cache, so no component learns that node ids exist.
+@kurisu/api fileSource.ts — **One explorer, two roots.** The same 9 members as `window.electron.explorer`, dispatching on a `drive://` prefix: local paths pass straight through to the bridge, drive paths go to the REST API. Owns `joinPath`/`dirnameOf`/`basenameOf`, which pick the separator from the path — a drive path is POSIX-shaped on every platform, and four modules used to hard-code the host separator and get that wrong on Windows. Also owns the path→node-id cache, so no component learns that node ids exist.
 @kurisu/platform          — what the host lends the renderer, behind one interface: files, transfers, credentials, host tools, MCP, the character window, plus a `capabilities` record. `resolveBridge()` returns the Electron implementation here and a browser stub elsewhere
+@kurisu/api               — the server as this client calls it: the REST client, the WebSocket and its handshake, where tokens live, the drive/local file sources. No React (#187)
+@kurisu/state             — zustand stores (conversations, personas, explorer, transfers, vision, tool permissions), the app-tool dispatch, and slash-command parsing
+@kurisu/hooks             — the React bindings over those two: streaming chat, TTS, interactive ASR, the character panel, webcam, connection status
 src/components/
   layout/
     MainLayout.tsx         — 3-panel layout: ActivityBar (52px) | MainContent (flex) | ResizeHandle | ChatPanel (resizable)
@@ -84,14 +87,14 @@ src/components/
   EdgeEditor.tsx           — Transition edge editor: video upload, condition config
   PoseGraphNode.tsx        — Custom React Flow node component
   UpdateDialog.tsx         — Auto-update notification
-  UpdateRequiredScreen.tsx — The wire-protocol gate: both numbers, which side is behind (`utils/wireProtocol.ts`), and "Change server" back to the login form (#150)
-src/hooks/
+  UpdateRequiredScreen.tsx — The wire-protocol gate: both numbers, which side is behind (`@kurisu/api`'s `wireProtocol.ts`), and "Change server" back to the login form (#150)
+@kurisu/hooks  (clients/packages/hooks/src/)
   useTTS.ts               — TTS synthesis/playback: speak(), queueText(), clearQueue(), onPlaybackStart subtitle callback, WAV duration parsing. `backends` is only what `/tts/models` lists (no fallback list), `backendsError` says why it is empty (#151)
   useAudioAmplitude.ts    — Web Audio API amplitude for lip sync (AudioBufferSourceNode + time-domain RMS)
   useConnectionStatus.ts  — Hook subscribing to wsManager.onStatusChange() for connection status (connected/connecting/disconnected)
   useWebcamCapture.ts    — Webcam stream management: startWebcam(), stopWebcam(), captureFrame() → CapturedPhoto (File + preview). Refs for video/canvas elements. Cleanup on unmount.
   useFileOperations.ts   — File operation hook for explorer: clipboard (cut/copy), rename, create file/folder, delete, paste + keyboard shortcuts (Ctrl+C/X/V/A, F2, F3, Delete). Goes through `fileSource`, so the same actions work on the drive, and reports a refusal through `onError` rather than the console — a 409 or a full drive is something the user has to be told.
-src/store/
+@kurisu/state  (clients/packages/state/src/)
   authStore.ts            — Auth state, login/register/logout, token persistence
   conversationStore.ts    — Current conversation + messages (paginated 20/page). No conversation list — persona selection drives conversation via localStorage mapping.
   personaStore.ts         — Persona list, selected persona ID (persisted), persona previews (last message per persona for the sidebar). Persona selection triggers conversation load via the persona-conversation mapping.
@@ -100,19 +103,19 @@ src/store/
   transferStore.ts        — Uploads and downloads, and the tray. Holds the rows and the lifecycle; the bytes never pass through it (see `electron/driveTransfers.ts`).
   visionStore.ts          — Zustand singleton: vision pipeline control (getUserMedia webcam capture, backpressure-based frame upload as WebSocket **binary** messages (`binaryFrame.ts` in `@kurisu/models`; canvas → `toBlob` JPEG → bytes, never base64 or JSON — #111) with a capped number in flight, face/pose/hands toggles, WebSocket vision_result listener + gesture IPC forwarding). Syncs state on reconnect via `connected` listener. Used by both FacesWindow and ChatWidget camera toggle.
   micStore.ts             — Zustand singleton: ASR lifecycle (VAD, status, result, devices) + interactive mode with substates. Module-level VAD instance, lazy-init reusable Audio elements for sound effects. Two-level state: `interactiveMode` (call bar UI shown, mic auto-started) + `interactionActive` (auto-send without trigger word). Used by MainWindow (phone toggle) and ChatWidget (transcript handling, conditional render).
-src/services/
+@kurisu/state, continued — no Electron needed, so it is shared
   mcpService.ts            — Client-side MCP lifecycle: auto-init on WebSocket connect, fetches client-location MCP configs from API, starts local servers via Electron IPC, discovers tools, registers schemas with backend via client_tools_register event. Handles tool_call_request forwarding (execute locally → send tool_call_response). refreshClientMCPServers() for config changes.
 src/CharacterWindowApp.tsx — Minimal IPC-driven renderer for separate character window (no auth/stores, subtitle overlay)
 src/videocall/            — Character animation engine (rendered in separate Electron window via IPC)
-  types.ts                — PoseConfig, PatchInfo, PoseTree, AnimationNode/Edge/EdgeTransition, TransitionCondition (random/thinking/gesture), AnimationSettings, CharacterConfig, migrateEdgeToTransitions(), migratePoseTreeIds() (old pose-*/edge-* IDs → 8-char hex)
+  (types moved to @kurisu/models) — PoseConfig, PatchInfo, PoseTree, AnimationNode/Edge/EdgeTransition, TransitionCondition (random/thinking/gesture), AnimationSettings, CharacterConfig, migrateEdgeToTransitions(), migratePoseTreeIds() (old pose-*/edge-* IDs → 8-char hex)
   CharacterRenderer.tsx   — React wrapper around CanvasCompositor (accepts PoseTree, amplitude via ref)
   engine/
     CanvasCompositor.ts   — 60fps render: blink + breathing + mouth + pose tree state machine (idle→transitioning→idle), edge timers, video transitions, configurable AnimationSettings
     ImageCache.ts         — URL→HTMLImageElement cache
-src/utils/storage.ts      — Preferences in localStorage (model, TTS settings, persona-conversation mapping) **and the in-memory half of token storage**. Tokens are never written to localStorage; `loadPersistedTokens()` fills memory from the keychain once at startup (migrating and deleting any plaintext pair an older build left), and `getToken()` stays synchronous for the authed asset URLs that call it on render paths.
-src/utils/commands.ts     — Slash command system: /compact, /clear. Autocomplete via getCommands(). Async handleCommand() with feedback strings. Lazy imports to avoid circular deps.
+@kurisu/api storage.ts    — Preferences in localStorage (model, TTS settings, persona-conversation mapping) **and the in-memory half of token storage**. Tokens are never written to localStorage; `loadPersistedTokens()` fills memory from the keychain once at startup (migrating and deleting any plaintext pair an older build left), and `getToken()` stays synchronous for the authed asset URLs that call it on render paths.
+@kurisu/state commands.ts — Slash command system: /compact, /clear. Autocomplete via getCommands(). Async handleCommand() with feedback strings. Lazy imports to avoid circular deps.
 src/theme/theme.ts        — MUI theme: primary #10A37F, 8px/12px border-radius
-src/config.ts             — API URL config (reads dynamically from storage)
+@kurisu/api config.ts     — API URL config (reads dynamically from storage)
 ```
 
 ## Code Style

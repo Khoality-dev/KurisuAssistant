@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Button, Typography, Stack } from '@mui/material';
 import { WIRE_PROTOCOL, type ServerVersionInfo } from '@kurisu/models';
-import { describeMismatch } from '../utils/wireProtocol';
+import { describeMismatch } from '@kurisu/api';
 
 interface Props {
   /** `wire_protocol` may be null when the server refused us but could not be asked which version it is. */

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Chip, Tooltip } from '@mui/material';
-import { useExplorerStore } from '../../store/explorerStore';
-import { useLayoutStore } from '../../store/layoutStore';
+import { useExplorerStore } from '@kurisu/state';
+import { useLayoutStore } from '@kurisu/state';
 
 export const SelectionChips: React.FC = () => {
   const selections = useExplorerStore((s) => s.selections);

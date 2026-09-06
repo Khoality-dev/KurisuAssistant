@@ -41,9 +41,9 @@ import { ExplorerContextMenus } from './ExplorerContextMenus';
 import { ExplorerDialogs } from './ExplorerDialogs';
 import { FileTreeSidebar } from './FileTreeSidebar';
 import type { FileEntry } from '@kurisu/models';
-import { useExplorerStore } from '../../store/explorerStore';
-import { useFileOperations } from '../../hooks/useFileOperations';
-import { useTransferStore } from '../../store/transferStore';
+import { useExplorerStore } from '@kurisu/state';
+import { useFileOperations } from '@kurisu/hooks';
+import { useTransferStore } from '@kurisu/state';
 import { resolveBridge } from '@kurisu/platform';
 import {
   DRIVE_ROOT,
@@ -53,7 +53,7 @@ import {
   drivePathSegments,
   fileSource,
   isDrivePath,
-} from '../../api/fileSource';
+} from '@kurisu/api';
 
 const OPERATING_SYSTEM = window.electron?.platform ?? 'win32';
 const LOCAL_SEP = OPERATING_SYSTEM === 'win32' ? '\\' : '/';

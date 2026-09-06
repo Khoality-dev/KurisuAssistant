@@ -21,9 +21,9 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { AnimatePresence } from 'framer-motion';
-import { apiClient } from '../../api/client';
-import { usePersonaStore } from '../../store/personaStore';
-import { storage } from '../../utils/storage';
+import { apiClient } from '@kurisu/api';
+import { usePersonaStore } from '@kurisu/state';
+import { storage } from '@kurisu/api';
 import type { Persona } from '@kurisu/models';
 import { ResourceCard } from './ResourceCard';
 import { PersonaEditDialog } from './PersonaEditDialog';

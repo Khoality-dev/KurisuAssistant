@@ -90,3 +90,50 @@ describe('the shared packages stay shareable', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+/** Every module a package's sources import by name, not by relative path. */
+function externalImportsOf(pkg: string): Map<string, string[]> {
+  const found = new Map<string, string[]>();
+  for (const file of sourceFiles(join(PACKAGES, pkg, 'src'))) {
+    for (const m of codeOf(file).matchAll(/from ['"]([^.'"][^'"]*)['"]/g)) {
+      const dep = m[1];
+      found.set(dep, [...(found.get(dep) ?? []), relative(PACKAGES, file)]);
+    }
+  }
+  return found;
+}
+
+describe('the layers point one way', () => {
+  // api -> state -> hooks, and nothing points back up. A layer that reaches
+  // upward is not a layer, and the app that imports it inherits everything it
+  // dragged along.
+  const forbidden: Array<[string, string[]]> = [
+    ['models', ['@kurisu/api', '@kurisu/state', '@kurisu/hooks', '@kurisu/platform', 'react']],
+    ['platform', ['@kurisu/api', '@kurisu/state', '@kurisu/hooks', 'react']],
+    ['api', ['@kurisu/state', '@kurisu/hooks', 'react']],
+    ['state', ['@kurisu/hooks']],
+  ];
+
+  it.each(forbidden)('%s does not import what sits above it', (pkg, banned) => {
+    const imports = externalImportsOf(pkg);
+    const offenders = banned
+      .filter((dep) => imports.has(dep))
+      .map((dep) => `${pkg} imports ${dep} in ${imports.get(dep)!.join(', ')}`);
+
+    expect(offenders).toEqual([]);
+  });
+
+  it.each(['models', 'platform', 'api', 'state', 'hooks'])(
+    '%s renders nothing, so it imports no widget library',
+    (pkg) => {
+      // The screens are the app's, and one day a second app's with a different
+      // one. A shared package that reaches for MUI or a DOM decides that for
+      // both of them.
+      const offenders = [...externalImportsOf(pkg)]
+        .filter(([dep]) => /^@mui\/|^react-dom|^@emotion\//.test(dep))
+        .map(([dep, files]) => `${pkg} imports ${dep} in ${files.join(', ')}`);
+
+      expect(offenders).toEqual([]);
+    },
+  );
+});

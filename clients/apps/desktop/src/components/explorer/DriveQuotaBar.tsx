@@ -9,9 +9,9 @@
 import React, { useEffect, useState } from 'react';
 import { Box, LinearProgress, Tooltip, Typography } from '@mui/material';
 import { Cloud as CloudIcon } from '@mui/icons-material';
-import { apiClient } from '../../api/client';
-import { DRIVE_ROOT_LABEL } from '../../api/fileSource';
-import { useTransferStore } from '../../store/transferStore';
+import { apiClient } from '@kurisu/api';
+import { DRIVE_ROOT_LABEL } from '@kurisu/api';
+import { useTransferStore } from '@kurisu/state';
 import type { DriveUsage } from '@kurisu/models';
 
 export function formatBytes(bytes: number): string {

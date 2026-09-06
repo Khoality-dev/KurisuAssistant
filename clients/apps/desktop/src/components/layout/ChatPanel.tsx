@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
-import { useConversationStore } from '../../store/conversationStore';
+import { useConversationStore } from '@kurisu/state';
 import { ChatWidget } from '../chat/ChatWidget';
 
 export const ChatPanel: React.FC = () => {

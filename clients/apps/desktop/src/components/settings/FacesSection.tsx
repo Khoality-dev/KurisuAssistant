@@ -36,9 +36,9 @@ import {
   CameraAlt as CameraAltIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
-import { apiClient } from '../../api/client';
-import { useVisionStore } from '../../store/visionStore';
-import { useWebcamCapture } from '../../hooks/useWebcamCapture';
+import { apiClient } from '@kurisu/api';
+import { useVisionStore } from '@kurisu/state';
+import { useWebcamCapture } from '@kurisu/hooks';
 import { FaceCreateDialog } from './FaceCreateDialog';
 import type { FaceIdentity, FaceIdentityDetail } from '@kurisu/models';
 

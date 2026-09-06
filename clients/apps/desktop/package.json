@@ -35,8 +35,11 @@
   "dependencies": {
     "@emotion/react": "^11.11.3",
     "@emotion/styled": "^11.11.0",
+    "@kurisu/api": "*",
+    "@kurisu/hooks": "*",
     "@kurisu/models": "*",
     "@kurisu/platform": "*",
+    "@kurisu/state": "*",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@monaco-editor/react": "^4.7.0",
     "@mui/icons-material": "^5.15.6",

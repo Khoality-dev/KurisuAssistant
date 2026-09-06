@@ -15,7 +15,7 @@ import {
   Face as FacesIcon,
   GetApp as ExtensionsIcon,
 } from '@mui/icons-material';
-import { useLayoutStore } from '../../store/layoutStore';
+import { useLayoutStore } from '@kurisu/state';
 
 // Lazy imports for settings sections
 const AccountSection = React.lazy(() => import('./AccountSection').then(m => ({ default: m.AccountSection })));

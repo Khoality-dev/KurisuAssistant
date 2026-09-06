@@ -3,7 +3,7 @@
 Monorepo for KurisuAssistant. The backend and the Android app are independent; the TypeScript clients share one npm workspace:
 
 - `backend/` — Python FastAPI service, WebSocket protocol, Docker Compose stack. Read `backend/CLAUDE.md` before touching it.
-- `clients/` — the TypeScript workspace: `packages/` (shared) and `apps/` (one per surface). Read `clients/CLAUDE.md`.
+- `clients/` — the TypeScript workspace: `packages/` (`models`, `platform`, `api`, `state`, `hooks` — shared, and layered in that order) and `apps/` (one per surface). Read `clients/CLAUDE.md`.
   - `clients/apps/desktop/` — Electron + React + TypeScript client. Read `clients/apps/desktop/CLAUDE.md`.
 - `clients/android/` — Kotlin + Jetpack Compose client, not a workspace member. Read `clients/android/CLAUDE.md`.
 

@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { CanvasCompositor } from './engine/CanvasCompositor';
 import type { PoseTree } from '@kurisu/models';
-import { config } from '../config';
+import { config } from '@kurisu/api';
 
 export interface AmplitudeState {
   amplitude: number;

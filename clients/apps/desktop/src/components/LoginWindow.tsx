@@ -12,8 +12,8 @@ import {
   Checkbox,
 } from '@mui/material';
 import { motion } from 'framer-motion';
-import { useAuthStore } from '../store/authStore';
-import { storage } from '../utils/storage';
+import { useAuthStore } from '@kurisu/state';
+import { storage } from '@kurisu/api';
 import { resolveBridge } from '@kurisu/platform';
 
 const MotionPaper = motion(Paper);

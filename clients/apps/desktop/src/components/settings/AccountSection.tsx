@@ -14,8 +14,8 @@ import {
   VisibilityOff as HideIcon,
   QrCode2 as QrCodeIcon,
 } from '@mui/icons-material';
-import { useAuthStore } from '../../store/authStore';
-import { apiClient } from '../../api/client';
+import { useAuthStore } from '@kurisu/state';
+import { apiClient } from '@kurisu/api';
 import { ModelPicker } from '../ModelPicker';
 import { LoginQrDialog } from './LoginQrDialog';
 import type { UserProfile } from '@kurisu/models';

@@ -12,7 +12,7 @@ import {
   Typography,
 } from '@mui/material';
 import type { FileEntry } from '@kurisu/models';
-import { isDrivePath } from '../../api/fileSource';
+import { isDrivePath } from '@kurisu/api';
 
 interface ExplorerContextMenusProps {
   // File context menu

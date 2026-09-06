@@ -26,7 +26,7 @@ import {
   ErrorOutline as FailedIcon,
   CheckCircleOutline as DoneIcon,
 } from '@mui/icons-material';
-import { useTransferStore, type Transfer } from '../../store/transferStore';
+import { useTransferStore, type Transfer } from '@kurisu/state';
 import { formatBytes } from './DriveQuotaBar';
 
 function statusLine(t: Transfer): string {

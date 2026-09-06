@@ -4,7 +4,7 @@ import { FileTreeSidebar } from './FileTreeSidebar';
 import { EditorTabs } from './EditorTabs';
 import { FileEditor } from './FileEditor';
 import { FullExplorer } from './FullExplorer';
-import { useExplorerStore } from '../../store/explorerStore';
+import { useExplorerStore } from '@kurisu/state';
 
 /**
  * Why the last save failed.
