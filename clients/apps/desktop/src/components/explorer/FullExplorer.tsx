@@ -44,6 +44,7 @@ import type { FileEntry } from '@kurisu/models';
 import { useExplorerStore } from '../../store/explorerStore';
 import { useFileOperations } from '../../hooks/useFileOperations';
 import { useTransferStore } from '../../store/transferStore';
+import { resolveBridge } from '@kurisu/platform';
 import {
   DRIVE_ROOT,
   DRIVE_ROOT_LABEL,
@@ -170,7 +171,8 @@ export const FullExplorer: React.FC = () => {
   }, []);
 
   const loadDirectory = useCallback(async (dirPath: string) => {
-    if (!window.electron?.explorer) return;
+    // The drive needs no host filesystem, and neither does the root listing.
+    if (!resolveBridge().files && dirPath && !isDrivePath(dirPath)) return;
     setIsLoading(true);
     setSelectedEntries(new Set());
     try {

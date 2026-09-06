@@ -224,10 +224,12 @@ export const fileSource = {
    */
   async listDirectory(dirPath: string): Promise<ListResult> {
     if (!dirPath) {
-      const local = await localFiles().listDirectory('');
+      // A host with no filesystem of its own still has one root: the drive.
+      const files = resolveBridge().files;
+      const local = files ? await files.listDirectory('') : null;
       return {
         path: '',
-        entries: [...(local.entries ?? []), driveRootEntry],
+        entries: [...(local?.entries ?? []), driveRootEntry],
         isRoot: true,
       };
     }
