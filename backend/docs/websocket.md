@@ -169,29 +169,26 @@ The server waits 120s for the matching `tool_call_response`.
 
 ### `context_info`
 
-Compaction status.
+Compaction status, and the only thing that reports it. Sent with
+`compacting: true` when a summary is being generated and again with
+`compacting: false` when it is finished — on **every** exit path, including a
+failed or empty summary, because the client shows a spinner until the second one
+arrives (#99).
 
 ```json
-{"type": "context_info", "conversation_id": 12, "compacting": true,
- "compacted_up_to_id": 0, "compacted_context": ""}
+{"type": "context_info", "conversation_id": 12, "compacting": false,
+ "compacted_up_to_id": 431, "compacted_context": "…"}
 ```
 
-### `conversation_switched`
+Compaction happens **in place**: the conversation keeps its id, its title, its
+persona binding and its stored messages. What changes is the row —
+`compacted_context` holds the summary and `compacted_up_to_id` moves to the last
+message it covers, which is where the next turn starts reading. On a failed
+compaction the watermark stays where it was and `compacted_context` is empty.
 
-Compaction does not trim in place — it forks. The chat moves to a new conversation
-seeded with the summary, and the persona binding is carried over.
-
-```json
-{
-  "type": "conversation_switched",
-  "old_conversation_id": 12,
-  "new_conversation_id": 13,
-  "compacted_context": "…",
-  "persona_id": 3
-}
-```
-
-`persona_id` is `0` when the old conversation had no binding.
+There is no `conversation_switched`. Compaction used to fork — a second
+conversation seeded with the summary — so one thread quietly became several in
+the history list while the watermark it wrote (`0`) trimmed nothing (#99).
 
 ### `done`
 
@@ -301,8 +298,10 @@ Registered per connection and cleared when a new socket replaces this one.
 {"type": "compact_context", "conversation_id": 12}
 ```
 
-Manual compaction. Emits `context_info`, then `conversation_switched` — or `error`
-with `NO_SUMMARY_MODEL` / `COMPACT_EMPTY`.
+Manual compaction. Emits `context_info` twice — `compacting: true`, then
+`compacting: false` carrying the summary and the new watermark — or an `error`
+with `NO_SUMMARY_MODEL` / `COMPACT_EMPTY`, still followed by the closing
+`context_info`. An empty conversation is a silent no-op.
 
 ### Vision
 

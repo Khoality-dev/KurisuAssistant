@@ -316,29 +316,43 @@ describe('mock backend: streaming', () => {
 });
 
 describe('mock backend: compaction', () => {
-  it('answers compact_context with context_info then conversation_switched', async () => {
-    const oldId = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk').conversation_id;
+  it('answers compact_context with context_info twice and compacts in place', async () => {
+    // The server stopped forking in #99: the summary lands on the conversation
+    // that was already open, and the closing context_info is what stops the
+    // client's spinner.
+    const conversationId = (await chat({ conversation_id: null }))
+      .find((e) => e.type === 'stream_chunk').conversation_id;
 
     const ws = connect();
-    const events: any[] = [];
-    const switched = await new Promise<any>((resolve) => {
+    const infos: any[] = [];
+    await new Promise<void>((resolve, reject) => {
+      ws.on('error', reject);
       ws.on('message', (raw) => {
         const event = JSON.parse(raw.toString());
-        events.push(event);
-        if (event.type === 'connected') {
-          ws.send(JSON.stringify({ type: 'compact_context', conversation_id: oldId }));
+        if (event.type === 'conversation_switched') {
+          reject(new Error('compaction forked instead of trimming in place'));
         }
-        if (event.type === 'conversation_switched') resolve(event);
+        if (event.type === 'connected') {
+          ws.send(JSON.stringify({ type: 'compact_context', conversation_id: conversationId }));
+        }
+        if (event.type === 'context_info') {
+          infos.push(event);
+          if (infos.length === 2) resolve();
+        }
       });
     });
     ws.close();
 
-    expect(events.some((e) => e.type === 'context_info' && e.compacting === true)).toBe(true);
-    expect(switched.old_conversation_id).toBe(oldId);
-    expect(switched.new_conversation_id).not.toBe(oldId);
-    // The persona follows the conversation across the split.
-    expect(switched.persona_id).toBe(1);
-    expect(mock.getConversation(switched.new_conversation_id)!.persona_id).toBe(1);
+    expect(infos.map((i) => i.compacting)).toEqual([true, false]);
+    expect(infos[1].conversation_id).toBe(conversationId);
+    expect(infos[1].compacted_context).toContain('Summary of conversation');
+    expect(infos[1].compacted_up_to_id).toBeGreaterThan(0);
+
+    // One conversation, carrying the summary and the watermark.
+    expect(mock.getConversations()).toHaveLength(1);
+    const stored = mock.getConversation(conversationId)!;
+    expect(stored.compacted_context).toContain('Summary of conversation');
+    expect(stored.compacted_up_to_id).toBe(infos[1].compacted_up_to_id);
   });
 });
 

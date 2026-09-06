@@ -56,6 +56,28 @@ def content_of(events):
     return "".join(e.get("content") or "" for e in events if e["type"] == "stream_chunk" and e["role"] == "assistant")
 
 
+def collect_context_info(ws, limit: int = 30):
+    """Read until compaction reports both its start and its finish.
+
+    Bounded on purpose: if the server stops sending the closing
+    ``compacting: false`` — the stuck-spinner bug in #99 — this fails with a
+    message instead of blocking the socket read until CI times out.
+    """
+    infos = []
+    for _ in range(limit):
+        event = ws.receive_json()
+        assert event["type"] != "error", event
+        assert event["type"] != "conversation_switched", "compaction must not fork (#99)"
+        if event["type"] == "context_info":
+            infos.append(event)
+            if len(infos) == 2:
+                return infos
+    raise AssertionError(
+        f"compaction never reported finishing: saw {[i.get('compacting') for i in infos]} "
+        f"in {limit} events"
+    )
+
+
 def chat_request(text, conversation_id=None, model=DEFAULT_MODEL):
     return {"type": "chat_request", "text": text, "model_name": model, "conversation_id": conversation_id}
 
@@ -320,7 +342,12 @@ class TestToolLoop:
 
 
 class TestCompaction:
-    def test_compact_context_summarises_without_streaming_and_forks(self, system_client, headers, mock_ollama):
+    def test_compact_context_summarises_in_place(self, system_client, headers, mock_ollama):
+        """The whole point of #99: one conversation, trimmed — not two conversations.
+
+        The conversation keeps its id and its messages; what changes is the
+        watermark, which is where `_load_context_messages` starts reading.
+        """
         resp = system_client.patch("/users/me", json={"summary_model": DEFAULT_MODEL}, headers=headers)
         assert resp.status_code == 200, resp.text
         try:
@@ -332,22 +359,54 @@ class TestCompaction:
 
                 mock_ollama.state.script(Reply(content="Summary: the user has a blue key."))
                 ws.send_json({"type": "compact_context", "conversation_id": conversation_id})
-                switched = ws.receive_json()
-                while switched["type"] != "conversation_switched":
-                    assert switched["type"] != "error", switched
-                    switched = ws.receive_json()
+
+                infos = collect_context_info(ws)
         finally:
             system_client.patch("/users/me", json={"summary_model": ""}, headers=headers)
 
-        assert switched["old_conversation_id"] == conversation_id
-        assert switched["new_conversation_id"] != conversation_id
-        assert switched["compacted_context"] == "Summary: the user has a blue key."
-        assert switched["persona_id"] > 0, "the persona follows the conversation across the split"
+        started, finished = infos
+        assert started["compacting"] is True
+        assert finished["compacting"] is False, "the client's spinner must be turned off"
+        assert finished["conversation_id"] == conversation_id, "same conversation"
+        assert finished["compacted_context"] == "Summary: the user has a blue key."
+        assert finished["compacted_up_to_id"] > 0, "the watermark has to move, or nothing was trimmed"
 
         summary_call = mock_ollama.state.requests_to("/api/chat")[-1]
         assert summary_call["stream"] is False, "compaction uses the non-streaming path"
         assert "blue key" in summary_call["messages"][-1]["content"]
 
-        detail = system_client.get(f"/conversations/{switched['new_conversation_id']}", headers=headers)
+        detail = system_client.get(f"/conversations/{conversation_id}", headers=headers)
         assert detail.status_code == 200
-        assert detail.json()["compacted_context"] == "Summary: the user has a blue key."
+        body = detail.json()
+        assert body["compacted_context"] == "Summary: the user has a blue key."
+        assert body["compacted_up_to_id"] == finished["compacted_up_to_id"]
+        assert body["messages"], "the conversation keeps its history; only the model's view is trimmed"
+
+    def test_the_next_turn_sends_the_summary_instead_of_the_old_messages(
+        self, system_client, headers, mock_ollama,
+    ):
+        """The watermark has to be honoured, or compaction saves nothing."""
+        resp = system_client.patch("/users/me", json={"summary_model": DEFAULT_MODEL}, headers=headers)
+        assert resp.status_code == 200, resp.text
+        try:
+            with system_client.websocket_connect("/ws/chat", headers=headers) as ws:
+                ws.receive_json()
+                ws.send_json(chat_request("the passphrase is orange marmalade"))
+                conversation_id = events_until_done(ws)[-1]["conversation_id"]
+
+                mock_ollama.state.script(Reply(content="Summary: a passphrase was shared."))
+                ws.send_json({"type": "compact_context", "conversation_id": conversation_id})
+                collect_context_info(ws)
+
+                mock_ollama.state.script(Reply(content="Understood."))
+                ws.send_json(chat_request("what did I say?", conversation_id=conversation_id))
+                events_until_done(ws)
+        finally:
+            system_client.patch("/users/me", json={"summary_model": ""}, headers=headers)
+
+        sent = mock_ollama.state.requests_to("/api/chat")[-1]["messages"]
+        conversation_text = "\n".join(m.get("content") or "" for m in sent)
+        assert "a passphrase was shared" in conversation_text, "the summary must be in context"
+        assert "orange marmalade" not in conversation_text, (
+            "the summarized message was sent again: the watermark did not trim it"
+        )

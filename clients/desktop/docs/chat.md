@@ -74,7 +74,7 @@ Two-level state managed by `useMicStore` (Zustand, `src/store/micStore.ts`): `in
 ## Slash Commands (`src/utils/commands.ts`)
 - `/clear`, `/delete`, `/resume`, `/context`, `/persona`, `/refresh`, `/live-animate`, `/vision`, `/compact` (lazy imports to avoid circular deps)
 - `/persona` — opens the chat header's persona sheet (`kurisu:open-persona-picker`). A per-conversation override, persisted with `PATCH /conversations/{id}`
-- `/compact` — compact conversation context (sends `compact_context` WebSocket event). The backend answers `context_info` then `conversation_switched`, and `useStreamingChat` re-points the persona mapping at the new conversation
+- `/compact` — compact conversation context (sends `compact_context` WebSocket event). The backend answers `context_info` twice, `compacting: true` then `compacting: false` carrying the summary and the new watermark, and compacts **in place**: same conversation, same id, same transcript on screen. `useStreamingChat` records the watermark and reloads the conversation. It used to fork into a new conversation announced by `conversation_switched`; that event is gone (#99)
 - `/clear` — start a new empty conversation + clear the persona mapping entry
 - Autocomplete dropdown in `ChatComposer`: filtered on `/` prefix, Enter auto-selects first match, closes dropdown after selection
 - All `/`-prefixed input intercepted client-side, never sent to backend

@@ -29,7 +29,6 @@ class EventType(str, Enum):
     ERROR = "error"
     VISION_RESULT = "vision_result"
     CONTEXT_INFO = "context_info"
-    CONVERSATION_SWITCHED = "conversation_switched"
 
 
 @dataclass
@@ -212,18 +211,6 @@ class ContextInfoEvent(BaseEvent):
     compacting: bool = False
     compacted_up_to_id: int = 0
     compacted_context: str = ""
-
-
-@dataclass
-class ConversationSwitchedEvent(BaseEvent):
-    """After compaction, the chat moves to a new conversation seeded with the summary."""
-    type: EventType = field(default=EventType.CONVERSATION_SWITCHED)
-    old_conversation_id: int = 0
-    new_conversation_id: int = 0
-    compacted_context: str = ""
-    # The persona carried over to the new conversation. Without it a compacted
-    # conversation loses its voice.
-    persona_id: int = 0
 
 
 @dataclass

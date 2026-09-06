@@ -26,7 +26,6 @@ export type EventType =
   | 'error'
   | 'vision_result'
   | 'context_info'
-  | 'conversation_switched'
   | 'connected';
 
 // Base event interface
@@ -141,14 +140,6 @@ export interface ContextInfoEvent extends BaseEvent {
   compacted_context: string;
 }
 
-export interface ConversationSwitchedEvent extends BaseEvent {
-  type: 'conversation_switched';
-  old_conversation_id: number;
-  new_conversation_id: number;
-  compacted_context: string;
-  // The persona carried over to the compacted conversation.
-  persona_id: number;
-}
 
 export interface ConnectedEvent extends BaseEvent {
   type: 'connected';
@@ -173,8 +164,7 @@ export type ServerEvent =
   | ToolApprovalRequestEvent
   | ToolCallRequestEvent
   | VisionResultEvent
-  | ContextInfoEvent
-  | ConversationSwitchedEvent;
+  | ContextInfoEvent;
 
 type EventHandler<T = ServerEvent> = (event: T) => void;
 

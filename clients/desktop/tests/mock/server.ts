@@ -151,6 +151,8 @@ interface StoredConversation {
   created_at: string;
   updated_at: string;
   compacted_context: string;
+  /** Messages at or below this id are covered by `compacted_context` (#99). */
+  compacted_up_to_id: number;
   messages: StoredMessage[];
 }
 
@@ -548,6 +550,7 @@ export class MockBackend {
       created_at: now,
       updated_at: now,
       compacted_context: '',
+      compacted_up_to_id: 0,
       messages: [],
     };
     this.conversations.set(conv.id, conv);
@@ -811,7 +814,7 @@ export class MockBackend {
         offset: 0,
         limit: 20,
         has_more: false,
-        compacted_up_to_id: 0,
+        compacted_up_to_id: conv.compacted_up_to_id,
         compacted_context: conv.compacted_context,
         system_prompt_token_count: 0,
       });
@@ -1160,19 +1163,23 @@ export class MockBackend {
           compacted_context: '',
         });
 
+        // In place, like the server since #99: the conversation keeps its id
+        // and its messages, `compacted_context` holds the summary and the
+        // watermark moves to the last message it covers.
         const summary = `Summary of conversation ${oldId}.`;
-        const next = this.createConversation(old.persona_id, old.title);
-        next.compacted_context = summary;
-        this.lastTurn = { conversationId: next.id, personaId: next.persona_id };
+        const lastMessageId = old.messages.length
+          ? old.messages[old.messages.length - 1].id
+          : 0;
+        old.compacted_context = summary;
+        old.compacted_up_to_id = lastMessageId;
+        this.lastTurn = { conversationId: oldId, personaId: old.persona_id };
 
         send({
-          type: 'conversation_switched',
-          old_conversation_id: oldId,
-          new_conversation_id: next.id,
+          type: 'context_info',
+          conversation_id: oldId,
+          compacting: false,
+          compacted_up_to_id: lastMessageId,
           compacted_context: summary,
-          // The persona follows the conversation across the split; without it a
-          // compacted conversation comes back with no voice.
-          persona_id: next.persona_id ?? 0,
         });
       }
     });

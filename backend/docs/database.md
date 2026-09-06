@@ -120,12 +120,14 @@ updated_at` on every existing row: before it, each of those had been
 re-consolidated on every scan since it went idle, so nothing was lost, and an
 upgrade does not queue the user's whole history at once.
 
-**Compaction uses a watermark, but the live path forks instead.**
-`compacted_up_to_id` exists so context can be trimmed in place, and
-`_load_context_messages` honours it. The current compaction path creates a *new*
-conversation seeded with the summary (carrying the persona binding over) and sets
-the watermark to 0, so in practice the watermark is never advanced. Two designs are
-half-present; see the open issue on context accounting.
+**Compaction uses the watermark, and only the watermark.** `compacted_context`
+holds the summary and `compacted_up_to_id` is the last message it covers;
+`_load_context_messages` reads the summary plus everything after that id. A
+conversation is never split by compaction — it keeps its id, its title, its
+persona binding and all of its stored messages, and only the model's view of it
+is trimmed. Until #99 the live path created a *second* conversation instead and
+set the watermark to 0, so it was never advanced and one thread became several in
+the history list.
 
 **Tool linkage is stored, and matters across providers.** `tool_calls` on the
 assistant message and `tool_call_id` on the tool message keep a call paired with
