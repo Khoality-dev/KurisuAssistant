@@ -65,6 +65,11 @@ Create an account. The same transaction also provisions the account's single
 `assistants` row and its first persona (named `Assistant`) — without both, the
 account can log in but cannot chat.
 
+It cannot provision a **model**: which one to use depends on the operator's
+providers, and there is nothing to ask at registration. So `model_name` on the new
+row is null and the account's first message is refused with `NO_MODEL_SELECTED`
+until someone picks one (`PATCH /assistant`).
+
 **Request:** `application/x-www-form-urlencoded` — `username`, `password`.
 
 **Response:** `200 OK` — same token pair as `/login`.
@@ -364,6 +369,10 @@ Created on demand for an account that predates the split and never got a row.
 ```
 
 `available_tools: null` means **every tool**.
+
+`model_name: null` means **no model chosen yet**, the state every account is
+registered in. Until it is set, `chat_request` is refused with
+`NO_MODEL_SELECTED` — see [WebSocket Protocol](websocket.md).
 
 ### PATCH /assistant
 
@@ -1051,10 +1060,13 @@ reference — raw exception text carries failing SQL, internal URLs and server p
 ### Conversation creation
 
 1. Send `chat_request` over the WebSocket with `conversation_id: null`.
-2. The backend creates the conversation, titled from the first 80 characters of
-   the message, and binds a persona — the explicit `persona_id` if the client sent
+2. The backend checks there is a model to run on — `assistants.model_name`, else
+   the request's own `model_name`. With neither it answers `error` /
+   `NO_MODEL_SELECTED` and stops here, having created nothing.
+3. It creates the conversation, titled from the first 80 characters of the
+   message, and binds a persona — the explicit `persona_id` if the client sent
    one, otherwise `assistants.default_persona_id`.
-3. Every `stream_chunk` carries the new `conversation_id`; assistant chunks carry
+4. Every `stream_chunk` carries the new `conversation_id`; assistant chunks carry
    the `persona_id` and `persona_name`.
 
 ### Context compaction

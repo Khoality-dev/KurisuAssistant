@@ -60,5 +60,9 @@ Back everywhere → navController.popBackStack()
 - The drawer lives in `ui/navigation/AppDrawer.kt` (`AppDrawerHost`), not inside a screen: Chats and
   Chat both open the same one, so the nav graph wraps both destinations in it. Drawer destinations
   `popUpTo(CONVERSATIONS)` rather than stacking. Logout is `AppDrawerViewModel`.
+- Chat's outbound navigation is passed in as lambdas, not a `NavController`: `onNavigateToPersonas`
+  ("Manage personas" in the persona sheet) and `onNavigateToAssistant` ("Choose a model" on the
+  no-model prompt, #149). Both are a plain `navigate(...)` rather than the drawer's `openTopLevel`,
+  so system Back returns to the chat the user was in — `openTopLevel` would pop it off the stack.
 - `ConversationsViewModel` observes `CoreState.asrTranscripts` for the assistant's wake word. The
   trigger is assistant-level and selects no persona.

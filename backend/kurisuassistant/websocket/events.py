@@ -228,10 +228,19 @@ class ConversationSwitchedEvent(BaseEvent):
 
 @dataclass
 class ErrorEvent(BaseEvent):
-    """Server sends error."""
+    """Server sends error.
+
+    ``code`` is what a client branches on; ``error`` is the sentence it falls back
+    to. Most codes mean something broke, but ``NO_MODEL_SELECTED`` means the
+    account is not finished being set up — clients turn that one into a way onto
+    their own model picker rather than into an error.
+    """
     type: EventType = field(default=EventType.ERROR)
     error: str = ""
-    code: str = "INTERNAL_ERROR"  # INTERNAL_ERROR, CANCELLED, TIMEOUT, UNAUTHORIZED
+    # Emitted: INTERNAL_ERROR, QUEUE_FULL, NO_PERSONAS, NO_MODEL_SELECTED,
+    # NO_SUMMARY_MODEL, COMPACT_EMPTY. Declared but not emitted here: CANCELLED,
+    # TIMEOUT, UNAUTHORIZED. Keep this list and backend/docs/websocket.md in step.
+    code: str = "INTERNAL_ERROR"
 
 
 @dataclass

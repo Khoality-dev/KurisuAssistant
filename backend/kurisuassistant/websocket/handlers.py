@@ -53,6 +53,7 @@ from kurisuassistant.db.repositories import (
     SubAgentRepository,
     UserRepository,
 )
+from kurisuassistant.core.accounts import NO_MODEL_SELECTED_DETAIL
 from kurisuassistant.core.errors import GENERIC_MESSAGE, log_internal_error
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.utils.prompts import build_system_messages
@@ -62,6 +63,17 @@ logger = logging.getLogger(__name__)
 # A turn can take minutes, and a client is free to keep typing while it runs.
 # The queue is merged into one follow-up turn, so it needs a ceiling.
 MAX_QUEUED_MESSAGES = 20
+
+
+class NoModelSelected(Exception):
+    """The turn has no model to run: the assistant has none and the client sent none.
+
+    Raised from inside the setup query rather than checked after it, because that
+    is the only place the check can run *before* a conversation row is created —
+    and a first message that cannot be answered should not leave a conversation
+    named after it in the sidebar. See ``core/accounts.py`` for why a new account
+    starts this way.
+    """
 
 
 @dataclass
@@ -401,6 +413,22 @@ class ChatSessionHandler:
             logger.debug("Chat task cancelled by user")
         except WebSocketDisconnect:
             raise
+        except NoModelSelected:
+            # Not an error in the code: the account is one field short of usable,
+            # and this is the first thing a self-hoster meets after signing in.
+            # It gets its own code so a client can offer the screen that fixes it
+            # instead of a red toast the user has to decode (#149).
+            logger.info("user %d sent a message with no model selected", self.user_id)
+            # Anything typed while this turn was in flight would fail the same
+            # way, so drop it rather than replay it. _process_queue() would hand
+            # it to the *next* turn — which runs after the user has picked a
+            # model — and an impatient second message would surface minutes later
+            # as an answer to something they no longer remember asking.
+            self._message_queue.clear()
+            await self.send_event(ErrorEvent(
+                error=NO_MODEL_SELECTED_DETAIL,
+                code="NO_MODEL_SELECTED",
+            ))
         except Exception as e:
             reference = log_internal_error(e, "running a chat turn")
             await self.send_event(ErrorEvent(
@@ -585,6 +613,13 @@ class ChatSessionHandler:
             assistant_row = AssistantRepository(session).get_or_create_for_user(self.user_id)
             assistant = self._to_assistant_config(assistant_row)
             default_persona_id = assistant_row.default_persona_id
+
+            # The model the turn would actually run on, resolved exactly as
+            # AgentContext resolves it below. Checked here, above the
+            # create_conversation call, so a message that cannot be answered
+            # leaves nothing behind.
+            if not (assistant.model_name or event.model_name):
+                raise NoModelSelected
 
             if event.conversation_id is None:
                 title = (event.text[:80] + "...") if len(event.text) > 80 else event.text

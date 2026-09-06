@@ -58,6 +58,31 @@ data class ErrorEvent(
     val code: String = "",
 ) : ServerEvent
 
+/**
+ * The [ErrorEvent.code] values this client acts on.
+ *
+ * An open set, not an enum: the backend defines it and may add to it, so anything
+ * unrecognised has to fall through to the generic banner rather than fail to
+ * decode. [NO_MODEL_SELECTED] is a wire contract with the backend's
+ * `websocket/events.py`; the other two this client emits itself, and the backend
+ * never sends them.
+ */
+object WsErrorCodes {
+    /**
+     * The account has no model chosen yet, so the turn was refused before it began.
+     * Not a fault — a new account's `assistants.model_name` is NULL because
+     * provisioning cannot pick one — so it is shown as a prompt with a way onto the
+     * Assistant screen, not as an error (#149).
+     */
+    const val NO_MODEL_SELECTED = "NO_MODEL_SELECTED"
+
+    /** Synthesized locally when the socket drops; the reconnect handles it. */
+    const val CONNECTION_LOST = "CONNECTION_LOST"
+
+    /** Synthesized locally in debug builds for an event type the table misses (#92). */
+    const val UNKNOWN_EVENT = "UNKNOWN_EVENT"
+}
+
 @Serializable
 data class ToolApprovalRequestEvent(
     override val type: String = "tool_approval_request",

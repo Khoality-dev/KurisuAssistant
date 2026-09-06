@@ -206,12 +206,24 @@ seeded with the summary, and the persona binding is carried over.
 ```
 
 `code` is a string, not an HTTP status. Emitted values: `INTERNAL_ERROR` (with a
-log reference in the message), `QUEUE_FULL`, `NO_PERSONAS`, `NO_SUMMARY_MODEL`,
-`COMPACT_EMPTY`. `CANCELLED`, `TIMEOUT` and `UNAUTHORIZED` are declared on the
-dataclass.
+log reference in the message), `QUEUE_FULL`, `NO_PERSONAS`, `NO_MODEL_SELECTED`,
+`NO_SUMMARY_MODEL`, `COMPACT_EMPTY`. `CANCELLED`, `TIMEOUT` and `UNAUTHORIZED` are
+declared on the dataclass.
 
 An error is a transient notice: nothing is persisted for it, unlike a
 `stream_chunk`.
+
+**`NO_MODEL_SELECTED` is not a failure.** `provision_user` cannot pick a model for
+a new account, so `assistants.model_name` starts NULL and the account's very first
+message has nothing to run on. The check is in `_setup_conversation`, above the
+`create_conversation` call, so a rejected message leaves no conversation behind
+and nothing is saved; the model is resolved there exactly as the turn would
+resolve it (`assistants.model_name`, else this request's `model_name`), so a
+client that names its own model is unaffected. Both clients special-case the code
+and offer their own way onto the Assistant screen instead of an error — Settings →
+Assistant on desktop, a drawer entry on Android, which is why the sentence names
+the screen and not a path. A client that does not special-case it still shows
+`error`, which answers the question on its own.
 
 ### `vision_result`
 
@@ -236,7 +248,9 @@ An error is a transient notice: nothing is persisted for it, unlike a
 ```
 
 `conversation_id: null` creates a conversation, titled from the first 80
-characters of `text`.
+characters of `text` — unless the turn is refused for having no model, which is
+checked first precisely so that a message nobody can answer leaves no conversation
+behind.
 
 `persona_id` is an **optional per-turn override**. Omit it on an ordinary message:
 a new conversation silently adopts `assistants.default_persona_id` and an existing
@@ -244,7 +258,10 @@ one keeps its binding. Sending it rebinds the conversation, and the binding is
 persisted. The old, ignored `agent_id` field is **not** accepted — a client that
 still sends it is simply ignored, as before.
 
-`model_name` is only a fallback: `assistants.model_name` wins when it is set.
+`model_name` is only a fallback: `assistants.model_name` wins when it is set. Both
+first-party clients send `""` and let the server decide. When neither is set the
+turn is refused with `NO_MODEL_SELECTED` rather than run — an empty string counts
+as unset, since that is what the clients actually send.
 
 A `chat_request` that arrives while a turn is running is **queued**, not
 cancelled; the queue is merged into a single follow-up turn. Past 20 queued

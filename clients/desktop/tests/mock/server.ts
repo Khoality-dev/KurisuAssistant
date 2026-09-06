@@ -205,7 +205,10 @@ export class MockBackend {
     const assistant = opts.assistant ?? {};
     this.assistant = {
       id: assistant.id ?? 1,
-      model_name: assistant.model_name ?? 'test-model',
+      // `?? ` would swallow an explicit null, and null is the state under test:
+      // a fresh account whose model has never been chosen. Only an omitted field
+      // gets the default.
+      model_name: assistant.model_name === undefined ? 'test-model' : assistant.model_name,
       provider_type: assistant.provider_type ?? 'mock',
       available_tools: assistant.available_tools ?? null,
       think: assistant.think ?? false,
@@ -316,6 +319,15 @@ export class MockBackend {
 
   setTools(tools: { mcp?: MockTool[]; builtin?: MockTool[] }) {
     this.tools = { mcp: tools.mcp ?? this.tools.mcp, builtin: tools.builtin ?? this.tools.builtin };
+  }
+
+  /**
+   * Choose the assistant's model, or `null` for the state a brand-new account is
+   * in. With no model the next `chat_request` is refused with
+   * `NO_MODEL_SELECTED` instead of streaming, as the real server does.
+   */
+  setAssistantModel(model: string | null) {
+    this.assistant.model_name = model;
   }
 
   getPersonas(): ResolvedPersona[] {
@@ -947,6 +959,19 @@ export class MockBackend {
       if (event.type === 'chat_request') {
         cancelRequested = false;
         this.lastChatRequest = event;
+
+        // The real server refuses the turn when neither the assistant row nor the
+        // request names a model, before it creates a conversation — see
+        // backend/kurisuassistant/websocket/handlers.py. A new account is in
+        // exactly that state, so the mock has to be able to reproduce it.
+        if (!this.assistant.model_name && !event.model_name) {
+          send({
+            type: 'error',
+            error: 'No model is selected yet. Choose one on the Assistant screen, then send your message again.',
+            code: 'NO_MODEL_SELECTED',
+          });
+          return;
+        }
 
         let conv = event.conversation_id ? this.conversations.get(event.conversation_id) : undefined;
 

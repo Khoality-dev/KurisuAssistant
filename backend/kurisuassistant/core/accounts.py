@@ -7,6 +7,14 @@ and at least one persona for a conversation to bind to. A new conversation reads
 so an account missing either row can log in, see an empty chat, and get nothing
 back when it sends a message.
 
+Provisioning fills both rows but cannot fill the **model**: which one to use is a
+choice about the operator's own providers, and at registration there is no
+provider to ask and no answer to guess. So every new account starts with
+``assistants.model_name`` NULL and its first message cannot be answered. That is a
+setup step, not a fault, and the server says so in as many words rather than
+failing somewhere inside the provider — see :data:`NO_MODEL_SELECTED_DETAIL` and
+the ``NO_MODEL_SELECTED`` WebSocket error (#149).
+
 There is exactly one path that mints an account — registration — and it calls
 :func:`provision_user` in the same transaction. (There used to be a second: a
 seeded ``admin`` account at startup, removed in #148.) It is idempotent, so
@@ -85,4 +93,19 @@ def provision_user(session, user) -> None:
 # who can fix it rather than only that something is wrong.
 ACCOUNT_INACTIVE_DETAIL = (
     "This account is not activated yet. Ask the server operator to activate it."
+)
+
+# What a brand-new account gets back for its very first message. Same rule as
+# above: name the empty field and where to fill it, because the alternative — the
+# generic failure this replaces — reads as "the software is broken" rather than
+# "one setting is blank". Clients that recognise ``NO_MODEL_SELECTED`` turn this
+# into a button onto that screen; the rest still show a sentence that answers the
+# question on its own.
+#
+# It names the screen and not a path to it, because the path differs: the screen
+# is Settings → Assistant on desktop and a top-level drawer entry on Android. Each
+# client spells out its own route in its own copy.
+NO_MODEL_SELECTED_DETAIL = (
+    "No model is selected yet. Choose one on the Assistant screen, then send your "
+    "message again."
 )

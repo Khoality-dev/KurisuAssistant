@@ -8,6 +8,7 @@ import com.kurisu.assistant.data.model.ErrorEvent
 import com.kurisu.assistant.data.model.ServerEvent
 import com.kurisu.assistant.data.model.StreamChunkEvent
 import com.kurisu.assistant.data.model.ToolCallRequestEvent
+import com.kurisu.assistant.data.model.WsErrorCodes
 import com.kurisu.assistant.data.remote.websocket.WebSocketManager
 import io.mockk.every
 import io.mockk.just
@@ -192,10 +193,51 @@ class ChatStreamProcessorTest {
     @Test
     fun `ErrorEvent with CONNECTION_LOST is ignored`() = runTest {
         processor.startCollecting()
-        eventsFlow.emit(ErrorEvent(error = "dropped", code = "CONNECTION_LOST"))
+        eventsFlow.emit(ErrorEvent(error = "dropped", code = WsErrorCodes.CONNECTION_LOST))
         advanceUntilIdle()
 
         assertThat(processor.state.value.streamError).isNull()
+    }
+
+    @Test
+    fun `the error code reaches the state so the banner can tell setup from fault`() = runTest {
+        processor.startCollecting()
+        eventsFlow.emit(ErrorEvent(error = "bad thing", code = "BAD"))
+        advanceUntilIdle()
+
+        assertThat(processor.state.value.streamErrorCode).isEqualTo("BAD")
+    }
+
+    @Test
+    fun `NO_MODEL_SELECTED arrives as a code the chat screen can act on`() = runTest {
+        // The first message of a brand-new account. It is not a fault, and the
+        // screen offers the Assistant page instead of an error (#149) — which it
+        // can only do if the code survives alongside the sentence.
+        processor.startCollecting()
+        eventsFlow.emit(
+            ErrorEvent(
+                error = "No model is selected yet. Choose one on the Assistant screen, " +
+                    "then send your message again.",
+                code = WsErrorCodes.NO_MODEL_SELECTED,
+            ),
+        )
+        advanceUntilIdle()
+
+        assertThat(processor.state.value.streamErrorCode).isEqualTo(WsErrorCodes.NO_MODEL_SELECTED)
+        assertThat(processor.state.value.streamError).contains("Assistant")
+        assertThat(processor.state.value.isStreaming).isFalse()
+    }
+
+    @Test
+    fun `clearing the error clears its code too`() = runTest {
+        processor.startCollecting()
+        eventsFlow.emit(ErrorEvent(error = "bad thing", code = WsErrorCodes.NO_MODEL_SELECTED))
+        advanceUntilIdle()
+
+        processor.clearError()
+
+        assertThat(processor.state.value.streamError).isNull()
+        assertThat(processor.state.value.streamErrorCode).isNull()
     }
 
     @Test

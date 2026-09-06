@@ -18,6 +18,15 @@ export const WS_WIRE_SUBPROTOCOL_PREFIX = 'kurisu.wire.';
 // Reconnecting cannot fix it, so the socket manager stops retrying on it.
 export const WS_WIRE_PROTOCOL_MISMATCH = 4426;
 
+// `code` on the WebSocket `error` event when the account has no model chosen yet.
+// Not a failure: a new account's `assistants.model_name` is NULL because
+// provisioning cannot pick one, so its first message has nothing to run on. It is
+// handled apart from every other error code — a prompt that opens
+// Settings → Assistant, not the red toast — because it is the first thing a new
+// user meets and it is one click from fixed. Must match the code emitted by the
+// backend's websocket/handlers.py.
+export const WS_ERROR_NO_MODEL_SELECTED = 'NO_MODEL_SELECTED';
+
 // The Playwright MCP server, pinned to an exact version.
 //
 // It is fetched from the npm registry at spawn time — the package is not
