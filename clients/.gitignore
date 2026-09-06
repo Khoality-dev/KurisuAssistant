@@ -1,0 +1,2 @@
+# Installed at the workspace root: every member's dependencies hoist here.
+node_modules/
