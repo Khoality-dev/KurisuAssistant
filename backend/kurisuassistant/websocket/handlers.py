@@ -187,8 +187,14 @@ class ChatSessionHandler:
         try:
             message = parse_binary_message(data)
         except BinaryFrameError as e:
-            logger.warning("Rejected a binary message from user %d: %s", self.user_id, e)
-            await self.send_event(ErrorEvent(error=str(e), code="BAD_BINARY_MESSAGE"))
+            # The reason goes to the log with a reference the client can quote;
+            # the socket never echoes exception text, whatever produced it
+            # (tests/test_error_disclosure.py).
+            reference = log_internal_error(e, f"parsing a binary message from user {self.user_id}")
+            await self.send_event(ErrorEvent(
+                error=f"That binary message could not be read and was dropped. (reference: {reference})",
+                code="BAD_BINARY_MESSAGE",
+            ))
             return
 
         if message.type is BinaryMessageType.VISION_FRAME:
