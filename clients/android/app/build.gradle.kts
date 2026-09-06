@@ -12,9 +12,10 @@ plugins {
 }
 
 // Load release signing values from <repo-root>/.env (gitignored). See .env.template.
-// If .env is missing or any value is blank, fall back to debug signing — fine for local
-// builds, but APKs shipped to users will fail auto-update unless they're signed with the
-// stable release keystore.
+// A missing or blank value is NOT substituted: a release build without them fails in
+// `verifyReleaseSigning` below. It used to fall back to the debug key that ships in every
+// Android SDK install, which still produced an installable APK — one that cannot be shown
+// to come from this project and that no real release can ever upgrade (#100).
 //
 // Two ways to provide the keystore (matches the GitHub Actions release workflow):
 //   1. KURISU_KEYSTORE_BASE64  — the .jks file base64-encoded, inline in .env (preferred)
@@ -113,14 +114,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = if (hasReleaseSigning) {
-                signingConfigs.getByName("release")
-            } else {
-                logger.warn(
-                    "WARNING: .env is missing release signing values; " +
-                        "falling back to debug keystore. Auto-update will fail for users."
-                )
-                signingConfigs.getByName("debug")
+            // Only ever this project's own key. With none configured the build type
+            // carries no signing config at all and `verifyReleaseSigning` stops the
+            // build before it packages anything; the debug config stays where it
+            // belongs, on debug builds (#100).
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
             }
         }
     }
@@ -195,6 +194,72 @@ android {
             isReturnDefaultValues = true
         }
     }
+}
+
+// ── Release signing is not optional ──────────────────────────────────────────
+//
+// A release build used to succeed without any signing material by borrowing the
+// debug key that ships in every Android SDK install. The APK installed fine, so
+// nothing said that it could not be shown to come from this project, or that —
+// since signing identity decides upgrade eligibility — nobody who installed it
+// could ever be updated by a properly signed release (#100).
+//
+// The check runs when a release variant is actually built, not while Gradle
+// configures the project, so `assembleDevDebug`, `testDevDebugUnitTest` and an
+// IDE sync still work on a machine with no signing material at all. Unit and
+// instrumented test variants are exempt for the same reason: they are not
+// something anyone installs.
+val missingSigningValues: List<String> = buildList {
+    if (resolvedKeystoreFile == null) add("KURISU_KEYSTORE_BASE64 (or KURISU_KEYSTORE)")
+    if (releaseKeystorePassword == null) add("KURISU_KEYSTORE_PASSWORD")
+    if (releaseKeyAlias == null) add("KURISU_KEY_ALIAS")
+    if (releaseKeyPassword == null) add("KURISU_KEY_PASSWORD")
+}
+
+val verifyReleaseSigning = tasks.register("verifyReleaseSigning") {
+    group = "verification"
+    description = "Refuses to build a release variant without this project's signing key."
+    doFirst {
+        if (!hasReleaseSigning) {
+            throw GradleException(
+                buildString {
+                    appendLine("Cannot build a release variant: the signing material is missing.")
+                    appendLine()
+                    appendLine("Missing: ${missingSigningValues.joinToString(", ")}")
+                    appendLine()
+                    appendLine("A local build reads these from clients/android/.env, which is")
+                    appendLine("gitignored; the environment template lists the names. CI reads")
+                    appendLine("repository secrets of the same names, which the release workflow")
+                    appendLine("(.github/workflows/android-release.yml) writes into that file")
+                    appendLine("before it builds.")
+                    appendLine()
+                    appendLine("This used to fall back to the debug key that ships in every")
+                    appendLine("Android SDK install. That APK cannot be shown to come from this")
+                    appendLine("project, and no properly signed release can ever upgrade it, so")
+                    appendLine("it is refused rather than produced quietly (#100).")
+                    appendLine()
+                    append("For an installable build without the release key, build a debug ")
+                    append("variant instead: ./gradlew assembleProdDebug")
+                }
+            )
+        }
+    }
+}
+
+// Every task that packages a release variant, for either flavour. `pre*Build` is
+// included so the refusal arrives in a second rather than after a full compile.
+tasks.matching { task ->
+    val name = task.name
+    name.contains("Release") &&
+        !name.contains("UnitTest") &&
+        !name.contains("AndroidTest") &&
+        (
+            name.startsWith("package") ||
+                name.startsWith("bundle") ||
+                (name.startsWith("pre") && name.endsWith("Build"))
+            )
+}.configureEach {
+    dependsOn(verifyReleaseSigning)
 }
 
 dependencies {

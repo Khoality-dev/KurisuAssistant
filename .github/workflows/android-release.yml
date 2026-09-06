@@ -70,8 +70,9 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       # Decode the release keystore from the base64 secret. If the secret is
-      # missing, build.gradle.kts falls back to debug signing (with a warning),
-      # but the resulting APK won't be installable as an update over a real release.
+      # missing these two steps are skipped and the build step below FAILS,
+      # naming the values it needs — rather than publishing an APK signed with
+      # the debug key to the channel real users update from (#100).
       - name: Decode release keystore
         if: env.KURISU_KEYSTORE_BASE64 != ''
         run: |
