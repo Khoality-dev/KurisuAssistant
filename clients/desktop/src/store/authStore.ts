@@ -24,15 +24,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   login: async (username: string, password: string, rememberMe: boolean) => {
     const response = await apiClient.login(username, password);
 
-    if (rememberMe) {
-      storage.setToken(response.access_token);
-      storage.setRefreshToken(response.refresh_token);
-      storage.setRememberMe(true);
-    } else {
-      storage.clearToken();
-      storage.clearRefreshToken();
-      storage.setRememberMe(false);
-    }
+    // The window holds the tokens either way — the authed asset URLs read them
+    // from here, and with remember-me off they used to come back null. What the
+    // preference decides is whether they reach the keychain, which
+    // `storage.setToken` checks; so it is set first.
+    storage.setRememberMe(rememberMe);
+    storage.setToken(response.access_token);
+    storage.setRefreshToken(response.refresh_token);
 
     const user = await apiClient.getUserProfile();
     set({ isAuthenticated: true, user, rememberMe });
@@ -43,15 +41,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   register: async (username: string, password: string, email?: string, rememberMe: boolean = false) => {
     const response = await apiClient.register(username, password, email);
 
-    if (rememberMe) {
-      storage.setToken(response.access_token);
-      storage.setRefreshToken(response.refresh_token);
-      storage.setRememberMe(true);
-    } else {
-      storage.clearToken();
-      storage.clearRefreshToken();
-      storage.setRememberMe(false);
-    }
+    // The window holds the tokens either way — the authed asset URLs read them
+    // from here, and with remember-me off they used to come back null. What the
+    // preference decides is whether they reach the keychain, which
+    // `storage.setToken` checks; so it is set first.
+    storage.setRememberMe(rememberMe);
+    storage.setToken(response.access_token);
+    storage.setRefreshToken(response.refresh_token);
 
     const user = await apiClient.getUserProfile();
     set({ isAuthenticated: true, user, rememberMe });
@@ -61,8 +57,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: () => {
     apiClient.clearToken();
-    storage.clearToken();
-    storage.clearRefreshToken();
+    storage.clearTokens();
     storage.setRememberMe(false);
     storage.clearAllPersonaConversations();
     set({ isAuthenticated: false, user: null, rememberMe: false });
@@ -77,6 +72,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Drop the pre-split cache keys once per launch. Both were caches that
     // re-derive from the backend, so there is nothing to migrate.
     storage.clearLegacyAgentKeys();
+
+    // Tokens live in the OS keychain, so they have to be fetched before any
+    // read of them. This also migrates a pair left in localStorage by an
+    // older build.
+    await storage.loadPersistedTokens();
 
     const token = storage.getToken();
     const refreshToken = storage.getRefreshToken();
@@ -106,8 +106,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       useToolPermissionsStore.getState().loadPolicies();
     } catch {
       // Both tokens are invalid — clear everything
-      storage.clearToken();
-      storage.clearRefreshToken();
+      storage.clearTokens();
       storage.setRememberMe(false);
       apiClient.clearToken();
       set({ isAuthenticated: false, user: null, rememberMe: false });

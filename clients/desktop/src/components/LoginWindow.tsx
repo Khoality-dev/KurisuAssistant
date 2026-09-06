@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Button,
@@ -26,6 +26,16 @@ export const LoginWindow: React.FC = () => {
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  // Whether there is an OS keychain to keep a session in. Asked directly rather
+  // than read from `storage`, so the answer does not depend on whether
+  // `initializeAuth` has finished before this form renders.
+  const [tokenStorageSecure, setTokenStorageSecure] = useState(true);
+
+  useEffect(() => {
+    const bridge = window.electron?.credentials;
+    if (!bridge) return;
+    bridge.isSecure().then(setTokenStorageSecure).catch(() => setTokenStorageSecure(true));
+  }, []);
 
   const setServerUrl = (url: string) => {
     setServerUrlState(url);
@@ -128,7 +138,8 @@ export const LoginWindow: React.FC = () => {
           <FormControlLabel
             control={
               <Checkbox
-                checked={rememberMe}
+                checked={rememberMe && tokenStorageSecure}
+                disabled={!tokenStorageSecure}
                 onChange={(e) => setRememberMe(e.target.checked)}
                 color="primary"
               />
@@ -136,6 +147,14 @@ export const LoginWindow: React.FC = () => {
             label="Remember me"
             sx={{ mt: 2 }}
           />
+          {/* Staying signed in means writing a 30-day credential to disk, and
+              this build only does that into the OS keychain. Without one there
+              is nowhere safe to put it, so say so rather than fail quietly. */}
+          {!tokenStorageSecure && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              This system has no keychain available, so the session ends when the app closes.
+            </Typography>
+          )}
 
           {error && (
             <Alert severity="error" sx={{ mt: 2 }}>

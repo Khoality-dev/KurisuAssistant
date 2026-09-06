@@ -144,6 +144,16 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('mcp:revoke-approved-spawn', commandLine),
   },
 
+  // Session tokens, kept in the OS keychain by the main process rather than in
+  // localStorage. The renderer holds them in memory for the life of a window.
+  credentials: {
+    isSecure: () => ipcRenderer.invoke('credentials:is-secure'),
+    read: () => ipcRenderer.invoke('credentials:read'),
+    write: (credentials: { accessToken: string | null; refreshToken: string | null }) =>
+      ipcRenderer.invoke('credentials:write', credentials),
+    clear: () => ipcRenderer.invoke('credentials:clear'),
+  },
+
   // The app's own MCP endpoint — the one external clients connect *to*.
   mcpServer: {
     getInfo: () => ipcRenderer.invoke('mcp-server:get-info'),

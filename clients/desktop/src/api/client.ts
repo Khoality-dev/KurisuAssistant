@@ -130,11 +130,11 @@ class APIClient {
       this.token = newToken;
       wsManager.setToken(newToken);
 
-      // Persist if remember-me is on
+      // Into memory always, and on to the keychain if remember-me is on —
+      // `storage.setToken` makes that call, so the refreshed token no longer
+      // goes missing from the authed asset URLs when it is off.
       const { storage } = await import('../utils/storage');
-      if (storage.getRememberMe()) {
-        storage.setToken(newToken);
-      }
+      storage.setToken(newToken);
       return newToken;
     })().finally(() => {
       this.refreshPromise = null;
