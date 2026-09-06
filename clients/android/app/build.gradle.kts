@@ -84,6 +84,14 @@ android {
         // every request via WireProtocolInterceptor and checked once on
         // startup against `GET /version`.
         buildConfigField("int", "WIRE_PROTOCOL", "4")
+        // Without this AGP falls back to the pre-AndroidX
+        // android.test.InstrumentationTestRunner, which crashes on start —
+        // the androidTest suite had never actually run (#126).
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // One process and a wiped data directory per test: the voice service and
+        // the per-persona conversation cache otherwise leak from one full-app
+        // test into the next (see e2e/MockBackendChatTest).
+        testInstrumentationRunnerArguments["clearPackageData"] = "true"
     }
 
     signingConfigs {
@@ -126,6 +134,8 @@ android {
             dimension = "channel"
             // Prod uses GitHub Releases for auto-update — local URL not needed.
             buildConfigField("String", "DEV_UPDATE_BASE_URL", "\"\"")
+            // The instrumented suite is a dev-flavour affair; prod carries no test URL.
+            buildConfigField("String", "MOCK_BACKEND_URL", "\"\"")
         }
         create("dev") {
             dimension = "channel"
@@ -136,7 +146,21 @@ android {
             // machine without touching source. Empty value disables the check.
             val devUpdateUrl = env("KURISU_DEV_UPDATE_URL") ?: ""
             buildConfigField("String", "DEV_UPDATE_BASE_URL", "\"$devUpdateUrl\"")
+            // Where the instrumented tests (androidTest/) expect the standalone
+            // mock backend — `npm run mock:backend -- --host 0.0.0.0` in
+            // clients/desktop. 10.0.2.2 is the emulator's route to the host;
+            // override per run with -PmockBackendUrl=http://... (#126).
+            val mockBackendUrl = (project.findProperty("mockBackendUrl") as String?)
+                ?: "http://10.0.2.2:15597"
+            buildConfigField("String", "MOCK_BACKEND_URL", "\"$mockBackendUrl\"")
         }
+    }
+
+    // mockk-android pulls JUnit 5 jars whose META-INF licence files collide
+    // when the androidTest APK is packaged; without this the instrumented
+    // suite cannot even build.
+    packaging {
+        resources.excludes += setOf("META-INF/LICENSE.md", "META-INF/LICENSE-notice.md")
     }
 
     // Tag the APK filename with flavor + buildType + version so files dropped
@@ -165,6 +189,7 @@ android {
     }
 
     testOptions {
+        execution = "ANDROIDX_TEST_ORCHESTRATOR"
         unitTests {
             isIncludeAndroidResources = true
             isReturnDefaultValues = true
@@ -261,5 +286,6 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     androidTestImplementation("io.mockk:mockk-android:1.13.12")
+    androidTestUtil("androidx.test:orchestrator:1.5.0")
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 }

@@ -73,37 +73,30 @@ editor. "Calls you" is what the persona calls *you*, not a display name for the 
 
 ## Regenerating these
 
-The app needs a backend holding fixture content. **Run that backend from a copy of `backend/`, not
-from the working tree** — `core/paths.py` resolves `data/` from the source tree and ignores any
-override, so a real run reads and writes the live data directory.
+The app is driven against the **standalone mock backend** from the desktop package — never a
+deployed one (the rule in `CLAUDE.md`). Its scenarios are the transcripts: `tool-call` gives a tool
+rail, `sub-agent` a delegated step, `handoff` two speakers; see
+[`../../desktop/docs/testing.md`](../../desktop/docs/testing.md#the-standalone-mock) for the list.
 
 ```bash
-# 1. A throwaway database and a copy of the server
-docker run -d --name kurisu-shots -e POSTGRES_USER=kurisu -e POSTGRES_PASSWORD=kurisu \
-  -e POSTGRES_DB=kurisu -p 55432:5432 pgvector/pgvector:pg16
-cp -r backend /tmp/fixture-backend      # then delete /tmp/fixture-backend/data
-cd /tmp/fixture-backend/kurisuassistant/db && \
-  POSTGRES_HOST=localhost POSTGRES_PORT=55432 alembic upgrade head
-cd /tmp/fixture-backend && POSTGRES_HOST=localhost POSTGRES_PORT=55432 ALLOW_REGISTRATION=true \
-  python -m uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15599
+# 1. The mock, reachable from the emulator (10.0.2.2 is its route to the host)
+cd clients/desktop && npm ci && npm run mock:backend -- --host 0.0.0.0 --port 15597 --scenario tool-call
 
-# 2. Seed personas, sub-agents, skills and MCP servers through the API,
-#    and conversations directly in SQL (no LLM is needed for a transcript).
+# 2. Any username and password sign in; send a message to produce the transcript.
 
 # 3. A headless emulator
 emulator -avd <avd> -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
 ./gradlew :app:assembleDevDebug
 adb install -r -g app/build/outputs/apk/dev/debug/*.apk
 
-# 4. Point the app at http://10.0.2.2:15599 — the emulator's route to the host —
-#    then drive and capture.
+# 4. Point the app at http://10.0.2.2:15597, sign in, then drive and capture.
 adb shell uiautomator dump /sdcard/ui.xml   # element bounds, to tap precisely
 adb exec-out screencap -p > shot.png
 ```
 
 Two things that cost time when they are wrong:
 
-- `tool_status` on a seeded tool message must be one of `success`, `error` or `denied`. Anything
+- `tool_status` on a scripted tool chunk must be one of `success`, `error` or `denied`. Anything
   else falls through to "running", which looks like a UI bug and is not one.
 - The emulator's software GPU is slow enough to raise "System UI isn't responding". Dismiss it and
   carry on; it is not the app.
