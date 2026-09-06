@@ -143,6 +143,13 @@ services:
     restart: unless-stopped
 
   api:
+    # Logs are capped: the default json-file driver grows without limit, and
+    # this service logs every request at INFO for the life of the deployment.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     build:
       context: .
       dockerfile: Dockerfile
@@ -219,6 +226,11 @@ services:
     restart: unless-stopped
 
   postgres:
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     image: pgvector/pgvector:pg16
     container_name: postgres-container
     environment:

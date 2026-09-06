@@ -16,14 +16,16 @@
 # volume, own alembic_version) and ./data (images, avatars, character assets,
 # voice uploads, JWT secret). None of it is shared with production.
 #
-# Shared with production: the GPU services (universal-voice, vixtts,
-# gpt-sovits), reached over production's compose network, and Ollama over
-# `central`. They are stateless as far as the API is concerned — the API
-# uploads the voice reference with every TTS request — so a second copy would
-# only cost GPU memory.
+# Self-contained on purpose. It used to attach to two external networks —
+# `central` and production's `kurisuassistant_default` — to borrow that machine's
+# Ollama and GPU services, which meant this file, the one the contributor docs
+# tell you to run, could not start on a machine that had never run the
+# production stack. Point LLM_API_URL wherever your model server is (the base
+# file's default reaches the host's), and add the speech profiles or an override
+# file if you want them.
 #
-# Publishes no port and is not part of any reverse-proxy setup. Reach this
-# instance on the docker network, or add a `ports:` mapping here while you need it.
+# Publishes API_DEV_PORT (15598) on loopback only, so it cannot collide with a
+# deployment's 15597.
 
 name: kurisuassistant-dev
 
@@ -55,13 +57,10 @@ services:
     ports: !override
       - "127.0.0.1:${API_DEV_PORT:-15598}:15597"
     environment:
-      # Never the bare `postgres`: this container also sits on production's
-      # network, where that name resolves to the production database.
+      # Its own database, never the deployment's.
       - POSTGRES_HOST=postgres-dev
     networks:
       - default
-      - central
-      - kurisu-prod
 
   postgres-dev:
     extends:
@@ -71,13 +70,6 @@ services:
 
 networks:
   default:
-  central:
-    external: true
-    name: central
-  # Production's project network, for universal-voice / vixtts / gpt-sovits.
-  kurisu-prod:
-    external: true
-    name: kurisuassistant_default
 
 volumes:
   # Becomes kurisuassistant-dev_postgres-data — separate from production's.
