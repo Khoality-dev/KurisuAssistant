@@ -14,6 +14,7 @@ import type { FileEntry } from '@kurisu/models';
 import { useExplorerStore } from '../../store/explorerStore';
 import { DRIVE_ROOT_LABEL, dirnameOf, fileSource, isDrivePath } from '../../api/fileSource';
 import { DriveQuotaBar } from './DriveQuotaBar';
+import { resolveBridge } from '@kurisu/platform';
 
 interface TreeNode {
   entry: FileEntry;
@@ -157,7 +158,7 @@ export const FileTreeSidebar: React.FC<FileTreeSidebarProps> = ({ rootPath, show
   useEffect(() => {
     // `''` is a real root here — the sources listing — so an empty string only
     // means "nothing yet" when no rootPath was given at all.
-    if (!window.electron?.explorer || (!treeRoot && !isSourcesTree)) {
+    if ((!resolveBridge().files && !isDrivePath(treeRoot ?? '')) || (!treeRoot && !isSourcesTree)) {
       setRootNodes([]);
       setIsLoadingRoots(false);
       return;

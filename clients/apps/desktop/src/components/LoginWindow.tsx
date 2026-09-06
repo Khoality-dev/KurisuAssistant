@@ -14,6 +14,7 @@ import {
 import { motion } from 'framer-motion';
 import { useAuthStore } from '../store/authStore';
 import { storage } from '../utils/storage';
+import { resolveBridge } from '@kurisu/platform';
 
 const MotionPaper = motion(Paper);
 
@@ -89,16 +90,18 @@ export const LoginWindow: React.FC = () => {
           Your AI-powered chat assistant
         </Typography>
 
-        <TextField
-          fullWidth
-          label="Server URL"
-          value={serverUrl}
-          onChange={(e) => setServerUrl(e.target.value)}
-          margin="normal"
-          size="small"
-          placeholder="http://localhost:15597"
-          sx={{ mb: 2 }}
-        />
+        {resolveBridge().capabilities.configurableServer && (
+          <TextField
+            fullWidth
+            label="Server URL"
+            value={serverUrl}
+            onChange={(e) => setServerUrl(e.target.value)}
+            margin="normal"
+            size="small"
+            placeholder="http://localhost:15597"
+            sx={{ mb: 2 }}
+          />
+        )}
 
         <Tabs value={tab} onChange={(_, v) => setTab(v)} centered sx={{ mb: 3 }}>
           <Tab label="Login" />

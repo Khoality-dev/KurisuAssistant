@@ -53,6 +53,14 @@ export interface Capabilities {
   characterWindow: boolean;
   /** A file transfer reports progress and can be cancelled. */
   transferProgress: boolean;
+  /**
+   * The backend address is the user's to choose.
+   *
+   * An installed app has to be told where its server is. A build served *by*
+   * that server already knows, and pointing it anywhere else would make every
+   * call cross-origin — so for it this is false and the field is not shown.
+   */
+  configurableServer: boolean;
 }
 
 /**

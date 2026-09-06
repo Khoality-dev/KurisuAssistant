@@ -237,7 +237,7 @@ export const ExtensionsSection: React.FC = () => {
   // Poll health for all extensions
   const checkStatuses = useCallback(async () => {
     for (const ext of EXTENSIONS) {
-      const data = await window.electron.extensions.checkHealth(ext.healthUrl);
+      const data = await window.electron?.extensions?.checkHealth(ext.healthUrl);
       if (data && data.status === 'ok') {
         setStatuses((prev) => ({
           ...prev,
@@ -306,7 +306,7 @@ export const ExtensionsSection: React.FC = () => {
 
   // Listen for download progress
   useEffect(() => {
-    const cleanup = window.electron.extensions.onDownloadProgress((progress) => {
+    const cleanup = window.electron?.extensions?.onDownloadProgress((progress) => {
       setDownloadProgress(progress.percent);
     });
     return cleanup;

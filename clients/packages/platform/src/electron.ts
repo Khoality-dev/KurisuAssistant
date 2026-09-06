@@ -36,6 +36,7 @@ export function electronBridge(): PlatformBridge | null {
       mcpEndpoint: true,
       characterWindow: true,
       transferProgress: true,
+      configurableServer: true,
     },
     files: api.explorer,
     transfers: api.drive,

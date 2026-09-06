@@ -25,6 +25,7 @@ export function webBridge(): PlatformBridge {
       mcpEndpoint: false,
       characterWindow: false,
       transferProgress: false,
+      configurableServer: false,
     },
     files: null,
     transfers: null,
