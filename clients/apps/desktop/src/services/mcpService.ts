@@ -34,7 +34,8 @@ export async function initClientMCPServers(): Promise<void> {
   // Nothing to register when the host lends no tools of its own: a browser has
   // no shell, no child processes and no apps to drive, so the backend's own
   // tools are the whole set.
-  const { capabilities } = resolveBridge();
+  const bridge = resolveBridge();
+  const { capabilities } = bridge;
   if (!capabilities.hostTools && !capabilities.stdioMcp && !capabilities.hostApps) {
     return;
   }
@@ -47,11 +48,11 @@ export async function initClientMCPServers(): Promise<void> {
   initializing = true;
 
   // Always collect built-in tools (host, app) regardless of MCP state
-  const hostTools = resolveBridge().hostTools
-    ? await resolveBridge().hostTools.listTools().catch(() => [])
+  const hostTools = bridge.hostTools
+    ? await bridge.hostTools.listTools().catch(() => [])
     : [];
-  const appTools = resolveBridge().appTools
-    ? await resolveBridge().appTools.listTools().catch(() => [])
+  const appTools = bridge.appTools
+    ? await bridge.appTools.listTools().catch(() => [])
     : [];
   const builtinTools = [...hostTools, ...appTools];
 
@@ -64,9 +65,10 @@ export async function initClientMCPServers(): Promise<void> {
   // consent and no version. It is opt-in now (Settings → Tools & MCP), pinned,
   // and — like any stdio server — subject to the spawn prompt in the main
   // process the first time that command line runs.
-  if (resolveBridge().mcp?.startServer && (await resolveBridge().mcp.getPlaywrightAutostart())) {
+  const mcp = bridge.mcp;
+  if (mcp?.startServer && (await mcp.getPlaywrightAutostart())) {
     try {
-      const result = await resolveBridge().mcp.startServer({
+      const result = await mcp.startServer({
         name: 'Playwright',
         transport_type: 'stdio',
         command: 'npx',
@@ -84,9 +86,7 @@ export async function initClientMCPServers(): Promise<void> {
 
   try {
     // Discover tools from all locally running MCP servers (Playwright + any started by settings UI)
-    const mcpTools = resolveBridge().mcp
-      ? await resolveBridge().mcp.listTools()
-      : [];
+    const mcpTools = mcp ? await mcp.listTools() : [];
 
     clientTools = [...builtinTools, ...mcpTools];
 
@@ -149,12 +149,13 @@ function setupToolCallHandler(): void {
   }
 
   toolCallHandler = async (event: ToolCallRequestEvent) => {
+    const bridge = resolveBridge();
     try {
       // Check if this is an app config tool (agent settings, MCP servers, vision)
-      if (resolveBridge().appTools) {
-        const isApp = await resolveBridge().appTools.isAppTool(event.tool_name);
+      if (bridge.appTools) {
+        const isApp = await bridge.appTools.isAppTool(event.tool_name);
         if (isApp) {
-          const result = await resolveBridge().appTools.callTool(
+          const result = await bridge.appTools.callTool(
             event.tool_name,
             event.tool_args,
           );
@@ -168,10 +169,10 @@ function setupToolCallHandler(): void {
       }
 
       // Check if this is a host tool (file read/write/edit, search, bash)
-      if (resolveBridge().hostTools) {
-        const isHost = await resolveBridge().hostTools.isHostTool(event.tool_name);
+      if (bridge.hostTools) {
+        const isHost = await bridge.hostTools.isHostTool(event.tool_name);
         if (isHost) {
-          const result = await resolveBridge().hostTools.callTool(
+          const result = await bridge.hostTools.callTool(
             event.tool_name,
             event.tool_args,
           );
@@ -185,7 +186,7 @@ function setupToolCallHandler(): void {
       }
 
       // Fall through to MCP tools
-      if (!resolveBridge().mcp) {
+      if (!bridge.mcp) {
         wsManager.sendToolCallResponse(
           event.request_id,
           'Electron MCP not available',
@@ -194,7 +195,7 @@ function setupToolCallHandler(): void {
         return;
       }
 
-      const result = await resolveBridge().mcp.callTool(
+      const result = await bridge.mcp.callTool(
         event.tool_name,
         event.tool_args,
       );
@@ -233,8 +234,9 @@ export function getClientTools() {
  * Get client-side tools grouped by server name.
  */
 export async function getClientToolsByServer(): Promise<Record<string, typeof clientTools>> {
-  if (!resolveBridge().mcp) return {};
-  return resolveBridge().mcp.listToolsByServer();
+  const mcp = resolveBridge().mcp;
+  if (!mcp) return {};
+  return mcp.listToolsByServer();
 }
 
 // Auto-initialize on WebSocket connect
