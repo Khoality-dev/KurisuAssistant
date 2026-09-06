@@ -56,24 +56,38 @@ const MAIN_ENTRY = path.join(PROJECT_ROOT, 'dist-electron', 'main.js');
  * correct, not a workaround.
  */
 async function shutDown(app: ElectronApplication): Promise<void> {
+  // Read the pid while the app object is still live. Once Playwright has
+  // disposed it, `app.process()` throws — and a timer that ran late did
+  // exactly that during the *next* test, which Playwright then failed with an
+  // uncaught TypeError from a fixture the test had never touched.
+  let pid: number | undefined;
+  try { pid = app.process().pid; } catch { pid = undefined; }
+
   // Playwright launches Electron detached, so its pid is a process-group id and
   // a negative pid kills the whole tree: main, zygote, GPU and renderers.
   // Killing only the parent leaves orphans holding the stdio pipes open, and
   // Playwright's launcher waits for those pipes to close before it considers
-  // the app gone — which is what the worker sat on for sixty seconds.
+  // the app gone.
   const kill = () => {
-    const pid = app.process().pid;
     if (!pid) return;
-    try { process.kill(-pid, 'SIGKILL'); } catch { /* no group: fall through */ }
-    try { app.process().kill('SIGKILL'); } catch { /* already gone */ }
+    try { process.kill(-pid, 'SIGKILL'); } catch { /* no group, or already gone */ }
+    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
   };
+
+  let timer: NodeJS.Timeout | undefined;
   try {
     await Promise.race([
       app.close(),
-      new Promise<void>((resolve) => setTimeout(() => { kill(); resolve(); }, 3_000)),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => { kill(); resolve(); }, 3_000);
+      }),
     ]);
   } catch {
     kill();
+  } finally {
+    // The clean close usually wins; the timer must not outlive this call and
+    // fire into whatever test runs next.
+    if (timer) clearTimeout(timer);
   }
 }
 
