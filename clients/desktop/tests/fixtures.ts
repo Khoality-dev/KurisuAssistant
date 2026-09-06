@@ -102,7 +102,14 @@ export const test = base.extend<Fixtures>({
     }
 
     const app = await electron.launch({
-      args: [MAIN_ENTRY],
+      // `--no-sandbox` on Linux only, and only here in the tests: Ubuntu 24.04,
+      // which is what `ubuntu-latest` is, blocks the unprivileged user
+      // namespaces Chromium's sandbox needs, and Electron 43 hangs on shutdown
+      // rather than failing outright — every test passes and then the worker
+      // dies with "Worker teardown timeout". Windows and the Playwright
+      // container are unaffected, which is why this only ever showed on CI.
+      // The shipped app is not launched this way.
+      args: process.platform === 'linux' ? [MAIN_ENTRY, '--no-sandbox'] : [MAIN_ENTRY],
       cwd: PROJECT_ROOT,
       env: {
         ...process.env,
