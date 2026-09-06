@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, protocol, shell, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, session, shell, Tray, Menu, nativeImage } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import https from 'https';
@@ -12,6 +12,7 @@ import { registerExplorerIPC } from './explorerIPC';
 import { startMcpServer, stopMcpServer, registerMcpServerIPC } from './mcpServer';
 import { loadSettings, saveSettings } from './settings';
 import { registerCredentialsIPC } from './credentials';
+import { buildContentSecurityPolicy, isAllowedNavigation, isExternallyOpenable } from './webSecurity';
 
 // Set custom cache path to avoid permission issues on Windows.
 // In E2E tests we point userData at an isolated temp dir so the single-instance
@@ -111,6 +112,33 @@ function focusMainWindow(): void {
   createWindow();
 }
 
+/**
+ * Refuse to be navigated or to spawn windows, on every renderer (#90).
+ *
+ * A link in an assistant message, or a redirect from a backend that has been
+ * taken over, would otherwise load a remote page inside a window that has this
+ * app's preload attached. http(s) targets go to the system browser, where they
+ * have no reach into this process.
+ */
+function hardenNavigation(window: BrowserWindow): void {
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isExternallyOpenable(url)) {
+      void shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
+  window.webContents.on('will-navigate', (event, url) => {
+    if (isAllowedNavigation(url, devServerUrl)) return;
+    event.preventDefault();
+    if (isExternallyOpenable(url)) {
+      void shell.openExternal(url);
+    }
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -125,6 +153,8 @@ function createWindow() {
     frame: true,
     titleBarStyle: 'default',
   });
+
+  hardenNavigation(mainWindow);
 
   // Load the app
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -173,6 +203,8 @@ function createCharacterWindow() {
     },
     frame: false,
   });
+
+  hardenNavigation(characterWindow);
 
   characterWindow.setAspectRatio(2 / 3);
 
@@ -392,6 +424,22 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
 
 app.whenReady().then(() => {
   initAutoLaunch();
+
+  // A Content-Security-Policy on every response the renderer receives (#90).
+  // Set here rather than in index.html so it also covers the documents served
+  // through the file: and local-file: handlers below, which never pass through
+  // that markup. Skipped when a dev server is running — see webSecurity.ts.
+  if (!process.env.VITE_DEV_SERVER_URL) {
+    const policy = buildContentSecurityPolicy();
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [policy],
+        },
+      });
+    });
+  }
 
   // Intercept file:// requests to serve asar-unpacked files (WASM/ONNX can't load from asar).
   // We must use fs.readFileSync (which Electron patches for asar support) instead of
