@@ -210,3 +210,50 @@ class TestReadText:
         key = await self._store(tmp_path, monkeypatch, payload)
         with pytest.raises(ValueError):
             await drive_storage.read_text(1, key, 1024)
+
+
+class TestIncomingSweep:
+    """A killed process leaves a part-file behind, and nothing counts it.
+
+    `store_stream` cleans up after itself on every exception, including a client
+    hanging up — but not when the process dies outright, and the quota is the
+    sum of the *rows*, so an orphan is disk nobody can see or reclaim.
+    """
+
+    async def _upload(self, tmp_path, monkeypatch, payload=b"x"):
+        monkeypatch.setattr(drive_storage, "DRIVE_DIR", tmp_path)
+
+        async def _one():
+            yield payload
+
+        return await drive_storage.store_stream(1, _one(), quota_remaining=10_000)
+
+    async def test_an_old_part_file_is_swept_on_the_next_upload(
+        self, tmp_path, monkeypatch
+    ):
+        import os
+        import time
+
+        monkeypatch.setattr(drive_storage, "DRIVE_DIR", tmp_path)
+        incoming = drive_storage.user_dir(1) / ".incoming"
+        incoming.mkdir(parents=True)
+        orphan = incoming / "abandoned"
+        orphan.write_bytes(b"half an upload")
+        old = time.time() - drive_storage.INCOMING_MAX_AGE_SECONDS - 60
+        os.utime(orphan, (old, old))
+
+        await self._upload(tmp_path, monkeypatch)
+
+        assert not orphan.exists()
+
+    async def test_a_fresh_part_file_is_left_alone(self, tmp_path, monkeypatch):
+        """It may belong to an upload that is still running."""
+        monkeypatch.setattr(drive_storage, "DRIVE_DIR", tmp_path)
+        incoming = drive_storage.user_dir(1) / ".incoming"
+        incoming.mkdir(parents=True)
+        in_flight = incoming / "still-going"
+        in_flight.write_bytes(b"in progress")
+
+        await self._upload(tmp_path, monkeypatch)
+
+        assert in_flight.exists()

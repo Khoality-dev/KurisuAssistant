@@ -100,6 +100,12 @@ whole body into memory first, so their size ceiling is checked after the upload
 has already been paid for. Here the file ceiling and the account's quota are both
 enforced as the bytes arrive.
 
+A part-file is unlinked on every exception, including a client hanging up — but
+not when the process is killed outright, and an orphan there counts against no
+quota, because the quota is the sum of the *rows*. So each upload first sweeps
+its own account's `.incoming` of anything older than a day. Self-healing, and one
+listdir of a directory that is normally empty.
+
 Behind nginx, `location /drive/` sets `proxy_request_buffering off` — otherwise
 nginx spools the entire body to its own disk before the API sees a byte, which
 turns the incremental write back into a copy plus a wait.

@@ -151,6 +151,7 @@ async def store_stream(
     """
     incoming = user_dir(user_id) / ".incoming"
     await anyio.to_thread.run_sync(lambda: incoming.mkdir(parents=True, exist_ok=True))
+    await anyio.to_thread.run_sync(_sweep_incoming, incoming)
 
     storage_key = uuid.uuid4().hex
     temp_path = incoming / storage_key
@@ -193,6 +194,36 @@ async def store_stream(
         # cancellation rather than an exception the handler would catch.
         await anyio.to_thread.run_sync(lambda: temp_path.unlink(missing_ok=True))
         raise
+
+
+#: How long a part-file may sit in ``.incoming`` before it is assumed abandoned.
+#: Comfortably longer than any upload the ceiling above allows.
+INCOMING_MAX_AGE_SECONDS = 24 * 60 * 60
+
+
+def _sweep_incoming(incoming: Path) -> None:
+    """Remove part-files nothing is writing any more.
+
+    ``store_stream`` unlinks its own temp file on every exception, including a
+    client hanging up — but not when the process is killed outright, and those
+    orphans count against no quota because the quota is the sum of the rows.
+    Sweeping here rather than on a schedule keeps it self-healing and costs one
+    listdir of a directory that is normally empty.
+    """
+    from time import time
+
+    cutoff = time() - INCOMING_MAX_AGE_SECONDS
+    try:
+        entries = list(incoming.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        try:
+            if entry.is_file() and entry.stat().st_mtime < cutoff:
+                entry.unlink(missing_ok=True)
+        except OSError:
+            # Another request may be mid-upload into it; leave it alone.
+            continue
 
 
 async def read_text(user_id: int, storage_key: str, max_bytes: int) -> Tuple[str, bool]:
