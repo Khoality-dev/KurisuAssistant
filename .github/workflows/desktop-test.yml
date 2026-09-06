@@ -95,9 +95,6 @@ jobs:
       - name: Run Playwright tests (Linux, under xvfb)
         if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:e2e
-      - name: What is still running after the tests (Linux)
-        if: always() && runner.os == 'Linux'
-        run: ps -eo pid,ppid,stat,etime,cmd | grep -iE 'electron|xvfb|chrome' | grep -v grep || echo "nothing lingering"
 
       - name: Run Playwright tests (Windows)
         if: runner.os == 'Windows'

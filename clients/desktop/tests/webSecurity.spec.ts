@@ -18,21 +18,18 @@ import { test, expect } from './fixtures';
 const REMOTE = 'https://blocked.invalid/';
 
 test.describe('window navigation guards', () => {
-  // BISECT, one run only: does the worker still fail to shut down without
-  // these two? If yes, the hang is Electron 43 on this runner, not the tests.
-  test.skip(({ browserName }) => process.platform === 'linux', 'bisecting the Linux teardown hang');
-
   test('window.open on a remote URL creates no second renderer', async ({ page, electronApp }) => {
     const before = electronApp.windows().length;
 
-    // Fire and forget. When the guard blocks the attempt Chromium can leave the
-    // renderer with a pending navigation, and then the evaluate call's own
-    // promise never settles — which is a hang on Linux CI rather than a
-    // failure, at exactly the test timeout. What is being asserted is what the
-    // app did, not what the injected script returned.
-    void page
-      .evaluate((url) => { window.open(url, '_blank'); }, REMOTE)
-      .catch(() => { /* the context may go away mid-call; that is the point */ });
+    // The attempt is made from a timer so this evaluate returns *before* the
+    // renderer tries anything. An evaluate that is still in flight when the
+    // guard fires never gets its answer, and Playwright will not close an app
+    // with a call outstanding — on Linux CI that was a worker that could not
+    // shut down after every test had passed. The attempt stays
+    // renderer-initiated, which is what `setWindowOpenHandler` sees.
+    await page.evaluate((url) => {
+      setTimeout(() => { window.open(url, '_blank'); }, 0);
+    }, REMOTE);
 
     // Give a window time to appear if the guard were missing, then assert none did.
     await page.waitForTimeout(1_500);
@@ -52,9 +49,11 @@ test.describe('window navigation guards', () => {
       .toBeVisible();
     const before = page.url();
 
-    void page
-      .evaluate((url) => { window.location.href = url; }, REMOTE)
-      .catch(() => { /* see above: a blocked navigation can strand the call */ });
+    // Same shape as above, and for the same reason. `page.goto` would not do:
+    // that is a browser-initiated navigation, which `will-navigate` never sees.
+    await page.evaluate((url) => {
+      setTimeout(() => { window.location.href = url; }, 0);
+    }, REMOTE);
     await page.waitForTimeout(1_500);
 
     expect(page.url()).toBe(before);

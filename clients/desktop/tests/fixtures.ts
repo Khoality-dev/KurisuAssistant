@@ -56,7 +56,15 @@ const MAIN_ENTRY = path.join(PROJECT_ROOT, 'dist-electron', 'main.js');
  * correct, not a workaround.
  */
 async function shutDown(app: ElectronApplication): Promise<void> {
+  // Playwright launches Electron detached, so its pid is a process-group id and
+  // a negative pid kills the whole tree: main, zygote, GPU and renderers.
+  // Killing only the parent leaves orphans holding the stdio pipes open, and
+  // Playwright's launcher waits for those pipes to close before it considers
+  // the app gone — which is what the worker sat on for sixty seconds.
   const kill = () => {
+    const pid = app.process().pid;
+    if (!pid) return;
+    try { process.kill(-pid, 'SIGKILL'); } catch { /* no group: fall through */ }
     try { app.process().kill('SIGKILL'); } catch { /* already gone */ }
   };
   try {
