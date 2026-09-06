@@ -7,7 +7,7 @@ name: Desktop – Build and Release
 # Builds the Windows (NSIS) and Linux (AppImage, deb) packages and publishes
 # them as release v1.2.3 on the legacy client repository,
 # Khoality-dev/KurisuAssistant-Client-Desktop (see "build.publish" in
-# clients/desktop/package.json). Installed apps auto-update from that
+# clients/apps/desktop/package.json). Installed apps auto-update from that
 # repository's latest release, so it stays the release channel even though the
 # code now lives here.
 #
@@ -29,7 +29,7 @@ permissions:
 
 defaults:
   run:
-    working-directory: clients/desktop
+    working-directory: clients/apps/desktop
 
 jobs:
   build-windows:
@@ -44,9 +44,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: clients/desktop/package-lock.json
+          cache-dependency-path: clients/package-lock.json
 
       - name: Install dependencies
+        # The workspace root owns the lockfile and every member's dependencies
+        # hoist into it, so this is the only directory `npm ci` can run in.
+        working-directory: clients
         run: npm ci
         env:
           # @vscode/ripgrep downloads a prebuilt binary from the GitHub API in a
@@ -73,8 +76,8 @@ jobs:
         with:
           name: desktop-windows
           path: |
-            clients/desktop/release/*.exe
-            clients/desktop/release/*.yml
+            clients/apps/desktop/release/*.exe
+            clients/apps/desktop/release/*.yml
           retention-days: 7
 
   build-linux:
@@ -89,9 +92,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: clients/desktop/package-lock.json
+          cache-dependency-path: clients/package-lock.json
 
       - name: Install dependencies
+        # The workspace root owns the lockfile and every member's dependencies
+        # hoist into it, so this is the only directory `npm ci` can run in.
+        working-directory: clients
         run: npm ci
         env:
           # @vscode/ripgrep downloads a prebuilt binary from the GitHub API in a
@@ -117,7 +123,7 @@ jobs:
         with:
           name: desktop-linux
           path: |
-            clients/desktop/release/*.AppImage
-            clients/desktop/release/*.deb
-            clients/desktop/release/*.yml
+            clients/apps/desktop/release/*.AppImage
+            clients/apps/desktop/release/*.deb
+            clients/apps/desktop/release/*.yml
           retention-days: 7

@@ -1,0 +1,14 @@
+{
+  "name": "kurisu-clients",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Workspace root for the KurisuAssistant TypeScript clients (#128). Android is not a member.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  }
+}

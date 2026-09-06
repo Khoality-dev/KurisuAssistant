@@ -4,7 +4,12 @@ on:
   push:
     branches: [main]
     paths:
-      - 'clients/desktop/**'
+      - 'clients/apps/desktop/**'
+      # The shared packages are this app's own code now, so a change to them
+      # has to run this suite (#128).
+      - 'clients/packages/**'
+      - 'clients/package.json'
+      - 'clients/package-lock.json'
       # The protocol manifest is shared: a change to it has to run this
       # suite too, or the drift check only fires for whoever edited last (#93).
       - 'protocol/**'
@@ -12,7 +17,12 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'clients/desktop/**'
+      - 'clients/apps/desktop/**'
+      # The shared packages are this app's own code now, so a change to them
+      # has to run this suite (#128).
+      - 'clients/packages/**'
+      - 'clients/package.json'
+      - 'clients/package-lock.json'
       # The protocol manifest is shared: a change to it has to run this
       # suite too, or the drift check only fires for whoever edited last (#93).
       - 'protocol/**'
@@ -21,7 +31,7 @@ on:
 
 defaults:
   run:
-    working-directory: clients/desktop
+    working-directory: clients/apps/desktop
 
 jobs:
   # Typecheck and unit tests were both missing. The release path builds with
@@ -43,9 +53,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: clients/desktop/package-lock.json
+          cache-dependency-path: clients/package-lock.json
 
       - name: Install dependencies
+        # The workspace root owns the lockfile and every member's dependencies
+        # hoist into it, so this is the only directory `npm ci` can run in.
+        working-directory: clients
         run: npm ci
         env:
           # @vscode/ripgrep downloads a prebuilt binary from the GitHub API in a
@@ -55,7 +68,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       - name: Unit tests
         run: npm test
@@ -78,9 +91,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: clients/desktop/package-lock.json
+          cache-dependency-path: clients/package-lock.json
 
       - name: Install dependencies
+        # The workspace root owns the lockfile and every member's dependencies
+        # hoist into it, so this is the only directory `npm ci` can run in.
+        working-directory: clients
         run: npm ci
         env:
           # @vscode/ripgrep downloads a prebuilt binary from the GitHub API in a
@@ -106,6 +122,6 @@ jobs:
         with:
           name: playwright-artifacts-${{ matrix.os }}
           path: |
-            clients/desktop/test-results/
-            clients/desktop/playwright-report/
+            clients/apps/desktop/test-results/
+            clients/apps/desktop/playwright-report/
           retention-days: 7
