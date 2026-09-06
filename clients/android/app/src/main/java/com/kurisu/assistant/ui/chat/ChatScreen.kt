@@ -37,6 +37,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.kurisu.assistant.data.model.Message
 import com.kurisu.assistant.data.model.ToolApprovalRequestEvent
 import com.kurisu.assistant.data.model.Persona
+import com.kurisu.assistant.data.model.WsErrorCodes
 import com.kurisu.assistant.service.CoreService
 import com.kurisu.assistant.ui.character.CharacterSheet
 import com.kurisu.assistant.ui.theme.KurisuTheme
@@ -48,6 +49,9 @@ fun ChatScreen(
     onOpenMenu: () -> Unit,
     /** "Manage personas" in the persona sheet. */
     onNavigateToPersonas: () -> Unit,
+    /** "Choose a model" on the no-model prompt. Assistant is a drawer destination,
+     *  not a Settings row, so the prompt carries the button rather than a path. */
+    onNavigateToAssistant: () -> Unit,
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -323,23 +327,49 @@ fun ChatScreen(
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).imePadding(),
         ) {
-            // Error banner
+            // Error banner. NO_MODEL_SELECTED is the one code that is not a fault:
+            // a new account has no model chosen yet, so it reads as a setup step —
+            // the calmer secondaryContainer, and a button onto the screen that
+            // fixes it — rather than as something having gone wrong (#149).
             streaming.streamError?.let { error ->
+                val needsModel = streaming.streamErrorCode == WsErrorCodes.NO_MODEL_SELECTED
                 Surface(
-                    color = MaterialTheme.colorScheme.errorContainer,
+                    color = if (needsModel) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.errorContainer
+                    },
                     modifier = Modifier.fillMaxWidth().padding(8.dp),
                     shape = MaterialTheme.shapes.small,
                 ) {
                     Row(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             text = error,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            color = if (needsModel) {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onErrorContainer
+                            },
+                            // Capped like the conversations-list banner: the buttons
+                            // beside it are unweighted, so at a large font scale an
+                            // uncapped Text wraps to a few characters a line and the
+                            // banner grows until it owns the screen.
+                            maxLines = 3,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodySmall,
                         )
+                        if (needsModel) {
+                            TextButton(onClick = {
+                                viewModel.streamProcessor.clearError()
+                                onNavigateToAssistant()
+                            }) {
+                                Text("Choose a model")
+                            }
+                        }
                         IconButton(onClick = { viewModel.streamProcessor.clearError() }) {
                             Icon(Icons.Default.Close, contentDescription = "Dismiss")
                         }

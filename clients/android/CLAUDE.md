@@ -47,7 +47,7 @@
 
 ## Testing
 
-- **Unit tests** live in `app/src/test/`. Use Robolectric (`@RunWith(AndroidJUnit4::class)`) only when you need a Context; pure logic should stay plain JVM. Existing coverage: `SentenceSplitter`, `NarrationStripper`, `WavParser`, `AmplitudeCurveComputer`, `AnimationMigration`, `ChatStreamProcessor`, `VoiceInteractionManager`, `ConversationsViewModel`, `AssistantViewModel`, `PersonasViewModel`, `ChatViewModel` (persona override), `ToolRailModel`, `SlashCommands`
+- **Unit tests** live in `app/src/test/`. Use Robolectric (`@RunWith(AndroidJUnit4::class)`) only when you need a Context; pure logic should stay plain JVM. Existing coverage: `SentenceSplitter`, `NarrationStripper`, `WavParser`, `AmplitudeCurveComputer`, `AnimationMigration`, `ChatStreamProcessor` (including the `NO_MODEL_SELECTED` code reaching `StreamingState`), `WebSocketManager`, `VoiceInteractionManager`, `VoiceCountdown`, `ConversationsViewModel`, `AssistantViewModel`, `PersonasViewModel`, `ChatViewModel` (persona override), `ToolRailModel`, `SlashCommands`, `PatchBody`
 - **E2E tests** live in `app/src/androidTest/`. Prefer composable-level tests (`createComposeRule()`) with test-owned state over full-Activity tests, unless navigation/Hilt wiring is the thing under test. Existing coverage: `ChatInputTest`
 - `ChatStreamProcessor` exposes an `internal var collectDispatcher` so tests can swap the default `Dispatchers.Default` for `UnconfinedTestDispatcher()` — keep this seam when touching that class
 - Robolectric **must** be 4.14+ to match `targetSdk = 35`
@@ -68,6 +68,7 @@ Same as desktop/mobile clients: `kurisu_auth_token`, `kurisu_remember_me`, `kuri
 
 The following settings are aligned with the Windows Desktop client (see `data/local/StorageKeys.kt` for the full list):
 
+- **No model chosen yet** — a new account's first message is refused by the server with `NO_MODEL_SELECTED`, and both clients answer it with a prompt onto the model picker rather than an error (#149). Here that is the chat banner turning `secondaryContainer` and offering "Choose a model" → `Routes.ASSISTANT`; on desktop it is a bar above the composer offering Settings → Assistant. **The path differs and the copy must not be shared**: Assistant is a top-level drawer entry on Android and a Settings row on desktop
 - **MCP Servers CRUD** — Add/edit/delete dialogs in `ToolsMcpScreen` (FAB + per-card actions). Test button per server. Stdio shows command+args; SSE shows URL. Env vars are KEY=VALUE per line. Delete confirms via dialog
 - **ASR Mode** (`kurisu_asr_mode`: "fixed" | "routing"): Fixed shows a single model dropdown (`kurisu_asr_fixed_model`); Routing shows a per-language mapping table (`kurisu_asr_model_map`, JSON-encoded `List<AsrLanguageModelEntry>`). Models populated from `GET /asr/models`
 - **Speaker output device** (`kurisu_speaker_device_id`): dropdown listing `AudioManager.GET_DEVICES_OUTPUTS`. `TtsQueueManager.applyPreferredOutput()` reads the pref before each `MediaPlayer.prepare()` and assigns `player.preferredDevice = AudioDeviceInfo` matching the stored id. Empty pref = system default

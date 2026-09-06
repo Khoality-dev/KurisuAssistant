@@ -9,6 +9,7 @@ import { usePersonaStore } from '../store/personaStore';
 import type { Message } from '../api/types';
 import type { AmplitudeState } from '../videocall/CharacterRenderer';
 import { handleCommand } from '../utils/commands';
+import { WS_ERROR_NO_MODEL_SELECTED } from '../constants';
 
 /**
  * A streaming bubble, plus the two tool-call fields the wire sends but the stored
@@ -48,6 +49,12 @@ export interface UseStreamingChatReturn {
   activeConversationId: number | null;
   errorToast: string | null;
   setErrorToast: (v: string | null) => void;
+  // Set when the server refuses a turn because the account has no model chosen
+  // yet. Its own field rather than another `errorToast`: this one is a setup step
+  // with a fix one click away, so it is shown as a prompt that stays put until
+  // the user acts, not as a toast that disappears in six seconds.
+  needsModel: boolean;
+  setNeedsModel: (v: boolean) => void;
   infoToast: string | null;
   setInfoToast: (v: string | null) => void;
   externalDraft: string;
@@ -94,6 +101,7 @@ export function useStreamingChat({
     currentConversation?.id || null
   );
   const [errorToast, setErrorToast] = useState<string | null>(null);
+  const [needsModel, setNeedsModel] = useState(false);
   const [infoToast, setInfoToast] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<ToolApprovalRequestEvent | null>(null);
   const [contextTokens, setContextTokens] = useState(0);
@@ -103,6 +111,9 @@ export function useStreamingChat({
   // Ref to track streaming state without stale closures
   const isStreamingRef = useRef(false);
   const cancelledRef = useRef(false);
+  // The text of the turn in flight, so a NO_MODEL_SELECTED refusal can hand it
+  // back to the composer instead of the user retyping it.
+  const lastSentTextRef = useRef('');
 
   // Refs for streaming state (to avoid stale closures in callbacks)
   const streamingStateRef = useRef({
@@ -596,14 +607,27 @@ export function useStreamingChat({
   }, [queueText]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleError = useCallback((event: ErrorEvent) => {
-    console.error('WebSocket error:', event.error);
-    setErrorToast(event.error);
+    if (event.code === WS_ERROR_NO_MODEL_SELECTED) {
+      // The account is one field short of usable, not broken. Show the prompt
+      // that fixes it and put the message back in the composer — the server
+      // rejected it before saving anything, so it is only lost if we drop it.
+      console.info('Chat refused: no model selected');
+      setNeedsModel(true);
+      if (lastSentTextRef.current) pushExternalDraft(lastSentTextRef.current);
+      // The server drops its queue on this code, so the dimmed bubbles below the
+      // stream answer to nothing. Only handleDone clears them otherwise, and no
+      // `done` is coming.
+      setQueuedMessages([]);
+    } else {
+      console.error('WebSocket error:', event.error);
+      setErrorToast(event.error);
+    }
     updateStreaming([]);
     cancelStreamUpdate();
     setStreamingContent('');
     setStreamingThinking('');
     setIsStreaming(false);
-  }, [updateStreaming]);
+  }, [updateStreaming, pushExternalDraft]);
 
   const handleConnected = useCallback((event: ConnectedEvent) => {
     if (event.chat_active && event.conversation_id) {      // Server still has an active streaming task; enter streaming mode and load
@@ -767,6 +791,14 @@ export function useStreamingChat({
   const _doSend = useCallback(async (text: string, imageFiles: File[]) => {
     cancelledRef.current = false;
     turnSeqRef.current++;
+    lastSentTextRef.current = text;
+    // A send is the user's answer to the prompt; if the model is still missing
+    // the server says so again and it comes straight back.
+    setNeedsModel(false);
+    // Retire any draft a refusal pushed back: the composer has already cleared
+    // itself, and a stale value here would reappear the next time the composer
+    // remounts (the approval and call bars replace it in the same slot).
+    clearExternalDraft();
     setIsStreaming(true);
 
     // Collect file selections as structured context_files
@@ -882,6 +914,10 @@ export function useStreamingChat({
     if (isStreamingRef.current) {
       // Already streaming — queue: show dimmed user bubble below streaming content
       setQueuedMessages(prev => [...prev, { role: 'user', content: trimmed, images: [], queued: true, _clientKey: crypto.randomUUID() }]);
+      // This is a send too, so it owns the text a refusal would hand back —
+      // otherwise the composer would be refilled with the previous turn's
+      // message and this one lost.
+      lastSentTextRef.current = trimmed;
 
       const imageBase64: string[] = [];
       for (const imageFile of imageFiles) {
@@ -980,6 +1016,8 @@ export function useStreamingChat({
     activeConversationId,
     errorToast,
     setErrorToast,
+    needsModel,
+    setNeedsModel,
     infoToast,
     setInfoToast,
     externalDraft,

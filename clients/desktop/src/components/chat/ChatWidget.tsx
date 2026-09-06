@@ -43,6 +43,7 @@ import { useVisionStore } from '../../store/visionStore';
 import { useCharacterPanel } from '../../hooks/useCharacterPanel';
 import { useInteractiveASR } from '../../hooks/useInteractiveASR';
 import { useMicStore } from '../../store/micStore';
+import { useLayoutStore } from '../../store/layoutStore';
 import { usePersonaStore } from '../../store/personaStore';
 import { useStreamingChat } from '../../hooks/useStreamingChat';
 import { useContextBreakdown } from '../../hooks/useContextBreakdown';
@@ -51,6 +52,7 @@ import { MessageBubble } from './MessageBubble';
 import { SelectionChips } from './SelectionChips';
 import { ChatComposer } from './ChatComposer';
 import { ToolApprovalBar, ApprovalRequest } from './ToolApprovalBar';
+import { NoModelPrompt } from './NoModelPrompt';
 
 interface ChatWidgetProps {
   characterWindowOpen?: boolean;
@@ -649,6 +651,19 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       )}
 
       {messagesPane}
+
+      {/* The account has no model chosen yet. Not the red toast: it is a setup
+          step, the fix is one click away, and it stays until the user takes it. */}
+      {streaming.needsModel && (
+        <NoModelPrompt
+          onChooseModel={() => {
+            useLayoutStore.getState().setSettingsSection('assistant');
+            useLayoutStore.getState().setActivePage('settings');
+            streaming.setNeedsModel(false);
+          }}
+          onDismiss={() => streaming.setNeedsModel(false)}
+        />
+      )}
 
       {/* Selection context chips — above input */}
       <SelectionChips />

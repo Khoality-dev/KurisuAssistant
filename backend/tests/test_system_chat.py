@@ -132,6 +132,115 @@ class TestChatTurn:
         assert events[-1].get("error")
 
 
+class TestNoModelSelected:
+    """The state every new account starts in, and the first thing it is told.
+
+    ``provision_user`` leaves ``assistants.model_name`` NULL — the test account is
+    made that way too, by the same call an operator's registration makes — and
+    both real clients send ``model_name: ""`` and let the server decide. So this
+    is the literal first message of a fresh install, not a contrived one (#149).
+    The rest of this module papers over it by naming a model per request, which
+    is why the failure went unnoticed for so long.
+    """
+
+    def test_a_first_message_with_no_model_says_which_field_is_empty(
+        self, system_client, headers, mock_ollama,
+    ):
+        assert system_client.get("/assistant", headers=headers).json()["model_name"] is None
+
+        before = system_client.get("/conversations", headers=headers).json()
+
+        with system_client.websocket_connect("/ws/chat", headers=headers) as ws:
+            ws.receive_json()
+            ws.send_json(chat_request("hello there", model=""))
+            events = events_until_done(ws)
+
+        assert [e["type"] for e in events] == ["error"], "it fails before anything streams"
+        assert events[0]["code"] == "NO_MODEL_SELECTED"
+        assert "model" in events[0]["error"] and "Assistant" in events[0]["error"], (
+            "the sentence names the empty field and the screen that fills it, for "
+            "clients that only show text"
+        )
+        assert "reference:" not in events[0]["error"], "not a crash — nothing to look up in a log"
+
+        assert not mock_ollama.state.requests_to("/api/chat"), "no model was called"
+        assert system_client.get("/conversations", headers=headers).json() == before, (
+            "a message that cannot be answered leaves no conversation behind"
+        )
+
+    def test_a_second_message_sent_before_the_refusal_lands_is_dropped(
+        self, system_client, headers, mock_ollama,
+    ):
+        """An impatient new user sends twice. The second must not resurface later.
+
+        The turn suspends on the setup query, so a message arriving in that window
+        is queued. Nothing drains the queue on this path, and ``_process_queue``
+        runs at the end of the *next* turn — so without the clear, "you there?"
+        would be answered minutes later, after a model was chosen, as a question
+        the user no longer remembers asking.
+        """
+        try:
+            with system_client.websocket_connect("/ws/chat", headers=headers) as ws:
+                ws.receive_json()
+                # Both on ONE socket, and the model is chosen without dropping it:
+                # the handler is keyed by user and evicted when the last connection
+                # closes, so reconnecting would discard the queue and prove nothing.
+                ws.send_json(chat_request("hi", model=""))
+                ws.send_json(chat_request("you there?", model=""))
+                refusal = events_until_done(ws)
+                assert refusal[0]["code"] == "NO_MODEL_SELECTED"
+
+                resp = system_client.patch(
+                    "/assistant", json={"model_name": DEFAULT_MODEL}, headers=headers,
+                )
+                assert resp.status_code == 200, resp.text
+
+                # Two more turns, both read to completion. A replay is queued behind
+                # the first one, so driving a second is what gives it the chance to
+                # run — and is what makes the assertion below bounded rather than a
+                # wait for something that should never arrive.
+                ws.send_json(chat_request("hello", model=""))
+                events = events_until_done(ws)
+                ws.send_json(chat_request("and again", model=""))
+                events_until_done(ws)
+        finally:
+            system_client.patch("/assistant", json={"model_name": None}, headers=headers)
+
+        assert events[-1]["type"] == "done"
+        # Every call, not just the first: a replay arrives as its own later turn,
+        # after the `done` this test stopped reading at.
+        asked = [
+            m.get("content") or ""
+            for call in mock_ollama.state.requests_to("/api/chat")
+            for m in call["messages"]
+        ]
+        assert not any("you there?" in c for c in asked), (
+            "the stranded message was replayed into an unrelated turn"
+        )
+
+    def test_choosing_a_model_is_all_it_takes(self, system_client, headers, mock_ollama):
+        """The other half: the same request, once the one empty field is filled.
+
+        This is the only test that runs a turn the way a real client does — with
+        the model on the assistant row and none in the request.
+        """
+        resp = system_client.patch(
+            "/assistant", json={"model_name": DEFAULT_MODEL}, headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        try:
+            with system_client.websocket_connect("/ws/chat", headers=headers) as ws:
+                ws.receive_json()
+                ws.send_json(chat_request("hello there", model=""))
+                events = events_until_done(ws)
+        finally:
+            system_client.patch("/assistant", json={"model_name": None}, headers=headers)
+
+        assert events[-1]["type"] == "done"
+        assert content_of(events) == "You said: hello there"
+        assert mock_ollama.state.requests_to("/api/chat")[0]["model"] == DEFAULT_MODEL
+
+
 class TestToolLoop:
     def test_an_allowed_tool_runs_and_its_result_feeds_the_next_turn(self, system_client, headers, mock_ollama):
         set_tool_policy(system_client, headers, "allow")

@@ -9,10 +9,12 @@ import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.model.Assistant
 import com.kurisu.assistant.data.model.Persona
 import com.kurisu.assistant.data.model.ContextInfoEvent
+import com.kurisu.assistant.data.model.ErrorEvent
 import com.kurisu.assistant.data.model.Conversation
 import com.kurisu.assistant.data.model.Message
 import com.kurisu.assistant.data.model.MessageRawData
 import com.kurisu.assistant.data.model.ToolApprovalRequestEvent
+import com.kurisu.assistant.data.model.WsErrorCodes
 import com.kurisu.assistant.data.remote.websocket.WebSocketManager
 import com.kurisu.assistant.data.repository.AssistantRepository
 import com.kurisu.assistant.data.repository.AuthRepository
@@ -138,11 +140,24 @@ class ChatViewModel @Inject constructor(
             }
         }
 
-        // Observe tool approval requests
+        // Observe tool approval requests, and the one refusal worth undoing
         viewModelScope.launch {
             wsManager.events.collect { event ->
                 if (event is ToolApprovalRequestEvent) {
                     _state.update { it.copy(pendingApproval = event) }
+                }
+                // A turn refused for having no model was rejected before the server
+                // saved anything, so the message is only lost if we drop it. Put it
+                // back in the box the user is looking at, next to the prompt that
+                // says what to do (#149). Desktop does the same.
+                if (event is ErrorEvent && event.code == WsErrorCodes.NO_MODEL_SELECTED) {
+                    // From the stream processor, not a field of our own: a voice send
+                    // goes through CoreService and never touches this ViewModel, so a
+                    // local copy would hand back whatever was typed before it.
+                    val text = streamProcessor.lastUserMessageText
+                    if (text.isNotEmpty()) {
+                        _state.update { if (it.inputText.isEmpty()) it.copy(inputText = text) else it }
+                    }
                 }
             }
         }

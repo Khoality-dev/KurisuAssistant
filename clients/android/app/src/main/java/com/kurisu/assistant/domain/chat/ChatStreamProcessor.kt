@@ -16,6 +16,12 @@ data class StreamingState(
     val isStreaming: Boolean = false,
     val streamingMessages: List<Message> = emptyList(),
     val streamError: String? = null,
+    /**
+     * The server's [ErrorEvent.code] for [streamError], so the banner can tell a
+     * fault from a setup step. Null for errors this client raises itself, which
+     * carry no code worth branching on.
+     */
+    val streamErrorCode: String? = null,
     val typingAgentName: String? = null,
     val tokenCount: Int? = null,
     val queuedMessages: List<QueuedMessage> = emptyList(),
@@ -87,12 +93,25 @@ class ChatStreamProcessor @Inject constructor(
         _state.update { it.copy(isStreaming = true) }
     }
 
+    /**
+     * The text of the turn in flight, so a refusal can hand it back to the composer.
+     *
+     * Recorded here rather than in a caller because this is the one call every send
+     * funnel makes: [ChatViewModel.doSend] (typed and queued messages) and
+     * `CoreService.sendMessage` (voice), which has no UI state of its own. Recording
+     * it in only one of them restores the wrong message after a send through the
+     * other (#149).
+     */
+    var lastUserMessageText: String = ""
+        private set
+
     fun addUserMessage(text: String, images: List<String>? = null) {
         val userMsg = Message(
             role = "user",
             content = text,
             images = if (images.isNullOrEmpty()) null else images,
         )
+        lastUserMessageText = text
         _state.update { it.copy(streamingMessages = it.streamingMessages + userMsg) }
     }
 
@@ -116,12 +135,13 @@ class ChatStreamProcessor @Inject constructor(
         _state.update { it.copy(isStreaming = false, typingAgentName = null, queuedMessages = emptyList()) }
     }
 
+    /** Raise an error this client noticed itself. It carries no server code. */
     fun setError(error: String) {
-        _state.update { it.copy(streamError = error, isStreaming = false) }
+        _state.update { it.copy(streamError = error, streamErrorCode = null, isStreaming = false) }
     }
 
     fun clearError() {
-        _state.update { it.copy(streamError = null) }
+        _state.update { it.copy(streamError = null, streamErrorCode = null) }
     }
 
     fun clearStreamingMessages() {
@@ -233,11 +253,18 @@ class ChatStreamProcessor @Inject constructor(
     }
 
     private fun handleError(event: ErrorEvent) {
-        if (event.code == "CONNECTION_LOST") return // handled by reconnect
+        if (event.code == WsErrorCodes.CONNECTION_LOST) return // handled by reconnect
+        val refusedBeforeSending = event.code == WsErrorCodes.NO_MODEL_SELECTED
         _state.update { it.copy(
             streamError = event.error,
+            streamErrorCode = event.code,
             isStreaming = false,
             typingAgentName = null,
+            // Nothing was saved and nothing was sent, so the optimistic bubble is a
+            // lie — and the text is about to reappear in the composer, which would
+            // show the same message twice. Desktop drops its bubble here too.
+            streamingMessages = if (refusedBeforeSending) emptyList() else it.streamingMessages,
+            queuedMessages = if (refusedBeforeSending) emptyList() else it.queuedMessages,
         ) }
     }
 

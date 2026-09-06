@@ -311,7 +311,7 @@ class WebSocketManager @Inject constructor(
                 eventId = "",
                 timestamp = nowTimestamp(),
                 error = "Unhandled server event: $type",
-                code = "UNKNOWN_EVENT",
+                code = WsErrorCodes.UNKNOWN_EVENT,
             ))
         }
     }
@@ -321,7 +321,7 @@ class WebSocketManager @Inject constructor(
             eventId = "",
             timestamp = nowTimestamp(),
             error = "Connection lost. Reconnecting...",
-            code = "CONNECTION_LOST",
+            code = WsErrorCodes.CONNECTION_LOST,
         ))
     }
 
