@@ -94,6 +94,19 @@ export interface MCPAPI {
   callTool: (toolName: string, args: Record<string, unknown>) => Promise<{ content: string; isError: boolean }>;
 }
 
+/** The app's own MCP endpoint, the one external clients connect to. */
+export interface McpServerInfo {
+  url: string;
+  token: string;
+  running: boolean;
+}
+
+export interface McpServerAPI {
+  getInfo: () => Promise<McpServerInfo>;
+  /** Mint a new token; whatever was configured with the old one stops working. */
+  rotateToken: () => Promise<McpServerInfo>;
+}
+
 export interface ExtensionsAPI {
   checkHealth: (url: string) => Promise<Record<string, any> | null>;
   checkInstalled: (appName: string) => Promise<{ installed: boolean; path: string }>;
@@ -112,6 +125,7 @@ export interface ElectronAPI {
   hostTools: HostToolsAPI;
   explorer: ExplorerAPI;
   mcp: MCPAPI;
+  mcpServer: McpServerAPI;
   characterWindow: CharacterWindowAPI;
   extensions: ExtensionsAPI;
 }

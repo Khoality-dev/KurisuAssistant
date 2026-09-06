@@ -14,22 +14,8 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import fs from 'fs';
 import path from 'path';
-import { app } from 'electron';
 import * as fsOps from './fsOps';
-
-// --- Settings persistence ---
-
-const settingsPath = path.join(app.getPath('userData'), 'settings.json');
-
-function loadSettings(): Record<string, any> {
-  try { return JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); }
-  catch { return {}; }
-}
-
-function saveSettings(settings: Record<string, any>): void {
-  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-}
+import { loadSettings, saveSettings } from './settings';
 
 // --- Global allowed paths (persistent path-level approval, shared across all agents) ---
 
