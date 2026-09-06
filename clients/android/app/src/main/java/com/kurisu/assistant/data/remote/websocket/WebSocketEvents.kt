@@ -39,14 +39,6 @@ data class VisionStartPayload(
 )
 
 @Serializable
-data class VisionFramePayload(
-    val type: String = "vision_frame",
-    @SerialName("event_id") val eventId: String,
-    val timestamp: String,
-    val frame: String,
-)
-
-@Serializable
 data class VisionStopPayload(
     val type: String = "vision_stop",
     @SerialName("event_id") val eventId: String,

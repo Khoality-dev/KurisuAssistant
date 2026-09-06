@@ -254,14 +254,19 @@ class WebSocketManager @Inject constructor(
         send(json.encodeToString(VisionStartPayload.serializer(), payload))
     }
 
-    fun sendVisionFrame(frameBase64: String) {
+    /**
+     * Send a webcam frame as a WebSocket binary message.
+     *
+     * Not JSON and not base64: the pixels must not sit in the send buffer in
+     * front of the assistant's next token, and base64 added a third to every
+     * frame (#111). See [BinaryFrameCodec].
+     */
+    fun sendVisionFrame(jpeg: ByteArray) {
         if (!isConnected) return
-        val payload = VisionFramePayload(
-            eventId = generateEventId(),
-            timestamp = nowTimestamp(),
-            frame = frameBase64,
+        val socket = ws ?: return
+        socket.send(
+            BinaryFrameCodec.encodeVisionFrame(jpeg, generateEventId(), nowTimestamp())
         )
-        send(json.encodeToString(VisionFramePayload.serializer(), payload))
     }
 
     fun sendVisionStop() {

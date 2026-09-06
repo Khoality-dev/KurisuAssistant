@@ -53,10 +53,31 @@ function _sendNextFrame() {
   if (!ctx) return;
 
   ctx.drawImage(_hiddenVideo, 0, 0);
-  const dataUrl = _hiddenCanvas.toDataURL('image/jpeg', 0.7);
-  const base64 = dataUrl.split(',')[1];
-  wsManager.sendVisionFrame(base64);
+
+  // Counted before the encode, not after: `toBlob` is asynchronous, and a burst
+  // of callers awaiting it would all read the same pre-increment count and
+  // overshoot the in-flight cap.
   _inflightFrames++;
+  const canvas = _hiddenCanvas;
+  canvas.toBlob(
+    (blob) => {
+      if (!blob || !_captureActive) {
+        _inflightFrames = Math.max(0, _inflightFrames - 1);
+        return;
+      }
+      blob.arrayBuffer().then(
+        (buffer) => {
+          // The frame goes out as bytes — no base64, no JSON envelope (#111).
+          wsManager.sendVisionFrame(new Uint8Array(buffer));
+        },
+        () => {
+          _inflightFrames = Math.max(0, _inflightFrames - 1);
+        },
+      );
+    },
+    'image/jpeg',
+    0.7,
+  );
 }
 
 function _startCapture(stream: MediaStream) {

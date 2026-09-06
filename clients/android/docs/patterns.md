@@ -65,3 +65,14 @@ alive, and the pieces that must stay in step with the desktop client.
 - 60fps loop via `withFrameNanos`
 - Blink FSM, breathing sine wave, mouth amplitude mapping
 - Pose tree state machine with AND-logic edge transitions
+
+## Vision frames are binary
+
+`VisionRepository` compresses each CameraX frame to JPEG and hands the bytes to
+`WebSocketManager.sendVisionFrame`, which sends a WebSocket **binary** message
+built by `BinaryFrameCodec` — `[version][type][header length][JSON header][JPEG]`.
+It was base64 inside a JSON event until wire protocol 6, which inflated every
+frame by a third and put the pixels in front of the assistant's next token on the
+same socket (#111). `vision_start` and `vision_stop` are still JSON. The format
+mirrors `backend/kurisuassistant/websocket/binary.py`; if the two disagree, the
+backend wins.

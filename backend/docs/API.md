@@ -1056,7 +1056,8 @@ subprotocol entry; a mismatch closes with `4426` **before** authentication.
 
 **Client → Server:** `chat_request`, `cancel`, `tool_approval_response`,
 `tool_call_response`, `client_tools_register`, `compact_context`, `vision_start`,
-`vision_frame`, `vision_stop`.
+`vision_stop`. A vision **frame** is a binary message rather than a JSON event
+(protocol 6) — see [websocket.md](websocket.md#vision).
 
 **Server → Client:** `connected`, `stream_chunk`, `tool_approval_request`,
 `tool_call_request`, `context_info`, `done`, `error`,

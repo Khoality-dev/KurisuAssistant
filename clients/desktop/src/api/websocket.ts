@@ -3,6 +3,7 @@
  */
 
 import { config } from '../config';
+import { encodeVisionFrame } from './binaryFrame';
 import {
   WIRE_PROTOCOL,
   WS_AUTH_SUBPROTOCOL,
@@ -381,8 +382,6 @@ class WebSocketManager {
     const json = JSON.stringify(fullEvent);
 
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      // Don't queue vision frames — they're high-frequency and stale immediately
-      if (event.type === 'vision_frame') return;
       this._pendingMessages.push(json);
       return;
     }
@@ -435,12 +434,18 @@ class WebSocketManager {
   }
 
   /**
-   * Send a webcam frame for inference.
+   * Send a webcam frame for inference, as a binary message.
+   *
+   * Never queued and never JSON: a frame is stale within a third of a second,
+   * and its pixels must not sit in the send buffer in front of the assistant's
+   * next token (#111). Dropped silently when the socket is not open.
    */
-  sendVisionFrame(frameBase64: string) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.send({ type: 'vision_frame', frame: frameBase64 });
-    }
+  sendVisionFrame(jpeg: Uint8Array) {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    this.ws.send(encodeVisionFrame(jpeg, {
+      event_id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+    }));
   }
 
   /**

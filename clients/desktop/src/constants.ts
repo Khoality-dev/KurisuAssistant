@@ -2,7 +2,7 @@
 // KurisuAssistant/kurisuassistant/version.py. Bump on any breaking change to
 // REST/WebSocket payloads, headers, or auth flow. Sent on every request via
 // an axios interceptor and checked once on startup against `GET /version`.
-export const WIRE_PROTOCOL = 5;
+export const WIRE_PROTOCOL = 6;
 
 // The WebSocket handshake carries the access token as the second subprotocol
 // entry. Must match WS_AUTH_SUBPROTOCOL in the backend's routers/ws.py.

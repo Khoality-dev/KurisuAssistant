@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.graphics.YuvImage
-import android.util.Base64
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -40,9 +39,9 @@ class VisionRepository @Inject constructor(
 
         scope.launch {
             try {
-                val base64 = imageProxyToBase64Jpeg(imageProxy)
-                if (base64 != null) {
-                    wsManager.sendVisionFrame(base64)
+                val jpeg = imageProxyToJpeg(imageProxy)
+                if (jpeg != null) {
+                    wsManager.sendVisionFrame(jpeg)
                 }
             } catch (_: Exception) {
             } finally {
@@ -66,7 +65,8 @@ class VisionRepository @Inject constructor(
         scope.cancel()
     }
 
-    private fun imageProxyToBase64Jpeg(imageProxy: ImageProxy): String? {
+    /** NV21 → JPEG bytes. They go out as a binary message, so nothing encodes them further (#111). */
+    private fun imageProxyToJpeg(imageProxy: ImageProxy): ByteArray? {
         val yBuffer = imageProxy.planes[0].buffer
         val uBuffer = imageProxy.planes[1].buffer
         val vBuffer = imageProxy.planes[2].buffer
@@ -83,8 +83,6 @@ class VisionRepository @Inject constructor(
         val yuvImage = YuvImage(nv21, ImageFormat.NV21, imageProxy.width, imageProxy.height, null)
         val out = ByteArrayOutputStream()
         yuvImage.compressToJpeg(Rect(0, 0, imageProxy.width, imageProxy.height), 70, out)
-        val jpegBytes = out.toByteArray()
-
-        return Base64.encodeToString(jpegBytes, Base64.NO_WRAP)
+        return out.toByteArray()
     }
 }
