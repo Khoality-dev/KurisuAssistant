@@ -6,8 +6,7 @@ import { storage } from '@kurisu/api';
 import { stripNarration, fileToBase64 } from '@kurisu/api';
 import { useExplorerStore } from '@kurisu/state';
 import { usePersonaStore } from '@kurisu/state';
-import { newId, WS_ERROR_NO_MODEL_SELECTED, type Message } from '@kurisu/models';
-import type { AmplitudeState } from '../../../apps/desktop/src/videocall/CharacterRenderer';
+import { newId, WS_ERROR_NO_MODEL_SELECTED, type Message, type AmplitudeState } from '@kurisu/models';
 import { handleCommand } from '@kurisu/state';
 import { resolveBridge } from '@kurisu/platform';
 

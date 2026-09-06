@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`clients/apps/desktop/` in the KurisuAssistant monorepo — one member of the `clients/` npm workspace (see `../../CLAUDE.md`, and the root `CLAUDE.md`; the backend is in `../../../backend/`) — cross-platform desktop client (Windows + Linux) for the KurisuAssistant AI platform. React + Electron + TypeScript + MUI + Framer Motion. Chat interface with streaming responses, TTS, image attachments, conversation management, and animated 2D character video call window.
+`clients/apps/desktop/` in the KurisuAssistant monorepo — one member of the `clients/` npm workspace (see `../../CLAUDE.md`, and the root `CLAUDE.md`; the backend is in `../../../backend/`) — the Electron shell for the KurisuAssistant desktop client (Windows + Linux). The screens live in `@kurisu/ui` and everything under them in the other `@kurisu/*` packages; what is left here is the main process, a root that mounts `App`, the packaging config and the end-to-end suite. Chat interface with streaming responses, TTS, image attachments, conversation management, and animated 2D character video call window.
 
 ## Tech Stack
 

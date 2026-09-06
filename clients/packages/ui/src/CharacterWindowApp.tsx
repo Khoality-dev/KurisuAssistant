@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CharacterRenderer } from './videocall/CharacterRenderer';
-import type { AmplitudeState } from './videocall/CharacterRenderer';
+import type { AmplitudeState } from '@kurisu/models';
 import type { PoseTree } from '@kurisu/models';
+import { resolveBridge } from '@kurisu/platform';
 
 interface PersonaEntry {
   name: string;
@@ -23,7 +24,7 @@ export const CharacterWindowApp: React.FC = () => {
   const facesRef = useRef<string[]>([]);
 
   useEffect(() => {
-    const api = window.electron?.characterWindow;
+    const api = resolveBridge().characterWindow;
     if (!api) return;
 
     const cleanupAmplitude = api.onAmplitude((data) => {

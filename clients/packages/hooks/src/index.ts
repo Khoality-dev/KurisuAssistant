@@ -6,6 +6,7 @@
  */
 export * from './authedAsset';
 export * from './useAudioAmplitude';
+export * from './useCapabilities';
 export * from './useCharacterPanel';
 export * from './useConnectionStatus';
 export * from './useContextBreakdown';

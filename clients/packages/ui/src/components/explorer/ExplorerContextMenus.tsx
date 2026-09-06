@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 import type { FileEntry } from '@kurisu/models';
 import { isDrivePath } from '@kurisu/api';
+import { resolveBridge } from '@kurisu/platform';
 
 interface ExplorerContextMenusProps {
   // File context menu
@@ -78,7 +79,7 @@ export const ExplorerContextMenus: React.FC<ExplorerContextMenusProps> = ({
 
   const handleOpenInVSCode = () => {
     if (contextMenu) {
-      window.electron?.explorer?.openInVSCode(contextMenu.entry.fullPath);
+      resolveBridge().files?.openInVSCode(contextMenu.entry.fullPath);
       onCloseContextMenu();
     }
   };
@@ -193,7 +194,7 @@ export const ExplorerContextMenus: React.FC<ExplorerContextMenusProps> = ({
         <MenuItem
           onClick={() => {
             if (contextMenu) {
-              window.electron?.openPath(contextMenu.entry.fullPath);
+              resolveBridge().openPath(contextMenu.entry.fullPath);
               onCloseContextMenu();
             }
           }}
@@ -234,7 +235,7 @@ export const ExplorerContextMenus: React.FC<ExplorerContextMenusProps> = ({
         {hasVSCode && currentPath && (
           <MenuItem
             onClick={() => {
-              window.electron?.explorer?.openInVSCode(currentPath);
+              resolveBridge().files?.openInVSCode(currentPath);
               onCloseBgContextMenu();
             }}
             sx={{ fontSize: '0.8rem' }}

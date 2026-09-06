@@ -56,6 +56,8 @@ interface SubAgentEditDialogProps {
   subAgent: SubAgent | null;
   models: Array<{ name: string; provider: string }>;
   toolGroups: ToolGroup[];
+  /** Whether `toolGroups` is every tool there is — see ToolGroupChecklist. */
+  toolsComplete?: boolean;
   onClose: () => void;
   onRefreshModels: () => Promise<void>;
   onSaved: (message: string) => void;
@@ -73,6 +75,7 @@ export const SubAgentEditDialog: React.FC<SubAgentEditDialogProps> = ({
   subAgent,
   models,
   toolGroups,
+  toolsComplete,
   onClose,
   onRefreshModels,
   onSaved,
@@ -197,6 +200,7 @@ export const SubAgentEditDialog: React.FC<SubAgentEditDialogProps> = ({
           <Box>
             <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>Tools</Typography>
             <ToolGroupChecklist
+            complete={toolsComplete}
               groups={toolGroups}
               enabledTools={form.available_tools}
               onChange={(available_tools) => setForm({ ...form, available_tools })}

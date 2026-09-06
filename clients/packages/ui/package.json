@@ -1,0 +1,42 @@
+{
+  "name": "@kurisu/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The screens. The one package that renders, and so the one allowed a widget library.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.11.3",
+    "@emotion/styled": "^11.11.0",
+    "@kurisu/api": "*",
+    "@kurisu/hooks": "*",
+    "@kurisu/models": "*",
+    "@kurisu/platform": "*",
+    "@kurisu/state": "*",
+    "@monaco-editor/react": "^4.7.0",
+    "@mui/icons-material": "^5.15.6",
+    "@mui/material": "^5.15.6",
+    "@xyflow/react": "^12.10.0",
+    "framer-motion": "^11.0.3",
+    "qrcode": "^1.5.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-markdown": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^18.2.48",
+    "@types/react-dom": "^18.2.18",
+    "happy-dom": "^20.9.0",
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.9"
+  }
+}

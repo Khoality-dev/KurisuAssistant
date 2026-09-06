@@ -47,7 +47,11 @@ export function electronBridge(): PlatformBridge | null {
     mcpServer: api.mcpServer,
     appTools: api.appTools,
     extensions: api.extensions,
+    updater: api.updater,
     openPath: (target) => api.openPath(target),
+    openExternal: async (url) => {
+      await api.openExternal(url);
+    },
     onMCPToolsChanged: (cb) => api.onMCPToolsChanged(cb),
   };
 }

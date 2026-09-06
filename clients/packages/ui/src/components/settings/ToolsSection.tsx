@@ -43,6 +43,7 @@ import {
 } from '@kurisu/models';
 import type { McpServerInfo } from '@kurisu/platform';
 import { refreshClientMCPServers, getClientTools, getClientToolsByServer } from '@kurisu/state';
+import { requireAppTools, requireExtensions, requireHostTools, requireMcp, resolveBridge } from '@kurisu/platform';
 
 // --- Local server detection ---
 
@@ -98,7 +99,7 @@ export const ToolsSection: React.FC = () => {
   const [tokenVisible, setTokenVisible] = useState(false);
 
   useEffect(() => {
-    window.electron?.mcpServer?.getInfo()
+    resolveBridge().mcpServer?.getInfo()
       .then(setMcpServerInfo)
       .catch(() => setMcpServerInfo(null));
   }, []);
@@ -109,23 +110,23 @@ export const ToolsSection: React.FC = () => {
   const [approvedSpawns, setApprovedSpawns] = useState<string[]>([]);
 
   useEffect(() => {
-    window.electron?.mcp?.getPlaywrightAutostart().then(setPlaywrightAutostart).catch(() => {});
-    window.electron?.mcp?.getApprovedSpawns().then(setApprovedSpawns).catch(() => {});
+    resolveBridge().mcp?.getPlaywrightAutostart().then(setPlaywrightAutostart).catch(() => {});
+    resolveBridge().mcp?.getApprovedSpawns().then(setApprovedSpawns).catch(() => {});
   }, []);
 
   const setPlaywrightAutostartSetting = useCallback(async (enabled: boolean) => {
     setPlaywrightAutostart(enabled);
-    const stored = await window.electron?.mcp?.setPlaywrightAutostart(enabled);
+    const stored = await resolveBridge().mcp?.setPlaywrightAutostart(enabled);
     if (typeof stored === 'boolean') setPlaywrightAutostart(stored);
   }, []);
 
   const revokeSpawn = useCallback(async (commandLine: string) => {
-    const remaining = await window.electron?.mcp?.revokeApprovedSpawn(commandLine);
+    const remaining = await resolveBridge().mcp?.revokeApprovedSpawn(commandLine);
     if (remaining) setApprovedSpawns(remaining);
   }, []);
 
   const rotateMcpServerToken = useCallback(async () => {
-    const info = await window.electron?.mcpServer?.rotateToken();
+    const info = await resolveBridge().mcpServer?.rotateToken();
     if (info) {
       setMcpServerInfo(info);
       setTokenVisible(true);
@@ -143,11 +144,11 @@ export const ToolsSection: React.FC = () => {
       allMcpTools.push(...(serverTools as Tool[]));
     }
     const clientTools: Tool[] = [];
-    if (window.electron?.hostTools) {
-      try { clientTools.push(...(await window.electron.hostTools.listTools() as Tool[])); } catch {}
+    if (resolveBridge().hostTools) {
+      try { clientTools.push(...(await requireHostTools().listTools() as Tool[])); } catch {}
     }
-    if (window.electron?.appTools) {
-      try { clientTools.push(...(await window.electron.appTools.listTools() as Tool[])); } catch {}
+    if (resolveBridge().appTools) {
+      try { clientTools.push(...(await requireAppTools().listTools() as Tool[])); } catch {}
     }
     const mcpToolNames = new Set(allMcpTools.map(t => t.function.name));
     const serverBuiltinNames = new Set(toolsRes.builtin_tools.map(t => t.function.name));
@@ -180,8 +181,8 @@ export const ToolsSection: React.FC = () => {
     if (!svc.mcpUrl) return false;
     // Local companion servers started directly via Electron IPC — not saved to backend DB
     try {
-      if (window.electron?.mcp?.startServer) {
-        const result = await window.electron.mcp.startServer({
+      if (resolveBridge().mcp?.startServer) {
+        const result = await requireMcp().startServer({
           name: svc.name,
           transport_type: 'sse',
           url: svc.mcpUrl,
@@ -203,8 +204,8 @@ export const ToolsSection: React.FC = () => {
   const checkLocalServers = useCallback(async () => {
     for (const svc of LOCAL_SERVERS) {
       if (svc.type === 'sse' && svc.healthUrl) {
-        if (!window.electron?.extensions) continue;
-        const data = await window.electron.extensions.checkHealth(svc.healthUrl);
+        if (!resolveBridge().extensions) continue;
+        const data = await requireExtensions().checkHealth(svc.healthUrl);
         const running = !!(data && data.status === 'ok');
         setDetectedServices((prev) => ({
           ...prev,
@@ -215,9 +216,9 @@ export const ToolsSection: React.FC = () => {
         }
       } else if (svc.type === 'stdio' && svc.mcpName) {
         let running = false;
-        if (window.electron?.mcp) {
+        if (resolveBridge().mcp) {
           try {
-            const grouped = await window.electron.mcp.listToolsByServer();
+            const grouped = await requireMcp().listToolsByServer();
             running = svc.mcpName in grouped;
           } catch {}
         }
@@ -233,8 +234,8 @@ export const ToolsSection: React.FC = () => {
     mcpAutoRegistered.current.delete(svc.id);
     setDetectedServices((prev) => ({ ...prev, [svc.id]: { running: false } }));
 
-    if (svc.type === 'stdio' && svc.mcpName && window.electron?.mcp?.startServer) {
-      const result = await window.electron.mcp.startServer(
+    if (svc.type === 'stdio' && svc.mcpName && resolveBridge().mcp?.startServer) {
+      const result = await requireMcp().startServer(
         { name: svc.mcpName, transport_type: 'stdio', command: 'npx', args: [...PLAYWRIGHT_MCP_ARGS] },
       );
       setDetectedServices((prev) => ({ ...prev, [svc.id]: { running: result.ok } }));
@@ -242,8 +243,8 @@ export const ToolsSection: React.FC = () => {
       return;
     }
 
-    if (!window.electron?.extensions || !svc.healthUrl) return;
-    const data = await window.electron.extensions.checkHealth(svc.healthUrl);
+    if (!resolveBridge().extensions || !svc.healthUrl) return;
+    const data = await requireExtensions().checkHealth(svc.healthUrl);
     const running = !!(data && data.status === 'ok');
     setDetectedServices((prev) => ({
       ...prev,
@@ -369,7 +370,7 @@ export const ToolsSection: React.FC = () => {
     setTestingServerId(server.id);
     try {
       if (server.location === 'client') {
-        if (!window.electron?.mcp) {
+        if (!resolveBridge().mcp) {
           setTestResults(prev => ({ ...prev, [server.id]: { status: 'unavailable', error: 'Electron MCP not available (not running in desktop app)' } }));
           return;
         }

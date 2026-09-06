@@ -17,6 +17,7 @@ import {
   Schedule as ScheduleIcon,
 } from '@mui/icons-material';
 import { refreshClientMCPServers } from '@kurisu/state';
+import { requireHostTools, resolveBridge } from '@kurisu/platform';
 
 export const HostAccessSection: React.FC = () => {
   const [paths, setPaths] = useState<string[]>([]);
@@ -26,11 +27,11 @@ export const HostAccessSection: React.FC = () => {
   const [saving, setSaving] = useState(false);
 
   const loadRules = useCallback(async () => {
-    if (!window.electron?.hostTools) return;
+    if (!resolveBridge().hostTools) return;
     const [p, tp, sa] = await Promise.all([
-      window.electron.hostTools.getAllowedPaths(),
-      window.electron.hostTools.getToolPolicies(),
-      window.electron.hostTools.getSessionApprovals(),
+      requireHostTools().getAllowedPaths(),
+      requireHostTools().getToolPolicies(),
+      requireHostTools().getSessionApprovals(),
     ]);
     setPaths(p);
     setToolPolicies(tp);
@@ -40,10 +41,10 @@ export const HostAccessSection: React.FC = () => {
   useEffect(() => { loadRules(); }, [loadRules]);
 
   const savePaths = async (newPaths: string[]) => {
-    if (!window.electron?.hostTools) return;
+    if (!resolveBridge().hostTools) return;
     setSaving(true);
     try {
-      await window.electron.hostTools.setAllowedPaths(newPaths);
+      await requireHostTools().setAllowedPaths(newPaths);
       setPaths(newPaths);
       await refreshClientMCPServers();
     } finally {
@@ -63,15 +64,15 @@ export const HostAccessSection: React.FC = () => {
   };
 
   const removePolicy = async (toolName: string) => {
-    if (!window.electron?.hostTools) return;
-    await window.electron.hostTools.removeToolPolicy(toolName);
+    if (!resolveBridge().hostTools) return;
+    await requireHostTools().removeToolPolicy(toolName);
     const { [toolName]: _, ...rest } = toolPolicies;
     setToolPolicies(rest);
   };
 
   const clearSession = async () => {
-    if (!window.electron?.hostTools) return;
-    await window.electron.hostTools.clearSessionApprovals();
+    if (!resolveBridge().hostTools) return;
+    await requireHostTools().clearSessionApprovals();
     setSessionApprovals([]);
   };
 

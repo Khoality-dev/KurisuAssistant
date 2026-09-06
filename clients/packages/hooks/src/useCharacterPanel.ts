@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiClient } from '@kurisu/api';
-import type { AmplitudeState } from '../../../apps/desktop/src/videocall/CharacterRenderer';
-import type { Message, PoseTree } from '@kurisu/models';
+import type { AmplitudeState, Message, PoseTree } from '@kurisu/models';
 import { resolveBridge } from '@kurisu/platform';
 
 interface PersonaEntry { name: string; poseTree: PoseTree | null }

@@ -1,13 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { CanvasCompositor } from './engine/CanvasCompositor';
-import type { PoseTree } from '@kurisu/models';
+import type { AmplitudeState, PoseTree } from '@kurisu/models';
 import { config } from '@kurisu/api';
-
-export interface AmplitudeState {
-  amplitude: number;
-  isPlaying: boolean;
-  isThinking: boolean;
-}
 
 interface CharacterRendererProps {
   poseTree: PoseTree | null;

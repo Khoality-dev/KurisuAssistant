@@ -14,7 +14,7 @@ import type { FileEntry } from '@kurisu/models';
 import { useExplorerStore } from '@kurisu/state';
 import { DRIVE_ROOT_LABEL, dirnameOf, fileSource, isDrivePath } from '@kurisu/api';
 import { DriveQuotaBar } from './DriveQuotaBar';
-import { resolveBridge } from '@kurisu/platform';
+import { requireFiles, resolveBridge } from '@kurisu/platform';
 
 interface TreeNode {
   entry: FileEntry;
@@ -74,7 +74,7 @@ export const FileTreeSidebar: React.FC<FileTreeSidebarProps> = ({ rootPath, show
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
 
   useEffect(() => {
-    window.electron?.explorer?.hasVSCode?.().then(setHasVSCode).catch(() => {});
+    resolveBridge().files?.hasVSCode?.().then(setHasVSCode).catch(() => {});
   }, []);
 
   // Ctrl+F focuses tree search when sidebar has focus
@@ -99,7 +99,7 @@ export const FileTreeSidebar: React.FC<FileTreeSidebarProps> = ({ rootPath, show
   }, []);
 
   const cancelSearch = useCallback(() => {
-    window.electron?.explorer?.searchContentCancel?.();
+    resolveBridge().files?.searchContentCancel?.();
     contentCleanupRef.current.forEach((fn) => fn());
     contentCleanupRef.current = [];
   }, []);
@@ -115,7 +115,7 @@ export const FileTreeSidebar: React.FC<FileTreeSidebarProps> = ({ rootPath, show
     // ripgrep runs on this machine. There is no drive-side search yet (#6), so
     // rather than searching the wrong tree, the sources view and any drive
     // folder simply do not offer it.
-    if (!query.trim() || !workspaceRoot || !fileSource.supportsSearch(workspaceRoot) || !window.electron?.explorer) {
+    if (!query.trim() || !workspaceRoot || !fileSource.supportsSearch(workspaceRoot) || !resolveBridge().files) {
       setSearchResults(null);
       setIsSearching(false);
       return;
@@ -128,22 +128,22 @@ export const FileTreeSidebar: React.FC<FileTreeSidebarProps> = ({ rootPath, show
     const q = query.trim();
 
     // Phase 1: name matches
-    window.electron.explorer.searchNames(q, workspaceRoot, opts).then((names) => {
+    requireFiles().searchNames(q, workspaceRoot, opts).then((names) => {
       setSearchResults((prev) => ({ names, matches: prev?.matches || [] }));
     }).catch(() => {});
 
     // Phase 2: streaming content matches
-    const offBatch = window.electron.explorer.onSearchContentBatch((batch) => {
+    const offBatch = requireFiles().onSearchContentBatch((batch) => {
       setSearchResults((prev) => ({
         names: prev?.names || [],
         matches: [...(prev?.matches || []), ...batch],
       }));
     });
-    const offDone = window.electron.explorer.onSearchContentDone(() => {
+    const offDone = requireFiles().onSearchContentDone(() => {
       setIsSearching(false);
     });
     contentCleanupRef.current = [offBatch, offDone];
-    window.electron.explorer.searchContentStart(q, workspaceRoot, opts);
+    requireFiles().searchContentStart(q, workspaceRoot, opts);
   }, [workspaceRoot, cancelSearch]);
 
   const handleSearchClose = useCallback(() => {
@@ -506,7 +506,7 @@ export const FileTreeSidebar: React.FC<FileTreeSidebarProps> = ({ rootPath, show
         {hasVSCode && (
           <MenuItem
             onClick={() => {
-              if (contextMenu) window.electron?.explorer?.openInVSCode(contextMenu.entry.fullPath);
+              if (contextMenu) resolveBridge().files?.openInVSCode(contextMenu.entry.fullPath);
               setContextMenu(null);
             }}
             sx={{ fontSize: '0.8rem' }}
@@ -516,7 +516,7 @@ export const FileTreeSidebar: React.FC<FileTreeSidebarProps> = ({ rootPath, show
         )}
         <MenuItem
           onClick={() => {
-            if (contextMenu) window.electron?.openPath(contextMenu.entry.fullPath);
+            if (contextMenu) resolveBridge().openPath(contextMenu.entry.fullPath);
             setContextMenu(null);
           }}
           sx={{ fontSize: '0.8rem' }}

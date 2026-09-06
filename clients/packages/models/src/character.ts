@@ -279,3 +279,16 @@ export function migrateEdgeToTransitions(edge: any): AnimationEdge {
     transitions: [transition],
   };
 }
+
+/**
+ * What the mouth and the thinking indicator are doing right now.
+ *
+ * Sampled per animation frame and sent to whatever is drawing the character —
+ * a second window on the desktop, an inline panel elsewhere — so it is a wire
+ * shape, not a component's private state.
+ */
+export interface AmplitudeState {
+  amplitude: number;
+  isPlaying: boolean;
+  isThinking: boolean;
+}

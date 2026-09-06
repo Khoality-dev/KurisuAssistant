@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import {
+  Alert,
   Box,
-  Typography,
-  Chip,
   Checkbox,
+  Chip,
   Collapse,
+  Typography,
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
@@ -106,7 +107,17 @@ export const ToolGroupChecklist: React.FC<{
   groups: ToolGroup[];
   enabledTools: string[] | null;
   onChange: (enabledTools: string[] | null) => void;
-}> = ({ groups, enabledTools, onChange }) => {
+  /**
+   * Whether `groups` is every tool the assistant could be allowed.
+   *
+   * When it is not, and the assistant is currently allowed *every* tool, there
+   * is no way to say "every tool except this one" from here: writing a list
+   * would write only the names this client can see, and the tools another
+   * device lends would be revoked for every device, silently (#181). So the
+   * list is shown and says why it cannot be changed here.
+   */
+  complete?: boolean;
+}> = ({ groups, enabledTools, onChange, complete = true }) => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const allToolNames = useMemo(() => groups.flatMap(g => g.tools.map(t => t.function.name)), [groups]);
   const enabledSet = useMemo(() => enabledTools ? new Set(enabledTools) : new Set(allToolNames), [enabledTools, allToolNames]);
@@ -120,7 +131,10 @@ export const ToolGroupChecklist: React.FC<{
     });
   };
 
+  const locked = !complete && enabledTools === null;
+
   const toggleTool = (toolName: string) => {
+    if (locked) return;
     const current = new Set(enabledSet);
     if (current.has(toolName)) {
       current.delete(toolName);
@@ -132,6 +146,7 @@ export const ToolGroupChecklist: React.FC<{
   };
 
   const toggleGroup = (group: ToolGroup) => {
+    if (locked) return;
     const toolNames = group.tools.map(t => t.function.name);
     const allEnabled = toolNames.every(n => enabledSet.has(n));
     const current = new Set(enabledSet);
@@ -145,6 +160,13 @@ export const ToolGroupChecklist: React.FC<{
 
   return (
     <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
+      {locked && (
+        <Alert severity="info" sx={{ borderRadius: 0 }}>
+          This assistant may use every tool, including ones this device cannot
+          see — the tools your other devices lend it. Turning one off here would
+          take those away everywhere, so change it from the device that has them.
+        </Alert>
+      )}
       {groups.map((group) => {
         const toolNames = group.tools.map(t => t.function.name);
         const enabledCount = toolNames.filter(n => enabledSet.has(n)).length;

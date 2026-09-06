@@ -16,6 +16,7 @@ import {
   DeleteOutline as UninstallIcon,
 } from '@mui/icons-material';
 import { apiClient } from '@kurisu/api';
+import { requireExtensions, resolveBridge } from '@kurisu/platform';
 
 const HEALTH_POLL_INTERVAL = 5000;
 
@@ -237,7 +238,7 @@ export const ExtensionsSection: React.FC = () => {
   // Poll health for all extensions
   const checkStatuses = useCallback(async () => {
     for (const ext of EXTENSIONS) {
-      const data = await window.electron?.extensions?.checkHealth(ext.healthUrl);
+      const data = await resolveBridge().extensions?.checkHealth(ext.healthUrl);
       if (data && data.status === 'ok') {
         setStatuses((prev) => ({
           ...prev,
@@ -252,7 +253,7 @@ export const ExtensionsSection: React.FC = () => {
         ensureMCPRegistered(ext);
       } else {
         try {
-          const result = await window.electron.extensions.checkInstalled(ext.id);
+          const result = await requireExtensions().checkInstalled(ext.id);
           setStatuses((prev) => ({
             ...prev,
             [ext.id]: {
@@ -306,7 +307,7 @@ export const ExtensionsSection: React.FC = () => {
 
   // Listen for download progress
   useEffect(() => {
-    const cleanup = window.electron?.extensions?.onDownloadProgress((progress) => {
+    const cleanup = resolveBridge().extensions?.onDownloadProgress((progress) => {
       setDownloadProgress(progress.percent);
     });
     return cleanup;
@@ -320,9 +321,9 @@ export const ExtensionsSection: React.FC = () => {
     setError('');
     try {
       if (ext.installType === 'portable') {
-        await window.electron.extensions.downloadPortable(status.downloadUrl, ext.id);
+        await requireExtensions().downloadPortable(status.downloadUrl, ext.id);
       } else {
-        await window.electron.extensions.downloadAndInstall(status.downloadUrl);
+        await requireExtensions().downloadAndInstall(status.downloadUrl);
       }
       setInstallingId(null);
       setDownloadProgress(null);
@@ -336,7 +337,7 @@ export const ExtensionsSection: React.FC = () => {
 
   const handleLaunch = async (ext: ExtensionConfig) => {
     try {
-      await window.electron.extensions.launchApp(ext.id);
+      await requireExtensions().launchApp(ext.id);
     } catch (err: any) {
       setError(err.message || 'Failed to launch');
     }
@@ -345,7 +346,7 @@ export const ExtensionsSection: React.FC = () => {
   const handleUninstall = async (ext: ExtensionConfig) => {
     setError('');
     try {
-      await window.electron.extensions.uninstall(ext.id);
+      await requireExtensions().uninstall(ext.id);
       checkStatuses();
     } catch (err: any) {
       setError(err.message || 'Failed to uninstall');
