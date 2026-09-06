@@ -81,7 +81,7 @@ class TestImageSizeLimit:
         upload.file = io.BytesIO(b"\x00" * (images.MAX_IMAGE_BYTES + 1024))
 
         with pytest.raises(HTTPException) as exc:
-            images.upload_image(upload)
+            images.upload_image(upload, user_id=1)
         assert exc.value.status_code == 413
 
     def test_the_read_is_bounded_rather_than_truncating(self):
@@ -101,7 +101,7 @@ class TestImageSizeLimit:
         upload.file = io.BytesIO(b"not really an image")
 
         with pytest.raises(HTTPException) as exc:
-            images.upload_image(upload)
+            images.upload_image(upload, user_id=1)
         assert exc.value.status_code == 400
 
     def test_base64_images_are_bounded_too(self):

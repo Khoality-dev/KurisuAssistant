@@ -10,6 +10,7 @@ from fastapi.security import OAuth2PasswordBearer
 
 from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.core.accounts import ACCOUNT_INACTIVE_DETAIL
+from kurisuassistant.core.image_access import references_image
 from kurisuassistant.core.security import get_current_user
 from kurisuassistant.db.models import User
 from kurisuassistant.db.service import get_db_service
@@ -29,8 +30,12 @@ async def create_image(
     file: UploadFile = File(...),
     user: User = Depends(get_authenticated_user)
 ):
-    """Upload image and return UUID."""
-    image_uuid = upload_image(file)
+    """Upload image and return UUID.
+
+    The file lands in the uploader's own directory, so it is theirs to fetch back
+    immediately — before anything references it.
+    """
+    image_uuid = upload_image(file, user.id)
     return {"image_uuid": image_uuid, "url": f"/images/{image_uuid}"}
 
 
@@ -80,14 +85,49 @@ async def get_user_image(
     return FileResponse(
         path=image_path,
         media_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=31536000, immutable"}
+        # Private: the URL is account-scoped, so a shared cache holding the
+        # response would hand it to the next caller of the same URL.
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
     )
 
 
 @router.get("/{image_uuid}")
-async def get_image(image_uuid: str):
-    """Serve image publicly."""
-    image_path = get_image_path(image_uuid)
+async def get_image(
+    image_uuid: str,
+    token: Optional[str] = Query(None),
+    header_token: Optional[str] = Depends(_optional_oauth2),
+):
+    """Serve an avatar or face photo, to the account it belongs to.
+
+    This used to be public — its docstring said so — which put every account
+    avatar, persona avatar and face photo one guessed-or-overheard UUID away from
+    anybody who could reach the port. UUIDs are not secrets: they travel in API
+    responses, through proxy logs and into browser history (#154).
+
+    Auth matches ``/images/u/`` exactly, header or ``?token=``, because the
+    callers are ``<img src=...>`` tags that cannot set a header. Ownership is
+    settled by the directory for anything uploaded since, and by the referencing
+    row for anything older.
+
+    A UUID the caller may not see is **404, not 403**: telling them it exists is
+    the same leak in a smaller envelope.
+    """
+    resolved_token = token or header_token
+    if not resolved_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = await _get_user_from_token(resolved_token)
+
+    image_path = get_user_image_path(user.id, image_uuid)
+    if not image_path:
+        legacy_path = get_image_path(image_uuid)
+        if legacy_path:
+            db = get_db_service()
+            owns = await db.execute(
+                lambda session: references_image(session, user.id, image_uuid)
+            )
+            if owns:
+                image_path = legacy_path
+
     if not image_path:
         raise HTTPException(status_code=404, detail="Image not found")
 
@@ -96,5 +136,7 @@ async def get_image(image_uuid: str):
     return FileResponse(
         path=image_path,
         media_type=media_type,
-        headers={"Cache-Control": "public, max-age=31536000, immutable"}
+        # Private: a shared cache must not hand one account's avatar to the next
+        # request for the same URL now that the URL is account-scoped.
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
     )

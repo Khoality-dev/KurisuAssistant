@@ -15,6 +15,19 @@ Bumping rules:
 - Bump rarely; treat each bump as a coordinated release across all clients.
 
 Update log (most recent first):
+- 5: `GET /images/{image_uuid}` is no longer public. It serves account avatars,
+     persona avatars and face photos, and now returns them only to the account
+     that owns them — authenticated by `Authorization: Bearer` header or, for an
+     `<img src=...>` that cannot set one, a `?token=` query parameter, exactly as
+     `GET /images/u/{image_uuid}` already was. A client must attach the token
+     rather than pointing an image element straight at the URL; the same change
+     protocol 3 made for the character asset routes. An image belonging to
+     another account answers 404, not 403. Both image routes now send
+     `Cache-Control: private` instead of `public`, because the URLs are
+     account-scoped and a shared cache would hand one response to the next
+     caller. Uploads are stored under the uploader's own directory; images
+     written before this stay where they are and are matched to their owner by
+     the row referencing them.
 - 4: The agent was split into an assistant and its personas, and the wire
      follows the split. ONE assistant per user owns capability (model,
      provider, tools, think, deferred tools, memory, and the voice wake word
@@ -66,5 +79,5 @@ Update log (most recent first):
 - 1: Initial wire protocol baseline.
 """
 
-__version__ = "0.4.0"
-WIRE_PROTOCOL = 4
+__version__ = "0.5.0"
+WIRE_PROTOCOL = 5

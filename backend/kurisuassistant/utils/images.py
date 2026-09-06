@@ -41,16 +41,23 @@ def _read_bounded(stream, limit: int = MAX_IMAGE_BYTES) -> bytes:
     return data
 
 
-def upload_image(file: UploadFile) -> str:
-    """Save an uploaded image and return its UUID.
+def upload_image(file: UploadFile, user_id: int) -> str:
+    """Save an uploaded image under ``user_id`` and return its UUID.
 
     The declared content type is not trusted: it is client-supplied and gates
     nothing, since whether this is really an image is settled by the decode
     below. It was also assumed non-null, so a request without the header raised
     an AttributeError and surfaced as a 500.
+
+    Writes into the uploader's own directory rather than the flat store, so the
+    file has an owner from the moment it exists. That is what lets an avatar be
+    displayed while it is still just an upload, before the persona holding it has
+    been saved — the alternative, deriving ownership only from the row that
+    references the UUID, cannot answer for an image nothing references yet (#154).
     """
     image_uuid = str(uuid.uuid4())
-    image_path = IMAGES_DIR / f"{image_uuid}.jpg"
+    user_dir = USER_IMAGES_DIR / str(user_id)
+    image_path = user_dir / f"{image_uuid}.jpg"
 
     try:
         contents = _read_bounded(file.file)
@@ -60,6 +67,9 @@ def upload_image(file: UploadFile) -> str:
         if image is None:
             raise HTTPException(status_code=400, detail="That file could not be read as an image.")
 
+        # Only once there is something to write: a refused upload should not
+        # leave a directory behind for an account that has never stored an image.
+        user_dir.mkdir(parents=True, exist_ok=True)
         # Save as JPEG with quality 90
         cv2.imwrite(str(image_path), image, [cv2.IMWRITE_JPEG_QUALITY, 90])
 
@@ -90,7 +100,13 @@ def check_image_exists(image_uuid: str) -> bool:
 
 
 def get_image_path(image_uuid: str) -> Optional[Path]:
-    """Get the path to an image file by UUID."""
+    """Path to an image in the **flat legacy store**, by UUID.
+
+    Nothing writes here any more: :func:`upload_image` has written into the
+    uploader's own directory since #154. This resolves images saved before that,
+    which are the ones with no owner on disk — the caller has to establish
+    ownership some other way before serving one.
+    """
     try:
         uuid.UUID(image_uuid)  # Validate UUID format
     except ValueError:
@@ -108,9 +124,13 @@ def get_image_path(image_uuid: str) -> Optional[Path]:
     return None
 
 
-def delete_image(image_uuid: str) -> bool:
-    """Delete an image by UUID."""
-    image_path = get_image_path(image_uuid)
+def delete_image(image_uuid: str, user_id: int) -> bool:
+    """Delete one of ``user_id``'s images, wherever it is stored.
+
+    Takes the owner because an image may sit in that user's directory (anything
+    uploaded since #154) or in the flat legacy store (anything older).
+    """
+    image_path = find_image_path(user_id, image_uuid)
     if image_path and image_path.exists():
         image_path.unlink()
         return True
@@ -159,7 +179,12 @@ def save_image_from_base64(base64_data: str, user_id: int) -> str:
 
 
 def get_user_image_path(user_id: int, image_uuid: str) -> Optional[Path]:
-    """Get path to a user-scoped image."""
+    """Path to an image inside ``user_id``'s own directory.
+
+    Anything here belongs to that user by construction — the directory *is* the
+    ownership record — so a caller that has authenticated the user needs no
+    further check.
+    """
     try:
         uuid.UUID(image_uuid)
     except ValueError:
@@ -167,3 +192,13 @@ def get_user_image_path(user_id: int, image_uuid: str) -> Optional[Path]:
 
     path = USER_IMAGES_DIR / str(user_id) / f"{image_uuid}.jpg"
     return path if path.exists() else None
+
+
+def find_image_path(user_id: int, image_uuid: str) -> Optional[Path]:
+    """The user's own copy if there is one, else the flat legacy store.
+
+    **Ownership is only settled for the first case.** A hit in the legacy store
+    says the file exists, not that ``user_id`` may see it; a route serving that
+    one has to check the referencing row itself.
+    """
+    return get_user_image_path(user_id, image_uuid) or get_image_path(image_uuid)

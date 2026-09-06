@@ -11,6 +11,7 @@
 import { test, expect } from './fixtures';
 import { Page } from '@playwright/test';
 import { WIRE_PROTOCOL } from '../src/constants';
+import { MOCK_BACKEND_VERSION } from './mock/server';
 
 async function login(page: Page) {
   await page.getByLabel('Username').fill('tester');
@@ -29,7 +30,7 @@ test.describe('update required', () => {
     await expect(
       page.getByText(`This app speaks wire protocol ${WIRE_PROTOCOL} but the server speaks ${WIRE_PROTOCOL + 1}. Update the app.`),
     ).toBeVisible();
-    await expect(page.getByText(`Server: 0.4.0 · wire ${WIRE_PROTOCOL + 1}`)).toBeVisible();
+    await expect(page.getByText(`Server: ${MOCK_BACKEND_VERSION} · wire ${WIRE_PROTOCOL + 1}`)).toBeVisible();
 
     await page.getByRole('button', { name: 'Change server' }).click();
 
@@ -64,7 +65,7 @@ test.describe('update required', () => {
     await settingsBtn.click({ timeout: 5_000 }).catch(() => { /* already gated */ });
 
     await expect(page.getByText('Update required')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText(`Server: 0.4.0 · wire ${WIRE_PROTOCOL + 1}`)).toBeVisible();
+    await expect(page.getByText(`Server: ${MOCK_BACKEND_VERSION} · wire ${WIRE_PROTOCOL + 1}`)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Change server' })).toBeVisible();
   });
 });

@@ -714,19 +714,47 @@ removes the entry.
 
 ## Images
 
+Both `GET` routes are authenticated by header **or** `?token=` query parameter —
+the query variant exists only because `<img src>` cannot send a header — and both
+serve a one-year **`private`** immutable cache. Private because the URLs are
+account-scoped: a shared cache holding one would hand it to the next caller.
+
 ### POST /images
 
 `multipart/form-data` with `file` → `{"image_uuid": "…", "url": "/images/…"}`.
 
+Stored under the uploader's own directory, so the image is theirs to fetch back
+straight away — before any row references it. That is what lets the persona
+editor show an avatar that has been uploaded but not yet saved.
+
 ### GET /images/u/{image_uuid}
 
-User-scoped chat image. Authenticated by header **or** `?token=` query parameter —
-the query variant exists only because `<img src>` cannot send a header. Serves
-`image/jpeg` with a one-year immutable cache.
+A chat image, from the caller's own directory. `404` if it is not there.
 
 ### GET /images/{image_uuid}
 
-Public, no authentication. Serves the stored image with a one-year immutable cache.
+An avatar or face photo, served **only to the account it belongs to** (#154). It
+was public until then, which put every account avatar, persona avatar and face
+photo one UUID away from anyone who could reach the port; UUIDs travel in API
+responses, proxy logs and browser history, so they are not secrets.
+
+Ownership is settled two ways. Anything uploaded since #154 lives in its owner's
+directory, where the path answers the question. Anything older sits in the flat
+store with no owner on disk, so the referencing row decides:
+`users.agent_avatar_uuid`, `personas.avatar_uuid`, or a `face_photos.photo_uuid`
+under one of the caller's `face_identities`. A flat-store image nothing references is
+served to nobody.
+
+**Errors:** `401` no or invalid token. `404` when the image does not exist *or*
+is not the caller's — deliberately not `403`, which would confirm that the UUID
+names something real.
+
+The check on the way *in* matters as much as the one on the way out.
+`personas.avatar_uuid` is a string the client supplies, so `POST /personas` and
+`PATCH /personas/{id}` refuse an `avatar_uuid` the caller does not already own
+(`400 Unknown image.`). Without that, the fetch check would be self-serving:
+attach a UUID overheard from a proxy log to your own persona, and the row would
+then make it yours.
 
 ---
 
@@ -1104,6 +1132,6 @@ which charged nothing for a picture or a tool payload (#99).
 3. The UUIDs are stored in the message's `images` column and echoed back on a
    `role: "user"` stream chunk.
 4. The base64 originals are passed to the LLM for vision models.
-5. Served by `GET /images/u/{uuid}` with a one-year cache.
+5. Served by `GET /images/u/{uuid}` with a one-year private cache, to that user only.
 6. MCP tools returning image content are saved the same way and attached to the
    tool result message.

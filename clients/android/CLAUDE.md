@@ -65,6 +65,20 @@ Same as desktop/mobile clients: `kurisu_auth_token`, `kurisu_remember_me`, `kuri
 
 `kurisu_selected_agent_id` was **deleted** in wire protocol 4: there is one assistant, so there is nothing to select locally, and the default persona lives on the assistant row server-side. `kurisu_agent_conversations` became `kurisu_persona_conversations` with no client-side migration — it is a cache that re-derives from the backend on a miss.
 
+## Images are authenticated
+
+`GET /images/{uuid}` stopped being public in #154 — it serves account avatars,
+persona avatars and face photos, and now returns them only to the account that
+owns them. **This client needed no change**, and the reason is worth protecting:
+`KurisuApplication` implements `ImageLoaderFactory` and builds Coil's
+`ImageLoader` on the injected `OkHttpClient`, which carries `AuthInterceptor` —
+so every image request already sends `Authorization: Bearer …`, and a 401 even
+triggers the same refresh-and-retry as an API call.
+
+If Coil is ever given its own `OkHttpClient`, or an image is fetched with a bare
+client, avatars go blank. The desktop client cannot do this — a browser `<img>`
+tag cannot set a header — so it puts the token in the query string instead.
+
 ## Settings Parity (vs Windows Desktop)
 
 The following settings are aligned with the Windows Desktop client (see `data/local/StorageKeys.kt` for the full list):

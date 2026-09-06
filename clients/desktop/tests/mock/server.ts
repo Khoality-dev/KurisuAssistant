@@ -102,6 +102,13 @@ export interface StreamScript {
   chunks: StreamChunk[];
 }
 
+/**
+ * What `/version` and the 426 body report as `backend_version`. Exported so a
+ * spec asserting on the update screen does not hard-code it — the number moves
+ * with the backend, and the screen's copy is what those tests are about.
+ */
+export const MOCK_BACKEND_VERSION = '0.5.0';
+
 // Defaults mimic a real LLM emitting tokens every ~40ms (Ollama-ish).
 const DEFAULT_STREAM: StreamScript = {
   chunks: [
@@ -582,7 +589,7 @@ export class MockBackend {
     // and every later locator times out. Taken from the client constant rather
     // than hardcoded, so a protocol bump cannot silently break the whole suite.
     if (pathOnly === '/version' && method === 'GET') {
-      return this.json(res, { backend_version: '0.4.0', wire_protocol: this.wireProtocol });
+      return this.json(res, { backend_version: MOCK_BACKEND_VERSION, wire_protocol: this.wireProtocol });
     }
 
     // The backend's middleware: any request stamped with another protocol is
@@ -598,7 +605,7 @@ export class MockBackend {
           detail: 'wire_protocol_mismatch',
           client_wire_protocol: Number.isNaN(declared) ? -1 : declared,
           server_wire_protocol: this.wireProtocol,
-          backend_version: '0.4.0',
+          backend_version: MOCK_BACKEND_VERSION,
         }));
       }
     }

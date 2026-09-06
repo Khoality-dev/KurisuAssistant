@@ -61,7 +61,7 @@ Two-level state managed by `useMicStore` (Zustand, `src/store/micStore.ts`): `in
 - Display: `message.images[]` UUIDs rendered via `apiClient.getUserImageUrl(uuid)` → `GET /images/u/{uuid}?token=` (auth-required, per-user scoped)
 - Streaming: `StreamChunkEvent.images` merged into current streaming message's images array
 - Tool images: MCP tools returning `ImageContent` produce image UUIDs streamed on tool-role chunks
-- Public images (avatars, faces): still use `apiClient.getImageUrl(uuid)` → `GET /images/{uuid}` (public)
+- Avatars and face photos: `apiClient.getImageUrl(uuid)` → `GET /images/{uuid}?token=` — **not public since #154**, and served only to the account that owns the image. Same query-param token as the per-user route above, for the same reason: these go into `<img src>`. A UUID belonging to someone else answers 404.
 
 ## Display Modes & Token Usage
 - **All Messages** (default): Full conversation history across all frames, paginated on scroll-up

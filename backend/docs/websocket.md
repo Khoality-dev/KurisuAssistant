@@ -5,7 +5,7 @@ execution, context compaction and vision. Every frame is a JSON object.
 `websocket/events.py` is the source of truth for the shapes below; `parse_event()`
 there is the only thing that accepts a client event, and an unknown `type` raises.
 
-Wire protocol **4**. See `version.py` for the changelog.
+Wire protocol **5**. See `version.py` for the changelog.
 
 ## Handshake
 
@@ -16,7 +16,7 @@ WebSocket:
 | | Header | Subprotocol entry |
 |---|---|---|
 | Token | `Authorization: Bearer <token>` | `kurisu.auth.bearer, <token>` (first two entries) |
-| Protocol | `X-Wire-Protocol: 4` | `kurisu.wire.4` (any entry) |
+| Protocol | `X-Wire-Protocol: 5` | `kurisu.wire.5` (any entry) |
 
 Only `kurisu.auth.bearer` is ever echoed back on accept; the browser drops the
 connection if the selected subprotocol is not echoed.
