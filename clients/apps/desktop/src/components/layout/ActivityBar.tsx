@@ -10,11 +10,11 @@ import {
   Logout as LogoutIcon,
   SwapVert as TransfersIcon,
 } from '@mui/icons-material';
-import { useLayoutStore, type ActivePage } from '../../store/layoutStore';
-import { useConnectionStatus } from '../../hooks/useConnectionStatus';
-import { wsManager } from '../../api/websocket';
-import { useAuthStore } from '../../store/authStore';
-import { useTransferStore } from '../../store/transferStore';
+import { useLayoutStore, type ActivePage } from '@kurisu/state';
+import { useConnectionStatus } from '@kurisu/hooks';
+import { wsManager } from '@kurisu/api';
+import { useAuthStore } from '@kurisu/state';
+import { useTransferStore } from '@kurisu/state';
 
 interface NavItem {
   id: ActivePage;

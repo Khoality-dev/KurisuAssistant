@@ -13,7 +13,7 @@ import {
   GetApp as GetAppIcon,
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
-import { apiClient } from '../api/client';
+import { apiClient } from '@kurisu/api';
 
 interface ModelPickerProps {
   label: string;

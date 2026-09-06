@@ -2,16 +2,16 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ThemeProvider } from '@mui/material/styles';
 import { CssBaseline, Box, CircularProgress } from '@mui/material';
 import { createAppTheme } from './theme/theme';
-import { useAuthStore } from './store/authStore';
+import { useAuthStore } from '@kurisu/state';
 import { LoginWindow } from './components/LoginWindow';
 import { MainLayout } from './components/layout/MainLayout';
 import { UpdateDialog } from './components/UpdateDialog';
 import { UpdateRequiredScreen } from './components/UpdateRequiredScreen';
-import { apiClient } from './api/client';
-import { wsManager } from './api/websocket';
+import { apiClient } from '@kurisu/api';
+import { wsManager } from '@kurisu/api';
 import { WIRE_PROTOCOL } from '@kurisu/models';
 // Side-effect import: registers WebSocket listener for client-side MCP servers
-import './services/mcpService';
+import '@kurisu/state';
 
 /** What the update screen needs to say: the server's numbers, or null where it would not tell us. */
 interface VersionMismatch {

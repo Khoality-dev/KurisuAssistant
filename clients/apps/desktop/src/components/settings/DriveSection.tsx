@@ -22,9 +22,9 @@ import {
   Radio,
   Typography,
 } from '@mui/material';
-import { apiClient } from '../../api/client';
-import { config } from '../../config';
-import { useToolPermissionsStore } from '../../store/toolPermissionsStore';
+import { apiClient } from '@kurisu/api';
+import { config } from '@kurisu/api';
+import { useToolPermissionsStore } from '@kurisu/state';
 import { formatBytes } from '../explorer/DriveQuotaBar';
 import type { DriveUsage } from '@kurisu/models';
 

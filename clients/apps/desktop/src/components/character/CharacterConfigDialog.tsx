@@ -38,7 +38,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { apiClient } from '../../api/client';
+import { apiClient } from '@kurisu/api';
 import {
   migrateEdgeToTransitions,
   migratePoseTreeIds,

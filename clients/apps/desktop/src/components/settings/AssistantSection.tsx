@@ -11,8 +11,8 @@ import {
   Typography,
 } from '@mui/material';
 import { Save as SaveIcon } from '@mui/icons-material';
-import { apiClient } from '../../api/client';
-import { usePersonaStore } from '../../store/personaStore';
+import { apiClient } from '@kurisu/api';
+import { usePersonaStore } from '@kurisu/state';
 import type { Assistant, AssistantUpdate } from '@kurisu/models';
 import { ModelPicker } from '../ModelPicker';
 import { ToolGroupChecklist } from './ToolGroupChecklist';

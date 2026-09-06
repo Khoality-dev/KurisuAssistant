@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import type { PoseConfig } from '@kurisu/models';
 import { CanvasCompositor } from '../../videocall/engine/CanvasCompositor';
-import { config } from '../../config';
+import { config } from '@kurisu/api';
 
 interface PreviewCanvasProps {
   poseConfig: PoseConfig;

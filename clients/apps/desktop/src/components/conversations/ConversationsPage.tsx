@@ -13,10 +13,10 @@ import {
   SmartToy as PersonaIcon,
   Search as SearchIcon,
 } from '@mui/icons-material';
-import { usePersonaStore } from '../../store/personaStore';
-import { apiClient } from '../../api/client';
-import { storage } from '../../utils/storage';
-import { useConversationStore } from '../../store/conversationStore';
+import { usePersonaStore } from '@kurisu/state';
+import { apiClient } from '@kurisu/api';
+import { storage } from '@kurisu/api';
+import { useConversationStore } from '@kurisu/state';
 
 function formatRelativeTime(dateStr: string | null | undefined): string {
   if (!dateStr) return '';

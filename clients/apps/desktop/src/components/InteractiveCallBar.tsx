@@ -3,7 +3,7 @@ import { Box, IconButton, Typography } from '@mui/material';
 import { CallEnd as CallEndIcon, Mic as MicIcon } from '@mui/icons-material';
 import CircularProgress from '@mui/material/CircularProgress';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { ASRStatus } from '../store/micStore';
+import type { ASRStatus } from '@kurisu/state';
 
 interface InteractiveCallBarProps {
   asrStatus: ASRStatus;

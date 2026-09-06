@@ -6,7 +6,7 @@ import {
   WarningAmber as WarningIcon,
 } from '@mui/icons-material';
 import Editor, { DiffEditor, type OnMount } from '@monaco-editor/react';
-import { useExplorerStore } from '../../store/explorerStore';
+import { useExplorerStore } from '@kurisu/state';
 
 export const FileEditor: React.FC = () => {
   const theme = useTheme();

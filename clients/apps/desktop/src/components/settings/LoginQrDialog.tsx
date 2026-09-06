@@ -12,8 +12,8 @@ import {
   Typography,
 } from '@mui/material';
 import QRCode from 'qrcode';
-import { apiClient } from '../../api/client';
-import { storage } from '../../utils/storage';
+import { apiClient } from '@kurisu/api';
+import { storage } from '@kurisu/api';
 
 interface Props {
   open: boolean;

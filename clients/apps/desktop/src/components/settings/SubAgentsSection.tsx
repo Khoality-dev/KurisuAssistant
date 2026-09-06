@@ -21,7 +21,7 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { AnimatePresence } from 'framer-motion';
-import { apiClient } from '../../api/client';
+import { apiClient } from '@kurisu/api';
 import type { SubAgent } from '@kurisu/models';
 import { ResourceCard } from './ResourceCard';
 import { SubAgentEditDialog } from './SubAgentEditDialog';

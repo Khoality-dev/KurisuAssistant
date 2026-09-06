@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Box, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { DataObject as DataObjectIcon } from '@mui/icons-material';
-import { apiClient } from '../../api/client';
+import { apiClient } from '@kurisu/api';
 import type { MessageRawData } from '@kurisu/models';
 
 interface RawDataDialogProps {

@@ -17,7 +17,14 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = path.resolve(__dirname, '..');
 const schemaSource = readFileSync(path.join(ROOT, 'electron/appTools.ts'), 'utf8');
-const handlerSource = readFileSync(path.join(ROOT, 'src/services/appToolsHandler.ts'), 'utf8');
+// The two halves no longer live in the same package: the schema table is still
+// this app's main process, while the dispatch that implements it moved to
+// @kurisu/state, because it is renderer code that needs no Electron (#187).
+// That split is exactly why this check has to keep existing.
+const handlerSource = readFileSync(
+  path.join(ROOT, '../../packages/state/src/appToolsHandler.ts'),
+  'utf8',
+);
 
 const matchAll = (source: string, re: RegExp) =>
   new Set(Array.from(source.matchAll(re), (m) => m[1]));

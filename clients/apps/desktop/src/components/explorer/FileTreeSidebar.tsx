@@ -7,12 +7,12 @@ import {
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { ResizeHandle } from '../layout/ResizeHandle';
-import { useLayoutStore } from '../../store/layoutStore';
+import { useLayoutStore } from '@kurisu/state';
 import { getFileIcon } from './FileIcon';
 import { SearchBar, Highlight } from './SearchPanel';
 import type { FileEntry } from '@kurisu/models';
-import { useExplorerStore } from '../../store/explorerStore';
-import { DRIVE_ROOT_LABEL, dirnameOf, fileSource, isDrivePath } from '../../api/fileSource';
+import { useExplorerStore } from '@kurisu/state';
+import { DRIVE_ROOT_LABEL, dirnameOf, fileSource, isDrivePath } from '@kurisu/api';
 import { DriveQuotaBar } from './DriveQuotaBar';
 import { resolveBridge } from '@kurisu/platform';
 

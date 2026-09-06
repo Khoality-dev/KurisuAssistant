@@ -16,7 +16,7 @@ import {
   Build as BuildIcon,
   Schedule as ScheduleIcon,
 } from '@mui/icons-material';
-import { refreshClientMCPServers } from '../../services/mcpService';
+import { refreshClientMCPServers } from '@kurisu/state';
 
 export const HostAccessSection: React.FC = () => {
   const [paths, setPaths] = useState<string[]>([]);

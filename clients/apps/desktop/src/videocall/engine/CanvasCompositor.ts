@@ -9,7 +9,7 @@ import {
   type ProcessedPose,
 } from '@kurisu/models';
 import { getCachedImage } from './ImageCache';
-import { storage } from '../../utils/storage';
+import { storage } from '@kurisu/api';
 
 type BlinkState = 'open' | 'closing' | 'closed' | 'opening';
 type CompositorState = 'idle' | 'transitioning';

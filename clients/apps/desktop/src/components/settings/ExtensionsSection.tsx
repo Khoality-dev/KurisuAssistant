@@ -15,7 +15,7 @@ import {
   SystemUpdateAlt as UpdateIcon,
   DeleteOutline as UninstallIcon,
 } from '@mui/icons-material';
-import { apiClient } from '../../api/client';
+import { apiClient } from '@kurisu/api';
 
 const HEALTH_POLL_INTERVAL = 5000;
 

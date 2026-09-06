@@ -11,8 +11,8 @@ import {
   Divider,
   SelectChangeEvent,
 } from '@mui/material';
-import { storage } from '../../utils/storage';
-import { useMicStore } from '../../store/micStore';
+import { storage } from '@kurisu/api';
+import { useMicStore } from '@kurisu/state';
 
 interface AudioDevice {
   deviceId: string;

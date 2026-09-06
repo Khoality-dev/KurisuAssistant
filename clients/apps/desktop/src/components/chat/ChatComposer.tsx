@@ -13,15 +13,15 @@ import {
   Typography,
   ClickAwayListener,
 } from '@mui/material';
-import { getCommands } from '../../utils/commands';
-import { useConversationStore } from '../../store/conversationStore';
+import { getCommands } from '@kurisu/state';
+import { useConversationStore } from '@kurisu/state';
 import {
   Send as SendIcon,
   Close as CloseIcon,
   Stop as StopIcon,
   Mic as MicIcon,
 } from '@mui/icons-material';
-import { useMicStore, getMicAmplitude } from '../../store/micStore';
+import { useMicStore, getMicAmplitude } from '@kurisu/state';
 
 /** Mic icon that lights up when sound is detected */
 const MicIndicator: React.FC = () => {

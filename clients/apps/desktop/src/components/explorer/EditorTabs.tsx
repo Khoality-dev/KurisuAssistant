@@ -2,7 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { Box, Typography, IconButton, Tooltip, Menu, MenuItem, ListItemText } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
-import { useExplorerStore } from '../../store/explorerStore';
+import { useExplorerStore } from '@kurisu/state';
 import { getFileIcon } from './FileIcon';
 
 export const EditorTabs: React.FC = () => {

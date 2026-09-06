@@ -14,8 +14,8 @@ import {
   CameraAlt as CameraAltIcon,
   Close as CloseIcon,
 } from '@mui/icons-material';
-import { apiClient } from '../../api/client';
-import { useWebcamCapture, type CapturedPhoto } from '../../hooks/useWebcamCapture';
+import { apiClient } from '@kurisu/api';
+import { useWebcamCapture, type CapturedPhoto } from '@kurisu/hooks';
 
 interface FaceCreateDialogProps {
   open: boolean;
