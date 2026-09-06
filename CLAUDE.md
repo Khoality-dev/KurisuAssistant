@@ -8,6 +8,10 @@ Monorepo for KurisuAssistant. Three independent packages with no shared build to
 
 Each package keeps its own toolchain, `.gitignore`, tests, and commands. Run them from inside the package directory; the backend in particular uses cwd-relative `data/` paths and `docker compose` must be run from `backend/`.
 
+Every package's `CLAUDE.md` is an index: a page you can read whole, linking to topic files under that package's `docs/`. Put detail in the topic file and a line in the index, not a fourteenth section in the index.
+
+**Documentation moves with the code.** A change that leaves a document describing what the code used to do is not finished — that is how an architecture map came to point at a screen nothing rendered (#138) and a security section came to present a filed vulnerability as a design decision (#91). Update the package's `docs/` and, for anything cross-cutting, this file, in the same commit.
+
 ## Cross-cutting rules
 
 - **Protocol contract** lives in the backend: `backend/docs/websocket.md` and `backend/docs/API.md`. Event names are hand-typed string literals in both clients (desktop: `src/api/`, Android: `data/remote/websocket/`). A backend event change is not done until both clients and the docs are updated in the same commit.
