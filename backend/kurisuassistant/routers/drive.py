@@ -409,11 +409,23 @@ async def replace_content(
         def _persist(session):
             repo = DriveNodeRepository(session)
             node = _require_node(repo, user.id, node_id)
+            # Same re-check the upload route does, for the same reason: the
+            # headroom was measured before the bytes arrived and nothing
+            # reserved it, so two concurrent writes would each spend it.
+            used, _ = repo.usage(user.id)
+            if used - node.size + size > drive_storage.QUOTA_BYTES:
+                raise _OverQuota()
             replaced = repo.replace_file(node, size, mime, checksum, storage_key)
             repo.touch_parents(node)
             return _node_to_response(node), replaced
 
         body, replaced_key = await get_db_service().execute(_persist)
+    except _OverQuota:
+        await drive_storage.delete_blobs(user.id, [storage_key])
+        raise HTTPException(
+            status_code=507,
+            detail="Your drive is full. Remove something, or ask for more space.",
+        )
     except BaseException as e:
         await drive_storage.delete_blobs(user.id, [storage_key])
         if isinstance(e, HTTPException):

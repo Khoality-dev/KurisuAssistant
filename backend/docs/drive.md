@@ -45,9 +45,13 @@ There is no synthetic per-user root row. The root is the absence of a parent.
 drive is the one store that grows without bound, and an operator has to be able
 to archive or exclude it on its own. See `operations.md`.
 
-Nothing is re-encoded. Every other upload route in this backend runs its bytes
-through `cv2.imdecode`/`imwrite` at JPEG quality 90 and discards the original;
-giving back exactly what it was given is the drive's whole job.
+Nothing is re-encoded, and giving back exactly what it was given is the drive's
+whole job. Most of what came before does not: six upload routes run their bytes
+through `cv2.imdecode`/`imwrite` and discard the original — `utils/images.py` at
+JPEG quality 90, `routers/character.py`'s pose art as PNG. The one existing route
+that already stored bytes verbatim is `POST /character-assets/upload-video`
+(`character.py:282-284`), and it is gated on `video/mp4|webm` and keyed on a
+persona id, so an uploaded PDF or `.zip` still had nowhere to go.
 
 ## Path safety
 

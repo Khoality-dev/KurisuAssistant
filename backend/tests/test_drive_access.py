@@ -577,6 +577,30 @@ class TestLimits:
 
 
 class TestEditorSave:
+    def test_a_save_that_fills_the_drive_is_refused(
+        self, system_client, owner, monkeypatch, drive_root
+    ):
+        """The editor's Save has the same race the upload does — the headroom is
+        measured before the bytes arrive and nothing reserves it — so it needs
+        the same check inside the write transaction."""
+        from kurisuassistant.utils import drive_storage
+
+        _, headers = owner
+        node = _upload(system_client, headers, "growing.md", b"small").json()
+
+        monkeypatch.setattr(drive_storage, "QUOTA_BYTES", 10_000)
+        sizes = iter([0, 10_000])
+        monkeypatch.setattr(
+            "kurisuassistant.db.repositories.drive.DriveNodeRepository.usage",
+            lambda self, user_id: (next(sizes, 10_000), 0),
+        )
+
+        resp = system_client.put(
+            f"/drive/files/{node['id']}/content", content=b"much bigger", headers=headers
+        )
+
+        assert resp.status_code == 507, resp.text
+
     def test_put_replaces_the_content_in_place(self, system_client, owner):
         _, headers = owner
         node = _upload(system_client, headers, "editable.md", b"# before").json()
