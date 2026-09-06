@@ -55,6 +55,7 @@ refresh tokens last `REFRESH_TOKEN_EXPIRE_DAYS` (default 30).
 ```
 
 **Errors:** `400` incorrect username or password; `429` rate limited per client
+address *and* per username (#155); the two are indistinguishable in the response
 address.
 
 ---
@@ -1053,7 +1054,7 @@ The `agent_switch` event no longer exists.
 | 409 | Conflict — duplicate name |
 | 422 | Unprocessable — request body failed validation |
 | 426 | Wire protocol mismatch |
-| 429 | Rate limited (login and registration) |
+| 429 | Rate limited (login and registration), by client address or by username |
 | 500 | Internal error |
 | 502 | An upstream service (universal-voice) is unavailable |
 

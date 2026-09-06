@@ -188,6 +188,13 @@ services:
       - MCP_TLS_VERIFY=${MCP_TLS_VERIFY:-true}
       - AUTH_RATE_LIMIT_MAX_ATTEMPTS=${AUTH_RATE_LIMIT_MAX_ATTEMPTS:-10}
       - AUTH_RATE_LIMIT_WINDOW_SECONDS=${AUTH_RATE_LIMIT_WINDOW_SECONDS:-300}
+      # The second bucket, keyed on the username a proxy cannot rewrite (#155).
+      - AUTH_RATE_LIMIT_MAX_ATTEMPTS_PER_USER=${AUTH_RATE_LIMIT_MAX_ATTEMPTS_PER_USER:-20}
+      # Which peers' X-Forwarded-For to believe. Empty means none, so the
+      # per-address limit keys on the socket peer — correct when nothing is in
+      # front, wrong behind a proxy. With the tls profile the proxy is the
+      # bundled nginx on this Compose network.
+      - FORWARDED_ALLOW_IPS=${FORWARDED_ALLOW_IPS:-}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
       - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS:-30}
