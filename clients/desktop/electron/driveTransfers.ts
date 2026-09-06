@@ -15,6 +15,7 @@
  */
 
 import { app, dialog, ipcMain, net } from 'electron';
+import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -75,7 +76,30 @@ function uniqueDestination(dir: string, name: string): string {
   return candidate;
 }
 
-const MULTIPART_BOUNDARY = '----KurisuDriveBoundary7MA4YWxkTrZu0gW';
+/**
+ * A fresh boundary per upload.
+ *
+ * Not a constant: a boundary is only a delimiter because it does not occur in
+ * the body, and a fixed one is a string an uploaded file can contain — a file
+ * that happens to hold it would be silently truncated at that point. 16 random
+ * bytes make that a non-event.
+ */
+function newBoundary(): string {
+  return `----KurisuDrive${randomBytes(16).toString('hex')}`;
+}
+
+/**
+ * A value safe to put inside a multipart header line.
+ *
+ * A quote would end the quoted string and a CR or LF would start a new header,
+ * so a name carrying either could forge parts of the request. The backend
+ * refuses such names, but this side must not depend on that: it also sends
+ * names that came back *from* the drive.
+ */
+function headerSafe(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\r\n"\\]/g, '_');
+}
 
 /**
  * Multipart, written by hand because the body has to stream.
@@ -83,30 +107,32 @@ const MULTIPART_BOUNDARY = '----KurisuDriveBoundary7MA4YWxkTrZu0gW';
  * `FormData` in the renderer would buffer the file; here the preamble and the
  * epilogue are small strings and the file itself is piped between them.
  */
-function multipartPreamble(req: UploadRequest): Buffer {
+function multipartPreamble(req: UploadRequest, boundary: string): Buffer {
   const parts: string[] = [];
   if (req.parentId !== null) {
     parts.push(
-      `--${MULTIPART_BOUNDARY}\r\n`,
+      `--${boundary}\r\n`,
       'Content-Disposition: form-data; name="parent_id"\r\n\r\n',
       `${req.parentId}\r\n`,
     );
   }
   parts.push(
-    `--${MULTIPART_BOUNDARY}\r\n`,
+    `--${boundary}\r\n`,
     'Content-Disposition: form-data; name="name"\r\n\r\n',
-    `${req.name}\r\n`,
+    // A field *value*, not a header, so only the line breaks that would end the
+    // part matter here.
+    `${req.name.replace(/[\r\n]/g, '_')}\r\n`,
   );
   parts.push(
-    `--${MULTIPART_BOUNDARY}\r\n`,
-    `Content-Disposition: form-data; name="file"; filename="${req.name.replace(/"/g, '')}"\r\n`,
+    `--${boundary}\r\n`,
+    `Content-Disposition: form-data; name="file"; filename="${headerSafe(req.name)}"\r\n`,
     'Content-Type: application/octet-stream\r\n\r\n',
   );
   return Buffer.from(parts.join(''), 'utf-8');
 }
 
-function multipartEpilogue(): Buffer {
-  return Buffer.from(`\r\n--${MULTIPART_BOUNDARY}--\r\n`, 'utf-8');
+function multipartEpilogue(boundary: string): Buffer {
+  return Buffer.from(`\r\n--${boundary}--\r\n`, 'utf-8');
 }
 
 function readBody(response: Electron.IncomingMessage): Promise<string> {
@@ -145,8 +171,9 @@ async function uploadOne(
     return { error: 'Folders cannot be uploaded yet — upload the files inside it.' };
   }
 
-  const preamble = multipartPreamble(req);
-  const epilogue = multipartEpilogue();
+  const boundary = newBoundary();
+  const preamble = multipartPreamble(req, boundary);
+  const epilogue = multipartEpilogue(boundary);
   const total = stat.size;
 
   return new Promise((resolve) => {
@@ -155,7 +182,10 @@ async function uploadOne(
 
     const request = net.request({ method: 'POST', url: url.toString() });
     request.setHeader('Authorization', `Bearer ${req.token}`);
-    request.setHeader('Content-Type', `multipart/form-data; boundary=${MULTIPART_BOUNDARY}`);
+    request.setHeader('Content-Type', `multipart/form-data; boundary=${boundary}`);
+    // Electron's own advice for a large body: without this the request is
+    // buffered in the main process rather than streamed.
+    request.chunkedEncoding = true;
 
     let settled = false;
     let cancelled = false;
@@ -202,7 +232,15 @@ async function uploadOne(
         source.destroy();
         return;
       }
-      request.write(chunk);
+      // Backpressure. A local disk feeds far faster than a network socket, so
+      // writing without waiting buffers the whole file inside the main process
+      // — the one thing streaming was for. `write`'s callback fires when the
+      // chunk is flushed, and Electron's ClientRequest has no `drain` event to
+      // use instead.
+      source.pause();
+      request.write(chunk, undefined, () => {
+        if (!cancelled) source.resume();
+      });
       sent += chunk.length;
       emitProgress(event, { id, loaded: sent, total });
     });

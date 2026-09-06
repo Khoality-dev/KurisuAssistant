@@ -83,9 +83,18 @@ def validate_name(name: str) -> str:
         raise HTTPException(
             status_code=400, detail=f"A name cannot be longer than {MAX_NAME_BYTES} bytes."
         )
-    if "/" in name or "\\" in name or "\0" in name:
+    if "/" in name or "\\" in name:
         raise HTTPException(
             status_code=400, detail="A name cannot contain a slash or a null byte."
+        )
+    # Every control character, not just NUL. A name carrying CR or LF would end
+    # up inside a Content-Disposition header on the way back out, and inside a
+    # multipart part header on the way in — both places where a line break
+    # starts a new header rather than being data. Clients escape it too; this is
+    # the end that has to hold.
+    if any(ord(character) < 32 or ord(character) == 127 for character in name):
+        raise HTTPException(
+            status_code=400, detail="A name cannot contain control characters."
         )
     if name in (".", ".."):
         raise HTTPException(status_code=400, detail="That name is reserved.")

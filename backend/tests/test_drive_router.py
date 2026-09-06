@@ -32,6 +32,9 @@ class TestValidateName:
             ("a/b", "posix separator"),
             ("a\\b", "windows separator"),
             ("a\0b", "null byte"),
+            ("a\rb", "carriage return — would start a header line"),
+            ("a\nb", "line feed — would start a header line"),
+            ("a\x7fb", "delete"),
             ("é" * 200, "over 255 bytes once encoded"),
         ],
     )
