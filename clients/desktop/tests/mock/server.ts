@@ -339,7 +339,7 @@ export class MockBackend {
     const bounded = (close: (done: () => void) => void) =>
       Promise.race([
         new Promise<void>((resolve) => close(() => resolve())),
-        new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+        new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
       ]);
 
     await bounded((done) => this.wss.close(() => done()));

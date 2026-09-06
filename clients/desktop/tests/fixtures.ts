@@ -62,7 +62,7 @@ async function shutDown(app: ElectronApplication): Promise<void> {
   try {
     await Promise.race([
       app.close(),
-      new Promise<void>((resolve) => setTimeout(() => { kill(); resolve(); }, 10_000)),
+      new Promise<void>((resolve) => setTimeout(() => { kill(); resolve(); }, 3_000)),
     ]);
   } catch {
     kill();

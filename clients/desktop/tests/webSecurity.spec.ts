@@ -18,6 +18,10 @@ import { test, expect } from './fixtures';
 const REMOTE = 'https://blocked.invalid/';
 
 test.describe('window navigation guards', () => {
+  // BISECT, one run only: does the worker still fail to shut down without
+  // these two? If yes, the hang is Electron 43 on this runner, not the tests.
+  test.skip(({ browserName }) => process.platform === 'linux', 'bisecting the Linux teardown hang');
+
   test('window.open on a remote URL creates no second renderer', async ({ page, electronApp }) => {
     const before = electronApp.windows().length;
 
