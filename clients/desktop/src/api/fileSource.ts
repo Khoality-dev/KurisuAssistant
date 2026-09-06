@@ -109,6 +109,23 @@ export function rememberNode(path: string, id: number): void {
   idByPath.set(path, id);
 }
 
+/**
+ * Forget a path and everything under it.
+ *
+ * Forgetting only the path itself is not enough for a folder: its children stay
+ * cached under paths that no longer exist, and a *new* folder of the same name
+ * holding a file of the same name would then resolve to the deleted node's id
+ * — the wrong file, silently.
+ */
+function forgetSubtree(path: string): void {
+  idByPath.delete(path);
+  const prefix = `${path}/`;
+  for (const known of Array.from(idByPath.keys())) {
+    if (known.startsWith(prefix)) idByPath.delete(known);
+  }
+}
+
+/** Node ids are per account, so signing out has to drop the whole map. */
 export function forgetDriveCache(): void {
   idByPath.clear();
 }
@@ -312,7 +329,7 @@ export const fileSource = {
       const newParent = dirnameOf(newPath);
       if (oldParent !== newParent) changes.parent_id = await driveNodeId(newParent);
       await apiClient.updateDriveNode(id, changes);
-      idByPath.delete(oldPath);
+      forgetSubtree(oldPath);
       rememberNode(newPath, id);
       return { status: 'ok' };
     } catch (error) {
@@ -326,7 +343,7 @@ export const fileSource = {
       const id = await driveNodeId(targetPath);
       if (id === null) return { error: 'The drive itself cannot be deleted.' };
       await apiClient.deleteDriveNode(id);
-      idByPath.delete(targetPath);
+      forgetSubtree(targetPath);
       return { status: 'ok' };
     } catch (error) {
       return { error: describeError(error) };

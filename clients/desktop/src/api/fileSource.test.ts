@@ -272,3 +272,57 @@ describe('search', () => {
     expect(fileSource.supportsSearch('drive://Reports')).toBe(false);
   });
 });
+
+describe('forgetting cached ids', () => {
+  async function cacheReportsTree() {
+    (apiClient.listDriveNodes as any)
+      .mockResolvedValueOnce([
+        { id: 7, parent_id: null, name: 'Reports', is_dir: true, size: 0, mime: null, checksum: null, created_at: null, updated_at: null },
+      ])
+      .mockResolvedValueOnce([
+        { id: 8, parent_id: 7, name: 'Q3.md', is_dir: false, size: 1, mime: 'text/markdown', checksum: null, created_at: null, updated_at: null },
+      ]);
+    await fileSource.listDirectory(DRIVE_ROOT);
+    await fileSource.listDirectory('drive://Reports');
+  }
+
+  it('drops a deleted folder\'s children, not just the folder', async () => {
+    // Otherwise a new folder of the same name holding a file of the same name
+    // resolves to the deleted node's id — the wrong file, silently.
+    await cacheReportsTree();
+    (apiClient.deleteDriveNode as any).mockResolvedValue(undefined);
+
+    await fileSource.delete('drive://Reports');
+
+    (apiClient.resolveDrivePath as any).mockResolvedValue({ id: 99 });
+    (apiClient.readDriveFile as any).mockResolvedValue(new Blob(['new']));
+    await fileSource.readFile('drive://Reports/Q3.md');
+
+    expect(apiClient.resolveDrivePath).toHaveBeenCalledWith('/Reports/Q3.md');
+    expect(apiClient.readDriveFile).toHaveBeenCalledWith(99);
+  });
+
+  it('drops a renamed folder\'s children too', async () => {
+    await cacheReportsTree();
+    (apiClient.updateDriveNode as any).mockResolvedValue({ id: 7 });
+
+    await fileSource.rename('drive://Reports', 'drive://Archive');
+
+    (apiClient.resolveDrivePath as any).mockResolvedValue({ id: 55 });
+    (apiClient.readDriveFile as any).mockResolvedValue(new Blob(['x']));
+    await fileSource.readFile('drive://Reports/Q3.md');
+
+    expect(apiClient.readDriveFile).toHaveBeenCalledWith(55);
+  });
+
+  it('is emptied outright when the account changes', async () => {
+    await cacheReportsTree();
+    forgetDriveCache();
+
+    (apiClient.resolveDrivePath as any).mockResolvedValue({ id: 1000 });
+    (apiClient.listDriveNodes as any).mockResolvedValue([]);
+    await fileSource.listDirectory('drive://Reports');
+
+    expect(apiClient.resolveDrivePath).toHaveBeenCalledWith('/Reports');
+  });
+});
