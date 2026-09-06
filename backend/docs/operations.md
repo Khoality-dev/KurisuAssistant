@@ -150,8 +150,18 @@ account sees only its own data.
 provider appears in their model picker: a user can point their assistant at the
 provider and the key is used as the fallback.
 
-**Behind a proxy the login rate limiter collapses to one bucket** (#155): it keys
-on the socket peer, and uvicorn runs without `--proxy-headers`.
+**Behind a proxy, name the proxy** (#155). The per-address half of the login rate
+limiter counts `request.client`, which is the proxy unless the server is told to
+believe its `X-Forwarded-For`. Set `FORWARDED_ALLOW_IPS` to the proxy's address
+or subnet — `172.16.0.0/12` covers the Compose network the bundled nginx runs on
+— and the entrypoint prints `Proxy headers: trusted from …` at startup; leave it
+empty when nothing fronts the server. Never `*`: it lets any client pick its own
+bucket, and the entrypoint warns about it. The first authentication attempt logs
+which address the limiter resolved, and warns if a forwarded header arrived from
+a peer nothing trusts. A second limit counts failures per username
+(`AUTH_RATE_LIMIT_MAX_ATTEMPTS_PER_USER`, 20 per window, `0` disables), which is
+the only bound left when many callers share one address; the trade is that
+someone who knows a username can keep that account refused for a window.
 
 **Camera vision runs on the CPU unless a GPU is reserved.** Gesture detection
 picks `cuda` when the container can see a GPU and `cpu` otherwise (`VISION_DEVICE`

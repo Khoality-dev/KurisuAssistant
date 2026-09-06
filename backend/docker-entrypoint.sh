@@ -44,5 +44,32 @@ else
     exit 1
 fi
 
+# Whose X-Forwarded-For to believe.
+#
+# uvicorn trusts 127.0.0.1 by default, which is never the address of a proxy in
+# another container, so behind one every request looked like it came from the
+# proxy and the login rate limiter had a single bucket for the whole world
+# (#155). The list is the operator's to set: naming nothing is safe (the header
+# is ignored and the limiter keys on the socket peer), naming the proxy is
+# correct, and "*" trusts any client's header — which is why it is warned about
+# rather than offered as a convenience.
+UVICORN_ARGS=(--host 0.0.0.0 --port 15597 --ws-ping-interval 5 --ws-ping-timeout 5)
+TRUSTED_PROXIES="${FORWARDED_ALLOW_IPS:-}"
+
+if [ -z "$TRUSTED_PROXIES" ]; then
+  echo "Proxy headers: ignored (FORWARDED_ALLOW_IPS unset). Login rate limiting keys on the"
+  echo "  socket peer. If a reverse proxy fronts this server, set FORWARDED_ALLOW_IPS to its"
+  echo "  address or subnet, or every caller shares one rate-limit bucket."
+  UVICORN_ARGS+=(--no-proxy-headers)
+elif [ "$TRUSTED_PROXIES" = "*" ]; then
+  echo "WARNING: FORWARDED_ALLOW_IPS=* trusts X-Forwarded-For from EVERY client, so anyone who"
+  echo "  can reach this port can choose which rate-limit bucket they land in. Name the proxy's"
+  echo "  address or subnet instead."
+  UVICORN_ARGS+=(--proxy-headers --forwarded-allow-ips="*")
+else
+  echo "Proxy headers: trusted from ${TRUSTED_PROXIES}"
+  UVICORN_ARGS+=(--proxy-headers --forwarded-allow-ips="$TRUSTED_PROXIES")
+fi
+
 echo "Starting application..."
-exec uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --ws-ping-interval 5 --ws-ping-timeout 5
+exec uvicorn kurisuassistant.main:app "${UVICORN_ARGS[@]}"

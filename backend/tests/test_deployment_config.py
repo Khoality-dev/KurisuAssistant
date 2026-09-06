@@ -222,6 +222,25 @@ def test_entrypoint_bounds_its_wait_and_reports_why():
     assert "DB_WAIT_ATTEMPTS" in text, "the wait must be bounded"
 
 
+def test_the_entrypoint_decides_what_to_trust_and_says_so():
+    """Behind a proxy, uvicorn's default (trust 127.0.0.1 only) made every
+    request look like the proxy and gave the login limiter one bucket for
+    everyone (#155). The list must come from the environment, be off when unset,
+    and be printed so an operator can see what the server believes."""
+    text = (BACKEND / "docker-entrypoint.sh").read_text()
+    assert "FORWARDED_ALLOW_IPS" in text, "the trusted-proxy list must be configurable"
+    assert "--no-proxy-headers" in text, "unset must mean the header is ignored, not trusted"
+    assert "--forwarded-allow-ips" in text
+    assert "Proxy headers:" in text, "the startup log must say what is trusted"
+
+
+def test_the_bundled_proxy_documents_what_the_api_must_trust():
+    """nginx sets the headers; they are inert unless the api trusts it."""
+    text = (BACKEND / "nginx" / "nginx.conf").read_text()
+    assert "X-Forwarded-For" in text
+    assert "FORWARDED_ALLOW_IPS" in text, "say where the other half of the setting lives"
+
+
 def test_dockerfile_copies_the_application_in():
     """The image is the artefact; it has to carry the code (#98)."""
     text = (BACKEND / "Dockerfile").read_text()

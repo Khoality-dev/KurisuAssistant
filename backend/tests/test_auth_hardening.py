@@ -40,8 +40,10 @@ class FakeDBService:
 @pytest.fixture(autouse=True)
 def reset_rate_limiter():
     auth._attempts.clear()
+    auth._resolved_client_logged = False
     yield
     auth._attempts.clear()
+    auth._resolved_client_logged = False
 
 
 @pytest.fixture
@@ -117,7 +119,9 @@ class TestRateLimiting:
             assert auth_client.post("/login", data=credentials()).status_code == 200
 
     def test_limit_can_be_disabled(self, auth_client, monkeypatch):
+        # Both buckets: the per-username one is a second limit since #155.
         monkeypatch.setattr(auth, "_RATE_LIMIT_MAX_ATTEMPTS", 0)
+        monkeypatch.setattr(auth, "_RATE_LIMIT_MAX_ATTEMPTS_PER_USER", 0)
 
         class Failing:
             async def execute(self, operation):

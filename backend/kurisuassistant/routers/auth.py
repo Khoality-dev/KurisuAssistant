@@ -5,7 +5,7 @@ import os
 import time
 from collections import deque
 from threading import Lock
-from typing import Deque, Dict
+from typing import Deque, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm
@@ -51,44 +51,131 @@ def _registration_open() -> bool:
 # Deliberately in-process and dependency-free: the server runs a single uvicorn
 # worker, so a shared counter buys nothing a local one does not. It exists to
 # make online password guessing impractical, not to survive a restart.
+#
+# Two buckets, because each one alone has a hole (#155):
+#
+# * **Per address.** The obvious one, and the one a reverse proxy breaks. The
+#   socket peer behind a proxy is the proxy, so every caller shares a bucket:
+#   ten failures from anyone lock out everyone, and an attacker gets ten
+#   attempts shared with legitimate users rather than ten of their own.
+#   uvicorn rewrites ``request.client`` from ``X-Forwarded-For`` only for peers
+#   named in ``FORWARDED_ALLOW_IPS``, which ``docker-entrypoint.sh`` passes
+#   through — so an operator behind a proxy has to name it, and naming nothing
+#   is safe (the header is ignored) rather than forgeable.
+# * **Per username.** A proxy cannot rewrite it and an attacker spread across
+#   many addresses cannot dodge it, so it is the only bound that survives both
+#   a shared address and a botnet. The cost is real and deliberate: someone who
+#   knows a username can keep that account refused for one window. Its budget is
+#   therefore larger than the per-address one, and ``0`` disables it.
+#
+# Both answer with the same sentence, so which limit tripped says nothing about
+# whether the username exists.
 # ---------------------------------------------------------------------------
 
 _RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("AUTH_RATE_LIMIT_WINDOW_SECONDS", "300"))
 _RATE_LIMIT_MAX_ATTEMPTS = int(os.getenv("AUTH_RATE_LIMIT_MAX_ATTEMPTS", "10"))
+_RATE_LIMIT_MAX_ATTEMPTS_PER_USER = int(
+    os.getenv("AUTH_RATE_LIMIT_MAX_ATTEMPTS_PER_USER", "20")
+)
 
 _attempts: Dict[str, Deque[float]] = {}
 _attempts_lock = Lock()
 
+# Whether this process has already reported which address the limiter keys on.
+_resolved_client_logged = False
+
+
+def _client_address(request: Request) -> str:
+    """The address the limiter counts against.
+
+    Already rewritten from ``X-Forwarded-For`` by uvicorn's proxy-headers
+    middleware when the peer is a trusted proxy; otherwise the socket peer.
+    """
+    return request.client.host if request.client else "unknown"
+
+
+def _log_resolved_client_once(request: Request, address: str) -> None:
+    """Say once, on the first authentication attempt, what the limiter keys on.
+
+    There is nothing to resolve at startup — no client — so the first request
+    that reaches a limit is where an operator can be told the truth. The
+    entrypoint prints the trusted-proxy list at startup; this prints the result.
+    """
+    global _resolved_client_logged
+    if _resolved_client_logged:
+        return
+    _resolved_client_logged = True
+
+    trusted = os.getenv("FORWARDED_ALLOW_IPS", "").strip()
+    forwarded = request.headers.get("x-forwarded-for")
+    if trusted:
+        logger.info(
+            "Auth rate limiting keys on client address %s (proxy headers trusted from %s, "
+            "X-Forwarded-For: %s)",
+            address, trusted, forwarded or "<absent>",
+        )
+    elif forwarded:
+        logger.warning(
+            "Auth rate limiting keys on the socket peer %s, but this request carried "
+            "X-Forwarded-For: %s. If this server is behind a reverse proxy, set "
+            "FORWARDED_ALLOW_IPS to the proxy's address or subnet — otherwise every "
+            "caller shares one bucket and one attacker locks out everyone (#155).",
+            address, forwarded,
+        )
+    else:
+        logger.info("Auth rate limiting keys on the socket peer %s", address)
+
 
 def _client_key(request: Request, bucket: str) -> str:
-    client = request.client.host if request.client else "unknown"
-    return f"{bucket}:{client}"
+    address = _client_address(request)
+    _log_resolved_client_once(request, address)
+    return f"{bucket}:addr:{address}"
 
 
-def _enforce_rate_limit(request: Request, bucket: str) -> None:
-    """Reject with 429 once a caller exceeds the window's attempt budget."""
-    if _RATE_LIMIT_MAX_ATTEMPTS <= 0:
+def _username_key(bucket: str, username: str) -> str:
+    """Case-folded, so varying the spelling does not buy a fresh budget."""
+    return f"{bucket}:user:{username.strip().lower()}"
+
+
+def _limits_for(request: Request, bucket: str, username: Optional[str]) -> List[Tuple[str, int]]:
+    limits: List[Tuple[str, int]] = []
+    if _RATE_LIMIT_MAX_ATTEMPTS > 0:
+        limits.append((_client_key(request, bucket), _RATE_LIMIT_MAX_ATTEMPTS))
+    if username and _RATE_LIMIT_MAX_ATTEMPTS_PER_USER > 0:
+        limits.append((_username_key(bucket, username), _RATE_LIMIT_MAX_ATTEMPTS_PER_USER))
+    return limits
+
+
+def _enforce_rate_limit(request: Request, bucket: str, username: Optional[str] = None) -> None:
+    """Reject with 429 once a caller exceeds the window's attempt budget.
+
+    Checked against every applicable bucket before any of them is charged, so a
+    refused request does not spend the other bucket's budget as well.
+    """
+    limits = _limits_for(request, bucket, username)
+    if not limits:
         return
 
-    key = _client_key(request, bucket)
     now = time.monotonic()
     cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
 
     with _attempts_lock:
-        seen = _attempts.setdefault(key, deque())
-        while seen and seen[0] < cutoff:
-            seen.popleft()
+        for key, max_attempts in limits:
+            seen = _attempts.setdefault(key, deque())
+            while seen and seen[0] < cutoff:
+                seen.popleft()
 
-        if len(seen) >= _RATE_LIMIT_MAX_ATTEMPTS:
-            retry_after = max(1, int(seen[0] + _RATE_LIMIT_WINDOW_SECONDS - now))
-            logger.warning("Rate limiting %s after %d attempts", key, len(seen))
-            raise HTTPException(
-                status_code=429,
-                detail="Too many attempts. Try again later.",
-                headers={"Retry-After": str(retry_after)},
-            )
+            if len(seen) >= max_attempts:
+                retry_after = max(1, int(seen[0] + _RATE_LIMIT_WINDOW_SECONDS - now))
+                logger.warning("Rate limiting %s after %d attempts", key, len(seen))
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too many attempts. Try again later.",
+                    headers={"Retry-After": str(retry_after)},
+                )
 
-        seen.append(now)
+        for key, _ in limits:
+            _attempts[key].append(now)
 
         # Keep the table from growing without bound on a long-lived process.
         if len(_attempts) > 1024:
@@ -96,10 +183,12 @@ def _enforce_rate_limit(request: Request, bucket: str) -> None:
                 _attempts.pop(stale_key, None)
 
 
-def _clear_rate_limit(request: Request, bucket: str) -> None:
+def _clear_rate_limit(request: Request, bucket: str, username: Optional[str] = None) -> None:
     """Forget a caller's attempts after they succeed."""
     with _attempts_lock:
         _attempts.pop(_client_key(request, bucket), None)
+        if username:
+            _attempts.pop(_username_key(bucket, username), None)
 
 
 def _make_token_response(username: str) -> dict:
@@ -114,7 +203,7 @@ def _make_token_response(username: str) -> dict:
 @router.post("/login")
 async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     """Authenticate user and return access + refresh tokens."""
-    _enforce_rate_limit(request, "login")
+    _enforce_rate_limit(request, "login", form_data.username)
 
     def _login(session):
         user_repo = UserRepository(session)
@@ -130,7 +219,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
 
     db = get_db_service()
     username = await db.execute(_login)
-    _clear_rate_limit(request, "login")
+    _clear_rate_limit(request, "login", form_data.username)
     return _make_token_response(username)
 
 
@@ -153,7 +242,7 @@ async def register(request: Request, form_data: OAuth2PasswordRequestForm = Depe
             detail="Registration is closed on this server. Ask the operator for an account.",
         )
 
-    _enforce_rate_limit(request, "register")
+    _enforce_rate_limit(request, "register", form_data.username)
 
     def _register(session):
         user = UserRepository(session).create_user(

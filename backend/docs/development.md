@@ -162,6 +162,8 @@ Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `G
 | `MCP_TLS_VERIFY` | `true` | Set to `false` to skip TLS verification on server-side MCP connections |
 | `ALLOW_REGISTRATION` | `true` | Whether anyone may request an account. Open by default because registering grants nothing: the account is inactive until `users.is_active` is set by hand (#148). `false` refuses even the request |
 | `AUTH_RATE_LIMIT_MAX_ATTEMPTS`, `AUTH_RATE_LIMIT_WINDOW_SECONDS` | `10`, `300` | Brute-force limit on `/login` and `/register`, per client address; `0` disables |
+| `AUTH_RATE_LIMIT_MAX_ATTEMPTS_PER_USER` | `20` | The same window counted per username — the bound that survives a shared address or a caller with many of them; `0` disables (#155) |
+| `FORWARDED_ALLOW_IPS` | — | Addresses or CIDR subnets whose `X-Forwarded-For` is believed, comma-separated. Empty ignores the header and counts the socket peer. Behind a reverse proxy this must name it, or every caller shares one rate-limit bucket; `*` trusts everyone and the entrypoint warns (#155) |
 | `DB_CONNECT_TIMEOUT_SECONDS`, `DB_STATEMENT_TIMEOUT_SECONDS` | `5`, `30` | libpq ceilings on the engine: TCP connect, and any one statement (`0` disables). Alembic builds its own engine and is not subject to them (#153) |
 | `DB_OPERATION_TIMEOUT_SECONDS` | `60` | How long a request waits for the single database thread before answering 503 (#153) |
 | `VISION_DEVICE` | — | `cpu` or `cuda` for gesture detection; empty picks `cuda` when torch sees a GPU, else `cpu` (#152) |
