@@ -582,7 +582,7 @@ export class MockBackend {
     // and every later locator times out. Taken from the client constant rather
     // than hardcoded, so a protocol bump cannot silently break the whole suite.
     if (pathOnly === '/version' && method === 'GET') {
-      return this.json(res, { backend_version: '0.4.0', wire_protocol: this.wireProtocol });
+      return this.json(res, { backend_version: '0.5.0', wire_protocol: this.wireProtocol });
     }
 
     // The backend's middleware: any request stamped with another protocol is
@@ -598,7 +598,7 @@ export class MockBackend {
           detail: 'wire_protocol_mismatch',
           client_wire_protocol: Number.isNaN(declared) ? -1 : declared,
           server_wire_protocol: this.wireProtocol,
-          backend_version: '0.4.0',
+          backend_version: '0.5.0',
         }));
       }
     }

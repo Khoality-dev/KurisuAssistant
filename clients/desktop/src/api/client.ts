@@ -408,8 +408,18 @@ class APIClient {
     return response.data;
   }
 
+  /**
+   * URL for an avatar or face photo.
+   *
+   * Carries the token like `getUserImageUrl` below: the route stopped being
+   * public in #154, because a UUID is not a secret — it travels in API
+   * responses, through proxy logs and into browser history — and the store holds
+   * account avatars, persona avatars and face photos. The token rides in the
+   * query string for the same reason it does there: these URLs go into
+   * `<img src=...>`, which cannot set an Authorization header.
+   */
   getImageUrl(uuid: string): string {
-    return `${config.apiBaseUrl}/images/${uuid}`;
+    return `${config.apiBaseUrl}/images/${uuid}?token=${this.token}`;
   }
 
   getUserImageUrl(uuid: string): string {

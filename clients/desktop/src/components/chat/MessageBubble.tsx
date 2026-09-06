@@ -10,7 +10,6 @@ import {
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import { apiClient } from '../../api/client';
-import { config } from '../../config';
 import { storage } from '../../utils/storage';
 
 import type { StreamingMessage } from '../../hooks/useStreamingChat';
@@ -217,9 +216,9 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
       : null,
   );
   const avatarUuid = message.persona?.avatar_uuid ?? storeAvatarUuid;
-  const personaAvatarUrl = avatarUuid
-    ? `${config.apiBaseUrl}/images/${avatarUuid}`
-    : undefined;
+  // Through the client, not hand-built: the route needs the token since #154 and
+  // `getImageUrl` is the one place that knows how to attach it.
+  const personaAvatarUrl = avatarUuid ? apiClient.getImageUrl(avatarUuid) : undefined;
 
   // Color scheme for different roles
   const getColorScheme = () => {

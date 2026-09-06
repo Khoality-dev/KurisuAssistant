@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from kurisuassistant.core.deps import get_authenticated_user
+from kurisuassistant.core.image_access import owns_image
 from kurisuassistant.core.errors import internal_error
 from kurisuassistant.db.models import User
 from kurisuassistant.db.repositories import AssistantRepository, PersonaRepository
@@ -118,6 +119,24 @@ def _update_fields(body: PersonaUpdate) -> dict:
     return provided
 
 
+
+def _reject_unowned_avatar(session, user_id: int, avatar_uuid) -> None:
+    """Refuse an avatar UUID the caller does not own.
+
+    Without this the read-side ownership check in ``routers/images.py`` is
+    self-serving: ``avatar_uuid`` is a free-form string, so anyone who learned a
+    UUID — from a proxy log, a screenshot, a shared browser — could point their
+    own persona at it and then legitimately fetch somebody else's avatar or face
+    photo. The UUID has to be yours before you can attach it (#154).
+
+    The message does not distinguish "no such image" from "not yours", for the
+    same reason the fetch answers 404 rather than 403.
+    """
+    if avatar_uuid is None:
+        return
+    if not owns_image(session, user_id, avatar_uuid):
+        raise HTTPException(status_code=400, detail="Unknown image.")
+
 @router.get("")
 async def list_personas(
     user: User = Depends(get_authenticated_user),
@@ -147,6 +166,7 @@ async def create_persona(
 
     def _create(session):
         persona_repo = PersonaRepository(session)
+        _reject_unowned_avatar(session, user.id, body.avatar_uuid)
         persona = persona_repo.create_persona(
             user_id=user.id,
             name=body.name,
@@ -198,6 +218,7 @@ async def get_persona(
     return result
 
 
+
 @router.patch("/{persona_id}")
 async def update_persona(
     persona_id: int,
@@ -213,6 +234,9 @@ async def update_persona(
         persona = persona_repo.get_by_user_and_id(user.id, persona_id)
         if not persona:
             raise HTTPException(status_code=404, detail="Persona not found")
+
+        if "avatar_uuid" in fields:
+            _reject_unowned_avatar(session, user.id, fields["avatar_uuid"])
 
         new_name = fields.get("name")
         if new_name is not None and new_name != persona.name:

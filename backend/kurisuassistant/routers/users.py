@@ -102,7 +102,7 @@ async def update_user_avatars(
             try:
                 file_size = agent_avatar.size if hasattr(agent_avatar, 'size') else 0
                 if file_size > 0:
-                    avatar_uuid = upload_image(agent_avatar)
+                    avatar_uuid = upload_image(agent_avatar, user.id)
                     should_update = True
                 else:
                     avatar_uuid = None

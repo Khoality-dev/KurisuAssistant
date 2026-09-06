@@ -12,7 +12,7 @@ from kurisuassistant.db.models import User
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.repositories import FaceIdentityRepository, FacePhotoRepository
 from kurisuassistant.models.face_recognition import get_provider as get_face_provider
-from kurisuassistant.utils.images import upload_image, get_image_path, delete_image
+from kurisuassistant.utils.images import upload_image, find_image_path, delete_image
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ async def create_face(
 
     # Save the photo to disk (reuse existing image storage)
     photo.file.seek(0)
-    photo_uuid = upload_image(photo)
+    photo_uuid = upload_image(photo, user.id)
 
     def _create(session):
         identity_repo = FaceIdentityRepository(session)
@@ -145,7 +145,7 @@ async def delete_face(identity_id: int, user: User = Depends(get_authenticated_u
 
     # Delete photo files from disk (after DB commit)
     for uuid in photo_uuids:
-        delete_image(uuid)
+        delete_image(uuid, user.id)
 
     return {"status": "deleted"}
 
@@ -171,7 +171,7 @@ async def add_face_photo(
     best_face = max(faces, key=lambda f: f["score"])
 
     photo.file.seek(0)
-    photo_uuid = upload_image(photo)
+    photo_uuid = upload_image(photo, user.id)
 
     def _add_photo(session):
         identity_repo = FaceIdentityRepository(session)
@@ -179,7 +179,7 @@ async def add_face_photo(
 
         identity = identity_repo.get_by_user_and_id(user.id, identity_id)
         if not identity:
-            delete_image(photo_uuid)
+            delete_image(photo_uuid, user.id)
             raise HTTPException(status_code=404, detail="Face identity not found")
 
         face_photo = photo_repo.add_photo(
@@ -225,7 +225,7 @@ async def delete_face_photo(
     photo_uuid = await db.execute(_delete_photo)
 
     # Delete image file from disk (after DB commit)
-    delete_image(photo_uuid)
+    delete_image(photo_uuid, user.id)
     return {"status": "deleted"}
 
 
@@ -255,7 +255,7 @@ async def get_face_photo_image(
     db = get_db_service()
     photo_uuid = await db.execute(_get_photo_uuid)
 
-    image_path = get_image_path(photo_uuid)
+    image_path = find_image_path(user.id, photo_uuid)
     if not image_path:
         raise HTTPException(status_code=404, detail="Image file not found")
 
