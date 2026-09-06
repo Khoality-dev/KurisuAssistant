@@ -7,6 +7,15 @@ Usage:
 """
 import logging
 import sys
+
+import dotenv
+
+# db.session reads POSTGRES_* at import time, so the environment file has to be
+# loaded first — otherwise a local `python -m scripts.migrate` silently migrates
+# whatever is at the hardcoded default (localhost:5432, kurisu/kurisu) instead of
+# the database configured for the deployment.
+dotenv.load_dotenv()
+
 from kurisuassistant.db.init import init_db
 
 # Configure logging

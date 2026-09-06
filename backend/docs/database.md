@@ -143,7 +143,7 @@ session; they never open one.
 
 ## Migrations
 
-Alembic, 51 revisions with a single head (`0dacee9f63b8`), replayable onto an empty
+Alembic, 52 revisions with a single head (`485f1296faf8`, add_poe_api_key_to_users), replayable onto an empty
 database. Run automatically by `docker-entrypoint.sh` before the app starts.
 
 ```bash

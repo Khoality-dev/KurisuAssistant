@@ -1,15 +1,30 @@
 # GPT-SoVITS Service
 
-GPT-SoVITS is the voice synthesis engine used by KurisuAssistant for text-to-speech. It runs as a separate Docker container with GPU access.
+GPT-SoVITS is the second voice synthesis backend. viXTTS is the default; this
+one is opt-in, behind a profile, and reached only through universal-voice.
+
+```bash
+VIXTTS_ROOT=... UVOICE_ROOT=... \
+  docker compose --profile voice --profile sovits up -d
+```
 
 ## Docker Configuration
 
+As it actually stands in `docker-compose.yml`:
+
 ```yaml
 gpt-sovits:
+  profiles: ["sovits"]
   image: legwork7623/gpt-sovits:latest
   container_name: gpt-sovits-container
-  ports:
-    - "9880:9880"
+  expose:
+    - "9880"
+  volumes:
+    - ./data/sovits/output:/workspace/output
+    - ./data/sovits/logs:/workspace/logs
+    - ./data/sovits/weights:/workspace/SoVITS_weights
+    - ./data/voice_storage:/workspace/data/voice_storage
+    - tts-ref-audio:/shared-ref-audio
   shm_size: 16G
   deploy:
     resources:
@@ -19,6 +34,12 @@ gpt-sovits:
             count: all
             capabilities: [gpu]
 ```
+
+**It is not published to the host** — `expose` puts it on the Compose network
+only. Reach it from inside: `docker compose exec universal-voice curl
+http://gpt-sovits-container:9880/...`. The four `./data` bind mounts do not
+exist in a fresh checkout, and Docker will create them owned by root; make them
+yourself first (`mkdir -p data/voice_storage data/sovits/{output,logs,weights}`).
 
 **Requirements**: NVIDIA GPU with Docker GPU support (nvidia-container-toolkit).
 
@@ -77,10 +98,11 @@ The API service communicates with GPT-SoVITS through the `GPTSoVITSProvider` in 
 3. Sends each chunk as a GET request with the reference audio path
 4. Merges resulting WAV chunks into a single file
 
-The TTS server URL can be configured:
-- **Default**: `TTS_API_URL` environment variable (fallback: `http://localhost:9880/tts`)
-- **Per-user**: Via the "TTS Server URL" field in client Settings > TTS tab
-- **Per-request**: Via the `api_url` parameter in `POST /tts`
+The API does not call this service directly and there is no `TTS_API_URL`
+variable — nothing reads that name. The chain is: the API calls universal-voice
+at `UVOICE_URL`, and universal-voice calls this service at
+`UVOICE_GPTSOVITS_URL` (`http://gpt-sovits-container:9880`), both set in
+`docker-compose.yml`.
 
 ## Troubleshooting
 
@@ -90,4 +112,7 @@ The TTS server URL can be configured:
 
 **No audio output**: Check that the reference audio file exists in `data/voice_storage/` and is a valid audio file. Check container logs with `docker logs gpt-sovits-container`.
 
-**Connection refused**: Verify the container is running (`docker ps`) and port 9880 is accessible. Use the "Connect" button in Settings > TTS to test connectivity.
+**Connection refused**: verify the container is running (`docker compose ps`)
+and that you are calling it from inside the Compose network — 9880 is not
+published to the host, so `curl localhost:9880` from the host will always be
+refused.

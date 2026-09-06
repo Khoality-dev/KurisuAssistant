@@ -44,9 +44,16 @@ services:
       - ./scripts:/app/scripts
       - ./tests:/app/tests
       - ./pytest.ini:/app/pytest.ini
-    # !override replaces the inherited list: the GPU services belong to production.
+    # !override replaces the inherited condition: this instance waits on its own
+    # database, not production's.
     depends_on: !override
-      - postgres-dev
+      postgres-dev:
+        condition: service_healthy
+    # The base file publishes 15597; two stacks cannot both have it. Distinct
+    # host port, still only on loopback — this instance is for the developer at
+    # the keyboard, not for the network.
+    ports: !override
+      - "127.0.0.1:${API_DEV_PORT:-15598}:15597"
     environment:
       # Never the bare `postgres`: this container also sits on production's
       # network, where that name resolves to the production database.

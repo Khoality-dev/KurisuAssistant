@@ -1,3 +1,29 @@
+# The stack. `docker compose up -d` on a clean machine starts the API and its
+# database, publishes the API on the host, and needs nothing that is not in this
+# repository. There are two Compose files in the project: this one and
+# `docker-compose.dev.yml`.
+#
+# The parts that need more than this repository — a GPU, a checkout of another
+# project — are profiles, off unless you ask:
+#
+#   --profile voice    speech: universal-voice, and viXTTS behind it.
+#                      Needs VIXTTS_ROOT and UVOICE_ROOT, and an NVIDIA runtime.
+#   --profile sovits   GPT-SoVITS, the second synthesis backend, on top of voice.
+#   --profile tls      nginx on 443 with the bundled self-signed certificate.
+#                      Run ./nginx/generate-certs.sh once first.
+#
+#   docker compose --profile voice up -d
+#
+# Without any profile the API runs on CPU and answers over HTTP on API_PORT;
+# speech stays unavailable until you enable it or point ASR_API_URL and
+# UVOICE_URL at services running elsewhere. That is a working install, not a
+# broken one.
+#
+# Anything specific to one machine — a GPU reservation for the vision pipeline,
+# an existing reverse-proxy network — goes in an untracked
+# `docker-compose.override.yml`, which Compose loads automatically. See
+# docs/development.md for a worked example.
+
 # Fixed so a deployment adopts the same containers and volumes from any directory.
 # Without it the project is named after the directory, and a checkout under a new
 # path would silently create an empty database instead of using this one.
@@ -5,15 +31,23 @@ name: kurisuassistant
 
 services:
   vixtts:
+    profiles: ["voice"]
     build:
-      context: ${VIXTTS_ROOT:-/home/khoa/application/viXTTS}/vixtts
+      context: ${VIXTTS_ROOT:-/VIXTTS_ROOT-is-not-set}/vixtts
       dockerfile: Dockerfile
     container_name: vixtts-container
     volumes:
-      - ${VIXTTS_ROOT:-/home/khoa/application/viXTTS}/models:/models
-      - ${VIXTTS_ROOT:-/home/khoa/application/viXTTS}/hf-cache:/root/.cache/huggingface
+      - ${VIXTTS_ROOT:-/VIXTTS_ROOT-is-not-set}/models:/models
+      - ${VIXTTS_ROOT:-/VIXTTS_ROOT-is-not-set}/hf-cache:/root/.cache/huggingface
     expose:
       - "19770"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:19770/health')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # Model load is slow; failures before this are not counted.
+      start_period: 300s
     deploy:
       resources:
         reservations:
@@ -26,6 +60,7 @@ services:
     restart: unless-stopped
 
   gpt-sovits:
+    profiles: ["sovits"]
     image: legwork7623/gpt-sovits:latest
     container_name: gpt-sovits-container
     environment:
@@ -55,12 +90,23 @@ services:
     restart: unless-stopped
 
   universal-voice:
+    profiles: ["voice"]
+    # It fronts both synthesis backends and calls them by name, so it should not
+    # start before they exist. gpt-sovits is only in the list when its profile is
+    # on; `required: false` is what lets that be true without invalidating the
+    # project the rest of the time.
+    depends_on:
+      vixtts:
+        condition: service_started
+      gpt-sovits:
+        condition: service_started
+        required: false
     build:
-      context: ${UVOICE_ROOT:-/home/khoa/application/universal-asr}
+      context: ${UVOICE_ROOT:-/UVOICE_ROOT-is-not-set}
       dockerfile: Dockerfile
     container_name: universal-voice
     volumes:
-      - ${UVOICE_ROOT:-/home/khoa/application/universal-asr}/data:/app/data
+      - ${UVOICE_ROOT:-/UVOICE_ROOT-is-not-set}/data:/app/data
       - uvoice-hf-cache:/root/.cache/huggingface
       - tts-ref-audio:/shared-ref-audio
     environment:
@@ -76,9 +122,15 @@ services:
       - UVOICE_VIXTTS_URL=http://vixtts-container:19770
       - UVOICE_GPTSOVITS_REF_AUDIO_DIR=/shared-ref-audio
       - UVOICE_GPTSOVITS_REF_AUDIO_PREFIX=/shared-ref-audio
-      - HF_TOKEN=${HF_TOKEN}
+      - HF_TOKEN=${HF_TOKEN:-}
     expose:
       - "14213"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:14213/health')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
     deploy:
       resources:
         reservations:
@@ -95,42 +147,74 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: kurisu-api
+    # Only the database. The speech services are called over HTTP per request,
+    # so the API starts and serves text without them — and naming a profiled
+    # service here would make the whole project invalid whenever that profile
+    # is off.
     depends_on:
-      - postgres
-      - vixtts
-      - universal-voice
-    expose:
-      - "15597"
+      postgres:
+        condition: service_healthy
+    # Published, not merely exposed. `expose` alone put the API on the Compose
+    # network only, so a fresh install came up with no way for any client to
+    # reach it; the machine this was written on reached it through a separate
+    # reverse proxy on an external network. With --profile tls, or any other
+    # proxy in front, set API_BIND=127.0.0.1 to keep this port off the network.
+    ports:
+      - "${API_BIND:-0.0.0.0}:${API_PORT:-15597}:15597"
     networks:
       - default
-      - central
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     environment:
-      - ASR_API_URL=http://universal-voice:14213
-      - LLM_API_URL=http://ollama-container:11434
-      - UVOICE_URL=http://universal-voice:14213
+      - ASR_API_URL=${ASR_API_URL:-http://universal-voice:14213}
+      - LLM_API_URL=${LLM_API_URL:-http://host.docker.internal:11434}
+      - UVOICE_URL=${UVOICE_URL:-http://universal-voice:14213}
       # Server-wide fallbacks for users with no key of their own stored; empty
-      # disables the fallback. See .env.template.
+      # disables the fallback. See the environment template.
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
       - POE_API_KEY=${POE_API_KEY:-}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_HOST=${POSTGRES_HOST}
-      - POSTGRES_PORT=${POSTGRES_PORT}
-      - POSTGRES_DB=${POSTGRES_DB}
+      # Everything below was documented as configurable and reached nothing:
+      # the template offered these knobs, the container never received them, so
+      # the server ran on its built-in defaults whatever the operator wrote.
+      # Registration and TLS verification are the two that matter most —
+      # ALLOW_REGISTRATION=true was simply ignored.
+      - ALLOW_REGISTRATION=${ALLOW_REGISTRATION:-false}
+      - MCP_TLS_VERIFY=${MCP_TLS_VERIFY:-true}
+      - AUTH_RATE_LIMIT_MAX_ATTEMPTS=${AUTH_RATE_LIMIT_MAX_ATTEMPTS:-10}
+      - AUTH_RATE_LIMIT_WINDOW_SECONDS=${AUTH_RATE_LIMIT_WINDOW_SECONDS:-300}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS:-30}
+      - CONVERSATION_IDLE_THRESHOLD_MINUTES=${CONVERSATION_IDLE_THRESHOLD_MINUTES:-30}
+      - MAX_IMAGE_BYTES=${MAX_IMAGE_BYTES:-16777216}
+      # How long the entrypoint waits for the database before failing loudly.
+      - DB_WAIT_ATTEMPTS=${DB_WAIT_ATTEMPTS:-60}
+      - DB_WAIT_INTERVAL=${DB_WAIT_INTERVAL:-2}
+      # No silent defaults on the credentials: an empty environment file used to
+      # start Postgres with a blank password and an API that could not log into
+      # it, which reads as a hang rather than as a configuration error.
+      - POSTGRES_USER=${POSTGRES_USER:?copy the environment template and set the database credentials}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?copy the environment template and set the database credentials}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres-container}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-kurisu}
+    extra_hosts:
+      # Makes the default LLM_API_URL reach an Ollama running on the host, which
+      # is where most people already have one. Docker Desktop provides this name
+      # natively; on Linux this line is what creates it.
+      - "host.docker.internal:host-gateway"
     volumes:
       # Runtime state only. The code comes from the image (see Dockerfile), so
       # this checkout is a build context and nothing more — a `git checkout`
       # here does not touch the running server, and the image can run on a host
       # that has no checkout at all. The dev overlay mounts the source back.
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:15597/health')\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      # Migrations run before the server binds, so give them room.
+      start_period: 120s
     tty: true
     restart: unless-stopped
 
@@ -138,20 +222,49 @@ services:
     image: pgvector/pgvector:pg16
     container_name: postgres-container
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER:?copy the environment template and set the database credentials}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?copy the environment template and set the database credentials}
+      - POSTGRES_DB=${POSTGRES_DB:-kurisu}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    # The API waits on this condition, so "healthy" has to mean "accepting
+    # queries" — not merely "the container started", which is all a bare
+    # depends_on promised. The entrypoint's retry loop is no longer the only
+    # thing between a cold start and a crash loop.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - default
+    restart: unless-stopped
+
+  nginx:
+    profiles: ["tls"]
+    image: nginx:alpine
+    container_name: kurisu-nginx
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --no-check-certificate -O /dev/null https://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - default
     restart: unless-stopped
 
 networks:
   default:
-  central:
-    external: true
-    name: central
 
 volumes:
   postgres-data:

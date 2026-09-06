@@ -2,7 +2,11 @@
 
 ## Providers
 
-Configured via `TTS_PROVIDER` env var (default in Docker Compose: `vixtts`), overridable per-request.
+Selected per request, and per user in Settings. There is no `TTS_PROVIDER`
+variable — that name appeared here but is read by nothing (`grep` over
+`kurisuassistant/` and the Compose files finds it only in this document's
+history). What the stack does set is `UVOICE_TTS_DEFAULT_MODEL=vixtts` on the
+universal-voice service, which is what makes viXTTS the default backend.
 
 - **GPT-SoVITS** (`gpt_sovits_provider.py`): Voice reference path as query param, POSIX format
 - **viXTTS** (`vixtts_provider.py`): Voice reference file via multipart/form-data plus language code
@@ -23,6 +27,18 @@ Both providers split long text (default 200 chars) by paragraphs → sentences, 
 
 ## Provider Setup
 
-The bundled Docker Compose stack expects a viXTTS checkout at `VIXTTS_ROOT`, defaulting to `/home/khoa/application/viXTTS`.
+Speech is behind the `voice` profile, off unless asked for:
+
+```bash
+VIXTTS_ROOT=/path/to/viXTTS UVOICE_ROOT=/path/to/universal-asr \
+  docker compose --profile voice up -d --build
+```
+
+Both variables are required with no default — Compose refuses with a message
+naming the missing one. They were defaulted to absolute paths under one
+developer's home directory, which is why a fresh install could not start (#98).
+The viXTTS tree is a working copy of the upstream model, not a repository this
+project distributes; running speech locally means obtaining it yourself, and
+cloud providers are the supported path otherwise.
 
 See [GPT-SoVITS Setup](gpt-sovits.md) for detailed GPT-SoVITS configuration.
