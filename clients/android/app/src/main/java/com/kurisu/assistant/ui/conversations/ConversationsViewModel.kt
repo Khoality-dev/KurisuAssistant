@@ -24,12 +24,14 @@ import java.io.File
 import javax.inject.Inject
 
 /**
- * One row of the Chats list: a CONVERSATION, identified by the persona bound to
- * it.
+ * One row of the Chats list: a CONVERSATION, and nothing about who answers it.
  *
- * The model half of the design's identity line is deliberately absent. There is
- * one assistant and one model, so printing it on every row says the same thing
- * five times and distinguishes nothing.
+ * There is one assistant with one default persona, so a face and a name on the
+ * row were the same face and the same name on every row — they distinguished
+ * nothing and cost the title its width. A conversation says who answers it in
+ * the chat header, where the per-conversation override lives.
+ *
+ * The assistant's model is absent for the same reason.
  */
 data class ConversationRowUi(
     val id: Int,
@@ -40,9 +42,6 @@ data class ConversationRowUi(
      * computed at render time so a row that stays on screen keeps ageing.
      */
     val timestamp: String?,
-    /** The persona bound to this conversation — who answers here. */
-    val personaName: String?,
-    val avatarUrl: String?,
 )
 
 data class ConversationsUiState(
@@ -68,6 +67,9 @@ data class ConversationsUiState(
  * everything else the user had ever said; `Conversation.persona_id` now exists
  * on the model, so a conversation can name its own persona and the list is a
  * plain list of conversations again.
+ *
+ * It does not draw that persona. With one assistant the rows all resolve to the
+ * same one, so the face and the name said nothing five times over (#192).
  */
 @HiltViewModel
 class ConversationsViewModel @Inject constructor(
@@ -117,34 +119,26 @@ class ConversationsViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             try {
-                val baseUrl = prefs.getBackendUrl()
+                // No row names a persona any more, so the persona list is read
+                // for one thing: which persona a new chat will take. The chat
+                // screen resolves it with this same rule, and the two must agree
+                // or `startNewChat` clears the wrong cached conversation.
                 val personas = personaRepository.listPersonas()
 
                 // The assistant is a bonus here — it supplies the wake word and
-                // the fallback persona — so losing it must not lose the list.
+                // the default persona — so losing it must not lose the list.
                 val assistant = runCatching { assistantRepository.getAssistant() }.getOrNull()
                 triggerWord = assistant?.triggerWord
                 defaultPersonaId = assistant?.defaultPersonaId
                     ?: personas.firstOrNull { it.enabled }?.id
 
-                val personasById = personas.associateBy { it.id }
-                val fallback = defaultPersonaId?.let(personasById::get)
-
                 val rows = conversationRepository.getConversations().map { conv ->
-                    // An unbound conversation adopts the assistant's default on
-                    // its next message, so naming the default here is the truth,
-                    // not a guess.
-                    val persona = conv.personaId?.let(personasById::get) ?: fallback
                     ConversationRowUi(
                         id = conv.id,
                         title = conv.title.ifBlank { "New conversation" },
                         preview = conv.lastMessage?.content?.takeIf { it.isNotBlank() },
                         timestamp = conv.lastMessage?.createdAt
                             ?: conv.updatedAt.takeIf { it.isNotBlank() },
-                        personaName = persona?.name,
-                        avatarUrl = persona?.avatarUuid?.let {
-                            personaRepository.getImageUrl(baseUrl, it)
-                        },
                     )
                 }.sortedByDescending { it.timestamp ?: "" }
 

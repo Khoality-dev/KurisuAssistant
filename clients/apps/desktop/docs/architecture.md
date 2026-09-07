@@ -43,7 +43,7 @@ electron/preload.ts       — contextBridge: hostTools, appTools, explorer, driv
     FileEditor.tsx         — Monaco editor: Ctrl+S save, auto-detect language, binary detection with Open Anyway, image preview, selection→chat context
     FileIcon.tsx           — Custom SVG icons by type (folder, TS, JS, PY, JSON, MD, HTML, CSS, image, config, default)
   conversations/
-    ConversationsPage.tsx  — Persona list with search, avatar, last message preview, timestamps. Click loads conversation into ChatPanel.
+    ConversationsPage.tsx  — Persona list with search, last message preview, timestamps (no avatar, #192). Click loads conversation into ChatPanel.
   settings/
     SettingsPage.tsx       — Left nav sidebar (13 sections) + lazy-loaded content area. `tests/settings.spec.ts` asserts the label list, so adding or renaming a section fails there until the spec agrees.
     AccountSection.tsx     — Ollama URL, summary model, context size

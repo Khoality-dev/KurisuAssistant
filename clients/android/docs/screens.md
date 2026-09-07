@@ -16,8 +16,10 @@ the memory.
 
 ![Chats](assets/01-chats.png)
 
-Conversations are what you navigate. Each row shows the persona answering it. The assistant's model
-is deliberately absent — it is the same on every row, so printing it would say nothing.
+Conversations are what you navigate. A row is its title, when it last moved, and the last thing said
+in it. Neither the persona nor the model is on it: there is one assistant with one default persona,
+so a face and a name would be the same face and the same name on every row and would tell no two
+rows apart (#192). Who answers a conversation is on the conversation, in its header.
 
 The strip at the top is voice state. The wake word (`kurisu` here) belongs to the **assistant**, not
 to any persona: saying it starts a turn, and whichever persona the conversation is bound to answers.

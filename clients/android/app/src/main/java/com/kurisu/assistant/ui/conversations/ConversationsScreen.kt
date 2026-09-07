@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -46,17 +45,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import coil.compose.SubcomposeAsyncImage
-import coil.compose.SubcomposeAsyncImageContent
-import com.kurisu.assistant.ui.common.personaInitials
 import com.kurisu.assistant.ui.theme.KurisuTheme
 import com.kurisu.assistant.ui.update.UpdateDialog
 
@@ -181,7 +173,7 @@ fun ConversationsScreen(
                                 },
                             )
                             HorizontalDivider(
-                                modifier = Modifier.padding(start = 74.dp),
+                                modifier = Modifier.padding(start = 14.dp),
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                             )
                         }
@@ -282,104 +274,51 @@ private fun MicStatusBar(
     }
 }
 
+/**
+ * A conversation: its title, when it last moved, and what was last said in it.
+ *
+ * Nothing here names the persona. One assistant with one default persona put
+ * the same face and the same name on every row, which distinguished no row from
+ * any other and left the title a third of the width (#192). A conversation
+ * names who answers it in the chat header, where the override lives.
+ */
 @Composable
 private fun ConversationRow(
     row: ConversationRowUi,
     onClick: () -> Unit,
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        PersonaAvatar(name = row.personaName, avatarUrl = row.avatarUrl, size = 48.dp)
-
-        Spacer(Modifier.width(12.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = row.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (row.timestamp != null) {
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = formatRelativeTime(row.timestamp),
-                        style = KurisuTheme.extraTypography.metadataSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            Spacer(Modifier.height(3.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = row.preview ?: "No messages yet",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = row.title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
-            if (row.personaName != null) {
-                Spacer(Modifier.height(3.dp))
+            if (row.timestamp != null) {
+                Spacer(Modifier.width(8.dp))
                 Text(
-                    // Who answers here. The model is deliberately absent: one
-                    // assistant, one model, so it would repeat on every row.
-                    text = row.personaName,
+                    text = formatRelativeTime(row.timestamp),
                     style = KurisuTheme.extraTypography.metadataSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-    }
-}
-
-
-@Composable
-private fun PersonaAvatar(
-    name: String?,
-    avatarUrl: String?,
-    size: Dp,
-) {
-    val container = MaterialTheme.colorScheme.primaryContainer
-    val content = MaterialTheme.colorScheme.onPrimaryContainer
-    if (avatarUrl != null) {
-        SubcomposeAsyncImage(
-            model = avatarUrl,
-            contentDescription = name,
-            modifier = Modifier.size(size).clip(CircleShape),
-            contentScale = ContentScale.Crop,
-            loading = { InitialsAvatar(name, size, container, content) },
-            error = { InitialsAvatar(name, size, container, content) },
-            success = { SubcomposeAsyncImageContent() },
+        Spacer(Modifier.height(3.dp))
+        Text(
+            text = row.preview ?: "No messages yet",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
-    } else {
-        InitialsAvatar(name, size, container, content)
-    }
-}
-
-@Composable
-private fun InitialsAvatar(
-    name: String?,
-    size: Dp,
-    containerColor: Color,
-    contentColor: Color,
-) {
-    Surface(modifier = Modifier.size(size), shape = CircleShape, color = containerColor) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                text = personaInitials(name),
-                style = MaterialTheme.typography.titleSmall,
-                color = contentColor,
-            )
-        }
     }
 }
 

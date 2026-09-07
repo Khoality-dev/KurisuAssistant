@@ -60,8 +60,9 @@ class ConversationsViewModelTest {
         application = mockk(relaxed = true)
         coreState = CoreState()
 
-        coEvery { prefs.getBackendUrl() } returns "https://example.test"
         coEvery { personaRepo.listPersonas() } returns emptyList()
+        // Stubbed so the row's negative assertion is about a call that could
+        // have produced something: nothing on the list resolves an avatar.
         coEvery { personaRepo.getImageUrl(any(), any()) } answers {
             "${firstArg<String>().trimEnd('/')}/images/${secondArg<String>()}"
         }
@@ -75,8 +76,12 @@ class ConversationsViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun makePersona(id: Int, name: String, avatarUuid: String? = null) =
-        Persona(id = id, name = name, avatarUuid = avatarUuid)
+    private fun makePersona(
+        id: Int,
+        name: String,
+        avatarUuid: String? = null,
+        enabled: Boolean = true,
+    ) = Persona(id = id, name = name, avatarUuid = avatarUuid, enabled = enabled)
 
     /**
      * One assistant per user owns the wake word and the default persona. A
@@ -138,40 +143,54 @@ class ConversationsViewModelTest {
     }
 
     @Test
-    fun `a row is identified by the persona bound to the conversation`() = runTest {
+    fun `a row says nothing about the persona answering it`() = runTest {
+        // One assistant, one default persona: the face and the name were the
+        // same on every row, so the row is a conversation and nothing else
+        // (#192). No avatar is resolved for it either.
         coEvery { personaRepo.listPersonas() } returns listOf(
             makePersona(1, "Kurisu"), makePersona(3, "Coach", avatarUuid = "abc"),
         )
         coEvery { assistantRepo.getAssistant() } returns makeAssistant(defaultPersonaId = 1)
         coEvery { convRepo.getConversations() } returns listOf(
-            conversation(id = 414, personaId = 3, lastMessageAt = "2024-06-01T00:00:00Z"),
+            conversation(
+                id = 414,
+                personaId = 3,
+                lastMessageAt = "2024-06-01T00:00:00Z",
+                lastMessage = "web-digger returned six sources",
+            ),
         )
 
         val vm = newViewModel()
         advanceUntilIdle()
 
         val row = vm.state.value.rows.single()
-        assertThat(row.personaName).isEqualTo("Coach")
-        assertThat(row.avatarUrl).isEqualTo("https://example.test/images/abc")
+        assertThat(row.id).isEqualTo(414)
+        assertThat(row.title).isEqualTo("Chat 414")
+        assertThat(row.preview).isEqualTo("web-digger returned six sources")
+        assertThat(row.timestamp).isEqualTo("2024-06-01T00:00:00Z")
+        coVerify(exactly = 0) { personaRepo.getImageUrl(any(), any()) }
     }
 
     @Test
-    fun `an unbound conversation names the assistant's default persona`() = runTest {
-        // The backend binds a conversation on its first message, so "unbound"
-        // means "the default will answer" — which is what the row must say.
-        coEvery { personaRepo.listPersonas() } returns listOf(
-            makePersona(1, "Kurisu"), makePersona(3, "Coach"),
-        )
-        coEvery { assistantRepo.getAssistant() } returns makeAssistant(defaultPersonaId = 3)
-        coEvery { convRepo.getConversations() } returns listOf(
-            conversation(id = 500, personaId = null, lastMessageAt = "2024-06-01T00:00:00Z"),
-        )
+    fun `a new chat falls back to the first enabled persona when the assistant names none`() =
+        runTest {
+            // The persona list is still read, for this and nothing else: the
+            // chat screen resolves who answers with the same rule, so if the two
+            // disagree New chat clears the wrong cached conversation and the old
+            // one is resumed instead.
+            coEvery { personaRepo.listPersonas() } returns listOf(
+                makePersona(1, "Kurisu", enabled = false), makePersona(3, "Coach"),
+            )
+            coEvery { assistantRepo.getAssistant() } returns makeAssistant(defaultPersonaId = null)
 
-        val vm = newViewModel()
-        advanceUntilIdle()
+            val vm = newViewModel()
+            advanceUntilIdle()
 
-        assertThat(vm.state.value.rows.single().personaName).isEqualTo("Coach")
-    }
+            vm.startNewChat()
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { personaRepo.clearConversationIdForPersona(3) }
+        }
 
     @Test
     fun `losing the assistant does not lose the list`() = runTest {
