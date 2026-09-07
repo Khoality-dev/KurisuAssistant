@@ -2,7 +2,7 @@
 
 ![Kurisu Assistant banner](docs/assets/blue.png)
 
-Kurisu Assistant is a personal assistant built to help with both work and everyday life. It can answer questions, keep useful context, work with images, hold voice conversations, use tools and skills, and bring in specialized sub-agents for complex tasks. Each account has one assistant with its own model, memory, and capabilities, while personas let you choose the name, personality, voice, and face that fit the moment.
+Kurisu Assistant is a personal assistant built to help with both work and everyday life. It can answer questions, keep useful context, work with images, and hold voice conversations. It also works as a coding agent and general-purpose agentic harness that can read and edit files, run commands, use tools and skills, and delegate specialized work to sub-agents. Each account has one assistant with its own model, memory, and capabilities, while personas let you choose the name, personality, voice, and face that fit the moment.
 
 The project is split into a server and two clients. Pick the guide that matches what you want to do:
 
