@@ -16,6 +16,8 @@ import {
   GetApp as ExtensionsIcon,
 } from '@mui/icons-material';
 import { useLayoutStore } from '@kurisu/state';
+import { useCapabilities } from '@kurisu/hooks';
+import type { Capabilities } from '@kurisu/platform';
 
 // Lazy imports for settings sections
 const AccountSection = React.lazy(() => import('./AccountSection').then(m => ({ default: m.AccountSection })));
@@ -36,6 +38,15 @@ interface SettingsItem {
   id: string;
   label: string;
   icon: React.ReactNode;
+  /**
+   * The capability this section is a view over, when it is a view over one.
+   *
+   * A section listed without one works anywhere, because everything behind it
+   * belongs to the server. A section listed with one is not shown where that
+   * capability is absent — an entry that opens an empty page is worse than no
+   * entry, and it used to be the only outcome available (#190).
+   */
+  needs?: keyof Capabilities;
 }
 
 const SETTINGS_ITEMS: SettingsItem[] = [
@@ -49,10 +60,21 @@ const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'tools', label: 'Tools & MCP', icon: <ToolsIcon /> },
   { id: 'skills', label: 'Skills', icon: <SkillsIcon /> },
   { id: 'drive', label: 'Kurisu Drive', icon: <DriveIcon /> },
-  { id: 'host-access', label: 'Host Access', icon: <HostAccessIcon /> },
+  { id: 'host-access', label: 'Host Access', icon: <HostAccessIcon />, needs: 'hostTools' },
   { id: 'faces', label: 'Face Identities', icon: <FacesIcon /> },
-  { id: 'extensions', label: 'Extensions', icon: <ExtensionsIcon /> },
+  { id: 'extensions', label: 'Extensions', icon: <ExtensionsIcon />, needs: 'installer' },
 ];
+
+/**
+ * The sections this host can actually show.
+ *
+ * Pure, and exported, so the rule can be checked against a host that answers no
+ * without standing up a renderer — which is the case that used to produce an
+ * entry opening an empty page (#190).
+ */
+export function visibleSettingsItems(capabilities: Capabilities): SettingsItem[] {
+  return SETTINGS_ITEMS.filter((item) => !item.needs || capabilities[item.needs]);
+}
 
 function renderSection(sectionId: string) {
   switch (sectionId) {
@@ -79,6 +101,8 @@ function renderSection(sectionId: string) {
 
 export const SettingsPage: React.FC = () => {
   const { settingsSection, setSettingsSection } = useLayoutStore();
+  const capabilities = useCapabilities();
+  const availableItems = visibleSettingsItems(capabilities);
 
   return (
     <Box sx={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
@@ -101,7 +125,7 @@ export const SettingsPage: React.FC = () => {
           Settings
         </Typography>
         <List dense disablePadding>
-          {SETTINGS_ITEMS.map((item) => (
+          {availableItems.map((item) => (
             <ListItemButton
               key={item.id}
               selected={settingsSection === item.id}

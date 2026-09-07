@@ -18,6 +18,7 @@ import { RawDataDialog } from './RawDataDialog';
 import { useExplorerStore } from '@kurisu/state';
 import { useLayoutStore } from '@kurisu/state';
 import { usePersonaStore } from '@kurisu/state';
+import { resolveBridge } from '@kurisu/platform';
 
 const MotionBox = motion(Box);
 
@@ -581,8 +582,14 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                         {...props}
                         href={href}
                         onClick={(e) => {
+                          // Intercepting is right on every host, not just the
+                          // desktop: there it stops the app window navigating to
+                          // remote content, and in a browser `openExternal` is a
+                          // new tab. It used to `preventDefault` and then call a
+                          // bridge that was not there, which made every link in
+                          // an assistant's message dead (#190).
                           e.preventDefault();
-                          if (href) (window as any).electron?.openExternal(href);
+                          if (href) void resolveBridge().openExternal(href);
                         }}
                         style={{ cursor: 'pointer' }}
                       >

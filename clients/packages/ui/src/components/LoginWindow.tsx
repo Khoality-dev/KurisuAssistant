@@ -33,7 +33,7 @@ export const LoginWindow: React.FC = () => {
   const [tokenStorageSecure, setTokenStorageSecure] = useState(true);
 
   useEffect(() => {
-    const bridge = window.electron?.credentials;
+    const bridge = resolveBridge().credentials;
     if (!bridge) return;
     bridge.isSecure().then(setTokenStorageSecure).catch(() => setTokenStorageSecure(true));
   }, []);

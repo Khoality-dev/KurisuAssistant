@@ -36,9 +36,11 @@ export function webBridge(): PlatformBridge {
     mcpServer: null,
     appTools: null,
     extensions: null,
-    openPath: async (target) => {
-      window.open(target, '_blank', 'noopener,noreferrer');
-      return '';
+    updater: null,
+    // There is no machine here to reveal a file on.
+    openPath: async () => '',
+    openExternal: async (url) => {
+      window.open(url, '_blank', 'noopener,noreferrer');
     },
     // Nothing here starts MCP servers, so the set of them never changes.
     onMCPToolsChanged: () => () => {},

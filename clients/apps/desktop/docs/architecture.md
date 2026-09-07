@@ -25,7 +25,7 @@ electron/preload.ts       — contextBridge: hostTools, appTools, explorer, driv
 @kurisu/api               — the server as this client calls it: the REST client, the WebSocket and its handshake, where tokens live, the drive/local file sources. No React (#187)
 @kurisu/state             — zustand stores (conversations, personas, explorer, transfers, vision, tool permissions), the app-tool dispatch, and slash-command parsing
 @kurisu/hooks             — the React bindings over those two: streaming chat, TTS, interactive ASR, the character panel, webcam, connection status
-src/components/
+@kurisu/ui  (clients/packages/ui/src/components/)
   layout/
     MainLayout.tsx         — 3-panel layout: ActivityBar (52px) | MainContent (flex) | ResizeHandle | ChatPanel (resizable)
     ActivityBar.tsx        — Narrow icon column: Workspace/Conversations/Settings nav + transfers (badged) + connection/character/call/logout
@@ -105,8 +105,8 @@ src/components/
   micStore.ts             — Zustand singleton: ASR lifecycle (VAD, status, result, devices) + interactive mode with substates. Module-level VAD instance, lazy-init reusable Audio elements for sound effects. Two-level state: `interactiveMode` (call bar UI shown, mic auto-started) + `interactionActive` (auto-send without trigger word). Used by MainWindow (phone toggle) and ChatWidget (transcript handling, conditional render).
 @kurisu/state, continued — no Electron needed, so it is shared
   mcpService.ts            — Client-side MCP lifecycle: auto-init on WebSocket connect, fetches client-location MCP configs from API, starts local servers via Electron IPC, discovers tools, registers schemas with backend via client_tools_register event. Handles tool_call_request forwarding (execute locally → send tool_call_response). refreshClientMCPServers() for config changes.
-src/CharacterWindowApp.tsx — Minimal IPC-driven renderer for separate character window (no auth/stores, subtitle overlay)
-src/videocall/            — Character animation engine (rendered in separate Electron window via IPC)
+@kurisu/ui CharacterWindowApp — Minimal IPC-driven renderer for separate character window (no auth/stores, subtitle overlay)
+@kurisu/ui videocall/     — Character animation engine (rendered in separate Electron window via IPC)
   (types moved to @kurisu/models) — PoseConfig, PatchInfo, PoseTree, AnimationNode/Edge/EdgeTransition, TransitionCondition (random/thinking/gesture), AnimationSettings, CharacterConfig, migrateEdgeToTransitions(), migratePoseTreeIds() (old pose-*/edge-* IDs → 8-char hex)
   CharacterRenderer.tsx   — React wrapper around CanvasCompositor (accepts PoseTree, amplitude via ref)
   engine/
@@ -114,7 +114,7 @@ src/videocall/            — Character animation engine (rendered in separate E
     ImageCache.ts         — URL→HTMLImageElement cache
 @kurisu/api storage.ts    — Preferences in localStorage (model, TTS settings, persona-conversation mapping) **and the in-memory half of token storage**. Tokens are never written to localStorage; `loadPersistedTokens()` fills memory from the keychain once at startup (migrating and deleting any plaintext pair an older build left), and `getToken()` stays synchronous for the authed asset URLs that call it on render paths.
 @kurisu/state commands.ts — Slash command system: /compact, /clear. Autocomplete via getCommands(). Async handleCommand() with feedback strings. Lazy imports to avoid circular deps.
-src/theme/theme.ts        — MUI theme: primary #10A37F, 8px/12px border-radius
+@kurisu/ui theme/theme.ts — MUI theme: primary #10A37F, 8px/12px border-radius
 @kurisu/api config.ts     — API URL config (reads dynamically from storage)
 ```
 

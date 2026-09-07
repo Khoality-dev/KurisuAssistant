@@ -61,7 +61,7 @@ export const AssistantSection: React.FC = () => {
   const [modelsWarning, setModelsWarning] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  const { toolGroups } = useAvailableTools(setError);
+  const { toolGroups, complete: toolsComplete } = useAvailableTools(setError);
 
   const flash = (message: string) => {
     setSuccessMessage(message);
@@ -221,6 +221,7 @@ export const AssistantSection: React.FC = () => {
         <Box>
           <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>Tools</Typography>
           <ToolGroupChecklist
+            complete={toolsComplete}
             groups={toolGroups}
             enabledTools={form.available_tools}
             onChange={(available_tools) => setForm({ ...form, available_tools })}

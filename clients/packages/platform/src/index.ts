@@ -18,9 +18,11 @@ import type {
   HostToolsAPI,
   MCPAPI,
   McpServerAPI,
+  UpdaterAPI,
 } from './types';
 import { webBridge } from './web';
 
+export * from './require';
 export * from './types';
 
 /**
@@ -84,8 +86,17 @@ export interface PlatformBridge {
   readonly mcpServer: McpServerAPI | null;
   readonly appTools: AppToolsAPI | null;
   readonly extensions: ExtensionsAPI | null;
-  /** Hand a path or URL to whatever the host opens it with. */
+  /** The app can replace itself. `null` where it cannot. */
+  readonly updater: UpdaterAPI | null;
+  /** Reveal a file on the machine this is displayed on. */
   openPath(target: string): Promise<string>;
+  /**
+   * Send a link wherever links go.
+   *
+   * Every host can do this, so it is not nullable — the desktop hands it to the
+   * OS browser rather than navigating its own window, and a browser opens a tab.
+   */
+  openExternal(url: string): Promise<void>;
   onMCPToolsChanged(cb: () => void): () => void;
 }
 

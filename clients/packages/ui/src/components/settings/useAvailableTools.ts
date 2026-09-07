@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiClient } from '@kurisu/api';
 import type { Tool } from '@kurisu/models';
 import { buildToolGroups } from './ToolGroupChecklist';
+import { requireAppTools, requireHostTools, resolveBridge } from '@kurisu/platform';
+import { useCapabilities } from '@kurisu/hooks';
 
 // Internal tools that shouldn't appear in the exclusion list
 const INTERNAL_TOOLS = ['play_music', 'music_control', 'get_music_queue'];
@@ -29,11 +31,11 @@ export function useAvailableTools(onError?: (message: string) => void) {
       }
       setMcpServerMap(serverMap);
       // Add client-side tools (host, app, browser) from Electron IPC
-      if (window.electron?.hostTools) {
-        try { allTools.push(...(await window.electron.hostTools.listTools() as Tool[])); } catch { /* optional */ }
+      if (resolveBridge().hostTools) {
+        try { allTools.push(...(await requireHostTools().listTools() as Tool[])); } catch { /* optional */ }
       }
-      if (window.electron?.appTools) {
-        try { allTools.push(...(await window.electron.appTools.listTools() as Tool[])); } catch { /* optional */ }
+      if (resolveBridge().appTools) {
+        try { allTools.push(...(await requireAppTools().listTools() as Tool[])); } catch { /* optional */ }
       }
       // Deduplicate by name and filter internal tools
       const seen = new Set<string>();
@@ -53,5 +55,13 @@ export function useAvailableTools(onError?: (message: string) => void) {
 
   const toolGroups = useMemo(() => buildToolGroups(tools, mcpServerMap), [tools, mcpServerMap]);
 
-  return { tools, toolGroups, reloadTools: loadTools };
+  // Whether this list is the whole set the assistant could be allowed.
+  //
+  // Host and app tools belong to whichever client is connected, so a client
+  // without them cannot see — and must not silently drop — the ones another
+  // client lends (#181).
+  const { hostTools, hostApps } = useCapabilities();
+  const complete = hostTools && hostApps;
+
+  return { tools, toolGroups, complete, reloadTools: loadTools };
 }

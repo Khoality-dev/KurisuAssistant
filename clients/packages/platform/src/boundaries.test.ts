@@ -108,10 +108,11 @@ describe('the layers point one way', () => {
   // upward is not a layer, and the app that imports it inherits everything it
   // dragged along.
   const forbidden: Array<[string, string[]]> = [
-    ['models', ['@kurisu/api', '@kurisu/state', '@kurisu/hooks', '@kurisu/platform', 'react']],
-    ['platform', ['@kurisu/api', '@kurisu/state', '@kurisu/hooks', 'react']],
-    ['api', ['@kurisu/state', '@kurisu/hooks', 'react']],
-    ['state', ['@kurisu/hooks']],
+    ['models', ['@kurisu/api', '@kurisu/state', '@kurisu/hooks', '@kurisu/ui', '@kurisu/platform', 'react']],
+    ['platform', ['@kurisu/api', '@kurisu/state', '@kurisu/hooks', '@kurisu/ui', 'react']],
+    ['api', ['@kurisu/state', '@kurisu/hooks', '@kurisu/ui', 'react']],
+    ['state', ['@kurisu/hooks', '@kurisu/ui']],
+    ['hooks', ['@kurisu/ui']],
   ];
 
   it.each(forbidden)('%s does not import what sits above it', (pkg, banned) => {
@@ -123,6 +124,8 @@ describe('the layers point one way', () => {
     expect(offenders).toEqual([]);
   });
 
+  // `ui` is deliberately absent: it is the package that renders, and the only
+  // one allowed a widget library. Every other package is billed by both apps.
   it.each(['models', 'platform', 'api', 'state', 'hooks'])(
     '%s renders nothing, so it imports no widget library',
     (pkg) => {

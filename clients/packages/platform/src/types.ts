@@ -5,7 +5,7 @@
  * one host. They live here now because a second host — a browser tab — has to
  * answer the same interface, and answer "no" to most of it.
  */
-import type { FileEntry, PoseTree } from '@kurisu/models';
+import type { AmplitudeState, FileEntry, PoseTree } from '@kurisu/models';
 
 /** One persona's animation state, as shipped to the character window. */
 export interface PersonaCharacterData {
@@ -17,12 +17,12 @@ export interface PersonaCharacterData {
 export interface CharacterWindowAPI {
   open: () => Promise<void>;
   close: () => Promise<void>;
-  sendAmplitude: (data: { amplitude: number; isPlaying: boolean; isThinking: boolean }) => void;
+  sendAmplitude: (data: AmplitudeState) => void;
   sendPersonasUpdate: (data: { personas: PersonaCharacterData[]; activePersonaId: number | null }) => void;
   sendGestureUpdate: (data: { gestures: string[] }) => void;
   sendFaceUpdate: (data: { faces: string[] }) => void;
   sendSubtitle: (data: { text: string; isUser: boolean; duration?: number }) => void;
-  onAmplitude: (cb: (data: { amplitude: number; isPlaying: boolean; isThinking: boolean }) => void) => () => void;
+  onAmplitude: (cb: (data: AmplitudeState) => void) => () => void;
   onPersonasUpdate: (cb: (data: { personas: PersonaCharacterData[]; activePersonaId: number | null }) => void) => () => void;
   onGestureUpdate: (cb: (data: { gestures: string[] }) => void) => () => void;
   onFaceUpdate: (cb: (data: { faces: string[] }) => void) => () => void;
@@ -154,6 +154,14 @@ export interface McpServerAPI {
   rotateToken: () => Promise<McpServerInfo>;
 }
 
+/** Replacing the app with a newer one. Only an installed app can do this. */
+export interface UpdaterAPI {
+  onUpdateAvailable: (cb: (info: { version: string }) => void) => () => void;
+  onDownloadProgress: (cb: (progress: { percent: number }) => void) => () => void;
+  onUpdateDownloaded: (cb: (info: { version: string }) => void) => () => void;
+  installUpdate: () => void;
+}
+
 export interface ExtensionsAPI {
   checkHealth: (url: string) => Promise<Record<string, any> | null>;
   checkInstalled: (appName: string) => Promise<{ installed: boolean; path: string }>;
@@ -167,6 +175,8 @@ export interface ExtensionsAPI {
 export interface ElectronAPI {
   platform: string;
   openPath: (filePath: string) => Promise<string>;
+  openExternal: (url: string) => Promise<string>;
+  updater: UpdaterAPI;
   onMCPToolsChanged: (cb: () => void) => () => void;
   appTools: AppToolsAPI;
   hostTools: HostToolsAPI;

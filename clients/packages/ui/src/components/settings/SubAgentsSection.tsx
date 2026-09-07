@@ -44,7 +44,7 @@ export const SubAgentsSection: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<SubAgent | null>(null);
 
   const importInputRef = useRef<HTMLInputElement>(null);
-  const { toolGroups } = useAvailableTools(setError);
+  const { toolGroups, complete: toolsComplete } = useAvailableTools(setError);
 
   const flash = (message: string) => {
     setSuccessMessage(message);
@@ -246,6 +246,7 @@ export const SubAgentsSection: React.FC = () => {
       )}
 
       <SubAgentEditDialog
+        toolsComplete={toolsComplete}
         open={editDialogOpen}
         subAgent={editing}
         models={models}

@@ -44,7 +44,7 @@ import type { FileEntry } from '@kurisu/models';
 import { useExplorerStore } from '@kurisu/state';
 import { useFileOperations } from '@kurisu/hooks';
 import { useTransferStore } from '@kurisu/state';
-import { resolveBridge } from '@kurisu/platform';
+import { requireFiles, requireTransfers, resolveBridge } from '@kurisu/platform';
 import {
   DRIVE_ROOT,
   DRIVE_ROOT_LABEL,
@@ -55,7 +55,7 @@ import {
   isDrivePath,
 } from '@kurisu/api';
 
-const OPERATING_SYSTEM = window.electron?.platform ?? 'win32';
+const OPERATING_SYSTEM = resolveBridge().os ?? 'win32';
 const LOCAL_SEP = OPERATING_SYSTEM === 'win32' ? '\\' : '/';
 
 function formatFileSize(bytes: number): string {
@@ -165,7 +165,7 @@ export const FullExplorer: React.FC = () => {
   const contentCleanupRef = useRef<Array<() => void>>([]);
 
   const cancelSearch = useCallback(() => {
-    window.electron?.explorer?.searchContentCancel?.();
+    resolveBridge().files?.searchContentCancel?.();
     contentCleanupRef.current.forEach((fn) => fn());
     contentCleanupRef.current = [];
   }, []);
@@ -215,7 +215,7 @@ export const FullExplorer: React.FC = () => {
 
   // Check if VS Code is available
   useEffect(() => {
-    window.electron?.explorer?.hasVSCode?.().then(setHasVSCode).catch(() => {});
+    resolveBridge().files?.hasVSCode?.().then(setHasVSCode).catch(() => {});
   }, []);
 
   // Clean up search on unmount
@@ -229,7 +229,7 @@ export const FullExplorer: React.FC = () => {
     // ripgrep runs on this machine. There is no drive-side search yet (#6), so
     // searching a drive folder would search a local path that does not exist
     // and report "no results" — an answer, and a wrong one.
-    if (!query.trim() || !currentPath || !fileSource.supportsSearch(currentPath) || !window.electron?.explorer) {
+    if (!query.trim() || !currentPath || !fileSource.supportsSearch(currentPath) || !resolveBridge().files) {
       setSearchResults(null);
       setIsSearching(false);
       return;
@@ -242,22 +242,22 @@ export const FullExplorer: React.FC = () => {
     const q = query.trim();
 
     // Phase 1: name matches
-    window.electron.explorer.searchNames(q, currentPath, opts).then((names) => {
+    requireFiles().searchNames(q, currentPath, opts).then((names) => {
       setSearchResults((prev) => ({ names, matches: prev?.matches || [] }));
     }).catch(() => {});
 
     // Phase 2: streaming content matches
-    const offBatch = window.electron.explorer.onSearchContentBatch((batch) => {
+    const offBatch = requireFiles().onSearchContentBatch((batch) => {
       setSearchResults((prev) => ({
         names: prev?.names || [],
         matches: [...(prev?.matches || []), ...batch],
       }));
     });
-    const offDone = window.electron.explorer.onSearchContentDone(() => {
+    const offDone = requireFiles().onSearchContentDone(() => {
       setIsSearching(false);
     });
     contentCleanupRef.current = [offBatch, offDone];
-    window.electron.explorer.searchContentStart(q, currentPath, opts);
+    requireFiles().searchContentStart(q, currentPath, opts);
   }, [currentPath, cancelSearch]);
 
   const handleSearchClose = useCallback(() => {
@@ -414,7 +414,7 @@ export const FullExplorer: React.FC = () => {
 
   /** Pick local files and put them on the drive, into the folder on screen. */
   const handleUpload = useCallback(async (destination: string) => {
-    const picked = await window.electron.drive.pickFiles();
+    const picked = await requireTransfers().pickFiles();
     if (picked.length === 0) return;
     for (const file of picked) {
       await upload(file.path, destination, { name: file.name, size: file.size });
@@ -457,7 +457,7 @@ export const FullExplorer: React.FC = () => {
     // a path there is nothing for the main process to stream.
     const dropped = Array.from(event.dataTransfer.files);
     const resolved = dropped
-      .map((file) => ({ file, path: window.electron.drive.pathForFile(file) }))
+      .map((file) => ({ file, path: requireTransfers().pathForFile(file) }))
       .filter((entry) => !!entry.path);
     if (resolved.length === 0) return;
     for (const { file, path } of resolved) {

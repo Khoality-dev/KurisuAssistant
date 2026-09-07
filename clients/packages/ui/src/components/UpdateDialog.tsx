@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { resolveBridge } from '@kurisu/platform';
 import {
   Dialog,
   DialogTitle,
@@ -18,19 +19,19 @@ export const UpdateDialog: React.FC = () => {
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    const electron = (window as any).electron;
-    if (!electron?.updater) return;
+    const updater = resolveBridge().updater;
+    if (!updater) return;
 
     const unsubs = [
-      electron.updater.onUpdateAvailable((info: { version: string }) => {
+      updater.onUpdateAvailable((info) => {
         setVersion(info.version);
         setState('available');
       }),
-      electron.updater.onDownloadProgress((p: { percent: number }) => {
+      updater.onDownloadProgress((p) => {
         setState('downloading');
         setProgress(p.percent);
       }),
-      electron.updater.onUpdateDownloaded((info: { version: string }) => {
+      updater.onUpdateDownloaded((info) => {
         setVersion(info.version);
         setState('ready');
       }),
@@ -42,7 +43,7 @@ export const UpdateDialog: React.FC = () => {
   if (state === 'idle') return null;
 
   const handleInstall = () => {
-    (window as any).electron.updater.installUpdate();
+    resolveBridge().updater?.installUpdate();
   };
 
   const handleClose = () => {

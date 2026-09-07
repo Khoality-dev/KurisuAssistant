@@ -53,6 +53,7 @@ import { SelectionChips } from './SelectionChips';
 import { ChatComposer } from './ChatComposer';
 import { ToolApprovalBar, ApprovalRequest } from './ToolApprovalBar';
 import { NoModelPrompt } from './NoModelPrompt';
+import { resolveBridge } from '@kurisu/platform';
 
 interface ChatWidgetProps {
   characterWindowOpen?: boolean;
@@ -386,7 +387,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   const [hostApproval, setHostApproval] = useState<{ approvalId: string; request: ApprovalRequest } | null>(null);
 
   useEffect(() => {
-    const cleanup = window.electron?.hostTools?.onApprovalRequest?.((data) => {
+    const cleanup = resolveBridge().hostTools?.onApprovalRequest?.((data) => {
       setHostApproval({
         approvalId: data.approvalId,
         request: {
@@ -406,7 +407,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
   const handleHostApprovalRespond = useCallback((value: string) => {
     if (!hostApproval) return;
-    window.electron?.hostTools?.sendApprovalResponse(hostApproval.approvalId, value);
+    resolveBridge().hostTools?.sendApprovalResponse(hostApproval.approvalId, value);
     setHostApproval(null);
   }, [hostApproval]);
 
