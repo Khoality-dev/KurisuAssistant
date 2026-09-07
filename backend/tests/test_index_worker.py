@@ -311,11 +311,14 @@ class TestDriveFiles:
         from kurisuassistant.db.repositories import DriveNodeRepository
 
         svc, user_id = db
-        folder = svc.execute_sync(lambda s: DriveNodeRepository(s).create_folder(user_id, None, "Reports").id)
+        # A unique root name: the test account is shared across the session and
+        # other modules make their own "Reports".
+        root = f"Paths-{uuid.uuid4().hex[:6]}"
+        folder = svc.execute_sync(lambda s: DriveNodeRepository(s).create_folder(user_id, None, root).id)
         sub = svc.execute_sync(lambda s: DriveNodeRepository(s).create_folder(user_id, folder, "2026").id)
         node_id = await _drive_file(svc, user_id, "q3.md", b"quarter three", parent_id=sub)
         paths = svc.execute_sync(lambda s: DriveNodeRepository(s).paths_for(user_id, [node_id, folder]))
-        assert paths == {node_id: "/Reports/2026/q3.md", folder: "/Reports"}
+        assert paths == {node_id: f"/{root}/2026/q3.md", folder: f"/{root}"}
 
 
 class TestTheScan:
