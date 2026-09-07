@@ -7,6 +7,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.model.Assistant
+import com.kurisu.assistant.data.model.AssistantUpdate
+import com.kurisu.assistant.data.model.ModelInfo
 import com.kurisu.assistant.data.model.Persona
 import com.kurisu.assistant.data.model.ContextInfoEvent
 import com.kurisu.assistant.data.model.ErrorEvent
@@ -33,6 +35,8 @@ import javax.inject.Inject
 sealed class ChatModal {
     data class ResumePicker(val conversations: List<Conversation>, val loading: Boolean = false) : ChatModal()
     data class PersonaPicker(val personas: List<Persona>, val loading: Boolean = false) : ChatModal()
+    /** The assistant's model — one for every persona. A pick applies from the next message. */
+    data class ModelPicker(val models: List<ModelInfo>, val loading: Boolean = false) : ChatModal()
     data class ContextDialog(
         val conversationId: Int?,
         val tokenCount: Int?,
@@ -365,6 +369,55 @@ class ChatViewModel @Inject constructor(
                     modal = null,
                     commandFeedback = "Failed to load personas",
                 ) }
+            }
+        }
+    }
+
+    /**
+     * Open the model sheet — the model name on the header, or "Choose a model"
+     * on the no-model prompt (#197).
+     *
+     * The model is the ASSISTANT's: one for every persona, so the sheet says so
+     * and a pick lands on `PATCH /assistant`, never on this conversation. It
+     * applies from the next message, which is why nothing here is optimistic —
+     * there is no header to keep from lagging, only a name to update once the
+     * server agrees.
+     */
+    fun openModelSheet() {
+        _state.update { it.copy(modal = ChatModal.ModelPicker(emptyList(), loading = true)) }
+        viewModelScope.launch {
+            try {
+                val models = assistantRepository.listModels()
+                _state.update { it.copy(modal = ChatModal.ModelPicker(models, loading = false)) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load models", e)
+                _state.update { it.copy(modal = null, commandFeedback = "Could not load models") }
+            }
+        }
+    }
+
+    /**
+     * The provider travels with the model: they are two columns describing one
+     * choice, and the name alone would point the assistant at a model the old
+     * provider cannot serve.
+     */
+    fun pickModel(model: ModelInfo) {
+        val current = _state.value.assistant
+        if (model.name == current?.modelName && model.provider == current?.providerType) {
+            _state.update { it.copy(modal = null) }
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val updated = assistantRepository.updateAssistant(
+                    AssistantUpdate(modelName = model.name, providerType = model.provider),
+                )
+                _state.update {
+                    it.copy(assistant = updated, modal = null, commandFeedback = "Model \u2192 ${model.name}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to change model", e)
+                _state.update { it.copy(modal = null, commandFeedback = "Could not change model") }
             }
         }
     }

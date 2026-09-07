@@ -23,6 +23,9 @@ import {
   ListItemText,
   Divider,
   Avatar,
+  Menu,
+  MenuItem,
+  ListSubheader,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import CloseIcon from '@mui/icons-material/Close';
@@ -30,12 +33,13 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '@kurisu/state';
 import { useAuthStore } from '@kurisu/state';
 import { apiClient } from '@kurisu/api';
-import type { Conversation } from '@kurisu/models';
+import type { Assistant, Conversation } from '@kurisu/models';
 import { storage } from '@kurisu/api';
 
 import { useTTS } from '@kurisu/hooks';
@@ -43,7 +47,6 @@ import { useVisionStore } from '@kurisu/state';
 import { useCharacterPanel } from '@kurisu/hooks';
 import { useInteractiveASR } from '@kurisu/hooks';
 import { useMicStore } from '@kurisu/state';
-import { useLayoutStore } from '@kurisu/state';
 import { usePersonaStore } from '@kurisu/state';
 import { useStreamingChat } from '@kurisu/hooks';
 import { useContextBreakdown } from '@kurisu/hooks';
@@ -83,6 +86,15 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   const [personaSheetOpen, setPersonaSheetOpen] = useState(false);
   const [personaActiveIdx, setPersonaActiveIdx] = useState(0);
   const [personaSheetError, setPersonaSheetError] = useState('');
+
+  // The assistant's model, named on the header beside the persona (#197). One
+  // model for every persona: a pick is PATCH /assistant and applies from the
+  // next message. The no-model prompt opens this same menu, in place.
+  const [assistant, setAssistant] = useState<Assistant | null>(null);
+  const [models, setModels] = useState<Array<{ name: string; provider: string }>>([]);
+  const [modelsError, setModelsError] = useState('');
+  const [modelMenuAnchor, setModelMenuAnchor] = useState<HTMLElement | null>(null);
+  const modelButtonRef = useRef<HTMLDivElement>(null);
 
   // Message search
   const [searchOpen, setSearchOpen] = useState(false);
@@ -246,6 +258,43 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [resumeDialogOpen, resumeConversations, resumeActiveIdx, handleResumeSelect]);
+
+  useEffect(() => {
+    apiClient.getAssistant().then(setAssistant).catch(() => { /* the header says "No model" */ });
+  }, []);
+
+  const openModelMenu = useCallback(async () => {
+    setModelsError('');
+    setModelMenuAnchor(modelButtonRef.current);
+    try {
+      setModels(await apiClient.getModels());
+    } catch (err: any) {
+      setModelsError(err?.response?.data?.detail || err?.message || 'Could not load models');
+    }
+  }, []);
+
+  // The provider travels with the model: they are two columns describing one
+  // choice, and the name alone would point the assistant at a model the old
+  // provider cannot serve. Nothing is optimistic — the model applies from the
+  // next message, so the name only changes once the server has agreed.
+  const handleModelPick = useCallback(async (model: { name: string; provider: string }) => {
+    if (model.name === assistant?.model_name && model.provider === assistant?.provider_type) {
+      setModelMenuAnchor(null);
+      return;
+    }
+    try {
+      setAssistant(await apiClient.updateAssistant({ model_name: model.name, provider_type: model.provider }));
+      setModelMenuAnchor(null);
+    } catch (err: any) {
+      setModelsError(err?.response?.data?.detail || err?.message || 'Could not change model');
+    }
+  }, [assistant?.model_name, assistant?.provider_type]);
+
+  const groupedModels = useMemo(() => {
+    const groups = new Map<string, Array<{ name: string; provider: string }>>();
+    for (const m of models) groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]);
+    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [models]);
 
   // /persona slash command opens the persona sheet
   useEffect(() => {
@@ -557,8 +606,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%', position: 'relative' }}>
 
-      {/* Header: who is answering (click to override for this conversation) + token usage */}
+      {/* Header: who is answering (click to override for this conversation), what it
+          runs on (click to change the assistant's model, for every persona) + token usage */}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, px: 2, py: 0.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
         <Tooltip title={currentConversation ? 'Change who answers in this conversation' : 'Choose who answers'}>
           <ListItemButton
             onClick={() => setPersonaSheetOpen(true)}
@@ -582,6 +633,20 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
             </Typography>
           </ListItemButton>
         </Tooltip>
+        <Tooltip title="Change the model. It applies from the next message, for every persona.">
+          <ListItemButton
+            ref={modelButtonRef}
+            aria-label="Change model"
+            onClick={() => { void openModelMenu(); }}
+            sx={{ flex: '0 1 auto', minWidth: 0, gap: 0.25, px: 1, py: 0.25, borderRadius: 1 }}
+          >
+            <Typography variant="caption" color="text.secondary" sx={{ minWidth: 0 }} noWrap>
+              {assistant?.model_name || 'No model'}
+            </Typography>
+            <ExpandMoreIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+          </ListItemButton>
+        </Tooltip>
+        </Box>
         {currentConversation && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Typography
@@ -609,6 +674,39 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
           </Box>
         )}
       </Box>
+
+      <Menu
+        anchorEl={modelMenuAnchor}
+        open={Boolean(modelMenuAnchor)}
+        onClose={() => setModelMenuAnchor(null)}
+        MenuListProps={{ dense: true, 'aria-label': 'Models' }}
+      >
+        <ListSubheader disableSticky sx={{ lineHeight: '28px' }}>
+          Applies from the next message, for every persona
+        </ListSubheader>
+        {modelsError && <MenuItem disabled>{modelsError}</MenuItem>}
+        {!modelsError && models.length === 0 && (
+          <MenuItem disabled>No models. Is the model host running?</MenuItem>
+        )}
+        {groupedModels.map(([provider, list]) => [
+          <ListSubheader
+            key={`provider-${provider}`}
+            disableSticky
+            sx={{ lineHeight: '24px', fontSize: '0.7rem', textTransform: 'uppercase' }}
+          >
+            {provider}
+          </ListSubheader>,
+          ...list.map((m) => (
+            <MenuItem
+              key={`${m.provider}/${m.name}`}
+              selected={m.name === assistant?.model_name && m.provider === assistant?.provider_type}
+              onClick={() => { void handleModelPick(m); }}
+            >
+              {m.name}
+            </MenuItem>
+          )),
+        ])}
+      </Menu>
 
       {/* Search bar */}
       {searchOpen && (
@@ -658,9 +756,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       {streaming.needsModel && (
         <NoModelPrompt
           onChooseModel={() => {
-            useLayoutStore.getState().setSettingsSection('assistant');
-            useLayoutStore.getState().setActivePage('settings');
+            // The header's model menu, right here: the refused text is still in
+            // the composer and there is no page to come back from (#197).
             streaming.setNeedsModel(false);
+            void openModelMenu();
           }}
           onDismiss={() => streaming.setNeedsModel(false)}
         />

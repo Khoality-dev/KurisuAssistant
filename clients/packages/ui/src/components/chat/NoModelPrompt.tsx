@@ -13,7 +13,7 @@ import { SmartToy as AssistantIcon } from '@mui/icons-material';
  * (#149).
  */
 interface NoModelPromptProps {
-  /** Opens Settings → Assistant, where the model picker is. */
+  /** Opens the model menu on the chat header — in place, nothing to come back from. */
   onChooseModel: () => void;
   onDismiss: () => void;
 }
@@ -31,9 +31,8 @@ export const NoModelPrompt: React.FC<NoModelPromptProps> = ({ onChooseModel, onD
     </Box>
 
     <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1.5 }}>
-      Your assistant has no model to answer with yet. Pick one in
-      Settings&nbsp;→&nbsp;Assistant, then send again — your text is back in the box
-      below. Any attachments will need adding again.
+      Your assistant has no model to answer with yet. Choose one and send again — your
+      text is back in the box below. Any attachments will need adding again.
     </Typography>
 
     <Box sx={{ display: 'flex', gap: 1 }}>

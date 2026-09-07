@@ -4,7 +4,6 @@ import {
   Box,
   Button,
   FormControlLabel,
-  MenuItem,
   Paper,
   Switch,
   TextField,
@@ -12,53 +11,47 @@ import {
 } from '@mui/material';
 import { Save as SaveIcon } from '@mui/icons-material';
 import { apiClient } from '@kurisu/api';
-import { usePersonaStore } from '@kurisu/state';
 import type { Assistant, AssistantUpdate } from '@kurisu/models';
-import { ModelPicker } from '../ModelPicker';
 import { ToolGroupChecklist } from './ToolGroupChecklist';
 import { useAvailableTools } from './useAvailableTools';
 
 interface AssistantFormData {
-  model_name: string;
   available_tools: string[] | null;
   think: boolean;
   use_deferred_tools: boolean;
   memory: string;
   memory_enabled: boolean;
   trigger_word: string;
-  default_persona_id: number | null;
 }
 
 function toForm(assistant: Assistant): AssistantFormData {
   return {
-    model_name: assistant.model_name || '',
     available_tools: assistant.available_tools ?? null,
     think: assistant.think,
     use_deferred_tools: assistant.use_deferred_tools,
     memory: assistant.memory || '',
     memory_enabled: assistant.memory_enabled,
     trigger_word: assistant.trigger_word || '',
-    default_persona_id: assistant.default_persona_id,
   };
 }
 
 /**
- * The user's single assistant: what it can do. One model, one tool set, one
- * memory, one wake word — created at registration, so there is nothing to add
- * or delete here. Personas change who answers; none of this changes with them.
+ * The user's single assistant: what it can do. One tool set, one memory, one
+ * wake word — created at registration, so there is nothing to add or delete
+ * here. Personas change who answers; none of this changes with them.
+ *
+ * Two things that look like they belong here do not (#197). The model is picked
+ * from the chat header, beside the persona, because that is where the question
+ * comes up — and it is one model for every persona, so it is no more a
+ * persona's than the tools are. The default persona is chosen on Personas, by
+ * making one the default.
  */
 export const AssistantSection: React.FC = () => {
-  const personas = usePersonaStore((s) => s.personas);
-  const loadPersonas = usePersonaStore((s) => s.loadPersonas);
-
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [form, setForm] = useState<AssistantFormData | null>(null);
-  const [models, setModels] = useState<Array<{ name: string; provider: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  // Providers the server could not reach: the list below is real but partial.
-  const [modelsWarning, setModelsWarning] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
   const { toolGroups, complete: toolsComplete } = useAvailableTools(setError);
@@ -66,21 +59,6 @@ export const AssistantSection: React.FC = () => {
   const flash = (message: string) => {
     setSuccessMessage(message);
     setTimeout(() => setSuccessMessage(''), 3000);
-  };
-
-  const loadModels = async () => {
-    try {
-      const { models: list, unavailable } = await apiClient.getModelsWithStatus();
-      setModels(list);
-      setModelsWarning(
-        unavailable.length > 0
-          ? unavailable.map((u) => `${u.provider}: ${u.detail}`).join(' ')
-          : '',
-      );
-    } catch (err: any) {
-      console.error('Failed to load models:', err);
-      setError(err.response?.data?.detail || 'Failed to load the model list');
-    }
   };
 
   const loadAssistant = async () => {
@@ -98,8 +76,6 @@ export const AssistantSection: React.FC = () => {
 
   useEffect(() => {
     void loadAssistant();
-    void loadModels();
-    if (personas.length === 0) void loadPersonas();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -107,13 +83,11 @@ export const AssistantSection: React.FC = () => {
     if (!assistant || !form) return false;
     const saved = toForm(assistant);
     return (
-      saved.model_name !== form.model_name
-      || saved.think !== form.think
+      saved.think !== form.think
       || saved.use_deferred_tools !== form.use_deferred_tools
       || saved.memory !== form.memory
       || saved.memory_enabled !== form.memory_enabled
       || saved.trigger_word !== form.trigger_word
-      || saved.default_persona_id !== form.default_persona_id
       || JSON.stringify(saved.available_tools) !== JSON.stringify(form.available_tools)
     );
   }, [assistant, form]);
@@ -123,12 +97,6 @@ export const AssistantSection: React.FC = () => {
     const saved = toForm(assistant);
     const update: AssistantUpdate = {};
 
-    const modelName = form.model_name.trim();
-    if (modelName !== saved.model_name) {
-      update.model_name = modelName || null;
-      // The provider travels with the model: the picker lists both.
-      update.provider_type = models.find((m) => m.name === modelName)?.provider || 'ollama';
-    }
     if (JSON.stringify(form.available_tools) !== JSON.stringify(saved.available_tools)) {
       // `null` is the only way to say "every tool" again.
       update.available_tools = form.available_tools;
@@ -138,7 +106,6 @@ export const AssistantSection: React.FC = () => {
     if (form.memory !== saved.memory) update.memory = form.memory || null;
     if (form.memory_enabled !== saved.memory_enabled) update.memory_enabled = form.memory_enabled;
     if (form.trigger_word !== saved.trigger_word) update.trigger_word = form.trigger_word.trim() || null;
-    if (form.default_persona_id !== saved.default_persona_id) update.default_persona_id = form.default_persona_id;
 
     if (Object.keys(update).length === 0) return;
 
@@ -171,26 +138,16 @@ export const AssistantSection: React.FC = () => {
     <Box sx={{ maxWidth: 720, mx: 'auto', pb: 4 }}>
       <Typography variant="h5" sx={{ mb: 0.5, fontWeight: 600 }}>Assistant</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        What your assistant can do: one model, one tool set, one memory. You have exactly one —
-        it is created with your account. Personas change who answers, never any of this.
+        What your assistant can do: one tool set, one memory, one wake word. You have exactly
+        one — it is created with your account. Personas change who answers, never any of this.
+        The model it runs on is picked from the chat header, and which persona a new conversation
+        starts with is set on Personas.
       </Typography>
 
       {successMessage && <Alert severity="success" sx={{ mb: 2 }}>{successMessage}</Alert>}
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
-      {modelsWarning && <Alert severity="warning" sx={{ mb: 2 }}>{modelsWarning}</Alert>}
 
       <Paper elevation={0} sx={{ p: 3, border: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <ModelPicker
-          label="Model"
-          value={form.model_name}
-          models={models}
-          onChange={(model_name) => setForm({ ...form, model_name })}
-          onRefresh={loadModels}
-          onSuccess={flash}
-          onError={setError}
-          helperText="The model every reply is generated with, whichever persona is answering."
-        />
-
         <TextField
           label="Wake word"
           value={form.trigger_word}
@@ -198,25 +155,6 @@ export const AssistantSection: React.FC = () => {
           fullWidth
           helperText="Say this in voice mode to wake the assistant. It selects no persona — whichever persona the conversation is bound to answers."
         />
-
-        <TextField
-          select
-          label="Default persona"
-          value={form.default_persona_id ?? ''}
-          onChange={(e) => setForm({
-            ...form,
-            default_persona_id: e.target.value === '' ? null : Number(e.target.value),
-          })}
-          fullWidth
-          helperText="Every new conversation silently starts with this persona. You can switch it per conversation from the chat header."
-        >
-          {personas.length === 0 && <MenuItem value="">No personas yet</MenuItem>}
-          {personas.map((p) => (
-            <MenuItem key={p.id} value={p.id}>
-              {p.name}{p.enabled ? '' : ' (disabled)'}
-            </MenuItem>
-          ))}
-        </TextField>
 
         <Box>
           <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>Tools</Typography>

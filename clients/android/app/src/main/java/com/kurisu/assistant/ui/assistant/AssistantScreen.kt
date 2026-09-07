@@ -60,7 +60,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.kurisu.assistant.data.model.SubAgent
 import com.kurisu.assistant.ui.common.ModelDropdown
 import com.kurisu.assistant.ui.personas.PersonaAvatar
-import com.kurisu.assistant.ui.personas.personaMeta
 import com.kurisu.assistant.ui.theme.KurisuTheme
 
 /**
@@ -69,16 +68,18 @@ import com.kurisu.assistant.ui.theme.KurisuTheme
  * Everything on this screen except the default-persona card and the sub-agent
  * list is one row, patched a field at a time through `PATCH /assistant`. The
  * screen that this replaces listed "main agents", each with its own model, tools
- * and memory; there is one of each now, and the personas that used to carry them
- * are one tap away behind the card at the top.
+ * and memory; there is one of each now.
  *
- * @param onNavigateToPersonas opens the Personas list. Wired by the nav graph.
+ * Two things that look like they belong here do not (#197). The model is picked
+ * from the chat header, beside the persona, because that is where the question
+ * comes up — and it is one model for every persona, so it is no more a persona's
+ * than the tools are. The default persona is chosen on the Personas screen, by
+ * tapping one. Neither is a capability, so neither is on this page.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AssistantScreen(
     onBack: () -> Unit,
-    onNavigateToPersonas: () -> Unit,
     viewModel: AssistantViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -142,43 +143,9 @@ fun AssistantScreen(
                     )
                 }
 
-                item("default_persona") {
-                    DefaultPersonaCard(
-                        personaName = state.defaultPersona?.name,
-                        meta = state.defaultPersona?.let {
-                            personaMeta(it.voiceReference, it.characterConfig != null, it.enabled)
-                        },
-                        avatarUrl = state.defaultPersona?.avatarUuid?.let {
-                            "${state.baseUrl.trimEnd('/')}/images/$it"
-                        },
-                        onClick = onNavigateToPersonas,
-                    )
-                }
-
                 item("capabilities") {
                     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                            ModelDropdown(
-                                label = "Model",
-                                value = assistant.modelName.orEmpty(),
-                                onValueChange = { name ->
-                                    state.availableModels.firstOrNull { it.name == name }
-                                        ?.let(viewModel::setModel)
-                                },
-                                availableModels = state.availableModels,
-                                isRefreshing = state.isRefreshingModels,
-                                onRefresh = viewModel::refreshModels,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                                supportingText = {
-                                    Text(
-                                        assistant.providerType,
-                                        style = KurisuTheme.extraTypography.metadataSmall,
-                                    )
-                                },
-                            )
-
-                            RowDivider()
-
                             // Decision: the wake word is the ASSISTANT's, not a
                             // persona's. It wakes the assistant and the
                             // conversation's own persona answers — it selects
@@ -319,50 +286,6 @@ fun AssistantScreen(
 }
 
 // ─── Rows ─────────────────────────────────────────────────────────────
-
-@Composable
-private fun DefaultPersonaCard(
-    personaName: String?,
-    meta: String?,
-    avatarUrl: String?,
-    onClick: () -> Unit,
-) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth(), onClick = onClick) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            PersonaAvatar(name = personaName ?: "?", avatarUrl = avatarUrl, size = 44.dp)
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    "DEFAULT PERSONA",
-                    style = KurisuTheme.extraTypography.metadataSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    personaName ?: "No default persona",
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    meta ?: "New chats have nobody to answer them yet.",
-                    style = KurisuTheme.extraTypography.metadata,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Icon(
-                Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
 
 @Composable
 private fun RowDivider() = HorizontalDivider(

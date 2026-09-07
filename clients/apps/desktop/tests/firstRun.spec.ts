@@ -43,9 +43,13 @@ test.describe('first run with no model chosen', () => {
     // the text back rather than making the user retype it.
     await expect(page.getByPlaceholder('Type your message...')).toHaveValue('hello there');
 
-    // And the way out is one click, on the prompt itself.
+    // And the way out is one click, on the prompt itself — and it opens the
+    // header's model menu right here rather than sending the user to a settings
+    // page to answer a question the chat was asking (#197).
     await page.getByRole('button', { name: 'Choose a model' }).click();
-    await expect(page.getByLabel('Wake word')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('menuitem', { name: 'test-model' })).toBeVisible({ timeout: 10_000 });
+    // Still on the chat, text still in the box.
+    await expect(page.getByPlaceholder('Type your message...')).toHaveValue('hello there');
   });
 
   test('once a model is chosen the same message goes through', async ({ page, mock }) => {
@@ -56,7 +60,13 @@ test.describe('first run with no model chosen', () => {
     await send(page, 'hello there');
     await expect(page.getByText('No model selected', { exact: true })).toBeVisible({ timeout: 10_000 });
 
-    mock.setAssistantModel('test-model');
+    // The pick is the ASSISTANT's — one model for every persona — and the header
+    // names it as soon as the server agrees.
+    await page.getByRole('button', { name: 'Choose a model' }).click();
+    await page.getByRole('menuitem', { name: 'test-model' }).click();
+    await expect.poll(() => mock.getAssistant().model_name).toBe('test-model');
+    await expect(page.getByRole('button', { name: 'Change model' })).toContainText('test-model');
+
     await page.getByRole('button', { name: 'Send', exact: true }).click();
 
     await expect(page.getByText('Answered at last.')).toBeVisible({ timeout: 10_000 });

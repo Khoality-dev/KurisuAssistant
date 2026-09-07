@@ -22,16 +22,18 @@ The desktop was not part of the v3 visual redesign — it took the model change 
 Where there was a single **Agents** section there are now three, because capability, presentation
 and task-only workers are three different resources.
 
-This screen is the capability half: one model, one tool set, one memory. The wake word is a voice
-trigger that selects no persona, and the default persona is the one every new conversation silently
-starts with.
+This screen is the capability half: one tool set, one memory, one wake word that selects no persona.
+The model is not here — it sits on the chat header beside the persona, applies to every persona, and
+is picked from there — and neither is the default persona, which is set on **Personas** (#197).
 
 ## Personas
 
 ![Personas](assets/04-settings-personas.png)
 
 Presentation only — a name, a prompt, a voice, a face. The editor is also the only place
-`voice_reference` and `preferred_name` are reachable; neither had a UI before the split.
+`voice_reference` and `preferred_name` are reachable; neither had a UI before the split. The one
+thing decided here that belongs to the assistant is which persona a new conversation starts with:
+**Make default** on a card, and the **Default** badge on the one that has it (#197).
 
 ## Sub-agents
 
@@ -44,8 +46,11 @@ run their own loop, but they have no identity and never speak to you directly.
 
 ![Chat](assets/02-chat.png)
 
-Each answer is labelled with the persona that produced it. A tool call carries its own name, and a
-delegated step is tagged with the sub-agent and the model that ran it.
+The header names the persona answering and, beside it, the model — the assistant's, one for every
+persona; the menu behind it changes it from the next message on, and is what "Choose a model" opens
+when a new account's first message is refused for having none (#197). Each answer is labelled with
+the persona that produced it. A tool call carries its own name, and a delegated step is tagged with
+the sub-agent and the model that ran it.
 
 ## Everything else
 
