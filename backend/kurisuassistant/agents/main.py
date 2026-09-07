@@ -100,6 +100,16 @@ class MainAgent(BaseAgent):
                     "always read the skill first and follow its instructions exactly."
                 )
 
+        system_parts.append(
+            "## Recall\n"
+            "Everything the user has said to you before, and every readable file in their "
+            "drive, is searchable. `recall_regex` finds exact wording; `recall_semantic` "
+            "finds passages by meaning. Before saying you do not remember something, or "
+            "when the user refers to an earlier conversation or a stored file, use one. "
+            "When you answer from what they return, quote the passage as it was written "
+            "and name where it came from: the conversation, or the file and page."
+        )
+
         if self.capabilities.use_deferred_tools:
             system_parts.append(
                 "## Tool Usage\n"

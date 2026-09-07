@@ -34,6 +34,18 @@ from kurisuassistant.utils import drive_storage
 
 logger = logging.getLogger(__name__)
 
+
+def _queue_indexing(user_id: int, node_id: int) -> None:
+    """Hand a written file to the retrieval index (#6) without making the
+    upload wait for it — or fail on it. The scanner is the safety net."""
+    try:
+        import kurisuassistant.workers as workers
+        from kurisuassistant.workers.tasks import ChunkDriveFileTask
+
+        workers.submit(ChunkDriveFileTask(user_id=user_id, node_id=node_id))
+    except Exception:
+        logger.warning("Could not queue drive node %s for indexing", node_id, exc_info=True)
+
 router = APIRouter(prefix="/drive", tags=["drive"])
 
 
@@ -344,6 +356,7 @@ async def upload_file(
             return _node_to_response(node), None
 
         body, replaced_key = await get_db_service().execute(_persist)
+        _queue_indexing(user.id, body["id"])
     except _OverQuota:
         await drive_storage.delete_blobs(user.id, [storage_key])
         raise HTTPException(
@@ -420,6 +433,7 @@ async def replace_content(
             return _node_to_response(node), replaced
 
         body, replaced_key = await get_db_service().execute(_persist)
+        _queue_indexing(user.id, body["id"])
     except _OverQuota:
         await drive_storage.delete_blobs(user.id, [storage_key])
         raise HTTPException(

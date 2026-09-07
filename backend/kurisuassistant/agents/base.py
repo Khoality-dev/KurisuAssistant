@@ -330,6 +330,11 @@ class BaseAgent(ABC):
         if context.handler:
             exec_args["_handler"] = context.handler
         exec_args["_context"] = context
+        # The caller's allowlist, for a built-in tool that reaches into what a
+        # non-built-in one guards (recall over drive files asks "could
+        # drive_read run here?"). Not on AgentContext: the same context object
+        # is handed to sub-agents, whose allowlist is their own.
+        exec_args["_available_tools"] = self.capabilities.available_tools
 
         if execution_location == "frontend":
             if context.client_tool_callback:

@@ -11,7 +11,7 @@ so ``OllamaProvider`` runs unmodified and the client validates every response.
 Endpoints: ``GET /api/tags``, ``POST /api/show``, ``POST /api/pull``,
 ``DELETE /api/delete``, ``GET /api/version``, ``GET /api/ps``, ``POST /api/chat``
 (streaming NDJSON or one JSON body; honours ``stream``, ``tools``, ``think``,
-``options``), ``POST /api/generate``.
+``options``), ``POST /api/generate``, ``POST /api/embed``.
 
 Behaviour is deterministic by default and scriptable:
 
@@ -25,8 +25,15 @@ Behaviour is deterministic by default and scriptable:
   ``/api/generate`` consume in order. The same is reachable over HTTP for a mock
   running in a container: ``POST /_mock/replies``, ``GET /_mock/requests``,
   ``DELETE /_mock/requests``, ``POST /_mock/reset``, ``GET /_mock/state``.
-- Every ``/api/chat``, ``/api/generate`` and ``/api/pull`` request is recorded
-  with its body, so a test can assert on what the backend actually sent.
+- ``/api/embed`` answers a deterministic unit vector per text — seeded from the
+  text, so the same string always embeds the same way and different strings
+  land somewhere unrelated. ``MockOllamaState.script_embedding(text, vector)``
+  pins a vector for one exact string, which is how a test puts two texts near
+  each other; ``fail_embeddings(status)`` makes the endpoint answer that error
+  until reset. Over HTTP: ``POST /_mock/embeddings``.
+- Every ``/api/chat``, ``/api/generate``, ``/api/pull`` and ``/api/embed`` request
+  is recorded with its body, so a test can assert on what the backend actually
+  sent.
 
 Unknown models are refused with Ollama's own 404 unless ``auto_pull`` is on, in
 which case ``/api/pull`` adds them — which is what ``OllamaProvider`` does before
@@ -55,6 +62,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 DEFAULT_MODEL = "mock-model:latest"
 CONTEXT_LENGTH = 8192
 VERSION = "0.0.0-mock"
+EMBED_DIMENSIONS = 16
 
 _CALL_DIRECTIVE = re.compile(r"^call\s+([A-Za-z0-9_.:-]+)(?:\s+(\{.*\}))?\s*$", re.S)
 
@@ -157,6 +165,8 @@ class MockOllamaState:
         self.auto_pull = auto_pull
         self.replies: List[Reply] = []
         self.requests: List[Dict[str, Any]] = []
+        self.embeddings: Dict[str, List[float]] = {}
+        self.embed_fail_status: Optional[int] = None
         self._lock = threading.Lock()
 
     @staticmethod
@@ -188,6 +198,21 @@ class MockOllamaState:
         with self._lock:
             return self.replies.pop(0) if self.replies else None
 
+    def script_embedding(self, text: str, vector: Sequence[float]) -> None:
+        """Pin the vector ``/api/embed`` returns for exactly ``text``."""
+        with self._lock:
+            self.embeddings[text] = [float(v) for v in vector]
+
+    def fail_embeddings(self, status: Optional[int]) -> None:
+        """Make ``/api/embed`` answer ``status`` (``None`` restores it)."""
+        with self._lock:
+            self.embed_fail_status = status
+
+    def embedding_for(self, text: str) -> List[float]:
+        with self._lock:
+            pinned = self.embeddings.get(text)
+        return list(pinned) if pinned is not None else default_embedding(text)
+
     def record(self, endpoint: str, body: Dict[str, Any]) -> None:
         with self._lock:
             self.requests.append({"endpoint": endpoint, "received_at": _now(), **body})
@@ -205,6 +230,8 @@ class MockOllamaState:
             self.models = list(self._initial)
             self.replies.clear()
             self.requests.clear()
+            self.embeddings.clear()
+            self.embed_fail_status = None
 
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
@@ -213,7 +240,19 @@ class MockOllamaState:
                 "auto_pull": self.auto_pull,
                 "queued_replies": len(self.replies),
                 "requests": len(self.requests),
+                "pinned_embeddings": len(self.embeddings),
+                "embed_fail_status": self.embed_fail_status,
             }
+
+
+def default_embedding(text: str) -> List[float]:
+    """A unit vector seeded from ``text``: stable per string, unrelated across strings."""
+    digest = hashlib.sha256(text.encode("utf-8")).digest()
+    raw = [((digest[i % len(digest)] ^ (i * 37 & 0xFF)) / 127.5) - 1.0 for i in range(EMBED_DIMENSIONS)]
+    # Two bytes per component keeps 16 components from repeating the digest.
+    raw = [raw[i] + (digest[(i + 7) % len(digest)] / 255.0 - 0.5) for i in range(EMBED_DIMENSIONS)]
+    norm = sum(v * v for v in raw) ** 0.5 or 1.0
+    return [round(v / norm, 6) for v in raw]
 
 
 # --- the app --------------------------------------------------------------------
@@ -404,6 +443,26 @@ def create_app(state: MockOllamaState) -> FastAPI:
                 "done_reason": reply.done_reason, "context": [],
                 **_durations(prompt_tokens, len(_words(reply.content)))}
 
+    @app.post("/api/embed")
+    async def embed(request: Request):
+        body = await body_of(request)
+        model = model_of(body)
+        state.record("/api/embed", body)
+        if not state.has_model(model):
+            return _not_found(model)
+        if state.embed_fail_status:
+            return JSONResponse({"error": "scripted embedding failure"}, status_code=state.embed_fail_status)
+        inputs = body.get("input")
+        if inputs is None:
+            return JSONResponse({"error": "input is required"}, status_code=400)
+        if isinstance(inputs, str):
+            inputs = [inputs]
+        vectors = [state.embedding_for(str(text)) for text in inputs]
+        prompt_tokens = sum(len(_words(str(text))) for text in inputs)
+        return {"model": model, "embeddings": vectors,
+                "total_duration": 1_000_000, "load_duration": 100_000,
+                "prompt_eval_count": prompt_tokens}
+
     # -- control surface, for a mock that runs in a container ------------------
 
     @app.get("/_mock/state")
@@ -416,6 +475,15 @@ def create_app(state: MockOllamaState) -> FastAPI:
         replies = [Reply.from_dict(r) for r in body.get("replies") or []]
         state.script(*replies)
         return {"queued": state.snapshot()["queued_replies"]}
+
+    @app.post("/_mock/embeddings")
+    async def mock_embeddings(request: Request):
+        body = await body_of(request)
+        for text, vector in (body.get("embeddings") or {}).items():
+            state.script_embedding(text, vector)
+        if "fail_status" in body:
+            state.fail_embeddings(body["fail_status"])
+        return {"pinned": len(state.embeddings), "fail_status": state.embed_fail_status}
 
     @app.get("/_mock/requests")
     async def mock_requests():

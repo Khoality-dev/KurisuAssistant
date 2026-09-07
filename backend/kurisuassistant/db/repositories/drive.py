@@ -7,7 +7,7 @@ caller. The HTTP router and the assistant's drive tools both go through this
 class, so there is one implementation of what the drive allows.
 """
 
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -108,6 +108,43 @@ class DriveNodeRepository(BaseRepository[DriveNode]):
             frontier = [r[0] for r in rows]
             found.extend(frontier)
         return found
+
+    def paths_for(self, user_id: int, node_ids: List[int]) -> Dict[int, str]:
+        """``{node_id: "/Reports/Q3.md"}`` for each id that is this user's.
+
+        Walks *up* the tree one level per query — the mirror of ``subtree_ids``
+        — because a citation needs the full path of a passage's file and the
+        row only knows its parent. A user's tree is shallow, and a recall
+        result names at most a couple of dozen files.
+        """
+        wanted = {int(i) for i in node_ids}
+        if not wanted:
+            return {}
+        known: Dict[int, DriveNode] = {}
+        frontier = set(wanted)
+        while frontier:
+            rows = (
+                self.session.query(DriveNode)
+                .filter(DriveNode.user_id == user_id, DriveNode.id.in_(list(frontier)))
+                .all()
+            )
+            frontier = set()
+            for node in rows:
+                known[node.id] = node
+                if node.parent_id is not None and node.parent_id not in known:
+                    frontier.add(node.parent_id)
+        paths: Dict[int, str] = {}
+        for node_id in wanted:
+            node = known.get(node_id)
+            if node is None:
+                continue
+            segments = []
+            cursor = node
+            while cursor is not None:
+                segments.append(cursor.name)
+                cursor = known.get(cursor.parent_id) if cursor.parent_id is not None else None
+            paths[node_id] = "/" + "/".join(reversed(segments))
+        return paths
 
     # ── writes ─────────────────────────────────────────────────────────────
 

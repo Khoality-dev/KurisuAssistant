@@ -60,6 +60,13 @@ class Conversation(Base):
     consolidated_at = Column(DateTime, nullable=True)
     consolidation_attempts = Column(Integer, nullable=False, default=0, server_default="0")
     consolidation_next_retry_at = Column(DateTime, nullable=True)
+    # Retrieval index bookkeeping (#6), same shape as consolidation: a
+    # conversation is due for chunking when indexed_at is null or older than
+    # updated_at, and indexed_up_to_id is the last message already turned into
+    # passages. Nothing rewinds it on delete — message ids are monotonic and the
+    # passages of a deleted message cascade away with it.
+    indexed_up_to_id = Column(Integer, nullable=False, default=0, server_default="0")
+    indexed_at = Column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
@@ -311,6 +318,10 @@ class DriveNode(Base):
     size = Column(BigInteger, nullable=False, default=0, server_default="0")
     mime = Column(String, nullable=True)
     checksum = Column(String, nullable=True)  # sha256 hex of the bytes
+    # The checksum the retrieval index last looked at (#6). A file is due when
+    # this differs from `checksum`; it is stamped whether or not any passages
+    # came out, so an unextractable file is looked at once per version.
+    indexed_checksum = Column(String, nullable=True)
     storage_key = Column(String, nullable=True)  # uuid4 naming the blob on disk
     created_at = Column(DateTime, default=datetime.utcnow)
     # Maintained by hand in DriveNodeRepository. There is no `onupdate` anywhere
@@ -338,3 +349,70 @@ class DriveNode(Base):
     )
 
     user = relationship("User")
+
+
+class Passage(Base):
+    """One retrievable piece of text: a slice of a stored message, or of a file
+    in Kurisu Drive (#6).
+
+    Both recall tools read this table and nothing else, which is what makes a
+    conversation and a document searchable the same way. A row carries the text
+    **verbatim** — the tools quote it, they do not summarise it — and enough to
+    say where it came from: the message (and so the conversation, speaker and
+    time) or the drive node plus a page or line range.
+
+    ``embedding`` is a dimensionless ``vector`` on purpose: the model is the
+    operator's choice (``EMBEDDING_MODEL``) and different models have different
+    widths. The cost is that pgvector cannot build an HNSW index over a column
+    with no fixed dimension, so a semantic query is an exact scan over one
+    account's rows — which at per-account scale is both fast enough and gives
+    perfect recall. ``embedding_model`` records which model produced a vector so
+    a query never compares vectors from two models; a changed model is re-embedded
+    in the background (see ``workers/service.py``).
+
+    Deletion is by cascade only: a message, a conversation, a drive node or a
+    user going away takes its passages with it at the database level, which
+    matters because ``DriveNodeRepository.delete_subtree`` and
+    ``MessageRepository.delete_from_message`` are bulk deletes that fire no ORM
+    events.
+    """
+
+    __tablename__ = 'passages'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    source_kind = Column(String, nullable=False)  # 'message' | 'drive'
+    conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), nullable=True, index=True)
+    message_id = Column(Integer, ForeignKey('messages.id', ondelete='CASCADE'), nullable=True, index=True)
+    drive_node_id = Column(Integer, ForeignKey('drive_nodes.id', ondelete='CASCADE'), nullable=True, index=True)
+    # Position within the source, so a long message or a file reads back in order.
+    ordinal = Column(Integer, nullable=False, default=0, server_default="0")
+    # Not `text`: that is a Postgres type name, and `sqlalchemy.text` is imported above.
+    content = Column(Text, nullable=False)
+    page = Column(Integer, nullable=True)
+    start_line = Column(Integer, nullable=True)
+    end_line = Column(Integer, nullable=True)
+    embedding = Column(Vector(), nullable=True)
+    embedding_model = Column(String, nullable=True)
+    # Deterministic embedding failures (a provider rejecting the text) bump
+    # this; after RETRIEVAL_MAX_EMBED_ATTEMPTS the row is left keyword-only.
+    # Transient failures (the provider being down) do not touch it.
+    embed_attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        # The embedding backlog the scanner reads every minute. Partial, so it
+        # stays tiny once everything is embedded instead of covering the table.
+        Index(
+            'ix_passages_pending_embed', 'id',
+            postgresql_where=text('embedding IS NULL AND embed_attempts < 5'),
+        ),
+        # A semantic query is "this user's rows embedded by the current model";
+        # this is the index that narrows the exact scan to exactly those.
+        Index('ix_passages_user_id_embedding_model', 'user_id', 'embedding_model'),
+    )
+
+    user = relationship("User")
+    conversation = relationship("Conversation")
+    message = relationship("Message")
+    drive_node = relationship("DriveNode")

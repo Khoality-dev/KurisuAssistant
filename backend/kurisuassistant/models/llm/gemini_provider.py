@@ -422,6 +422,20 @@ class GeminiProvider(BaseLLMProvider):
             logger.error(f"Gemini generate failed (model={model}): {e}", exc_info=True)
             raise
 
+    def embed(self, model: str, texts: List[str], *, kind: str = "passage") -> List[List[float]]:
+        """``models.embed_content`` with the retrieval task type for the side asked for."""
+        task_type = "RETRIEVAL_QUERY" if kind == "query" else "RETRIEVAL_DOCUMENT"
+        try:
+            response = self.client.models.embed_content(
+                model=model,
+                contents=list(texts),
+                config=types.EmbedContentConfig(task_type=task_type),
+            )
+            return [list(map(float, e.values)) for e in (response.embeddings or [])]
+        except Exception as e:
+            logger.error(f"Gemini embed failed (model={model}): {e}", exc_info=True)
+            raise
+
     def ensure_model_available(self, model: str) -> bool:
         """No-op for cloud API — models are always available."""
         return False

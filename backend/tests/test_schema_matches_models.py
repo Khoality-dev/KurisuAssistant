@@ -150,15 +150,48 @@ class TestTheIndexesTheHotReadsNeed:
             ("mcp_servers", "ix_mcp_servers_user_id"),
             ("face_identities", "ix_face_identities_user_id"),
             ("face_photos", "ix_face_photos_identity_id"),
+            ("drive_nodes", "ix_drive_nodes_user_id"),
+            ("drive_nodes", "ix_drive_nodes_parent_id"),
+            ("passages", "ix_passages_user_id"),
+            ("passages", "ix_passages_conversation_id"),
+            ("passages", "ix_passages_message_id"),
+            ("passages", "ix_passages_drive_node_id"),
+            ("passages", "ix_passages_user_id_embedding_model"),
         ],
     )
     def test_every_hot_foreign_key_is_indexed(self, freshly_migrated, table, index):
         assert index in _indexes(freshly_migrated, table)
 
+    def test_the_embedding_backlog_index_is_partial(self, freshly_migrated):
+        """The scan for passages still to embed runs every minute; a partial
+        index over exactly that predicate stays small once the backlog is
+        drained, where a full one would cover the table (#6)."""
+        with freshly_migrated.connect() as conn:
+            definition = conn.execute(
+                sa.text("SELECT indexdef FROM pg_indexes WHERE indexname = :n"),
+                {"n": "ix_passages_pending_embed"},
+            ).scalar_one()
+        assert "WHERE" in definition
+        assert "embedding IS NULL" in definition
+        assert "embed_attempts < 5" in definition
+
+    def test_passage_embeddings_have_no_fixed_dimension(self, freshly_migrated):
+        """The model is the operator's choice, so the column cannot commit to a
+        width — which also means no HNSW index, by pgvector's rules (#6)."""
+        with freshly_migrated.connect() as conn:
+            declared = conn.execute(
+                sa.text(
+                    "SELECT format_type(atttypid, atttypmod) FROM pg_attribute "
+                    "WHERE attrelid = 'passages'::regclass AND attname = 'embedding'"
+                ),
+            ).scalar_one()
+        assert declared == "vector"
+
 
 class TestCascadesReachTheDatabase:
     @pytest.mark.parametrize(
-        "table", ["conversations", "personas", "sub_agents", "skills", "mcp_servers", "face_identities"],
+        "table", ["conversations", "personas", "sub_agents", "skills", "mcp_servers",
+                  "face_identities", "drive_nodes", "passages"],
     )
     def test_user_owned_rows_go_with_their_user(self, freshly_migrated, table):
         """The ORM declared these cascades; the database did not enforce them,
@@ -190,3 +223,23 @@ class TestCascadesReachTheDatabase:
                 sa.text("SELECT count(*) FROM conversations WHERE id = 9001")
             ).scalar_one()
         assert left == 0
+
+    @pytest.mark.parametrize(
+        "column,parent",
+        [("message_id", "messages"), ("conversation_id", "conversations"), ("drive_node_id", "drive_nodes")],
+    )
+    def test_a_passage_goes_with_its_source(self, freshly_migrated, column, parent):
+        """The message and drive deletes are bulk statements that fire no ORM
+        events, so the database has to be what removes a passage whose source
+        is gone (#6)."""
+        with freshly_migrated.connect() as conn:
+            rule = conn.execute(
+                sa.text(
+                    "SELECT rc.delete_rule FROM information_schema.referential_constraints rc "
+                    "JOIN information_schema.table_constraints tc "
+                    "  ON tc.constraint_name = rc.constraint_name "
+                    "WHERE tc.table_name = 'passages' AND tc.constraint_name = :c"
+                ),
+                {"c": f"passages_{column}_fkey"},
+            ).scalar_one()
+        assert rule == "CASCADE", f"passages.{column} -> {parent}"

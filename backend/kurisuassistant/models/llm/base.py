@@ -84,6 +84,25 @@ class BaseLLMProvider(ABC):
         """
         pass
 
+    def embed(self, model: str, texts: List[str], *, kind: str = "passage") -> List[List[float]]:
+        """Embed ``texts`` with ``model``, one vector per text, in order.
+
+        Args:
+            model: Embedding model name/identifier
+            texts: The strings to embed
+            kind: ``"passage"`` for text being indexed, ``"query"`` for a search
+                string. Some providers embed the two asymmetrically (Gemini's
+                task types, NVIDIA's ``input_type``); the rest ignore it.
+
+        Raises:
+            NotImplementedError: when the provider has no embeddings endpoint
+
+        The default says no: a provider that cannot embed must not be mistaken
+        for one that can, so ``utils/embeddings.py`` can tell an operator their
+        ``EMBEDDING_PROVIDER`` choice does not work rather than failing quietly.
+        """
+        raise NotImplementedError(f"{type(self).__name__} has no embeddings endpoint")
+
     def validate_key(self) -> int:
         """Check the credentials this provider was built with.
 

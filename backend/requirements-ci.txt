@@ -39,6 +39,13 @@ ollama==0.6.1
 google-genai
 requests==2.32.3
 
+# Retrieval (#6): the document readers are imported lazily, but their unit
+# tests build a PDF, a DOCX, a PPTX and an XLSX and read them back.
+pypdf
+python-docx
+python-pptx
+openpyxl
+
 # Test runner. pytest.ini sets asyncio_mode=auto, so the plugin is required.
 pytest>=8.0.0
 pytest-asyncio>=0.23.0

@@ -157,7 +157,7 @@ const FIXTURE = {
       description: 'Reads a file and reports what it actually does.',
       model_name: 'qwen3:4b',
       provider_type: 'ollama',
-      available_tools: ['history_read', 'history_search'],
+      available_tools: ['history_read', 'recall_regex'],
       enabled: true,
     },
     {
@@ -174,7 +174,8 @@ const FIXTURE = {
     builtin: [
       { name: 'history_list', description: 'List past conversations.', builtin: true },
       { name: 'history_read', description: 'Read one past conversation.', builtin: true },
-      { name: 'history_search', description: 'Search across past conversations.', builtin: true },
+      { name: 'recall_regex', description: 'Search past conversations and drive files by pattern.', builtin: true },
+      { name: 'recall_semantic', description: 'Search past conversations and drive files by meaning.', builtin: true },
       {
         name: 'get_skill_instructions',
         description: 'Fetch a skill by name.',

@@ -56,6 +56,10 @@ class PoeProvider(OpenAICompatibleProvider):
         endpoints = entry.get("supported_endpoints") or []
         return not endpoints or "/v1/chat/completions" in endpoints
 
+    def embed(self, model: str, texts, *, kind: str = "passage"):
+        # Poe fronts chat bots; there is no /v1/embeddings behind it.
+        raise NotImplementedError("Poe has no embeddings endpoint; pick another EMBEDDING_PROVIDER")
+
     def validate_key(self) -> int:
         resp = requests.post(
             f"{self.base_url}/chat/completions",

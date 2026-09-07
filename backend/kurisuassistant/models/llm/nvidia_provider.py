@@ -31,3 +31,11 @@ class NvidiaProvider(OpenAICompatibleProvider):
         payload["max_tokens"] = min(options.get("num_ctx", 16384), 16384)
         if think:
             payload["chat_template_kwargs"] = {"enable_thinking": True}
+
+    def _extend_embed_payload(self, payload: Dict[str, Any], *, kind: str) -> None:
+        # The nv-embedqa family embeds passages and queries asymmetrically and
+        # refuses a request that does not say which side this is; bge-m3 accepts
+        # the field and ignores it. `truncate` keeps an over-long passage from
+        # being a 400 instead of a slightly shorter embedding.
+        payload["input_type"] = "query" if kind == "query" else "passage"
+        payload["truncate"] = "END"

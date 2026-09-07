@@ -8,8 +8,18 @@ into the arguments by `BaseAgent.execute_tool`. Registered in `tools/__init__.py
 
 - `history_list` — list past conversations
 - `history_read` — read a past conversation's messages
-- `history_search` — text search across stored messages
+- `recall_regex` — exact-wording recall over past conversations **and** drive
+  files: a case-insensitive regular expression over the passage index, newest
+  first, quoted verbatim with its source
+- `recall_semantic` — the same index by meaning: an embedded query against the
+  stored embeddings, closest first
 - `get_skill_instructions` — on-demand skill lookup by name
+
+The two recall tools replaced `history_search` (#6): an unindexed `ILIKE` that
+truncated hits to 200 characters and cited nothing. Both are built-in, but
+**document passages are gated on `drive_read`** — included only when it is in
+the agent's allowlist and not denied by policy — so the drive's rule below still
+holds. See `retrieval.md`.
 
 There are no music or routing tools in the registry. `play_music`,
 `music_control`, `get_music_queue`, `route_to_agent` and `route_to_user` were
@@ -53,6 +63,14 @@ explicitly allowed and only writes prompt, so the settings screen names the
 unset state as its own rather than pretending it is the middle row. A
 combination matching none of the presets is shown as *Custom* and left to
 Tools & MCP.
+
+**Recall follows `drive_read`'s row, with one difference.** `recall_regex` and
+`recall_semantic` include drive passages when `drive_read` is `allow` *or unset*,
+and exclude them when it is `deny` (or when `drive_read` is not in the
+assistant's allowlist). In the unset state the approval the user gives to the
+recall call itself is what admits documents — there is no second prompt for the
+files it read through. Denying drive reads therefore takes documents out of
+recall too; a fresh account gets them the moment it approves a recall call.
 
 One source of truth, one enforcement point, no second policy to keep in step.
 

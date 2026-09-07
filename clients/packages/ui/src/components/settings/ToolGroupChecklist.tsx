@@ -17,13 +17,12 @@ import type { Tool } from '@kurisu/models';
 export const TOOL_GROUP_MAP: Record<string, string> = {
   history_list: 'History',
   history_read: 'History',
-  history_search: 'History',
-  notes_list: 'Notes',
-  notes_read: 'Notes',
-  notes_write: 'Notes',
-  notes_edit: 'Notes',
-  notes_delete: 'Notes',
-  notes_search: 'Notes',
+  recall_regex: 'History',
+  recall_semantic: 'History',
+  drive_list: 'Drive',
+  drive_read: 'Drive',
+  drive_write: 'Drive',
+  drive_delete: 'Drive',
   get_skill_instructions: 'Skills',
   host_read: 'Host',
   host_write: 'Host',
@@ -84,7 +83,7 @@ export function buildToolGroups(tools: Tool[], mcpServerMap: Record<string, stri
     groups.get(groupName)!.push(tool);
   }
   // Sort: known groups first in stable order, then MCP servers, then Other
-  const knownOrder = ['History', 'Notes', 'Skills', 'Host', 'App'];
+  const knownOrder = ['History', 'Drive', 'Skills', 'Host', 'App'];
   const sorted: ToolGroup[] = [];
   for (const name of knownOrder) {
     const tools = groups.get(name);
