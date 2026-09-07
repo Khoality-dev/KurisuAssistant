@@ -76,24 +76,25 @@ editor. "Calls you" is what the persona calls *you*, not a display name for the 
 ## Regenerating these
 
 The app is driven against the **standalone mock backend** from the desktop package — never a
-deployed one (the rule in `CLAUDE.md`). Its scenarios are the fixtures: `chats` starts with a list
-of conversations already in it, `tool-call` gives a tool rail, `sub-agent` a delegated step,
-`handoff` two speakers; see
-[`../../apps/desktop/docs/testing.md`](../../apps/desktop/docs/testing.md#the-standalone-mock) for
-the list.
+deployed one (the rule in `CLAUDE.md`).
 
-**The Chats picture needs `--scenario chats`.** Every other scenario starts with no conversations at
-all, and sending a message gives one row titled "Mock Conversation" — one empty-looking list, not
-the one above (#194).
+**Every picture on this page comes from `--scenario docs`.** That one scenario furnishes all of
+them: three personas, the assistant and its memory, two sub-agents, two MCP servers, the built-in
+tool descriptions, two skills, and four conversations of different ages — one of which carries the
+transcript and the tool rail above. Any other scenario gives an app with nothing in it: before #195
+the mock's `/skills` was a hardcoded empty list and `/models` only ever offered `test-model`, so
+these pictures could not have come from it and did not. The other scenarios (`tool-call`,
+`sub-agent`, `handoff`, …) script a *stream*, and are for watching one arrive; see
+[`../../apps/desktop/docs/testing.md`](../../apps/desktop/docs/testing.md#the-standalone-mock).
 
 ```bash
 # 1. The mock, reachable from the emulator (10.0.2.2 is its route to the host).
 #    Dependencies install at clients/ and nowhere else, so npm ci runs there.
 cd clients && npm ci
-cd apps/desktop && npm run mock:backend -- --host 0.0.0.0 --port 15597 --scenario chats
+cd apps/desktop && npm run mock:backend -- --host 0.0.0.0 --port 15597 --scenario docs
 
-# 2. Any username and password sign in. For a transcript, send a message; for the
-#    Chats list, the scenario has already put one there.
+# 2. Any username and password sign in. Everything the pictures show is already
+#    there — no message needs sending.
 
 # 3. A headless emulator
 emulator -avd <avd> -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect

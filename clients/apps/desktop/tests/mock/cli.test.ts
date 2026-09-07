@@ -46,7 +46,7 @@ describe('parseArgs', () => {
 describe('scenarios', () => {
   it('has the ones the docs promise', () => {
     expect(scenarioNames()).toEqual(
-      expect.arrayContaining(['default', 'tool-call', 'sub-agent', 'handoff', 'thinking', 'slow', 'no-model']),
+      expect.arrayContaining(['default', 'docs', 'tool-call', 'sub-agent', 'handoff', 'thinking', 'slow', 'no-model']),
     );
     expect(DEFAULT_SCENARIO in SCENARIOS).toBe(true);
   });

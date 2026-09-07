@@ -31,32 +31,196 @@ const SHORT_REPLY: StreamScript = {
 };
 
 /**
- * A Chats list, for the screenshot in `clients/android/docs/screens.md` and for
- * anyone driving a client that has to draw a list before it has one (#194).
+ * The cast every picture in `clients/android/docs/screens.md` is taken from
+ * (#195). One scenario furnishes all twelve screens, so a capture session is
+ * one command and the next person gets the same app.
  *
  * Invented, like every other fixture here: these end up in a public repo, so no
- * title, question or answer below comes from a real install. The ages are
- * chosen to exercise every branch of a relative-time label — minutes, hours,
- * days, and old enough to fall back to a date.
+ * persona, prompt, transcript or skill below comes from a real install. The
+ * built-in tool descriptions are the exception and are copied verbatim from
+ * `backend/kurisuassistant/tools/`, because that screen documents the backend's
+ * own words.
  */
-const CHATS: MockConversationSeed[] = [
+const DOCS_PERSONAS = [
+  {
+    id: 1,
+    name: 'Kurisu',
+    description: 'Dry, precise, allergic to hand-waving.',
+    system_prompt: 'You are Kurisu. Be precise and a little sharp. Never pad an answer to sound thorough.',
+    preferred_name: 'Okabe',
+  },
+  {
+    id: 2,
+    name: 'Coach',
+    description: 'Warm, direct, keeps you moving.',
+    system_prompt: 'You are Coach. Encourage briefly, then give the next concrete step. No lectures.',
+    preferred_name: 'champ',
+  },
+  {
+    id: 3,
+    name: 'Archivist',
+    description: 'Answers from what was actually said.',
+    system_prompt: 'You are the Archivist. Quote the record. If it is not in the history, say so plainly.',
+  },
+];
+
+const DOCS_ASSISTANT = {
+  model_name: 'qwen3:8b',
+  provider_type: 'ollama',
+  // null is "every tool", which is what the Assistant screen prints.
+  available_tools: null,
+  think: true,
+  use_deferred_tools: false,
+  memory:
+    'Prefers short answers, with the reasoning shown only when it changes the conclusion.\n'
+    + 'Works in a monorepo: backend (FastAPI), desktop (Electron), android (Compose).',
+  memory_enabled: true,
+  trigger_word: 'kurisu',
+  default_persona_id: 1,
+};
+
+const DOCS_SUB_AGENTS = [
+  {
+    id: 10,
+    name: 'code-reader',
+    description: 'Reads a file and reports what it actually does.',
+    model_name: 'qwen3:4b',
+    provider_type: 'ollama',
+    available_tools: ['history_read', 'history_search'],
+    think: true,
+  },
+  {
+    id: 11,
+    name: 'summariser',
+    description: 'Collapses a long transcript into the decisions taken.',
+    model_name: 'qwen3:1.7b',
+    provider_type: 'ollama',
+    available_tools: ['history_list'],
+  },
+];
+
+const DOCS_MCP_SERVERS = [
+  {
+    id: 1,
+    name: 'filesystem',
+    transport_type: 'stdio' as const,
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-filesystem', '~/workspace'],
+    location: 'client' as const,
+  },
+  {
+    id: 2,
+    name: 'search',
+    transport_type: 'sse' as const,
+    url: 'http://127.0.0.1:8931/sse',
+    location: 'server' as const,
+  },
+];
+
+/** Verbatim from `backend/kurisuassistant/tools/` — that screen quotes the backend. */
+const DOCS_TOOLS = {
+  builtin: [
+    {
+      name: 'history_list',
+      description:
+        'List past conversations with titles, compacted summaries, message counts, and timestamps. '
+        + 'Returns most recent first. Use to find which conversation to read in detail.',
+      builtin: true,
+    },
+    {
+      name: 'history_read',
+      description:
+        'Read messages from a specific past conversation. Use history_list first to find the '
+        + 'conversation_id, then read it in detail.',
+      builtin: true,
+    },
+    {
+      name: 'history_search',
+      description:
+        "Search past messages across all of the user's conversations by text content and/or date "
+        + 'range. Use to find when something was discussed.',
+      builtin: true,
+    },
+    {
+      name: 'get_skill_instructions',
+      description:
+        'Get the full instructions for a skill by name. Call this before performing a task when a '
+        + 'relevant skill is listed in the system prompt.',
+      builtin: true,
+    },
+  ],
+  mcp: [
+    { name: 'fs_read_file', description: 'Read a file from the workspace.' },
+    { name: 'fs_list_dir', description: 'List a workspace directory.' },
+  ],
+};
+
+const DOCS_SKILLS = [
+  {
+    id: 1,
+    name: 'Concise replies',
+    instructions:
+      'Answer in at most five sentences unless asked to expand. Lead with the conclusion, then the reason.',
+  },
+  {
+    id: 2,
+    name: 'Cite the file',
+    instructions: 'When you describe code behaviour, name the file and line you read it from.',
+  },
+];
+
+const DOCS_MODELS = [
+  { name: 'qwen3:8b', provider: 'ollama' },
+  { name: 'qwen3:4b', provider: 'ollama' },
+  { name: 'qwen3:1.7b', provider: 'ollama' },
+];
+
+/**
+ * The ages are chosen to exercise every branch of a relative-time label —
+ * minutes, hours, days, and old enough to fall back to a date. The first one
+ * carries the transcript the "A conversation" picture is taken from, tool rail
+ * included, so opening the top row is the whole of that capture step.
+ */
+const DOCS_CONVERSATIONS: MockConversationSeed[] = [
   {
     title: 'Splitting persona from assistant',
     persona: 'Kurisu',
     agoMinutes: 14,
     messages: [
-      { role: 'user', content: 'Where does the split actually live?' },
+      {
+        role: 'user',
+        content: 'If a persona has no model of its own, what actually changes when I switch one?',
+      },
       {
         role: 'assistant',
         content:
-          'In the schema itself. The personas table has no model and no tools, so a persona '
-          + 'cannot change what the assistant is able to do — only how it sounds.',
+          'The voice changes and nothing else does. A persona owns the name, the system prompt, '
+          + 'the preferred name and the voice. The model, the tool set and the memory belong to '
+          + 'the assistant, so they are identical whichever persona is answering.',
+      },
+      { role: 'user', content: 'Show me where that is enforced.' },
+      {
+        role: 'tool',
+        name: 'history_search',
+        args: { query: 'personas table columns' },
+        status: 'success',
+        content:
+          'personas table: id, user_id, name, description, system_prompt, voice_reference, '
+          + 'avatar_uuid, character_config, preferred_name, enabled. No model_name, no '
+          + 'available_tools, no memory.',
+      },
+      {
+        role: 'assistant',
+        content:
+          'In the schema itself. The personas table has no model_name, no available_tools and no '
+          + 'memory column at all \u2014 so a persona cannot carry capability even by accident. The '
+          + 'migration drops those columns rather than leaving them nullable.',
       },
     ],
   },
   {
     title: 'Getting back into a morning routine',
-    persona: 'Amadeus',
+    persona: 'Coach',
     agoMinutes: 5 * 60,
     messages: [
       { role: 'user', content: 'I keep sleeping through the alarm.' },
@@ -68,14 +232,14 @@ const CHATS: MockConversationSeed[] = [
   },
   {
     title: 'What did we decide about the wake word?',
-    persona: 'Kurisu',
+    persona: 'Archivist',
     agoMinutes: 4 * 24 * 60,
     messages: [
       { role: 'user', content: 'Does each persona get its own?' },
       {
         role: 'assistant',
         content:
-          'No. The wake word belongs to the assistant and selects nobody — whoever the '
+          'No. The wake word belongs to the assistant and selects nobody \u2014 whoever the '
           + 'conversation is bound to answers it.',
       },
     ],
@@ -99,9 +263,19 @@ export const SCENARIOS: Record<string, Scenario> = {
     description: 'Two personas (Kurisu answers), a model chosen, a short streamed reply.',
     options: { personas: [KURISU, AMADEUS], stream: SHORT_REPLY },
   },
-  chats: {
-    description: 'The default, plus four conversations of different ages — a list to look at.',
-    options: { personas: [KURISU, AMADEUS], stream: SHORT_REPLY, conversations: CHATS },
+  docs: {
+    description: 'The cast the documentation screenshots are taken from — every screen furnished.',
+    options: {
+      personas: DOCS_PERSONAS,
+      assistant: DOCS_ASSISTANT,
+      subAgents: DOCS_SUB_AGENTS,
+      mcpServers: DOCS_MCP_SERVERS,
+      tools: DOCS_TOOLS,
+      skills: DOCS_SKILLS,
+      models: DOCS_MODELS,
+      conversations: DOCS_CONVERSATIONS,
+      stream: SHORT_REPLY,
+    },
   },
   'tool-call': {
     // streaming.spec.ts: "assistant text and tool output both render when a tool call interrupts"
