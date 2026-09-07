@@ -258,6 +258,102 @@ describe('mock backend: conversations', () => {
   });
 });
 
+describe('mock backend: seeded conversations', () => {
+  /**
+   * A client that draws a list needs a list before anyone has chatted, and the
+   * documented way to regenerate the Chats screenshot could only ever produce
+   * one row (#194). A seed has to be indistinguishable from a conversation that
+   * was chatted into, or the picture documents a shape the app never serves.
+   */
+
+  let seeded: MockBackend;
+
+  beforeEach(async () => {
+    await mock.stop();
+    seeded = new MockBackend({
+      personas: [
+        { id: 1, name: 'Kurisu' },
+        { id: 2, name: 'Amadeus' },
+      ],
+      conversations: [
+        {
+          title: 'Older, and answered by the second persona',
+          persona: 'Amadeus',
+          agoMinutes: 3 * 24 * 60,
+          messages: [
+            { role: 'user', content: 'Ask something' },
+            { role: 'assistant', content: 'Answer something' },
+          ],
+        },
+        {
+          title: 'Newest',
+          persona: 'Kurisu',
+          agoMinutes: 5,
+          messages: [
+            { role: 'user', content: 'Recent question' },
+            { role: 'assistant', content: 'Recent answer' },
+          ],
+        },
+      ],
+    });
+    await seeded.start();
+    mock = seeded;
+  });
+
+  const seededGet = async (path: string) => {
+    const res = await fetch(`${seeded.url}${path}`);
+    return { status: res.status, body: await res.json() };
+  };
+
+  it('lists a seeded conversation exactly as it lists a chatted one', async () => {
+    const { body } = await seededGet('/conversations');
+    expect(body).toHaveLength(2);
+    expect(body[0]).toMatchObject({
+      title: 'Newest',
+      persona_id: 1,
+      message_count: 2,
+    });
+    expect(body[0].last_message).toMatchObject({
+      content: 'Recent answer',
+      role: 'assistant',
+    });
+  });
+
+  it('orders by the seeded age, newest first', async () => {
+    const { body } = await seededGet('/conversations');
+    expect(body.map((c: any) => c.title)).toEqual([
+      'Newest',
+      'Older, and answered by the second persona',
+    ]);
+
+    // The age is the point: a list that labels rows by recency has nothing to
+    // show if every seed is stamped with the moment the process started.
+    const ageMinutes = (iso: string) => (Date.now() - Date.parse(iso)) / 60_000;
+    expect(ageMinutes(body[0].last_message.created_at)).toBeGreaterThan(4);
+    expect(ageMinutes(body[0].last_message.created_at)).toBeLessThan(7);
+    expect(ageMinutes(body[1].updated_at)).toBeGreaterThan(3 * 24 * 60 - 2);
+  });
+
+  it('stamps the persona on the assistant turns only', async () => {
+    // A user message carries no speaker at all — the key is absent, not null,
+    // exactly as it is on a conversation that was chatted into.
+    const list = (await seededGet('/conversations')).body;
+    const { body } = await seededGet(`/conversations/${list[0].id}`);
+    expect(body.messages.map((m: any) => m.role)).toEqual(['user', 'assistant']);
+    expect(body.messages[0]).not.toHaveProperty('persona_id');
+    expect(body.messages[1]).toMatchObject({ persona_id: 1, persona: { name: 'Kurisu' } });
+  });
+
+  it('refuses a seed naming a persona that does not exist', () => {
+    expect(() => new MockBackend({
+      personas: [{ id: 1, name: 'Kurisu' }],
+      conversations: [
+        { title: 'Nobody answers this', persona: 'Nobody', agoMinutes: 1, messages: [] },
+      ],
+    })).toThrow(/no persona named "Nobody"/);
+  });
+});
+
 describe('mock backend: streaming', () => {
   it('sets persona fields on assistant chunks only, and tool metadata on tool chunks', async () => {
     mock.setStream({

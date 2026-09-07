@@ -7,7 +7,7 @@
  * changes shape, change the scenario that mirrors it.
  */
 
-import type { MockBackend, MockBackendOptions, StreamScript } from './server';
+import type { MockBackend, MockBackendOptions, MockConversationSeed, StreamScript } from './server';
 
 export interface Scenario {
   /** One line for `--list`. */
@@ -30,10 +30,78 @@ const SHORT_REPLY: StreamScript = {
   ],
 };
 
+/**
+ * A Chats list, for the screenshot in `clients/android/docs/screens.md` and for
+ * anyone driving a client that has to draw a list before it has one (#194).
+ *
+ * Invented, like every other fixture here: these end up in a public repo, so no
+ * title, question or answer below comes from a real install. The ages are
+ * chosen to exercise every branch of a relative-time label — minutes, hours,
+ * days, and old enough to fall back to a date.
+ */
+const CHATS: MockConversationSeed[] = [
+  {
+    title: 'Splitting persona from assistant',
+    persona: 'Kurisu',
+    agoMinutes: 14,
+    messages: [
+      { role: 'user', content: 'Where does the split actually live?' },
+      {
+        role: 'assistant',
+        content:
+          'In the schema itself. The personas table has no model and no tools, so a persona '
+          + 'cannot change what the assistant is able to do — only how it sounds.',
+      },
+    ],
+  },
+  {
+    title: 'Getting back into a morning routine',
+    persona: 'Amadeus',
+    agoMinutes: 5 * 60,
+    messages: [
+      { role: 'user', content: 'I keep sleeping through the alarm.' },
+      {
+        role: 'assistant',
+        content: 'Start smaller than feels worth doing. Tomorrow: up, water, ten minutes outside. Nothing else.',
+      },
+    ],
+  },
+  {
+    title: 'What did we decide about the wake word?',
+    persona: 'Kurisu',
+    agoMinutes: 4 * 24 * 60,
+    messages: [
+      { role: 'user', content: 'Does each persona get its own?' },
+      {
+        role: 'assistant',
+        content:
+          'No. The wake word belongs to the assistant and selects nobody — whoever the '
+          + 'conversation is bound to answers it.',
+      },
+    ],
+  },
+  {
+    title: 'Reading the migration chain',
+    persona: 'Kurisu',
+    agoMinutes: 9 * 24 * 60,
+    messages: [
+      { role: 'user', content: 'Does the persona split drop the old table?' },
+      {
+        role: 'assistant',
+        content: 'It renames the table rather than recreating it, which is why the ids survive the upgrade.',
+      },
+    ],
+  },
+];
+
 export const SCENARIOS: Record<string, Scenario> = {
   default: {
     description: 'Two personas (Kurisu answers), a model chosen, a short streamed reply.',
     options: { personas: [KURISU, AMADEUS], stream: SHORT_REPLY },
+  },
+  chats: {
+    description: 'The default, plus four conversations of different ages — a list to look at.',
+    options: { personas: [KURISU, AMADEUS], stream: SHORT_REPLY, conversations: CHATS },
   },
   'tool-call': {
     // streaming.spec.ts: "assistant text and tool output both render when a tool call interrupts"
