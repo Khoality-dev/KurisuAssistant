@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kurisu.assistant.data.model.Message
+import com.kurisu.assistant.data.model.ModelInfo
 import com.kurisu.assistant.data.model.ToolApprovalRequestEvent
 import com.kurisu.assistant.data.model.Persona
 import com.kurisu.assistant.data.model.WsErrorCodes
@@ -49,9 +50,6 @@ fun ChatScreen(
     onOpenMenu: () -> Unit,
     /** "Manage personas" in the persona sheet. */
     onNavigateToPersonas: () -> Unit,
-    /** "Choose a model" on the no-model prompt. Assistant is a drawer destination,
-     *  not a Settings row, so the prompt carries the button rather than a path. */
-    onNavigateToAssistant: () -> Unit,
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -96,6 +94,13 @@ fun ChatScreen(
                     viewModel.dismissModal()
                     onNavigateToPersonas()
                 },
+            )
+            is ChatModal.ModelPicker -> ModelSheet(
+                modal = modal,
+                currentModelName = state.assistant?.modelName,
+                currentProvider = state.assistant?.providerType,
+                onDismiss = viewModel::dismissModal,
+                onPick = viewModel::pickModel,
             )
             is ChatModal.ContextDialog -> ContextInfoDialog(
                 modal = modal,
@@ -190,15 +195,18 @@ fun ChatScreen(
                     }
                 },
                 title = {
-                    // The header names WHO is answering, not "Chat". Tapping it
-                    // is the per-conversation persona switch.
-                    Column(
-                        modifier = Modifier
-                            .clip(MaterialTheme.shapes.small)
-                            .clickable(onClick = viewModel::openPersonaSheet)
-                            .padding(horizontal = 4.dp, vertical = 2.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    // The header names WHO is answering and WHAT it runs on, and
+                    // each is its own tap. The persona is this conversation's —
+                    // the sheet moves this thread only. The model is the
+                    // assistant's — one for every persona, applied from the next
+                    // message — so it is not on the Assistant page at all (#197).
+                    Column(modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(MaterialTheme.shapes.small)
+                                .clickable(onClick = viewModel::openPersonaSheet),
+                        ) {
                             Text(
                                 text = state.persona?.name ?: "Assistant",
                                 style = MaterialTheme.typography.titleMedium,
@@ -218,24 +226,44 @@ fun ChatScreen(
                             coreServiceState.isRecording -> "listening"
                             else -> "off"
                         }
-                        Text(
-                            text = if (isTyping) {
-                                "${state.persona?.name ?: "Assistant"} is typing…"
-                            } else {
-                                listOfNotNull(
-                                    state.assistant?.modelName?.takeIf { it.isNotBlank() },
-                                    "mic $micLabel",
-                                ).joinToString(" · ")
-                            },
-                            style = KurisuTheme.extraTypography.metadataSmall,
-                            color = if (isTyping) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        )
+                        if (isTyping) {
+                            Text(
+                                text = "${state.persona?.name ?: "Assistant"} is typing…",
+                                style = KurisuTheme.extraTypography.metadataSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            )
+                        } else {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(MaterialTheme.shapes.small)
+                                    .clickable(onClick = viewModel::openModelSheet),
+                            ) {
+                                Text(
+                                    text = state.assistant?.modelName?.takeIf { it.isNotBlank() }
+                                        ?: "No model",
+                                    style = KurisuTheme.extraTypography.metadataSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                                Icon(
+                                    Icons.Default.ExpandMore,
+                                    contentDescription = "Change model",
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    text = " · mic $micLabel",
+                                    style = KurisuTheme.extraTypography.metadataSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
                     }
                 },
                 actions = {
@@ -329,8 +357,9 @@ fun ChatScreen(
         ) {
             // Error banner. NO_MODEL_SELECTED is the one code that is not a fault:
             // a new account has no model chosen yet, so it reads as a setup step —
-            // the calmer secondaryContainer, and a button onto the screen that
-            // fixes it — rather than as something having gone wrong (#149).
+            // the calmer secondaryContainer, and a button that opens the model
+            // sheet right here, with the refused message still in the box below
+            // — rather than as something having gone wrong (#149, #197).
             streaming.streamError?.let { error ->
                 val needsModel = streaming.streamErrorCode == WsErrorCodes.NO_MODEL_SELECTED
                 Surface(
@@ -365,7 +394,7 @@ fun ChatScreen(
                         if (needsModel) {
                             TextButton(onClick = {
                                 viewModel.streamProcessor.clearError()
-                                onNavigateToAssistant()
+                                viewModel.openModelSheet()
                             }) {
                                 Text("Choose a model")
                             }
@@ -602,6 +631,87 @@ private fun ResumePickerDialog(
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/**
+ * The model sheet — the model name on the header, or "Choose a model" on the
+ * no-model prompt.
+ *
+ * The subtitle is the contract: the model is the assistant's, so it changes for
+ * every persona, and it applies from the next message. Without it the sheet
+ * reads like a per-conversation setting, which is exactly what it is not.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelSheet(
+    modal: ChatModal.ModelPicker,
+    currentModelName: String?,
+    currentProvider: String?,
+    onDismiss: () -> Unit,
+    onPick: (ModelInfo) -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text("Model", style = MaterialTheme.typography.titleLarge)
+            Text(
+                text = "Applies from the next message. The persona and its memory stay the same.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        when {
+            modal.loading -> Box(
+                modifier = Modifier.fillMaxWidth().padding(32.dp),
+                contentAlignment = Alignment.Center,
+            ) { CircularProgressIndicator(modifier = Modifier.size(28.dp)) }
+
+            modal.models.isEmpty() -> Text(
+                text = "No models. Is the model host running?",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+            )
+
+            else -> modal.models.groupBy { it.provider }.toSortedMap().forEach { (provider, models) ->
+                Text(
+                    text = provider.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 2.dp),
+                )
+                models.sortedBy { it.name }.forEach { model ->
+                    val isCurrent = model.name == currentModelName && model.provider == currentProvider
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { if (isCurrent) onDismiss() else onPick(model) }
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                    ) {
+                        Text(
+                            text = model.name,
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (isCurrent) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = "In use",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+    }
 }
 
 /**

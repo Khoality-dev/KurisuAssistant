@@ -4,6 +4,7 @@ import {
   Avatar,
   Box,
   Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -32,6 +33,11 @@ import { PersonaEditDialog } from './PersonaEditDialog';
  * Personas: how the assistant sounds. A name, a prompt, a voice, a face — and
  * nothing else. Capability (model, tools, memory, wake word) lives on the single
  * assistant, one section over.
+ *
+ * The one thing about the assistant that IS decided here is which persona a new
+ * conversation starts with (#197). That is `assistants.default_persona_id`, so
+ * "Make default" is a PATCH of the assistant, not of the persona — the card
+ * only wears the badge.
  */
 export const PersonasSection: React.FC = () => {
   const reloadPersonaStore = usePersonaStore((s) => s.loadPersonas);
@@ -45,6 +51,7 @@ export const PersonasSection: React.FC = () => {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Persona | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Persona | null>(null);
+  const [defaultPersonaId, setDefaultPersonaId] = useState<number | null>(null);
 
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -57,6 +64,13 @@ export const PersonasSection: React.FC = () => {
     try {
       setLoading(true);
       setPersonas(await apiClient.listPersonas());
+      // The default lives on the assistant, not on a persona. Losing it costs
+      // a badge, not the list.
+      try {
+        setDefaultPersonaId((await apiClient.getAssistant()).default_persona_id);
+      } catch {
+        setDefaultPersonaId(null);
+      }
       // Keep the sidebar/chat selector in step with what was just edited.
       void reloadPersonaStore();
     } catch (err: any) {
@@ -71,6 +85,17 @@ export const PersonasSection: React.FC = () => {
     apiClient.listVoices().then(setVoices).catch(() => setVoices([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleMakeDefault = async (persona: Persona) => {
+    if (persona.id === defaultPersonaId) return;
+    try {
+      const assistant = await apiClient.updateAssistant({ default_persona_id: persona.id });
+      setDefaultPersonaId(assistant.default_persona_id);
+      flash(`New conversations start with ${persona.name}.`);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'Failed to set the default persona');
+    }
+  };
 
   const handleToggleEnabled = async (persona: Persona, enabled: boolean) => {
     try {
@@ -233,6 +258,22 @@ export const PersonasSection: React.FC = () => {
                       persona.voice_reference ? `voice: ${persona.voice_reference}` : null,
                       persona.character_config ? 'character graph' : null,
                     ]}
+                    badge={persona.id === defaultPersonaId
+                      ? <Chip label="Default" size="small" color="primary" />
+                      : undefined}
+                    action={persona.id !== defaultPersonaId && persona.enabled
+                      ? (
+                        <Button
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleMakeDefault(persona);
+                          }}
+                        >
+                          Make default
+                        </Button>
+                      )
+                      : undefined}
                     enabled={persona.enabled}
                     onToggleEnabled={(enabled) => void handleToggleEnabled(persona, enabled)}
                     onExport={() => void handleExport(persona)}

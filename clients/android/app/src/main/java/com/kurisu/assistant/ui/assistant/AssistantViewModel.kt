@@ -2,16 +2,13 @@ package com.kurisu.assistant.ui.assistant
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.model.Assistant
 import com.kurisu.assistant.data.model.AssistantUpdate
 import com.kurisu.assistant.data.model.ModelInfo
-import com.kurisu.assistant.data.model.Persona
 import com.kurisu.assistant.data.model.SubAgent
 import com.kurisu.assistant.data.model.SubAgentCreate
 import com.kurisu.assistant.data.model.SubAgentUpdate
 import com.kurisu.assistant.data.repository.AssistantRepository
-import com.kurisu.assistant.data.repository.PersonaRepository
 import com.kurisu.assistant.data.repository.SubAgentRepository
 import com.kurisu.assistant.data.repository.ToolsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -24,11 +21,14 @@ import javax.inject.Inject
 /**
  * The Assistant screen's state.
  *
- * Everything here except [defaultPersona] and [subAgents] is one row —
- * `PATCH /assistant`. The screen deliberately holds no per-persona copy of a
- * model, a tool list or a memory document: under wire protocol 4 those are the
- * assistant's, and a persona that carried its own would be the old "main agent"
- * coming back.
+ * Everything here except [subAgents] is one row — `PATCH /assistant`. The screen
+ * deliberately holds no per-persona copy of a model, a tool list or a memory
+ * document: under wire protocol 4 those are the assistant's, and a persona that
+ * carried its own would be the old "main agent" coming back.
+ *
+ * The assistant's model is not set from here either. It is picked from the chat
+ * header (`ChatViewModel.pickModel`), and the default persona from the Personas
+ * screen (#197). [availableModels] survives for the sub-agent editor's dropdown.
  */
 data class AssistantUiState(
     val isLoading: Boolean = true,
@@ -36,10 +36,8 @@ data class AssistantUiState(
     val loadError: String? = null,
     /** Transient feedback for the snackbar. */
     val message: String? = null,
-    val baseUrl: String = "",
 
     val assistant: Assistant? = null,
-    val defaultPersona: Persona? = null,
     val subAgents: List<SubAgent> = emptyList(),
 
     val availableModels: List<ModelInfo> = emptyList(),
@@ -86,10 +84,8 @@ data class AssistantUiState(
 @HiltViewModel
 class AssistantViewModel @Inject constructor(
     private val assistantRepository: AssistantRepository,
-    private val personaRepository: PersonaRepository,
     private val subAgentRepository: SubAgentRepository,
     private val toolsRepository: ToolsRepository,
-    private val prefs: PreferencesDataStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AssistantUiState())
@@ -103,13 +99,9 @@ class AssistantViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, loadError = null) }
             try {
-                val baseUrl = prefs.getBackendUrl()
                 val assistant = assistantRepository.getAssistant()
                 val subAgents = subAgentRepository.listSubAgents()
-                _state.update {
-                    it.copy(assistant = assistant, subAgents = subAgents, baseUrl = baseUrl)
-                }
-                loadDefaultPersona(assistant)
+                _state.update { it.copy(assistant = assistant, subAgents = subAgents) }
             } catch (e: Exception) {
                 // A first load that fails leaves the screen with nothing to draw,
                 // so it becomes a retryable screen state. A REFRESH that fails
@@ -131,17 +123,6 @@ class AssistantViewModel @Inject constructor(
                 (tools.builtinTools + tools.mcpTools).map { it.function.name }.distinct().sorted()
             }.onSuccess { names -> _state.update { it.copy(allToolNames = names) } }
         }
-    }
-
-    private suspend fun loadDefaultPersona(assistant: Assistant) {
-        val id = assistant.defaultPersonaId
-        if (id == null) {
-            _state.update { it.copy(defaultPersona = null) }
-            return
-        }
-        // A 404 here means the pointer is stale, not that the screen is broken.
-        val persona = runCatching { personaRepository.getPersona(id) }.getOrNull()
-        _state.update { it.copy(defaultPersona = persona) }
     }
 
     fun refreshModels() {
@@ -174,25 +155,12 @@ class AssistantViewModel @Inject constructor(
             try {
                 val updated = assistantRepository.updateAssistant(update)
                 _state.update { it.copy(assistant = updated, message = feedback) }
-                if (update.defaultPersonaId != null) loadDefaultPersona(updated)
             } catch (e: Exception) {
                 _state.update { it.copy(message = apiErrorMessage(e, "Could not save")) }
             } finally {
                 _state.update { it.copy(isSaving = false) }
             }
         }
-    }
-
-    /**
-     * The provider travels with the model: they are two columns describing one
-     * choice, and sending the name alone would point the assistant at a model
-     * the old provider cannot serve.
-     */
-    fun setModel(model: ModelInfo) {
-        if (model.name == _state.value.assistant?.modelName &&
-            model.provider == _state.value.assistant?.providerType
-        ) return
-        patchAssistant(AssistantUpdate(modelName = model.name, providerType = model.provider))
     }
 
     fun setThink(enabled: Boolean) {

@@ -49,7 +49,7 @@ electron/preload.ts       — contextBridge: hostTools, appTools, explorer, driv
     AccountSection.tsx     — Ollama URL, summary model, context size
     TTSSection.tsx         — TTS backend, auto-play, voice, emotion controls, ASR language
     AppearanceSection.tsx  — Light/dark theme toggle
-    AssistantSection.tsx   — The one assistant's capability form: model (+ provider, taken from the picker), tools, extended thinking, deferred tools, memory + memory notes, voice wake word, default persona. One PATCH of only the changed fields; Revert restores the last-loaded values. Nothing to create or delete — the assistant is made at registration.
+    AssistantSection.tsx   — The one assistant's capability form: tools, extended thinking, deferred tools, memory + memory notes, voice wake word. No model and no default persona (#197): the model is picked from the chat header's menu, the default persona from PersonasSection's "Make default". One PATCH of only the changed fields; Revert restores the last-loaded values. Nothing to create or delete — the assistant is made at registration.
     PersonasSection.tsx    — Persona grid (`ResourceCard`) + enable toggle, export, delete, import, New Persona. Delete is refused for the last persona and disabling the default is refused, both server-side; the detail comes back in the 400 and is shown as-is.
     PersonaEditDialog.tsx  — One persona, presentation only: avatar upload, name, description, system prompt, "Calls you" (`preferred_name`), voice (`GET /tts/voices`, an unlisted saved value kept as an option), and a button into `CharacterConfigDialog` for `character_config` — disabled while creating, since the graph's assets are stored under the persona id. The graph editor auto-saves through `PATCH /character-assets/{persona_id}/character-config`, so this form never sends `character_config` back; the section reloads on dialog close instead of on save, so an auto-save cannot replace the persona under an open form.
     SubAgentsSection.tsx   — Sub-agent grid + the same toggle/export/delete/import actions.
@@ -75,7 +75,7 @@ electron/preload.ts       — contextBridge: hostTools, appTools, explorer, driv
     MessageToolbar.tsx     — Hover toolbar: copy, TTS play, raw data, resend/regenerate, delete
     RawDataDialog.tsx      — Dialog showing raw LLM input/output JSON (self-contained fetch)
     ToolApprovalBar.tsx    — Approve/deny bar for a pending tool call; replaces the composer while one is waiting
-    NoModelPrompt.tsx      — Bar above the composer (not in place of it) when the account has no model chosen yet: "Choose a model" opens Settings → Assistant (#149)
+    NoModelPrompt.tsx      — Bar above the composer (not in place of it) when the account has no model chosen yet: "Choose a model" opens the header's model menu in place (#149, #197)
   CharacterConfigDialog.tsx — Re-exports from character/ subfolder
   character/
     CharacterConfigDialog.tsx — React Flow graph editor: multi-pose nodes, edges with transition videos

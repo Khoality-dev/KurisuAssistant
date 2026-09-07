@@ -26,6 +26,10 @@ interface ResourceCardProps {
   body: string;
   /** Caption chips joined with a middot — model name, voice, and so on. */
   meta?: Array<string | null | undefined>;
+  /** A small label beside the name — "Default" on the persona new chats start with. */
+  badge?: React.ReactNode;
+  /** An extra footer action, left of export and delete — "Make default". */
+  action?: React.ReactNode;
   enabled: boolean;
   onToggleEnabled: (enabled: boolean) => void;
   onExport: () => void;
@@ -44,6 +48,8 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
   description,
   body,
   meta,
+  badge,
+  action,
   enabled,
   onToggleEnabled,
   onExport,
@@ -81,6 +87,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
           <Typography variant="h6" sx={{ minWidth: 0, flex: '1 1 auto', wordBreak: 'break-word' }}>
             {title}
           </Typography>
+          {badge}
         </Box>
         {description && (
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -121,7 +128,8 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
             onToggleEnabled(e.target.checked);
           }}
         />
-        <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          {action}
           <Tooltip title="Export">
             <IconButton
               onClick={(e) => {

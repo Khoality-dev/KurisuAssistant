@@ -28,9 +28,12 @@ to any persona: saying it starts a turn, and whichever persona the conversation 
 
 ![Chat transcript](assets/02-chat.png)
 
-The header names the **persona**; the assistant's model sits on the line beneath it. Each answer
-carries the persona that produced it, so switching persona part-way through does not rewrite the
-past — old answers keep the voice that actually gave them.
+The header names the **persona**, and beneath it the **model**. Each is its own tap. The persona
+sheet moves this conversation only. The model sheet changes the assistant's model — one model for
+every persona — and applies from the next message; it is also what "Choose a model" opens when a
+new account's first message is refused for having none. Each answer carries the persona that
+produced it, so switching persona part-way through does not rewrite the past — old answers keep the
+voice that actually gave them.
 
 A tool call is a rail rather than a bubble: name, arguments, result, status. A step delegated to a
 sub-agent is tagged `sub-agent` and names the model that ran it.
@@ -42,14 +45,25 @@ sub-agent is tagged `sub-agent` and names the model that ran it.
 Tapping the header swaps the persona **for this conversation only**. The account default is
 untouched, and the change persists without sending a message.
 
+## Changing the model
+
+![Model sheet](assets/03b-model-sheet.png)
+
+The model name beneath the persona opens the other sheet. This one is **not** per conversation: the
+model is the assistant's, so it changes for every persona, and it applies from the next message.
+It is the only model picker in the app — the Assistant page has none — and it is what "Choose a
+model" opens when a new account's first message is refused for having no model yet (#197).
+
 ## Assistant
 
 ![Assistant](assets/05-assistant.png)
 
-One screen for everything the assistant can do. The default persona is the one every new
-conversation silently starts with — there is no picker on **New chat**. Memory is a single document,
-consolidated automatically from your conversations and read-only here. Sub-agents sit at the bottom,
-because they are workers this assistant calls rather than something you chat with.
+One screen for everything the assistant can do: wake word, thinking, memory, tools, sub-agents. Two
+things that look like they belong here do not (#197): the model is picked from the chat header, and
+the persona a new conversation starts with is chosen on **Personas** by tapping one — there is no
+picker on **New chat**. Memory is a single document, consolidated automatically from your
+conversations and read-only here. Sub-agents sit at the bottom, because they are workers this
+assistant calls rather than something you chat with.
 
 ## Personas
 

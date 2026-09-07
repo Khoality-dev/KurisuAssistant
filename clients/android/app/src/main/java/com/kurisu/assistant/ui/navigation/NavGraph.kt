@@ -99,20 +99,15 @@ fun KurisuNavGraph(
             ) { openDrawer ->
                 ChatScreen(
                     onOpenMenu = openDrawer,
-                    onNavigateToPersonas = { navController.navigate(Routes.PERSONAS) },
                     // Plain navigate, not openTopLevel: that one pops back to
-                    // Conversations, and this has to come back to the message the
-                    // user was trying to send.
-                    onNavigateToAssistant = { navController.navigate(Routes.ASSISTANT) },
+                    // Conversations, and this has to come back to the chat.
+                    onNavigateToPersonas = { navController.navigate(Routes.PERSONAS) },
                 )
             }
         }
 
         composable(Routes.ASSISTANT) {
-            AssistantScreen(
-                onBack = { navController.popBackStack() },
-                onNavigateToPersonas = { navController.navigate(Routes.PERSONAS) },
-            )
+            AssistantScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.PERSONAS) {
             PersonasScreen(onBack = { navController.popBackStack() })

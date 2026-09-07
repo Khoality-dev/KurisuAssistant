@@ -4,8 +4,9 @@
  *
  *   - `/tts/models` answering 502 leaves the TTS picker empty with the
  *     server's reason next to it, instead of three made-up models
- *   - `/models` answering 502 puts the server's reason on the Assistant
- *     screen, instead of an empty picker that looks like "no models installed"
+ *   - `/models` answering 502 puts the server's reason in the header's model
+ *     menu — the only model picker since #197 — instead of an empty list that
+ *     looks like "no models installed"
  */
 
 import { test, expect } from './fixtures';
@@ -45,12 +46,13 @@ test.describe('unreachable services', () => {
     await page.keyboard.press('Escape');
   });
 
-  test('an unreachable model host shows the server\'s reason on the Assistant screen', async ({ page, mock }) => {
+  test('an unreachable model host shows the server\'s reason in the model menu', async ({ page, mock }) => {
     mock.setUnreachable('/models');
     await login(page);
-    await openSettings(page);
-    await page.getByText('Assistant', { exact: true }).first().click();
+    await page.getByRole('button', { name: 'Change model' }).click();
 
     await expect(page.getByText('The model host (Ollama) is unreachable. (reference: mock)')).toBeVisible({ timeout: 10_000 });
+    // And no invented model beside it.
+    await expect(page.getByRole('menuitem', { name: 'test-model' })).toHaveCount(0);
   });
 });
