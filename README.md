@@ -1,8 +1,8 @@
 # Kurisu Assistant
 
-![Kurisu Assistant banner](docs/assets/kurisu-assistant-banner.png)
+![Kurisu Assistant banner](docs/assets/blue.png)
 
-Kurisu Assistant is a personal AI assistant for text and voice conversations. One assistant per account owns the model, tools and memory; you give it as many personas as you like — a name, a personality, a voice and a face — and pick which one answers. It also supports persistent conversations and memory, image input, speech recognition, text-to-speech, tools, skills, and animated characters.
+Kurisu Assistant is a personal assistant built to help with both work and everyday life. It can answer questions, keep useful context, work with images, hold voice conversations, use tools and skills, and bring in specialized sub-agents for complex tasks. Each account has one assistant with its own model, memory, and capabilities, while personas let you choose the name, personality, voice, and face that fit the moment.
 
 The project is split into a server and two clients. Pick the guide that matches what you want to do:
 
@@ -15,8 +15,8 @@ The project is split into a server and two clients. Pick the guide that matches 
 
 Each package documents itself. For pictures of the apps, see
 **[Android screens](clients/android/docs/screens.md)** and
-**[Desktop screens](clients/desktop/docs/screens.md)**; for the model behind them —
-one assistant, its personas, and the sub-agents it calls — see
+**[Desktop screens](clients/desktop/docs/screens.md)**; for the model behind them -
+one assistant, its personas, and the sub-agents it calls - see
 **[assistant architecture](backend/docs/agents.md)**.
 
 | | | |
@@ -90,7 +90,7 @@ For backup, restore, updates, and removal, see [server operations](backend/docs/
 
 After signing in, configure at least one model provider under **Settings → Account**. Both clients support Ollama, Google Gemini, NVIDIA NIM and Poe; enter a provider's API key there and its models appear in the model pickers.
 
-Your account already has one assistant and one persona. Select the assistant's model, and optionally its tools, memory and voice wake word — those belong to the assistant, so they do not change when you switch persona. Then give the persona (or a new one) a personality, voice and avatar. A new conversation silently uses your default persona; the chat header switches persona for one conversation.
+Your account already has one assistant and one persona. Select the assistant's model, and optionally its tools, memory and voice wake word - those belong to the assistant, so they do not change when you switch persona. Then give the persona (or a new one) a personality, voice and avatar. A new conversation silently uses your default persona; the chat header switches persona for one conversation.
 
 For voice conversations, select an ASR language/model and TTS backend, then enable **TTS Auto-Play**. Enable **Always Listen** only when you want the microphone kept active for trigger words or dictation. Available models and voices depend on the services installed on the server.
 
