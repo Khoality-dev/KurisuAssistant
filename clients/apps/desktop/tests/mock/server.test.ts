@@ -258,6 +258,206 @@ describe('mock backend: conversations', () => {
   });
 });
 
+describe('mock backend: seeded conversations', () => {
+  /**
+   * A client that draws a list needs a list before anyone has chatted, and the
+   * documented way to regenerate the Chats screenshot could only ever produce
+   * one row (#194). A seed has to be indistinguishable from a conversation that
+   * was chatted into, or the picture documents a shape the app never serves.
+   */
+
+  let seeded: MockBackend;
+
+  beforeEach(async () => {
+    await mock.stop();
+    seeded = new MockBackend({
+      personas: [
+        { id: 1, name: 'Kurisu' },
+        { id: 2, name: 'Amadeus' },
+      ],
+      conversations: [
+        {
+          title: 'Older, and answered by the second persona',
+          persona: 'Amadeus',
+          agoMinutes: 3 * 24 * 60,
+          messages: [
+            { role: 'user', content: 'Ask something' },
+            { role: 'assistant', content: 'Answer something' },
+          ],
+        },
+        {
+          title: 'Newest',
+          persona: 'Kurisu',
+          agoMinutes: 5,
+          messages: [
+            { role: 'user', content: 'Recent question' },
+            { role: 'assistant', content: 'Recent answer' },
+          ],
+        },
+      ],
+    });
+    await seeded.start();
+    mock = seeded;
+  });
+
+  const seededGet = async (path: string) => {
+    const res = await fetch(`${seeded.url}${path}`);
+    return { status: res.status, body: await res.json() };
+  };
+
+  it('lists a seeded conversation exactly as it lists a chatted one', async () => {
+    const { body } = await seededGet('/conversations');
+    expect(body).toHaveLength(2);
+    expect(body[0]).toMatchObject({
+      title: 'Newest',
+      persona_id: 1,
+      message_count: 2,
+    });
+    expect(body[0].last_message).toMatchObject({
+      content: 'Recent answer',
+      role: 'assistant',
+    });
+  });
+
+  it('orders by the seeded age, newest first', async () => {
+    const { body } = await seededGet('/conversations');
+    expect(body.map((c: any) => c.title)).toEqual([
+      'Newest',
+      'Older, and answered by the second persona',
+    ]);
+
+    // The age is the point: a list that labels rows by recency has nothing to
+    // show if every seed is stamped with the moment the process started.
+    const ageMinutes = (iso: string) => (Date.now() - Date.parse(iso)) / 60_000;
+    expect(ageMinutes(body[0].last_message.created_at)).toBeGreaterThan(4);
+    expect(ageMinutes(body[0].last_message.created_at)).toBeLessThan(7);
+    expect(ageMinutes(body[1].updated_at)).toBeGreaterThan(3 * 24 * 60 - 2);
+  });
+
+  it('stamps the persona on the assistant turns only', async () => {
+    // A user message carries no speaker at all — the key is absent, not null,
+    // exactly as it is on a conversation that was chatted into.
+    const list = (await seededGet('/conversations')).body;
+    const { body } = await seededGet(`/conversations/${list[0].id}`);
+    expect(body.messages.map((m: any) => m.role)).toEqual(['user', 'assistant']);
+    expect(body.messages[0]).not.toHaveProperty('persona_id');
+    expect(body.messages[1]).toMatchObject({ persona_id: 1, persona: { name: 'Kurisu' } });
+  });
+
+  it('seeds a tool turn, so a rail can be photographed without racing a stream', async () => {
+    await seeded.stop();
+    seeded = new MockBackend({
+      personas: [{ id: 1, name: 'Kurisu' }],
+      conversations: [{
+        title: 'With a rail',
+        persona: 'Kurisu',
+        agoMinutes: 2,
+        messages: [
+          { role: 'user', content: 'Show me where that is enforced.' },
+          {
+            role: 'tool',
+            name: 'history_search',
+            args: { query: 'personas table columns' },
+            content: 'personas table: no model_name, no available_tools, no memory.',
+          },
+          { role: 'assistant', content: 'In the schema itself.' },
+        ],
+      }],
+    });
+    await seeded.start();
+    mock = seeded;
+
+    const list = (await seededGet('/conversations')).body;
+    const { body } = await seededGet(`/conversations/${list[0].id}`);
+    expect(body.messages[1]).toMatchObject({
+      role: 'tool',
+      name: 'history_search',
+      tool_args: { query: 'personas table columns' },
+      tool_status: 'success',
+    });
+    // A tool turn is nobody's, so the rail prints no speaker above it.
+    expect(body.messages[1]).not.toHaveProperty('persona_id');
+  });
+
+  it('refuses a seed naming a persona that does not exist', () => {
+    expect(() => new MockBackend({
+      personas: [{ id: 1, name: 'Kurisu' }],
+      conversations: [
+        { title: 'Nobody answers this', persona: 'Nobody', agoMinutes: 1, messages: [] },
+      ],
+    })).toThrow(/no persona named "Nobody"/);
+  });
+});
+
+describe('mock backend: skills and models', () => {
+  /**
+   * `/skills` used to be a hardcoded empty list, so the Skills screen could only
+   * ever be photographed empty and its New skill button fell through to the
+   * catch-all `{}` (#195). It mirrors `routers/skills.py` now.
+   */
+
+  let furnished: MockBackend;
+
+  beforeEach(async () => {
+    await mock.stop();
+    furnished = new MockBackend({
+      skills: [
+        { id: 1, name: 'Concise replies', instructions: 'Answer in at most five sentences.' },
+        { id: 2, name: 'Cite the file', instructions: 'Name the file and line you read it from.' },
+      ],
+      models: [{ name: 'qwen3:8b', provider: 'ollama' }, { name: 'qwen3:4b' }],
+    });
+    await furnished.start();
+    mock = furnished;
+  });
+
+  const call = async (path: string, init?: RequestInit) => {
+    const res = await fetch(`${furnished.url}${path}`, init);
+    return { status: res.status, body: await res.json() };
+  };
+  const json = (method: string, body: unknown): RequestInit => ({
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  it('lists seeded skills in the order they are appended to the prompt', async () => {
+    const { body } = await call('/skills');
+    expect(body.map((k: any) => k.name)).toEqual(['Concise replies', 'Cite the file']);
+    expect(body[0]).toMatchObject({ id: 1, instructions: 'Answer in at most five sentences.' });
+    expect(typeof body[0].created_at).toBe('string');
+  });
+
+  it('creates, renames and deletes a skill', async () => {
+    const made = await call('/skills', json('POST', { name: 'Tool discipline', instructions: 'One call.' }));
+    expect(made.status).toBe(200);
+    expect(made.body).toMatchObject({ id: 3, name: 'Tool discipline' });
+
+    const renamed = await call('/skills/3', json('PATCH', { name: 'Tool budget' }));
+    expect(renamed.body).toMatchObject({ id: 3, name: 'Tool budget', instructions: 'One call.' });
+
+    expect((await call('/skills/3', { method: 'DELETE' })).status).toBe(200);
+    expect((await call('/skills')).body.map((k: any) => k.id)).toEqual([1, 2]);
+    expect((await call('/skills/3', json('PATCH', { name: 'Gone' }))).status).toBe(404);
+  });
+
+  it('refuses a skill with no name, as the backend does', async () => {
+    expect((await call('/skills', json('POST', { name: '  ' }))).status).toBe(400);
+    expect((await call('/skills/1', json('PATCH', { name: '' }))).status).toBe(400);
+  });
+
+  it('offers the scenario\'s models, not a hardcoded one', async () => {
+    // The Assistant screen's picker reads this; it has to be able to name the
+    // model the assistant is actually set to.
+    const { body } = await call('/models');
+    expect(body.models).toEqual([
+      { name: 'qwen3:8b', provider: 'ollama' },
+      { name: 'qwen3:4b', provider: 'ollama' },
+    ]);
+    expect(body.unavailable).toEqual([]);
+  });
+});
+
 describe('mock backend: streaming', () => {
   it('sets persona fields on assistant chunks only, and tool metadata on tool chunks', async () => {
     mock.setStream({

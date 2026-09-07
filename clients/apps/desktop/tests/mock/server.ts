@@ -136,8 +136,52 @@ export interface MockDriveEntry {
   isDir?: boolean;
 }
 
+/**
+ * One turn of a seeded conversation. A tool turn is what puts a rail in the
+ * transcript, and a seed is the only way to photograph one without sending a
+ * message and racing the stream (#195).
+ */
+export type MockSeedMessage =
+  | { role: 'user' | 'assistant'; content: string }
+  | {
+      role: 'tool';
+      name: string;
+      args: Record<string, unknown>;
+      /** The tool's result, as the rail prints it. */
+      content: string;
+      /** Anything but these three reads as "running" in the rail. */
+      status?: 'success' | 'error' | 'denied';
+    };
+
+/**
+ * A conversation to start the mock with, so a client has a list to show before
+ * anyone has chatted into it (#194).
+ *
+ * `agoMinutes` is when the LAST message landed — the only age a list orders and
+ * labels by. Earlier messages are spaced a minute apart behind it.
+ */
+export interface MockConversationSeed {
+  title: string;
+  /** Who answers it, by persona name. Omitted leaves the conversation unbound. */
+  persona?: string;
+  agoMinutes: number;
+  /** Oldest first. An assistant message is attributed to `persona`. */
+  messages: MockSeedMessage[];
+}
+
+/** A skill, appended to the assistant's system prompt. */
+export interface MockSkill {
+  id?: number;
+  name: string;
+  instructions?: string;
+}
+
 export interface MockBackendOptions {
   personas?: MockPersona[];
+  conversations?: MockConversationSeed[];
+  skills?: MockSkill[];
+  /** What `GET /models` offers. Defaults to the one model the specs assert on. */
+  models?: Array<{ name: string; provider?: string }>;
   drive?: MockDriveEntry[];
   driveQuotaBytes?: number;
   assistant?: MockAssistant;
@@ -191,6 +235,9 @@ export class MockBackend {
   private nextMessageId = 1;
   private nextMcpServerId = 1;
   private conversations: Map<number, StoredConversation> = new Map();
+  private skills: Array<{ id: number; name: string; instructions: string; created_at: string }> = [];
+  private nextSkillId = 1;
+  private models: Array<{ name: string; provider: string }> = [{ name: 'test-model', provider: 'mock' }];
   private mcpServers: Array<{
     id: number; name: string; transport_type: 'sse' | 'stdio'; url: string | null;
     command: string | null; args: string[] | null; env: Record<string, string> | null;
@@ -299,6 +346,20 @@ export class MockBackend {
 
     if (opts.driveQuotaBytes !== undefined) this.driveQuotaBytes = opts.driveQuotaBytes;
     for (const entry of opts.drive ?? []) this.seedDriveEntry(entry);
+    for (const seed of opts.conversations ?? []) this.seedConversation(seed);
+    for (const skill of opts.skills ?? []) {
+      const id = skill.id ?? this.nextSkillId;
+      this.nextSkillId = Math.max(this.nextSkillId, id + 1);
+      this.skills.push({
+        id,
+        name: skill.name,
+        instructions: skill.instructions ?? '',
+        created_at: new Date().toISOString(),
+      });
+    }
+    if (opts.models) {
+      this.models = opts.models.map((m) => ({ name: m.name, provider: m.provider ?? 'ollama' }));
+    }
 
     this.httpServer = http.createServer((req, res) => this.handleHttp(req, res));
     this.wss = new WebSocketServer({ noServer: true });
@@ -612,6 +673,44 @@ export class MockBackend {
     return conv;
   }
 
+  /**
+   * Put a finished conversation in the store, shaped exactly the way the chat
+   * path shapes one — same message fields, same `persona_id` on the assistant
+   * turns only — so nothing reading `GET /conversations` can tell a seeded
+   * conversation from one that was chatted into.
+   */
+  private seedConversation(seed: MockConversationSeed) {
+    const persona = seed.persona
+      ? this.personas.find((p) => p.name === seed.persona)
+      : undefined;
+    if (seed.persona !== undefined && !persona) {
+      throw new Error(`seeded conversation "${seed.title}": no persona named "${seed.persona}"`);
+    }
+    const conv = this.createConversation(persona?.id ?? null, seed.title);
+    const step = 60_000;
+    const last = Date.now() - seed.agoMinutes * step;
+    const first = last - Math.max(0, seed.messages.length - 1) * step;
+    seed.messages.forEach((m, i) => {
+      const isTool = m.role === 'tool';
+      conv.messages.push({
+        id: this.nextMessageId++,
+        role: m.role,
+        content: m.content,
+        thinking: null,
+        // Only an assistant turn has a speaker; a tool turn is nobody's.
+        persona_id: m.role === 'assistant' ? persona?.id ?? null : null,
+        name: isTool ? m.name : null,
+        tool_args: isTool ? m.args : null,
+        tool_status: isTool ? m.status ?? 'success' : null,
+        created_at: new Date(first + i * step).toISOString(),
+      });
+    });
+    // Overwrite what createConversation stamped: the point of a seed is that it
+    // is older than the process that served it.
+    conv.created_at = new Date(first).toISOString();
+    conv.updated_at = new Date(last).toISOString();
+  }
+
   private async handleHttp(req: http.IncomingMessage, res: http.ServerResponse) {
     const url = req.url ?? '/';
     const method = req.method ?? 'GET';
@@ -910,7 +1009,7 @@ export class MockBackend {
       if (this.unreachable.has('/models')) {
         return this.error(res, 502, 'The model host (Ollama) is unreachable. (reference: mock)');
       }
-      return this.json(res, { models: [{ name: 'test-model', provider: 'mock' }], unavailable: [] });
+      return this.json(res, { models: this.models, unavailable: [] });
     }
     if (pathOnly === '/tools') {
       const toToolFn = (t: MockTool) => ({
@@ -1126,7 +1225,42 @@ export class MockBackend {
       return this.json(res, this.driveResponse(this.makeDriveNode(parentId, name, false, content)));
     }
 
-    if (pathOnly === '/skills') return this.json(res, []);
+    // Skills — `routers/skills.py`. Appended to the assistant's system prompt in
+    // list order, which is why the screen numbers them.
+    if (pathOnly === '/skills' && method === 'GET') return this.json(res, this.skills);
+    if (pathOnly === '/skills' && method === 'POST') {
+      const body = await this.readJson(req);
+      const name = (body.name ?? '').trim();
+      if (!name) return this.error(res, 400, 'Name is required');
+      const skill = {
+        id: this.nextSkillId++,
+        name,
+        instructions: body.instructions ?? '',
+        created_at: new Date().toISOString(),
+      };
+      this.skills.push(skill);
+      return this.json(res, skill);
+    }
+    const skillMatch = pathOnly.match(/^\/skills\/(\d+)$/);
+    if (skillMatch) {
+      const id = parseInt(skillMatch[1], 10);
+      const skill = this.skills.find((k) => k.id === id);
+      if (!skill) return this.error(res, 404, 'Skill not found');
+      if (method === 'PATCH') {
+        const body = await this.readJson(req);
+        if ('name' in body) {
+          const name = (body.name ?? '').trim();
+          if (!name) return this.error(res, 400, 'Name cannot be empty');
+          skill.name = name;
+        }
+        if ('instructions' in body) skill.instructions = body.instructions ?? '';
+        return this.json(res, skill);
+      }
+      if (method === 'DELETE') {
+        this.skills = this.skills.filter((k) => k.id !== id);
+        return this.json(res, { message: 'Skill deleted successfully' });
+      }
+    }
     if (pathOnly === '/faces') return this.json(res, []);
     if (pathOnly === '/tts/backends') return this.json(res, { backends: [] });
     if (pathOnly === '/tts/voices' || pathOnly.startsWith('/tts/voices')) return this.json(res, { voices: [] });

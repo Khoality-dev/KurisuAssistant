@@ -39,6 +39,7 @@ specs:
 | Scenario | State |
 | --- | --- |
 | `default` | Two personas (Kurisu answers, Amadeus available), a model chosen, a short streamed reply |
+| `docs` | The cast the Android documentation screenshots are taken from: personas, assistant and memory, sub-agents, MCP servers, tools, skills, and four seeded conversations of different ages, one with a tool rail (#194, #195) |
 | `tool-call` | Assistant text interrupted by a `lookup` tool result, then the answer |
 | `sub-agent` | A step delegated to a sub-agent mid-answer — the `sub-agent` tag and duration |
 | `handoff` | Kurisu starts the answer, Amadeus finishes it: two bubbles, two speakers |

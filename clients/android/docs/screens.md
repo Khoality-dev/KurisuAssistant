@@ -16,8 +16,10 @@ the memory.
 
 ![Chats](assets/01-chats.png)
 
-Conversations are what you navigate. Each row shows the persona answering it. The assistant's model
-is deliberately absent — it is the same on every row, so printing it would say nothing.
+Conversations are what you navigate. A row is its title, when it last moved, and the last thing said
+in it. Neither the persona nor the model is on it: there is one assistant with one default persona,
+so a face and a name would be the same face and the same name on every row and would tell no two
+rows apart (#192). Who answers a conversation is on the conversation, in its header.
 
 The strip at the top is voice state. The wake word (`kurisu` here) belongs to the **assistant**, not
 to any persona: saying it starts a turn, and whichever persona the conversation is bound to answers.
@@ -74,15 +76,25 @@ editor. "Calls you" is what the persona calls *you*, not a display name for the 
 ## Regenerating these
 
 The app is driven against the **standalone mock backend** from the desktop package — never a
-deployed one (the rule in `CLAUDE.md`). Its scenarios are the transcripts: `tool-call` gives a tool
-rail, `sub-agent` a delegated step, `handoff` two speakers; see
-[`../../desktop/docs/testing.md`](../../desktop/docs/testing.md#the-standalone-mock) for the list.
+deployed one (the rule in `CLAUDE.md`).
+
+**Every picture on this page comes from `--scenario docs`.** That one scenario furnishes all of
+them: three personas, the assistant and its memory, two sub-agents, two MCP servers, the built-in
+tool descriptions, two skills, and four conversations of different ages — one of which carries the
+transcript and the tool rail above. Any other scenario gives an app with nothing in it: before #195
+the mock's `/skills` was a hardcoded empty list and `/models` only ever offered `test-model`, so
+these pictures could not have come from it and did not. The other scenarios (`tool-call`,
+`sub-agent`, `handoff`, …) script a *stream*, and are for watching one arrive; see
+[`../../apps/desktop/docs/testing.md`](../../apps/desktop/docs/testing.md#the-standalone-mock).
 
 ```bash
-# 1. The mock, reachable from the emulator (10.0.2.2 is its route to the host)
-cd clients/desktop && npm ci && npm run mock:backend -- --host 0.0.0.0 --port 15597 --scenario tool-call
+# 1. The mock, reachable from the emulator (10.0.2.2 is its route to the host).
+#    Dependencies install at clients/ and nowhere else, so npm ci runs there.
+cd clients && npm ci
+cd apps/desktop && npm run mock:backend -- --host 0.0.0.0 --port 15597 --scenario docs
 
-# 2. Any username and password sign in; send a message to produce the transcript.
+# 2. Any username and password sign in. Everything the pictures show is already
+#    there — no message needs sending.
 
 # 3. A headless emulator
 emulator -avd <avd> -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect

@@ -4,17 +4,11 @@ import {
   Typography,
   List,
   ListItemButton,
-  ListItemAvatar,
-  Avatar,
   TextField,
   InputAdornment,
 } from '@mui/material';
-import {
-  SmartToy as PersonaIcon,
-  Search as SearchIcon,
-} from '@mui/icons-material';
+import { Search as SearchIcon } from '@mui/icons-material';
 import { usePersonaStore } from '@kurisu/state';
-import { apiClient } from '@kurisu/api';
 import { storage } from '@kurisu/api';
 import { useConversationStore } from '@kurisu/state';
 
@@ -100,20 +94,12 @@ export const ConversationsPage: React.FC = () => {
                 transition: 'all 150ms ease',
               }}
             >
-              <ListItemAvatar sx={{ minWidth: 0, mr: 1.5 }}>
-                <Avatar
-                  src={persona.avatar_uuid ? apiClient.getImageUrl(persona.avatar_uuid) : undefined}
-                  sx={{
-                    width: 40,
-                    height: 40,
-                    bgcolor: (t) => t.palette.mode === 'light' ? '#F3F4F6' : '#262626',
-                  }}
-                >
-                  {!persona.avatar_uuid && (
-                    <PersonaIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
-                  )}
-                </Avatar>
-              </ListItemAvatar>
+              {/*
+                No avatar. One assistant answers every row through the same
+                default persona, so the face was the same face repeated down the
+                list — it distinguished nothing and took the width the name and
+                the preview needed (#192).
+              */}
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 0.25 }}>
                   <Typography
