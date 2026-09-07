@@ -3,8 +3,10 @@
 Frame-based segmentation was removed; these tools now operate at the
 conversation level. ``history_list`` enumerates the user's conversations
 with their titles and compacted context. ``history_read`` reads messages
-from a specific conversation by ID. ``history_search`` searches all of
-the user's messages across conversations.
+from a specific conversation by ID. Searching is ``recall_regex`` and
+``recall_semantic`` in ``tools/recall.py`` (#6), which cover drive files too;
+the old ``history_search`` — an unindexed ``ILIKE`` that truncated every hit
+to 200 characters and cited no message — is gone.
 """
 
 import logging
@@ -13,16 +15,6 @@ from typing import Dict, Any
 from .base import BaseTool
 
 logger = logging.getLogger(__name__)
-
-
-def _parse_date(date_str: str):
-    from datetime import datetime
-    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(date_str, fmt)
-        except ValueError:
-            continue
-    return None
 
 
 class HistoryListTool(BaseTool):
@@ -211,108 +203,3 @@ class HistoryReadTool(BaseTool):
 
     def describe_call(self, args: Dict[str, Any]) -> str:
         return f"Read conversation {args.get('target_conversation_id')}"
-
-
-class HistorySearchTool(BaseTool):
-    """Search past messages across all of the user's conversations."""
-
-    name = "history_search"
-    description = (
-        "Search past messages across all of the user's conversations by text "
-        "content and/or date range. Use to find when something was discussed."
-    )
-    built_in = True
-
-    def get_schema(self) -> Dict[str, Any]:
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Text to search for (case-insensitive).",
-                        },
-                        "after": {
-                            "type": "string",
-                            "description": "Only include messages after this date (ISO format, e.g. '2024-01-15').",
-                        },
-                        "before": {
-                            "type": "string",
-                            "description": "Only include messages before this date (ISO format, e.g. '2024-01-16').",
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "description": "Maximum number of results (default: 50).",
-                        },
-                    },
-                    "required": ["query"],
-                },
-            },
-        }
-
-    async def execute(self, args: Dict[str, Any]) -> str:
-        from kurisuassistant.db.service import get_db_service
-        from kurisuassistant.db.models import Conversation, Message
-
-        user_id = args.get("user_id")
-        if not user_id:
-            return "Error: No user context available."
-
-        query = args.get("query", "")
-        after = args.get("after")
-        before = args.get("before")
-        limit = args.get("limit", 50)
-
-        if not query:
-            return "Error: query is required."
-
-        try:
-            def _search(session):
-                q = (
-                    session.query(Message, Conversation.title)
-                    .join(Conversation, Message.conversation_id == Conversation.id)
-                    .filter(Conversation.user_id == user_id)
-                    .filter(Message.message.ilike(f"%{query}%"))
-                )
-
-                if after:
-                    parsed = _parse_date(after)
-                    if parsed:
-                        q = q.filter(Message.created_at >= parsed)
-                if before:
-                    parsed = _parse_date(before)
-                    if parsed:
-                        q = q.filter(Message.created_at <= parsed)
-
-                rows = q.order_by(Message.created_at.desc()).limit(limit).all()
-
-                if not rows:
-                    return f"No results found for \"{query}\"."
-
-                lines = []
-                for msg, title in rows:
-                    name = msg.name or msg.role.capitalize()
-                    created = msg.created_at.strftime("%Y-%m-%d %H:%M") if msg.created_at else ""
-                    snippet = msg.message[:200]
-                    conv_label = f"conv #{msg.conversation_id}" + (f" \"{title}\"" if title else "")
-                    lines.append(f"- **{name}** ({conv_label}, {created}): {snippet}")
-                return "\n".join(lines)
-
-            db = get_db_service()
-            return await db.execute(_search)
-
-        except Exception as e:
-            logger.error("history_search failed: %s", e, exc_info=True)
-            return f"Error: Search failed: {e}"
-
-    def describe_call(self, args: Dict[str, Any]) -> str:
-        parts = [f"query='{args.get('query')}'"]
-        if args.get("after"):
-            parts.append(f"after {args['after']}")
-        if args.get("before"):
-            parts.append(f"before {args['before']}")
-        return f"Search history: {', '.join(parts)}"

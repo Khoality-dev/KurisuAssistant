@@ -400,21 +400,30 @@ class DriveWriteTool(BaseTool):
                 if node is not None:
                     replaced = repo.replace_file(node, size, mime, checksum, storage_key)
                     repo.touch_parents(node)
-                    return replaced
+                    return node.id, replaced
             node = repo.create_file(
                 user_id, plan["parent_id"], name, size, mime, checksum, storage_key
             )
             repo.touch_parents(node)
-            return None
+            return node.id, None
 
         try:
-            replaced_key = await get_db_service().execute(_persist)
+            node_id, replaced_key = await get_db_service().execute(_persist)
         except BaseException:
             await drive_storage.delete_blobs(user_id, [storage_key])
             raise
 
         if replaced_key:
             await drive_storage.delete_blobs(user_id, [replaced_key])
+        # Same hook the router has: the file the assistant just wrote becomes
+        # recallable without waiting for the scanner (#6).
+        try:
+            import kurisuassistant.workers as workers
+            from kurisuassistant.workers.tasks import ChunkDriveFileTask
+
+            workers.submit(ChunkDriveFileTask(user_id=user_id, node_id=node_id))
+        except Exception:
+            logger.warning("Could not queue drive node %s for indexing", node_id, exc_info=True)
         return f"Written to {path} ({_format_size(size)})."
 
 

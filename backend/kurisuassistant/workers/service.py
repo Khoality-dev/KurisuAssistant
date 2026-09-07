@@ -1,11 +1,23 @@
-"""Background service — worker threads for conversation-idle memory consolidation.
+"""Background service — worker threads for memory consolidation and the retrieval index.
 
-Owns two threads:
+Owns four threads:
 * **db_worker** — processes ``ConsolidateMemoryTask`` sequentially (all
   background DB writes serialized through ``DBService``).
 * **idle_scanner** — periodically scans for conversations that have been
   idle past ``CONVERSATION_IDLE_THRESHOLD_MINUTES`` and submits one
   ``ConsolidateMemoryTask`` per idle conversation.
+* **index_worker** — processes ``ChunkConversationTask``, ``ChunkDriveFileTask``
+  and ``EmbedPassagesTask`` (#6), one at a time, on its own queue. It is a
+  separate thread from ``db_worker`` on purpose: that thread's serialization is
+  what keeps two memory consolidations for one user from clobbering each other,
+  and indexing has no such read-modify-write — sharing the queue would only
+  make each wait for the other.
+* **index_scanner** — once a minute finds conversations changed since they were
+  last chunked, drive files whose checksum differs from the one last indexed,
+  and passages with no embedding yet, and queues bounded batches of each. The
+  chat handler and the drive writes submit directly for low latency; the
+  scanner is what catches a restart, a crash between write and submit, and the
+  backfill of a deployment that predates the index.
 
 Memory is one document per user (``assistants.memory``), so a conversation
 produces exactly one task — not one per participating agent as it did when
@@ -19,7 +31,12 @@ import threading
 from datetime import datetime, timedelta
 from queue import Queue
 
-from kurisuassistant.workers.tasks import ConsolidateMemoryTask
+from kurisuassistant.workers.tasks import (
+    ChunkConversationTask,
+    ChunkDriveFileTask,
+    ConsolidateMemoryTask,
+    EmbedPassagesTask,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +54,31 @@ RETRY_BASE_MINUTES = 5
 RETRY_MAX_MINUTES = 6 * 60
 MAX_ATTEMPTS = 5
 
+# The retrieval index (#6). Per scan: this many conversations, this many drive
+# files, and this many passages to embed (in EMBED_BATCH_SIZE-row tasks). When
+# the embedding provider is unreachable the embedding side pauses — doubling
+# from a minute to half an hour — and resumes on the first success; nothing is
+# written to the rows for a failure that was the provider's, not theirs.
+INDEX_SCAN_INTERVAL_SECONDS = 60
+INDEX_SCAN_LIMIT = 50
+EMBED_SCAN_LIMIT = 256
+EMBED_PAUSE_BASE_SECONDS = 60
+EMBED_PAUSE_MAX_SECONDS = 30 * 60
+
 
 def retry_delay(attempts: int) -> timedelta:
     """Backoff for the ``attempts``-th failure (1-based): doubling, capped."""
     minutes = min(RETRY_BASE_MINUTES * (2 ** max(attempts - 1, 0)), RETRY_MAX_MINUTES)
     return timedelta(minutes=minutes)
+
+
+def _index_key(task) -> tuple:
+    """What makes two index tasks the same piece of work."""
+    if isinstance(task, ChunkConversationTask):
+        return ("conv", task.conversation_id)
+    if isinstance(task, ChunkDriveFileTask):
+        return ("drive", task.node_id)
+    return ("embed", tuple(task.passage_ids))
 
 
 class BackgroundService:
@@ -57,6 +94,13 @@ class BackgroundService:
         # failed one may be retried, is on the ``conversations`` row (#96).
         self._queued: set[int] = set()
         self._queued_lock = threading.Lock()
+        # The retrieval index's own queue and in-flight reservations: ("conv", id),
+        # ("drive", id), and the passage ids of embed batches not yet written.
+        self._index_queue: Queue = Queue()
+        self._index_queued: set = set()
+        self._embedding_in_flight: set[int] = set()
+        self._embed_paused_until: datetime | None = None
+        self._embed_pause_failures = 0
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -67,6 +111,8 @@ class BackgroundService:
         for target, name in [
             (self._db_worker, "db-worker"),
             (self._idle_scanner, "idle-scanner"),
+            (self._index_worker, "index-worker"),
+            (self._index_scanner, "index-scanner"),
         ]:
             t = threading.Thread(target=target, name=name, daemon=True)
             t.start()
@@ -77,6 +123,7 @@ class BackgroundService:
         """Signal all threads to stop, drain queues, and join."""
         self._stopping.set()
         self._db_queue.put(None)
+        self._index_queue.put(None)
         for t in self._threads:
             t.join(timeout=timeout)
             if t.is_alive():
@@ -89,9 +136,23 @@ class BackgroundService:
     # ------------------------------------------------------------------
 
     def submit(self, task):
-        """Route a task to the worker queue."""
+        """Route a task to its worker's queue.
+
+        Index tasks are deduplicated on the way in: a conversation or file
+        already waiting is not queued twice, and passages already being embedded
+        are not handed out again. The reservation is released by the worker.
+        """
         if isinstance(task, ConsolidateMemoryTask):
             self._db_queue.put(task)
+        elif isinstance(task, (ChunkConversationTask, ChunkDriveFileTask, EmbedPassagesTask)):
+            key = _index_key(task)
+            with self._queued_lock:
+                if key in self._index_queued:
+                    return
+                self._index_queued.add(key)
+                if isinstance(task, EmbedPassagesTask):
+                    self._embedding_in_flight.update(task.passage_ids)
+            self._index_queue.put(task)
         else:
             logger.warning("Unknown task type: %s", type(task).__name__)
 
@@ -137,6 +198,114 @@ class BackgroundService:
             except Exception:
                 logger.error("Idle scanner error", exc_info=True)
         logger.info("Idle scanner stopped")
+
+    def _index_worker(self):
+        """Process retrieval-index tasks one at a time.
+
+        Plain synchronous functions: everything they do with the database goes
+        through ``DBService.execute_sync``, and the extraction and embedding
+        calls in between are the reason this runs on its own thread rather
+        than inside a database callable.
+        """
+        from kurisuassistant.utils import indexing
+
+        while not self._stopping.is_set():
+            task = self._index_queue.get()
+            if task is None:
+                break
+            try:
+                if isinstance(task, ChunkConversationTask):
+                    indexing.chunk_conversation(task.conversation_id)
+                elif isinstance(task, ChunkDriveFileTask):
+                    indexing.chunk_drive_file(task.user_id, task.node_id)
+                elif isinstance(task, EmbedPassagesTask):
+                    self._handle_embed(task)
+            except Exception:
+                logger.error("index-worker failed to process %s", task, exc_info=True)
+            finally:
+                with self._queued_lock:
+                    self._index_queued.discard(_index_key(task))
+                    if isinstance(task, EmbedPassagesTask):
+                        self._embedding_in_flight.difference_update(task.passage_ids)
+
+    def _handle_embed(self, task: EmbedPassagesTask):
+        from kurisuassistant.utils import indexing
+        from kurisuassistant.utils.embeddings import EmbeddingDisabled, TransientEmbedError
+
+        try:
+            indexing.embed_pending(task.passage_ids)
+        except EmbeddingDisabled:
+            # The operator switched embeddings off between the scan and now.
+            return
+        except TransientEmbedError as e:
+            self._pause_embedding(e)
+        else:
+            if self._embed_pause_failures:
+                logger.info("Embedding provider is back; resuming the backlog")
+            self._embed_pause_failures = 0
+            self._embed_paused_until = None
+
+    def _pause_embedding(self, exc: Exception):
+        self._embed_pause_failures += 1
+        seconds = min(
+            EMBED_PAUSE_BASE_SECONDS * (2 ** (self._embed_pause_failures - 1)),
+            EMBED_PAUSE_MAX_SECONDS,
+        )
+        self._embed_paused_until = datetime.utcnow() + timedelta(seconds=seconds)
+        logger.warning(
+            "Embedding failed (%s); pausing the embedding backlog for %ds", exc, seconds,
+        )
+
+    def _index_scanner(self):
+        """Once a minute, queue what the retrieval index is missing."""
+        from kurisuassistant.utils import embeddings as embedding_service
+        from kurisuassistant.utils import indexing
+
+        logger.info("Index scanner started (interval=%ds)", INDEX_SCAN_INTERVAL_SECONDS)
+        # A changed EMBEDDING_MODEL means every stored vector is from the wrong
+        # model. Forget them once, here, in bounded batches; the backlog scan
+        # below re-embeds them in the background while recall keeps answering
+        # from whatever the current model has already produced.
+        try:
+            if embedding_service.enabled():
+                reset = indexing.sweep_stale_embeddings(embedding_service.current_model())
+                if reset:
+                    logger.info(
+                        "Embedding model is now %r: %d passage(s) queued for re-embedding",
+                        embedding_service.current_model(), reset,
+                    )
+        except Exception:
+            logger.error("Index scanner could not sweep stale embeddings", exc_info=True)
+
+        while not self._stopping.is_set():
+            self._stopping.wait(timeout=INDEX_SCAN_INTERVAL_SECONDS)
+            if self._stopping.is_set():
+                break
+            try:
+                self._scan_index()
+            except Exception:
+                logger.error("Index scanner error", exc_info=True)
+        logger.info("Index scanner stopped")
+
+    def _scan_index(self):
+        from kurisuassistant.utils import embeddings as embedding_service
+        from kurisuassistant.utils import indexing
+        from kurisuassistant.utils.embeddings import EMBED_BATCH_SIZE
+
+        for conversation_id, user_id in indexing.due_conversations(INDEX_SCAN_LIMIT):
+            self.submit(ChunkConversationTask(user_id=user_id, conversation_id=conversation_id))
+        for node_id, user_id in indexing.due_drive_files(INDEX_SCAN_LIMIT):
+            self.submit(ChunkDriveFileTask(user_id=user_id, node_id=node_id))
+
+        if not embedding_service.enabled():
+            return
+        if self._embed_paused_until and datetime.utcnow() < self._embed_paused_until:
+            return
+        with self._queued_lock:
+            in_flight = list(self._embedding_in_flight)
+        pending = indexing.pending_passages(EMBED_SCAN_LIMIT, exclude=in_flight)
+        for start in range(0, len(pending), EMBED_BATCH_SIZE):
+            self.submit(EmbedPassagesTask(passage_ids=pending[start:start + EMBED_BATCH_SIZE]))
 
     # ------------------------------------------------------------------
     # Task handlers

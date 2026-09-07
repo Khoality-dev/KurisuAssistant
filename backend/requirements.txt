@@ -41,6 +41,11 @@ mediapipe
 ultralytics
 yt-dlp
 google-genai
+# Retrieval index (#6): document extraction for Kurisu Drive files. Pure Python.
+pypdf
+python-docx
+python-pptx
+openpyxl
 # Testing
 pytest>=8.0.0
 pytest-asyncio>=0.23.0

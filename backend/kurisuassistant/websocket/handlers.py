@@ -261,6 +261,7 @@ class ChatSessionHandler:
     async def _run_chat(self, event: ChatRequestEvent, extra_messages: Optional[List] = None):
         """Bind the conversation to a persona if needed, then run the assistant."""
         from fastapi import WebSocketDisconnect
+        conversation_id: Optional[int] = None
         try:
             setup = await self._setup_conversation(event)
             conversation_id = setup.conversation_id
@@ -460,6 +461,9 @@ class ChatSessionHandler:
             )
 
             await self._update_timestamps(conversation_id)
+            # The turn's messages are saved; hand them to the retrieval index
+            # now rather than waiting for the scanner's next pass (#6).
+            self._submit_indexing(conversation_id)
             self._task_done = True
             await self.send_event(DoneEvent(conversation_id=conversation_id))
 
@@ -491,6 +495,8 @@ class ChatSessionHandler:
                 error=f"{GENERIC_MESSAGE} (reference: {reference})",
                 code="INTERNAL_ERROR",
             ))
+            # Whatever was saved before the failure is still worth recalling.
+            self._submit_indexing(conversation_id)
             self._process_queue()
 
     async def _stream_and_save_agent(
@@ -1195,6 +1201,25 @@ class ChatSessionHandler:
         except Exception as e:
             logger.error("Context compaction failed: %s", e, exc_info=True)
             return ""
+
+    def _submit_indexing(self, conversation_id: Optional[int]) -> None:
+        """Queue the conversation's new messages for the retrieval index (#6).
+
+        Fire-and-forget: the index-worker chunks them on its own thread, and
+        the scanner would find them within a minute anyway. Never lets an
+        indexing problem fail the turn.
+        """
+        if not conversation_id:
+            return
+        try:
+            import kurisuassistant.workers as workers
+            from kurisuassistant.workers.tasks import ChunkConversationTask
+
+            workers.submit(ChunkConversationTask(
+                user_id=self.user_id, conversation_id=conversation_id,
+            ))
+        except Exception:
+            logger.warning("Could not queue conversation %s for indexing", conversation_id, exc_info=True)
 
     async def _save_message(self, msg: dict, conversation_id: int):
         db = get_db_service()

@@ -356,8 +356,8 @@ describe('mock backend: seeded conversations', () => {
           { role: 'user', content: 'Show me where that is enforced.' },
           {
             role: 'tool',
-            name: 'history_search',
-            args: { query: 'personas table columns' },
+            name: 'recall_regex',
+            args: { pattern: 'personas table columns' },
             content: 'personas table: no model_name, no available_tools, no memory.',
           },
           { role: 'assistant', content: 'In the schema itself.' },
@@ -371,8 +371,8 @@ describe('mock backend: seeded conversations', () => {
     const { body } = await seededGet(`/conversations/${list[0].id}`);
     expect(body.messages[1]).toMatchObject({
       role: 'tool',
-      name: 'history_search',
-      tool_args: { query: 'personas table columns' },
+      name: 'recall_regex',
+      tool_args: { pattern: 'personas table columns' },
       tool_status: 'success',
     });
     // A tool turn is nobody's, so the rail prints no speaker above it.

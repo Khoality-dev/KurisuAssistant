@@ -78,10 +78,26 @@ drive_nodes     id, user_id→users (CASCADE, indexed)               Kurisu Driv
                 parent_id→drive_nodes (CASCADE, indexed)?          null at the root
                 name, is_dir, size(BigInteger)
                 mime?, checksum?(sha256 hex), storage_key?(uuid4)  null on a folder
+                indexed_checksum?                                  the version the retrieval index read
                 created_at, updated_at
                 unique (user_id, parent_id, name) where parent_id is not null
                 unique (user_id, name)            where parent_id is null
+
+passages        id, user_id→users (CASCADE, indexed)               the retrieval index (#6)
+                source_kind('message'|'drive')
+                conversation_id→conversations (CASCADE, indexed)?
+                message_id→messages (CASCADE, indexed)?
+                drive_node_id→drive_nodes (CASCADE, indexed)?
+                ordinal, content, page?, start_line?, end_line?
+                embedding(vector, no dimension)?, embedding_model?, embed_attempts
+                created_at
+                index (user_id, embedding_model); partial index on id where
+                embedding is null and embed_attempts < 5
 ```
+
+`conversations` also carries `indexed_up_to_id` and `indexed_at` — the
+retrieval index's watermark and stamp, the same shape as the consolidation
+columns.
 
 Media is not stored here. Images, voice clips, character assets and drive files
 are files under `data/`, referenced by the UUID columns above.
@@ -96,10 +112,17 @@ case separately, and double as the index every folder listing reads. There is no
 synthetic per-user root row: the root is the absence of a parent.
 
 `size` is the schema's only `BigInteger`, because `Integer` stops at 2 GB and a
-drive file will not. `checksum` is populated from the first migration so #6 can
-attribute embedded chunks to a file and re-embed when its bytes change, rather
-than having to rehash a full drive later. The bytes themselves live at
-`data/drive/{user_id}/{storage_key}` — see `drive.md`.
+drive file will not. `checksum` was populated from the first migration so the
+retrieval index could attribute passages to a file and re-embed when its bytes
+change, which it now does through `indexed_checksum`. The bytes themselves live
+at `data/drive/{user_id}/{storage_key}` — see `drive.md`.
+
+**`passages.embedding` has no dimension**, so it has no HNSW index either —
+pgvector refuses one on a dimensionless column. The embedding model is the
+operator's choice and models differ in width; a semantic query is an exact scan
+over one account's rows, narrowed by `ix_passages_user_id_embedding_model`. Every
+foreign key on `passages` cascades because the message and drive deletes are
+bulk statements that fire no ORM events (`retrieval.md`).
 
 
 **Capability and presentation are separate rows.** `assistants` is one row per
@@ -200,12 +223,12 @@ is cancelled and never runs. The engine carries `connect_timeout`
 
 Repositories live in `db/repositories/`, one per table over a generic
 `BaseRepository` (`assistant.py`, `persona.py`, `sub_agent.py`, `conversation.py`,
-`message.py`, `user.py`, `skill.py`, `mcp_server.py`, `face.py`). They take a
-session; they never open one.
+`message.py`, `user.py`, `skill.py`, `mcp_server.py`, `face.py`, `drive.py`,
+`passages.py`). They take a session; they never open one.
 
 ## Migrations
 
-Alembic, 55 revisions with a single head (`4022208dbec1`, add_missing_indexes_and_cascades), replayable onto an empty
+Alembic, 58 revisions with a single head (`4281377948c4`, create_passages_table), replayable onto an empty
 database. Run automatically by `docker-entrypoint.sh` before the app starts.
 
 ```bash

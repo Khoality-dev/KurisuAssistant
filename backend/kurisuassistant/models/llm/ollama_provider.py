@@ -76,6 +76,16 @@ class OllamaProvider(BaseLLMProvider):
             logger.error(f"Ollama chat request failed (model={model}): {e}", exc_info=True)
             raise
 
+    def embed(self, model: str, texts: List[str], *, kind: str = "passage") -> List[List[float]]:
+        """``POST /api/embed`` — Ollama embeds passages and queries the same way."""
+        try:
+            self.ensure_model_available(model)
+            response = self.client.embed(model=model, input=list(texts))
+            return [list(map(float, vector)) for vector in response.embeddings]
+        except Exception as e:
+            logger.error(f"Ollama embed request failed (model={model}): {e}", exc_info=True)
+            raise
+
     def list_models(self) -> List[str]:
         """List available Ollama models.
 

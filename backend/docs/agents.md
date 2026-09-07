@@ -96,10 +96,14 @@ to the model as a plain function.
    `users.system_prompt`, then the preferred name (the persona's
    `preferred_name` if set, else the user's), then the current time
 2. the user's skill names, with an instruction to load one before acting
-3. the deferred-tool protocol, when `assistants.use_deferred_tools` is set
-4. the **assistant's** memory, when `assistants.memory_enabled` and it is non-empty
-5. the conversation's `compacted_context`, when there is one
-6. the available sub-agents and what each is for, built at runtime from the
+3. a **Recall** section: past conversations and drive files are searchable
+   through `recall_regex` (wording) and `recall_semantic` (meaning); use one
+   before saying you do not remember, and quote and cite what it returns (#6,
+   `retrieval.md`)
+4. the deferred-tool protocol, when `assistants.use_deferred_tools` is set
+5. the **assistant's** memory, when `assistants.memory_enabled` and it is non-empty
+6. the conversation's `compacted_context`, when there is one
+7. the available sub-agents and what each is for, built at runtime from the
    injected `SubAgentTool` adapters
 
 A `SubAgent` builds a much smaller one: its own `system_prompt` and nothing else —
@@ -128,6 +132,13 @@ before dispatch:
 A call resolves against the deferred meta-tools (when enabled), then the native
 registry, then handler-injected tools such as sub-agent adapters, then tools the
 client registered over the socket, then a server-side MCP server.
+
+Besides `conversation_id`, `user_id` and `agent_id`, `execute_tool` injects the
+caller's allowlist as `_available_tools`. It is for a built-in tool that reaches
+into what a non-built-in one guards — the recall tools include drive passages
+only when `drive_read` could run for this caller — and it lives in the arguments
+rather than on `AgentContext` because the same context object is handed to
+sub-agents, whose allowlist is their own.
 
 `tool_approval_request` keeps an `agent_id` field: it is the id of whoever is
 asking — the persona for a `MainAgent`, the sub-agent itself for a `SubAgent` —

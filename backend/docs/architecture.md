@@ -86,7 +86,9 @@ agents/
 
 tools/
   base.py, registry.py   BaseTool and the global registry
-  history.py             conversation search and retrieval (built-in)
+  history.py             list and read past conversations (built-in)
+  recall.py              recall_regex / recall_semantic over the passage index (built-in)
+  drive.py               the assistant's view of Kurisu Drive (not built-in)
   skills.py              on-demand skill lookup (built-in)
   deferred.py            list/search/get_schema/call_tool meta-tools
 
@@ -97,15 +99,18 @@ models/                  inference providers; no DB access, no business logic
   gesture_detection/     pose and hand detection, rule-based classification
 
 db/
-  models.py              10 tables
+  models.py              13 tables
   session.py             engine and sessionmaker
   service.py             DBService: the single thread all DB access goes through
   repositories/          one per table, over a generic BaseRepository
-  alembic/               55 revisions, single head (4022208dbec1)
+  alembic/               58 revisions, single head (4281377948c4)
 
 vision/processor.py      per-frame face and gesture pipeline
-workers/                 background threads: idle scan, memory consolidation
-utils/                   prompt assembly, image storage, memory consolidation
+workers/                 background threads: idle scan, memory consolidation,
+                         the retrieval index (index-worker, index-scanner)
+utils/                   prompt assembly, image storage, memory consolidation,
+                         and the retrieval index: chunking, extraction,
+                         embeddings, indexing
 ```
 
 ## How a chat turn runs

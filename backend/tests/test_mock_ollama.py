@@ -10,7 +10,14 @@ import ollama
 import pytest
 
 from kurisuassistant.models.llm.ollama_provider import OllamaProvider
-from tests.mock_ollama import DEFAULT_MODEL, MockOllamaServer, Reply, ToolCall
+from tests.mock_ollama import (
+    DEFAULT_MODEL,
+    EMBED_DIMENSIONS,
+    MockOllamaServer,
+    Reply,
+    ToolCall,
+    default_embedding,
+)
 
 TOOLS = [{
     "type": "function",
@@ -151,7 +158,8 @@ class TestScripting:
         assert httpx.get(f"{base}/_mock/requests").json()["requests"] == []
         httpx.post(f"{base}/_mock/reset")
         assert httpx.get(f"{base}/_mock/state").json() == {
-            "models": [DEFAULT_MODEL], "auto_pull": True, "queued_replies": 0, "requests": 0}
+            "models": [DEFAULT_MODEL], "auto_pull": True, "queued_replies": 0, "requests": 0,
+            "pinned_embeddings": 0, "embed_fail_status": None}
 
 
 class TestThroughOllamaProvider:
@@ -177,3 +185,55 @@ class TestThroughOllamaProvider:
         mock_ollama.state.script(Reply(content="Whole.", thinking="brief"))
         resp = OllamaProvider(api_url=mock_ollama.url).chat(DEFAULT_MODEL, ask("x"), stream=False)
         assert resp.message.content == "Whole." and resp.message.thinking == "brief"
+
+
+class TestEmbeddings:
+    """``/api/embed`` (#6): deterministic by default, pinnable, failable."""
+
+    def test_one_unit_vector_per_input_in_order(self, mock_ollama):
+        client = ollama.Client(host=mock_ollama.url)
+        resp = client.embed(model=DEFAULT_MODEL, input=["alpha", "beta"])
+        assert len(resp.embeddings) == 2
+        for vector in resp.embeddings:
+            assert len(vector) == EMBED_DIMENSIONS
+            assert abs(sum(v * v for v in vector) ** 0.5 - 1.0) < 1e-4
+        assert list(resp.embeddings[0]) == default_embedding("alpha")
+        assert list(resp.embeddings[1]) == default_embedding("beta")
+
+    def test_the_same_text_always_embeds_the_same_way_and_different_texts_do_not(self, mock_ollama):
+        assert default_embedding("passport") == default_embedding("passport")
+        assert default_embedding("passport") != default_embedding("charger")
+
+    def test_a_pinned_vector_wins(self, mock_ollama):
+        pinned = [1.0] + [0.0] * (EMBED_DIMENSIONS - 1)
+        mock_ollama.state.script_embedding("the trip to Hanoi", pinned)
+        resp = ollama.Client(host=mock_ollama.url).embed(model=DEFAULT_MODEL, input="the trip to Hanoi")
+        assert list(resp.embeddings[0]) == pinned
+
+    def test_requests_are_recorded_and_a_string_input_is_accepted(self, mock_ollama):
+        ollama.Client(host=mock_ollama.url).embed(model=DEFAULT_MODEL, input="solo")
+        [recorded] = mock_ollama.state.requests_to("/api/embed")
+        assert recorded["input"] == "solo"
+
+    def test_a_scripted_failure_is_an_http_error_until_reset(self, mock_ollama):
+        mock_ollama.state.fail_embeddings(503)
+        with pytest.raises(ollama.ResponseError) as exc:
+            ollama.Client(host=mock_ollama.url).embed(model=DEFAULT_MODEL, input="x")
+        assert exc.value.status_code == 503
+        mock_ollama.state.fail_embeddings(None)
+        assert ollama.Client(host=mock_ollama.url).embed(model=DEFAULT_MODEL, input="x").embeddings
+
+    def test_through_ollama_provider(self, mock_ollama):
+        provider = OllamaProvider(api_url=mock_ollama.url)
+        vectors = provider.embed("new-embedder", ["a", "b", "c"])
+        assert [len(v) for v in vectors] == [EMBED_DIMENSIONS] * 3
+        assert mock_ollama.state.has_model("new-embedder"), "pulled on first use, like chat models"
+
+    def test_the_http_control_surface_pins_and_fails(self, mock_ollama):
+        pinned = [0.0] * (EMBED_DIMENSIONS - 1) + [1.0]
+        r = httpx.post(f"{mock_ollama.url}/_mock/embeddings", json={"embeddings": {"q": pinned}})
+        assert r.json()["pinned"] == 1
+        assert mock_ollama.state.embedding_for("q") == pinned
+        httpx.post(f"{mock_ollama.url}/_mock/embeddings", json={"fail_status": 500})
+        assert mock_ollama.state.embed_fail_status == 500
+        assert mock_ollama.state.snapshot()["embed_fail_status"] == 500

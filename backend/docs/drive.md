@@ -25,9 +25,11 @@ One table, `drive_nodes`, holding a tree per account:
 | `storage_key` | uuid4 naming the blob on disk |
 | `created_at`, `updated_at` | `updated_at` is maintained by hand, as `conversations` does |
 
-`checksum` is there from the first migration on purpose: #6 (RAG) needs to
-attribute chunks to a file and re-embed when the bytes change, and retrofitting a
-checksum onto an already-full drive means rehashing everything.
+`checksum` was there from the first migration on purpose, and #6 now uses it:
+the retrieval index stamps `indexed_checksum` with the version it read, and a
+file is re-indexed when the two differ. A rename or move changes neither, so it
+costs no re-index — the citation path is resolved at query time. See
+`retrieval.md`.
 
 Uniqueness is **two partial indexes**, not one constraint, because Postgres
 treats NULLs as distinct — a plain `UNIQUE (user_id, parent_id, name)` would
@@ -183,10 +185,21 @@ Approval is the existing machinery, not something this module reimplements. See
 `drive_delete` it names the file and the size, because that is what someone reads
 before pressing Enter on something irreversible.
 
+## Recall
+
+Every readable file becomes searchable a moment after it is written: the router
+and `drive_write` queue it for the indexer, which extracts its text (UTF-8,
+Markdown, source, HTML, PDF, DOCX, PPTX, XLSX — never a secret by name), chunks
+it into verbatim passages and stores them with the page or line range. The
+assistant reaches them through `recall_regex` and `recall_semantic`, which cite
+the full path and the page. Those tools are built-in, so **drive passages are
+gated on `drive_read`**: included only when it is in the allowlist and not
+denied, which keeps the rule above. `retrieval.md` has the whole of it.
+
 ## What is deliberately not here
 
-- **Search.** That is #6, and it needs this first: a drive with no search is
-  useful, search over an empty drive is not.
+- **A search endpoint.** Recall is the assistant's (#6); the explorer's own
+  search over drive paths is a separate ticket.
 - **Sharing.** There is no ACL, no share link and no second reader. Every row is
   its owner's.
 - **Rename or move by the assistant.** Those stay human actions.

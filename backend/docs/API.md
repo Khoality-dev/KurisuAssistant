@@ -946,8 +946,10 @@ Lists the ASR models available on universal-voice.
 ```
 
 Native tools registered in `tools/__init__.py`: `history_list`, `history_read`,
-`history_search`, `get_skill_instructions` — all `built_in`, so they ignore the
-`available_tools` allowlist. The deferred meta-tools (`list_tools`,
+`recall_regex`, `recall_semantic`, `get_skill_instructions` — all `built_in`, so
+they ignore the `available_tools` allowlist (the recall tools still gate drive
+passages on `drive_read`; see `retrieval.md`) — and the four `drive_*` tools,
+which are not. The deferred meta-tools (`list_tools`,
 `search_tools`, `get_tool_schema`, `call_tool`) are created per-session rather than
 registered globally, and appear only when `assistants.use_deferred_tools` is set.
 

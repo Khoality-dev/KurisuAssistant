@@ -86,7 +86,7 @@ const DOCS_SUB_AGENTS = [
     description: 'Reads a file and reports what it actually does.',
     model_name: 'qwen3:4b',
     provider_type: 'ollama',
-    available_tools: ['history_read', 'history_search'],
+    available_tools: ['history_read', 'recall_regex'],
     think: true,
   },
   {
@@ -135,10 +135,19 @@ const DOCS_TOOLS = {
       builtin: true,
     },
     {
-      name: 'history_search',
+      name: 'recall_regex',
       description:
-        "Search past messages across all of the user's conversations by text content and/or date "
-        + 'range. Use to find when something was discussed.',
+        'Search everything the user said or wrote before — past conversations and the files in '
+        + 'their drive — with a case-insensitive regular expression. Returns matching passages '
+        + 'newest first, quoted verbatim, each with its source.',
+      builtin: true,
+    },
+    {
+      name: 'recall_semantic',
+      description:
+        'Search past conversations and the files in the user\'s drive by meaning: describe what '
+        + 'you are looking for and get the passages closest to it, even when the original used '
+        + 'different words.',
       builtin: true,
     },
     {
@@ -201,8 +210,8 @@ const DOCS_CONVERSATIONS: MockConversationSeed[] = [
       { role: 'user', content: 'Show me where that is enforced.' },
       {
         role: 'tool',
-        name: 'history_search',
-        args: { query: 'personas table columns' },
+        name: 'recall_regex',
+        args: { pattern: 'personas table columns' },
         status: 'success',
         content:
           'personas table: id, user_id, name, description, system_prompt, voice_reference, '

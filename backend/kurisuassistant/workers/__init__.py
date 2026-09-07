@@ -10,13 +10,21 @@ Usage::
 """
 
 from .service import BackgroundService
-from .tasks import ConsolidateMemoryTask
+from .tasks import (
+    ChunkConversationTask,
+    ChunkDriveFileTask,
+    ConsolidateMemoryTask,
+    EmbedPassagesTask,
+)
 
 __all__ = [
     "start",
     "stop",
     "submit",
     "ConsolidateMemoryTask",
+    "ChunkConversationTask",
+    "ChunkDriveFileTask",
+    "EmbedPassagesTask",
 ]
 
 _service: BackgroundService | None = None

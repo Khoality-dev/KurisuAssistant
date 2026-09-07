@@ -90,6 +90,9 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         """Whether a ``GET /models`` entry should be offered as a chat model."""
         return True
 
+    def _extend_embed_payload(self, payload: Dict[str, Any], *, kind: str) -> None:
+        """Add provider-specific fields to an embeddings payload, in place."""
+
     # -- request plumbing --------------------------------------------------------
 
     def _headers(self, stream: bool = False) -> Dict[str, str]:
@@ -391,6 +394,25 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             return data["choices"][0]["message"]["content"] or ""
         except Exception as e:
             logger.error("%s generate failed (model=%s): %s", self.PROVIDER_NAME, model, e, exc_info=True)
+            raise
+
+    def embed(self, model: str, texts: List[str], *, kind: str = "passage") -> List[List[float]]:
+        """``POST /embeddings`` in the OpenAI dialect, vectors returned in input order."""
+        payload: Dict[str, Any] = {"model": model, "input": list(texts), "encoding_format": "float"}
+        self._extend_embed_payload(payload, kind=kind)
+        try:
+            resp = requests.post(
+                f"{self.base_url}/embeddings",
+                headers=self._headers(),
+                json=payload,
+                timeout=self.REQUEST_TIMEOUT,
+            )
+            self._raise_for_status(resp)
+            data = resp.json().get("data", [])
+            ordered = sorted(data, key=lambda item: item.get("index", 0))
+            return [list(map(float, item["embedding"])) for item in ordered]
+        except Exception as e:
+            logger.error("%s embed failed (model=%s): %s", self.PROVIDER_NAME, model, e, exc_info=True)
             raise
 
     def ensure_model_available(self, model: str) -> bool:

@@ -9,6 +9,7 @@ from .face import FaceIdentityRepository, FacePhotoRepository
 from .skill import SkillRepository
 from .mcp_server import MCPServerRepository
 from .drive import DriveNodeRepository, split_path
+from .passages import Filters, Hit, PassageRepository
 
 __all__ = [
     "BaseRepository",
@@ -25,4 +26,7 @@ __all__ = [
     "MCPServerRepository",
     "DriveNodeRepository",
     "split_path",
+    "PassageRepository",
+    "Filters",
+    "Hit",
 ]

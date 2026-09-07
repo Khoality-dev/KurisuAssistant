@@ -168,6 +168,8 @@ Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `G
 | `VISION_DEVICE` | — | `cpu` or `cuda` for gesture detection; empty picks `cuda` when torch sees a GPU, else `cpu` (#152) |
 | `DRIVE_QUOTA_BYTES` | `16106127360` (15 GB) | How much Kurisu Drive one account may store. Registration is open by default, so an unmetered drive is a disk-exhaustion surface for the host; over it is `507` |
 | `DRIVE_MAX_FILE_BYTES` | `2147483648` (2 GB) | Largest single drive file, enforced as the bytes arrive rather than after; over it is `413`. Behind `--profile tls`, nginx's `client_max_body_size` for `/drive/` applies too and the smaller of the two wins |
+| `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL` | `ollama`, `bge-m3` | The one embedding model behind `recall_semantic` (#6): `ollama` pulls it from `LLM_API_URL` on first use, `gemini` and `nvidia` use the server-wide keys. Empty `EMBEDDING_MODEL` switches semantic recall off; `recall_regex` keeps working. Changing the model re-embeds everything in the background (`retrieval.md`) |
+| `RETRIEVAL_MAX_FILE_BYTES`, `RETRIEVAL_MAX_PASSAGES_PER_FILE` | `20971520` (20 MB), `2000` | Drive files over the byte cap are not indexed; a file stops chunking at the passage cap |
 
 Read by Compose rather than by the server:
 
