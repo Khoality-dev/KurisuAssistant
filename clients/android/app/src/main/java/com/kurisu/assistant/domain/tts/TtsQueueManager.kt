@@ -52,6 +52,13 @@ class TtsQueueManager @Inject constructor(
     private val _state = MutableStateFlow(TtsState())
     val state: StateFlow<TtsState> = _state
 
+    /**
+     * A sentence that could not be synthesized or played, as one line for the
+     * user. Wired by `CoreService`, which owns every callback in this layer;
+     * before it existed a dead speech service was a log line and silence (#200).
+     */
+    var onError: ((String) -> Unit)? = null
+
     // Exposed for character animation
     val amplitudeFlow: StateFlow<Float> get() = MutableStateFlow(_state.value.amplitude).also {
         // Return the amplitude from the main state
@@ -70,7 +77,8 @@ class TtsQueueManager @Inject constructor(
         if (trimmed.isBlank()) return
 
         val audioDeferred = scope.async {
-            val backend = prefs.getTTSBackend() ?: "gpt-sovits"
+            // Null names no provider, so the server's default model answers.
+            val backend = resolveTtsBackend(prefs.getTTSBackend())
             ttsRepository.synthesize(trimmed, voice, backend = backend)
         }
         queue.add(TtsQueueItem(audioDeferred, trimmed))
@@ -90,8 +98,11 @@ class TtsQueueManager @Inject constructor(
                     _state.update { it.copy(currentText = item.text) }
                     val wavBytes = item.audioDeferred.await()
                     playWavBytes(wavBytes)
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "TTS playback error: ${e.message}")
+                    onError?.invoke(describeSpeechFailure("Speech", e))
                 }
             }
             _state.update { it.copy(isPlaying = false, isQueueActive = false, amplitude = 0f, currentText = null) }

@@ -151,8 +151,12 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     currentConversationId: currentConversation?.id || null,
   });
 
-  // TTS (with amplitude callback for character lip sync)
-  const { speak, stop: stopTTS, isPlaying: isTTSPlaying, queueText, clearQueue, isQueueActive } = useTTS(onAmplitudeUpdate, onTTSPlaybackStart);
+  // TTS (with amplitude callback for character lip sync). A failed synthesis
+  // goes to the same toast as a failed send; the streaming hook that owns that
+  // toast is created below, so it is reached through a ref (#200).
+  const speechErrorRef = useRef<(message: string) => void>(() => {});
+  const onSpeechError = useCallback((message: string) => speechErrorRef.current(message), []);
+  const { speak, stop: stopTTS, isPlaying: isTTSPlaying, queueText, clearQueue, isQueueActive } = useTTS(onAmplitudeUpdate, onTTSPlaybackStart, onSpeechError);
   const setActivePersonaForTTS = useCallback((id: number | null) => {
     setActivePersonaId(id);
   }, [setActivePersonaId]);
@@ -174,6 +178,15 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     amplitudeRef,
     pushPersonaCharacterConfig,
   });
+
+  speechErrorRef.current = streaming.setErrorToast;
+
+  // A transcription that failed is reported the same way. The mic store keeps
+  // the last error; it used to be stored and shown nowhere.
+  const micError = useMicStore((s) => s.error);
+  useEffect(() => {
+    if (micError) streaming.setErrorToast(micError);
+  }, [micError]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Who is answering here. The server binding on the loaded conversation wins
   // over the client-side selection: the conversation is bound backend-side and

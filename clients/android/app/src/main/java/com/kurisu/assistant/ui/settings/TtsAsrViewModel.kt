@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.kurisu.assistant.domain.tts.describeSpeechFailure
 
 data class TtsAsrUiState(
     val ttsBackend: String = "",
@@ -94,7 +95,10 @@ class TtsAsrViewModel @Inject constructor(
             try {
                 val backends = ttsRepository.listBackends()
                 _state.update { it.copy(backends = backends) }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load TTS models: ${e.message}")
+                _state.update { it.copy(message = describeSpeechFailure("Loading TTS models", e)) }
+            }
 
             try {
                 val models = api.listAsrModels().data

@@ -105,16 +105,24 @@ interface KurisuApiService {
     @GET("/tts/voices")
     suspend fun listVoices(@Query("provider") provider: String? = null): VoicesResponse
 
-    @GET("/tts/backends")
-    suspend fun listBackends(): BackendsResponse
+    // There is no `/tts/backends`; the backend lists TTS models here (#200).
+    @GET("/tts/models")
+    suspend fun listTtsModels(): TtsModelsResponse
 
-    // ASR
+    // ASR. `model` is the universal-voice model id from `/asr/models`; absent
+    // means the server's default. (`mode` used to be sent and was read by nothing.)
     @POST("/asr")
     suspend fun transcribe(
         @Body audio: RequestBody,
         @retrofit2.http.Query("language") language: String? = null,
-        @retrofit2.http.Query("mode") mode: String? = null,
+        @retrofit2.http.Query("model") model: String? = null,
     ): TranscriptionResponse
+
+    @POST("/asr/detect-language")
+    suspend fun detectLanguage(
+        @Body audio: RequestBody,
+        @retrofit2.http.Query("model") model: String? = null,
+    ): LanguageDetectionResponse
 
     @GET("/asr/models")
     suspend fun listAsrModels(): AsrModelsResponse

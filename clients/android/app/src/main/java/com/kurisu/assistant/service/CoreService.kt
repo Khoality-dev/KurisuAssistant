@@ -27,6 +27,8 @@ import com.kurisu.assistant.domain.tts.TtsQueueManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import javax.inject.Inject
+import com.kurisu.assistant.domain.audio.AsrModelSelection
+import com.kurisu.assistant.domain.tts.describeSpeechFailure
 
 @AndroidEntryPoint
 class CoreService : Service() {
@@ -236,9 +238,9 @@ class CoreService : Service() {
             } else {
                 val asrLanguage = prefs.getAsrLanguage()
                 val language = asrLanguage.ifBlank { null }
-                val mode = if (!voiceInteractionManager.state.value.isInteractionMode) "fast" else null
-                val result = asrRepository.transcribe(pcmBytes, language = language, mode = mode)
-                Log.d(TAG, "ASR result: '${result.text}' (detected=${result.language}, selected=$asrLanguage, mode=$mode)")
+                val model = chooseAsrModel(pcmBytes)
+                val result = asrRepository.transcribe(pcmBytes, language = language, model = model)
+                Log.d(TAG, "ASR result: '${result.text}' (detected=${result.language}, selected=$asrLanguage, model=$model)")
 
                 // Cache auto-detected language on first transcription
                 if (asrLanguage.isBlank() && result.language.isNotBlank()) {
@@ -259,20 +261,54 @@ class CoreService : Service() {
                     }
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "ASR transcription error: ${e.message}", e)
+            coreState.emitSpeechError(describeSpeechFailure("Transcription", e))
         }
 
         coreState.setProcessingAsr(false)
         vad.resetState()
     }
 
+    /**
+     * The ASR model the Speech settings ask for: the fixed one, or — in routing
+     * mode — the one mapped to the language the server hears in this clip. Null
+     * is the server's default. The settings existed but were never sent (#200).
+     */
+    private suspend fun chooseAsrModel(pcmBytes: ByteArray): String? {
+        val mode = prefs.getAsrMode()
+        val fixed = prefs.getAsrFixedModel()
+        val map = prefs.getAsrModelMap()
+        val detected = if (AsrModelSelection.needsLanguageDetection(mode, map)) {
+            try {
+                asrRepository.detectLanguage(pcmBytes)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Detection is an optimisation; transcribing with the default is
+                // still better than dropping the clip.
+                Log.w(TAG, "ASR language detection failed, using the default model: ${e.message}")
+                null
+            }
+        } else {
+            null
+        }
+        return AsrModelSelection.resolve(mode, fixed, map, detected)
+    }
+
     // ── Callback wiring ──────────────────────────────────────────────
 
     private fun wireCallbacks() {
+        // "Generate TTS during responses" is a setting the user can turn off; the
+        // sentence still reaches the queue only when it is on (#200).
         streamProcessor.onSentenceBoundary = { text, voice ->
-            ttsQueueManager.queueText(text, voice)
+            serviceScope.launch {
+                if (prefs.getTTSAutoPlay()) ttsQueueManager.queueText(text, voice)
+            }
         }
+        ttsQueueManager.onError = { message -> coreState.emitSpeechError(message) }
 
         streamProcessor.onConversationId = { convId ->
             serviceScope.launch {

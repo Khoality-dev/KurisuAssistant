@@ -12,16 +12,24 @@ data class TranscriptionResult(val text: String, val language: String)
 class AsrRepository @Inject constructor(
     private val api: KurisuApiService,
 ) {
-    /** Send raw PCM bytes to the ASR endpoint and get transcription text + detected language */
+    /**
+     * Send raw PCM bytes to the ASR endpoint and get transcription text + detected
+     * language. [model] is a universal-voice model id; null leaves the choice to
+     * the server.
+     */
     suspend fun transcribe(
         audioBytes: ByteArray,
         language: String? = null,
-        mode: String? = null,
+        model: String? = null,
     ): TranscriptionResult {
         val body = audioBytes.toRequestBody("application/octet-stream".toMediaTypeOrNull())
-        val lang = language?.ifBlank { null }
-        val m = mode?.ifBlank { null }
-        val response = api.transcribe(body, lang, m)
+        val response = api.transcribe(body, language?.ifBlank { null }, model?.ifBlank { null })
         return TranscriptionResult(text = response.text, language = response.language)
+    }
+
+    /** Ask the server which language a clip is in, without transcribing it. */
+    suspend fun detectLanguage(audioBytes: ByteArray, model: String? = null): String {
+        val body = audioBytes.toRequestBody("application/octet-stream".toMediaTypeOrNull())
+        return api.detectLanguage(body, model?.ifBlank { null }).language
     }
 }

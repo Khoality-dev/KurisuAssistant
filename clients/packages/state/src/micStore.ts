@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { MicVAD } from '@ricky0123/vad-web';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeSpeechFailure } from '@kurisu/api';
 import { storage } from '@kurisu/api';
 
 export type ASRStatus = 'idle' | 'listening' | 'processing';
@@ -143,7 +143,7 @@ export const useMicStore = create<MicState>((set, get) => ({
             int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
           }
 
-          set({ status: 'processing' });
+          set({ status: 'processing', error: null });
 
           try {
             const asrMode = storage.getASRMode();
@@ -174,7 +174,8 @@ export const useMicStore = create<MicState>((set, get) => ({
             }
           } catch (err: any) {
             console.error('ASR transcription error:', err);
-            set({ error: err.message || 'Transcription failed' });
+            // One line for the user, not axios's; ChatWidget shows it (#200).
+            set({ error: await describeSpeechFailure('Transcription', err) });
           }
 
           _processing = false;

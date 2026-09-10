@@ -173,6 +173,12 @@ class ChatViewModel @Inject constructor(
             }
         }
 
+        // A failed transcription or synthesis lands in the same banner as a failed
+        // send: it is the chat that went quiet, and this is where the user is.
+        viewModelScope.launch {
+            coreState.speechErrors.collect { message -> streamProcessor.setError(message) }
+        }
+
         // Observe stream-done: reload from DB then clear ephemeral streaming messages
         viewModelScope.launch {
             coreState.streamDone.collect {
