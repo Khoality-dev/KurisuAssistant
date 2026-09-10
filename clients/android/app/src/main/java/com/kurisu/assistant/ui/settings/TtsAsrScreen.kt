@@ -64,6 +64,7 @@ fun TtsAsrScreen(
                     value = state.ttsBackend,
                     onValueChange = viewModel::setTtsBackend,
                     label = { Text("TTS Backend") },
+                    supportingText = { Text("Blank uses the server's default model") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().menuAnchor(),
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = backendExpanded) },

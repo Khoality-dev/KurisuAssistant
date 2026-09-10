@@ -71,7 +71,8 @@ export const TTSSection: React.FC = () => {
   };
 
   // TTS settings
-  const [ttsBackend, setTtsBackendState] = useState(storage.getTTSBackend() || 'vixtts');
+  // '' is "the server's default": the request then names no provider (#200).
+  const [ttsBackend, setTtsBackendState] = useState(storage.getTTSBackend() || '');
   const [ttsAutoPlay, setTtsAutoPlayState] = useState(storage.getTTSAutoPlay());
   const [ttsEmotionAlpha, setTtsEmotionAlphaState] = useState(storage.getTTSEmotionAlpha());
   const [ttsUseEmotionText, setTtsUseEmotionTextState] = useState(storage.getTTSUseEmotionText());
@@ -242,7 +243,11 @@ export const TTSSection: React.FC = () => {
             value={backends.includes(ttsBackend) ? ttsBackend : ''}
             label="TTS Model"
             onChange={(e) => setTtsBackend(e.target.value)}
+            displayEmpty
           >
+            <MenuItem value="">
+              <em>Default (server)</em>
+            </MenuItem>
             {backends.map((backend) => (
               <MenuItem key={backend} value={backend}>
                 {backend}

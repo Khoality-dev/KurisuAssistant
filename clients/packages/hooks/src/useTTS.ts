@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeSpeechFailure } from '@kurisu/api';
 import { storage } from '@kurisu/api';
 import { useAudioAmplitude } from './useAudioAmplitude';
 
@@ -36,6 +36,11 @@ function getWavDuration(buffer: ArrayBuffer): number | null {
 export function useTTS(
   onAmplitudeUpdate?: (amplitude: number, isPlaying: boolean) => void,
   onPlaybackStart?: (text: string, duration: number) => void,
+  /**
+   * A sentence that could not be synthesized or played, as one line for the
+   * user. Without it a dead speech service was a console line and silence (#200).
+   */
+  onError?: (message: string) => void,
 ) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [voices, setVoices] = useState<string[]>([]);
@@ -53,6 +58,13 @@ export function useTTS(
   amplitudeCallbackRef.current = onAmplitudeUpdate;
   const playbackStartCallbackRef = useRef(onPlaybackStart);
   playbackStartCallbackRef.current = onPlaybackStart;
+  const errorCallbackRef = useRef(onError);
+  errorCallbackRef.current = onError;
+  const reportFailure = useCallback((what: string, error: unknown) => {
+    const cb = errorCallbackRef.current;
+    if (!cb) return;
+    describeSpeechFailure(what, error).then(cb).catch(() => {});
+  }, []);
 
   // Queue-based streaming TTS state
   const ttsQueueRef = useRef<Array<{ audioPromise: Promise<Blob>; text: string }>>([]);
@@ -153,10 +165,11 @@ export function useTTS(
       } catch (error) {
         setIsPlaying(false);
         console.error('TTS error:', error);
+        reportFailure('Speech', error);
         throw error;
       }
     },
-    [amplitudeController]
+    [amplitudeController, reportFailure]
   );
 
   /**
@@ -210,6 +223,7 @@ export function useTTS(
         await playBlobAsync(blob, cb || undefined);
       } catch (e) {
         console.error('TTS queue playback error:', e);
+        reportFailure('Speech', e);
         // TTS failed — still send subtitle with 4s fallback duration
         const psCb = playbackStartCallbackRef.current;
         if (psCb) psCb(item.text, 4);
@@ -220,7 +234,7 @@ export function useTTS(
     if (cb) cb(0, false);
     isPlayingQueueRef.current = false;
     setIsQueueActive(false);
-  }, [playBlobAsync]);
+  }, [playBlobAsync, reportFailure]);
 
   /**
    * Queue text for synthesis and sequential playback (used during streaming).
@@ -228,7 +242,9 @@ export function useTTS(
   const queueText = useCallback((text: string, voice?: string) => {
     if (!text.trim()) return;
 
-    const backend = storage.getTTSBackend() || 'vixtts';
+    // No stored choice means no `provider` on the request, so the server's
+    // default TTS model answers; the client does not guess one (#200).
+    const backend = storage.getTTSBackend() || undefined;
     const emotionParams = backend === 'vixtts'
       ? {
           emo_alpha: storage.getTTSEmotionAlpha(),

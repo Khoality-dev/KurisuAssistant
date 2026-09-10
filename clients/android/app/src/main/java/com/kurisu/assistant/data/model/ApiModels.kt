@@ -130,8 +130,17 @@ data class UserProfile(
 @Serializable
 data class VoicesResponse(val voices: List<String>)
 
+// `GET /tts/models`: what universal-voice actually serves. The API filters to
+// `type == "tts"` already; `loaded` is null for backends it has not probed.
 @Serializable
-data class BackendsResponse(val backends: List<String>)
+data class TtsModelsResponse(val models: List<TtsModelInfo> = emptyList())
+
+@Serializable
+data class TtsModelInfo(
+    val id: String,
+    val type: String? = null,
+    val loaded: Boolean? = null,
+)
 
 @Serializable
 data class TTSRequest(
@@ -510,6 +519,9 @@ data class AsrLanguageModelEntry(
 
 @Serializable
 data class TranscriptionResponse(val text: String, val language: String = "")
+
+@Serializable
+data class LanguageDetectionResponse(val language: String = "", val confidence: Float? = null)
 
 @Serializable
 data class ImageUploadResponse(

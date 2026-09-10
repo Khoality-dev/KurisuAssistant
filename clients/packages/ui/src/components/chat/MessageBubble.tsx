@@ -138,7 +138,8 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
         if (message.persona?.id) {
           ttsRef.current?.setActivePersonaForTTS(message.persona.id);
         }
-        const currentBackend = storage.getTTSBackend() || 'vixtts';
+        // Unset means the server's default model (#200).
+        const currentBackend = storage.getTTSBackend() || undefined;
         const emotionParams =
           currentBackend === 'vixtts'
             ? {
