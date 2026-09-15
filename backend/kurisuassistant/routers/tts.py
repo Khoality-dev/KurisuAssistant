@@ -11,13 +11,16 @@ from fastapi.responses import Response
 from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.core.errors import internal_error
 from kurisuassistant.core.http import get_client
+from kurisuassistant.core.paths import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tts", tags=["tts"])
 
 UVOICE_URL = os.environ.get("UVOICE_URL", "http://universal-voice:14213").rstrip("/")
-VOICE_STORAGE_DIR = Path("data") / "voice_storage"
+# Resolved from the package like every other data path (core/paths.py), not from
+# the working directory: this was the one `Path("data")` left.
+VOICE_STORAGE_DIR = DATA_DIR / "voice_storage"
 AUDIO_EXTENSIONS = (".wav", ".mp3", ".flac", ".ogg")
 
 

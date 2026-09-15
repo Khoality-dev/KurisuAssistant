@@ -8,6 +8,7 @@ export * from './chat';
 export * from './client';
 export * from './config';
 export * from './fileSource';
+export * from './speechErrors';
 export * from './storage';
 export * from './websocket';
 export * from './wireProtocol';

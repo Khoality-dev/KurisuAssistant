@@ -33,6 +33,12 @@ class CoreState @Inject constructor() {
     private val _dictationDrafts = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val dictationDrafts: SharedFlow<String> = _dictationDrafts
 
+    // A speech request (transcription or synthesis) that failed, as one sentence
+    // for whoever is looking at the chat. Speech failures used to be logged and
+    // otherwise silent (#200).
+    private val _speechErrors = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val speechErrors: SharedFlow<String> = _speechErrors
+
     fun setServiceRunning(running: Boolean) {
         _state.update { it.copy(isServiceRunning = running) }
     }
@@ -64,5 +70,9 @@ class CoreState @Inject constructor() {
 
     fun emitDictationDraft(text: String) {
         _dictationDrafts.tryEmit(text)
+    }
+
+    fun emitSpeechError(message: String) {
+        _speechErrors.tryEmit(message)
     }
 }

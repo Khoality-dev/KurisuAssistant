@@ -24,8 +24,10 @@ alive, and the pieces that must stay in step with the desktop client.
 - Replaces desktop's `/live-animate` slash command. Chat header has a `Face` icon button that opens `CharacterSheet` (`ui/character/CharacterSheet.kt`) over the transcript. It is a sheet, not a route: the chat keeps streaming behind it, and the sheet is bound to the conversation's persona (falling back to the assistant's default)
 
 ## TTS Pipeline
-- Sentence boundary splitting (`.!?。！？\n`) → `queueText()` FIFO
+- Sentence boundary splitting (`.!?。！？\n`) → `queueText()` FIFO — only while "Generate TTS during responses" (`prefs.getTTSAutoPlay()`) is on; `CoreService` checks it per sentence. The persona preview ("Hello. This is …") calls `queueText` directly and is not gated
+- The request names a `provider` only when the user chose one: `resolveTtsBackend()` turns a blank setting into null and the server's default TTS model answers. It used to fall back to `gpt-sovits`, which is not normally running, so a fresh install was silent (#200). The Settings list comes from `GET /tts/models` (`TtsRepository.listBackends()`); `/tts/backends` never existed on the server
 - WAV bytes → parse PCM → pre-compute RMS curve → MediaPlayer + amplitude polling
+- A sentence that cannot be synthesized or played goes to `TtsQueueManager.onError` → `CoreState.speechErrors` → the chat's error banner (`ChatViewModel` → `streamProcessor.setError`), as one line built by `describeSpeechFailure()` from the API's `detail`
 
 ## Voice Interaction
 - AudioRecord → Silero VAD (ONNX) → speech detection → ASR → trigger word → interaction mode
@@ -39,7 +41,7 @@ alive, and the pieces that must stay in step with the desktop client.
 - Started on app launch (ConversationsScreen requests mic permission → starts service). Keeps process alive via persistent notification
 - **Owns all callback wiring**: `ChatStreamProcessor` → `TtsQueueManager`, `VoiceInteractionManager` → `sendMessage()`. No dual-ownership with ViewModel
 - **VAD loop**: Collects `AudioRecorder.audioChunks` → `VoiceActivityDetector.processSamples()` → speech/silence tracking → `processCurrentRecording()` on 1500ms silence after speech
-- **ASR pipeline**: `AudioRecorder.takeAccumulatedPcm()` → `AsrRepository.transcribe()` → `CoreState.emitTranscript()` → `VoiceInteractionManager.handleTranscript()`
+- **ASR pipeline**: `AudioRecorder.takeAccumulatedPcm()` → `chooseAsrModel()` → `AsrRepository.transcribe(language, model)` → `CoreState.emitTranscript()` → `VoiceInteractionManager.handleTranscript()`. The model comes from the Speech settings through the pure `domain/audio/AsrModelSelection`: the fixed model, or in routing mode `AsrRepository.detectLanguage()` first and the per-language table; null is the server default. A failed transcription is one line on `CoreState.speechErrors`, shown in the chat banner (#200)
 - `VoiceInteractionManager` (in `service/`) is a pure interaction-mode state machine (trigger word matching, auto-send, idle timer, sound effects). No audio/VAD/ASR — those live in CoreService
 - `CoreState` singleton is the bridge: `CoreServiceState` (isServiceRunning, isRecording, isProcessingAsr, lastTranscript, conversationId, selectedAgentId) + `asrTranscripts` SharedFlow + `streamDone` SharedFlow
 - `ChatStreamProcessor` uses internal CoroutineScope (`startCollecting()`/`stopCollecting()`) — survives both Activity and service lifecycles

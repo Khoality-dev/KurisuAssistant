@@ -36,13 +36,17 @@ test.describe('unreachable services', () => {
 
     await expect(page.getByText('The speech service is unavailable. (reference: mock)')).toBeVisible({ timeout: 10_000 });
 
-    // The picker offers nothing: the three fabricated ids are gone. (MUI's
+    // The picker names no model: the three fabricated ids are gone, and the
+    // only entry is "Default (server)" — the choice to send no provider at all
+    // (#200), which is not a model and needs no service to exist. (MUI's
     // Select gives the combobox no accessible name, so find it by its form
     // control.)
     const picker = page.locator('.MuiFormControl-root', { hasText: 'TTS Model' }).getByRole('combobox');
-    await expect(picker).toHaveText('');
+    await expect(picker).toHaveText('Default (server)');
     await picker.click();
-    await expect(page.getByRole('option')).toHaveCount(0);
+    const options = page.getByRole('option');
+    await expect(options).toHaveCount(1);
+    await expect(options.first()).toHaveText('Default (server)');
     await page.keyboard.press('Escape');
   });
 

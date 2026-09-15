@@ -1262,7 +1262,6 @@ export class MockBackend {
       }
     }
     if (pathOnly === '/faces') return this.json(res, []);
-    if (pathOnly === '/tts/backends') return this.json(res, { backends: [] });
     if (pathOnly === '/tts/voices' || pathOnly.startsWith('/tts/voices')) return this.json(res, { voices: [] });
     if (pathOnly === '/tts/models') {
       if (this.unreachable.has('/tts/models')) {

@@ -9,7 +9,10 @@ import javax.inject.Singleton
 class TtsRepository @Inject constructor(
     private val api: KurisuApiService,
 ) {
-    /** Synthesize speech, returns WAV bytes */
+    /**
+     * Synthesize speech, returns WAV bytes. A blank [backend] is not sent, so the
+     * server's default TTS model answers — the client does not guess one (#200).
+     */
     suspend fun synthesize(
         text: String,
         voice: String? = null,
@@ -21,9 +24,9 @@ class TtsRepository @Inject constructor(
     ): ByteArray {
         val request = TTSRequest(
             text = text,
-            voice = voice,
-            language = language,
-            provider = backend,
+            voice = voice?.ifBlank { null },
+            language = language?.ifBlank { null },
+            provider = backend?.ifBlank { null },
             emoAudio = emoAudio,
             emoAlpha = emoAlpha,
             useEmoText = useEmoText,
@@ -33,8 +36,9 @@ class TtsRepository @Inject constructor(
     }
 
     suspend fun listVoices(backend: String? = null): List<String> =
-        api.listVoices(backend).voices
+        api.listVoices(backend?.ifBlank { null }).voices
 
+    /** The TTS model ids the speech service serves, from `GET /tts/models`. */
     suspend fun listBackends(): List<String> =
-        api.listBackends().backends
+        api.listTtsModels().models.map { it.id }
 }

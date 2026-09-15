@@ -11,6 +11,20 @@ universal-voice service, which is what makes viXTTS the default backend.
 - **GPT-SoVITS** (`gpt_sovits_provider.py`): Voice reference path as query param, POSIX format
 - **viXTTS** (`vixtts_provider.py`): Voice reference file via multipart/form-data plus language code
 
+## Which model a request asks for
+
+`provider` on `POST /tts` is optional, and **both clients leave it out until the
+user picks a model in Settings** ("Default (server)" on desktop, a blank field on
+Android). The request then carries no `model`, and universal-voice answers with
+`UVOICE_TTS_DEFAULT_MODEL`. The clients used to fill the gap themselves — desktop
+with `vixtts`, Android with `gpt-sovits`, a backend that needs a reference clip
+and is not normally running — so a fresh Android install could not speak at all,
+and the Settings list it would have chosen from came from `GET /tts/backends`, a
+route that does not exist (#200). The list is `GET /tts/models` on both clients.
+
+A synthesis that fails is shown, not logged: one sentence carrying the API's
+`detail`, in the chat's error toast (desktop) or banner (Android).
+
 ## Voice Discovery
 
 Scan `data/voice_storage/` for audio files (.wav/.mp3/.flac/.ogg). Frontend sends voice names only (no paths/extensions) — backend enforces via `_find_voice_file()`.
