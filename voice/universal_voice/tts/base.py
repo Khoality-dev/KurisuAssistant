@@ -47,11 +47,22 @@ class BaseTTSModel(ABC):
         ...
 
     def load(self) -> None:
-        """Load the weights now rather than on the first request.
+        """Bring the weights onto the device: from disk if nothing is loaded,
+        from CPU memory if ``offload`` parked them. Idempotent.
 
-        The lifespan calls this for the models in ``TTS_PRELOAD``; ``synthesize``
-        must call it too, so a model that was not pre-loaded still works.
+        The scheduler (``scheduler.py``) calls this for a request and for the
+        models in ``TTS_PRELOAD``; ``synthesize`` must call it too, so a model
+        used outside the scheduler still works.
         """
+        return None
+
+    def offload(self) -> bool:
+        """Park the weights in CPU memory, freeing the device. Return False
+        when the backend cannot (the scheduler then waits for ``unload``)."""
+        return False
+
+    def unload(self) -> None:
+        """Drop the weights entirely."""
         return None
 
     def check_health(self) -> dict:

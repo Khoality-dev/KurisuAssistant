@@ -9,11 +9,30 @@ import numpy as np
 
 from universal_voice import config
 from universal_voice.models.manager import model_manager
+from universal_voice.scheduler import scheduler
 
 if TYPE_CHECKING:
     from faster_whisper import WhisperModel
 
 logger = logging.getLogger(__name__)
+
+
+class _AsrHandle:
+    """What the residency scheduler sees for one Whisper model (#207): load and
+    unload through the transcriber; CTranslate2 cannot offload."""
+
+    def __init__(self, transcriber: "Transcriber", name: str):
+        self._transcriber = transcriber
+        self.model_id = name
+
+    def load(self) -> None:
+        self._transcriber._get_model(self.model_id)
+
+    def offload(self) -> bool:
+        return False
+
+    def unload(self) -> None:
+        self._transcriber.unload_model(self.model_id)
 
 
 class Transcriber:
@@ -22,6 +41,14 @@ class Transcriber:
     def __init__(self):
         self._models: dict[str, "WhisperModel"] = {}
         self._lock = threading.Lock()
+        self._handles: dict[str, _AsrHandle] = {}
+
+    def handle(self, model_name: str | None = None) -> _AsrHandle:
+        name = model_name or config.DEFAULT_MODEL
+        handle = self._handles.get(name)
+        if handle is None:
+            handle = self._handles[name] = _AsrHandle(self, name)
+        return handle
 
     def _get_model(self, model_name: str | None = None) -> "WhisperModel":
         """Get or lazily load a WhisperModel."""
@@ -71,6 +98,10 @@ class Transcriber:
 
         Returns (text, detected_language).
         """
+        with scheduler.use(self.handle(model_name), kind="asr"):
+            return self._transcribe(model_name, audio, language, initial_prompt)
+
+    def _transcribe(self, model_name, audio, language, initial_prompt) -> tuple[str, str]:
         model = self._get_model(model_name)
         kwargs: dict = {"without_timestamps": True}
         if language:
@@ -95,6 +126,10 @@ class Transcriber:
 
         Returns (language, confidence, [(lang, prob), ...]).
         """
+        with scheduler.use(self.handle(model_name), kind="asr"):
+            return self._detect_language(model_name, audio, allowed_languages)
+
+    def _detect_language(self, model_name, audio, allowed_languages) -> tuple[str, float, list[tuple[str, float]]]:
         model = self._get_model(model_name)
         target_len = 30 * 16000
         if len(audio) > target_len:

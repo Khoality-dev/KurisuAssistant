@@ -7,6 +7,7 @@ Vietnamese in the tokenizer — is patched onto the class at load time, see
 ``_teach_tokenizer_vietnamese``.
 """
 
+import gc
 import hashlib
 import io
 import logging
@@ -90,6 +91,7 @@ class ViXTTSModel(BaseTTSModel):
 
     def __init__(self):
         self._model: Any = None
+        self._offloaded = False
         self._normalizer = None
         self._load_lock = threading.Lock()
         # XTTS is not thread-safe, and one GPU: syntheses are serialised.
@@ -124,10 +126,12 @@ class ViXTTSModel(BaseTTSModel):
         return model_dir
 
     def load(self) -> None:
-        if self._model is not None:
-            return
         with self._load_lock:
             if self._model is not None:
+                if self._offloaded:
+                    self._model.to(config.DEVICE)
+                    self._offloaded = False
+                    logger.info("viXTTS back on %s", config.DEVICE)
                 return
             _teach_tokenizer_vietnamese()
             from TTS.tts.configs.xtts_config import XttsConfig
@@ -147,7 +151,25 @@ class ViXTTSModel(BaseTTSModel):
             except Exception:  # noqa: BLE001 — vinorm ships a binary; keep speaking without it
                 logger.warning("vinorm unavailable; Vietnamese text is synthesised unnormalised", exc_info=True)
             self._model = model
+            self._offloaded = False
             logger.info("viXTTS loaded on %s from %s", config.DEVICE, model_dir)
+
+    def offload(self) -> bool:
+        with self._load_lock:
+            if self._model is None or self._offloaded:
+                return self._model is not None
+            self._model.to("cpu")
+            self._latents.clear()  # device tensors; a second to recompute
+            self._offloaded = True
+            _release_device_memory()
+        return True
+
+    def unload(self) -> None:
+        with self._load_lock:
+            self._model = None
+            self._offloaded = False
+            self._latents.clear()
+            _release_device_memory()
 
     # --- conditioning ------------------------------------------------------
 
@@ -247,6 +269,17 @@ class ViXTTSModel(BaseTTSModel):
 
     def is_loaded(self) -> Optional[bool]:
         return self._model is not None
+
+
+def _release_device_memory() -> None:
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _wav_bytes(wav, sample_rate: int) -> bytes:

@@ -8,6 +8,7 @@ the data volume. Only v2 is wired up: the v3/v4 vocoders in the vendored
 ``TTS.py`` still resolve their weights relative to the working directory.
 """
 
+import gc
 import hashlib
 import io
 import logging
@@ -57,6 +58,7 @@ class GPTSoVITSModel(BaseTTSModel):
 
     def __init__(self):
         self._tts: Any = None
+        self._offloaded = False
         self._load_lock = threading.Lock()
         self._infer_lock = threading.Lock()
         # Reference clips on disk, keyed by content hash. Upstream caches the
@@ -96,11 +98,22 @@ class GPTSoVITSModel(BaseTTSModel):
                 raise RuntimeError(f"GPT-SoVITS {name} weights missing at {path}")
         return paths
 
+    # The torch modules upstream's TTS object holds for v2.
+    _MODULES = ("t2s_model", "vits_model", "bert_model", "cnhuhbert_model", "vocoder", "sr_model")
+
+    def _move(self, device: str) -> None:
+        for name in self._MODULES:
+            module = getattr(self._tts, name, None)
+            if module is not None and hasattr(module, "to"):
+                module.to(device)
+
     def load(self) -> None:
-        if self._tts is not None:
-            return
         with self._load_lock:
             if self._tts is not None:
+                if self._offloaded:
+                    self._move(config.DEVICE)
+                    self._offloaded = False
+                    logger.info("GPT-SoVITS back on %s", config.DEVICE)
                 return
             paths = self._ensure_files()
             ensure_gpt_sovits_importable(
@@ -118,7 +131,23 @@ class GPTSoVITSModel(BaseTTSModel):
                 "cnhuhbert_base_path": str(paths["hubert"]),
             }
             self._tts = TTS(TTS_Config({"version": "v2", "custom": custom}))
+            self._offloaded = False
             logger.info("GPT-SoVITS loaded on %s (gpt=%s, sovits=%s)", config.DEVICE, paths["gpt"].name, paths["sovits"].name)
+
+    def offload(self) -> bool:
+        with self._load_lock:
+            if self._tts is None or self._offloaded:
+                return self._tts is not None
+            self._move("cpu")
+            self._offloaded = True
+            _release_device_memory()
+        return True
+
+    def unload(self) -> None:
+        with self._load_lock:
+            self._tts = None
+            self._offloaded = False
+            _release_device_memory()
 
     # --- reference clips ---------------------------------------------------
 
@@ -191,6 +220,17 @@ class GPTSoVITSModel(BaseTTSModel):
 
     def is_loaded(self) -> Optional[bool]:
         return self._tts is not None
+
+
+def _release_device_memory() -> None:
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _wav_bytes(audio: np.ndarray, sample_rate: int) -> bytes:

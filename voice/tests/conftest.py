@@ -38,6 +38,15 @@ class FakeTTSModel:
     def model_id(self) -> str:
         return self._id
 
+    def load(self):
+        self.calls.append({"load": True})
+
+    def offload(self):
+        return False
+
+    def unload(self):
+        pass
+
     def synthesize(self, text, voice_id=None, language=None, ref_audio_bytes=None, ref_text=None, **kwargs):
         self.calls.append({
             "text": text, "voice_id": voice_id, "language": language,

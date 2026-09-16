@@ -44,11 +44,45 @@ XTTS-v2 was not trained on Vietnamese, so coqui-tts's `VoiceBpeTokenizer` raises
 
 Weights are pulled on first use into `UVOICE_DATA_DIR/tts/` — the `uvoice-data` volume — so the first `docker compose up` with the profile spends minutes downloading (viXTTS about 2 GB, GPT-SoVITS about 2 GB) before the first synthesis. The models in `UVOICE_TTS_PRELOAD` do this at startup on a thread; `GET /v1/models` shows `loaded: false` until they finish, and a request for one waits on its lock. GPT-SoVITS's g2pW model (Chinese input only) is fetched on the first Chinese sentence, into the same volume.
 
+### Residency
+
+One process holds every model, on a GPU it shares with Ollama and the vision
+pipeline, so a model nobody is using should not sit on it (#207).
+`scheduler.py` keeps each registered model — the three synthesis backends and
+every loaded Whisper model — in one of three states:
+
+| State | Where the weights are | Time to the next request |
+| --- | --- | --- |
+| `resident` | on the device | none |
+| `offloaded` | CPU memory (`model.to("cpu")`) | seconds |
+| `unloaded` | nowhere | tens of seconds, from the volume |
+
+Three rules move a model between them. A request brings its model to
+`resident` and holds it there until it returns, so a model in use is never
+parked. At most `UVOICE_TTS_MAX_RESIDENT` synthesis models are resident at
+once (default 1): bringing another in offloads the least recently used one
+first, unless every resident model is in use, in which case the cap is
+exceeded rather than a request refused. A sweeper thread parks a model idle for
+`UVOICE_OFFLOAD_AFTER_SECONDS` (default 5 min) and drops one idle for
+`UVOICE_UNLOAD_AFTER_SECONDS` (default 30 min); Whisper models count against
+neither cap but follow the same idle rules. VieNeu (ONNX sessions, a llama.cpp
+backbone) and CTranslate2's Whisper cannot offload; they stay resident until
+the unload threshold. `TTS_PRELOAD` loads through the same scheduler, so a
+pre-loaded model is parked like any other once it has been idle long enough.
+
+The state is visible: `GET /v1/models` carries `residency` and `idle_seconds`
+for every entry. The heavy calls run outside the scheduler's own lock,
+serialised per model, and the in-use check is repeated under that per-model
+lock, so a request that arrives while the sweeper is deciding always wins.
+
 ### Settings
 
 | Variable | Default |
 | --- | --- |
 | `UVOICE_TTS_DEFAULT_MODEL` | `vixtts` — used when a request names no `model` |
+| `UVOICE_TTS_MAX_RESIDENT` | `1` synthesis model on the device at once; `0` for no cap |
+| `UVOICE_OFFLOAD_AFTER_SECONDS` | `300` — idle seconds before a model is parked in CPU memory; `0` never |
+| `UVOICE_UNLOAD_AFTER_SECONDS` | `1800` — idle seconds before a model is dropped; `0` never |
 | `UVOICE_TTS_PRELOAD` | the default model — comma-separated ids to load at startup |
 | `UVOICE_TTS_MODE` | `turbo` — the VieNeu engine mode, part of its model id |
 | `UVOICE_VIXTTS_MODEL_ID`, `UVOICE_VIXTTS_BASE_MODEL_ID` | `capleaf/viXTTS`, `coqui/XTTS-v2` |

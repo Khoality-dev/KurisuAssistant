@@ -55,6 +55,12 @@ class VieNeuTTSModel(BaseTTSModel):
     def load(self) -> None:
         self.get_engine()
 
+    def unload(self) -> None:
+        # ONNX sessions and a llama.cpp backbone: nothing to move, only to drop.
+        with self._lock:
+            self._engine = None
+            self._ref_codes_cache.clear()
+
     def synthesize(
         self,
         text: str,

@@ -56,6 +56,13 @@ TTS_PRELOAD: list[str] = [
 ]
 TTS_MODELS_DIR: str = os.path.join(DATA_DIR, "tts")
 
+# Residency (#207, scheduler.py). How many synthesis models may be on the
+# device at once (0 = no cap); after how many idle seconds a model is parked in
+# CPU memory (0 = never) and after how many it is dropped entirely (0 = never).
+TTS_MAX_RESIDENT: int = int(os.environ.get("UVOICE_TTS_MAX_RESIDENT", "1"))
+OFFLOAD_AFTER_SECONDS: float = float(os.environ.get("UVOICE_OFFLOAD_AFTER_SECONDS", "300"))
+UNLOAD_AFTER_SECONDS: float = float(os.environ.get("UVOICE_UNLOAD_AFTER_SECONDS", "1800"))
+
 # viXTTS: XTTS-v2 fine-tuned for Vietnamese. The speaker presets come from the
 # base model's speakers file, which the fine-tune does not ship.
 VIXTTS_MODEL_ID: str = os.environ.get("UVOICE_VIXTTS_MODEL_ID", "capleaf/viXTTS")

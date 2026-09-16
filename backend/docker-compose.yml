@@ -62,6 +62,12 @@ services:
       - UVOICE_TTS_DEFAULT_MODEL=vixtts
       # Which synthesis models load at startup; the others on first request.
       - UVOICE_TTS_PRELOAD=${UVOICE_TTS_PRELOAD:-vixtts}
+      # Residency (#207): how many synthesis models sit on the GPU at once, and
+      # after how many idle seconds a model is parked in CPU memory, then
+      # dropped. The GPU is shared; nothing idle should hold it.
+      - UVOICE_TTS_MAX_RESIDENT=${UVOICE_TTS_MAX_RESIDENT:-1}
+      - UVOICE_OFFLOAD_AFTER_SECONDS=${UVOICE_OFFLOAD_AFTER_SECONDS:-300}
+      - UVOICE_UNLOAD_AFTER_SECONDS=${UVOICE_UNLOAD_AFTER_SECONDS:-1800}
       - HF_TOKEN=${HF_TOKEN:-}
     expose:
       - "14213"
