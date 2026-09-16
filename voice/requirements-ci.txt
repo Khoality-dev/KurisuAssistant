@@ -1,0 +1,18 @@
+# What the unit tests need, and nothing else.
+#
+# requirements.txt targets the CUDA PyTorch image: torch, ctranslate2,
+# onnxruntime-gpu and the synthesis stacks, gigabytes that the tests never
+# reach. Every heavy import in the package is inside the function that uses it
+# (config.py, models/transcriber.py, tts/*_model.py) so the routers import on a
+# bare runner; this file is what tells you when that stops being true — CI
+# fails at collection, not at runtime.
+fastapi==0.115.12
+starlette==0.46.2
+pydantic==2.11.4
+httpx>=0.27.0
+# Form/UploadFile routes check for it at import.
+python-multipart==0.0.20
+numpy==1.26.4
+soundfile==0.13.1
+requests==2.32.3
+pytest==8.3.5

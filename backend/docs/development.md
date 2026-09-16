@@ -25,13 +25,12 @@ profile inside the first:
 
 | Profile | Adds | Needs |
 | --- | --- | --- |
-| `voice` | universal-voice and vixtts | `VIXTTS_ROOT` and `UVOICE_ROOT` pointing at those checkouts, and an NVIDIA runtime |
+| `voice` | universal-voice (`../voice`, this repository) and vixtts | `VIXTTS_ROOT` pointing at that checkout, and an NVIDIA runtime |
 | `sovits` | gpt-sovits, the second synthesis backend | the `voice` profile as well |
 | `tls` | nginx on 443 with the bundled config | `./nginx/generate-certs.sh` run once |
 
 ```bash
-VIXTTS_ROOT=~/src/viXTTS UVOICE_ROOT=~/src/universal-asr \
-  docker compose --profile voice --profile tls up -d --build
+VIXTTS_ROOT=~/src/viXTTS docker compose --profile voice --profile tls up -d --build
 ```
 
 This is the fix for #98. All of it used to be unconditional, so a clean machine
@@ -178,7 +177,7 @@ Read by Compose rather than by the server:
 | `API_PORT`, `API_BIND` | `15597`, `0.0.0.0` | Where the API is published on the host. `API_BIND=127.0.0.1` keeps it off the network when a proxy fronts it |
 | `API_DEV_PORT` | `15598` | The dev overlay's port, always on loopback |
 | `HTTPS_PORT` | `443` | nginx's port, under `--profile tls` |
-| `VIXTTS_ROOT`, `UVOICE_ROOT` | — | Checkouts the speech services build from, under `--profile voice`. The fallback is a placeholder naming the variable, so forgetting it fails on a path that says what to set rather than on somebody's home directory |
+| `VIXTTS_ROOT` | — | The checkout vixtts builds from, under `--profile voice`. The fallback is a placeholder naming the variable, so forgetting it fails on a path that says what to set rather than on somebody's home directory. universal-voice needs no such variable: it is `../voice` (#202) |
 | `HF_TOKEN` | — | Hugging Face token for universal-voice's gated models |
 | `DB_WAIT_ATTEMPTS`, `DB_WAIT_INTERVAL` | `60`, `2` | How long the entrypoint waits for Postgres before failing loudly |
 

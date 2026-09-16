@@ -3,11 +3,12 @@
 # repository. There are two Compose files in the project: this one and
 # `docker-compose.dev.yml`.
 #
-# The parts that need more than this repository — a GPU, a checkout of another
+# The parts that need more than this directory — a GPU, a checkout of another
 # project — are profiles, off unless you ask:
 #
-#   --profile voice    speech: universal-voice, and viXTTS behind it.
-#                      Needs VIXTTS_ROOT and UVOICE_ROOT, and an NVIDIA runtime.
+#   --profile voice    speech: universal-voice, built from ../voice in this
+#                      repository, and viXTTS behind it. Needs VIXTTS_ROOT and
+#                      an NVIDIA runtime.
 #   --profile sovits   GPT-SoVITS, the second synthesis backend, on top of voice.
 #   --profile tls      nginx on 443 with the bundled self-signed certificate.
 #                      Run ./nginx/generate-certs.sh once first.
@@ -101,12 +102,18 @@ services:
       gpt-sovits:
         condition: service_started
         required: false
+    # A package of this repository (#202). It used to build from a checkout of
+    # another one, named by UVOICE_ROOT, so a release tag here pinned nothing
+    # about it and the speech contract lived in two places.
     build:
-      context: ${UVOICE_ROOT:-/UVOICE_ROOT-is-not-set}
+      context: ../voice
       dockerfile: Dockerfile
     container_name: universal-voice
     volumes:
-      - ${UVOICE_ROOT:-/UVOICE_ROOT-is-not-set}/data:/app/data
+      # The model cache — Whisper models pulled and converted on demand. A
+      # volume the stack owns, not a directory in someone else's checkout; it is
+      # re-downloadable and not part of a backup.
+      - uvoice-data:/app/data
       - uvoice-hf-cache:/root/.cache/huggingface
       - tts-ref-audio:/shared-ref-audio
     environment:
@@ -310,5 +317,6 @@ networks:
 
 volumes:
   postgres-data:
+  uvoice-data:
   uvoice-hf-cache:
   tts-ref-audio:

@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Universal ASR</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
+.header { background: #1a1b23; border-bottom: 1px solid #2a2b35; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+.header h1 { font-size: 20px; font-weight: 600; }
+.tabs { display: flex; gap: 0; background: #1a1b23; border-bottom: 1px solid #2a2b35; padding: 0 24px; }
+.tab { padding: 12px 20px; cursor: pointer; border-bottom: 2px solid transparent; color: #888; font-size: 14px; transition: all .15s; }
+.tab:hover { color: #ccc; }
+.tab.active { color: #7c8aff; border-bottom-color: #7c8aff; }
+.content { max-width: 900px; margin: 0 auto; padding: 24px; }
+.panel { display: none; }
+.panel.active { display: block; }
+.card { background: #1a1b23; border: 1px solid #2a2b35; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+.card h3 { font-size: 15px; margin-bottom: 12px; color: #aab; }
+.row { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+label { display: block; font-size: 13px; color: #888; margin-bottom: 4px; }
+input, select { background: #12131a; border: 1px solid #2a2b35; border-radius: 6px; padding: 8px 12px; color: #e0e0e0; font-size: 14px; width: 100%; }
+input:focus, select:focus { outline: none; border-color: #7c8aff; }
+button { background: #7c8aff; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; font-size: 14px; cursor: pointer; white-space: nowrap; transition: background .15s; }
+button:hover { background: #6b79ee; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.danger { background: #e05555; }
+button.danger:hover { background: #c94444; }
+button.secondary { background: #2a2b35; color: #ccc; }
+button.secondary:hover { background: #353645; }
+.result { background: #12131a; border: 1px solid #2a2b35; border-radius: 6px; padding: 16px; margin-top: 12px; min-height: 60px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+.result .text { font-size: 16px; color: #fff; }
+.result .meta { font-size: 12px; color: #666; margin-top: 8px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #2a2b35; font-size: 13px; }
+th { color: #888; font-weight: 500; }
+.status { font-size: 13px; padding: 8px 0; color: #7c8aff; }
+.status.error { color: #e05555; }
+.recording { animation: pulse 1s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+.rec-btn { background: #e05555; }
+.rec-btn:hover { background: #c94444; }
+.rec-btn.recording { background: #c94444; }
+audio { width: 100%; margin-top: 8px; }
+.flex-1 { flex: 1; min-width: 180px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7c8aff" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+  <h1>Universal ASR</h1>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="transcribe">Transcribe</div>
+  <div class="tab" data-tab="detect">Language Detection</div>
+  <div class="tab" data-tab="models">Models</div>
+</div>
+
+<div class="content">
+
+  <!-- Transcribe -->
+  <div class="panel active" id="transcribe">
+    <div class="card">
+      <h3>Audio Input</h3>
+      <div class="row" style="margin-bottom:12px">
+        <div class="flex-1"><label>Model</label><select id="t-model"></select></div>
+        <div class="flex-1"><label>Language (optional)</label><input id="t-lang" placeholder="e.g. en, vi, ja"></div>
+      </div>
+      <div class="row" style="margin-bottom:12px">
+        <input type="file" id="t-file" accept="audio/*">
+        <span style="color:#666">or</span>
+        <button class="rec-btn" id="t-rec">Record</button>
+      </div>
+      <audio id="t-audio" controls style="display:none"></audio>
+      <div class="row" style="margin-top:12px">
+        <button id="t-submit">Transcribe</button>
+      </div>
+    </div>
+    <div class="result" id="t-result" style="display:none"></div>
+  </div>
+
+  <!-- Language Detection -->
+  <div class="panel" id="detect">
+    <div class="card">
+      <h3>Audio Input</h3>
+      <div class="row" style="margin-bottom:12px">
+        <div class="flex-1"><label>Model</label><select id="d-model"></select></div>
+      </div>
+      <div class="row" style="margin-bottom:12px">
+        <input type="file" id="d-file" accept="audio/*">
+        <span style="color:#666">or</span>
+        <button class="rec-btn" id="d-rec">Record</button>
+      </div>
+      <audio id="d-audio" controls style="display:none"></audio>
+      <div class="row" style="margin-top:12px">
+        <button id="d-submit">Detect Language</button>
+      </div>
+    </div>
+    <div class="result" id="d-result" style="display:none"></div>
+  </div>
+
+  <!-- Models -->
+  <div class="panel" id="models">
+    <div class="card">
+      <h3>Models</h3>
+      <table>
+        <thead><tr><th>Name</th><th>Parameters</th><th>Size</th><th>Status</th><th></th></tr></thead>
+        <tbody id="m-table"><tr><td colspan="5" style="color:#666">Loading...</td></tr></tbody>
+      </table>
+      <button class="secondary" id="m-refresh" style="margin-top:12px">Refresh</button>
+    </div>
+    <div class="card">
+      <h3>Pull Custom Model</h3>
+      <p style="font-size:13px;color:#666;margin-bottom:12px">Enter a HuggingFace model ID. It will be auto-converted to CTranslate2 format.</p>
+      <div class="row">
+        <div class="flex-1"><input id="m-pull-input" placeholder="e.g. vinai/PhoWhisper-base"></div>
+        <button id="m-pull-btn">Pull</button>
+      </div>
+      <div class="status" id="m-status"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = window.location.origin;
+
+// Tabs
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.tab).classList.add('active');
+  });
+});
+
+// Whisper standard models
+const WHISPER_MODELS = [
+  { name: 'tiny', params: '39M', size: '~75 MB' },
+  { name: 'tiny.en', params: '39M', size: '~75 MB' },
+  { name: 'base', params: '74M', size: '~142 MB' },
+  { name: 'base.en', params: '74M', size: '~142 MB' },
+  { name: 'small', params: '244M', size: '~466 MB' },
+  { name: 'small.en', params: '244M', size: '~466 MB' },
+  { name: 'medium', params: '769M', size: '~1.5 GB' },
+  { name: 'medium.en', params: '769M', size: '~1.5 GB' },
+  { name: 'large-v3', params: '1550M', size: '~3.1 GB' },
+  { name: 'turbo', params: '809M', size: '~1.6 GB' },
+];
+
+async function pullModel(name, btn) {
+  const row = btn.closest('tr');
+  const statusCell = row.querySelector('td:nth-child(4)');
+  btn.disabled = true;
+  btn.textContent = 'Pulling...';
+  statusCell.innerHTML = '<span style="color:#7c8aff;font-size:12px" class="recording">Downloading...</span>';
+  try {
+    const r = await fetch(`${API}/v1/models/pull`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: name })
+    });
+    if (r.ok) {
+      refreshModels();
+    } else {
+      const data = await r.json();
+      statusCell.innerHTML = `<span style="color:#e05555;font-size:12px">Error</span>`;
+      btn.disabled = false;
+      btn.textContent = 'Pull';
+      alert(`Error: ${data.detail}`);
+    }
+  } catch (e) {
+    statusCell.innerHTML = `<span style="color:#e05555;font-size:12px">Error</span>`;
+    btn.disabled = false;
+    btn.textContent = 'Pull';
+    alert(`Error: ${e.message}`);
+  }
+}
+
+// Model dropdowns
+async function loadModels() {
+  try {
+    const r = await fetch(`${API}/v1/models`);
+    const data = await r.json();
+    const models = data.data || [];
+    ['t-model', 'd-model'].forEach(id => {
+      const sel = document.getElementById(id);
+      sel.innerHTML = '';
+      if (models.length === 0) {
+        sel.innerHTML = '<option value="">default</option>';
+        return;
+      }
+      models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.name || m.id;
+        opt.textContent = `${m.name || m.id} (${m.size_mb} MB)`;
+        sel.appendChild(opt);
+      });
+    });
+    return models;
+  } catch { return []; }
+}
+
+// Models table — merges standard Whisper models + custom installed models
+async function refreshModels() {
+  const models = await loadModels();
+  const tbody = document.getElementById('m-table');
+  const installedNames = new Set(models.map(m => m.name).concat(models.map(m => m.id)));
+
+  let rows = '';
+
+  // Standard Whisper models
+  WHISPER_MODELS.forEach(w => {
+    const installed = installedNames.has(w.name);
+    const installedModel = models.find(m => m.name === w.name || m.id === w.name);
+    const sizeStr = installedModel && installedModel.size_mb != null ? installedModel.size_mb + ' MB' : w.size;
+    rows += `<tr>
+      <td>${w.name}</td>
+      <td>${w.params}</td>
+      <td>${sizeStr}</td>
+      <td>${installed ? '<span style="color:#4a6;font-size:12px">Installed</span>' : '<span style="color:#666;font-size:12px">Not installed</span>'}</td>
+      <td>${installed
+        ? `<button class="danger" onclick="deleteModel('${w.name}')">Delete</button>`
+        : `<button onclick="pullModel('${w.name}', this)">Pull</button>`
+      }</td>
+    </tr>`;
+  });
+
+  // Custom models (not in standard list)
+  const whisperNames = new Set(WHISPER_MODELS.map(w => w.name));
+  models.filter(m => !whisperNames.has(m.name) && !whisperNames.has(m.id)).forEach(m => {
+    rows += `<tr>
+      <td>${m.name}</td>
+      <td>—</td>
+      <td>${m.size_mb != null ? m.size_mb + ' MB' : '—'}</td>
+      <td><span style="color:#4a6;font-size:12px">Installed</span></td>
+      <td><button class="danger" onclick="deleteModel('${m.id}')">Delete</button></td>
+    </tr>`;
+  });
+
+  tbody.innerHTML = rows;
+}
+
+async function deleteModel(id) {
+  if (!confirm(`Delete model "${id}"?`)) return;
+  await fetch(`${API}/v1/models/${id}`, { method: 'DELETE' });
+  refreshModels();
+}
+
+document.getElementById('m-refresh').addEventListener('click', refreshModels);
+
+// Pull model
+document.getElementById('m-pull-btn').addEventListener('click', async () => {
+  const input = document.getElementById('m-pull-input');
+  const status = document.getElementById('m-status');
+  const name = input.value.trim();
+  if (!name) return;
+  status.innerHTML = `<span class="recording">Downloading "${name}"... This may take a while for large models.</span>`;
+  status.className = 'status';
+  document.getElementById('m-pull-btn').disabled = true;
+  try {
+    const r = await fetch(`${API}/v1/models/pull`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: name })
+    });
+    const data = await r.json();
+    if (r.ok) {
+      status.textContent = `Model "${name}" is ready.`;
+      input.value = '';
+      document.getElementById('m-pull-btn').disabled = false;
+      refreshModels();
+    } else {
+      status.textContent = `Error: ${data.detail}`;
+      status.className = 'status error';
+      document.getElementById('m-pull-btn').disabled = false;
+    }
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+    status.className = 'status error';
+    document.getElementById('m-pull-btn').disabled = false;
+  }
+});
+
+// Recording
+function setupRecorder(fileId, audioId, btnId) {
+  const btn = document.getElementById(btnId);
+  const fileInput = document.getElementById(fileId);
+  const audioEl = document.getElementById(audioId);
+  let mediaRec = null, chunks = [];
+
+  btn.addEventListener('click', async () => {
+    if (mediaRec && mediaRec.state === 'recording') {
+      mediaRec.stop();
+      btn.textContent = 'Record';
+      btn.classList.remove('recording');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRec = new MediaRecorder(stream);
+      chunks = [];
+      mediaRec.ondataavailable = e => chunks.push(e.data);
+      mediaRec.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        audioEl.src = URL.createObjectURL(blob);
+        audioEl.style.display = 'block';
+        // Store blob for submission
+        audioEl._blob = blob;
+        // Clear file input
+        fileInput.value = '';
+      };
+      mediaRec.start();
+      btn.textContent = 'Stop';
+      btn.classList.add('recording');
+    } catch (e) { alert('Microphone access denied'); }
+  });
+}
+
+setupRecorder('t-file', 't-audio', 't-rec');
+setupRecorder('d-file', 'd-audio', 'd-rec');
+
+// Get audio blob from file input or recording
+function getAudioBlob(fileId, audioId) {
+  const fileInput = document.getElementById(fileId);
+  const audioEl = document.getElementById(audioId);
+  if (fileInput.files.length > 0) return fileInput.files[0];
+  if (audioEl._blob) return audioEl._blob;
+  return null;
+}
+
+// File input preview
+['t-file', 'd-file'].forEach((fid, i) => {
+  const aid = i === 0 ? 't-audio' : 'd-audio';
+  document.getElementById(fid).addEventListener('change', e => {
+    const audioEl = document.getElementById(aid);
+    if (e.target.files.length > 0) {
+      audioEl.src = URL.createObjectURL(e.target.files[0]);
+      audioEl.style.display = 'block';
+      audioEl._blob = null;
+    }
+  });
+});
+
+// Transcribe
+document.getElementById('t-submit').addEventListener('click', async () => {
+  const blob = getAudioBlob('t-file', 't-audio');
+  if (!blob) { alert('Please upload or record audio first.'); return; }
+  const model = document.getElementById('t-model').value;
+  const lang = document.getElementById('t-lang').value.trim();
+  const resultEl = document.getElementById('t-result');
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = '<span style="color:#666">Transcribing...</span>';
+
+  const form = new FormData();
+  form.append('file', blob, 'audio.wav');
+  if (model) form.append('model', model);
+  if (lang) form.append('language', lang);
+
+  const start = performance.now();
+  try {
+    const r = await fetch(`${API}/v1/audio/transcriptions`, { method: 'POST', body: form });
+    const data = await r.json();
+    const elapsed = ((performance.now() - start) / 1000).toFixed(2);
+    if (r.ok) {
+      resultEl.innerHTML = `<div class="text">${data.text || '(empty)'}</div><div class="meta">Language: ${data.language || '?'} · ${elapsed}s</div>`;
+    } else {
+      resultEl.innerHTML = `<span class="error" style="color:#e05555">Error: ${data.detail}</span>`;
+    }
+  } catch (e) {
+    resultEl.innerHTML = `<span style="color:#e05555">Error: ${e.message}</span>`;
+  }
+});
+
+// Detect language
+document.getElementById('d-submit').addEventListener('click', async () => {
+  const blob = getAudioBlob('d-file', 'd-audio');
+  if (!blob) { alert('Please upload or record audio first.'); return; }
+  const model = document.getElementById('d-model').value;
+  const resultEl = document.getElementById('d-result');
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = '<span style="color:#666">Detecting...</span>';
+
+  const form = new FormData();
+  form.append('file', blob, 'audio.wav');
+  if (model) form.append('model', model);
+
+  const start = performance.now();
+  try {
+    const r = await fetch(`${API}/v1/audio/detect-language`, { method: 'POST', body: form });
+    const data = await r.json();
+    const elapsed = ((performance.now() - start) / 1000).toFixed(2);
+    if (r.ok) {
+      let html = `<div class="text">Detected: ${data.language} (${(data.confidence * 100).toFixed(1)}%)</div>`;
+      html += `<div class="meta">${elapsed}s</div>`;
+      if (data.probabilities) {
+        html += '<table style="margin-top:12px"><tr><th>Language</th><th>Probability</th><th></th></tr>';
+        Object.entries(data.probabilities)
+          .sort((a, b) => b[1] - a[1])
+          .forEach(([lang, prob]) => {
+            const pct = (prob * 100).toFixed(1);
+            const bar = `<div style="background:#7c8aff;height:8px;border-radius:4px;width:${prob * 200}px"></div>`;
+            html += `<tr><td>${lang}</td><td>${pct}%</td><td>${bar}</td></tr>`;
+          });
+        html += '</table>';
+      }
+      resultEl.innerHTML = html;
+    } else {
+      resultEl.innerHTML = `<span style="color:#e05555">Error: ${data.detail}</span>`;
+    }
+  } catch (e) {
+    resultEl.innerHTML = `<span style="color:#e05555">Error: ${e.message}</span>`;
+  }
+});
+
+// Init
+refreshModels();
+</script>
+</body>
+</html>

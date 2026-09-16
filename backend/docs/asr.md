@@ -3,9 +3,11 @@
 ## Provider
 
 faster-whisper (CTranslate2-based), running inside the **universal-voice**
-service — not inside the API. The API is a proxy: `routers/asr.py` forwards to
-`ASR_API_URL` and returns 502 "The speech service is unavailable." when that
-service is not running (it is behind `--profile voice`).
+service — `../voice` in this repository (#202), not inside the API. The API is
+a proxy: `routers/asr.py` forwards to `ASR_API_URL` and returns 502 "The speech
+service is unavailable." when that service is not running (it is behind
+`--profile voice`). How the service caches, pulls and converts models is
+`voice/docs/models.md`; its routes are `voice/docs/api.md`.
 
 ## Configuration
 
