@@ -6,6 +6,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 
+from universal_voice.scheduler import scheduler
 from universal_voice.tts.registry import tts_registry
 
 logger = logging.getLogger(__name__)
@@ -51,15 +52,20 @@ async def synthesize(
 
         # Every backend runs in this process now (#203), so a synthesis is
         # seconds of GPU work; off the event loop, or /health stalls with it.
-        audio_bytes = await run_in_threadpool(
-            tts_model.synthesize,
-            text=text,
-            voice_id=voice_id,
-            language=language,
-            ref_audio_bytes=ref_audio_bytes,
-            ref_text=ref_text,
-            ref_audio_filename=ref_audio_filename,
-        )
+        # The scheduler brings the model in (evicting another if the cap says
+        # so) and keeps it there until this returns (#207).
+        def synthesize():
+            with scheduler.use(tts_model):
+                return tts_model.synthesize(
+                    text=text,
+                    voice_id=voice_id,
+                    language=language,
+                    ref_audio_bytes=ref_audio_bytes,
+                    ref_text=ref_text,
+                    ref_audio_filename=ref_audio_filename,
+                )
+
+        audio_bytes = await run_in_threadpool(synthesize)
 
         logger.info("Synthesize: done, %d bytes audio", len(audio_bytes))
         return Response(
@@ -74,6 +80,11 @@ async def synthesize(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _list_voices(tts_model) -> list[dict]:
+    with scheduler.use(tts_model):
+        return tts_model.list_voices()
+
+
 @router.get("/voices")
 async def list_voices(model: str | None = Query(default=None)):
     """List available preset voices, optionally filtered by model."""
@@ -81,7 +92,7 @@ async def list_voices(model: str | None = Query(default=None)):
         if model:
             tts_model = tts_registry.get_model(model)
             # list_voices may load the model to read its presets.
-            voices = await run_in_threadpool(tts_model.list_voices)
+            voices = await run_in_threadpool(_list_voices, tts_model)
             for v in voices:
                 v["model"] = tts_model.model_id
             return voices
@@ -90,7 +101,7 @@ async def list_voices(model: str | None = Query(default=None)):
         all_voices = []
         for m in tts_registry.list_models():
             tts_model = tts_registry.get_model(m["id"])
-            voices = await run_in_threadpool(tts_model.list_voices)
+            voices = await run_in_threadpool(_list_voices, tts_model)
             for v in voices:
                 v["model"] = m["id"]
             all_voices.extend(voices)

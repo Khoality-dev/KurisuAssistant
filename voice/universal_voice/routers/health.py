@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from universal_voice.models.manager import model_manager
 from universal_voice.models.transcriber import transcriber
+from universal_voice.scheduler import scheduler
 from universal_voice.tts.registry import tts_registry
 
 router = APIRouter(tags=["health"])
@@ -16,10 +17,18 @@ async def health():
 
 @router.get("/v1/models")
 async def list_models():
-    """List all models (ASR + TTS)."""
+    """List all models (ASR + TTS), each with its residency (#207): resident,
+    offloaded (parked in CPU memory) or unloaded, and how long it has been idle."""
     cached = model_manager.list_models()
     loaded = transcriber.loaded_models()
     cached_ids = {m["id"] for m in cached} | {m["name"] for m in cached}
+    residency = scheduler.status()
+
+    def _residency(kind: str, model_id: str) -> dict:
+        entry = residency.get(f"{kind}:{model_id}")
+        if entry is None:
+            return {"residency": "unloaded", "idle_seconds": None}
+        return {"residency": entry["residency"], "idle_seconds": entry["idle_seconds"]}
 
     data = []
     # ASR models — loaded but not in cache list
@@ -32,6 +41,7 @@ async def list_models():
                 "name": name,
                 "size_mb": None,
                 "loaded": True,
+                **_residency("asr", name),
             })
     # ASR models — cached on disk
     for m in cached:
@@ -42,10 +52,12 @@ async def list_models():
             "name": m["name"],
             "size_mb": m["size_mb"],
             "loaded": m["id"] in loaded or m["name"] in loaded,
+            **_residency("asr", m["id"]),
         })
 
     # TTS models
-    data.extend(tts_registry.list_models())
+    for m in tts_registry.list_models():
+        data.append({**m, **_residency("tts", m["id"])})
 
     return {"object": "list", "data": data}
 

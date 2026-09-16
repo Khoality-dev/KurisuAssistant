@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from universal_voice import config
 from universal_voice.models.manager import model_manager
+from universal_voice.scheduler import scheduler
 from universal_voice.routers import health, transcription, tts
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,8 @@ async def lifespan(app: FastAPI):
     # not yet loaded is reported as such by /v1/models, and a request for it
     # waits on its lock rather than failing.
     threading.Thread(target=_preload_tts, name="tts-preload", daemon=True).start()
+    # Parks idle models in CPU memory and drops them after longer (#207).
+    threading.Thread(target=scheduler.run_forever, name="residency-sweeper", daemon=True).start()
 
     yield
 
@@ -49,7 +52,7 @@ def _preload_tts() -> None:
     for model_id in config.TTS_PRELOAD:
         try:
             model = tts_registry.get_model(model_id)
-            model.load()
+            scheduler.preload(model)
             logger.info("TTS ready: %s", model.model_id)
         except Exception:
             logger.exception("Failed to pre-load TTS model %s", model_id)

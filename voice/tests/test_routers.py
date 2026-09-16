@@ -84,8 +84,10 @@ def test_synthesize_uses_the_default_model_when_none_is_named(client, fake_regis
     assert r.headers["content-type"] == "audio/wav"
     assert r.content == b"RIFF" + "xin chào".encode()
     model = fake_registry.get_model("fake-a")
-    assert model.calls[0]["text"] == "xin chào"
-    assert model.calls[0]["ref_audio_bytes"] is None
+    # The scheduler brought the model in before the synthesis ran (#207).
+    assert model.calls[0] == {"load": True}
+    assert model.calls[1]["text"] == "xin chào"
+    assert model.calls[1]["ref_audio_bytes"] is None
 
 
 def test_synthesize_forwards_ref_audio_and_language_to_the_named_model(client, fake_registry):
@@ -96,7 +98,7 @@ def test_synthesize_forwards_ref_audio_and_language_to_the_named_model(client, f
     )
     assert r.status_code == 200
     assert fake_registry.get_model("fake-a").calls == []
-    call = fake_registry.get_model("fake-b").calls[0]
+    call = fake_registry.get_model("fake-b").calls[-1]
     assert call["ref_audio_bytes"] == b"RIFFref"
     assert call["ref_audio_filename"] == "ref.wav"
     assert call["language"] == "en"
@@ -136,3 +138,14 @@ def test_model_list_covers_asr_and_tts(client, fake_registry, fake_transcriber):
     assert ("tts", "fake-b") in ids
     # The fake transcriber reports "base" as loaded even though nothing is cached on disk.
     assert ("asr", "base") in ids
+    # Every entry carries its residency (#207); nothing here went through the scheduler.
+    for m in r.json()["data"]:
+        assert m["residency"] in {"unloaded", "offloaded", "resident"}
+        assert "idle_seconds" in m
+
+
+def test_model_list_shows_a_used_model_as_resident(client, fake_registry, fake_transcriber):
+    client.post("/tts/synthesize", data={"text": "hi", "model": "fake-b"})
+    entry = next(m for m in client.get("/v1/models").json()["data"] if m["id"] == "fake-b")
+    assert entry["residency"] == "resident"
+    assert entry["idle_seconds"] == 0

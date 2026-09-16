@@ -177,6 +177,7 @@ Read by Compose rather than by the server:
 | `API_DEV_PORT` | `15598` | The dev overlay's port, always on loopback |
 | `HTTPS_PORT` | `443` | nginx's port, under `--profile tls` |
 | `UVOICE_TTS_PRELOAD` | `vixtts` | Which synthesis models universal-voice loads at startup; the others load on their first request (`voice/docs/models.md`) |
+| `UVOICE_TTS_MAX_RESIDENT`, `UVOICE_OFFLOAD_AFTER_SECONDS`, `UVOICE_UNLOAD_AFTER_SECONDS` | `1`, `300`, `1800` | Residency (#207): how many synthesis models may be on the GPU at once, and after how long idle a model is parked in CPU memory, then dropped. `0` disables each |
 | `UVOICE_GPTSOVITS_GPT_WEIGHTS`, `UVOICE_GPTSOVITS_SOVITS_WEIGHTS` | — | A fine-tuned GPT-SoVITS voice instead of the pretrained pair; paths inside the container, under the `uvoice-data` volume |
 | `HF_TOKEN` | — | Hugging Face token for universal-voice's gated models |
 | `DB_WAIT_ATTEMPTS`, `DB_WAIT_INTERVAL` | `60`, `2` | How long the entrypoint waits for Postgres before failing loudly |

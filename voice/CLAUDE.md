@@ -14,8 +14,9 @@ This is the `voice/` package of the KurisuAssistant monorepo (see the root `CLAU
 
 ```
 universal_voice/
-  main.py              the app; the lifespan pre-loads the default ASR model, and the TTS_PRELOAD models on a thread
+  main.py              the app; the lifespan pre-loads the default ASR model, the TTS_PRELOAD models on a thread, and starts the residency sweeper
   config.py            every setting, read from the environment once at import
+  scheduler.py         residency: resident / offloaded / unloaded per model, an LRU cap on resident synthesis models, idle sweeping (#207)
   routers/
     transcription.py   /asr, /asr/detect-language (raw PCM), /v1/audio/* (OpenAI-shaped uploads)
     tts.py             /tts/synthesize, /tts/voices
@@ -24,7 +25,7 @@ universal_voice/
     manager.py         resolve a Whisper model name to a local CTranslate2 directory: cached, pulled, or converted
     transcriber.py     loaded WhisperModel instances, transcription, language detection
   tts/
-    base.py            BaseTTSModel: load / synthesize / list_voices / check_health / is_loaded
+    base.py            BaseTTSModel: load / offload / unload / synthesize / list_voices / check_health / is_loaded
     registry.py        the model ids the clients see, lazily built
     text_processing.py split_text (200 chars, paragraphs then sentences) and merge_wav_files
     vixtts_model.py    XTTS-v2 fine-tune through coqui-tts, plus the Vietnamese tokenizer patch
@@ -43,6 +44,7 @@ tests/                 fakes for the registry and the transcriber; nothing loads
 - **Heavy imports are lazy** — torch (`config.py`), faster-whisper (`models/transcriber.py`), coqui-tts, the vendored GPT-SoVITS tree and vieneu (`tts/*_model.py`) are imported inside the function that first needs them. That is what lets the routers import on a bare runner; `requirements-ci.txt` is the list of what the tests need, and `tests/test_tts_backends.py` fails if any of those libraries is imported at module level.
 - **Weights are not in the image.** viXTTS and GPT-SoVITS pull theirs from Hugging Face on first use into `UVOICE_DATA_DIR/tts/` — the `uvoice-data` volume in the stack, several gigabytes, re-downloadable. The models in `UVOICE_TTS_PRELOAD` (default: the default model) load at startup on a thread, so `/health` answers while they do; the others load on their first request. The image does carry everything GPT-SoVITS's text frontends would otherwise fetch at first use (`scripts/prewarm.py`), so a container with no outbound network still speaks once it has weights.
 - **One GPU, one process, serialised.** Each backend holds a lock around its inference; the routers call into them through `run_in_threadpool`, so a synthesis never blocks the event loop and `/health` stays responsive.
+- **Nothing idle stays on the GPU.** Every use of a model goes through `scheduler.use(model)` (#207): at most `UVOICE_TTS_MAX_RESIDENT` synthesis models are on the device (default 1, LRU eviction), an idle model is parked in CPU memory after `UVOICE_OFFLOAD_AFTER_SECONDS` and dropped after `UVOICE_UNLOAD_AFTER_SECONDS`, and a model in use is never touched. A new backend implements `load()` (idempotent, and it must bring an offloaded model back), `offload() -> bool` and `unload()`; call the model only inside `scheduler.use`. `docs/models.md` "Residency".
 - **The wire contract with the backend** is `POST /asr` (Int16 PCM, 16 kHz, mono, as `application/octet-stream`; `?language`, `?model`, `?initial_prompt`), `POST /asr/detect-language`, `GET /v1/models`, `POST /tts/synthesize` (multipart: `text`, `model`, `voice_id`, `language`, `ref_audio`, `ref_text`), `GET /tts/voices`, `GET /health`. `backend/tests/test_tts_router.py` and this package's `tests/test_routers.py` pin the two ends; change both in the same PR. The model ids — `vixtts`, `gpt-sovits`, `vieneu:<mode>` — are stored in both clients' settings; renaming one is a client migration.
 - **Every synthesis backend goes through `split_text`** at 200 characters and `merge_wav_files`; a backend never sees a whole paragraph.
 - **Vendored code is patched in place and recorded.** Four changes to upstream GPT-SoVITS, each marked `PATCHED` and listed in `vendor/gpt_sovits/PATCHES.md`; update that file with any further one. The vendored tree introduces top-level module names (`text`, `module`, `utils`, `tools`, `AR`, …) — they are put on `sys.path` only when GPT-SoVITS loads, never at import.
