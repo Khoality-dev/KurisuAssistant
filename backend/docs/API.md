@@ -102,7 +102,7 @@ so there is nothing to refuse at this point.
 No authentication.
 
 ```json
-{"status": "ok", "service": "llm-hub"}
+{"status": "ok", "service": "kurisuassistant"}
 ```
 
 ### GET /version

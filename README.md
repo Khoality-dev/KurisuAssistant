@@ -54,7 +54,7 @@ The first start downloads several gigabytes. When it finishes, open
 <http://localhost:15597/health> on the server computer. A working server shows:
 
 ```json
-{"status":"ok","service":"llm-hub"}
+{"status":"ok","service":"kurisuassistant"}
 ```
 
 Follow the quick start above, using `http://localhost:15597` on the server
