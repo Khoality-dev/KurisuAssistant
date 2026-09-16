@@ -148,12 +148,12 @@ def test_base_api_depends_on_nothing_optional():
 
 
 def test_speech_paths_have_no_real_default():
-    """The speech services may interpolate VIXTTS_ROOT/UVOICE_ROOT, but the
-    fallback must be an obvious placeholder — never a path that happens to
-    exist on somebody's machine. (`:?` cannot be used: Compose interpolates
-    every service, including ones a profile has switched off.)"""
+    """A speech service may interpolate VIXTTS_ROOT, but the fallback must be an
+    obvious placeholder — never a path that happens to exist on somebody's
+    machine. (`:?` cannot be used: Compose interpolates every service, including
+    ones a profile has switched off.)"""
     text = BASE.read_text()
-    for variable in ("VIXTTS_ROOT", "UVOICE_ROOT"):
+    for variable in ("VIXTTS_ROOT",):
         defaults = re.findall(rf"\$\{{{variable}:-([^}}]*)\}}", text)
         assert defaults, f"{variable} must carry a placeholder default"
         for default in defaults:
@@ -161,6 +161,17 @@ def test_speech_paths_have_no_real_default():
                 f"{variable}'s fallback is {default!r}; it must name the variable "
                 "so the failure says what to set"
             )
+
+
+def test_the_voice_service_builds_from_this_repository():
+    """universal-voice is `../voice`, a package of this monorepo (#202). It used
+    to build from a checkout of another repository named by UVOICE_ROOT, so a
+    backend release tag pinned nothing about it."""
+    build = load(BASE)["services"]["universal-voice"]["build"]
+    context = build["context"] if isinstance(build, dict) else build
+    assert context == "../voice", f"universal-voice builds from {context}"
+    assert (BACKEND.parent / "voice" / "Dockerfile").exists()
+    assert "${UVOICE_ROOT" not in BASE.read_text(), "the external checkout is gone; do not bring it back"
 
 
 def test_env_template_documents_every_variable_the_base_file_reads():

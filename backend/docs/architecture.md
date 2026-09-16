@@ -18,8 +18,9 @@ everything else needs something this repository does not contain — a GPU, or a
 checkout of another project:
 
 - **`--profile voice`** — **universal-voice** (internal 14213), which fronts
-  synthesis and recognition, and **vixtts** (19770) behind it. Built from the
-  checkouts named by `VIXTTS_ROOT` and `UVOICE_ROOT`.
+  synthesis and recognition, and **vixtts** (19770) behind it. universal-voice
+  is `../voice` in this repository (#202; its own docs are `voice/CLAUDE.md`);
+  vixtts is built from the checkout named by `VIXTTS_ROOT`.
 - **`--profile sovits`** — **gpt-sovits** (9880), the second synthesis backend,
   reached only through universal-voice.
 - **`--profile tls`** — **nginx** on 443, terminating TLS with
@@ -65,7 +66,7 @@ routers/                 one module per surface, all mounted in main.py
   sub_agents             task-only workers
   portability            the shared export/import format for the two above
   models, tools, skills, mcp
-  asr, tts               proxy to universal-voice
+  asr, tts               proxy to universal-voice (../voice)
   images, character      serve stored media
   vision                 face identities and photos
   ws                     the WebSocket route and its handshake auth

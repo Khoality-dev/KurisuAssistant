@@ -72,8 +72,10 @@ Both artefacts are credential stores: the archive holds the session signing key,
 the dump holds each user's provider API keys in plain columns, and the
 environment file holds the database password.
 
-With `--profile voice`, also archive `${VIXTTS_ROOT}/models` and
-`${UVOICE_ROOT}/data`; with `--profile sovits`, `data/sovits/weights`.
+With `--profile voice`, also archive `${VIXTTS_ROOT}/models`; with
+`--profile sovits`, `data/sovits/weights`. universal-voice's own cache, the
+`kurisuassistant_uvoice-data` volume, is Whisper models it can pull again and
+is not worth archiving.
 
 **`data/drive/` is the part that grows.** Everything else under `data/` is
 avatars and model caches; the drive is whatever users put in it, up to

@@ -4,8 +4,7 @@ GPT-SoVITS is the second voice synthesis backend. viXTTS is the default; this
 one is opt-in, behind a profile, and reached only through universal-voice.
 
 ```bash
-VIXTTS_ROOT=... UVOICE_ROOT=... \
-  docker compose --profile voice --profile sovits up -d
+VIXTTS_ROOT=... docker compose --profile voice --profile sovits up -d
 ```
 
 ## Docker Configuration

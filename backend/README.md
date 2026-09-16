@@ -19,7 +19,7 @@ The API server behind the [desktop](../clients/desktop/) and [Android](../client
 - Docker Engine 24 or newer and Docker Compose v2.24 or newer
 - [Ollama](https://ollama.ai) reachable from the stack, or a cloud provider key (Gemini, NVIDIA NIM, or Poe)
 
-No GPU or external checkout is required for the base stack. The optional `voice` profile requires an NVIDIA GPU, the NVIDIA container runtime, and external viXTTS and universal-asr trees.
+No GPU or external checkout is required for the base stack. The optional `voice` profile requires an NVIDIA GPU, the NVIDIA container runtime, and an external viXTTS tree; the speech service itself is [`../voice`](../voice/CLAUDE.md).
 
 ## Getting Started
 
