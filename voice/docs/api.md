@@ -44,9 +44,9 @@ Multipart `file`, `model` → `{"language", "confidence", "probabilities"}` (top
 
 ### POST /tts/synthesize
 
-Multipart form: `text` (required), `model` (a registry id — `vixtts`, `gpt-sovits`, `vieneu:<mode>`; absent means `UVOICE_TTS_DEFAULT_MODEL`), `voice_id` (a preset of that model), `language`, `ref_audio` (a file, for voice cloning), `ref_text` (its transcript, for backends that use one). Answers `audio/wav`. 400 for an unknown model, 500 with the backend's message otherwise.
+Multipart form: `text` (required), `model` (a registry id — `vixtts`, `gpt-sovits`, `vieneu:<mode>`; absent means `UVOICE_TTS_DEFAULT_MODEL`), `voice_id` (a preset of that model), `language`, `ref_audio` (a file, for voice cloning), `ref_text` (its transcript; GPT-SoVITS uses it as the prompt text). Answers `audio/wav`. 400 for an unknown model or an unsupported language, 500 with the backend's message otherwise — including "requires a voice reference" from GPT-SoVITS when none was sent.
 
-The backend uploads the persona's reference clip from its own `data/voice_storage/` as `ref_audio` on every request, so no voice lives in this service.
+The backend uploads the persona's reference clip from its own `data/voice_storage/` as `ref_audio` on every request, so no voice lives in this service. The synthesis runs off the event loop and is serialised per model; a model not yet loaded is loaded by the first request for it (minutes, on a fresh volume — `docs/models.md`).
 
 ### GET /tts/voices
 

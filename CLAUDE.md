@@ -1,24 +1,49 @@
 # CLAUDE.md
 
-Monorepo for KurisuAssistant. The backend and the Android app are independent; the TypeScript clients share one npm workspace:
+The speech service: **universal-voice**, the container `--profile voice` starts for recognition and synthesis. A FastAPI app (`universal_voice/`) that the backend's `routers/asr.py` and `routers/tts.py` proxy to over the Compose network (port 14213, never published, no authentication of its own — the API authenticates and this trusts the network). It was its own repository, universal-asr, until #202: Kurisu was its only consumer, a backend release tag could not pin it, and every change to the speech contract needed a PR in each repository.
 
-- `backend/` — Python FastAPI service, WebSocket protocol, Docker Compose stack. Read `backend/CLAUDE.md` before touching it.
-- `clients/` — the TypeScript workspace: `packages/` (`models`, `platform`, `api`, `state`, `hooks` — shared, and layered in that order) and `apps/` (one per surface). Read `clients/CLAUDE.md`.
-  - `clients/apps/desktop/` — Electron + React + TypeScript client. Read `clients/apps/desktop/CLAUDE.md`.
-- `clients/android/` — Kotlin + Jetpack Compose client, not a workspace member. Read `clients/android/CLAUDE.md`.
-- `voice/` — the speech service (universal-voice): faster-whisper recognition and the synthesis backends behind one HTTP surface the backend proxies to. A member of the backend's Compose stack under `--profile voice`, built from here. Read `voice/CLAUDE.md`.
+This is the `voice/` package of the KurisuAssistant monorepo (see the root `CLAUDE.md`). Run the commands below from `voice/`. `docker compose` is **not** run here: the service is a member of `backend/docker-compose.yml`, built from `../voice`, so `cd ../backend && docker compose --profile voice up -d --build` is how it starts, and `backend/docs/tts.md` / `backend/docs/asr.md` describe how the API and the clients use it.
 
-The backend, the voice service and Android keep their own toolchain, `.gitignore`, tests and commands, and are run from inside their own directory — the backend in particular uses cwd-relative `data/` paths and `docker compose` must be run from `backend/` (the voice service has no Compose file of its own; it is a service in the backend's). The TypeScript clients share one lockfile and one `node_modules` at `clients/`: dependencies install there and nowhere else, so `npm ci` runs at `clients/` even when only one app changed.
+## Documentation Index
 
-Every package's `CLAUDE.md` is an index: a page you can read whole, linking to topic files under that package's `docs/`. Put detail in the topic file and a line in the index, not a fourteenth section in the index.
+- [API](docs/api.md) — every route, its request and response, and which backend proxy calls it.
+- [Models](docs/models.md) — the ASR model cache (pull, convert, list, delete) and the TTS registry with its backends.
 
-**There is no user manual, on purpose.** The root `README.md` carries one deployment tutorial — install Docker, three commands, sign in, pick a model — and that is the whole of the user documentation. Anything an operator needs afterwards (backup, restore, updating, removal) is `backend/docs/operations.md`; anything about how the code works is the package's own `docs/`. A nine-page manual was written first and thrown away: wire-protocol numbers and `pg_restore` flags, which the owner correctly called dev documentation. Prose for users is Codex's to write — the split is by audience, not by file type — while the facts it works from, and the check afterwards, are ours.
+## Layout
 
-**Documentation moves with the code.** A change that leaves a document describing what the code used to do is not finished — that is how an architecture map came to point at a screen nothing rendered (#138) and a security section came to present a filed vulnerability as a design decision (#91). Update the package's `docs/` and, for anything cross-cutting, this file, in the same commit.
+```
+universal_voice/
+  main.py              the app; the lifespan pre-loads the default ASR model and the in-process TTS engine
+  config.py            every setting, read from the environment once at import
+  routers/
+    transcription.py   /asr, /asr/detect-language (raw PCM), /v1/audio/* (OpenAI-shaped uploads)
+    tts.py             /tts/synthesize, /tts/voices
+    health.py          /health, /v1/models (+ pull, delete)
+  models/
+    manager.py         resolve a model name to a local CTranslate2 directory: cached, pulled, or converted
+    transcriber.py     loaded WhisperModel instances, transcription, language detection
+  tts/
+    base.py            BaseTTSModel: synthesize / list_voices / check_health / is_loaded
+    registry.py        the model ids the clients see, lazily built
+    text_processing.py split_text (200 chars, paragraphs then sentences) and merge_wav_files
+    *_model.py         one file per backend
+  static/index.html    a debugging page: transcribe, detect language, manage models
+tests/                 fakes for the registry and the transcriber; nothing loads a model
+```
 
-## Cross-cutting rules
+## Key facts
 
-- **Protocol contract** lives in the backend: `backend/docs/websocket.md` and `backend/docs/API.md`, and its machine-readable form is `protocol/events.json`, generated by `backend/scripts/generate_protocol.py` from `websocket/events.py` and `version.py`. Every event name and the wire-protocol integer come from there. **After changing an event or the protocol number, regenerate the manifest and commit it** — `cd backend && python -m scripts.generate_protocol` — then update the clients' own lists (TypeScript: `clients/packages/models/src/events.ts` and `constants.ts`, which every TS app imports; Android: `data/remote/websocket/ProtocolEvents.kt`) and the docs in the same commit. Each package has a test that reads the manifest and fails when its copy drifts, so the three cannot silently disagree the way they did before (#93).
-- **Client parity** (QR login payload, storage keys, slash commands, settings) is documented in each client's `CLAUDE.md`. When one client gains a feature the other is expected to mirror, note it in both files.
-- **CI** lives in `.github/workflows/` at the root. Each package has a test workflow, scoped by path so a change to one does not run the others: `backend-test.yml` (`backend/**`), `voice-test.yml` (`voice/**`), `android-test.yml` (`clients/android/**`), `desktop-test.yml` (`clients/apps/desktop/**` and `clients/packages/**`, since a shared package is that app's own code). All four run on `pull_request` and on `push` to `main`. `desktop-build.yml` and `android-release.yml` are release workflows triggered by `desktop-v*` / `android-v*` tags; they publish to the legacy per-client repositories because both apps' in-app updaters read `releases/latest` from those repositories. Do not change `build.publish` in `clients/apps/desktop/package.json` or the URL in the Android `UpdateRepository` without also migrating the update channel. The backend is released by tag as well — `backend-vX.Y.Z` on `main`, matching `version.py` — but has no workflow: a deployment checks the tag out and rebuilds (`backend/docs/development.md`). There is no long-lived `dev` branch; `main` is the only line of development, and a deployment is a separate checkout of a tag — never the tree you develop in, because the two would share `backend/data/` and the fixed Compose project name. The code itself is in the image (the Dockerfile copies it), so the rebuild is what ships a change, and only the dev overlay mounts source over it. Where checkouts live and how they are proxied varies per developer and is not documented here.
-- **Run the tests locally too**, since path filters mean a cross-package change only triggers some of them: `pytest -m "not integration"` from `backend/` (the model is always the in-process mock Ollama in `tests/mock_ollama`; `db`-marked migration and system tests need Postgres and skip without one — CI provides it; `integration` means a live model, run by hand only because it costs money), `pytest` from `voice/` (fakes for every model; `requirements-ci.txt` is all it needs), `npm test` from `clients/` (it runs every workspace member, including the boundary test that keeps the shared packages shareable), `./gradlew :app:testDevDebugUnitTest` from `clients/android/`. The Android instrumented suite (`connectedDevDebugAndroidTest`) needs an emulator and the standalone mock backend from `clients/apps/desktop/` (`npm run mock:backend -- --host 0.0.0.0`): every client test — unit, e2e, instrumented, screenshot capture — runs against that mock and never a deployed backend, and when mock and backend disagree the backend wins and the mock is fixed in the same PR (#126). The desktop Playwright e2e drives real Electron and needs a display — CI runs it under `xvfb-run` on Linux, and on a headless machine use `npm run test:e2e:docker` (see `clients/apps/desktop/CLAUDE.md`), which needs nothing installed but Docker.
+- **Configuration is environment only** — `config.py`, `UVOICE_*`. The ASR settings are still read under their old `UASR_*` names as a fallback, because environment files from before the service fronted synthesis set those. The Compose file in `backend/` is what sets them in a deployment; `docs/models.md` lists them.
+- **Heavy imports are lazy** — torch (`config.py`), faster-whisper (`models/transcriber.py`), the synthesis SDKs (`tts/*_model.py`) are imported inside the function that first needs them. That is what lets the routers import on a bare runner, and `requirements-ci.txt` is the list of what the tests need; a new module-level heavy import fails CI at collection.
+- **The wire contract with the backend** is `POST /asr` (Int16 PCM, 16 kHz, mono, as `application/octet-stream`; `?language`, `?model`, `?initial_prompt`), `POST /asr/detect-language`, `GET /v1/models`, `POST /tts/synthesize` (multipart: `text`, `model`, `voice_id`, `language`, `ref_audio`, `ref_text`), `GET /tts/voices`, `GET /health`. `backend/tests/test_tts_router.py` and this package's `tests/test_routers.py` pin the two ends; change both in the same PR.
+- **Every synthesis backend goes through `split_text`** at 200 characters and `merge_wav_files`; a backend never sees a whole paragraph.
+- **Model cache** — `UVOICE_DATA_DIR/models/<safe name>`, a Docker volume in the stack (`uvoice-data`). Re-downloadable; not part of a backup.
+
+## Tests
+
+```bash
+pip install -r requirements-ci.txt
+python -m pytest tests -q
+```
+
+CI: `.github/workflows/voice-test.yml`, scoped to `voice/**`. The tests drive the routes against fakes; anything that needs a GPU is run by hand against the container.

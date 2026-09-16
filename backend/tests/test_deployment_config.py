@@ -147,20 +147,19 @@ def test_base_api_depends_on_nothing_optional():
     )
 
 
-def test_speech_paths_have_no_real_default():
-    """A speech service may interpolate VIXTTS_ROOT, but the fallback must be an
-    obvious placeholder — never a path that happens to exist on somebody's
-    machine. (`:?` cannot be used: Compose interpolates every service, including
-    ones a profile has switched off.)"""
+def test_no_service_builds_from_another_checkout():
+    """Every build context is a directory of this repository. The speech services
+    used to interpolate VIXTTS_ROOT / UVOICE_ROOT — checkouts beside this one,
+    with (until #98) absolute defaults under one developer's home — and a
+    release tag here pinned nothing about them (#202, #203)."""
     text = BASE.read_text()
-    for variable in ("VIXTTS_ROOT",):
-        defaults = re.findall(rf"\$\{{{variable}:-([^}}]*)\}}", text)
-        assert defaults, f"{variable} must carry a placeholder default"
-        for default in defaults:
-            assert variable in default, (
-                f"{variable}'s fallback is {default!r}; it must name the variable "
-                "so the failure says what to set"
-            )
+    assert not re.findall(r"\$\{[A-Z_]*_ROOT", text), "a build context comes from an external checkout"
+    for name, service in load(BASE)["services"].items():
+        build = service.get("build")
+        if not build:
+            continue
+        context = build["context"] if isinstance(build, dict) else build
+        assert str(context).startswith("."), f"{name} builds from {context}"
 
 
 def test_the_voice_service_builds_from_this_repository():
@@ -262,8 +261,7 @@ def test_dockerfile_copies_the_application_in():
 
 def test_the_api_mounts_state_and_never_source():
     """Only the dev overlay mounts source over the image's copy. (The speech
-    services mount model directories from the operator's own checkouts; that is
-    what those profiles are for.)"""
+    service keeps its model cache in a named volume.)"""
     for volume in load(BASE)["services"]["api"].get("volumes") or []:
         source = str(volume).split(":")[0]
         assert source == "./data", f"the API mounts {source}; it carries state only"

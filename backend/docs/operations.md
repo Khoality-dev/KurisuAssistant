@@ -72,10 +72,10 @@ Both artefacts are credential stores: the archive holds the session signing key,
 the dump holds each user's provider API keys in plain columns, and the
 environment file holds the database password.
 
-With `--profile voice`, also archive `${VIXTTS_ROOT}/models`; with
-`--profile sovits`, `data/sovits/weights`. universal-voice's own cache, the
-`kurisuassistant_uvoice-data` volume, is Whisper models it can pull again and
-is not worth archiving.
+`--profile voice` adds nothing to this: universal-voice's cache, the
+`kurisuassistant_uvoice-data` volume, is Whisper models and synthesis weights it
+pulls again on first use. A fine-tuned GPT-SoVITS voice you put there yourself
+(`UVOICE_GPTSOVITS_*_WEIGHTS`) is the exception — keep your own copy.
 
 **`data/drive/` is the part that grows.** Everything else under `data/` is
 avatars and model caches; the drive is whatever users put in it, up to

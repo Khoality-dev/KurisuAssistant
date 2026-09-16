@@ -8,8 +8,12 @@ variable — that name appeared here but is read by nothing (`grep` over
 history). What the stack does set is `UVOICE_TTS_DEFAULT_MODEL=vixtts` on the
 universal-voice service, which is what makes viXTTS the default backend.
 
-- **GPT-SoVITS** (`gpt_sovits_provider.py`): Voice reference path as query param, POSIX format
-- **viXTTS** (`vixtts_provider.py`): Voice reference file via multipart/form-data plus language code
+The API has no provider code of its own: `routers/tts.py` uploads the voice
+reference and forwards everything else to universal-voice, and the three
+backends — `vixtts`, `gpt-sovits`, `vieneu:turbo` — run inside that one
+service (#203; `voice/docs/models.md` describes each). Two provider modules
+named here for years, `gpt_sovits_provider.py` and `vixtts_provider.py`, do not
+exist.
 
 ## Which model a request asks for
 
@@ -44,19 +48,22 @@ Both providers split long text (default 200 chars) by paragraphs → sentences, 
 Speech is behind the `voice` profile, off unless asked for:
 
 ```bash
-VIXTTS_ROOT=/path/to/viXTTS docker compose --profile voice up -d --build
+docker compose --profile voice up -d --build
 ```
 
-universal-voice itself builds from `../voice`, a package of this repository
-(#202), and needs nothing set; its registry of synthesis backends is described
-in `voice/docs/models.md`. `VIXTTS_ROOT` falls back to a placeholder that names
-the variable (`/VIXTTS_ROOT-is-not-set`), so forgetting it fails on a path that
-says what to set. It cannot be `${VAR:?message}`: Compose interpolates every
-service in the file, including ones a profile has switched off, so a `:?` here
-would break the plain `docker compose up`. It used to default to an absolute
-path under one developer's home directory, which is why a fresh install could
-not start (#98). The viXTTS tree is a working copy of the upstream model, not a
-repository this project distributes; running speech locally means obtaining it
-yourself, and cloud providers are the supported path otherwise.
+That needs an NVIDIA runtime and nothing else. universal-voice builds from
+`../voice`, a package of this repository (#202), and its synthesis backends run
+inside it (#203): viXTTS and GPT-SoVITS pull their weights from Hugging Face
+into the `uvoice-data` volume on first use — several gigabytes, so the first
+start spends minutes before it can speak, and `GET /tts/models` reports each
+model's `loaded` state meanwhile. `UVOICE_TTS_PRELOAD` picks which load at
+startup; `UVOICE_GPTSOVITS_GPT_WEIGHTS` / `UVOICE_GPTSOVITS_SOVITS_WEIGHTS`
+point GPT-SoVITS at a fine-tuned voice. Both are in the environment template;
+`voice/docs/models.md` has the rest.
 
-See [GPT-SoVITS Setup](gpt-sovits.md) for detailed GPT-SoVITS configuration.
+Until #203 viXTTS was a container built from `VIXTTS_ROOT`, a checkout beside
+this one (with, until #98, an absolute default under one developer's home
+directory), and GPT-SoVITS an unpinned third-party image behind a second
+profile, `sovits`, handed each reference clip through a shared volume. Neither
+exists any more; `tests/test_deployment_config.py` asserts that no service
+builds from outside the repository.

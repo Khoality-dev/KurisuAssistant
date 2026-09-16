@@ -14,15 +14,15 @@ that has nothing but Docker:
   API waits for its healthcheck before starting.
 
 Everything else is a profile in the same file, off unless asked for, because
-everything else needs something this repository does not contain — a GPU, or a
-checkout of another project:
+everything else needs something a bare Docker host does not have — a GPU, or a
+certificate:
 
-- **`--profile voice`** — **universal-voice** (internal 14213), which fronts
-  synthesis and recognition, and **vixtts** (19770) behind it. universal-voice
-  is `../voice` in this repository (#202; its own docs are `voice/CLAUDE.md`);
-  vixtts is built from the checkout named by `VIXTTS_ROOT`.
-- **`--profile sovits`** — **gpt-sovits** (9880), the second synthesis backend,
-  reached only through universal-voice.
+- **`--profile voice`** — **universal-voice** (internal 14213): recognition and
+  every synthesis backend (viXTTS, GPT-SoVITS, VieNeu) in one process. It is
+  `../voice` in this repository (#202; its own docs are `voice/CLAUDE.md`), and
+  since #203 nothing runs behind it — the two further containers it used to
+  call, one built from another checkout and one an unpinned third-party image,
+  are gone. Weights are pulled into its volume on first use.
 - **`--profile tls`** — **nginx** on 443, terminating TLS with
   `nginx/nginx.conf` and a self-signed certificate.
 

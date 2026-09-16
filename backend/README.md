@@ -19,7 +19,7 @@ The API server behind the [desktop](../clients/desktop/) and [Android](../client
 - Docker Engine 24 or newer and Docker Compose v2.24 or newer
 - [Ollama](https://ollama.ai) reachable from the stack, or a cloud provider key (Gemini, NVIDIA NIM, or Poe)
 
-No GPU or external checkout is required for the base stack. The optional `voice` profile requires an NVIDIA GPU, the NVIDIA container runtime, and an external viXTTS tree; the speech service itself is [`../voice`](../voice/CLAUDE.md).
+No GPU or external checkout is required for the base stack. The optional `voice` profile requires an NVIDIA GPU and the NVIDIA container runtime; the speech service, [`../voice`](../voice/CLAUDE.md), pulls its model weights on first use.
 
 ## Getting Started
 
@@ -90,7 +90,7 @@ The database, `data/`, and `.env` must be captured and restored as one unit. The
 See the [docs/](docs/) directory:
 
 - [Architecture](docs/architecture.md), [Assistant internals](docs/agents.md), [WebSocket](docs/websocket.md), [API Reference](docs/API.md)
-- [TTS](docs/tts.md), [ASR](docs/asr.md), [Vision](docs/vision.md), [GPT-SoVITS Setup](docs/gpt-sovits.md)
+- [TTS](docs/tts.md), [ASR](docs/asr.md), [Vision](docs/vision.md), [the speech service's own docs](../voice/docs/models.md)
 - [Tools](docs/tools.md), [Skills](docs/skills.md), [MCP Configuration](docs/mcp-config.md)
 - [Database](docs/database.md), [Development](docs/development.md)
 
