@@ -46,6 +46,14 @@ class BaseTTSModel(ABC):
         """
         ...
 
+    def load(self) -> None:
+        """Load the weights now rather than on the first request.
+
+        The lifespan calls this for the models in ``TTS_PRELOAD``; ``synthesize``
+        must call it too, so a model that was not pre-loaded still works.
+        """
+        return None
+
     def check_health(self) -> dict:
         """Check if the model/service is reachable.
 
@@ -55,5 +63,5 @@ class BaseTTSModel(ABC):
         return {"ok": True, "message": "ok"}
 
     def is_loaded(self) -> Optional[bool]:
-        """Whether the model is loaded. None if unknown (remote services)."""
+        """Whether the weights are in memory."""
         return None

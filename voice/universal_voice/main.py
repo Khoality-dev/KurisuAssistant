@@ -1,6 +1,7 @@
 """FastAPI application for Universal Voice."""
 
 import logging
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -32,17 +33,26 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to pre-load default ASR model")
 
-    logger.info("Initializing TTS registry...")
-    try:
-        from universal_voice.tts.registry import tts_registry
-        # Pre-load VieNeu model (runs in-process)
-        vieneu = tts_registry.get_model(f"vieneu:{config.TTS_MODE}")
-        vieneu.get_engine()
-        logger.info("VieNeu TTS ready (%s)", vieneu.model_id)
-    except Exception:
-        logger.exception("Failed to pre-load VieNeu TTS")
+    # Every synthesis backend runs in this process (#203). The ones in
+    # TTS_PRELOAD load now, on a thread: the first pull is gigabytes and the
+    # loads are tens of seconds, and /health should answer meanwhile — a model
+    # not yet loaded is reported as such by /v1/models, and a request for it
+    # waits on its lock rather than failing.
+    threading.Thread(target=_preload_tts, name="tts-preload", daemon=True).start()
 
     yield
+
+
+def _preload_tts() -> None:
+    from universal_voice.tts.registry import tts_registry
+
+    for model_id in config.TTS_PRELOAD:
+        try:
+            model = tts_registry.get_model(model_id)
+            model.load()
+            logger.info("TTS ready: %s", model.model_id)
+        except Exception:
+            logger.exception("Failed to pre-load TTS model %s", model_id)
 
 
 app = FastAPI(title="Universal Voice", lifespan=lifespan)

@@ -6,6 +6,7 @@ import logging
 import numpy as np
 import soundfile as sf
 from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
 from universal_voice import config
 from universal_voice.models.transcriber import transcriber
@@ -91,7 +92,9 @@ async def openai_transcription(
         raw = await file.read()
         audio = _decode_audio(raw)
         model_name = model or config.DEFAULT_MODEL
-        text, detected_lang = transcriber.transcribe(audio, model_name=model_name, language=language)
+        text, detected_lang = await run_in_threadpool(
+            transcriber.transcribe, audio, model_name=model_name, language=language,
+        )
 
         if response_format == "text":
             return text
@@ -122,8 +125,8 @@ async def asr_raw(
     try:
         waveform = _pcm_to_float(audio)
         model_name = model or config.DEFAULT_MODEL
-        text, detected_lang = transcriber.transcribe(
-            waveform, model_name=model_name, language=language,
+        text, detected_lang = await run_in_threadpool(
+            transcriber.transcribe, waveform, model_name=model_name, language=language,
             initial_prompt=initial_prompt,
         )
         return {"text": text, "language": detected_lang}
@@ -148,7 +151,9 @@ async def detect_language(
         raw = await file.read()
         audio = _decode_audio(raw)
         model_name = model or config.DEFAULT_MODEL
-        language, confidence, probs = transcriber.detect_language(audio, model_name=model_name)
+        language, confidence, probs = await run_in_threadpool(
+            transcriber.detect_language, audio, model_name=model_name,
+        )
 
         # Return top 10 languages
         probabilities = {lang: round(prob, 4) for lang, prob in probs[:10]}
@@ -176,8 +181,8 @@ async def detect_language_raw(
         waveform = _pcm_to_float(audio)
         model_name = model or config.DEFAULT_MODEL
         allowed = [l.strip() for l in languages.split(",") if l.strip()] if languages else None
-        language, confidence, probs = transcriber.detect_language(
-            waveform, model_name=model_name, allowed_languages=allowed,
+        language, confidence, probs = await run_in_threadpool(
+            transcriber.detect_language, waveform, model_name=model_name, allowed_languages=allowed,
         )
         return {"language": language, "confidence": round(confidence, 4)}
     except HTTPException:
