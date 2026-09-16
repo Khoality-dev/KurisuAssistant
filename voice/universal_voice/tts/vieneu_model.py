@@ -52,6 +52,9 @@ class VieNeuTTSModel(BaseTTSModel):
             logger.info("VieNeu TTS initialized")
             return self._engine
 
+    def load(self) -> None:
+        self.get_engine()
+
     def synthesize(
         self,
         text: str,

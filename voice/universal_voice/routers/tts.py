@@ -3,6 +3,7 @@
 import logging
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 
 from universal_voice.tts.registry import tts_registry
@@ -48,7 +49,10 @@ async def synthesize(
             logger.info("Synthesize: model=%s, text=%d chars, no ref_audio, voice_id=%s",
                         tts_model.model_id, len(text), voice_id)
 
-        audio_bytes = tts_model.synthesize(
+        # Every backend runs in this process now (#203), so a synthesis is
+        # seconds of GPU work; off the event loop, or /health stalls with it.
+        audio_bytes = await run_in_threadpool(
+            tts_model.synthesize,
             text=text,
             voice_id=voice_id,
             language=language,
@@ -76,7 +80,8 @@ async def list_voices(model: str | None = Query(default=None)):
     try:
         if model:
             tts_model = tts_registry.get_model(model)
-            voices = tts_model.list_voices()
+            # list_voices may load the model to read its presets.
+            voices = await run_in_threadpool(tts_model.list_voices)
             for v in voices:
                 v["model"] = tts_model.model_id
             return voices
@@ -85,7 +90,7 @@ async def list_voices(model: str | None = Query(default=None)):
         all_voices = []
         for m in tts_registry.list_models():
             tts_model = tts_registry.get_model(m["id"])
-            voices = tts_model.list_voices()
+            voices = await run_in_threadpool(tts_model.list_voices)
             for v in voices:
                 v["model"] = m["id"]
             all_voices.extend(voices)
