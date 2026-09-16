@@ -32,7 +32,7 @@ docker compose up -d
 curl localhost:15597/health
 ```
 
-The health check should return `{"status":"ok","service":"llm-hub"}`. Clients connect to `http://<server-address>:15597`.
+The health check should return `{"status":"ok","service":"kurisuassistant"}`. Clients connect to `http://<server-address>:15597`.
 
 No account is created for you. Register in the client, then activate the account yourself — accounts are inactive until you do:
 

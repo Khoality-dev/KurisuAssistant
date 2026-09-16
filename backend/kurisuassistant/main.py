@@ -77,8 +77,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     lifespan=lifespan,
-    title="Kurisu LLM Hub API",
-    description="REST API for Kurisu Assistant LLM hub",
+    title="KurisuAssistant API",
+    description="The API behind the KurisuAssistant desktop, web and Android clients.",
     version=__version__,
     openapi_tags=[
         {"name": "health", "description": "Health check and status endpoints"},
@@ -118,7 +118,7 @@ app.add_middleware(
 @app.get("/health", tags=["health"])
 async def health():
     """Health check endpoint."""
-    return {"status": "ok", "service": "llm-hub"}
+    return {"status": "ok", "service": "kurisuassistant"}
 
 
 # Endpoints exempt from wire-protocol enforcement: clients need to reach these
