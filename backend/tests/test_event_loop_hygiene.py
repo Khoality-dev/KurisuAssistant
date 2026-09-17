@@ -24,6 +24,8 @@ from kurisuassistant.websocket import handlers as handlers_module
 
 PACKAGE_ROOT = Path(inspect.getfile(kurisuassistant)).parent
 ROUTERS = sorted((PACKAGE_ROOT / "routers").glob("*.py"))
+# The speech routers call out through this package, not themselves (#215).
+SPEECH = sorted((PACKAGE_ROOT / "speech").glob("*.py"))
 
 
 def parse(path: Path) -> ast.Module:
@@ -43,17 +45,23 @@ def imported_names(tree: ast.Module) -> set:
 class TestNoSynchronousHttpInRouters:
     """Outbound calls from a router must use the shared async client."""
 
-    @pytest.mark.parametrize("path", ROUTERS, ids=lambda p: p.name)
+    @pytest.mark.parametrize("path", ROUTERS + SPEECH, ids=lambda p: f"{p.parent.name}/{p.name}")
     def test_router_does_not_import_requests(self, path):
         assert "requests" not in imported_names(parse(path)), (
             f"{path.name} imports the synchronous 'requests' library. Use "
             "kurisuassistant.core.http.get_client() and await the call instead."
         )
 
-    def test_speech_routers_use_the_shared_client(self):
+    def test_speech_calls_go_through_the_shared_client(self):
+        """The one place that reaches an engine is speech/engines.py, and it uses
+        the shared client; the routers do not call out themselves (#215)."""
+        source = (PACKAGE_ROOT / "speech" / "engines.py").read_text()
+        assert "get_client()" in source, "speech/engines.py should call out through the shared async client"
         for name in ("asr.py", "tts.py"):
             source = (PACKAGE_ROOT / "routers" / name).read_text()
-            assert "get_client()" in source, f"{name} should proxy through the shared async client"
+            assert "httpx" not in source and "get_client" not in source, (
+                f"{name} should not call out itself; go through kurisuassistant.speech"
+            )
 
     def test_speech_route_handlers_are_async(self):
         for name in ("asr.py", "tts.py"):
