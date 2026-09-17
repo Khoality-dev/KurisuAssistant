@@ -1,6 +1,6 @@
 # API
 
-Every route, as the code has it. The backend's `routers/asr.py` and `routers/tts.py` are the only callers in the stack; the static page at `/` is a debugging aid.
+Every route, as the code has it. The backend's `kurisuassistant/speech/` package (behind its `routers/asr.py` and `routers/tts.py`) is the only caller in the stack; the static page at `/` is a debugging aid. The backend passes a 400 from here to its client with the reason, and reports every other failure as its own 502 — so a fault in the request must be a `ValueError` (a 400), not a `RuntimeError` (a 500).
 
 ## Health and models
 
@@ -10,7 +10,7 @@ Every route, as the code has it. The backend's `routers/asr.py` and `routers/tts
 
 ### GET /v1/models
 
-`{"object": "list", "data": [...]}` — every ASR model in the cache (`type: "asr"`, with `size_mb` and `loaded`), any ASR model loaded that is not in the cache, and every TTS model in the registry (`type: "tts"`, `loaded` true/false/null — null is a remote backend whose state is unknown). The backend's `GET /asr/models` returns this unchanged; its `GET /tts/models` filters it to `type == "tts"`.
+`{"object": "list", "data": [...]}` — every ASR model in the cache (`type: "asr"`, with `size_mb` and `loaded`), any ASR model loaded that is not in the cache, and every TTS model in the registry (`type: "tts"`, `loaded` true/false/null — null is a remote backend whose state is unknown). The backend's `GET /asr/models` filters it to `type == "asr"` (#213) and its `GET /tts/models` to `type == "tts"`.
 
 ### POST /v1/models/pull
 

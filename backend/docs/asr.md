@@ -3,11 +3,17 @@
 ## Provider
 
 faster-whisper (CTranslate2-based), running inside the **universal-voice**
-service — `../voice` in this repository (#202), not inside the API. The API is
-a proxy: `routers/asr.py` forwards to `ASR_API_URL` and returns 502 "The speech
-service is unavailable." when that service is not running (it is behind
-`--profile voice`). How the service caches, pulls and converts models is
-`voice/docs/models.md`; its routes are `voice/docs/api.md`.
+service — `../voice` in this repository (#202), not inside the API. The API
+orchestrates (#215): `routers/asr.py` goes through `kurisuassistant/speech/engines.py`,
+which knows the recognition engine's address (`ASR_API_URL`) and turns its
+answer into the client's — a 400 keeps the engine's reason; an engine that is
+not running (it is behind `--profile voice`), times out, answers any other
+status or fails inside is 502 "The speech service is unavailable." with a log
+reference. universal-voice reports every recognition failure as a 500, a model
+it does not have included, so today those are all the 502. `GET /asr/models` lists recognition models only: the engine's
+catalogue also carries the synthesis models, and the Android client cannot
+decode a response that includes one (#213). How the service caches, pulls and
+converts models is `voice/docs/models.md`; its routes are `voice/docs/api.md`.
 
 ## Configuration
 
@@ -30,9 +36,11 @@ were documented here for years and are read by nothing — `grep` finds neither 
   that service's default (`UVOICE_DEFAULT_MODEL`)
 - `?initial_prompt=` — passed through to faster-whisper
 
-`POST /asr/detect-language` takes the same body and `?model=`, and answers
-`{"language", "confidence"}` without transcribing — the first leg of the clients'
-"routing" mode (below).
+`POST /asr/detect-language` takes the same body, `?model=` and `?languages=`
+(comma-separated codes to choose among), and answers `{"language", "confidence"}`
+without transcribing — the first leg of the clients' "routing" mode (below).
+The desktop sends the languages it has a model mapped for; the proxy used to
+drop the parameter (#216).
 
 There is no `?mode=`. A `mode=fast` parameter was documented here and sent by the
 Android client for a long time after the router had stopped reading it (#200).
@@ -73,7 +81,7 @@ without ever sending them.
 
 ## Failures are shown
 
-A transcription that fails — the service down, a 502 from the proxy, a model that
+A transcription that fails — the service down, a 502 from the API, a model that
 does not exist — is one sentence in the chat, the same toast (desktop) or banner
 (Android) a failed send gets: `describeSpeechFailure` in `@kurisu/api` and in
 `domain/tts/SpeechFailure.kt` pull the API's `detail` out of the response and

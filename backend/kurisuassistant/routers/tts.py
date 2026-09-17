@@ -1,23 +1,19 @@
-"""TTS routes: /tts — proxies to universal-voice service."""
+"""TTS routes: /tts — synthesis, orchestrated by ``kurisuassistant/speech``."""
 
 import logging
-import os
 from pathlib import Path
 
-import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends
 from fastapi.responses import Response
 
 from kurisuassistant.core.deps import get_authenticated_user
-from kurisuassistant.core.errors import internal_error
-from kurisuassistant.core.http import get_client
 from kurisuassistant.core.paths import DATA_DIR
+from kurisuassistant.speech import engines, synthesis
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tts", tags=["tts"])
 
-UVOICE_URL = os.environ.get("UVOICE_URL", "http://universal-voice:14213").rstrip("/")
 # Resolved from the package like every other data path (core/paths.py), not from
 # the working directory: this was the one `Path("data")` left.
 VOICE_STORAGE_DIR = DATA_DIR / "voice_storage"
@@ -41,54 +37,37 @@ async def synthesize_speech(
     provider: str = Body(None, embed=True),
     _user=Depends(get_authenticated_user)
 ):
-    """Proxy TTS synthesis to universal-voice.
+    """Synthesize ``text`` and answer one WAV.
 
-    Reads voice reference from local voice_storage and forwards
-    as ref_audio upload to universal-voice.
+    ``voice`` is a stem in ``data/voice_storage/`` — uploaded to the engine as
+    the reference clip — or, when no such file exists, a preset voice id the
+    engine knows. ``provider`` is the model id (``vixtts``, ``gpt-sovits``,
+    ``vieneu:turbo``); absent means the engine's default.
     """
     logger.info("TTS request: text=%d chars, voice=%s, provider=%s, language=%s",
                 len(text), voice, provider, language)
 
-    try:
-        data: dict = {"text": text}
-        if provider:
-            data["model"] = provider
-        if language:
-            data["language"] = language
-
-        files = {}
-        voice_file = _find_voice_file(voice) if voice else None
-
-        if voice_file:
-            files["ref_audio"] = (voice_file.name, voice_file.read_bytes())
-            logger.info("TTS: uploading ref_audio from %s", voice_file)
-        elif voice:
-            data["voice_id"] = voice
-            logger.info("TTS: using preset voice_id=%s (no local file found)", voice)
+    voice_file = _find_voice_file(voice) if voice else None
+    if voice_file:
+        ref_audio = (voice_file.name, voice_file.read_bytes())
+        voice_id = None
+        logger.info("TTS: uploading ref_audio from %s", voice_file)
+    else:
+        ref_audio = None
+        voice_id = voice or None
+        if voice_id:
+            logger.info("TTS: using preset voice_id=%s (no local file found)", voice_id)
         else:
             logger.info("TTS: no voice specified, using model default")
 
-        logger.debug("TTS: POST %s/tts/synthesize data=%s files=%s",
-                     UVOICE_URL, {k: v for k, v in data.items() if k != "text"}, list(files.keys()))
-        r = await get_client().post(
-            f"{UVOICE_URL}/tts/synthesize",
-            data=data,
-            files=files or None,
-            timeout=120,
-        )
-        r.raise_for_status()
-        logger.info("TTS: synthesized %d bytes", len(r.content))
-
-        return Response(
-            content=r.content,
-            media_type="audio/wav",
-            headers={"Content-Disposition": "attachment; filename=speech.wav"},
-        )
-    except httpx.HTTPError as e:
-        raise internal_error(
-            e, "TTS service request failed", status_code=502,
-            public_detail="The speech service is unavailable.",
-        )
+    audio = await synthesis.synthesize(
+        text, model=provider, voice_id=voice_id, language=language, ref_audio=ref_audio,
+    )
+    return Response(
+        content=audio,
+        media_type="audio/wav",
+        headers={"Content-Disposition": "attachment; filename=speech.wav"},
+    )
 
 
 @router.get("/voices")
@@ -96,19 +75,13 @@ async def list_tts_voices(
     provider: str = None,
     _user=Depends(get_authenticated_user)
 ):
-    """Proxy voice listing to universal-voice."""
-    try:
-        params = {}
-        if provider:
-            params["model"] = provider
-        r = await get_client().get(f"{UVOICE_URL}/tts/voices", params=params, timeout=10)
-        r.raise_for_status()
-        return {"voices": r.json()}
-    except httpx.HTTPError as e:
-        raise internal_error(
-            e, "TTS voices request failed", status_code=502,
-            public_detail="The speech service is unavailable.",
-        )
+    """The preset voices the synthesis engine offers, optionally for one model."""
+    params = {"model": provider} if provider else {}
+    response = await engines.call(
+        engines.synthesis_engine(), "GET", "/tts/voices", context="TTS voices",
+        params=params, timeout=10,
+    )
+    return {"voices": response.json()}
 
 
 @router.post("/check")
@@ -116,34 +89,19 @@ async def check_tts_health(
     provider: str = Body(None, embed=True),
     _user=Depends(get_authenticated_user)
 ):
-    """Proxy health check to universal-voice."""
-    try:
-        r = await get_client().get(f"{UVOICE_URL}/health", timeout=5)
-        r.raise_for_status()
-        return r.json()
-    except httpx.HTTPError as e:
-        logger.error("TTS health error: %s", e, exc_info=True)
-        return {"ok": False, "message": str(e)}
+    """The synthesis engine's health answer, or ``{"ok": false, "message"}``."""
+    return await engines.health(engines.synthesis_engine())
 
 
 @router.get("/models")
 async def list_tts_models(
     _user=Depends(get_authenticated_user)
 ):
-    """List the TTS models universal-voice serves.
+    """The synthesis models across the engines.
 
-    502 when the service is unreachable, like ``/tts/voices``; a hard-coded list
-    of three model ids used to be returned as a normal 200, so the picker
-    offered models that did not exist and synthesis failed later (#151). An
-    empty list is what a reachable service that serves no TTS model gets.
+    502 when no engine answers, like ``/tts/voices``; a hard-coded list of
+    three model ids used to be returned as a normal 200, so the picker offered
+    models that did not exist and synthesis failed later (#151). An empty list
+    is what reachable engines that serve no synthesis model get.
     """
-    try:
-        r = await get_client().get(f"{UVOICE_URL}/v1/models", timeout=5)
-        r.raise_for_status()
-    except httpx.HTTPError as e:
-        raise internal_error(
-            e, "TTS models request failed", status_code=502,
-            public_detail="The speech service is unavailable.",
-        )
-    models = r.json().get("data", [])
-    return {"models": [m for m in models if m.get("type") == "tts"]}
+    return {"models": await engines.catalogue("tts", context="TTS models")}
