@@ -34,6 +34,22 @@ DEVICE: str = _auto_device() if _device_env == "auto" else _device_env
 _compute_env = _env("UVOICE_COMPUTE_TYPE", "auto", "UASR_COMPUTE_TYPE")
 COMPUTE_TYPE: str = _auto_compute_type(DEVICE) if _compute_env == "auto" else _compute_env
 
+# --- Engines (#218) ---
+# Which backends this instance runs. Every one by default; one image started
+# with a single name is one engine container (#212). ``whisper`` is recognition;
+# the others are the synthesis model ids (VieNeu's without its mode).
+ALL_ENGINES: tuple[str, ...] = ("whisper", "vixtts", "gpt-sovits", "vieneu")
+ENGINES: frozenset[str] = frozenset(
+    e.strip() for e in os.environ.get("UVOICE_ENGINES", ",".join(ALL_ENGINES)).split(",") if e.strip()
+)
+_unknown_engines = ENGINES - set(ALL_ENGINES)
+if _unknown_engines:
+    raise ValueError(f"UVOICE_ENGINES names no engine here: {sorted(_unknown_engines)}; known: {list(ALL_ENGINES)}")
+if not ENGINES:
+    raise ValueError(f"UVOICE_ENGINES is empty; an instance that runs nothing is a mistake. Known: {list(ALL_ENGINES)}")
+ASR_ENABLED: bool = "whisper" in ENGINES
+TTS_ENABLED: bool = bool(ENGINES - {"whisper"})
+
 # --- ASR ---
 DEFAULT_MODEL: str = _env("UVOICE_DEFAULT_MODEL", "base", "UASR_DEFAULT_MODEL")
 DATA_DIR: str = _env(
@@ -54,6 +70,9 @@ TTS_MODE: str = os.environ.get("UVOICE_TTS_MODE", "turbo")  # VieNeu engine mode
 TTS_PRELOAD: list[str] = [
     m.strip() for m in os.environ.get("UVOICE_TTS_PRELOAD", TTS_DEFAULT_MODEL).split(",") if m.strip()
 ]
+# Unset means "the instance's default model", which is only known once the
+# registry exists (an engine-only instance may not run TTS_DEFAULT_MODEL, #218).
+TTS_PRELOAD_EXPLICIT: bool = "UVOICE_TTS_PRELOAD" in os.environ
 TTS_MODELS_DIR: str = os.path.join(DATA_DIR, "tts")
 
 # Residency (#207, scheduler.py). How many synthesis models may be on the

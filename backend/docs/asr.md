@@ -9,8 +9,9 @@ which knows the recognition engine's address (`ASR_API_URL`) and turns its
 answer into the client's — a 400 keeps the engine's reason; an engine that is
 not running (it is behind `--profile voice`), times out, answers any other
 status or fails inside is 502 "The speech service is unavailable." with a log
-reference. universal-voice reports every recognition failure as a 500, a model
-it does not have included, so today those are all the 502. `GET /asr/models` lists recognition models only: the engine's
+reference. universal-voice reports a recognition failure as a 500, a model it
+does not have included — and recognition asked of an instance that runs none as
+a 404 (#218) — so those are all the 502. `GET /asr/models` lists recognition models only: the engine's
 catalogue also carries the synthesis models, and the Android client cannot
 decode a response that includes one (#213). How the service caches, pulls and
 converts models is `voice/docs/models.md`; its routes are `voice/docs/api.md`.

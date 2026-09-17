@@ -19,6 +19,18 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def fresh_scheduler():
+    """The process-wide scheduler starts every test empty: an entry keeps the
+    model object that registered it, so a fake from one test would otherwise
+    be the one loaded in the next."""
+    from universal_voice.scheduler import scheduler
+
+    scheduler.reset()
+    yield
+    scheduler.reset()
+
+
 @pytest.fixture
 def client():
     from universal_voice.main import app
@@ -28,6 +40,9 @@ def client():
 
 class FakeTTSModel:
     """A registry entry that records what it was asked and answers WAV bytes."""
+
+    can_offload = True
+    voices_need_weights = False
 
     def __init__(self, model_id: str = "fake", voices=None):
         self._id = model_id
@@ -42,10 +57,11 @@ class FakeTTSModel:
         self.calls.append({"load": True})
 
     def offload(self):
-        return False
+        self.calls.append({"offload": True})
+        return self.can_offload
 
     def unload(self):
-        pass
+        self.calls.append({"unload": True})
 
     def synthesize(self, text, voice_id=None, language=None, ref_audio_bytes=None, ref_text=None, **kwargs):
         self.calls.append({
@@ -90,9 +106,33 @@ def fake_registry(monkeypatch):
     return registry
 
 
+class FakeAsrHandle:
+    can_offload = False
+
+    def __init__(self, name):
+        self.model_id = name
+        self.ops: list[str] = []
+
+    def load(self):
+        self.ops.append("load")
+
+    def offload(self):
+        return False
+
+    def unload(self):
+        self.ops.append("unload")
+
+
 class FakeTranscriber:
     def __init__(self):
         self.calls: list[dict] = []
+        self._handles: dict[str, FakeAsrHandle] = {}
+
+    def handle(self, name=None):
+        from universal_voice.models.manager import model_manager
+
+        key = model_manager.cache_id(name or "base")
+        return self._handles.setdefault(key, FakeAsrHandle(key))
 
     def transcribe(self, audio, model_name=None, language=None, initial_prompt=None):
         self.calls.append({"samples": len(audio), "model": model_name, "language": language, "initial_prompt": initial_prompt})

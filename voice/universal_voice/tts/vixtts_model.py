@@ -89,6 +89,8 @@ def _teach_tokenizer_vietnamese() -> None:
 class ViXTTSModel(BaseTTSModel):
     """Voice cloning from an uploaded clip, or one of XTTS-v2's preset speakers."""
 
+    can_offload = True
+
     def __init__(self):
         self._model: Any = None
         self._offloaded = False
@@ -124,6 +126,21 @@ class ViXTTSModel(BaseTTSModel):
                 repo_id=config.VIXTTS_BASE_MODEL_ID, filename="speakers_xtts.pth", local_dir=str(model_dir),
             )
         return model_dir
+
+    def _ensure_speakers_file(self) -> Path:
+        """The presets file alone — a few megabytes from the base model, not the
+        fine-tune's weights — so the voices can be listed without loading (#218)."""
+        model_dir = self._model_dir()
+        model_dir.mkdir(parents=True, exist_ok=True)
+        path = model_dir / "speakers_xtts.pth"
+        if not path.exists():
+            from huggingface_hub import hf_hub_download
+
+            logger.info("viXTTS: fetching the speaker presets into %s", model_dir)
+            hf_hub_download(
+                repo_id=config.VIXTTS_BASE_MODEL_ID, filename="speakers_xtts.pth", local_dir=str(model_dir),
+            )
+        return path
 
     def load(self) -> None:
         with self._load_lock:
@@ -173,15 +190,16 @@ class ViXTTSModel(BaseTTSModel):
 
     # --- conditioning ------------------------------------------------------
 
-    def _speakers(self) -> dict:
-        manager = getattr(self._model, "speaker_manager", None)
+    def _speakers(self, model: Any = None) -> dict:
+        manager = getattr(model if model is not None else self._model, "speaker_manager", None)
         speakers = getattr(manager, "speakers", None)
         return speakers if isinstance(speakers, dict) else {}
 
     def _preset(self, voice_id: Optional[str]) -> tuple:
         speakers = self._speakers()
         if not speakers:
-            raise RuntimeError("viXTTS has no preset speakers loaded; pass ref_audio")
+            # A preset was asked for and there is none: the request's fault (#218).
+            raise ValueError("viXTTS has no preset speakers loaded; pass ref_audio")
         if voice_id:
             if voice_id not in speakers:
                 raise ValueError(f"Unknown viXTTS voice_id '{voice_id}'")
@@ -259,8 +277,22 @@ class ViXTTSModel(BaseTTSModel):
         return merge_wav_files(wavs)
 
     def list_voices(self) -> list[dict]:
-        self.load()
-        return [{"id": name, "name": name} for name in sorted(self._speakers())]
+        # From the loaded model when there is one; otherwise from the presets
+        # file on disk, read on the CPU — a listing must not bring the model
+        # onto the GPU (#218). ``_model`` is read once: an unload can land
+        # between two reads, since a listing holds no lock and is not "in use".
+        model = self._model
+        speakers = self._speakers(model) if model is not None else self._speakers_on_disk()
+        return [{"id": name, "name": name} for name in sorted(speakers)]
+
+    def _speakers_on_disk(self) -> dict:
+        import torch
+
+        # weights_only: the file is names to tensors and nothing else, and it is
+        # what coqui itself uses on this torch; a network-fetched pickle gets no
+        # more trust from a listing than from a load.
+        speakers = torch.load(self._ensure_speakers_file(), map_location="cpu", weights_only=True)
+        return speakers if isinstance(speakers, dict) else {}
 
     def check_health(self) -> dict:
         if self._model is None:

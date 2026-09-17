@@ -18,10 +18,17 @@ rules:
 
 The scheduler knows nothing about tensors. A model is anything with
 ``model_id``, ``load()`` (idempotent; also brings an offloaded model back),
-``offload() -> bool`` (False when unsupported) and ``unload()``. The heavy calls
-run outside the scheduler's lock, serialised per model by ``_Entry.op_lock``,
-and the in-use check is repeated under that lock so a request that arrives
-while the sweeper is deciding always wins.
+``offload() -> bool`` (False when unsupported) and ``unload()``, and optionally
+``can_offload`` (reported, so a caller knows in advance). The heavy calls run
+outside the scheduler's lock, serialised per model by ``_Entry.op_lock``, and
+the in-use check is repeated under that lock so a request that arrives while
+the sweeper is deciding always wins.
+
+The same three moves are also available on request — ``load``, ``offload``,
+``unload`` (#218) — for the API, which holds the cap across engines once each
+runs in its own container (#212). A model in use refuses to be parked
+(``ModelInUse``) rather than being silently left alone: the caller is deciding
+what sits on the GPU and needs to know.
 """
 
 import logging
@@ -36,6 +43,15 @@ logger = logging.getLogger(__name__)
 UNLOADED = "unloaded"
 OFFLOADED = "offloaded"
 RESIDENT = "resident"
+
+
+class ModelInUse(RuntimeError):
+    """The model is serving a request; it cannot be parked now."""
+
+    def __init__(self, key: str, in_use: int):
+        super().__init__(f"{key} is in use ({in_use} request(s)); try again when it is idle")
+        self.key = key
+        self.in_use = in_use
 
 
 @dataclass
@@ -80,6 +96,13 @@ class ModelScheduler:
                 self._entries[key] = entry
             return entry
 
+    def reset(self) -> None:
+        """Forget every model. For tests, which share the process-wide instance
+        and would otherwise inherit one test's entries — and model objects — in
+        the next."""
+        with self._lock:
+            self._entries.clear()
+
     # --- use ------------------------------------------------------------
 
     @contextmanager
@@ -102,6 +125,27 @@ class ModelScheduler:
     def preload(self, model: Any, kind: str = "tts") -> None:
         with self.use(model, kind):
             pass
+
+    # --- on request (#218) -----------------------------------------------
+
+    def load(self, model: Any, kind: str = "tts") -> str:
+        """Bring ``model`` in and leave it idle. The cap applies, as for a request."""
+        self.preload(model, kind)
+        return self.state_of(model, kind)
+
+    def offload(self, model: Any, kind: str = "tts") -> str:
+        """Park ``model`` in CPU memory. ``ModelInUse`` if it is serving a request;
+        the state comes back unchanged when the model cannot offload."""
+        return self._park(self.register(model, kind), drop=False, reason="requested", strict=True)
+
+    def unload(self, model: Any, kind: str = "tts") -> str:
+        """Drop ``model``. ``ModelInUse`` if it is serving a request."""
+        return self._park(self.register(model, kind), drop=True, reason="requested", strict=True)
+
+    def state_of(self, model: Any, kind: str = "tts") -> str:
+        with self._lock:
+            entry = self._entries.get(f"{kind}:{model.model_id}")
+            return entry.state if entry is not None else UNLOADED
 
     def _make_room(self, incoming: _Entry) -> list[_Entry]:
         """Called with the lock held. The LRU resident synthesis models that
@@ -129,23 +173,30 @@ class ModelScheduler:
                 entry.state = RESIDENT
             logger.info("residency: %s resident", entry.key)
 
-    def _park(self, entry: _Entry, *, drop: bool, reason: str) -> None:
+    def _park(self, entry: _Entry, *, drop: bool, reason: str, strict: bool = False) -> str:
         """Offload (or, with ``drop``, unload) unless it is in use — checked again
-        under the model's op lock, so a request that got there first wins."""
+        under the model's op lock, so a request that got there first wins. The
+        sweeper lets a busy model be; a caller (``strict``) is told. Returns
+        the state the model is left in."""
         with entry.op_lock:
             with self._lock:
-                if entry.in_use or entry.state == UNLOADED or (not drop and entry.state != RESIDENT):
-                    return
+                if entry.in_use:
+                    if strict:
+                        raise ModelInUse(entry.key, entry.in_use)
+                    return entry.state
+                if entry.state == UNLOADED or (not drop and entry.state != RESIDENT):
+                    return entry.state
             if drop:
                 entry.model.unload()
                 new_state = UNLOADED
             else:
                 if not entry.model.offload():
-                    return
+                    return entry.state
                 new_state = OFFLOADED
             with self._lock:
                 entry.state = new_state
             logger.info("residency: %s %s (%s)", entry.key, new_state, reason)
+            return new_state
 
     # --- the sweeper ----------------------------------------------------
 
@@ -177,6 +228,7 @@ class ModelScheduler:
                     "residency": e.state,
                     "idle_seconds": 0 if e.in_use else int(now - e.last_used),
                     "in_use": e.in_use,
+                    "can_offload": bool(getattr(e.model, "can_offload", False)),
                 }
                 for e in self._entries.values()
             }

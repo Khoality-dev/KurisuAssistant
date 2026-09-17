@@ -36,9 +36,9 @@ nothing — comes back with that status and the engine's reason, so the user
 reads why; an engine that is unreachable, times out, answers any other status
 or fails inside is "The speech service is unavailable." with a 502 and a log
 reference, the engine's own text kept out of the response. Every refusal used
-to be reported as that outage. GPT-SoVITS asked to speak with no reference clip
-is still one: universal-voice reports it as a 500, which step 2 of #212
-corrects on the engine's side.
+to be reported as that outage; since #218 universal-voice reports the request
+faults it can tell apart — GPT-SoVITS asked to speak with no reference clip, or
+with one outside 3-10 seconds, included — as a 400.
 
 ## Voice Discovery
 

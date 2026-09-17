@@ -7,6 +7,14 @@ from typing import Optional
 class BaseTTSModel(ABC):
     """Base class for all TTS model implementations."""
 
+    # Whether ``offload`` can park the weights in CPU memory (the scheduler
+    # reports it, so the API knows before asking).
+    can_offload: bool = False
+    # Whether ``list_voices`` needs the weights in memory. It should not: a
+    # listing is a settings screen, not a synthesis, and must not bring a
+    # model onto the GPU (#218). VieNeu's presets live in its SDK engine.
+    voices_need_weights: bool = False
+
     @property
     @abstractmethod
     def model_id(self) -> str:
@@ -39,7 +47,8 @@ class BaseTTSModel(ABC):
 
     @abstractmethod
     def list_voices(self) -> list[dict]:
-        """List available preset voices.
+        """List available preset voices without loading weights (unless
+        ``voices_need_weights``).
 
         Returns:
             List of {"id": str, "name": str} dicts.

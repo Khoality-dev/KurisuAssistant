@@ -886,9 +886,10 @@ the synthesis and recognition routes: a request an engine **refuses** with a
 nothing) keeps that status and the engine's reason as `detail`; anything else
 (unreachable, a timeout, any other status, a failure inside the engine) is
 `502` with `The speech service is unavailable. (reference: …)`, the engine's
-own text kept in the log. universal-voice reports some request faults as a
-`500` — GPT-SoVITS asked to speak with no reference clip — and those are still
-the outage until the engine says `400` (#212, step 2).
+own text kept in the log. universal-voice reports the request faults it can
+tell apart — an unknown model, voice or language, a missing or over-long
+reference clip, empty text — as a `400` (#218), so what the user reads for one
+is the engine's own sentence; a clip its decoder cannot read is still a `500`.
 
 ### POST /tts
 
@@ -937,8 +938,8 @@ There is no `GET /tts/backends`.
 **Query:** `language`, `model`, `initial_prompt` (all optional).
 
 **Response:** the recognition engine's JSON, `{"text", "language"}`.
-universal-voice reports every recognition failure — a model it does not have
-included — as a `500`, so those are the `502` today.
+universal-voice reports a recognition failure — a model it does not have
+included — as a `500`, so those are the `502`.
 
 ### POST /asr/detect-language
 

@@ -2,16 +2,29 @@
 
 import logging
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 
+from universal_voice import config
 from universal_voice.scheduler import scheduler
 from universal_voice.tts.registry import tts_registry
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/tts", tags=["tts"])
+
+def _require_tts() -> None:
+    """An instance started with only ``whisper`` in ``UVOICE_ENGINES`` (#218)
+    synthesizes nothing; the backend reports the 404 as its own 502, which is
+    right — a synthesis sent here is a misrouting, not the user's request."""
+    if not config.TTS_ENABLED:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Synthesis is not an engine of this instance (UVOICE_ENGINES={','.join(sorted(config.ENGINES))})",
+        )
+
+
+router = APIRouter(prefix="/tts", tags=["tts"], dependencies=[Depends(_require_tts)])
 
 
 @router.post("/synthesize")
@@ -81,8 +94,12 @@ async def synthesize(
 
 
 def _list_voices(tts_model) -> list[dict]:
-    with scheduler.use(tts_model):
-        return tts_model.list_voices()
+    # A listing loads nothing (#218): the presets are read from disk. VieNeu's
+    # are a method of its SDK engine, so that one goes through the scheduler.
+    if getattr(tts_model, "voices_need_weights", False):
+        with scheduler.use(tts_model):
+            return tts_model.list_voices()
+    return tts_model.list_voices()
 
 
 @router.get("/voices")
@@ -91,16 +108,20 @@ async def list_voices(model: str | None = Query(default=None)):
     try:
         if model:
             tts_model = tts_registry.get_model(model)
-            # list_voices may load the model to read its presets.
             voices = await run_in_threadpool(_list_voices, tts_model)
             for v in voices:
                 v["model"] = tts_model.model_id
             return voices
 
-        # Aggregate from all models
+        # Aggregate from all models. A model whose presets are its weights is
+        # listed only while it happens to be loaded: a listing of everything
+        # must not bring a model in (and park the resident one to do it).
         all_voices = []
         for m in tts_registry.list_models():
             tts_model = tts_registry.get_model(m["id"])
+            if getattr(tts_model, "voices_need_weights", False) and not tts_model.is_loaded():
+                logger.info("voices: %s is not loaded and its presets need it; omitted", m["id"])
+                continue
             voices = await run_in_threadpool(_list_voices, tts_model)
             for v in voices:
                 v["model"] = m["id"]
