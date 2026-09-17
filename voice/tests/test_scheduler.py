@@ -2,7 +2,7 @@
 
 import pytest
 
-from universal_voice.scheduler import OFFLOADED, RESIDENT, UNLOADED, ModelScheduler
+from universal_voice.scheduler import OFFLOADED, RESIDENT, UNLOADED, ModelInUse, ModelScheduler
 
 
 class Clock:
@@ -180,7 +180,7 @@ def test_status_reports_idle_time_and_use(clock):
         assert s.status()["tts:a"]["in_use"] == 1
         assert s.status()["tts:a"]["idle_seconds"] == 0
     clock.advance(42)
-    assert s.status()["tts:a"] == {"residency": RESIDENT, "idle_seconds": 42, "in_use": 0}
+    assert s.status()["tts:a"] == {"residency": RESIDENT, "idle_seconds": 42, "in_use": 0, "can_offload": False}
 
 
 def test_preload_brings_a_model_in_and_leaves_it_idle(clock):
@@ -189,3 +189,72 @@ def test_preload_brings_a_model_in_and_leaves_it_idle(clock):
     s.preload(a)
     assert state(s, a) == RESIDENT and a.ops == ["load"]
     assert s.status()["tts:a"]["in_use"] == 0
+
+
+# --- on request (#218) --------------------------------------------------------
+
+def test_load_brings_a_model_in_and_leaves_it_idle(clock):
+    s = make(clock)
+    a = FakeModel("a")
+    assert s.load(a) == RESIDENT
+    assert a.ops == ["load"]
+    assert s.status()["tts:a"]["in_use"] == 0
+
+
+def test_load_respects_the_cap_like_a_request(clock):
+    s = make(clock, max_resident_tts=1)
+    a, b = FakeModel("a"), FakeModel("b")
+    s.load(a)
+    s.load(b)
+    assert state(s, a) == OFFLOADED
+    assert state(s, b) == RESIDENT
+
+
+def test_offload_and_unload_on_request(clock):
+    s = make(clock)
+    a = FakeModel("a")
+    s.load(a)
+    assert s.offload(a) == OFFLOADED
+    assert s.unload(a) == UNLOADED
+    assert a.ops == ["load", "offload", "unload"]
+
+
+def test_a_model_in_use_refuses_to_be_parked(clock):
+    s = make(clock)
+    a = FakeModel("a")
+    with s.use(a):
+        with pytest.raises(ModelInUse) as excinfo:
+            s.offload(a)
+        with pytest.raises(ModelInUse):
+            s.unload(a)
+    assert excinfo.value.key == "tts:a"
+    assert excinfo.value.in_use == 1
+    assert a.ops == ["load"]
+    assert state(s, a) == RESIDENT
+
+
+def test_offload_leaves_a_model_that_cannot_offload_where_it_is(clock):
+    s = make(clock)
+    a = FakeModel("a", offloadable=False)
+    s.load(a)
+    assert s.offload(a) == RESIDENT
+    assert state(s, a) == RESIDENT
+
+
+def test_offloading_an_unloaded_model_is_a_no_op(clock):
+    s = make(clock)
+    a = FakeModel("a")
+    assert s.offload(a) == UNLOADED
+    assert s.unload(a) == UNLOADED
+    assert a.ops == []
+
+
+def test_status_reports_whether_a_model_can_offload(clock):
+    s = make(clock)
+    a = FakeModel("a")
+    a.can_offload = True
+    b = FakeModel("b")  # says nothing about it
+    s.register(a)
+    s.register(b)
+    assert s.status()["tts:a"]["can_offload"] is True
+    assert s.status()["tts:b"]["can_offload"] is False

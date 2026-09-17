@@ -56,6 +56,8 @@ def normalize_language(language: Optional[str]) -> str:
 class GPTSoVITSModel(BaseTTSModel):
     """Voice cloning from a reference clip; there are no preset voices."""
 
+    can_offload = True
+
     def __init__(self):
         self._tts: Any = None
         self._offloaded = False
@@ -180,7 +182,8 @@ class GPTSoVITSModel(BaseTTSModel):
         **kwargs,
     ) -> bytes:
         if not ref_audio_bytes:
-            raise RuntimeError(
+            # The request's fault, so a 400 with this text reaches the user (#218).
+            raise ValueError(
                 "GPT-SoVITS requires a voice reference for synthesis. Pass ref_audio with the request."
             )
         self.load()
@@ -201,11 +204,19 @@ class GPTSoVITSModel(BaseTTSModel):
                     "batch_size": kwargs.get("batch_size", 20),
                     "return_fragment": False,
                 }
-                for sample_rate, audio in self._tts.run(inputs):
-                    audio = np.asarray(audio)
-                    if sample_rate == PLACEHOLDER_RATE and not audio.any():
-                        continue
-                    wavs.append(_wav_bytes(audio, int(sample_rate)))
+                try:
+                    for sample_rate, audio in self._tts.run(inputs):
+                        audio = np.asarray(audio)
+                        if sample_rate == PLACEHOLDER_RATE and not audio.any():
+                            continue
+                        wavs.append(_wav_bytes(audio, int(sample_rate)))
+                except OSError as e:
+                    # Upstream's one OSError is the 3-10 s check on the reference
+                    # clip (TTS_infer_pack/TTS.py): the request's fault, in
+                    # Chinese. Say it in the language of the rest of the API.
+                    raise ValueError(
+                        "GPT-SoVITS needs a reference clip between 3 and 10 seconds long"
+                    ) from e
         if not wavs:
             raise ValueError("GPT-SoVITS produced no audio for this text")
         return merge_wav_files(wavs)

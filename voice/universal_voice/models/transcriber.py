@@ -19,14 +19,19 @@ logger = logging.getLogger(__name__)
 
 class _AsrHandle:
     """What the residency scheduler sees for one Whisper model (#207): load and
-    unload through the transcriber; CTranslate2 cannot offload."""
+    unload through the transcriber; CTranslate2 cannot offload. ``model_id`` is
+    the cache id, so both spellings of a Hugging Face name are one entry (#218);
+    ``source`` is the name that first asked for it, the one a download needs."""
 
-    def __init__(self, transcriber: "Transcriber", name: str):
+    can_offload = False
+
+    def __init__(self, transcriber: "Transcriber", model_id: str, source: str):
         self._transcriber = transcriber
-        self.model_id = name
+        self.model_id = model_id
+        self.source = source
 
     def load(self) -> None:
-        self._transcriber._get_model(self.model_id)
+        self._transcriber._get_model(self.source)
 
     def offload(self) -> bool:
         return False
@@ -45,9 +50,10 @@ class Transcriber:
 
     def handle(self, model_name: str | None = None) -> _AsrHandle:
         name = model_name or config.DEFAULT_MODEL
-        handle = self._handles.get(name)
+        key = model_manager.cache_id(name)
+        handle = self._handles.get(key)
         if handle is None:
-            handle = self._handles[name] = _AsrHandle(self, name)
+            handle = self._handles[key] = _AsrHandle(self, key, source=name)
         return handle
 
     def _get_model(self, model_name: str | None = None) -> "WhisperModel":
@@ -57,12 +63,13 @@ class Transcriber:
         from faster_whisper import WhisperModel
 
         name = model_name or config.DEFAULT_MODEL
-        if name in self._models:
-            return self._models[name]
+        key = model_manager.cache_id(name)
+        if key in self._models:
+            return self._models[key]
 
         with self._lock:
-            if name in self._models:
-                return self._models[name]
+            if key in self._models:
+                return self._models[key]
 
             model_path = model_manager.resolve_model(name)
             logger.info(
@@ -74,16 +81,17 @@ class Transcriber:
                 device=config.DEVICE,
                 compute_type=config.COMPUTE_TYPE,
             )
-            self._models[name] = whisper_model
-            logger.info("Model loaded: %s", name)
+            self._models[key] = whisper_model
+            logger.info("Model loaded: %s (%s)", name, key)
             return whisper_model
 
     def unload_model(self, model_name: str) -> bool:
         """Unload a model from memory."""
+        key = model_manager.cache_id(model_name)
         with self._lock:
-            if model_name in self._models:
-                del self._models[model_name]
-                logger.info("Unloaded model: %s", model_name)
+            if key in self._models:
+                del self._models[key]
+                logger.info("Unloaded model: %s", key)
                 return True
         return False
 

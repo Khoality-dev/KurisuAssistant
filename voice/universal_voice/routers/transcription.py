@@ -5,7 +5,7 @@ import logging
 
 import numpy as np
 import soundfile as sf
-from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 
 from universal_voice import config
@@ -13,7 +13,17 @@ from universal_voice.models.transcriber import transcriber
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["transcription"])
+def _require_asr() -> None:
+    """An instance started without ``whisper`` in ``UVOICE_ENGINES`` (#218) has
+    no recognition to offer; the backend reports the 404 as its own 502."""
+    if not config.ASR_ENABLED:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Recognition is not an engine of this instance (UVOICE_ENGINES={','.join(sorted(config.ENGINES))})",
+        )
+
+
+router = APIRouter(tags=["transcription"], dependencies=[Depends(_require_asr)])
 
 SAMPLE_RATE = 16_000
 

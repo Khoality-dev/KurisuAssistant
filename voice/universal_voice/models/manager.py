@@ -39,6 +39,13 @@ class ModelManager:
     def _model_cache_path(self, model_name: str) -> str:
         return os.path.join(self._models_dir(), _safe_name(model_name))
 
+    @staticmethod
+    def cache_id(model_name: str) -> str:
+        """The one id a model has here, whatever spelling named it: the cache
+        directory, which is also the ``id`` in ``list_models``. ``vinai/PhoWhisper-base``
+        and ``vinai_PhoWhisper-base`` are the same model (#218)."""
+        return _safe_name(model_name)
+
     def resolve_model(self, model_name: str) -> str:
         """Resolve a model name to a local CT2 model path.
 

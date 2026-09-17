@@ -28,32 +28,42 @@ class TTSRegistry:
             self._initialized = True
 
     def _register_all(self):
-        """Register all configured TTS models."""
-        # VieNeu (always available — runs in-process)
-        from .vieneu_model import VieNeuTTSModel
-        vieneu = VieNeuTTSModel()
-        self._models[vieneu.model_id] = vieneu
+        """Register the synthesis backends named in ``UVOICE_ENGINES`` (#218) —
+        every one by default. All of them run in this process (#203)."""
+        # In this order, which is also the fallback order for "the default".
+        if "vixtts" in config.ENGINES:
+            from .vixtts_model import ViXTTSModel
+            vixtts = ViXTTSModel()
+            self._models[vixtts.model_id] = vixtts
 
-        # GPT-SoVITS (remote container)
-        from .gpt_sovits_model import GPTSoVITSModel
-        sovits = GPTSoVITSModel()
-        self._models[sovits.model_id] = sovits
+        if "gpt-sovits" in config.ENGINES:
+            from .gpt_sovits_model import GPTSoVITSModel
+            sovits = GPTSoVITSModel()
+            self._models[sovits.model_id] = sovits
 
-        # viXTTS (remote container)
-        from .vixtts_model import ViXTTSModel
-        vixtts = ViXTTSModel()
-        self._models[vixtts.model_id] = vixtts
+        if "vieneu" in config.ENGINES:
+            from .vieneu_model import VieNeuTTSModel
+            vieneu = VieNeuTTSModel()
+            self._models[vieneu.model_id] = vieneu
 
         logger.info(
             "TTS registry initialized with models: %s (default: %s)",
             list(self._models.keys()),
-            config.TTS_DEFAULT_MODEL,
+            self.default_model_id(),
         )
+
+    def default_model_id(self) -> Optional[str]:
+        """``TTS_DEFAULT_MODEL`` when this instance runs it; otherwise the first
+        the instance runs, in the order vixtts, gpt-sovits, vieneu; None when
+        it synthesizes nothing."""
+        if config.TTS_DEFAULT_MODEL in self._models:
+            return config.TTS_DEFAULT_MODEL
+        return next(iter(self._models), None)
 
     def get_model(self, model_id: Optional[str] = None) -> BaseTTSModel:
         """Get a TTS model by ID. Uses default if not specified."""
         self._ensure_initialized()
-        name = model_id or config.TTS_DEFAULT_MODEL
+        name = model_id or self.default_model_id()
         model = self._models.get(name)
         if model is None:
             raise ValueError(

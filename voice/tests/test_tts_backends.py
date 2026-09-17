@@ -111,10 +111,91 @@ def test_gpt_sovits_language_normalisation():
 
 
 def test_gpt_sovits_needs_a_reference_clip():
+    """A ValueError, so the router answers 400 and the API shows the reason (#218)."""
     from universal_voice.tts.gpt_sovits_model import GPTSoVITSModel
 
-    with pytest.raises(RuntimeError, match="requires a voice reference"):
+    with pytest.raises(ValueError, match="requires a voice reference"):
         GPTSoVITSModel().synthesize("こんにちは")
+
+
+def test_vixtts_asked_for_a_preset_it_does_not_have_is_the_requests_fault():
+    from universal_voice.tts.vixtts_model import ViXTTSModel
+
+    model = ViXTTSModel()
+    model._speakers = lambda: {}
+    with pytest.raises(ValueError, match="no preset speakers"):
+        model._preset(None)
+
+
+def test_vixtts_lists_voices_from_the_presets_file_without_loading(monkeypatch, tmp_path):
+    """Only the presets file is fetched (a few megabytes from the base model,
+    not the fine-tune), it is read with weights_only, and nothing loads (#218)."""
+    from universal_voice import config
+    from universal_voice.tts.vixtts_model import ViXTTSModel
+
+    monkeypatch.setattr(config, "TTS_MODELS_DIR", str(tmp_path))
+    fetched: list[dict] = []
+
+    def fake_download(**kwargs):
+        fetched.append(kwargs)
+        (tmp_path / "vixtts" / "speakers_xtts.pth").write_bytes(b"placeholder")
+
+    fake_hub = types.ModuleType("huggingface_hub")
+    fake_hub.hf_hub_download = fake_download
+    fake_hub.snapshot_download = lambda **kw: pytest.fail("the whole fine-tune was fetched for a listing")
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
+
+    read: list[tuple] = []
+    fake_torch = types.ModuleType("torch")
+
+    def fake_load(path, **kw):
+        read.append((str(path), kw))
+        return {"Ana Florence": {}, "Aaron Dreschner": {}}
+
+    fake_torch.load = fake_load
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+    model = ViXTTSModel()
+    assert model.list_voices() == [{"id": "Aaron Dreschner", "name": "Aaron Dreschner"}, {"id": "Ana Florence", "name": "Ana Florence"}]
+    assert model.is_loaded() is False
+    assert [f["filename"] for f in fetched] == ["speakers_xtts.pth"]
+    assert fetched[0]["repo_id"] == config.VIXTTS_BASE_MODEL_ID
+    assert read == [(str(tmp_path / "vixtts" / "speakers_xtts.pth"), {"map_location": "cpu", "weights_only": True})]
+    # A second listing reads the file already there and fetches nothing more.
+    model.list_voices()
+    assert len(fetched) == 1
+
+
+def test_gpt_sovits_clip_length_refusal_is_the_requests_fault():
+    """Upstream raises OSError (in Chinese) for a clip outside 3-10 s; it reaches
+    the router as a ValueError, so the API shows a reason in English (#218)."""
+    from universal_voice.tts import gpt_sovits_model
+    from universal_voice.tts.gpt_sovits_model import GPTSoVITSModel
+
+    model = GPTSoVITSModel()
+    model.load = lambda: None
+    model._ref_path = lambda b, name: "/tmp/ref.wav"
+
+    class Upstream:
+        def run(self, inputs):
+            raise OSError("参考音频在3~10秒范围外，请更换！")
+
+    model._tts = Upstream()
+    with pytest.raises(ValueError, match="between 3 and 10 seconds"):
+        model.synthesize("こんにちは", ref_audio_bytes=b"RIFF")
+
+
+def test_registry_honours_the_engines_filter(monkeypatch):
+    from universal_voice import config
+    from universal_voice.tts.registry import TTSRegistry
+
+    monkeypatch.setattr(config, "ENGINES", frozenset({"gpt-sovits"}))
+    registry = TTSRegistry()
+    assert [m["id"] for m in registry.list_models()] == ["gpt-sovits"]
+    # The configured default is not run here, so "the default" is the one model there is.
+    assert registry.get_model(None).model_id == "gpt-sovits"
+    with pytest.raises(ValueError, match="Unknown TTS model: vixtts"):
+        registry.get_model("vixtts")
 
 
 def test_reference_clips_get_one_path_per_content_and_the_oldest_is_evicted(monkeypatch, tmp_path):

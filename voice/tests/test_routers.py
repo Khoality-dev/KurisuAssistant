@@ -1,7 +1,8 @@
-"""The HTTP surface the backend's asr.py and tts.py proxies depend on, driven
-against fakes so nothing loads a model."""
+"""The HTTP surface the backend's speech package depends on, driven against
+fakes so nothing loads a model."""
 
 import numpy as np
+import pytest
 
 
 def test_health(client):
@@ -130,6 +131,33 @@ def test_voices_are_tagged_with_their_model(client, fake_registry):
     assert r.json() == []
 
 
+def test_listing_voices_loads_nothing(client, fake_registry):
+    """A listing is a settings screen, not a synthesis (#218)."""
+    client.get("/tts/voices")
+    assert fake_registry.get_model("fake-a").calls == []
+    assert fake_registry.get_model("fake-b").calls == []
+
+
+def test_a_model_whose_presets_are_its_weights_lists_them_through_the_scheduler(client, fake_registry):
+    model = fake_registry.get_model("fake-b")
+    model.voices_need_weights = True
+    client.get("/tts/voices", params={"model": "fake-b"})
+    assert model.calls == [{"load": True}]
+
+
+def test_the_listing_of_everything_omits_an_unloaded_model_whose_presets_are_its_weights(client, fake_registry):
+    """Asked for everything, a listing must not bring a model in (and park the
+    resident one to make room); asked for that model by name, it may."""
+    model = fake_registry.get_model("fake-b")
+    model.voices_need_weights = True
+    model.is_loaded = lambda: False
+    model._voices = [{"id": "p1", "name": "Preset"}]
+    assert client.get("/tts/voices").json() == [{"id": "v1", "name": "Voice one", "model": "fake-a"}]
+    assert model.calls == []
+    model.is_loaded = lambda: True
+    assert client.get("/tts/voices").json()[-1] == {"id": "p1", "name": "Preset", "model": "fake-b"}
+
+
 def test_model_list_covers_asr_and_tts(client, fake_registry, fake_transcriber):
     r = client.get("/v1/models")
     assert r.status_code == 200
@@ -138,10 +166,16 @@ def test_model_list_covers_asr_and_tts(client, fake_registry, fake_transcriber):
     assert ("tts", "fake-b") in ids
     # The fake transcriber reports "base" as loaded even though nothing is cached on disk.
     assert ("asr", "base") in ids
-    # Every entry carries its residency (#207); nothing here went through the scheduler.
+    # Every entry carries its residency (#207) and whether it is busy and can
+    # be parked (#218); nothing here went through the scheduler.
     for m in r.json()["data"]:
         assert m["residency"] in {"unloaded", "offloaded", "resident"}
         assert "idle_seconds" in m
+        assert m["in_use"] == 0
+        assert isinstance(m["can_offload"], bool)
+    by_id = {m["id"]: m for m in r.json()["data"]}
+    assert by_id["fake-a"]["can_offload"] is True
+    assert by_id["base"]["can_offload"] is False
 
 
 def test_model_list_shows_a_used_model_as_resident(client, fake_registry, fake_transcriber):
@@ -149,3 +183,116 @@ def test_model_list_shows_a_used_model_as_resident(client, fake_registry, fake_t
     entry = next(m for m in client.get("/v1/models").json()["data"] if m["id"] == "fake-b")
     assert entry["residency"] == "resident"
     assert entry["idle_seconds"] == 0
+
+
+# --- residency on request (#218) --------------------------------------------
+
+def test_load_offload_unload_a_synthesis_model_on_request(client, fake_registry):
+    model = fake_registry.get_model("fake-b")
+    r = client.post("/v1/models/fake-b/load")
+    assert r.status_code == 200
+    assert r.json() == {"id": "fake-b", "type": "tts", "residency": "resident", "idle_seconds": 0,
+                        "in_use": 0, "can_offload": True}
+    assert client.post("/v1/models/fake-b/offload").json()["residency"] == "offloaded"
+    assert client.post("/v1/models/fake-b/unload").json()["residency"] == "unloaded"
+    assert model.calls == [{"load": True}, {"offload": True}, {"unload": True}]
+
+
+def test_a_recognition_model_it_knows_can_be_loaded_and_dropped(client, fake_registry, fake_transcriber):
+    # The fake transcriber reports "base" as loaded, so the instance knows it.
+    r = client.post("/v1/models/base/load")
+    assert r.status_code == 200
+    assert r.json()["type"] == "asr"
+    assert r.json()["can_offload"] is False
+    assert fake_transcriber.handle("base").ops == ["load"]
+    # CTranslate2 cannot offload: the request is honoured by leaving it resident.
+    assert client.post("/v1/models/base/offload").json()["residency"] == "resident"
+    assert client.post("/v1/models/base/unload").json()["residency"] == "unloaded"
+
+
+def test_an_unknown_model_is_a_404(client, fake_registry, fake_transcriber):
+    for op in ("load", "offload", "unload"):
+        r = client.post(f"/v1/models/nope/{op}")
+        assert r.status_code == 404, op
+        assert "nope" in r.json()["detail"]
+
+
+def test_an_empty_id_is_a_404_not_the_default_model(client, fake_registry, fake_transcriber):
+    """`{model_id:path}` matches the empty string; that must not resolve to the default."""
+    for op in ("load", "offload", "unload"):
+        assert client.post(f"/v1/models//{op}").status_code == 404, op
+    assert fake_registry.get_model("fake-a").calls == []
+
+
+def test_a_recognition_model_is_one_entry_whatever_spelling_names_it(client, fake_registry, fake_transcriber):
+    """`vinai/PhoWhisper-base` and `vinai_PhoWhisper-base` are one cache directory,
+    so one scheduler entry and one loaded copy (#218)."""
+    fake_transcriber.loaded_models = lambda: ["vinai_PhoWhisper-base"]
+    by_name = client.post("/v1/models/vinai/PhoWhisper-base/load").json()
+    by_id = client.post("/v1/models/vinai_PhoWhisper-base/offload").json()
+    assert by_name["id"] == by_id["id"] == "vinai_PhoWhisper-base"
+    assert fake_transcriber.handle("vinai/PhoWhisper-base") is fake_transcriber.handle("vinai_PhoWhisper-base")
+    assert fake_transcriber.handle("vinai_PhoWhisper-base").ops == ["load"]
+
+
+def test_deleting_a_cached_model_goes_through_the_scheduler(client, fake_registry, fake_transcriber, monkeypatch):
+    """A direct unload left the entry `resident`, and the next load trusted it."""
+    from universal_voice.routers import health as health_router
+    from universal_voice.scheduler import scheduler
+
+    monkeypatch.setattr(health_router.model_manager, "delete_model", lambda name: True)
+    client.post("/v1/models/base/load")
+    handle = fake_transcriber.handle("base")
+    with scheduler.use(handle, kind="asr"):
+        assert client.delete("/v1/models/base").status_code == 409
+    assert client.delete("/v1/models/base").json() == {"status": "deleted", "model": "base"}
+    assert handle.ops == ["load", "unload"]
+    entry = next(m for m in client.get("/v1/models").json()["data"] if m["id"] == "base")
+    assert entry["residency"] == "unloaded"
+    # And a load afterwards really loads.
+    client.post("/v1/models/base/load")
+    assert handle.ops == ["load", "unload", "load"]
+
+
+def test_a_busy_model_refuses_to_be_parked(client, fake_registry):
+    """The scheduler's guarantee, on the wire: 409 and the model untouched."""
+    from universal_voice.scheduler import scheduler
+
+    model = fake_registry.get_model("fake-b")
+    with scheduler.use(model):
+        r = client.post("/v1/models/fake-b/offload")
+        assert r.status_code == 409
+        assert "in use" in r.json()["detail"]
+        assert client.post("/v1/models/fake-b/unload").status_code == 409
+    assert model.calls == [{"load": True}]
+    assert client.post("/v1/models/fake-b/offload").status_code == 200
+
+
+# --- engines (#218) -----------------------------------------------------------
+
+def test_an_instance_without_recognition_refuses_asr_and_lists_no_asr_model(client, fake_registry, fake_transcriber, monkeypatch):
+    from universal_voice import config
+
+    monkeypatch.setattr(config, "ENGINES", frozenset({"vixtts"}))
+    monkeypatch.setattr(config, "ASR_ENABLED", False)
+    pcm = (np.zeros(800, dtype=np.int16)).tobytes()
+    r = client.post("/asr", content=pcm, headers={"Content-Type": "application/octet-stream"})
+    assert r.status_code == 404
+    assert "not an engine of this instance" in r.json()["detail"]
+    assert fake_transcriber.calls == []
+    assert client.post("/v1/models/pull", json={"model": "base"}).status_code == 404
+    assert client.post("/v1/models/base/load").status_code == 404
+    types = {m["type"] for m in client.get("/v1/models").json()["data"]}
+    assert types == {"tts"}
+
+
+def test_an_instance_without_synthesis_refuses_tts(client, fake_registry, monkeypatch):
+    from universal_voice import config
+
+    monkeypatch.setattr(config, "ENGINES", frozenset({"whisper"}))
+    monkeypatch.setattr(config, "TTS_ENABLED", False)
+    r = client.post("/tts/synthesize", data={"text": "hello"})
+    assert r.status_code == 404
+    assert "not an engine of this instance" in r.json()["detail"]
+    assert client.get("/tts/voices").status_code == 404
+    assert fake_registry.get_model("fake-a").calls == []

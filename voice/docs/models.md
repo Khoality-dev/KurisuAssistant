@@ -18,7 +18,7 @@ Downloads are serialised by one lock. `POST /v1/models/pull` is the only way to 
 | `UVOICE_HOST`, `UVOICE_PORT` | `0.0.0.0`, `14213` | bind address |
 | `UVOICE_DEVICE` | `auto` | `cuda` when torch sees one, else `cpu`; shared by recognition and synthesis |
 | `UVOICE_COMPUTE_TYPE` | `auto` | `float16` on cuda, `int8` on cpu (faster-whisper only) |
-| `UVOICE_DEFAULT_MODEL` | `base` | the ASR model pre-loaded at startup and used when a request names none |
+| `UVOICE_DEFAULT_MODEL` | `base` | the ASR model fetched (pulled and converted, not loaded) at startup on a thread, and used when a request names none |
 | `UVOICE_DATA_DIR` | `voice/data` | the cache root; `/app/data` in the container, the `uvoice-data` volume |
 | `HF_TOKEN` | — | for gated Hugging Face models |
 
@@ -34,7 +34,11 @@ Each of these is also read under its older `UASR_*` name.
 | `gpt-sovits` | the vendored upstream code (`tts/gpt_sovits_model.py`, `vendor/gpt_sovits`) | the v2 pretrained pair plus Chinese RoBERTa and HuBERT from `lj1995/GPT-SoVITS`, into `tts/gpt-sovits/`; or a fine-tuned pair via `UVOICE_GPTSOVITS_GPT_WEIGHTS` / `UVOICE_GPTSOVITS_SOVITS_WEIGHTS` | required; written once per distinct clip to a temp path keyed by hash, because upstream caches the encoded prompt by path. `ref_text` (the clip's transcript) is passed through as the prompt text when given | upstream's v2 codes (`ja`, `en`, `zh`, `ko`, `yue`, `auto`, `all_*`); `UVOICE_GPTSOVITS_DEFAULT_LANGUAGE` (`ja`) when the request has none. `text_split_method=cut5`, `batch_size=20`. v2 only — see PATCHES.md. |
 | `vieneu:<mode>` | the `vieneu` SDK (`tts/vieneu_model.py`); `turbo` runs its GGUF backbone through llama-cpp-python, on the CPU | fetched by the SDK | encoded to `ref_codes`, cached by content hash; presets via `list_voices` | Vietnamese. `mode` is `UVOICE_TTS_MODE`, part of the id. It never loaded in the old container — llama-cpp-python was missing and the pre-load swallowed the error. |
 
-Every backend goes through `text_processing.split_text` (200 characters; paragraphs first, then sentence punctuation including `。！？`) and `merge_wav_files`, so long text is many short syntheses.
+Every backend goes through `text_processing.split_text` (200 characters; paragraphs first, then sentence punctuation including `。！？`) and `merge_wav_files`, so long text is many short syntheses — though the backend already sends one chunk per request (#215).
+
+### Which engines an instance runs
+
+`UVOICE_ENGINES` (#218) names them: `whisper` (recognition) and the synthesis engines `vixtts`, `gpt-sovits`, `vieneu` — engine names, not model ids: VieNeu's model id is `vieneu:<mode>`. Every one by default. One image started with a single name is one engine container, which is how #212 splits the service. A backend not named is not registered — not listed by `GET /v1/models`, unknown to `POST /tts/synthesize` (400) and to the residency routes (404) — and not preloaded. When `UVOICE_TTS_DEFAULT_MODEL` is not run, "the default" for a request that names none is the first the instance runs, in the order `vixtts`, `gpt-sovits`, `vieneu`; `UVOICE_TTS_PRELOAD`, when unset, means that same default, so an engine-only instance preloads the one model it has (set, it is taken as given, and an engine name in it stands for that engine's model id; a name the instance does not run is skipped with a log line, not an error). Without `whisper` every recognition route, the pull and the delete answer 404; with only `whisper`, every synthesis route does. A name that is not an engine, or an empty value, fails the process at import, so a typo is a container that does not start rather than one that silently runs everything or nothing.
 
 ### The Vietnamese tokenizer patch
 
@@ -70,20 +74,29 @@ backbone) and CTranslate2's Whisper cannot offload; they stay resident until
 the unload threshold. `TTS_PRELOAD` loads through the same scheduler, so a
 pre-loaded model is parked like any other once it has been idle long enough.
 
-The state is visible: `GET /v1/models` carries `residency` and `idle_seconds`
-for every entry. The heavy calls run outside the scheduler's own lock,
-serialised per model, and the in-use check is repeated under that per-model
-lock, so a request that arrives while the sweeper is deciding always wins.
+The state is visible: `GET /v1/models` carries `residency`, `idle_seconds`,
+`in_use` and `can_offload` for every entry. The heavy calls run outside the
+scheduler's own lock, serialised per model, and the in-use check is repeated
+under that per-model lock, so a request that arrives while the sweeper is
+deciding always wins.
+
+The same three moves are available on request (#218) —
+`POST /v1/models/{id}/load|offload|unload`, `docs/api.md` — for the API, which
+holds the cap across engines once each runs in its own container (#212). The
+sweeper lets a busy model be; a caller asking to park one is refused with a
+409 instead, because it is deciding what sits on the GPU and needs to know.
+`load` on request goes through the same cap as a request's load.
 
 ### Settings
 
 | Variable | Default |
 | --- | --- |
-| `UVOICE_TTS_DEFAULT_MODEL` | `vixtts` — used when a request names no `model` |
+| `UVOICE_ENGINES` | `whisper,vixtts,gpt-sovits,vieneu` — which engines this instance runs (#218) |
+| `UVOICE_TTS_DEFAULT_MODEL` | `vixtts` — used when a request names no `model`; when this instance does not run it, the first it runs of `vixtts`, `gpt-sovits`, `vieneu` |
 | `UVOICE_TTS_MAX_RESIDENT` | `1` synthesis model on the device at once; `0` for no cap |
 | `UVOICE_OFFLOAD_AFTER_SECONDS` | `300` — idle seconds before a model is parked in CPU memory; `0` never |
 | `UVOICE_UNLOAD_AFTER_SECONDS` | `1800` — idle seconds before a model is dropped; `0` never |
-| `UVOICE_TTS_PRELOAD` | the default model — comma-separated ids to load at startup |
+| `UVOICE_TTS_PRELOAD` | the instance's default model — comma-separated ids (or engine names) to load at startup |
 | `UVOICE_TTS_MODE` | `turbo` — the VieNeu engine mode, part of its model id |
 | `UVOICE_VIXTTS_MODEL_ID`, `UVOICE_VIXTTS_BASE_MODEL_ID` | `capleaf/viXTTS`, `coqui/XTTS-v2` |
 | `UVOICE_VIXTTS_SPEAKER_CACHE_SIZE` | `8` cloned voices kept as latents |

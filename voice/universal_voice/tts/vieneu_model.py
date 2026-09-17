@@ -25,6 +25,8 @@ class VieNeuTTSModel(BaseTTSModel):
     """
 
     SAMPLE_RATE = 24_000
+    # The presets are a method of the SDK engine, which is the weights.
+    voices_need_weights = True
 
     def __init__(self):
         self._engine = None
