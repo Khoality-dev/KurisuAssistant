@@ -6,7 +6,7 @@ Monorepo for KurisuAssistant. The backend and the Android app are independent; t
 - `clients/` — the TypeScript workspace: `packages/` (`models`, `platform`, `api`, `state`, `hooks` — shared, and layered in that order) and `apps/` (one per surface). Read `clients/CLAUDE.md`.
   - `clients/apps/desktop/` — Electron + React + TypeScript client. Read `clients/apps/desktop/CLAUDE.md`.
 - `clients/android/` — Kotlin + Jetpack Compose client, not a workspace member. Read `clients/android/CLAUDE.md`.
-- `voice/` — the speech service (universal-voice): faster-whisper recognition and the synthesis backends behind one HTTP surface the backend proxies to. A member of the backend's Compose stack under `--profile voice`, built from here. Read `voice/CLAUDE.md`.
+- `voice/` — the speech service (universal-voice): faster-whisper recognition and the synthesis backends behind one HTTP surface that the backend's `speech/` package drives (#212 makes each backend its own container). A member of the backend's Compose stack under `--profile voice`, built from here. Read `voice/CLAUDE.md`.
 
 The backend, the voice service and Android keep their own toolchain, `.gitignore`, tests and commands, and are run from inside their own directory — the backend in particular uses cwd-relative `data/` paths and `docker compose` must be run from `backend/` (the voice service has no Compose file of its own; it is a service in the backend's). The TypeScript clients share one lockfile and one `node_modules` at `clients/`: dependencies install there and nowhere else, so `npm ci` runs at `clients/` even when only one app changed.
 

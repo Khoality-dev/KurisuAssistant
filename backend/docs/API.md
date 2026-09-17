@@ -879,8 +879,16 @@ what the explorer's quota bar and Settings → Kurisu Drive read.
 
 ## Text-to-Speech
 
-Proxied to the `universal-voice` service. A `502` with a generic message is
-returned when it is unreachable.
+Served by the speech engines behind the API — today the `universal-voice`
+service — through `kurisuassistant/speech/` (#215). Two kinds of failure, on
+the synthesis and recognition routes: a request an engine **refuses** with a
+`400` (an unknown model, an unknown preset voice, text that normalises to
+nothing) keeps that status and the engine's reason as `detail`; anything else
+(unreachable, a timeout, any other status, a failure inside the engine) is
+`502` with `The speech service is unavailable. (reference: …)`, the engine's
+own text kept in the log. universal-voice reports some request faults as a
+`500` — GPT-SoVITS asked to speak with no reference clip — and those are still
+the outage until the engine says `400` (#212, step 2).
 
 ### POST /tts
 
@@ -889,13 +897,20 @@ returned when it is unreachable.
 
 When `voice` names a file in `data/voice_storage/`, that file is uploaded as the
 reference audio; otherwise the name is passed through as a preset `voice_id`.
+Long text is cut into chunks of about 200 characters (paragraphs, then
+sentences; a single sentence longer than that goes whole) and synthesized one
+chunk at a time; the pieces come back as one file. A chunk the engine refuses
+is skipped when there are others, as the engine itself skipped a chunk it could
+not say; the whole request is `400` only when nothing could be said. Five
+minutes for the whole text, after which it is the `502`.
 
 **Response:** `audio/wav`.
 
 ### GET /tts/voices
 
-**Query:** `provider` (optional) → `{"voices": [...]}` as reported by
-universal-voice.
+**Query:** `provider` (optional) → `{"voices": [...]}` as reported by the
+synthesis engine — one object per voice today, while both clients expect a list
+of ids (#214).
 
 ### POST /tts/check
 
@@ -904,9 +919,9 @@ universal-voice.
 
 ### GET /tts/models
 
-→ `{"models": [{"id": "vixtts", "type": "tts", …}]}`. `502` when universal-voice
-is unreachable, like `/tts/voices`; an empty list when it is up and serves no TTS
-model. (A static list of three ids used to be returned as a normal 200, so the
+→ `{"models": [{"id": "vixtts", "type": "tts", …}]}` — the synthesis models
+across the engines. `502` when no engine answers, like `/tts/voices`; an empty
+list when they are up and serve no TTS model. (A static list of three ids used to be returned as a normal 200, so the
 picker offered models that did not exist — #151.)
 
 There is no `GET /tts/backends`.
@@ -921,15 +936,23 @@ There is no `GET /tts/backends`.
 
 **Query:** `language`, `model`, `initial_prompt` (all optional).
 
-**Response:** universal-voice's JSON, e.g. `{"text": "transcribed text"}`.
+**Response:** the recognition engine's JSON, `{"text", "language"}`.
+universal-voice reports every recognition failure — a model it does not have
+included — as a `500`, so those are the `502` today.
 
 ### POST /asr/detect-language
 
-Same body. **Query:** `model`. Returns the service's detection result.
+Same body. **Query:** `model`, `languages` (comma-separated codes to choose
+among; the desktop's routing mode sends the ones it has a model mapped for —
+#216). Returns the engine's `{"language", "confidence"}`.
 
 ### GET /asr/models
 
-Lists the ASR models available on universal-voice.
+→ `{"object": "list", "data": [{"id", "name", "size_mb", "loaded", …}]}` — the
+recognition models across the engines, and only those: universal-voice's own
+catalogue lists its synthesis models too, entries without a `name`, and the
+Android client rejects a response containing one (#213). `502` when no engine
+answers.
 
 ---
 

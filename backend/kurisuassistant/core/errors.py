@@ -33,7 +33,9 @@ def new_reference() -> str:
 def log_internal_error(exc: BaseException, context: str) -> str:
     """Log an unexpected exception with a fresh reference, and return it."""
     reference = new_reference()
-    logger.error("[%s] %s: %s", reference, context, exc, exc_info=True)
+    # The exception handed in, not ``exc_info=True``: outside an ``except`` block
+    # — a failure collected from a gather, say — that would log "NoneType: None".
+    logger.error("[%s] %s: %s", reference, context, exc, exc_info=exc)
     return reference
 
 

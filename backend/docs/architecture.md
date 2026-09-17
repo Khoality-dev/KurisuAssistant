@@ -66,10 +66,19 @@ routers/                 one module per surface, all mounted in main.py
   sub_agents             task-only workers
   portability            the shared export/import format for the two above
   models, tools, skills, mcp
-  asr, tts               proxy to universal-voice (../voice)
+  asr, tts               the speech routes, over speech/
   images, character      serve stored media
   vision                 face identities and photos
   ws                     the WebSocket route and its handshake auth
+
+speech/                  the API's side of speech (#212, #215): the engines
+                         synthesize and transcribe; this decides the rest
+  engines.py             where the engines are (universal-voice, ../voice, at
+                         UVOICE_URL / ASR_API_URL), the one call helper, and
+                         how an engine's answer becomes the client's — a
+                         refusal keeps its status and reason, an outage is 502
+  text.py                split_text / merge_wav_files: 200-character chunks
+  synthesis.py           one synthesis: chunks over, one WAV back
 
 websocket/
   events.py              the event dataclasses and parse_event()
