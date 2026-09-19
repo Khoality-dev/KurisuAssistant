@@ -72,10 +72,10 @@ Both artefacts are credential stores: the archive holds the session signing key,
 the dump holds each user's provider API keys in plain columns, and the
 environment file holds the database password.
 
-`--profile voice` adds nothing to this: universal-voice's cache, the
-`kurisuassistant_uvoice-data` volume, is Whisper models and synthesis weights it
-pulls again on first use. A fine-tuned GPT-SoVITS voice you put there yourself
-(`UVOICE_GPTSOVITS_*_WEIGHTS`) is the exception — keep your own copy.
+The speech profiles add nothing to this: the engines' volumes
+(`kurisuassistant_whisper-cache`, `kurisuassistant_gpt-sovits-weights`) hold
+weights they download again on first use. A fine-tuned voice you put there
+yourself is the exception — keep your own copy.
 
 **`data/drive/` is the part that grows.** Everything else under `data/` is
 avatars and model caches; the drive is whatever users put in it, up to
@@ -200,8 +200,8 @@ API log with a traceback and a reference the response also carries (#153).
 
 **An unreachable provider is an error, not an empty list.** `GET /models` answers
 502 when no model provider can be reached, and otherwise names the ones it could
-not reach in `unavailable`; `GET /tts/models` answers 502 when universal-voice is
-down instead of a made-up list (#151). On Linux, the host's Ollama must be started
+not reach in `unavailable`; `GET /tts/models` answers 502 when no synthesis
+engine is configured instead of a made-up list (#151). On Linux, the host's Ollama must be started
 with `OLLAMA_HOST=0.0.0.0` or it refuses the container — that now reads as "The
 Ollama server is unreachable" in the model picker.
 

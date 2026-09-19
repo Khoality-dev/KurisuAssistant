@@ -17,12 +17,17 @@ Everything else is a profile in the same file, off unless asked for, because
 everything else needs something a bare Docker host does not have — a GPU, or a
 certificate:
 
-- **`--profile voice`** — **universal-voice** (internal 14213): recognition and
-  every synthesis backend (viXTTS, GPT-SoVITS, VieNeu) in one process. It is
-  `../voice` in this repository (#202; its own docs are `voice/CLAUDE.md`), and
-  since #203 nothing runs behind it — the two further containers it used to
-  call, one built from another checkout and one an unpinned third-party image,
-  are gone. Weights are pulled into its volume on first use.
+- **`--profile whisper`** — **whisper** (internal 9000), recognition:
+  `onerahmet/openai-whisper-asr-webservice`, one model per container.
+- **`--profile gpt-sovits`** — **gpt-sovits** (internal 9880), synthesis:
+  `legwork7623/gpt-sovits`, pinned by digest, running its `api_v2` server.
+
+  Both are published images this stack pulls, and neither is code this
+  repository carries (#212). An engine you already run elsewhere needs no
+  profile — set its address instead, which is also how viXTTS is reached since
+  it has no published image yet. The backend talks to each directly; the
+  service that used to sit between the API and them, and the vendored copy of
+  GPT-SoVITS's inference code that #203 required, are both gone.
 - **`--profile tls`** — **nginx** on 443, terminating TLS with
   `nginx/nginx.conf` and a self-signed certificate.
 
@@ -71,14 +76,20 @@ routers/                 one module per surface, all mounted in main.py
   vision                 face identities and photos
   ws                     the WebSocket route and its handshake auth
 
-speech/                  the API's side of speech (#212, #215): the engines
-                         synthesize and transcribe; this decides the rest
-  engines.py             where the engines are (universal-voice, ../voice, at
-                         UVOICE_URL / ASR_API_URL), the one call helper, and
-                         how an engine's answer becomes the client's — a
-                         refusal keeps its status and reason, an outage is 502
-  text.py                split_text / merge_wav_files: 200-character chunks
+speech/                  the API's side of speech (#212): the engines
+                         synthesize and transcribe; this decides the rest.
+                         No torch, no weights — HTTP and audio headers
+  engines/               one adapter per engine, each knowing its dialect
+    base.py              the one call helper: how an engine's answer becomes
+                         the client's — a refusal keeps its status and reason,
+                         an outage is 502
+    gptsovits.py         a query, and the clip named by a path it can open
+    vixtts.py            a multipart form, the clip uploaded with it
+    whisper.py           a WAV upload; one model per container
+    __init__.py          which engines are configured, and which serves a request
+  text.py                split_text / merge_wav_files / pcm_to_wav
   synthesis.py           one synthesis: chunks over, one WAV back
+  recognition.py         transcription and language detection
 
 websocket/
   events.py              the event dataclasses and parse_event()

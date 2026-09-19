@@ -25,7 +25,7 @@ from kurisuassistant.websocket import handlers as handlers_module
 PACKAGE_ROOT = Path(inspect.getfile(kurisuassistant)).parent
 ROUTERS = sorted((PACKAGE_ROOT / "routers").glob("*.py"))
 # The speech routers call out through this package, not themselves (#215).
-SPEECH = sorted((PACKAGE_ROOT / "speech").glob("*.py"))
+SPEECH = sorted((PACKAGE_ROOT / "speech").rglob("*.py"))
 
 
 def parse(path: Path) -> ast.Module:
@@ -53,10 +53,32 @@ class TestNoSynchronousHttpInRouters:
         )
 
     def test_speech_calls_go_through_the_shared_client(self):
-        """The one place that reaches an engine is speech/engines.py, and it uses
-        the shared client; the routers do not call out themselves (#215)."""
-        source = (PACKAGE_ROOT / "speech" / "engines.py").read_text()
-        assert "get_client()" in source, "speech/engines.py should call out through the shared async client"
+        """Every outbound speech call uses the one shared async client (#215).
+
+        `Engine.call` is what an adapter normally uses; an adapter may reach for
+        `get_client()` directly when its engine needs something `call` does not
+        express — GPT-SoVITS's health check, which must not raise on a status.
+        What none of them may do is build a client of their own: that leaks
+        connections and escapes the shared timeouts.
+        """
+        base = (PACKAGE_ROOT / "speech" / "engines" / "base.py").read_text()
+        assert "get_client()" in base, "speech/engines/base.py should use the shared async client"
+        for path in SPEECH:
+            source = path.read_text()
+            for constructor in ("httpx.AsyncClient(", "httpx.Client("):
+                assert constructor not in source, (
+                    f"speech/{path.name} builds its own {constructor[:-1]}; "
+                    "use kurisuassistant.core.http.get_client()"
+                )
+
+    def test_speech_routers_do_not_reach_an_engine_themselves(self):
+        """The routers are thin over the package; they hold no addresses and
+        make no calls (#215)."""
+        for name in ("asr.py", "tts.py"):
+            source = (PACKAGE_ROOT / "routers" / name).read_text()
+            assert "httpx" not in source and "get_client" not in source, (
+                f"{name} should not call out itself; go through kurisuassistant.speech"
+            )
         for name in ("asr.py", "tts.py"):
             source = (PACKAGE_ROOT / "routers" / name).read_text()
             assert "httpx" not in source and "get_client" not in source, (

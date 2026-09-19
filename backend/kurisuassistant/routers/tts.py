@@ -39,29 +39,29 @@ async def synthesize_speech(
 ):
     """Synthesize ``text`` and answer one WAV.
 
-    ``voice`` is a stem in ``data/voice_storage/`` — uploaded to the engine as
-    the reference clip — or, when no such file exists, a preset voice id the
-    engine knows. ``provider`` is the model id (``vixtts``, ``gpt-sovits``,
-    ``vieneu:turbo``); absent means the engine's default.
+    ``voice`` is a stem in ``data/voice_storage/`` — the clip the engine clones
+    — or, when no such file exists, a preset voice id the engine knows.
+    ``provider`` is the model id (``vixtts``, ``gpt-sovits``); absent means the
+    server's default engine.
     """
     logger.info("TTS request: text=%d chars, voice=%s, provider=%s, language=%s",
                 len(text), voice, provider, language)
 
     voice_file = _find_voice_file(voice) if voice else None
     if voice_file:
-        ref_audio = (voice_file.name, voice_file.read_bytes())
+        reference = engines.VoiceReference(voice_file)
         voice_id = None
-        logger.info("TTS: uploading ref_audio from %s", voice_file)
+        logger.info("TTS: cloning from %s", voice_file)
     else:
-        ref_audio = None
+        reference = None
         voice_id = voice or None
         if voice_id:
             logger.info("TTS: using preset voice_id=%s (no local file found)", voice_id)
         else:
-            logger.info("TTS: no voice specified, using model default")
+            logger.info("TTS: no voice specified, using the engine default")
 
     audio = await synthesis.synthesize(
-        text, model=provider, voice_id=voice_id, language=language, ref_audio=ref_audio,
+        text, model=provider, reference=reference, voice_id=voice_id, language=language,
     )
     return Response(
         content=audio,
@@ -75,13 +75,17 @@ async def list_tts_voices(
     provider: str = None,
     _user=Depends(get_authenticated_user)
 ):
-    """The preset voices the synthesis engine offers, optionally for one model."""
-    params = {"model": provider} if provider else {}
-    response = await engines.call(
-        engines.synthesis_engine(), "GET", "/tts/voices", context="TTS voices",
-        params=params, timeout=10,
-    )
-    return {"voices": response.json()}
+    """The preset voices the synthesis engines offer, optionally for one model.
+
+    Both engines clone from a clip in ``data/voice_storage/`` and ship no
+    presets a client can pick, so this is normally empty; it stays because both
+    clients call it and an engine that gains presets is listed here.
+    """
+    chosen = [engines.synthesis(provider)] if provider else engines.synthesis_engines()
+    voices = []
+    for engine in chosen:
+        voices.extend({**voice, "model": engine.model_id} for voice in engine.voices())
+    return {"voices": voices}
 
 
 @router.post("/check")
@@ -89,19 +93,18 @@ async def check_tts_health(
     provider: str = Body(None, embed=True),
     _user=Depends(get_authenticated_user)
 ):
-    """The synthesis engine's health answer, or ``{"ok": false, "message"}``."""
-    return await engines.health(engines.synthesis_engine())
+    """Whether the synthesis engine answers, as ``{"ok", "message"}``."""
+    return await engines.synthesis(provider).healthy()
 
 
 @router.get("/models")
 async def list_tts_models(
     _user=Depends(get_authenticated_user)
 ):
-    """The synthesis models across the engines.
+    """The synthesis models this server runs.
 
-    502 when no engine answers, like ``/tts/voices``; a hard-coded list of
-    three model ids used to be returned as a normal 200, so the picker offered
-    models that did not exist and synthesis failed later (#151). An empty list
-    is what reachable engines that serve no synthesis model get.
+    502 when it runs none, never an empty list: a hard-coded list of three
+    model ids used to be returned as a normal 200, so the picker offered models
+    that did not exist and synthesis failed later (#151).
     """
-    return {"models": await engines.catalogue("tts", context="TTS models")}
+    return {"models": engines.catalogue("tts")}

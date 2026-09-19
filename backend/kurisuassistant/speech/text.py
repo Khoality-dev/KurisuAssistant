@@ -1,11 +1,9 @@
-"""Text chunking and WAV joining — the shape every synthesis engine depends on.
+"""Audio and text shaping — what the engines expect on either side.
 
 A synthesis engine takes one chunk at a time (200 characters: paragraphs, then
 sentences) and answers one WAV; ``synthesis.py`` cuts the text here and joins
-the pieces here. The same two functions live in universal-voice
-(``voice/universal_voice/tts/text_processing.py``) for as long as that service
-also accepts whole paragraphs; the copy there goes when the engines take only
-chunks (#212).
+the pieces here. A recognition engine takes an audio file, while the clients
+record raw PCM; ``pcm_to_wav`` puts a header on it (#212).
 """
 
 import io
@@ -57,12 +55,15 @@ def split_text(text: str, max_length: int = 200) -> List[str]:
 
 
 def merge_wav_files(wav_chunks: List[bytes]) -> bytes:
-    """Concatenate WAV files into one; a single chunk is returned untouched."""
+    """Concatenate WAV files into one.
+
+    Every chunk is parsed, including a lone one: that is what makes this
+    function's answer known to be audio. An engine that returns a proxy's HTML
+    error page with a 200 used to reach the client as a single "WAV" it could
+    not play, and the caller turns the ``wave.Error`` into the outage sentence.
+    """
     if not wav_chunks:
         raise ValueError("No audio chunks to merge")
-
-    if len(wav_chunks) == 1:
-        return wav_chunks[0]
 
     first_wav = io.BytesIO(wav_chunks[0])
     with wave.open(first_wav, "rb") as wav:
@@ -84,3 +85,22 @@ def merge_wav_files(wav_chunks: List[bytes]) -> bytes:
         wav.writeframes(b"".join(audio_data))
 
     return merged.getvalue()
+
+
+# What the clients record: Int16 PCM, mono, 16 kHz. Every client's VAD emits
+# this and every recognition engine takes a file, so the header is the whole
+# difference and nothing is re-encoded.
+PCM_SAMPLE_RATE = 16_000
+PCM_CHANNELS = 1
+PCM_SAMPLE_WIDTH = 2
+
+
+def pcm_to_wav(pcm: bytes, sample_rate: int = PCM_SAMPLE_RATE) -> bytes:
+    """Wrap raw Int16 PCM in a WAV header. The samples are copied unchanged."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as out:
+        out.setnchannels(PCM_CHANNELS)
+        out.setsampwidth(PCM_SAMPLE_WIDTH)
+        out.setframerate(sample_rate)
+        out.writeframes(pcm)
+    return buf.getvalue()

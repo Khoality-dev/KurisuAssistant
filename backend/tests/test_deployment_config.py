@@ -162,15 +162,36 @@ def test_no_service_builds_from_another_checkout():
         assert str(context).startswith("."), f"{name} builds from {context}"
 
 
-def test_the_voice_service_builds_from_this_repository():
-    """universal-voice is `../voice`, a package of this monorepo (#202). It used
-    to build from a checkout of another repository named by UVOICE_ROOT, so a
-    backend release tag pinned nothing about it."""
-    build = load(BASE)["services"]["universal-voice"]["build"]
-    context = build["context"] if isinstance(build, dict) else build
-    assert context == "../voice", f"universal-voice builds from {context}"
-    assert (BACKEND.parent / "voice" / "Dockerfile").exists()
-    assert "${UVOICE_ROOT" not in BASE.read_text(), "the external checkout is gone; do not bring it back"
+def test_this_repository_builds_only_the_api():
+    """Speech engines are published images this stack pulls, not code it builds
+    (#212). `voice/` — a whole package, a vendored copy of GPT-SoVITS and an
+    eleven-gigabyte image — is gone, and nothing brings it back."""
+    building = [name for name, service in load(BASE)["services"].items() if service.get("build")]
+    assert building == ["api"], f"only the API is built here, but {building} are"
+    assert not (BACKEND.parent / "voice").exists(), "the voice package is deleted (#212)"
+    assert "universal-voice" not in BASE.read_text()
+
+
+def test_every_engine_image_is_pinned():
+    """A floating tag is what made this stack unreproducible (#98). A speech
+    engine is pinned by digest, or by a tag that names a version — never
+    `latest`, because these are the images that decide how the assistant
+    sounds."""
+    services = load(BASE)["services"]
+    for name in ("whisper", "gpt-sovits"):
+        image = services[name]["image"]
+        assert not image.endswith(":latest"), f"{name} runs a floating tag: {image}"
+        pinned = "@sha256:" in image or re.search(r":v?\d+[\w.-]*$", image)
+        assert pinned, f"{name}'s image is not pinned to a version or digest: {image}"
+
+
+def test_the_engines_are_each_their_own_profile():
+    """Not starting an engine costs nothing and the rest keep working, so no
+    engine may run by default and none may be a dependency of the API (#212)."""
+    services = load(BASE)["services"]
+    for name in ("whisper", "gpt-sovits"):
+        assert services[name].get("profiles") == [name], f"{name} should be behind its own profile"
+    assert set(services["api"]["depends_on"]) == {"postgres"}
 
 
 def test_env_template_documents_every_variable_the_base_file_reads():
