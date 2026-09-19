@@ -22,8 +22,9 @@ class UpdateRepository @Inject constructor(
     private val json: Json,
 ) {
     companion object {
+        // The list, not `releases/latest`: that is the desktop's (see AndroidReleases).
         private const val GITHUB_RELEASES_URL =
-            "https://api.github.com/repos/Khoality-dev/KurisuAssistant-Client-Android/releases/latest"
+            "https://api.github.com/repos/Khoality-dev/KurisuAssistant/releases?per_page=30"
         private const val DEV_MANIFEST_PATH = "/apks/kurisu-dev-latest.json"
     }
 
@@ -55,9 +56,10 @@ class UpdateRepository @Inject constructor(
         if (!response.isSuccessful) return@withContext null
 
         val body = response.body?.string() ?: return@withContext null
-        val release = json.decodeFromString<GithubRelease>(body)
+        val release = AndroidReleases.newest(json.decodeFromString<List<GithubRelease>>(body))
+            ?: return@withContext null
 
-        if (isNewer(release.tagName, BuildConfig.VERSION_NAME)) release else null
+        if (AndroidReleases.isNewer(release.tagName, BuildConfig.VERSION_NAME)) release else null
     }
 
     private suspend fun checkLocalDevUpdate(): GithubRelease? = withContext(Dispatchers.IO) {
@@ -121,17 +123,4 @@ class UpdateRepository @Inject constructor(
 
             file
         }
-
-    internal fun isNewer(remoteTag: String, localVersion: String): Boolean {
-        val remote = remoteTag.removePrefix("v").split(".").mapNotNull { it.toIntOrNull() }
-        val local = localVersion.removePrefix("v").split(".").mapNotNull { it.toIntOrNull() }
-
-        for (i in 0 until maxOf(remote.size, local.size)) {
-            val r = remote.getOrElse(i) { 0 }
-            val l = local.getOrElse(i) { 0 }
-            if (r > l) return true
-            if (r < l) return false
-        }
-        return false
-    }
 }

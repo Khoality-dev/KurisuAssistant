@@ -6,7 +6,7 @@ See [Screens](docs/screens.md) for what the app looks like and the model it pres
 
 ## Install
 
-Download the latest installer from the [desktop releases page](https://github.com/Khoality-dev/KurisuAssistant-Client-Desktop/releases/latest).
+Download the latest installer from the [desktop releases page](https://github.com/Khoality-dev/KurisuAssistant/releases/latest).
 
 - Windows: run the `.exe` installer.
 - Linux: install the `.deb`, or make the `.AppImage` executable with `chmod +x` and open it.
