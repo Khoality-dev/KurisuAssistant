@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from kurisuassistant.core.errors import internal_error
 from kurisuassistant.speech import engines
+from kurisuassistant.speech.residency import residency
 from kurisuassistant.speech.text import merge_wav_files, split_text
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,24 @@ async def synthesize(
                 CONTEXT, len(text), len(chunks), engine.model_id,
                 reference.filename if reference else voice_id, language)
 
+    # Held for the whole text, not per chunk: an engine part-way through a
+    # synthesis must not be evicted between two sentences of the same answer.
+    async with residency.serving(engine):
+        pieces, refusal = await _synthesize_chunks(engine, chunks, reference, voice_id, language)
+
+    if not pieces:
+        raise refusal  # every chunk was refused; there is always at least one
+    try:
+        audio = merge_wav_files(pieces)
+    except (wave.Error, EOFError) as e:
+        # Not WAV, or truncated: the engine answered, but not with audio.
+        raise internal_error(e, CONTEXT, status_code=502, public_detail=engines.UNAVAILABLE)
+    logger.info("%s: %d bytes of audio", CONTEXT, len(audio))
+    return audio
+
+
+async def _synthesize_chunks(engine, chunks, reference, voice_id, language):
+    """Each chunk over in turn, and what came back."""
     deadline = asyncio.get_running_loop().time() + TOTAL_TIMEOUT
     pieces: list[bytes] = []
     refusal: HTTPException | None = None
@@ -72,12 +91,4 @@ async def synthesize(
             continue
         pieces.append(piece)
 
-    if not pieces:
-        raise refusal  # every chunk was refused; there is always at least one
-    try:
-        audio = merge_wav_files(pieces)
-    except (wave.Error, EOFError) as e:
-        # Not WAV, or truncated: the engine answered, but not with audio.
-        raise internal_error(e, CONTEXT, status_code=502, public_detail=engines.UNAVAILABLE)
-    logger.info("%s: %d bytes of audio", CONTEXT, len(audio))
-    return audio
+    return pieces, refusal

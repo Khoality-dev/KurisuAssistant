@@ -28,6 +28,11 @@ certificate:
   it has no published image yet. The backend talks to each directly; the
   service that used to sit between the API and them, and the vendored copy of
   GPT-SoVITS's inference code that #203 required, are both gone.
+- **`--profile residency`** — **docker-proxy** (internal 2375), a filtered view
+  of the Docker API that lets the API stop and start the speech engines when
+  the GPU is contended (#221) without ever holding the socket itself. Its
+  allowlist names the three engine containers and the methods inspect, start
+  and stop, and only the API container may connect to it.
 - **`--profile tls`** — **nginx** on 443, terminating TLS with
   `nginx/nginx.conf` and a self-signed certificate.
 
@@ -90,6 +95,10 @@ speech/                  the API's side of speech (#212): the engines
   text.py                split_text / merge_wav_files / pcm_to_wav
   synthesis.py           one synthesis: chunks over, one WAV back
   recognition.py         transcription and language detection
+  residency.py           which engines hold the GPU: offload by LRU under
+                         memory pressure, measured footprints, never one
+                         that is serving a request (#221)
+  containers.py          start and stop, through the filtered Docker API
 
 websocket/
   events.py              the event dataclasses and parse_event()

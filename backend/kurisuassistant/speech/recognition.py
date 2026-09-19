@@ -8,6 +8,7 @@ engines take an audio file, so the PCM is wrapped in a WAV header here
 import logging
 
 from kurisuassistant.speech import engines
+from kurisuassistant.speech.residency import residency
 from kurisuassistant.speech.text import pcm_to_wav
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,8 @@ async def transcribe(
 ) -> dict:
     """``{"text", "language"}`` for one clip of raw PCM."""
     engine = engines.recognition()
-    result = await engine.transcribe(pcm_to_wav(pcm), language=language, initial_prompt=initial_prompt)
+    async with residency.serving(engine):
+        result = await engine.transcribe(pcm_to_wav(pcm), language=language, initial_prompt=initial_prompt)
     logger.info("ASR: %d bytes of PCM -> %d chars (%s)", len(pcm), len(result["text"]), result["language"])
     return result
 
@@ -33,7 +35,8 @@ async def detect_language(pcm: bytes, *, allowed: list[str] | None = None) -> di
     language it has no mapping for.
     """
     engine = engines.recognition()
-    result = await engine.detect_language(pcm_to_wav(pcm))
+    async with residency.serving(engine):
+        result = await engine.detect_language(pcm_to_wav(pcm))
     if allowed and result["language"] not in allowed:
         logger.info("ASR detect-language: %s is not one of %s; the client will fall back",
                     result["language"], ",".join(allowed))
