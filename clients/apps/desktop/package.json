@@ -2,6 +2,11 @@
   "name": "kurisu-assistant-client",
   "version": "0.0.1",
   "description": "KurisuAssistant Desktop Client with React + Electron",
+  "homepage": "https://github.com/Khoality-dev/KurisuAssistant",
+  "author": {
+    "name": "Khoality-dev",
+    "email": "khoality-dev@users.noreply.github.com"
+  },
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -30,7 +35,6 @@
     "chat",
     "ai"
   ],
-  "author": "",
   "license": "MIT",
   "dependencies": {
     "@emotion/react": "^11.11.3",
