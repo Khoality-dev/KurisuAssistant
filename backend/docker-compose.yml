@@ -98,6 +98,38 @@ services:
       - default
     restart: unless-stopped
 
+  docker-proxy:
+    profiles: ["residency"]
+    # How the API stops and starts a speech engine without ever holding the
+    # Docker socket (#221). The socket is root on this machine, and the API is
+    # the process behind the reverse proxy, so it gets a filtered view instead:
+    # every HTTP method has its own allowlist, anchored, and only these three
+    # container names appear in it. Inspect, start and stop — no exec, no image
+    # pulls, no volumes, no networks, nothing about any other stack here.
+    #
+    # `allowfrom` is the second half: only the API container may connect, not
+    # even the host.
+    image: wollomatic/socket-proxy:1.13.0
+    container_name: kurisu-docker-proxy
+    command:
+      - '-loglevel=info'
+      - '-allowfrom=kurisu-api'
+      - '-allowGET=/(v[\d.]+/)?containers/(kurisu-whisper|kurisu-gpt-sovits|vixtts-container)/json'
+      - '-allowPOST=/(v[\d.]+/)?containers/(kurisu-whisper|kurisu-gpt-sovits|vixtts-container)/(start|stop)'
+      - '-listenip=0.0.0.0'
+      - '-shutdowngracetime=5'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    user: "65534:${DOCKER_GID:-999}"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges"]
+    expose:
+      - "2375"
+    networks:
+      - default
+    restart: unless-stopped
+
   api:
     # Logs are capped: the default json-file driver grows without limit, and
     # this service logs every request at INFO for the life of the deployment.
@@ -140,6 +172,17 @@ services:
       # Where the gpt-sovits container sees ./data/voice_storage.
       - GPTSOVITS_VOICE_DIR=${GPTSOVITS_VOICE_DIR:-/voice_storage}
       - GPTSOVITS_DEFAULT_LANGUAGE=${GPTSOVITS_DEFAULT_LANGUAGE:-ja}
+      # Residency (#221). An engine that is up holds its weights, and the card
+      # is shared, so an engine is stopped when something else needs the
+      # memory — least recently used first, never one that is serving a
+      # request. Empty SPEECH_DOCKER_URL turns the whole thing off and leaves
+      # engines exactly as they were started; it needs the `residency` profile
+      # for the proxy, and an API that can read the GPU (docs/development.md).
+      - SPEECH_DOCKER_URL=${SPEECH_DOCKER_URL:-}
+      - SPEECH_CONTAINERS=${SPEECH_CONTAINERS:-gpt-sovits=kurisu-gpt-sovits,vixtts=vixtts-container}
+      - SPEECH_VRAM_HEADROOM_MB=${SPEECH_VRAM_HEADROOM_MB:-512}
+      - SPEECH_DEFAULT_FOOTPRINT_MB=${SPEECH_DEFAULT_FOOTPRINT_MB:-2500}
+      - SPEECH_START_TIMEOUT_SECONDS=${SPEECH_START_TIMEOUT_SECONDS:-120}
       # What the recognition engine was started with, so the model picker can
       # name it. The same variable the whisper service reads, so the two cannot
       # drift: a container serves one model and this is what it is called.
