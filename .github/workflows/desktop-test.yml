@@ -39,6 +39,11 @@ jobs:
   # strict-mode codebase; and `npm test` (vitest) was never run anywhere.
   # Neither depends on the OS, so one Linux job covers both and fails fast
   # before the slower Electron matrix starts.
+  #
+  # Both run from the workspace root, not from the app: the root scripts fan
+  # out to every member, and the shared packages are where the boundary test
+  # and the protocol drift test live. Run from `clients/apps/desktop` they
+  # covered that app alone, and no package test had ever run in CI (#225).
   checks:
     name: Typecheck + unit tests
     runs-on: ubuntu-latest
@@ -68,9 +73,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Typecheck
+        working-directory: clients
         run: npm run typecheck
 
       - name: Unit tests
+        working-directory: clients
         run: npm test
 
   e2e:
