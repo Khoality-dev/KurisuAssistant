@@ -8,7 +8,6 @@ from fastapi import HTTPException
 
 from kurisuassistant.core.errors import internal_error
 from kurisuassistant.speech import engines
-from kurisuassistant.speech.residency import residency
 from kurisuassistant.speech.text import merge_wav_files, split_text
 
 logger = logging.getLogger(__name__)
@@ -19,6 +18,11 @@ CHUNK_TIMEOUT = 120
 # For the whole text. The desktop gives up on a synthesis after this long, so
 # past it the engine would be working for nobody.
 TOTAL_TIMEOUT = 300
+
+# When each engine last finished a request, by model id. The only residency
+# state the backend keeps (#227): it decides which engine to ask to step aside
+# when another cannot load, and losing it on restart costs nothing.
+_last_used: dict[str, float] = {}
 
 
 async def synthesize(
@@ -46,10 +50,19 @@ async def synthesize(
                 CONTEXT, len(text), len(chunks), engine.model_id,
                 reference.filename if reference else voice_id, language)
 
-    # Held for the whole text, not per chunk: an engine part-way through a
-    # synthesis must not be evicted between two sentences of the same answer.
-    async with residency.serving(engine):
+    try:
         pieces, refusal = await _synthesize_chunks(engine, chunks, reference, voice_id, language)
+    except engines.CannotLoad as first:
+        # The engine could not load its model — the card is full (the contract's
+        # 503). Ask the least recently used other engine to step aside, once.
+        logger.info("%s: %s cannot load (%s); making room", CONTEXT, engine.model_id, first.detail)
+        if not await _make_room(engine):
+            raise internal_error(first, CONTEXT, status_code=502, public_detail=engines.UNAVAILABLE)
+        try:
+            pieces, refusal = await _synthesize_chunks(engine, chunks, reference, voice_id, language)
+        except engines.CannotLoad as again:
+            raise internal_error(again, CONTEXT, status_code=502, public_detail=engines.UNAVAILABLE)
+    _last_used[engine.model_id] = asyncio.get_running_loop().time()
 
     if not pieces:
         raise refusal  # every chunk was refused; there is always at least one
@@ -60,6 +73,21 @@ async def synthesize(
         raise internal_error(e, CONTEXT, status_code=502, public_detail=engines.UNAVAILABLE)
     logger.info("%s: %d bytes of audio", CONTEXT, len(audio))
     return audio
+
+
+async def _make_room(for_engine) -> bool:
+    """Release the other engines, least recently used first, until one lets go.
+
+    An engine in the middle of a request answers 409 and is skipped — never
+    evict mid-request, and it is the engine that knows. Returns whether any
+    memory was given back.
+    """
+    others = [e for e in engines.synthesis_engines() if e.model_id != for_engine.model_id]
+    others.sort(key=lambda e: _last_used.get(e.model_id, 0.0))
+    for other in others:
+        if await other.release() == "released":
+            return True
+    return False
 
 
 async def _synthesize_chunks(engine, chunks, reference, voice_id, language):

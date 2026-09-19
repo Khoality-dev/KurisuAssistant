@@ -6,19 +6,24 @@ raw PCM for an engine that wants a file, the model listings the clients render,
 and which sentence a failure becomes. The engines only synthesize and
 transcribe, each in its own container from a published image.
 
-  engines/       one adapter per engine, each knowing that engine's HTTP
-                 dialect: gptsovits.py, vixtts.py, whisper.py. __init__ says
-                 which are configured and picks one for a request.
+  engines/       standard.py — the one adapter for every synthesis engine,
+                 which all speak the contract in docs/speech-engine-contract.md
+                 (#227); whisper.py — recognition, its own dialect. __init__
+                 says which are configured (TTS_ENGINES, ASR_URL) and picks
+                 one for a request.
   text.py        split_text, merge_wav_files, pcm_to_wav
-  synthesis.py   one synthesis: the text in chunks, one WAV out
+  synthesis.py   one synthesis: the text in chunks, one WAV out — and the only
+                 residency the backend has: an engine's 503 (it cannot load)
+                 makes it release the least recently used other engine and try
+                 once more
   recognition.py transcription and language detection
 
-**Nothing here imports torch, and nothing loads a model.** That is the point of
-the split: the engines carry the weights and the CUDA, in images this project
-does not build, and this package is HTTP and audio headers. There is no
-``universal-voice`` service any more and no vendored inference code — the
-engines existed as containers all along (#212).
+**Nothing here imports torch, nothing loads a model, and nothing reads the GPU
+or touches a container.** The engines carry the weights and manage their own
+memory — they drop it when idle and when asked, and say when they cannot load
+it — and this package is HTTP and audio headers. There is no ``universal-voice``
+service and no vendored inference code (#212), and no Docker proxy (#227).
 
-``routers/asr.py`` and ``routers/tts.py`` are thin over this. A new engine is a
-new adapter and one address; the routers do not change.
+``routers/asr.py`` and ``routers/tts.py`` are thin over this. A new synthesis
+engine is one ``name=url`` entry in ``TTS_ENGINES``; nothing else changes.
 """
