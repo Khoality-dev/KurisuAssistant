@@ -5,15 +5,16 @@ name: Desktop – Build and Release
 #   git tag desktop-v1.2.3 && git push origin desktop-v1.2.3
 #
 # Builds the Windows (NSIS) and Linux (AppImage, deb) packages and publishes
-# them as release v1.2.3 on the legacy client repository,
-# Khoality-dev/KurisuAssistant-Client-Desktop (see "build.publish" in
-# clients/apps/desktop/package.json). Installed apps auto-update from that
-# repository's latest release, so it stays the release channel even though the
-# code now lives here.
+# them, with latest.yml / latest-linux.yml, as the release `desktop-v1.2.3` on
+# this repository (#229). Installed apps' electron-updater reads this
+# repository's `releases/latest` ("build.publish" in
+# clients/apps/desktop/package.json) and fetches the update files under that
+# release's tag, so the tag need not be semver — the version is in latest.yml.
+# `releases/latest` is the newest release that is not a pre-release, which is
+# why the Android workflow marks its releases pre-releases: this slot is the
+# desktop's.
 #
-# Required secret: CLIENT_RELEASE_TOKEN — a personal access token with
-# Contents: read/write on the legacy client repository. The default
-# GITHUB_TOKEN cannot create releases in another repository.
+# No secret is needed: the workflow's own token creates the release here.
 #
 # A manual run (workflow_dispatch) builds without publishing and uploads the
 # packages as a workflow artifact.
@@ -25,7 +26,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # the release is created here
 
 defaults:
   run:
@@ -59,16 +60,30 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set version from tag
+        id: version
         if: startsWith(github.ref, 'refs/tags/desktop-v')
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}" -replace '^desktop-v', ''
           npm version $version --no-git-tag-version
+          "version=$version" >> $env:GITHUB_OUTPUT
 
+      # electron-builder writes latest.yml next to the installer whenever
+      # "build.publish" is configured; uploading is a separate step so the
+      # release is created by the workflow's own token, not a PAT.
       - name: Build Electron app
-        env:
-          GH_TOKEN: ${{ secrets.CLIENT_RELEASE_TOKEN }}
-        run: npx vite build && npx electron-builder --publish ${{ startsWith(github.ref, 'refs/tags/desktop-v') && 'always' || 'never' }}
+        run: npx vite build && npx electron-builder --publish never
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Desktop v${{ steps.version.outputs.version }}
+          files: |
+            clients/apps/desktop/release/*.exe
+            clients/apps/desktop/release/*.exe.blockmap
+            clients/apps/desktop/release/latest.yml
 
       - name: Upload packages (manual runs only)
         if: github.event_name == 'workflow_dispatch'
@@ -107,15 +122,26 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set version from tag
+        id: version
         if: startsWith(github.ref, 'refs/tags/desktop-v')
         run: |
           version="${GITHUB_REF_NAME#desktop-v}"
           npm version "$version" --no-git-tag-version
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Build Electron app
-        env:
-          GH_TOKEN: ${{ secrets.CLIENT_RELEASE_TOKEN }}
-        run: npx vite build && npx electron-builder --linux --publish ${{ startsWith(github.ref, 'refs/tags/desktop-v') && 'always' || 'never' }}
+        run: npx vite build && npx electron-builder --linux --publish never
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Desktop v${{ steps.version.outputs.version }}
+          files: |
+            clients/apps/desktop/release/*.AppImage
+            clients/apps/desktop/release/*.deb
+            clients/apps/desktop/release/latest-linux.yml
 
       - name: Upload packages (manual runs only)
         if: github.event_name == 'workflow_dispatch'

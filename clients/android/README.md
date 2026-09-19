@@ -6,7 +6,7 @@ See [Screens](docs/screens.md) for what the app looks like and the model it pres
 
 ## Install
 
-Download the latest APK from the [Android releases page](https://github.com/Khoality-dev/KurisuAssistant-Client-Android/releases/latest), open it, and allow installation from your browser or file manager if Android asks.
+Download the latest APK from the [Android releases page](https://github.com/Khoality-dev/KurisuAssistant/releases?q=android-v), open it, and allow installation from your browser or file manager if Android asks.
 
 ## Sign in
 

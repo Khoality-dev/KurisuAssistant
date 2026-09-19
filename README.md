@@ -28,7 +28,7 @@ one assistant, its personas, and the sub-agents it calls - see
 
 You need a Kurisu Assistant server URL and an account. If someone else hosts the server, ask them for both. To host it yourself, follow [Set up your own server](#set-up-your-own-server) below.
 
-1. Install the [desktop client](https://github.com/Khoality-dev/KurisuAssistant-Client-Desktop/releases/latest) or [Android client](https://github.com/Khoality-dev/KurisuAssistant-Client-Android/releases/latest).
+1. Install the [desktop client](https://github.com/Khoality-dev/KurisuAssistant/releases/latest) or [Android client](https://github.com/Khoality-dev/KurisuAssistant/releases?q=android-v).
 2. Open the app and enter the complete server URL, including `http://` or `https://`.
 3. On a fresh self-hosted server, register in the app, then ask the server operator to activate your account before signing in.
 4. On desktop, open **Settings → Assistant**; on Android, open **Assistant** from the drawer. Select a model. The first message fails until a model is selected.
