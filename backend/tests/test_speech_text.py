@@ -7,6 +7,8 @@ until that copy goes (#212).
 import io
 import wave
 
+import pytest
+
 from kurisuassistant.speech.text import merge_wav_files, split_text
 from tests.speech_fakes import frames_in, wav
 
@@ -51,9 +53,20 @@ def test_merge_concatenates_frames():
         assert w.getnchannels() == 1
 
 
-def test_merge_single_chunk_is_identity():
-    a = wav(10)
-    assert merge_wav_files([a]) == a
+def test_merge_parses_even_a_single_chunk():
+    """A lone chunk is re-encoded rather than passed through, so what comes back
+    is known to be audio: an engine that answers 200 with a proxy's HTML error
+    page must not reach the client as an unplayable "WAV"."""
+    one = wav(10)
+    merged = merge_wav_files([one])
+    assert frames_in(merged) == 10
+
+
+def test_merge_refuses_something_that_is_not_audio():
+    import wave as wave_module
+
+    with pytest.raises((wave_module.Error, EOFError)):
+        merge_wav_files([b"<html>502 Bad Gateway</html>"])
 
 
 def test_merge_does_not_warn_when_only_the_lengths_differ(caplog):

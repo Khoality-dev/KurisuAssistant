@@ -6,19 +6,22 @@
 # The parts that need more than this directory — a GPU — are profiles, off
 # unless you ask:
 #
-#   --profile voice    speech: universal-voice, built from ../voice in this
-#                      repository. Recognition and every synthesis backend run
-#                      in that one container (#203); the weights are pulled
-#                      into its volume on first use. Needs an NVIDIA runtime.
-#   --profile tls      nginx on 443 with the bundled self-signed certificate.
-#                      Run ./nginx/generate-certs.sh once first.
+#   --profile whisper     speech recognition: a Whisper server (#212).
+#   --profile gpt-sovits  synthesis, cloning from a reference clip.
+#   --profile tls         nginx on 443 with the bundled self-signed certificate.
+#                         Run ./nginx/generate-certs.sh once first.
 #
-#   docker compose --profile voice up -d
+#   docker compose --profile whisper --profile gpt-sovits up -d
+#
+# Every speech engine is a published image this stack pulls; none is built here
+# and none of their code is in this repository (#212). An engine you already run
+# elsewhere needs no profile at all — point its address at it instead
+# (ASR_URL, VIXTTS_URL, GPTSOVITS_URL), which is also how viXTTS is reached,
+# since it has no published image yet.
 #
 # Without any profile the API runs on CPU and answers over HTTP on API_PORT;
-# speech stays unavailable until you enable it or point ASR_API_URL and
-# UVOICE_URL at services running elsewhere. That is a working install, not a
-# broken one.
+# speech stays unavailable until an engine is started or an address is set.
+# That is a working install, not a broken one.
 #
 # Anything specific to one machine — a GPU reservation for the vision pipeline,
 # an existing reverse-proxy network — goes in an untracked
@@ -31,59 +34,66 @@
 name: kurisuassistant
 
 services:
-  universal-voice:
-    profiles: ["voice"]
-    # A package of this repository (#202). It used to build from a checkout of
-    # another one, named by UVOICE_ROOT, so a release tag here pinned nothing
-    # about it and the speech contract lived in two places. viXTTS and
-    # GPT-SoVITS used to be containers behind it — one built from another
-    # checkout, one an unpinned third-party image — reached over HTTP with the
-    # reference clip passed through a shared volume; they run inside this
-    # process now (#203).
-    build:
-      context: ../voice
-      dockerfile: Dockerfile
-    container_name: universal-voice
-    volumes:
-      # The model cache — Whisper models pulled and converted on demand under
-      # models/, the synthesis weights (viXTTS, GPT-SoVITS) under tts/. A volume
-      # the stack owns, not a directory in someone else's checkout; it is
-      # re-downloadable and not part of a backup. Several gigabytes on first use.
-      - uvoice-data:/app/data
-      - uvoice-hf-cache:/root/.cache/huggingface
+  whisper:
+    profiles: ["whisper"]
+    # Recognition. A published image (#212): one model per container, named by
+    # ASR_MODEL, on the faster-whisper engine. It unloads the model itself after
+    # MODEL_IDLE_TIMEOUT, which is the only residency there is now that no
+    # engine runs in a process this project controls.
+    image: onerahmet/openai-whisper-asr-webservice:v1.10.0-gpu
+    container_name: kurisu-whisper
     environment:
-      - UVOICE_HOST=0.0.0.0
-      - UVOICE_PORT=14213
-      - UVOICE_DEVICE=auto
-      - UVOICE_COMPUTE_TYPE=auto
-      - UVOICE_DEFAULT_MODEL=base
-      - UVOICE_DATA_DIR=/app/data
-      - UVOICE_TTS_MODE=turbo
-      - UVOICE_TTS_DEFAULT_MODEL=vixtts
-      # Which synthesis models load at startup; the others on first request.
-      - UVOICE_TTS_PRELOAD=${UVOICE_TTS_PRELOAD:-vixtts}
-      # Residency (#207): how many synthesis models sit on the GPU at once, and
-      # after how many idle seconds a model is parked in CPU memory, then
-      # dropped. The GPU is shared; nothing idle should hold it.
-      - UVOICE_TTS_MAX_RESIDENT=${UVOICE_TTS_MAX_RESIDENT:-1}
-      - UVOICE_OFFLOAD_AFTER_SECONDS=${UVOICE_OFFLOAD_AFTER_SECONDS:-300}
-      - UVOICE_UNLOAD_AFTER_SECONDS=${UVOICE_UNLOAD_AFTER_SECONDS:-1800}
-      - HF_TOKEN=${HF_TOKEN:-}
+      - ASR_ENGINE=faster_whisper
+      - ASR_MODEL=${ASR_MODEL:-base}
+      - ASR_DEVICE=${ASR_DEVICE:-cuda}
+      # Seconds; 0 keeps the model resident for ever.
+      - MODEL_IDLE_TIMEOUT=${ASR_IDLE_TIMEOUT:-300}
+    volumes:
+      # The weights, downloaded on first use. Re-downloadable; not a backup.
+      - whisper-cache:/root/.cache
     expose:
-      - "14213"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:14213/health')\" || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 300s
+      - "9000"
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: all
+              count: 1
               capabilities: [gpu]
+    networks:
+      - default
+    restart: unless-stopped
+
+  gpt-sovits:
+    profiles: ["gpt-sovits"]
+    # Synthesis. The owner's published image, whose command is api_v2.py on
+    # 9880 (#212). Pinned by digest, because the only tag it has is `latest`
+    # and an unpinned tag is what made this stack unreproducible before (#98).
+    # The digest is of the `latest` pushed 2025-05-11.
+    image: legwork7623/gpt-sovits@sha256:dda1a586be1b3537b4d1e89e0dad3927ba318a22caf800289267ba498c5539ff
+    container_name: kurisu-gpt-sovits
+    environment:
+      - is_half=True
+      - is_share=False
+    volumes:
+      # This engine opens the reference clip itself, by a path, so it reads the
+      # same directory the API writes — read-only, and no scratch volume is
+      # shared between engines. GPTSOVITS_VOICE_DIR on the API is this path.
+      - ./data/voice_storage:/voice_storage:ro
+      - gpt-sovits-weights:/workspace/SoVITS_weights
+    working_dir: /workspace
+    expose:
+      - "9880"
+    shm_size: 16G
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    stdin_open: true
+    tty: true
     networks:
       - default
     restart: unless-stopped
@@ -117,9 +127,23 @@ services:
     networks:
       - default
     environment:
-      - ASR_API_URL=${ASR_API_URL:-http://universal-voice:14213}
+      # Where each speech engine is (#212). An address that is not set means
+      # that engine is not part of this deployment: a request for it is refused
+      # with a sentence naming what to start, never a silent empty list.
+      - ASR_URL=${ASR_URL:-http://kurisu-whisper:9000}
       - LLM_API_URL=${LLM_API_URL:-http://host.docker.internal:11434}
-      - UVOICE_URL=${UVOICE_URL:-http://universal-voice:14213}
+      - GPTSOVITS_URL=${GPTSOVITS_URL:-http://kurisu-gpt-sovits:9880}
+      # viXTTS has no published image; point this at one you run yourself.
+      - VIXTTS_URL=${VIXTTS_URL:-}
+      # Which synthesis engine serves a request that names none.
+      - TTS_DEFAULT_MODEL=${TTS_DEFAULT_MODEL:-gpt-sovits}
+      # Where the gpt-sovits container sees ./data/voice_storage.
+      - GPTSOVITS_VOICE_DIR=${GPTSOVITS_VOICE_DIR:-/voice_storage}
+      - GPTSOVITS_DEFAULT_LANGUAGE=${GPTSOVITS_DEFAULT_LANGUAGE:-ja}
+      # What the recognition engine was started with, so the model picker can
+      # name it. The same variable the whisper service reads, so the two cannot
+      # drift: a container serves one model and this is what it is called.
+      - ASR_MODEL=${ASR_MODEL:-base}
       # Server-wide fallbacks for users with no key of their own stored; empty
       # disables the fallback. See the environment template.
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
@@ -256,5 +280,5 @@ networks:
 
 volumes:
   postgres-data:
-  uvoice-data:
-  uvoice-hf-cache:
+  whisper-cache:
+  gpt-sovits-weights:

@@ -19,7 +19,7 @@ The API server behind the [desktop](../clients/desktop/) and [Android](../client
 - Docker Engine 24 or newer and Docker Compose v2.24 or newer
 - [Ollama](https://ollama.ai) reachable from the stack, or a cloud provider key (Gemini, NVIDIA NIM, or Poe)
 
-No GPU or external checkout is required for the base stack. The optional `voice` profile requires an NVIDIA GPU and the NVIDIA container runtime; the speech service, [`../voice`](../voice/CLAUDE.md), pulls its model weights on first use.
+No GPU or external checkout is required for the base stack. The optional speech profiles (`whisper`, `gpt-sovits`) require an NVIDIA GPU and the NVIDIA container runtime; each is a published image this stack pulls, and it downloads its model weights on first use.
 
 ## Getting Started
 
@@ -66,7 +66,7 @@ Environment variables read by the server (see `.env.template` for the full list 
 | `HTTPS_PORT` | `443` | Port used by the optional TLS profile |
 | `LLM_API_URL` | `http://host.docker.internal:11434` | Ollama server URL as reached from the API container |
 | `GEMINI_API_KEY`, `NVIDIA_API_KEY`, `POE_API_KEY` | — | Optional cloud-provider fallbacks when a user has not stored a key in the app |
-| `ASR_API_URL`, `UVOICE_URL` | (docker-compose) | Speech recognition / universal voice service |
+| `ASR_URL`, `GPTSOVITS_URL`, `VIXTTS_URL` | (docker-compose) | Where each speech engine is; empty means this deployment does not have it |
 | `JWT_SECRET_KEY` | generated | Overrides the secret persisted to `data/jwt_secret.key` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access token lifetime |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
@@ -90,7 +90,7 @@ The database, `data/`, and `.env` must be captured and restored as one unit. The
 See the [docs/](docs/) directory:
 
 - [Architecture](docs/architecture.md), [Assistant internals](docs/agents.md), [WebSocket](docs/websocket.md), [API Reference](docs/API.md)
-- [TTS](docs/tts.md), [ASR](docs/asr.md), [Vision](docs/vision.md), [the speech service's own docs](../voice/docs/models.md)
+- [TTS](docs/tts.md), [ASR](docs/asr.md), [Vision](docs/vision.md)
 - [Tools](docs/tools.md), [Skills](docs/skills.md), [MCP Configuration](docs/mcp-config.md)
 - [Database](docs/database.md), [Development](docs/development.md)
 

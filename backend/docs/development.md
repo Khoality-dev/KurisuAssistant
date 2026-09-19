@@ -25,12 +25,18 @@ profile inside the first:
 
 | Profile | Adds | Needs |
 | --- | --- | --- |
-| `voice` | universal-voice (`../voice`, this repository): recognition and every synthesis backend in one container | an NVIDIA runtime, and disk for the weights it pulls on first use |
+| `whisper` | recognition: a published Whisper ASR webservice, one model per container | an NVIDIA runtime, and disk for the model it pulls on first use |
+| `gpt-sovits` | synthesis: the owner's published GPT-SoVITS image, pinned by digest | the same |
 | `tls` | nginx on 443 with the bundled config | `./nginx/generate-certs.sh` run once |
 
 ```bash
-docker compose --profile voice --profile tls up -d --build
+docker compose --profile whisper --profile gpt-sovits --profile tls up -d --build
 ```
+
+Every speech engine is an image this stack pulls; none is built here (#212).
+An engine you already run elsewhere needs no profile — point its address at it
+(`ASR_URL`, `GPTSOVITS_URL`, `VIXTTS_URL`), which is how viXTTS is reached,
+since it has no published image yet.
 
 This is the fix for #98. All of it used to be unconditional, so a clean machine
 could not start anything: the speech services built from absolute paths under
@@ -106,7 +112,7 @@ When a release bumps `WIRE_PROTOCOL`, publish the client releases first — `and
 
 ### A second instance
 
-`docker-compose.dev.yml` starts a second, isolated API and database as its own Compose project — `kurisuassistant-dev`: `kurisu-api-dev`, `postgres-dev`, volume `kurisuassistant-dev_postgres-data`, its own `./data` — for trying `main` against a running backend without touching a deployment. It shares the GPU service (universal-voice) and Ollama with the deployment over the deployment's Compose network; the API uploads the voice reference with every TTS request, so nothing user-specific lives in those services.
+`docker-compose.dev.yml` starts a second, isolated API and database as its own Compose project — `kurisuassistant-dev`: `kurisu-api-dev`, `postgres-dev`, volume `kurisuassistant-dev_postgres-data`, its own `./data` — for trying `main` against a running backend without touching a deployment. It shares the GPU engines and Ollama with the deployment over the deployment's Compose network; the API uploads the voice reference with every TTS request, so nothing user-specific lives in those services.
 
 ```bash
 # from the backend/ of the checkout you want to run — never the deployment's
@@ -152,7 +158,10 @@ Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `G
 | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | — | Database connection |
 | `LLM_API_URL` | `http://localhost:11434` in-process, `http://host.docker.internal:11434` under Compose | Ollama server URL. The two defaults differ, and only the Compose one applies to a deployment. On Linux the host's Ollama must be started with `OLLAMA_HOST=0.0.0.0` or it refuses the container, which `GET /models` reports as a 502 naming this variable (#151) |
 | `GEMINI_API_KEY`, `NVIDIA_API_KEY`, `POE_API_KEY` | — | Cloud LLM providers; fallbacks when the user has no key stored |
-| `ASR_API_URL`, `UVOICE_URL` | (docker-compose) | Speech recognition / universal voice service |
+| `ASR_URL`, `GPTSOVITS_URL`, `VIXTTS_URL` | (docker-compose) | Where each speech engine is. Empty means this deployment does not have that engine, and a request for it is refused with a sentence naming the profile to start |
+| `TTS_DEFAULT_MODEL` | first configured | Which synthesis engine answers a request that names none |
+| `ASR_MODEL` | `base` | What the recognition container was started with; the API reads it only to name the model in the clients' picker |
+| `GPTSOVITS_VOICE_DIR`, `GPTSOVITS_DEFAULT_LANGUAGE` | `/voice_storage`, `ja` | Where the GPT-SoVITS container sees `data/voice_storage/`, and the language it assumes |
 | `JWT_SECRET_KEY` | generated | Overrides the secret persisted to `data/jwt_secret.key` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access token lifetime |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
@@ -176,10 +185,7 @@ Read by Compose rather than by the server:
 | `API_PORT`, `API_BIND` | `15597`, `0.0.0.0` | Where the API is published on the host. `API_BIND=127.0.0.1` keeps it off the network when a proxy fronts it |
 | `API_DEV_PORT` | `15598` | The dev overlay's port, always on loopback |
 | `HTTPS_PORT` | `443` | nginx's port, under `--profile tls` |
-| `UVOICE_TTS_PRELOAD` | `vixtts` | Which synthesis models universal-voice loads at startup; the others load on their first request (`voice/docs/models.md`) |
-| `UVOICE_TTS_MAX_RESIDENT`, `UVOICE_OFFLOAD_AFTER_SECONDS`, `UVOICE_UNLOAD_AFTER_SECONDS` | `1`, `300`, `1800` | Residency (#207): how many synthesis models may be on the GPU at once, and after how long idle a model is parked in CPU memory, then dropped. `0` disables each |
-| `UVOICE_GPTSOVITS_GPT_WEIGHTS`, `UVOICE_GPTSOVITS_SOVITS_WEIGHTS` | — | A fine-tuned GPT-SoVITS voice instead of the pretrained pair; paths inside the container, under the `uvoice-data` volume |
-| `HF_TOKEN` | — | Hugging Face token for universal-voice's gated models |
+| `ASR_DEVICE`, `ASR_IDLE_TIMEOUT` | `cuda`, `300` | The recognition engine's, not the API's. The idle timeout is the only unloading there is: no engine runs in a process this project controls any more |
 | `DB_WAIT_ATTEMPTS`, `DB_WAIT_INTERVAL` | `60`, `2` | How long the entrypoint waits for Postgres before failing loudly |
 
 There is **no `DATA_DIR` variable** for the server: `core/paths.py` resolves `data/` from the package location and never reads the environment, so it is the `data/` beside the installed `kurisuassistant/` regardless of where a command is run. One migration used to read a `DATA_DIR` env var that nothing sets, and therefore looked for character assets under the literal `/app/data` outside the container; it now imports the same constant as everything else.

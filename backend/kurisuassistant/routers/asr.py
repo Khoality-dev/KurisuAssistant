@@ -5,13 +5,11 @@ import logging
 from fastapi import APIRouter, Body, Depends, Query
 
 from kurisuassistant.core.deps import get_authenticated_user
-from kurisuassistant.speech import engines
+from kurisuassistant.speech import engines, recognition
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["asr"])
-
-_PCM = {"Content-Type": "application/octet-stream"}
 
 
 @router.post("/asr")
@@ -22,17 +20,13 @@ async def asr_endpoint(
     initial_prompt: str | None = Query(None),
     _user=Depends(get_authenticated_user)
 ):
-    """Transcribe raw Int16 PCM (16 kHz, mono) on the recognition engine."""
-    params = {
-        name: value
-        for name, value in (("language", language), ("model", model), ("initial_prompt", initial_prompt))
-        if value
-    }
-    response = await engines.call(
-        engines.recognition_engine(), "POST", "/asr", context="ASR",
-        content=audio, params=params, headers=_PCM, timeout=30,
-    )
-    return response.json()
+    """Transcribe raw Int16 PCM (16 kHz, mono).
+
+    ``model`` is accepted and ignored: a recognition engine serves the one
+    model its container was started with, so the choice is the operator's, not
+    the request's. Both clients still send what they have stored.
+    """
+    return await recognition.transcribe(audio, language=language, initial_prompt=initial_prompt)
 
 
 @router.post("/asr/detect-language")
@@ -44,25 +38,18 @@ async def asr_detect_language(
 ):
     """Detect the spoken language of a clip without transcribing it.
 
-    ``languages`` — comma-separated codes — constrains the answer to those; the
-    desktop's routing mode sends the languages it has a model mapped for. The
-    proxy used to drop it (#216).
+    ``languages`` — comma-separated codes — is the client's routing table; see
+    ``speech/recognition.py`` for what it does with an answer outside it.
     """
-    params = {name: value for name, value in (("model", model), ("languages", languages)) if value}
-    response = await engines.call(
-        engines.recognition_engine(), "POST", "/asr/detect-language", context="ASR detect-language",
-        content=audio, params=params, headers=_PCM, timeout=30,
-    )
-    return response.json()
+    allowed = [code.strip() for code in languages.split(",") if code.strip()] if languages else None
+    return await recognition.detect_language(audio, allowed=allowed)
 
 
 @router.get("/asr/models")
 async def asr_models(_user=Depends(get_authenticated_user)):
-    """The recognition models across the engines, ``{"object": "list", "data": [...]}``.
+    """The recognition models this server runs, ``{"object": "list", "data": [...]}``.
 
-    Recognition only. universal-voice's catalogue also lists the synthesis
-    models — entries with no ``name`` — and passing it through whole made the
-    Android client, which decodes every entry as a recognition model, reject
-    the response (#213).
+    Recognition only: the Android client decodes every entry as a recognition
+    model and rejected a response that also listed the synthesis ones (#213).
     """
-    return {"object": "list", "data": await engines.catalogue("asr", context="ASR models", timeout=10)}
+    return {"object": "list", "data": engines.catalogue("asr")}

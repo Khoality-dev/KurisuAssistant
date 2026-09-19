@@ -879,17 +879,17 @@ what the explorer's quota bar and Settings → Kurisu Drive read.
 
 ## Text-to-Speech
 
-Served by the speech engines behind the API — today the `universal-voice`
-service — through `kurisuassistant/speech/` (#215). Two kinds of failure, on
-the synthesis and recognition routes: a request an engine **refuses** with a
-`400` (an unknown model, an unknown preset voice, text that normalises to
-nothing) keeps that status and the engine's reason as `detail`; anything else
-(unreachable, a timeout, any other status, a failure inside the engine) is
+Served by the speech engines behind the API — one container each, from
+published images — through `kurisuassistant/speech/` (#212). Two kinds of
+failure, on the synthesis and recognition routes: a request **refused** with a
+`400` (a model this server does not run, an unknown preset voice, a language
+the engine does not speak, GPT-SoVITS with no reference clip, text that
+normalises to nothing) keeps that status and the reason as `detail`; anything
+else (unreachable, a timeout, any other status, a failure inside the engine) is
 `502` with `The speech service is unavailable. (reference: …)`, the engine's
-own text kept in the log. universal-voice reports the request faults it can
-tell apart — an unknown model, voice or language, a missing or over-long
-reference clip, empty text — as a `400` (#218), so what the user reads for one
-is the engine's own sentence; a clip its decoder cannot read is still a `500`.
+own text kept in the log. An engine that is not configured at all is a `502`
+naming the profile to start, because that is a deployment's choice rather than
+an outage.
 
 ### POST /tts
 
@@ -915,8 +915,9 @@ of ids (#214).
 
 ### POST /tts/check
 
-**Request:** `{"provider": "vixtts"}` → universal-voice's health response, or
-`{"ok": false, "message": "…"}` when it cannot be reached.
+**Request:** `{"provider": "vixtts"}` → `{"ok": true, "message": "…"}` when
+that engine answers, `{"ok": false, "message": "…"}` when it cannot be reached.
+Never raises.
 
 ### GET /tts/models
 
@@ -935,25 +936,31 @@ There is no `GET /tts/backends`.
 
 **Request:** raw Int16 PCM at 16 kHz mono, `application/octet-stream`.
 
-**Query:** `language`, `model`, `initial_prompt` (all optional).
+**Query:** `language`, `initial_prompt` (optional). `model` is accepted and
+ignored: a recognition container serves the one model it was started with, so
+the choice is `ASR_MODEL` on the server. Both clients still send what they have
+stored.
 
-**Response:** the recognition engine's JSON, `{"text", "language"}`.
-universal-voice reports a recognition failure — a model it does not have
-included — as a `500`, so those are the `502`.
+**Response:** `{"text", "language"}`. The PCM is wrapped in a WAV header before
+it goes to the engine; nothing is re-encoded.
 
 ### POST /asr/detect-language
 
-Same body. **Query:** `model`, `languages` (comma-separated codes to choose
-among; the desktop's routing mode sends the ones it has a model mapped for —
-#216). Returns the engine's `{"language", "confidence"}`.
+Same body. **Query:** `model` (ignored, as above) and `languages`
+(comma-separated; the desktop's routing mode sends the ones it has a model
+mapped for). The engine takes no candidate list, so an answer outside that set
+is returned as it came and the client falls back to its default model, which is
+what it already does for a language it has no mapping for. Returns
+`{"language", "confidence"}`.
 
 ### GET /asr/models
 
-→ `{"object": "list", "data": [{"id", "name", "size_mb", "loaded", …}]}` — the
-recognition models across the engines, and only those: universal-voice's own
-catalogue lists its synthesis models too, entries without a `name`, and the
-Android client rejects a response containing one (#213). `502` when no engine
-answers.
+→ `{"object": "list", "data": [{"id", "object", "type", "name"}]}` — the
+recognition models this server runs, and only those: a catalogue that also
+listed the synthesis models made the Android client reject the response (#213).
+One entry, named by `ASR_MODEL`. No request is made to the engine — the server
+knows what it configured — so this cannot come back empty because something was
+briefly unreachable. `502` when no recognition engine is configured.
 
 ---
 
@@ -1230,7 +1237,7 @@ The `agent_switch` event no longer exists.
 | 426 | Wire protocol mismatch |
 | 429 | Rate limited (login and registration), by client address or by username |
 | 500 | Internal error |
-| 502 | An upstream service (universal-voice) is unavailable |
+| 502 | An upstream service (a speech engine, a model provider) is unavailable, or not configured |
 
 ```json
 {"detail": "Error message describing what went wrong"}

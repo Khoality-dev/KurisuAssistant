@@ -2,39 +2,41 @@
 
 ## Provider
 
-faster-whisper (CTranslate2-based), running inside the **universal-voice**
-service — `../voice` in this repository (#202), not inside the API. The API
-orchestrates (#215): `routers/asr.py` goes through `kurisuassistant/speech/engines.py`,
-which knows the recognition engine's address (`ASR_API_URL`) and turns its
-answer into the client's — a 400 keeps the engine's reason; an engine that is
-not running (it is behind `--profile voice`), times out, answers any other
-status or fails inside is 502 "The speech service is unavailable." with a log
-reference. universal-voice reports a recognition failure as a 500, a model it
-does not have included — and recognition asked of an instance that runs none as
-a 404 (#218) — so those are all the 502. `GET /asr/models` lists recognition models only: the engine's
-catalogue also carries the synthesis models, and the Android client cannot
-decode a response that includes one (#213). How the service caches, pulls and
-converts models is `voice/docs/models.md`; its routes are `voice/docs/api.md`.
+faster-whisper, inside a published **Whisper ASR webservice** container behind
+`--profile whisper` — not inside the API and not in an image this repository
+builds (#212). `routers/asr.py` goes through `kurisuassistant/speech/`, whose
+`engines/whisper.py` knows that engine's dialect and whose `recognition.py`
+orchestrates: the clients record raw Int16 PCM, the engine wants a file, so
+`pcm_to_wav` puts a header on the samples and nothing is re-encoded.
+
+An engine that is not running, times out, answers any other status or fails
+inside is 502 "The speech service is unavailable." with a log reference; a 400
+keeps the engine's own reason. With no `ASR_URL` set at all the 502 names the
+profile to start, because a deployment without recognition is a configuration,
+not an outage. `GET /asr/models` lists recognition models only — the Android
+client cannot decode a response that includes a synthesis one (#213).
 
 ## Configuration
 
-The backend reads **no ASR settings of its own**. `ASR_MODEL` and `ASR_DEVICE`
-were documented here for years and are read by nothing — `grep` finds neither in
-`kurisuassistant/`. What exists:
+The engine is one container serving one model, so the model is the operator's
+choice rather than the request's:
 
-- `ASR_API_URL` — where the API sends audio. Defaults to the
-  `universal-voice` service on the Compose network.
-- The model and device belong to universal-voice, configured by the `UVOICE_*`
-  variables the Compose file sets on that service (`UVOICE_DEFAULT_MODEL`
-  defaults to `base`, `UVOICE_DEVICE=auto`).
-- The client picks a model per request; see the ASR settings in either client.
+- `ASR_URL` — where the API sends audio. Defaults to the `whisper` profile's
+  container; empty means this deployment has no recognition.
+- `ASR_MODEL` — what that container was started with (`tiny` … `large-v3`, or a
+  Hugging Face id). The API reads the same variable, only to name the model in
+  the clients' picker, so the two cannot disagree about what is running.
+- `ASR_DEVICE`, `ASR_IDLE_TIMEOUT` — the engine's, not the API's. The idle
+  timeout is the only unloading there is now that no engine runs in a process
+  this project controls; the weights come back on the next clip.
 
 ## API
 
 `POST /asr` accepts raw Int16 PCM bytes (`application/octet-stream`), optional query params:
 - `?language=` — language hint (skips detection pass)
-- `?model=` — a universal-voice model id from `GET /asr/models`; absent means
-  that service's default (`UVOICE_DEFAULT_MODEL`)
+- `?model=` — accepted and ignored. A recognition container serves the one
+  model it was started with, so the choice moved to `ASR_MODEL`; both clients
+  still send what they have stored and must not be refused for it
 - `?initial_prompt=` — passed through to faster-whisper
 
 `POST /asr/detect-language` takes the same body, `?model=` and `?languages=`

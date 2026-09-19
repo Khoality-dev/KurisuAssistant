@@ -1,177 +1,166 @@
-"""Tests for the ASR routes (kurisuassistant/routers/asr.py over kurisuassistant/speech).
+"""The recognition routes over kurisuassistant/speech (#212).
 
-These pin the API's side of the wire contract with universal-voice; the other
-end is voice/tests/test_routers.py. Change both in the same PR.
+The engine is a published Whisper server: it takes an audio file, not the raw
+PCM the clients record, and serves the one model its container was started
+with. These pin the dialect the adapter speaks and what the clients get back.
 """
 
+import io
+import wave
 from unittest.mock import patch
 
 import httpx
 import pytest
 
-from tests.speech_fakes import ENGINE, SEAM, calls, client_answering, response
+from tests.speech_fakes import SEAM, WHISPER, calls, client_answering, response
 
-PCM = {"Content-Type": "application/octet-stream"}
-CLIP = b"\x00\x01" * 800
+PCM_HEADERS = {"Content-Type": "application/octet-stream"}
+CLIP = b"\x00\x01" * 800  # 1600 samples of Int16 PCM
 
 
 @pytest.fixture(autouse=True)
-def engine_at_the_default_address(monkeypatch):
-    """The address is read from the environment per call; a developer's env file
-    (loaded by main.py when the system tests import the app) must not leak in."""
-    monkeypatch.setenv("UVOICE_URL", ENGINE)
-    monkeypatch.setenv("ASR_API_URL", ENGINE)
+def engines_configured(monkeypatch):
+    """Addresses are read per call, so a developer's environment file — loaded
+    by main.py when the system tests import the app — must not leak in."""
+    monkeypatch.setenv("ASR_URL", WHISPER)
+    monkeypatch.setenv("GPTSOVITS_URL", "http://gpt-sovits:9880")
+    monkeypatch.delenv("VIXTTS_URL", raising=False)
 
 
-# ---------------------------------------------------------------------------
-# POST /asr
-# ---------------------------------------------------------------------------
+def uploaded(kwargs) -> bytes:
+    """The bytes of the file this request uploaded."""
+    return kwargs["files"]["audio_file"][1]
+
 
 class TestTranscribe:
-    def test_the_pcm_and_every_option_reach_the_engine(self, client):
-        engine = client_answering(response(json={"text": "xin chào", "language": "vi"}))
+    def test_pcm_is_wrapped_in_a_wav_and_uploaded_unchanged(self, client):
+        """The clients record Int16 PCM at 16 kHz; the engine wants a file, and
+        putting a header on it is the whole difference — no re-encoding."""
+        engine = client_answering(response(json={"text": " xin chào ", "language": "vi"}))
 
         with patch(SEAM, return_value=engine):
-            resp = client.post(
-                "/asr", content=CLIP, headers=PCM,
-                params={"language": "vi", "model": "whisper:base", "initial_prompt": "Kurisu"},
-            )
+            resp = client.post("/asr", content=CLIP, headers=PCM_HEADERS, params={"language": "vi"})
 
         assert resp.status_code == 200
         assert resp.json() == {"text": "xin chào", "language": "vi"}
         [(method, url, kwargs)] = calls(engine)
-        assert (method, url) == ("POST", f"{ENGINE}/asr")
-        assert kwargs["content"] == CLIP
-        assert kwargs["headers"]["Content-Type"] == "application/octet-stream"
-        assert kwargs["params"] == {"language": "vi", "model": "whisper:base", "initial_prompt": "Kurisu"}
+        assert (method, url) == ("POST", f"{WHISPER}/asr")
+        with wave.open(io.BytesIO(uploaded(kwargs)), "rb") as w:
+            assert (w.getnchannels(), w.getsampwidth(), w.getframerate()) == (1, 2, 16000)
+            assert w.readframes(w.getnframes()) == CLIP
+
+    def test_language_and_prompt_reach_the_engine_as_json_output(self, client):
+        engine = client_answering(response(json={"text": "hello", "language": "en"}))
+
+        with patch(SEAM, return_value=engine):
+            client.post("/asr", content=CLIP, headers=PCM_HEADERS,
+                        params={"language": "en", "initial_prompt": "Kurisu"})
+
+        [(_, _, kwargs)] = calls(engine)
+        assert kwargs["params"] == {
+            "task": "transcribe", "output": "json", "language": "en", "initial_prompt": "Kurisu",
+        }
 
     def test_no_option_means_no_query(self, client):
-        """Absent means the engine's default, not an empty string."""
+        """Absent means the engine's own default, not an empty string."""
         engine = client_answering(response(json={"text": "", "language": "en"}))
 
         with patch(SEAM, return_value=engine):
-            client.post("/asr", content=CLIP, headers=PCM)
+            client.post("/asr", content=CLIP, headers=PCM_HEADERS)
 
         [(_, _, kwargs)] = calls(engine)
-        assert kwargs["params"] == {}
+        assert kwargs["params"] == {"task": "transcribe", "output": "json"}
 
-    def test_an_unreachable_engine_is_a_502(self, client):
-        engine = client_answering(httpx.ConnectError("refused"))
-
-        with patch(SEAM, return_value=engine):
-            resp = client.post("/asr", content=CLIP, headers=PCM)
-
-        assert resp.status_code == 502
-        detail = resp.json()["detail"]
-        assert detail.startswith("The speech service is unavailable.")
-        assert "refused" not in detail
-        assert "reference:" in detail
-
-    def test_a_refusal_keeps_the_engines_status_and_reason(self, client):
-        """The one mapping for every speech route (#215). universal-voice's
-        recognition routes report every failure as a 500 today, so this pins
-        what the recognition engines of #212 get when they say 400."""
-        engine = client_answering(response(400, json={"detail": "No audio frames decoded"}))
+    def test_the_language_asked_for_is_the_language_reported(self, client):
+        """A hint skips detection, so the engine may not report one back."""
+        engine = client_answering(response(json={"text": "xin chào"}))
 
         with patch(SEAM, return_value=engine):
-            resp = client.post("/asr", content=CLIP, headers=PCM)
+            resp = client.post("/asr", content=CLIP, headers=PCM_HEADERS, params={"language": "vi"})
 
-        assert resp.status_code == 400
-        assert resp.json()["detail"] == "No audio frames decoded"
+        assert resp.json() == {"text": "xin chào", "language": "vi"}
 
-    def test_a_failure_inside_the_engine_is_still_the_outage(self, client):
-        engine = client_answering(response(500, json={"detail": "Traceback (most recent call last)"}))
-
-        with patch(SEAM, return_value=engine):
-            resp = client.post("/asr", content=CLIP, headers=PCM)
-
-        assert resp.status_code == 502
-        assert "Traceback" not in resp.json()["detail"]
-
-
-# ---------------------------------------------------------------------------
-# POST /asr/detect-language
-# ---------------------------------------------------------------------------
-
-class TestDetectLanguage:
-    def test_the_clip_and_the_model_reach_the_engine(self, client):
-        engine = client_answering(response(json={"language": "ja", "confidence": 0.97}))
+    def test_a_model_the_client_sends_is_accepted_and_ignored(self, client):
+        """One model per container: the choice is the operator's now. Both
+        clients still send what they have stored, and it must not be an error."""
+        engine = client_answering(response(json={"text": "ok", "language": "en"}))
 
         with patch(SEAM, return_value=engine):
-            resp = client.post("/asr/detect-language", content=CLIP, headers=PCM, params={"model": "whisper:base"})
+            resp = client.post("/asr", content=CLIP, headers=PCM_HEADERS,
+                               params={"model": "vinai/PhoWhisper-base"})
 
         assert resp.status_code == 200
-        assert resp.json() == {"language": "ja", "confidence": 0.97}
-        [(method, url, kwargs)] = calls(engine)
-        assert (method, url) == ("POST", f"{ENGINE}/asr/detect-language")
-        assert kwargs["content"] == CLIP
-        assert kwargs["params"] == {"model": "whisper:base"}
-
-    def test_the_languages_constraint_reaches_the_engine(self, client):
-        """The desktop's routing mode constrains detection to the languages it
-        has a model for; the proxy dropped the parameter (#216)."""
-        engine = client_answering(response(json={"language": "vi", "confidence": 0.8}))
-
-        with patch(SEAM, return_value=engine):
-            client.post("/asr/detect-language", content=CLIP, headers=PCM, params={"languages": "vi,en"})
-
         [(_, _, kwargs)] = calls(engine)
-        assert kwargs["params"] == {"languages": "vi,en"}
+        assert "model" not in kwargs["params"]
 
-    def test_an_unreachable_engine_is_a_502(self, client):
-        engine = client_answering(httpx.ConnectError("refused"))
-
-        with patch(SEAM, return_value=engine):
-            resp = client.post("/asr/detect-language", content=CLIP, headers=PCM)
-
-        assert resp.status_code == 502
-
-
-# ---------------------------------------------------------------------------
-# GET /asr/models
-# ---------------------------------------------------------------------------
-
-class TestListModels:
-    def test_lists_recognition_models_only(self, client):
-        """universal-voice's catalogue also carries the synthesis models, with no
-        `name`; Android decodes every entry as a recognition model, so one of
-        those rejected the whole response (#213)."""
-        engine = client_answering(response(json={
-            "object": "list",
-            "data": [
-                {"id": "base", "object": "model", "type": "asr", "name": "base", "size_mb": 145.0, "loaded": True},
-                {"id": "vixtts", "object": "model", "type": "tts", "loaded": True},
-                {"id": "gpt-sovits", "object": "model", "type": "tts", "loaded": False},
-            ],
-        }))
+    def test_an_unreachable_engine_is_the_outage_sentence(self, client):
+        engine = client_answering(httpx.ConnectError("no route"))
 
         with patch(SEAM, return_value=engine):
-            resp = client.get("/asr/models")
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["object"] == "list"
-        assert [m["id"] for m in body["data"]] == ["base"]
-        assert all("name" in m for m in body["data"])
-        [(method, url, _)] = calls(engine)
-        assert (method, url) == ("GET", f"{ENGINE}/v1/models")
-
-    def test_an_unreachable_engine_is_a_502(self, client):
-        engine = client_answering(httpx.ConnectError("refused"))
-
-        with patch(SEAM, return_value=engine):
-            resp = client.get("/asr/models")
+            resp = client.post("/asr", content=CLIP, headers=PCM_HEADERS)
 
         assert resp.status_code == 502
         assert resp.json()["detail"].startswith("The speech service is unavailable.")
 
-    def test_a_reachable_engine_with_no_recognition_model_lists_none(self, client):
-        engine = client_answering(response(json={"object": "list", "data": [
-            {"id": "vixtts", "type": "tts", "loaded": True},
-        ]}))
+    def test_no_engine_configured_says_what_to_start(self, client, monkeypatch):
+        monkeypatch.delenv("ASR_URL", raising=False)
+
+        resp = client.post("/asr", content=CLIP, headers=PCM_HEADERS)
+
+        assert resp.status_code == 502
+        assert "recognition engine is configured" in resp.json()["detail"]
+        assert "ASR_URL" in resp.json()["detail"]
+
+
+class TestDetectLanguage:
+    def test_the_engines_answer_is_normalised(self, client):
+        engine = client_answering(
+            response(json={"detected_language": "Vietnamese", "language_code": "vi", "confidence": 0.94321})
+        )
+
+        with patch(SEAM, return_value=engine):
+            resp = client.post("/asr/detect-language", content=CLIP, headers=PCM_HEADERS)
+
+        assert resp.status_code == 200
+        assert resp.json() == {"language": "vi", "confidence": 0.9432}
+        [(method, url, _)] = calls(engine)
+        assert (method, url) == ("POST", f"{WHISPER}/detect-language")
+
+    def test_an_answer_outside_the_clients_table_is_reported_as_it_came(self, client):
+        """The engine takes no candidate list, so a constrained detection cannot
+        be asked for. The client falls back to its default model on a language
+        it has no mapping for, which is exactly this case."""
+        engine = client_answering(
+            response(json={"language_code": "ja", "confidence": 0.7})
+        )
+
+        with patch(SEAM, return_value=engine):
+            resp = client.post("/asr/detect-language", content=CLIP, headers=PCM_HEADERS,
+                               params={"languages": "vi,en"})
+
+        assert resp.json() == {"language": "ja", "confidence": 0.7}
+
+
+class TestModels:
+    def test_the_configured_model_is_listed_without_asking_the_engine(self, client, monkeypatch):
+        """The backend knows what it configured, so a listing costs no request
+        and cannot come back empty because something was briefly unreachable."""
+        monkeypatch.setenv("ASR_MODEL", "large-v3")
+        engine = client_answering(httpx.ConnectError("never called"))
 
         with patch(SEAM, return_value=engine):
             resp = client.get("/asr/models")
 
         assert resp.status_code == 200
-        assert resp.json() == {"object": "list", "data": []}
+        assert resp.json() == {
+            "object": "list",
+            "data": [{"id": "large-v3", "object": "model", "type": "asr", "name": "large-v3"}],
+        }
+        assert calls(engine) == []
+
+    def test_recognition_only(self, client):
+        """The Android client decodes every entry as a recognition model and
+        rejected a response that also listed the synthesis ones (#213)."""
+        resp = client.get("/asr/models")
+
+        assert [m["type"] for m in resp.json()["data"]] == ["asr"]

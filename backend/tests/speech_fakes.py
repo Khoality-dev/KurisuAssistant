@@ -1,8 +1,9 @@
 """Fakes for the speech tests: an engine's answers, and WAVs to join.
 
-The routers reach an engine through ``kurisuassistant.speech.engines.get_client``;
-patching that with ``client_answering(...)`` is the whole seam. A real
-``httpx.Response`` is used so ``raise_for_status`` behaves like the real thing.
+Every adapter reaches its engine through ``Engine.call``, which uses
+``kurisuassistant.speech.engines.base.get_client``; patching that is the whole
+seam. A real ``httpx.Response`` is used so ``raise_for_status`` behaves like the
+real thing.
 """
 
 import io
@@ -11,11 +12,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 
-ENGINE = "http://universal-voice:14213"
-SEAM = "kurisuassistant.speech.engines.get_client"
+GPTSOVITS = "http://gpt-sovits:9880"
+VIXTTS = "http://vixtts:19770"
+WHISPER = "http://whisper:9000"
+SEAM = "kurisuassistant.speech.engines.base.get_client"
 
 
-def response(status: int = 200, *, content: bytes | None = None, json=None, url: str = ENGINE) -> httpx.Response:
+def response(status: int = 200, *, content: bytes | None = None, json=None, url: str = GPTSOVITS) -> httpx.Response:
     """An engine's answer. ``content`` for audio, ``json`` for everything else."""
     request = httpx.Request("POST", url)
     if json is not None:
