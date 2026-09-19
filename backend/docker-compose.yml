@@ -8,16 +8,19 @@
 #
 #   --profile whisper     speech recognition: a Whisper server (#212).
 #   --profile gpt-sovits  synthesis, cloning from a reference clip.
+#   --profile vixtts      synthesis, cloning or a preset XTTS speaker.
 #   --profile tls         nginx on 443 with the bundled self-signed certificate.
 #                         Run ./nginx/generate-certs.sh once first.
 #
 #   docker compose --profile whisper --profile gpt-sovits up -d
 #
 # Every speech engine is a published image this stack pulls; none is built here
-# and none of their code is in this repository (#212). An engine you already run
-# elsewhere needs no profile at all — point its address at it instead
-# (ASR_URL, VIXTTS_URL, GPTSOVITS_URL), which is also how viXTTS is reached,
-# since it has no published image yet.
+# and none of their code is in this repository (#212). Every synthesis engine
+# speaks one contract (docs/speech-engine-contract.md), so the API is told only
+# a name and an address per engine — TTS_ENGINES — and an engine you already
+# run elsewhere is one more entry, no profile needed. Each engine manages its
+# own GPU memory: it drops its weights when idle and when asked, and says so
+# when it cannot load them (#227).
 #
 # Without any profile the API runs on CPU and answers over HTTP on API_PORT;
 # speech stays unavailable until an engine is started or an address is set.
@@ -66,20 +69,20 @@ services:
 
   gpt-sovits:
     profiles: ["gpt-sovits"]
-    # Synthesis. The owner's published image, whose command is api_v2.py on
-    # 9880 (#212). Pinned by digest, because the only tag it has is `latest`
-    # and an unpinned tag is what made this stack unreproducible before (#98).
-    # The digest is of the `latest` pushed 2025-05-11.
-    image: legwork7623/gpt-sovits@sha256:dda1a586be1b3537b4d1e89e0dad3927ba318a22caf800289267ba498c5539ff
+    # Synthesis. The owner's fork, `kurisu` target: kurisu_engine.py hosts api_v2
+    # as a child and speaks the contract in front of it (#227). Pinned by tag,
+    # dated at build; `latest` is what made this stack unreproducible before.
+    image: legwork7623/gpt-sovits:kurisu-20260919
     container_name: kurisu-gpt-sovits
     environment:
       - is_half=True
       - is_share=False
+      # Seconds without a request before the engine ends its model process and
+      # gives the card back; 0 keeps it resident. The next request restarts it
+      # (about 50s to first audio). The language assumed when a request names none.
+      - IDLE_TIMEOUT=${TTS_IDLE_TIMEOUT:-600}
+      - DEFAULT_LANGUAGE=${GPTSOVITS_DEFAULT_LANGUAGE:-ja}
     volumes:
-      # This engine opens the reference clip itself, by a path, so it reads the
-      # same directory the API writes — read-only, and no scratch volume is
-      # shared between engines. GPTSOVITS_VOICE_DIR on the API is this path.
-      - ./data/voice_storage:/voice_storage:ro
       - gpt-sovits-weights:/workspace/SoVITS_weights
     working_dir: /workspace
     expose:
@@ -98,34 +101,26 @@ services:
       - default
     restart: unless-stopped
 
-  docker-proxy:
-    profiles: ["residency"]
-    # How the API stops and starts a speech engine without ever holding the
-    # Docker socket (#221). The socket is root on this machine, and the API is
-    # the process behind the reverse proxy, so it gets a filtered view instead:
-    # every HTTP method has its own allowlist, anchored, and only these three
-    # container names appear in it. Inspect, start and stop — no exec, no image
-    # pulls, no volumes, no networks, nothing about any other stack here.
-    #
-    # `allowfrom` is the second half: only the API container may connect, not
-    # even the host.
-    image: wollomatic/socket-proxy:1.13.0
-    container_name: kurisu-docker-proxy
-    command:
-      - '-loglevel=info'
-      - '-allowfrom=kurisu-api'
-      - '-allowGET=/(v[\d.]+/)?containers/(kurisu-whisper|kurisu-gpt-sovits|vixtts-container)/json'
-      - '-allowPOST=/(v[\d.]+/)?containers/(kurisu-whisper|kurisu-gpt-sovits|vixtts-container)/(start|stop)'
-      - '-listenip=0.0.0.0'
-      - '-shutdowngracetime=5'
+  vixtts:
+    profiles: ["vixtts"]
+    # Synthesis: the owner's viXTTS server, which speaks the contract natively
+    # (#227). Published for the first time with it, so a fresh install can pull it.
+    image: legwork7623/vixtts:kurisu-20260919
+    container_name: kurisu-vixtts
+    environment:
+      - IDLE_TIMEOUT=${TTS_IDLE_TIMEOUT:-600}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    read_only: true
-    user: "65534:${DOCKER_GID:-999}"
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges"]
+      - vixtts-models:/models
+      - vixtts-hf-cache:/root/.cache/huggingface
     expose:
-      - "2375"
+      - "19770"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     networks:
       - default
     restart: unless-stopped
@@ -164,25 +159,13 @@ services:
       # with a sentence naming what to start, never a silent empty list.
       - ASR_URL=${ASR_URL:-http://kurisu-whisper:9000}
       - LLM_API_URL=${LLM_API_URL:-http://host.docker.internal:11434}
-      - GPTSOVITS_URL=${GPTSOVITS_URL:-http://kurisu-gpt-sovits:9880}
-      # viXTTS has no published image; point this at one you run yourself.
-      - VIXTTS_URL=${VIXTTS_URL:-}
+      # The synthesis engines, name=address pairs: the names are the model ids
+      # the clients store, and every engine speaks the same contract, so this
+      # is all the API knows about them (#227). Add `,vixtts=http://kurisu-vixtts:19770`
+      # with `--profile vixtts`, or any engine you run elsewhere.
+      - TTS_ENGINES=${TTS_ENGINES:-gpt-sovits=http://kurisu-gpt-sovits:9880}
       # Which synthesis engine serves a request that names none.
       - TTS_DEFAULT_MODEL=${TTS_DEFAULT_MODEL:-gpt-sovits}
-      # Where the gpt-sovits container sees ./data/voice_storage.
-      - GPTSOVITS_VOICE_DIR=${GPTSOVITS_VOICE_DIR:-/voice_storage}
-      - GPTSOVITS_DEFAULT_LANGUAGE=${GPTSOVITS_DEFAULT_LANGUAGE:-ja}
-      # Residency (#221). An engine that is up holds its weights, and the card
-      # is shared, so an engine is stopped when something else needs the
-      # memory — least recently used first, never one that is serving a
-      # request. Empty SPEECH_DOCKER_URL turns the whole thing off and leaves
-      # engines exactly as they were started; it needs the `residency` profile
-      # for the proxy, and an API that can read the GPU (docs/development.md).
-      - SPEECH_DOCKER_URL=${SPEECH_DOCKER_URL:-}
-      - SPEECH_CONTAINERS=${SPEECH_CONTAINERS:-gpt-sovits=kurisu-gpt-sovits,vixtts=vixtts-container}
-      - SPEECH_VRAM_HEADROOM_MB=${SPEECH_VRAM_HEADROOM_MB:-512}
-      - SPEECH_DEFAULT_FOOTPRINT_MB=${SPEECH_DEFAULT_FOOTPRINT_MB:-2500}
-      - SPEECH_START_TIMEOUT_SECONDS=${SPEECH_START_TIMEOUT_SECONDS:-120}
       # What the recognition engine was started with, so the model picker can
       # name it. The same variable the whisper service reads, so the two cannot
       # drift: a container serves one model and this is what it is called.
@@ -325,3 +308,5 @@ volumes:
   postgres-data:
   whisper-cache:
   gpt-sovits-weights:
+  vixtts-models:
+  vixtts-hf-cache:

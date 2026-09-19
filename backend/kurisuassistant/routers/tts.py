@@ -39,10 +39,10 @@ async def synthesize_speech(
 ):
     """Synthesize ``text`` and answer one WAV.
 
-    ``voice`` is a stem in ``data/voice_storage/`` — the clip the engine clones
-    — or, when no such file exists, a preset voice id the engine knows.
-    ``provider`` is the model id (``vixtts``, ``gpt-sovits``); absent means the
-    server's default engine.
+    ``voice`` is a stem in ``data/voice_storage/`` — the clip uploaded to the
+    engine to clone — or, when no such file exists, a preset voice id the engine
+    knows. ``provider`` is the model id, a name in ``TTS_ENGINES``; absent means
+    the server's default engine.
     """
     logger.info("TTS request: text=%d chars, voice=%s, provider=%s, language=%s",
                 len(text), voice, provider, language)
@@ -77,14 +77,13 @@ async def list_tts_voices(
 ):
     """The preset voices the synthesis engines offer, optionally for one model.
 
-    Both engines clone from a clip in ``data/voice_storage/`` and ship no
-    presets a client can pick, so this is normally empty; it stays because both
-    clients call it and an engine that gains presets is listed here.
+    Asked of each engine over the contract's ``GET /voices``; one that cannot
+    be asked contributes none rather than failing the listing.
     """
     chosen = [engines.synthesis(provider)] if provider else engines.synthesis_engines()
     voices = []
     for engine in chosen:
-        voices.extend({**voice, "model": engine.model_id} for voice in engine.voices())
+        voices.extend({**voice, "model": engine.model_id} for voice in await engine.voices())
     return {"voices": voices}
 
 

@@ -11,10 +11,15 @@ orchestration (#212): `routers/tts.py` resolves the voice reference, and
 `kurisuassistant/speech/` drives an engine — `engines/` for the adapters and
 how their answers become the client's, `synthesis.py` for one synthesis.
 
-| Model id | Engine | The reference clip |
+Every synthesis engine speaks one contract — `docs/speech-engine-contract.md`:
+health, voices, a multipart synthesize with the clip uploaded, release, an idle
+timeout — so `engines/standard.py` is the one adapter and an engine is one
+`name=url` entry in `TTS_ENGINES` (#227).
+
+| Model id | Engine | Notes |
 | --- | --- | --- |
-| `gpt-sovits` | `legwork7623/gpt-sovits`, `api_v2` on 9880, `--profile gpt-sovits` | a **path** it opens itself, so the stack mounts `data/voice_storage/` into it read-only (`GPTSOVITS_VOICE_DIR`). It only clones, so a request with no clip is a 400 that says so |
-| `vixtts` | the owner's viXTTS server on 19770, `VIXTTS_URL` | **uploaded** with the form. With no clip it uses `speaker_id`, one of the built-in XTTS speakers |
+| `gpt-sovits` | `legwork7623/gpt-sovits`, `kurisu` target, `--profile gpt-sovits` | `kurisu_engine.py` in the owner's fork hosts `api_v2` as a child and speaks the contract in front of it. It only clones, so a request with no clip is a 400 that says so. About 35s cold to first audio, 1–2s warm |
+| `vixtts` | `legwork7623/vixtts`, `--profile vixtts` | the owner's server, speaking the contract natively. With no clip it uses `voice_id`, one of the built-in XTTS speakers. About 20s cold (a minute the first time, while the weights come off disk), 2s warm |
 
 `vieneu:turbo` is gone with the process that hosted it. A client that still has
 it stored gets a 400 naming the models this server does run, which both clients
@@ -76,19 +81,19 @@ the most one request may take.
 Each engine is behind its own profile, off unless asked for:
 
 ```bash
-docker compose --profile gpt-sovits up -d
+docker compose --profile gpt-sovits up -d            # add --profile vixtts for the second engine
 ```
 
 That needs an NVIDIA runtime and pulls a published image; nothing here is
-built (#212). GPT-SoVITS downloads its pretrained weights on first use, so the
-first start spends minutes before it can speak. viXTTS has no published image
-yet — run it yourself and set `VIXTTS_URL`, which is how any engine running
-outside this stack is reached.
+built (#212). Each engine downloads its weights on first use, so the first
+start spends minutes before it can speak. Each also manages its own GPU
+memory: it drops its weights after `TTS_IDLE_TIMEOUT` and when the API asks
+(because another engine answered 503, could not load), and reloads them on the
+next request — the contract, and the whole of residency (#227).
 
-Until #203 this was two containers behind a third: viXTTS built from
-`VIXTTS_ROOT`, a checkout beside this one (with, until #98, an absolute default
-under one developer's home directory), GPT-SoVITS an unpinned third-party tag,
-and each reference clip passed through a volume shared between them. #203 then
-put every engine in one process with a vendored copy of GPT-SoVITS's inference
-code. Both are gone: `tests/test_deployment_config.py` asserts that this
-repository builds only the API and that every engine image is pinned.
+Until #203 this was two containers behind a third, each with its own dialect
+and a shared scratch volume for the clip; #203 put every engine in one process
+with a vendored copy of GPT-SoVITS; #223 stopped containers from the API
+through a Docker proxy. All gone: `tests/test_deployment_config.py` asserts
+that this repository builds only the API, that every engine image is pinned,
+and that nothing in the stack touches the Docker socket.

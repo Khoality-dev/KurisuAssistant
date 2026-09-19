@@ -178,10 +178,11 @@ def test_every_engine_image_is_pinned():
     `latest`, because these are the images that decide how the assistant
     sounds."""
     services = load(BASE)["services"]
-    for name in ("whisper", "gpt-sovits"):
+    for name in ("whisper", "gpt-sovits", "vixtts"):
         image = services[name]["image"]
         assert not image.endswith(":latest"), f"{name} runs a floating tag: {image}"
-        pinned = "@sha256:" in image or re.search(r":v?\d+[\w.-]*$", image)
+        # A digest, a version tag, or a dated tag such as kurisu-20260919.
+        pinned = "@sha256:" in image or re.search(r":(v?\d+[\w.-]*|[\w.-]*\d{8}[\w.-]*)$", image)
         assert pinned, f"{name}'s image is not pinned to a version or digest: {image}"
 
 
@@ -189,9 +190,19 @@ def test_the_engines_are_each_their_own_profile():
     """Not starting an engine costs nothing and the rest keep working, so no
     engine may run by default and none may be a dependency of the API (#212)."""
     services = load(BASE)["services"]
-    for name in ("whisper", "gpt-sovits"):
+    for name in ("whisper", "gpt-sovits", "vixtts"):
         assert services[name].get("profiles") == [name], f"{name} should be behind its own profile"
     assert set(services["api"]["depends_on"]) == {"postgres"}
+
+
+def test_nothing_in_the_stack_touches_the_docker_socket():
+    """Residency is the engines' own (#227): they drop their weights on request
+    and on idle. Nothing here may hold, mount or proxy the Docker socket — it is
+    root on the host, and the API is the process facing the network."""
+    text = BASE.read_text()
+    assert "docker.sock" not in text
+    assert "docker-proxy" not in text and "socket-proxy" not in text
+    assert "SPEECH_DOCKER_URL" not in text
 
 
 def test_env_template_documents_every_variable_the_base_file_reads():

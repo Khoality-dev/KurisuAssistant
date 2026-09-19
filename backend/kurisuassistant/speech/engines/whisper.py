@@ -1,9 +1,10 @@
 """Recognition, as a Whisper ASR webservice speaks it.
 
 The image is ``onerahmet/openai-whisper-asr-webservice``, which serves one
-model per container (``ASR_MODEL``) and unloads it after ``MODEL_IDLE_TIMEOUT``
-— the only residency there is now that no engine runs in a process this project
-controls. Audio goes over as a WAV upload; the clients send raw PCM, which
+model per container (``ASR_MODEL``) and unloads it after ``MODEL_IDLE_TIMEOUT``,
+as every engine now manages its own memory. Recognition is not part of the
+synthesis contract (``docs/speech-engine-contract.md``); this is its own
+dialect. Audio goes over as a WAV upload; the clients send raw PCM, which
 ``speech/text.py`` wraps.
 
 ``POST /detect-language`` takes no list of candidates, so the ``languages``

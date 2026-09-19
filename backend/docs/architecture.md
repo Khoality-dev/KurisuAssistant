@@ -28,11 +28,12 @@ certificate:
   it has no published image yet. The backend talks to each directly; the
   service that used to sit between the API and them, and the vendored copy of
   GPT-SoVITS's inference code that #203 required, are both gone.
-- **`--profile residency`** — **docker-proxy** (internal 2375), a filtered view
-  of the Docker API that lets the API stop and start the speech engines when
-  the GPU is contended (#221) without ever holding the socket itself. Its
-  allowlist names the three engine containers and the methods inspect, start
-  and stop, and only the API container may connect to it.
+- **`--profile vixtts`** — **vixtts** (internal 19770), synthesis:
+  `legwork7623/vixtts`, the owner's server, cloning or a preset XTTS speaker.
+
+  Every synthesis engine speaks one contract (`docs/speech-engine-contract.md`)
+  and manages its own GPU memory, so nothing in the stack holds or proxies the
+  Docker socket and the API needs no GPU (#227).
 - **`--profile tls`** — **nginx** on 443, terminating TLS with
   `nginx/nginx.conf` and a self-signed certificate.
 
@@ -88,17 +89,16 @@ speech/                  the API's side of speech (#212): the engines
     base.py              the one call helper: how an engine's answer becomes
                          the client's — a refusal keeps its status and reason,
                          an outage is 502
-    gptsovits.py         a query, and the clip named by a path it can open
-    vixtts.py            a multipart form, the clip uploaded with it
-    whisper.py           a WAV upload; one model per container
+    standard.py          the one adapter for every synthesis engine: the
+                         contract in docs/speech-engine-contract.md
+    whisper.py           recognition, its own dialect; one model per container
     __init__.py          which engines are configured, and which serves a request
   text.py                split_text / merge_wav_files / pcm_to_wav
   synthesis.py           one synthesis: chunks over, one WAV back
   recognition.py         transcription and language detection
-  residency.py           which engines hold the GPU: offload by LRU under
-                         memory pressure, measured footprints, never one
-                         that is serving a request (#221)
-  containers.py          start and stop, through the filtered Docker API
+                         — and, on an engine's 503 (it cannot load), the
+                         release of the least recently used other engine
+                         and one retry: the backend's whole residency (#227)
 
 websocket/
   events.py              the event dataclasses and parse_event()

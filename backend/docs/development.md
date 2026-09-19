@@ -27,7 +27,7 @@ profile inside the first:
 | --- | --- | --- |
 | `whisper` | recognition: a published Whisper ASR webservice, one model per container | an NVIDIA runtime, and disk for the model it pulls on first use |
 | `gpt-sovits` | synthesis: the owner's published GPT-SoVITS image, pinned by digest | the same |
-| `residency` | the filtered Docker proxy, so idle engines can be stopped when the GPU is contended | `SPEECH_DOCKER_URL` set, and a GPU the API can read (below) |
+| `vixtts` | synthesis: the owner's viXTTS server, published as `legwork7623/vixtts` | the same |
 | `tls` | nginx on 443 with the bundled config | `./nginx/generate-certs.sh` run once |
 
 ```bash
@@ -35,20 +35,17 @@ docker compose --profile whisper --profile gpt-sovits --profile tls up -d --buil
 ```
 
 Every speech engine is an image this stack pulls; none is built here (#212).
-An engine you already run elsewhere needs no profile — point its address at it
-(`ASR_URL`, `GPTSOVITS_URL`, `VIXTTS_URL`), which is how viXTTS is reached,
-since it has no published image yet.
+Every synthesis engine speaks one contract (`docs/speech-engine-contract.md`),
+so the API is told `TTS_ENGINES=name=url,...` and nothing else about them; an
+engine you already run elsewhere is one more entry, no profile needed.
 
-**Giving the GPU back.** An engine that is up holds its weights until it is
-stopped, and the card is shared. With the `residency` profile and
-`SPEECH_DOCKER_URL` set, the API stops the least recently used engine when a
-request needs memory that is not free, and starts the one it needs — measuring
-what each holds rather than being told. It needs to read the GPU to decide, and
-the base stack deliberately reserves no card for the API, so that goes in
-`docker-compose.override.yml` beside the vision reservation below. Without it
-the engines are still started and stopped, just without pressure decisions.
-The clients are told none of this: a request either returns audio or the
-failure they already handle.
+**Giving the GPU back.** Each synthesis engine manages its own memory (#227):
+it drops its weights after `TTS_IDLE_TIMEOUT`, on `POST /release`, and answers
+503 when it cannot load them — at which point the API asks the least recently
+used other engine to release and tries once more. Nothing reads the GPU from
+the API and nothing touches a container, so the API needs no card and there is
+no Docker proxy. The clients are told none of this: a request either returns
+audio or the failure they already handle.
 
 This is the fix for #98. All of it used to be unconditional, so a clean machine
 could not start anything: the speech services built from absolute paths under
@@ -170,7 +167,8 @@ Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `G
 | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | — | Database connection |
 | `LLM_API_URL` | `http://localhost:11434` in-process, `http://host.docker.internal:11434` under Compose | Ollama server URL. The two defaults differ, and only the Compose one applies to a deployment. On Linux the host's Ollama must be started with `OLLAMA_HOST=0.0.0.0` or it refuses the container, which `GET /models` reports as a 502 naming this variable (#151) |
 | `GEMINI_API_KEY`, `NVIDIA_API_KEY`, `POE_API_KEY` | — | Cloud LLM providers; fallbacks when the user has no key stored |
-| `ASR_URL`, `GPTSOVITS_URL`, `VIXTTS_URL` | (docker-compose) | Where each speech engine is. Empty means this deployment does not have that engine, and a request for it is refused with a sentence naming the profile to start |
+| `TTS_ENGINES`, `ASR_URL` | (docker-compose) | The synthesis engines as `name=url` pairs (the names are the model ids the clients store), and the recognition engine. An engine not listed is not part of this deployment, and a request for it is refused with a sentence naming the profile to start |
+| `TTS_IDLE_TIMEOUT` | `600` | Seconds without a request before a synthesis engine drops its own weights; `0` keeps them resident (#227) |
 | `TTS_DEFAULT_MODEL` | first configured | Which synthesis engine answers a request that names none |
 | `ASR_MODEL` | `base` | What the recognition container was started with; the API reads it only to name the model in the clients' picker |
 | `GPTSOVITS_VOICE_DIR`, `GPTSOVITS_DEFAULT_LANGUAGE` | `/voice_storage`, `ja` | Where the GPT-SoVITS container sees `data/voice_storage/`, and the language it assumes |
@@ -198,10 +196,6 @@ Read by Compose rather than by the server:
 | `API_DEV_PORT` | `15598` | The dev overlay's port, always on loopback |
 | `HTTPS_PORT` | `443` | nginx's port, under `--profile tls` |
 | `ASR_DEVICE`, `ASR_IDLE_TIMEOUT` | `cuda`, `300` | The recognition engine's, not the API's: it drops its model after this long idle and reloads on the next clip |
-| `SPEECH_DOCKER_URL` | — | The filtered Docker proxy. Empty turns residency off and leaves engines as you started them (#221) |
-| `SPEECH_CONTAINERS` | `gpt-sovits=…,vixtts=…` | Which container serves which model id. The same names are in the proxy's allowlist, so changing one means changing both |
-| `SPEECH_VRAM_HEADROOM_MB`, `SPEECH_DEFAULT_FOOTPRINT_MB`, `SPEECH_START_TIMEOUT_SECONDS` | `512`, `2500`, `120` | The margin kept free, what an unmeasured engine is assumed to want, and how long a request waits for one to come up |
-| `DOCKER_GID` | `999` | The host's docker group, which the proxy drops privileges to. `getent group docker` |
 | `DB_WAIT_ATTEMPTS`, `DB_WAIT_INTERVAL` | `60`, `2` | How long the entrypoint waits for Postgres before failing loudly |
 
 There is **no `DATA_DIR` variable** for the server: `core/paths.py` resolves `data/` from the package location and never reads the environment, so it is the `data/` beside the installed `kurisuassistant/` regardless of where a command is run. One migration used to read a `DATA_DIR` env var that nothing sets, and therefore looked for character assets under the literal `/app/data` outside the container; it now imports the same constant as everything else.

@@ -25,12 +25,14 @@ logger = logging.getLogger(__name__)
 
 UNAVAILABLE = "The speech service is unavailable."
 
-# The statuses that mean "this request cannot be served", passed through with
-# the engine's reason. Only what an engine sends for a request's own fault: a
-# 422 is a bug in what this package sent, a 401 or 403 is a deployment's, and a
-# 404 is as likely a mis-pointed URL as a missing model — none is the client's
-# to act on, so they are outages like a 500, logged with a reference.
-_REFUSALS = frozenset({400})
+# The statuses passed through with the engine's reason rather than turned into
+# the outage sentence. 400 is a request's own fault, shown to the user. 503 is
+# the contract's "I cannot load my model" (docs/speech-engine-contract.md), the
+# memory-pressure signal that synthesis.py acts on; it keeps its status so the
+# caller can tell it apart. Everything else — a 422 is a bug in what this
+# package sent, a 401 or 403 a deployment's, a 404 as likely a mis-pointed URL
+# as a missing model — is an outage like a 500, logged with a reference.
+_PASSED_THROUGH = frozenset({400, 503})
 
 # The most of an engine's reason that reaches a client; it is shown in one line.
 _REASON_LIMIT = 300
@@ -66,13 +68,24 @@ class Engine:
             return response
         except httpx.HTTPStatusError as e:
             status = e.response.status_code
-            if status in _REFUSALS:
+            if status in _PASSED_THROUGH:
                 reason = _reason(e.response)
-                logger.info("%s: %s refused (%s): %s", context, self.model_id, status, reason)
+                logger.info("%s: %s answered %s: %s", context, self.model_id, status, reason)
                 raise HTTPException(status_code=status, detail=reason)
             raise internal_error(e, context, status_code=502, public_detail=UNAVAILABLE)
         except httpx.HTTPError as e:
             raise internal_error(e, context, status_code=502, public_detail=UNAVAILABLE)
+
+    async def quietly(self, method: str, path: str, **kwargs) -> httpx.Response | None:
+        """One request whose failure is the caller's to interpret: the response
+        whatever its status, or ``None`` when the engine did not answer at all.
+        For listings and release, where an outage must not become the
+        request's answer. Logged, never raised."""
+        try:
+            return await get_client().request(method, f"{self.url}{path}", **kwargs)
+        except httpx.HTTPError as e:
+            logger.warning("%s: %s did not answer %s %s: %s", self.model_id, self.url, method, path, e)
+            return None
 
     async def healthy(self) -> dict:
         """``{"ok": bool, "message": str}``. Never raises."""

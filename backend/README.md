@@ -66,7 +66,7 @@ Environment variables read by the server (see `.env.template` for the full list 
 | `HTTPS_PORT` | `443` | Port used by the optional TLS profile |
 | `LLM_API_URL` | `http://host.docker.internal:11434` | Ollama server URL as reached from the API container |
 | `GEMINI_API_KEY`, `NVIDIA_API_KEY`, `POE_API_KEY` | — | Optional cloud-provider fallbacks when a user has not stored a key in the app |
-| `ASR_URL`, `GPTSOVITS_URL`, `VIXTTS_URL` | (docker-compose) | Where each speech engine is; empty means this deployment does not have it |
+| `TTS_ENGINES`, `ASR_URL` | (docker-compose) | The synthesis engines as `name=url` pairs, and the recognition engine; an engine not listed is not part of this deployment |
 | `JWT_SECRET_KEY` | generated | Overrides the secret persisted to `data/jwt_secret.key` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access token lifetime |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
