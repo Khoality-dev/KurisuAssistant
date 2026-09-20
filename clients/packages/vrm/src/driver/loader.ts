@@ -125,7 +125,7 @@ function str(value: unknown): string | null {
 }
 
 function summariseMeta(vrm: VRM): VrmMetaSummary {
-  const meta = vrm.meta as Record<string, unknown>;
+  const meta = vrm.meta as unknown as Record<string, unknown>;
   if (meta.metaVersion === '1') {
     const authors = Array.isArray(meta.authors) ? (meta.authors as unknown[]).map(str).filter((a): a is string => !!a) : [];
     return {
