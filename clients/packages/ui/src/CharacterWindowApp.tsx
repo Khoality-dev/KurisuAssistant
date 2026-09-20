@@ -25,6 +25,8 @@ const SESSION_REQUEST_TIMEOUT_MS = 10_000;
 
 export const CharacterWindowApp: React.FC = () => {
   const [session, setSession] = useState<SessionState>('pending');
+  // Counts sessions that carried a token; a renderer whose load failed retries on the next one.
+  const [sessionVersion, setSessionVersion] = useState(0);
   const sessionWaitersRef = useRef<Array<(token: string | null) => void>>([]);
   const [personaMap, setPersonaMap] = useState<Map<number, PersonaEntry>>(new Map());
   const [activePersonaId, setActivePersonaId] = useState<number | null>(null);
@@ -52,6 +54,7 @@ export const CharacterWindowApp: React.FC = () => {
       for (const resolve of waiters) resolve(accessToken);
       if (accessToken) {
         setSession('ready');
+        setSessionVersion((v) => v + 1);
       } else {
         clearImageCache();
         setSession('signed-out');
@@ -285,6 +288,7 @@ export const CharacterWindowApp: React.FC = () => {
             {entry.poseTree ? (
               <CharacterRenderer
                 poseTree={entry.poseTree}
+                sessionVersion={sessionVersion}
                 amplitudeRef={activePersonaId === id ? amplitudeRef : silentRef}
                 gesturesRef={activePersonaId === id || activePersonaId === null ? gesturesRef : undefined}
                 facesRef={activePersonaId === id || activePersonaId === null ? facesRef : undefined}

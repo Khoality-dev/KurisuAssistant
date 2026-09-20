@@ -23,8 +23,9 @@ export const ChatPanel: React.FC = () => {
   // /live-animate and the Face button on the chat header: open or close the
   // character window. The window is the only character surface today (an
   // inline panel is #241), so a host without one has nothing to toggle. The
-  // flag flips before `open()` resolves, so the hook that answers the window's
-  // `ready` is subscribed before the window can send it (#237).
+  // flag flips before `open()` resolves, so the feed to the window is on
+  // before the window can ask for it; a `ready` from the window sets it too,
+  // for the case where this renderer's idea of the window is stale (#237).
   useEffect(() => {
     const api = resolveBridge().characterWindow;
     if (!hasCharacterWindow || !api) return;
@@ -45,9 +46,11 @@ export const ChatPanel: React.FC = () => {
     };
     window.addEventListener('kurisu:toggle-character', toggle);
     const offClosed = api.onWindowClosed(() => show(false));
+    const offReady = api.onCharacterReady(() => show(true));
     return () => {
       window.removeEventListener('kurisu:toggle-character', toggle);
       offClosed();
+      offReady();
     };
   }, [hasCharacterWindow]);
 

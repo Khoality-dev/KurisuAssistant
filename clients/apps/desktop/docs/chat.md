@@ -38,8 +38,8 @@ Two-level state managed by `useMicStore` (Zustand, `@kurisu/state`'s `micStore.t
 **Interactive (`interactiveMode: true`)**:
 - Entire bottom input area replaced by `InteractiveCallBar` — centered layout with transcript display, large 64px mic button, status text, red Hang Up button
 - **Auto mic**: Entering → `startListening()` if idle; exiting → `stopListening()`. Input field cleared on entry.
-- **Entry**: Phone toggle in MainWindow top bar, or trigger word match in typing mode
-- **Exit conditions**: Hang up button, phone toggle, persona change, conversation change
+- **Entry**: there is currently no UI control that enters it — the phone toggle went with the old `MainWindow` layout and nothing calls `enableInteractiveMode` (#253). The call bar appears when a trigger word activates an interaction (`interactionActive`) while the mic is listening.
+- **Exit conditions**: Hang up button, persona change, conversation change
 
 **Interaction substates within interactive mode**:
 - **Idle (`interactionActive: false`)**: Mic listens, transcripts shown visually but NOT sent. Status text: "Waiting for trigger word...". Mic button grey, no pulse ring. Awaiting trigger word to activate.
@@ -74,6 +74,7 @@ Two-level state managed by `useMicStore` (Zustand, `@kurisu/state`'s `micStore.t
 
 ## Slash Commands (`@kurisu/state`'s `commands.ts`)
 - `/clear`, `/delete`, `/resume`, `/context`, `/persona`, `/refresh`, `/live-animate`, `/vision`, `/compact` (lazy imports to avoid circular deps)
+- `/live-animate` — toggles the character window, like the Face icon on the chat header. Needs `capabilities.characterWindow`; without it (the browser build) it answers "This host has no character window." and dispatches nothing (#237)
 - `/persona` — opens the chat header's persona sheet (`kurisu:open-persona-picker`). A per-conversation override, persisted with `PATCH /conversations/{id}`
 - `/compact` — compact conversation context (sends `compact_context` WebSocket event). The backend answers `context_info` twice, `compacting: true` then `compacting: false` carrying the summary and the new watermark, and compacts **in place**: same conversation, same id, same transcript on screen. `useStreamingChat` records the watermark and reloads the conversation. It used to fork into a new conversation announced by `conversation_switched`; that event is gone (#99)
 - `/clear` — start a new empty conversation + clear the persona mapping entry

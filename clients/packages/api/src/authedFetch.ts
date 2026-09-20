@@ -13,8 +13,16 @@
  * Who refreshes depends on the window. The main renderer holds the refresh
  * token and calls `/auth/refresh`; the character window holds nothing and asks
  * the main renderer over IPC. Each configures its own refresher at startup.
+ *
+ * The bearer goes to the backend and nowhere else. A pose tree may carry an
+ * absolute URL (the compositor passes `http…` through untouched), and the
+ * packaged CSP lets the renderer fetch any http(s) origin, so without this
+ * check a config pointing at a third-party host would hand that host the
+ * session — and, on a 401, a freshly refreshed one. A foreign origin is
+ * fetched plain, and a 401 from it is its own business.
  */
 
+import { config } from './config';
 import { storage } from './storage';
 
 /** Resolves to a fresh access token, or null when none can be had. */
@@ -34,8 +42,20 @@ function withToken(init: RequestInit | undefined, token: string | null): Request
   return { ...init, headers };
 }
 
+/** Whether `url` is the backend's own origin — the only one that gets the bearer. */
+export function isBackendOrigin(url: string): boolean {
+  try {
+    const base = new URL(config.apiBaseUrl);
+    return new URL(url, base).origin === base.origin;
+  } catch {
+    return false;
+  }
+}
+
 /** The response, after at most one refresh-and-retry on a 401. */
 export async function fetchAuthedResponse(url: string, init?: RequestInit): Promise<Response> {
+  if (!isBackendOrigin(url)) return fetch(url, withToken(init, null));
+
   const response = await fetch(url, withToken(init, storage.getToken()));
   if (response.status !== 401 || !refresher) return response;
 
@@ -59,6 +79,7 @@ export async function fetchAuthedBlob(url: string, init?: RequestInit): Promise<
   return response.blob();
 }
 
+/** The bytes, for a loader that parses a buffer rather than a URL — the VRM loader (#239) hands one to `GLTFLoader.parse`. */
 export async function fetchAuthedBytes(url: string, init?: RequestInit): Promise<ArrayBuffer> {
   const response = await fetchAuthedResponse(url, init);
   if (!response.ok) throw refused(url, response);

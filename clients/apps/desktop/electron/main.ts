@@ -180,6 +180,18 @@ function createWindow() {
       characterWindow.close();
     }
   });
+
+  // A reload of the main renderer (Electron's default menu still offers
+  // View → Reload) starts it with no memory of the character window while the
+  // window itself lives on, holding a token nobody will refresh. The window
+  // goes with the renderer that was feeding it; the new renderer opens a fresh
+  // one on the next toggle (#237).
+  mainWindow.webContents.on('did-start-navigation', (details) => {
+    if (!details.isMainFrame || details.isSameDocument) return;
+    if (characterWindow && !characterWindow.isDestroyed()) {
+      characterWindow.close();
+    }
+  });
 }
 
 // --- Character Window ---

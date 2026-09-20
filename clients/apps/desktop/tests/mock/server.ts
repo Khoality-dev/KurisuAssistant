@@ -307,6 +307,10 @@ export class MockBackend {
   public lastChatRequest: any = null;
   /** The last `/character-assets` GET, with the Authorization header it carried (or null). */
   public lastCharacterAssetRequest: { path: string; authorization: string | null } | null = null;
+  /** Every `/character-assets` GET so far, oldest first, with the status it got. */
+  public characterAssetRequests: Array<{ path: string; authorization: string | null; status: number }> = [];
+  /** A bearer the asset route now refuses; see `expireAccessToken`. */
+  private expiredAssetBearer: string | null = null;
   public lastMcpServerCreate: any = null;
   /** Body of the most recent `PATCH /conversations/{id}`, with the id it hit. */
   public lastConversationPatch: { id: number; body: any } | null = null;
@@ -528,6 +532,19 @@ export class MockBackend {
     } as ResolvedPersona;
     this.personas.push(resolved);
     return resolved;
+  }
+
+  /**
+   * Age the login's access token out of the asset route. The backend refuses
+   * an access token past its hour with a 401; this mock has no clock, so a spec
+   * says when. Only `/character-assets` looks — the rest of the mock
+   * authenticates nobody — and `/auth/refresh` keeps issuing
+   * `test-access-token-refreshed`, which the route still accepts. That is the
+   * whole of the round trip `characterWindow.spec.ts` drives: a 401 in the
+   * character window, a refresh in the main one, a retry with the new bearer.
+   */
+  expireAccessToken(token = 'test-access-token'): void {
+    this.expiredAssetBearer = `Bearer ${token}`;
   }
 
   /** Give a persona a character config, the way the desktop editor's PATCH does. */
@@ -1312,11 +1329,18 @@ export class MockBackend {
     if (assetMatch && method === 'GET') {
       const authorization = req.headers.authorization ?? null;
       this.lastCharacterAssetRequest = { path: pathOnly, authorization };
-      if (!authorization?.startsWith('Bearer ')) return this.error(res, 401, 'Not authenticated');
+      const seen = { path: pathOnly, authorization, status: 200 };
+      this.characterAssetRequests.push(seen);
+      const refuse = (status: number, detail: string) => {
+        seen.status = status;
+        return this.error(res, status, detail);
+      };
+      if (!authorization?.startsWith('Bearer ')) return refuse(401, 'Not authenticated');
+      if (authorization === this.expiredAssetBearer) return refuse(401, 'Token has expired');
       const persona = this.personas.find((p) => p.id === Number(assetMatch[1]));
       const tree = persona?.character_config?.pose_tree as { nodes?: Array<{ id: string }> } | undefined;
       const node = tree?.nodes?.find((n) => n.id === assetMatch[2]);
-      if (!node || assetMatch[3] !== 'base') return this.error(res, 404, 'Not found');
+      if (!node || assetMatch[3] !== 'base') return refuse(404, 'Not found');
       res.statusCode = 200;
       res.setHeader('Content-Type', 'image/png');
       res.setHeader('Cache-Control', 'no-cache');

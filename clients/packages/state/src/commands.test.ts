@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { installBridge, resetBridge } from '@kurisu/platform/testing';
 import { handleCommand, getCommands } from './commands';
 
 // ---------------------------------------------------------------------------
@@ -174,10 +175,21 @@ describe('slash commands', () => {
   });
 
   describe('/live-animate', () => {
-    it('dispatches the toggle-character event', async () => {
+    afterEach(() => resetBridge());
+
+    it('dispatches the toggle-character event where the host has a window', async () => {
+      installBridge({ capabilities: { characterWindow: true } });
       const spy = vi.spyOn(window, 'dispatchEvent');
       await handleCommand('/live-animate', { activeConversationId: null, personaId: null });
       expect(spy.mock.calls[0][0].type).toBe('kurisu:toggle-character');
+    });
+
+    it('says so, and dispatches nothing, where the host has none', async () => {
+      installBridge({ capabilities: { characterWindow: false } });
+      const spy = vi.spyOn(window, 'dispatchEvent');
+      const result = await handleCommand('/live-animate', { activeConversationId: null, personaId: null });
+      expect(result).toBe('This host has no character window.');
+      expect(spy).not.toHaveBeenCalled();
     });
   });
 

@@ -3,7 +3,12 @@
  *
  * The window starts loading art the moment it has a persona; a persona that
  * arrives first makes every fetch a 401 the compositor reads as a missing
- * file. Written to fail against the old handler, which sent only the personas.
+ * file. What is pinned here is the pure function's order — the two calls it
+ * makes and their sequence — not the hook that wires it to `onCharacterReady`
+ * (`useCharacterPanel`). Rendering that hook needs `react-dom`, which the
+ * boundary test keeps out of this package, so the wiring is covered end to end
+ * by `characterWindow.spec.ts` instead: the window's first asset fetch carries
+ * the bearer only if the session arrived before the persona did.
  */
 
 import { fakeCharacterWindow } from '@kurisu/platform/testing';

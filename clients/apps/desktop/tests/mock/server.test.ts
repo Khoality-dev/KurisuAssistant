@@ -128,6 +128,35 @@ describe('mock backend: assistant / persona / sub-agent split', () => {
     expect(missing.status).toBe(404);
   });
 
+  it('refuses an expired bearer on the asset route, and takes the refreshed one', async () => {
+    mock.setCharacterConfig(1, ONE_POSE_CHARACTER);
+    mock.expireAccessToken();
+
+    const stale = await fetch(`${mock.url}/character-assets/1/p1/base`, {
+      headers: { Authorization: 'Bearer test-access-token' },
+    });
+    expect(stale.status).toBe(401);
+
+    // The rest of the mock still authenticates nobody: the stale token is
+    // refused by the one route that looks, and nowhere else.
+    expect((await get('/personas/1')).status).toBe(200);
+
+    const refreshed = await fetch(`${mock.url}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: 'test-refresh-token' }),
+    });
+    const { access_token } = await refreshed.json() as { access_token: string };
+    const fresh = await fetch(`${mock.url}/character-assets/1/p1/base`, {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
+    expect(fresh.status).toBe(200);
+    expect(mock.characterAssetRequests.map((r) => [r.authorization, r.status])).toEqual([
+      ['Bearer test-access-token', 401],
+      ['Bearer test-access-token-refreshed', 200],
+    ]);
+  });
+
   it('serves a single persona by id, and 404s an unknown one', async () => {
     expect((await get('/personas/1')).body.name).toBe('Kurisu');
     expect((await get('/personas/999')).status).toBe(404);
