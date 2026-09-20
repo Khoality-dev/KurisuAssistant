@@ -77,6 +77,10 @@ async function installBridge(page: Page, backendUrl: string) {
     const noop = () => {};
     const off = () => noop;
     (window as unknown as { electron: unknown }).electron = {
+      // The mock backend reports MOCK_BACKEND_VERSION; the same number here
+      // keeps Settings → Account from showing a version mismatch in the
+      // screenshots (#257).
+      appVersion: '0.5.0',
       mcp: {
         startServer: async () => ({ ok: true }),
         listTools: async () => [],

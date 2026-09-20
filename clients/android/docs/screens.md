@@ -85,6 +85,8 @@ editor. "Calls you" is what the persona calls *you*, not a display name for the 
 | ![Skills](assets/08-skills.png) | ![Appearance](assets/11-appearance.png) |
 | Skills, appended to the assistant's prompt | Light / dark / system |
 
+Account → About is not captured. It shows the app's version and code, the backend's version and wire number, and — since #257 — one sentence when the app and the backend are different releases.
+
 ---
 
 ## Regenerating these

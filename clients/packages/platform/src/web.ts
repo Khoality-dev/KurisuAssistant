@@ -14,6 +14,8 @@ export function webBridge(): PlatformBridge {
   return {
     platform: 'web',
     os: null,
+    // A page the backend serves has no release of its own; see PlatformBridge.
+    appVersion: null,
     capabilities: {
       localFiles: false,
       hostTools: false,

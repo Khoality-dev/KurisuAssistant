@@ -191,6 +191,8 @@ export interface ExtensionsAPI {
 
 export interface ElectronAPI {
   platform: string;
+  /** `app.getVersion()` — the number the updater compares against `latest.yml` (#257). */
+  appVersion: string;
   openPath: (filePath: string) => Promise<string>;
   openExternal: (url: string) => Promise<string>;
   updater: UpdaterAPI;

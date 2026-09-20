@@ -11,6 +11,8 @@
 
 import { test, expect } from './fixtures';
 import { Page } from '@playwright/test';
+import { WIRE_PROTOCOL } from '@kurisu/models';
+import { MOCK_BACKEND_VERSION } from './mock/server';
 
 async function login(page: Page) {
   await page.getByLabel('Username').fill('tester');
@@ -98,5 +100,23 @@ test.describe('settings', () => {
     // User profile from mock: username=tester, preferred_name=Tester.
     // AccountSection shows Ollama URL / API keys / model picker — verify the section header.
     await expect(page.getByRole('heading', { level: 3, name: /Account/i }).or(page.getByText(/Ollama/i)).first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('account section says which release the app and the backend are', async ({ page }) => {
+    await login(page);
+    await openSettings(page);
+    await page.getByText('Account', { exact: true }).first().click();
+
+    // The app's number is `app.getVersion()` of the built app — package.json's
+    // 0.0.1 in this suite — and the backend's is what the mock reports (#257).
+    await expect(page.getByTestId('version-row-app')).toHaveText('App: v0.0.1');
+    await expect(page.getByTestId('version-row-backend')).toHaveText(`Backend: v${MOCK_BACKEND_VERSION}`);
+    await expect(page.getByTestId('version-row-protocol')).toHaveText(
+      `Protocol: ${WIRE_PROTOCOL} (backend ${WIRE_PROTOCOL})`,
+    );
+    // Those two are different releases, so the sentence is shown.
+    await expect(page.getByTestId('version-mismatch')).toHaveText(
+      `This app is v0.0.1; the backend is v${MOCK_BACKEND_VERSION} — update whichever is behind.`,
+    );
   });
 });

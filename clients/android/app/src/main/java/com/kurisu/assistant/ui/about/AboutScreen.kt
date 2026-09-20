@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kurisu.assistant.BuildConfig
+import com.kurisu.assistant.domain.version.VersionParity
 import com.kurisu.assistant.ui.update.UpdateDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -76,6 +77,15 @@ fun AboutScreen(
                     "Backend: unreachable",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // The two rows above are numbers to compare by eye; this is the
+            // comparison, said plainly, when they are different releases (#257).
+            VersionParity.mismatchSentence(BuildConfig.VERSION_NAME, backend)?.let { sentence ->
+                Text(
+                    sentence,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
             OutlinedButton(
