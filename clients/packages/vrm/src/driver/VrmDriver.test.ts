@@ -53,8 +53,8 @@ function harness(vrm: VrmSettings, clips: Parameters<typeof fakeClipLoader>[0] =
     clock += Number.isFinite(dt) ? dt : 0;
     driver.update(dt, { ...IDLE_INPUT, ...input });
   };
-  const vrm = (): FakeVrm => models.vrms[models.vrms.length - 1];
-  return { driver, renderers, models, clipLoader, deps, tick, vrm, config: config(vrm) };
+  const fakeVrmOf = (): FakeVrm => models.vrms[models.vrms.length - 1];
+  return { driver, renderers, models, clipLoader, deps, tick, vrm: fakeVrmOf, config: config(vrm) };
 }
 
 const worldY = (node: THREE.Object3D): number => {
