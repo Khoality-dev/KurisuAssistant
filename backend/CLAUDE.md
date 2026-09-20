@@ -64,7 +64,7 @@ uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --reload --reload-d
 docker compose up -d       # Start all
 docker compose logs -f api # View logs
 
-# Deployments run a release tag (backend-vX.Y.Z) from their own checkout, never from
+# Deployments run a release tag (vX.Y.Z — one tag for backend and clients, #256) from their own checkout, never from
 # the tree you develop in: the image carries the code (the Dockerfile COPYs it) so a
 # checkout no longer swaps the live code, but the two would share ./data and the fixed
 # project name. Move one with `git fetch --tags && git checkout <tag> &&

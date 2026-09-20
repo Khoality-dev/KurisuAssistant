@@ -22,7 +22,8 @@ class UpdateRepository @Inject constructor(
     private val json: Json,
 ) {
     companion object {
-        // The list, not `releases/latest`: that is the desktop's (see AndroidReleases).
+        // The list, not `releases/latest`: a release is both clients now (#256), and the
+        // list lets AndroidReleases pick by version and skip one with no APK.
         private const val GITHUB_RELEASES_URL =
             "https://api.github.com/repos/Khoality-dev/KurisuAssistant/releases?per_page=30"
         private const val DEV_MANIFEST_PATH = "/apks/kurisu-dev-latest.json"

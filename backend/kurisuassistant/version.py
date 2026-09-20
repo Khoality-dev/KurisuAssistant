@@ -1,6 +1,9 @@
 """Single source of truth for backend version + wire-protocol compatibility.
 
-`__version__` is the human-readable backend release version (semver).
+`__version__` is the release version (semver, plain X.Y.Z). Since #256 it is the
+version of the whole release: the tag `vX.Y.Z` must equal it — the root
+`release.yml` refuses one that does not — and the desktop and Android builds
+take their version from that tag. Bump it here, merge, then tag.
 
 `WIRE_PROTOCOL` is a monotonically increasing integer bumped on **any breaking
 change** to the wire format clients depend on (REST request/response shapes,

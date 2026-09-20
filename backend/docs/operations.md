@@ -133,14 +133,16 @@ logging in again.
 Back up first. Migrations run on container start and are forward-only.
 
 ```bash
-git fetch --tags && git checkout backend-vX.Y.Z && docker compose up -d --build
+git fetch --tags && git checkout vX.Y.Z && docker compose up -d --build
 ```
 
 `--build` is what ships the code; `up -d` alone reuses the old image.
 
-**When a release moves `WIRE_PROTOCOL`, publish the clients first.** A backend
-ahead of an installed client shows that client an "Update required" screen with
-no way back (#150). `GET /version` reports both numbers.
+A release tag `vX.Y.Z` is the backend's and both clients' at once (#256): the
+clients are built and published from it by CI; the backend is what you check
+out here. **When a release moves `WIRE_PROTOCOL`, let the clients ship first.**
+A backend ahead of an installed client shows that client an "Update required"
+screen with no way back (#150). `GET /version` reports both numbers.
 
 Postgres is pinned to `pgvector/pgvector:pg16`. Changing that tag to a newer
 major version is not an upgrade path — the new server refuses to start on the old
