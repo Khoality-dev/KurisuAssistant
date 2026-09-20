@@ -6,7 +6,7 @@
  * token attached and handed to the image as an object URL instead.
  */
 
-import { storage } from '@kurisu/api';
+import { fetchAuthedBlob } from '@kurisu/api';
 
 const cache = new Map<string, HTMLImageElement>();
 const objectUrls = new Set<string>();
@@ -15,15 +15,7 @@ export async function getCachedImage(url: string): Promise<HTMLImageElement> {
   const cached = cache.get(url);
   if (cached) return cached;
 
-  const token = storage.getToken();
-  const response = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to load image: ${url} (${response.status})`);
-  }
-
-  const objectUrl = URL.createObjectURL(await response.blob());
+  const objectUrl = URL.createObjectURL(await fetchAuthedBlob(url));
   objectUrls.add(objectUrl);
 
   try {

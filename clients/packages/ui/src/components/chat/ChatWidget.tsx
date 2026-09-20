@@ -34,6 +34,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import FaceIcon from '@mui/icons-material/Face';
 
 import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '@kurisu/state';
@@ -45,6 +46,7 @@ import { storage } from '@kurisu/api';
 import { useTTS } from '@kurisu/hooks';
 import { useVisionStore } from '@kurisu/state';
 import { useCharacterPanel } from '@kurisu/hooks';
+import { useCapabilities } from '@kurisu/hooks';
 import { useInteractiveASR } from '@kurisu/hooks';
 import { useMicStore } from '@kurisu/state';
 import { usePersonaStore } from '@kurisu/state';
@@ -66,6 +68,7 @@ interface ChatWidgetProps {
 export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = false, personaId: personaIdProp = null }) => {
   const storePersonaId = usePersonaStore((s) => s.selectedPersonaId);
   const personaId = personaIdProp ?? storePersonaId;
+  const { characterWindow: hasCharacterWindow } = useCapabilities();
   const {
     messages,
     currentConversation,
@@ -659,6 +662,21 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
             <ExpandMoreIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
           </ListItemButton>
         </Tooltip>
+        {/* The character window, where the host has one. Goes through the same
+            event as /live-animate, so ChatPanel stays the one owner of that
+            state (#237). */}
+        {hasCharacterWindow && (
+          <Tooltip title={characterWindowOpen ? 'Hide the character window' : 'Show the character window'}>
+            <IconButton
+              size="small"
+              aria-label={characterWindowOpen ? 'Hide character window' : 'Show character window'}
+              onClick={() => window.dispatchEvent(new Event('kurisu:toggle-character'))}
+              sx={{ p: 0.5 }}
+            >
+              <FaceIcon sx={{ fontSize: 18, color: characterWindowOpen ? 'primary.main' : 'text.secondary' }} />
+            </IconButton>
+          </Tooltip>
+        )}
         </Box>
         {currentConversation && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>

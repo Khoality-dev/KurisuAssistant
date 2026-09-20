@@ -7,6 +7,7 @@
  * changes shape, change the scenario that mirrors it.
  */
 
+import { ONE_POSE_CHARACTER } from './server';
 import type { MockBackend, MockBackendOptions, MockConversationSeed, StreamScript } from './server';
 
 export interface Scenario {
@@ -359,6 +360,14 @@ export const SCENARIOS: Record<string, Scenario> = {
           content: `word${i + 1} `, role: 'assistant' as const, delayMs: 400,
         })),
       },
+    },
+  },
+  character: {
+    // characterWindow.spec.ts: the second window fetches Kurisu's art with a token.
+    description: 'Kurisu has a one-pose character, so the character window has art to fetch (a bearer is required, as on the backend).',
+    options: {
+      personas: [{ ...KURISU, character_config: ONE_POSE_CHARACTER }, AMADEUS],
+      stream: SHORT_REPLY,
     },
   },
   'no-model': {

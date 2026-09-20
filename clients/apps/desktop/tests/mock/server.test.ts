@@ -11,7 +11,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { MockBackend } from './server';
+import { MockBackend, ONE_POSE_CHARACTER } from './server';
 import {
   WIRE_PROTOCOL,
   WS_AUTH_SUBPROTOCOL,
@@ -103,6 +103,29 @@ describe('mock backend: assistant / persona / sub-agent split', () => {
       'avatar_uuid', 'character_config', 'description', 'enabled', 'id',
       'name', 'preferred_name', 'system_prompt', 'voice_reference',
     ]);
+  });
+
+  it('serves a pose image only to a bearer, and 404s a pose the persona lacks', async () => {
+    mock.setCharacterConfig(1, ONE_POSE_CHARACTER);
+    const bare = await fetch(`${mock.url}/character-assets/1/p1/base`);
+    expect(bare.status).toBe(401);
+
+    const authed = await fetch(`${mock.url}/character-assets/1/p1/base`, {
+      headers: { Authorization: 'Bearer test-access-token' },
+    });
+    expect(authed.status).toBe(200);
+    expect(authed.headers.get('content-type')).toBe('image/png');
+    expect((await authed.arrayBuffer()).byteLength).toBeGreaterThan(0);
+    expect(mock.lastCharacterAssetRequest).toEqual({
+      path: '/character-assets/1/p1/base',
+      authorization: 'Bearer test-access-token',
+    });
+
+    // Not the `{}` catch-all: a missing asset is a 404, as on the backend.
+    const missing = await fetch(`${mock.url}/character-assets/1/nope/base`, {
+      headers: { Authorization: 'Bearer test-access-token' },
+    });
+    expect(missing.status).toBe(404);
   });
 
   it('serves a single persona by id, and 404s an unknown one', async () => {

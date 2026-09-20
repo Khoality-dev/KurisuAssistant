@@ -269,6 +269,23 @@ ipcMain.on('character:ready', () => {
   }
 });
 
+// IPC relay: the session. The character window is a second renderer with its
+// own module memory and no login of its own, so the main renderer pushes the
+// access token down (`character:session`) and the character window asks for a
+// fresh one when its own is refused (`character:session-request`). Nothing here
+// inspects or stores the token (#237).
+ipcMain.on('character:session', (_event, data) => {
+  if (characterWindow && !characterWindow.isDestroyed()) {
+    characterWindow.webContents.send('character:session', data);
+  }
+});
+
+ipcMain.on('character:session-request', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('character:session-request');
+  }
+});
+
 // IPC: install update and restart
 ipcMain.on('updater:install', () => {
   autoUpdater.quitAndInstall();

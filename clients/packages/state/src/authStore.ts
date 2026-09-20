@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { apiClient } from '@kurisu/api';
 import { forgetDriveCache } from '@kurisu/api';
 import { storage } from '@kurisu/api';
+import { resolveBridge } from '@kurisu/platform';
 import { useToolPermissionsStore } from './toolPermissionsStore';
 import type { UserProfile } from '@kurisu/models';
 
@@ -59,6 +60,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: () => {
     apiClient.clearToken();
     storage.clearTokens();
+    // `clearTokens` just told the character window there is no session; closing
+    // it is what stops a second renderer outliving the sign-out (#237).
+    resolveBridge().characterWindow?.close().catch(() => { /* already gone */ });
     // Node ids are per account. Keeping the map across a sign-out would
     // point the next account's paths at the previous one's rows.
     forgetDriveCache();

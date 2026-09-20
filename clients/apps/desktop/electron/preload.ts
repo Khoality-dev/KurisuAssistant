@@ -195,6 +195,23 @@ contextBridge.exposeInMainWorld('electron', {
     open: () => ipcRenderer.invoke('character:open-window'),
     close: () => ipcRenderer.invoke('character:close-window'),
 
+    // The session, pushed by the main renderer: the access token only, never
+    // the refresh token (#237). `character:session-request` is the other way —
+    // the character window's token was refused and it wants a fresh one.
+    sendSession: (data: { accessToken: string | null }) =>
+      ipcRenderer.send('character:session', data),
+    onSession: (cb: (data: { accessToken: string | null }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { accessToken: string | null }) => cb(data);
+      ipcRenderer.on('character:session', handler);
+      return () => { ipcRenderer.removeListener('character:session', handler); };
+    },
+    requestSession: () => ipcRenderer.send('character:session-request'),
+    onSessionRequest: (cb: () => void) => {
+      const handler = () => cb();
+      ipcRenderer.on('character:session-request', handler);
+      return () => { ipcRenderer.removeListener('character:session-request', handler); };
+    },
+
     sendAmplitude: (data: { amplitude: number; isPlaying: boolean; isThinking: boolean }) =>
       ipcRenderer.send('character:amplitude', data),
     sendPersonasUpdate: (data: { personas: Array<{ id: number; name: string; poseTree: any }>; activePersonaId: number | null }) =>

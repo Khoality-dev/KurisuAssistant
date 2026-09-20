@@ -6,17 +6,10 @@
  */
 
 import { useEffect, useState } from 'react';
-import { storage } from '@kurisu/api';
+import { fetchAuthedBlob } from '@kurisu/api';
 
 export async function fetchAuthedObjectUrl(url: string): Promise<string> {
-  const token = storage.getToken();
-  const response = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to load asset: ${url} (${response.status})`);
-  }
-  return URL.createObjectURL(await response.blob());
+  return URL.createObjectURL(await fetchAuthedBlob(url));
 }
 
 /**

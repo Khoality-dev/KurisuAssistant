@@ -23,6 +23,38 @@ import {
   WS_WIRE_PROTOCOL_MISMATCH,
 } from '@kurisu/models';
 
+/**
+ * The smallest character a persona can have: one pose, its base image, no
+ * patches, no edges. What `characterWindow.spec.ts` gives Kurisu so the second
+ * window has something to fetch, and what the `character` scenario seeds.
+ * The URL is root-relative and extension-less, the backend's convention.
+ */
+export const ONE_POSE_CHARACTER: Record<string, unknown> = {
+  pose_tree: {
+    default_pose_ids: ['p1'],
+    nodes: [{
+      id: 'p1',
+      name: 'Idle',
+      type: 'pose',
+      position: { x: 0, y: 0 },
+      pose_config: {
+        name: 'Idle',
+        base_image_url: '/character-assets/1/p1/base',
+        left_eye: { patches: [] },
+        right_eye: { patches: [] },
+        mouth: { patches: [] },
+      },
+    }],
+    edges: [],
+  },
+};
+
+/** A 1×1 transparent PNG — the bytes every character-asset GET here answers. */
+const TINY_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+);
+
 /** Presentation only: no model, no tools, no memory, no wake word. */
 export interface MockPersona {
   id: number;
@@ -273,6 +305,8 @@ export class MockBackend {
   public lastDriveUpload: { name: string; parent_id: number | null; bytes: number } | null = null;
 
   public lastChatRequest: any = null;
+  /** The last `/character-assets` GET, with the Authorization header it carried (or null). */
+  public lastCharacterAssetRequest: { path: string; authorization: string | null } | null = null;
   public lastMcpServerCreate: any = null;
   /** Body of the most recent `PATCH /conversations/{id}`, with the id it hit. */
   public lastConversationPatch: { id: number; body: any } | null = null;
@@ -494,6 +528,13 @@ export class MockBackend {
     } as ResolvedPersona;
     this.personas.push(resolved);
     return resolved;
+  }
+
+  /** Give a persona a character config, the way the desktop editor's PATCH does. */
+  setCharacterConfig(personaId: number, config: Record<string, unknown> | null): void {
+    const persona = this.personas.find((p) => p.id === personaId);
+    if (!persona) throw new Error(`no persona ${personaId}`);
+    persona.character_config = config;
   }
 
   addSubAgent(subAgent: Omit<MockSubAgent, 'id'> & { id?: number }): MockSubAgent {
@@ -1261,6 +1302,28 @@ export class MockBackend {
         return this.json(res, { message: 'Skill deleted successfully' });
       }
     }
+    // Character assets. The backend's router authenticates by header only
+    // (`routers/character.py`), and the second window used to send no header
+    // at all, so this is the one route here that insists on a bearer: the
+    // point of `characterWindow.spec.ts` is that the window now has one (#237).
+    // Only the base image of a pose the persona actually has is served; the
+    // rest is a 404, not the `{}` below.
+    const assetMatch = pathOnly.match(/^\/character-assets\/(\d+)\/([^/]+)\/([^/]+)$/);
+    if (assetMatch && method === 'GET') {
+      const authorization = req.headers.authorization ?? null;
+      this.lastCharacterAssetRequest = { path: pathOnly, authorization };
+      if (!authorization?.startsWith('Bearer ')) return this.error(res, 401, 'Not authenticated');
+      const persona = this.personas.find((p) => p.id === Number(assetMatch[1]));
+      const tree = persona?.character_config?.pose_tree as { nodes?: Array<{ id: string }> } | undefined;
+      const node = tree?.nodes?.find((n) => n.id === assetMatch[2]);
+      if (!node || assetMatch[3] !== 'base') return this.error(res, 404, 'Not found');
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Content-Length', String(TINY_PNG.length));
+      return res.end(TINY_PNG);
+    }
+
     if (pathOnly === '/faces') return this.json(res, []);
     if (pathOnly === '/tts/voices' || pathOnly.startsWith('/tts/voices')) return this.json(res, { voices: [] });
     if (pathOnly === '/tts/models') {

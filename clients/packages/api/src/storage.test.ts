@@ -7,7 +7,7 @@
  * account access.
  */
 
-import { installBridge } from '@kurisu/platform/testing';
+import { fakeCharacterWindow, installBridge } from '@kurisu/platform/testing';
 import type { CredentialsAPI } from '@kurisu/platform';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { storage } from './storage';
@@ -160,5 +160,59 @@ describe('token storage', () => {
     expect(storage.getToken()).toBe(ACCESS);
     expect(storage.isTokenStorageSecure()).toBe(false);
     expect(localStorage.getItem('kurisu_auth_token')).toBeNull();
+  });
+});
+
+/**
+ * The character window's session (#237).
+ *
+ * That window is a second renderer with its own copy of this module's memory
+ * and no login: it can only call the authenticated asset routes if this one
+ * tells it the access token, on every change of it. Written to fail against
+ * the old module, which told it nothing.
+ */
+describe('the character window session', () => {
+  it('pushes the access token on every change of it, and never the refresh token', async () => {
+    const characterWindow = fakeCharacterWindow();
+    installBridge({ credentials: fakeBridge() as unknown as CredentialsAPI, characterWindow });
+    await storage.loadPersistedTokens();
+    characterWindow.calls.length = 0;
+
+    storage.setToken(ACCESS);
+    storage.setRefreshToken(REFRESH);
+    storage.clearRefreshToken();
+    storage.clearToken();
+    storage.clearTokens();
+
+    const pushes = characterWindow.calls.filter((call) => call.method === 'sendSession');
+    // setToken, clearToken, clearTokens — exactly once each; the two refresh
+    // paths push nothing, because nothing the window can use changed.
+    expect(pushes.map((call) => call.data)).toEqual([
+      { accessToken: ACCESS },
+      { accessToken: null },
+      { accessToken: null },
+    ]);
+    expect(JSON.stringify(characterWindow.calls)).not.toContain(REFRESH);
+  });
+
+  it('adopts a pushed token into memory without touching the keychain', async () => {
+    const bridge = install(fakeBridge())!;
+    await storage.loadPersistedTokens();
+    storage.setRememberMe(true);
+    bridge.write.mockClear();
+    bridge.clear.mockClear();
+
+    storage.adoptToken(ACCESS);
+    await settle();
+
+    expect(storage.getToken()).toBe(ACCESS);
+    expect(bridge.write).not.toHaveBeenCalled();
+    expect(bridge.clear).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op on a host with no character window', () => {
+    install(fakeBridge());
+    expect(() => storage.setToken(ACCESS)).not.toThrow();
+    expect(storage.getToken()).toBe(ACCESS);
   });
 });

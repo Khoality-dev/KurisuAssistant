@@ -13,6 +13,13 @@ record.
   `dangerouslySetInnerHTML`, so remote content has no HTML injection path.
 - A stored token is validated against the backend on startup, never trusted on
   sight.
+- The character window is a second renderer that never logs in. The main
+  renderer pushes it the **access token only** over `character:session` — never
+  the refresh token, which is 30 days of account access — on every change of
+  it and first thing when the window says it is ready; signing out pushes null
+  and closes the window. The window holds the token in memory and never writes
+  the keychain (`storage.adoptToken`, not `setToken`). See
+  [character.md](character.md) (#237).
 - Self-signed certificates are accepted through the `certificate-error` handler,
   for direct HTTPS to a backend on the local network.
 - A **Content-Security-Policy** on every response, and **navigation guards** on

@@ -28,8 +28,8 @@ electron/preload.ts       — contextBridge: hostTools, appTools, explorer, driv
 @kurisu/ui  (clients/packages/ui/src/components/)
   layout/
     MainLayout.tsx         — 3-panel layout: ActivityBar (52px) | MainContent (flex) | ResizeHandle | ChatPanel (resizable)
-    ActivityBar.tsx        — Narrow icon column: Workspace/Conversations/Settings nav + transfers (badged) + connection/character/call/logout
-    ChatPanel.tsx          — Persistent right panel: a static "Chat" header bar + ChatWidget. The persona sheet lives on the chat header inside ChatWidget, not here.
+    ActivityBar.tsx        — Narrow icon column: Workspace/Conversations/Settings nav + transfers (badged) + connection status + logout. The character window's toggle is the Face icon on the chat header inside ChatWidget, not here (#237).
+    ChatPanel.tsx          — Persistent right panel: a static "Chat" header bar + ChatWidget. The persona sheet lives on the chat header inside ChatWidget, not here. Owns the character window's open/closed state: `kurisu:toggle-character` (the Face icon, `/live-animate`) opens or closes it through the bridge, `onWindowClosed` clears it (#237).
     ResizeHandle.tsx       — DOM-based drag resize (no React re-renders during drag, sync on mouseup)
   explorer/
     FileExplorerPage.tsx   — Workspace page: FullExplorer (no files open) or FileTreeSidebar + EditorTabs + FileEditor
@@ -105,14 +105,15 @@ electron/preload.ts       — contextBridge: hostTools, appTools, explorer, driv
   micStore.ts             — Zustand singleton: ASR lifecycle (VAD, status, result, devices) + interactive mode with substates. Module-level VAD instance, lazy-init reusable Audio elements for sound effects. Two-level state: `interactiveMode` (call bar UI shown, mic auto-started) + `interactionActive` (auto-send without trigger word). Used by MainWindow (phone toggle) and ChatWidget (transcript handling, conditional render).
 @kurisu/state, continued — no Electron needed, so it is shared
   mcpService.ts            — Client-side MCP lifecycle: auto-init on WebSocket connect, fetches client-location MCP configs from API, starts local servers via Electron IPC, discovers tools, registers schemas with backend via client_tools_register event. Handles tool_call_request forwarding (execute locally → send tool_call_response). refreshClientMCPServers() for config changes.
-@kurisu/ui CharacterWindowApp — Minimal IPC-driven renderer for separate character window (no auth/stores, subtitle overlay)
+@kurisu/ui CharacterWindowApp — Minimal IPC-driven renderer for separate character window (no login or stores of its own: the access token is pushed to it over `character:session` and it fetches nothing until then; subtitle overlay)
 @kurisu/ui videocall/     — Character animation engine (rendered in separate Electron window via IPC)
   (types moved to @kurisu/models) — PoseConfig, PatchInfo, PoseTree, AnimationNode/Edge/EdgeTransition, TransitionCondition (random/thinking/gesture), AnimationSettings, CharacterConfig, migrateEdgeToTransitions(), migratePoseTreeIds() (old pose-*/edge-* IDs → 8-char hex)
   CharacterRenderer.tsx   — React wrapper around CanvasCompositor (accepts PoseTree, amplitude via ref)
   engine/
     CanvasCompositor.ts   — 60fps render: blink + breathing + mouth + pose tree state machine (idle→transitioning→idle), edge timers, video transitions, configurable AnimationSettings
     ImageCache.ts         — URL→HTMLImageElement cache
-@kurisu/api storage.ts    — Preferences in localStorage (model, TTS settings, persona-conversation mapping) **and the in-memory half of token storage**. Tokens are never written to localStorage; `loadPersistedTokens()` fills memory from the keychain once at startup (migrating and deleting any plaintext pair an older build left), and `getToken()` stays synchronous for the authed asset URLs that call it on render paths.
+@kurisu/api storage.ts    — Preferences in localStorage (model, TTS settings, persona-conversation mapping) **and the in-memory half of token storage**. Tokens are never written to localStorage; `loadPersistedTokens()` fills memory from the keychain once at startup (migrating and deleting any plaintext pair an older build left), and `getToken()` stays synchronous for the authed asset URLs that call it on render paths. Every change of the access token is pushed to the character window; `adoptToken()` is that window's way in — memory only, never the keychain (#237).
+@kurisu/api authedFetch.ts — The one `fetch` with the bearer token (`fetchAuthedBlob`/`fetchAuthedBytes`), behind every header-authenticated asset: the image cache, the compositor's videos and `useAuthedAssetUrl`. Retries once on a 401 through the refresher each renderer configures — `apiClient.tryRefresh` in the main window, a `character:session-request` round trip in the character window (#237).
 @kurisu/state commands.ts — Slash command system: /compact, /clear. Autocomplete via getCommands(). Async handleCommand() with feedback strings. Lazy imports to avoid circular deps.
 @kurisu/ui theme/theme.ts — MUI theme: primary #10A37F, 8px/12px border-radius
 @kurisu/api config.ts     — API URL config (reads dynamically from storage)
