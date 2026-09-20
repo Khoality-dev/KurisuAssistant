@@ -117,8 +117,11 @@ async def get_message_raw(
 ):
     """Fetch raw LLM input/output for a message.
 
-    Returns the raw messages array sent to the LLM (raw_input)
-    and the full concatenated LLM response (raw_output).
+    Returns the raw messages array sent to the LLM (raw_input) and the
+    assistant's text as the handler accumulated it (raw_output) — after the
+    emotion tags are stripped (#243), so it is the clean text, not the model's
+    bytes; `emotion_cues` on the message is the only record of where the tags
+    stood.
     """
     try:
         def _get_raw(session):

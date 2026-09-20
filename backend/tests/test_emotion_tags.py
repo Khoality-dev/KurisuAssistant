@@ -10,15 +10,23 @@ obvious first implementation, and it leaks partial tags into the text.
 """
 
 import re
+from typing import get_args
 
 import pytest
 
 from kurisuassistant.character.emotion_source import (
+    EMOTION_LABEL_ORDER,
     EMOTION_LABELS,
     emotion_channel_enabled,
     utf16_length,
 )
-from kurisuassistant.character.emotion_tags import EmotionTagStripper, split_at_utf16
+from kurisuassistant.character.emotion_tags import (
+    MAX_LABEL,
+    TAG_OPEN,
+    EmotionTagStripper,
+    split_at_utf16,
+)
+from kurisuassistant.character.schema import VrmEmotion
 
 
 def run(chunks):
@@ -81,19 +89,41 @@ class TestSplitTags:
         assert (clean, cues) == ("A  B", [(2, "happy")])
 
     def test_a_lone_open_bracket_is_not_delayed_forever(self):
-        """One '[' could start a tag; text after it proves it did not."""
-        clean, cues, _ = run(["see [", "1] and more"])
-        assert (clean, cues) == ("see [1] and more", [])
+        """One '[' could start a tag; it is held, and released by the next chunk.
+
+        Asserted per feed: the bracket must come out with the chunk that proves
+        it was not a tag, not sit in the hold until ``flush``.
+        """
+        s = EmotionTagStripper()
+        assert s.feed("see [") == ("see ", [])
+        assert s.feed("1] and more") == ("[1] and more", [])
+        assert s.flush() == ""
 
     def test_a_dangling_partial_is_released_on_flush(self):
         s = EmotionTagStripper()
         assert s.feed("Bye [[emo") == ("Bye ", [])
         assert s.flush() == "[[emo"
 
-    def test_a_too_long_label_is_not_a_tag(self):
+    def test_an_unknown_label_with_a_close_is_shown_whole(self):
         clean, cues, _ = run(["[[emotion:thisisnotalabelatall]] x"])
         assert clean == "[[emotion:thisisnotalabelatall]] x"
         assert cues == []
+
+    def test_a_too_long_label_with_no_close_is_released_at_once(self):
+        """The MAX_LABEL branch: past the longest label, nothing is held back."""
+        s = EmotionTagStripper()
+        text = TAG_OPEN + "x" * (MAX_LABEL + 1)
+        assert s.feed(text) == (text, [])
+        assert s.flush() == ""
+
+    def test_the_hold_never_exceeds_the_opener_plus_max_label(self):
+        """Ordinary text is delayed by at most len('[[emotion:') + MAX_LABEL characters."""
+        s = EmotionTagStripper()
+        text = "hello " + TAG_OPEN + "x" * MAX_LABEL
+        piece, cues = s.feed(text)
+        assert (piece, cues) == ("hello ", [])
+        assert len(text) - len(piece) == len(TAG_OPEN) + MAX_LABEL == 22
+        assert s.feed("y") == (TAG_OPEN + "x" * MAX_LABEL + "y", [])
 
 
 class TestPassThrough:
@@ -119,21 +149,33 @@ class TestPassThrough:
         clean, cues, _ = run([text])
         assert (clean, cues) == (text, [])
 
-    def test_the_invariant_over_a_corpus(self):
-        """Concatenated clean output plus flush is the input minus the known tags."""
-        corpus = [
-            "[[emotion:happy]]Hi there. [[emotion:sad]]Sad now.",
-            "No tags here at all, just [brackets] and [[double]] ones.",
-            "Ends with a partial [[emotion:hap",
-            "[[emotion:unknownlabel]] then [[emotion:relaxed]] ok",
-            "😀 emoji [[emotion:surprised]] wow 🎉",
-            "[" * 30 + "]" * 30,
-        ]
-        for text in corpus:
-            for split in (1, 3, 7, len(text)):
-                chunks = [text[i:i + split] for i in range(0, len(text), split)]
-                clean, _, _ = run(chunks)
-                assert clean == strip_naively(text), (text, split)
+    @pytest.mark.parametrize("text", [
+        "[[emotion:happy]]Hi there. [[emotion:sad]]Sad now.",
+        "No tags here at all, just [brackets] and [[double]] ones.",
+        "Ends with a partial [[emotion:hap",
+        "[[emotion:unknownlabel]] then [[emotion:relaxed]] ok",
+        "😀 emoji [[emotion:surprised]] wow 🎉",
+        "[" * 30 + "]" * 30,
+        # An unclosed opener before a real tag: the second tag must be found
+        # whether the text arrives whole or a word at a time (the close search
+        # is bounded to where a label could end).
+        "[[emotion:happy] Hello there! [[emotion:sad]] Bye",
+        "[[emotion:blah blah blah blah [[emotion:happy]] X",
+        "[[emotion:ab[[emotion:happy]] x",
+        "[[emotion:happy]Oops [[emotion:sad]] and [[emotion:angry]] twice",
+    ])
+    def test_the_invariant_over_a_corpus(self, text):
+        """Clean output plus flush is the input minus the known tags — for every chunking.
+
+        Every split size from one character to the whole text, so the answer
+        cannot depend on where a provider happened to cut its deltas.
+        """
+        whole = run([text])
+        for split in range(1, len(text) + 1):
+            chunks = [text[i:i + split] for i in range(0, len(text), split)]
+            clean, cues, _ = run(chunks)
+            assert clean == strip_naively(text), (text, split)
+            assert (clean, cues) == (whole[0], whole[1]), (text, split)
 
 
 class TestOffsetsAreUtf16:
@@ -162,6 +204,20 @@ class TestWhyNotARegex:
         clean, cues, _ = run(chunks)
         assert clean == "Hi.  Bye."
         assert cues == [(4, "sad")]
+
+
+class TestTheLabelSet:
+    def test_the_three_label_sets_are_one(self):
+        """The schema literal, the stripper's set and the prompt's order agree."""
+        assert EMOTION_LABELS == frozenset(get_args(VrmEmotion))
+        assert frozenset(EMOTION_LABEL_ORDER) == EMOTION_LABELS
+        assert len(EMOTION_LABEL_ORDER) == len(EMOTION_LABELS)
+
+    def test_every_label_is_in_the_prompt(self):
+        from kurisuassistant.agents.main import EXPRESSION_PROMPT
+
+        for label in EMOTION_LABELS:
+            assert f"[[emotion:{label}]]" in EXPRESSION_PROMPT
 
 
 class TestTheGate:

@@ -361,7 +361,7 @@ summary asserting something with no source.
 {
   "id": 2,
   "raw_input": [{"role": "system", "content": "…"}, {"role": "user", "content": "…"}],
-  "raw_output": "Full LLM response text"
+  "raw_output": "The assistant text as accumulated, emotion tags already stripped"
 }
 ```
 

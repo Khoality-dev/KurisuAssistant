@@ -8,14 +8,23 @@ sentence instead (#247) is a second implementation of the same two methods, and
 ``agents/main.py`` will not know the difference.
 
 The six labels are the VRM 1.0 preset expressions plus ``neutral`` — the set
-the renderer can show, so nothing between here and the face has to map.
+the renderer can show, so nothing between here and the face has to map. They
+are read off the schema's ``VrmEmotion`` literal, so the config validator, the
+stripper and the prompt cannot drift apart.
 """
 
-from typing import Optional, Protocol
+from typing import Optional, Protocol, get_args
 
-EMOTION_LABELS: frozenset[str] = frozenset(
-    {"neutral", "happy", "angry", "sad", "relaxed", "surprised"}
+from kurisuassistant.character.schema import CharacterConfigBody, VrmEmotion
+
+EMOTION_LABELS: frozenset[str] = frozenset(get_args(VrmEmotion))
+
+# The order the prompt lists the tags in: the feelings a reply is likeliest to
+# carry first, ``neutral`` last as the way back. Same set as above; a test pins it.
+EMOTION_LABEL_ORDER: tuple[str, ...] = (
+    "happy", "sad", "angry", "relaxed", "surprised", "neutral",
 )
+assert frozenset(EMOTION_LABEL_ORDER) == EMOTION_LABELS
 
 # One cue: where the feeling changed, as an offset into the accumulated *clean*
 # text of the LLM round, counted in UTF-16 code units (§ below), and the label.
@@ -62,8 +71,6 @@ def emotion_channel_enabled(character_config: Optional[dict]) -> bool:
     """
     if not isinstance(character_config, dict):
         return False
-    from kurisuassistant.character.schema import CharacterConfigBody
-
     try:
         body = CharacterConfigBody.model_validate(character_config)
     except Exception:

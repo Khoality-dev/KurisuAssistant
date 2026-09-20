@@ -14,6 +14,7 @@ import uuid
 from typing import AsyncGenerator, Dict, List
 
 from kurisuassistant.character.emotion_source import (
+    EMOTION_LABEL_ORDER,
     EmotionSource,
     emotion_channel_enabled,
     utf16_length,
@@ -34,10 +35,10 @@ EXPRESSION_PROMPT = (
     "## Expression\n"
     "You are voiced by an animated character with a face. When the feeling of "
     "what you say changes, put one tag at the very start of that sentence, with "
-    "nothing before it: [[emotion:happy]], [[emotion:sad]], [[emotion:angry]], "
-    "[[emotion:relaxed]], [[emotion:surprised]], [[emotion:neutral]]. Do not tag "
-    "every sentence — an untagged sentence keeps the last feeling. Never explain "
-    "or mention the tags."
+    "nothing before it: "
+    + ", ".join(f"[[emotion:{label}]]" for label in EMOTION_LABEL_ORDER)
+    + ". Do not tag every sentence — an untagged sentence keeps the last "
+    "feeling. Never explain or mention the tags."
 )
 
 
@@ -328,8 +329,11 @@ class MainAgent(BaseAgent):
                 all_tool_calls = []
                 # One source per round: cue offsets count this round's clean
                 # text from zero, which is also what the handler saves as one
-                # assistant message.
+                # assistant message. ``clean_units`` is that text's UTF-16
+                # length, kept as a running count rather than re-measured from
+                # ``full_content`` on every chunk.
                 emotion_source = self._new_emotion_source()
+                clean_units = 0
 
                 async for chunk in async_iterate(stream):
                     msg = chunk.message
@@ -351,7 +355,7 @@ class MainAgent(BaseAgent):
 
                     if msg.content:
                         pieces = self._clean_pieces(
-                            emotion_source, msg.content, utf16_length(full_content),
+                            emotion_source, msg.content, clean_units,
                         )
                         for piece, cue in pieces:
                             # Nothing to show and nothing to say: a chunk that was
@@ -361,6 +365,8 @@ class MainAgent(BaseAgent):
                             if not piece and cue is None:
                                 continue
                             full_content += piece
+                            if emotion_source is not None:
+                                clean_units += utf16_length(piece)
                             yield StreamChunkEvent(
                                 content=piece,
                                 role="assistant",
@@ -381,6 +387,7 @@ class MainAgent(BaseAgent):
                     tail = emotion_source.flush()
                     if tail:
                         full_content += tail
+                        clean_units += utf16_length(tail)
                         yield StreamChunkEvent(
                             content=tail,
                             role="assistant",

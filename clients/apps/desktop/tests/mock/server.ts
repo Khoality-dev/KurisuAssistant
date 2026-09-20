@@ -22,6 +22,8 @@ import {
   WS_WIRE_SUBPROTOCOL_PREFIX,
   WS_WIRE_PROTOCOL_MISMATCH,
   type CharacterConfigDTO,
+  type EmotionCue,
+  type VrmEmotion,
 } from '@kurisu/models';
 
 /**
@@ -137,7 +139,7 @@ export interface StreamChunk {
    * tags. `emotionAt` is the offset into the round's accumulated content (this
    * chunk's content starts there), in UTF-16 code units.
    */
-  emotion?: 'neutral' | 'happy' | 'angry' | 'sad' | 'relaxed' | 'surprised';
+  emotion?: VrmEmotion;
   emotionAt?: number;
 }
 
@@ -249,7 +251,7 @@ interface StoredMessage {
   tool_args: Record<string, unknown> | null;
   tool_status: string | null;
   /** Assistant messages of a VRM persona: where the feeling changed (#243). */
-  emotion_cues?: Array<{ emotion: string; at: number }> | null;
+  emotion_cues?: EmotionCue[] | null;
   created_at: string;
 }
 
@@ -1644,7 +1646,7 @@ export class MockBackend {
           role: string; content: string; thinking: string;
           personaId: number | null; name: string | null;
           toolArgs: Record<string, unknown> | null; toolStatus: string | null;
-          emotionCues: Array<{ emotion: string; at: number }>;
+          emotionCues: EmotionCue[];
         };
         const segments: Segment[] = [];
         let aborted = false;

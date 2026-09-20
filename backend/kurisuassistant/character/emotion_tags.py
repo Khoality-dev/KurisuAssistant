@@ -13,6 +13,11 @@ Three rules make it safe to run on every chunk:
   proper prefix of ``[[emotion:`` plus at most :data:`MAX_LABEL` label
   characters — so ordinary text is never delayed by more than 22 characters,
   and a partial tag is never shown.
+* What counts as a tag does not depend on where the chunks were cut. An
+  opener whose label runs past :data:`MAX_LABEL` is not a tag, whether the
+  closing ``]]`` is still to come or is already in the buffer far away — so
+  ``[[emotion:happy] Hello [[emotion:sad]]`` strips the second tag the same
+  way whether it arrived whole or one word at a time.
 * An unknown label (``[[emotion:excited]]``) passes through verbatim. Visible is
   better than silent: it is how a prompt-compliance problem gets noticed.
 * Offsets are counted in UTF-16 code units of the *clean* text of this round
@@ -78,10 +83,16 @@ class EmotionTagStripper:
                 break
             emit(buf[pos:start])
             body_start = start + len(TAG_OPEN)
-            close = buf.find(TAG_CLOSE, body_start)
+            # The close is only looked for where a label could end. Searching
+            # the whole buffer would make the answer depend on chunking: a
+            # ``]]`` forty characters on would turn the opener into a "tag"
+            # with a forty-character label when the text arrived whole, and
+            # into plain text when it arrived in pieces (#243 review).
+            close = buf.find(TAG_CLOSE, body_start, body_start + MAX_LABEL + len(TAG_CLOSE))
             if close < 0:
-                # No closing marker yet. Either it may still arrive (hold the
-                # tail back) or this is not a tag at all (too long: pass it on).
+                # No closing marker within reach. Either it may still arrive
+                # (hold the tail back) or this is not a tag at all (too long:
+                # pass the opener on and keep scanning after it).
                 if len(buf) - body_start <= MAX_LABEL:
                     self._held = buf[start:]
                     return "".join(out), cues
