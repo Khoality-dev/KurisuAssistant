@@ -13,7 +13,14 @@ from typing import Optional
 import anyio
 from fastapi import HTTPException
 
-from kurisuassistant.character.references import cleanup_persona_assets, referenced_paths
+from kurisuassistant.character.references import (
+    cleanup_persona_assets,
+    referenced_paths,
+    remove_persona_assets,
+)
+
+logger = logging.getLogger(__name__)
+
 
 logger = logging.getLogger(__name__)
 
@@ -49,3 +56,16 @@ async def cleanup_after_write(persona_id: int, referenced: set[str]) -> None:
         await anyio.to_thread.run_sync(cleanup_persona_assets, persona_id, referenced)
     except Exception:  # noqa: BLE001 — a committed save must not turn into a 500
         logger.exception("persona %d: asset cleanup failed after the config was saved", persona_id)
+
+
+async def remove_after_delete(persona_id: int) -> int:
+    """Reclaim a deleted persona's directory, off the event loop; returns the bytes.
+
+    Never raises: the row is already gone, so the response must say so whatever
+    the disk did. ``remove_persona_assets`` logs what it could not remove.
+    """
+    try:
+        return await anyio.to_thread.run_sync(remove_persona_assets, persona_id)
+    except Exception:  # noqa: BLE001 — a failed reclaim is a log line, not a failed delete
+        logger.exception("persona %d deleted; reclaiming its character assets failed", persona_id)
+        return 0

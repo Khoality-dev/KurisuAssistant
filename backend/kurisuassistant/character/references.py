@@ -14,6 +14,7 @@ the directory went with them.
 """
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -183,3 +184,50 @@ def cleanup_persona_assets(persona_id: int, referenced: Optional[set[str]]) -> N
             # Gone already, or something arrived in it since the walk began —
             # either way the next sweep sees the truth.
             continue
+
+
+def directory_bytes(directory: Path) -> int:
+    """Bytes held by every file under ``directory`` (0 when it does not exist).
+
+    Best effort: a file that vanishes between the listing and the ``stat``, or
+    one the process may not read, counts as 0 rather than raising. The size is
+    for a log line and a listing; nothing decides anything on it.
+    """
+    total = 0
+    try:
+        entries = list(directory.rglob("*"))
+    except OSError:
+        return 0
+    for entry in entries:
+        try:
+            if entry.is_file():
+                total += entry.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def remove_persona_assets(persona_id: int) -> int:
+    """Remove everything a deleted persona owned; returns the bytes reclaimed.
+
+    Called once the row is gone, so this must never raise: a disk failure here
+    leaves stray files for the operator's sweep to find, never a live persona
+    without its assets — and never a 500 for a delete that already happened.
+    What could not be removed is measured afterwards and logged as a warning,
+    because that log line is the only signal an operator has that the sweep
+    is now needed.
+    """
+    persona_dir = paths.persona_dir(persona_id)
+    before = directory_bytes(persona_dir)
+    shutil.rmtree(persona_dir, ignore_errors=True)
+    left = directory_bytes(persona_dir) if persona_dir.exists() else 0
+    reclaimed = max(before - left, 0)
+    if persona_dir.exists():
+        logger.warning(
+            "persona %d deleted but %d bytes were left behind under %s; "
+            "run `python -m scripts.sweep_character_assets`",
+            persona_id, left, persona_dir,
+        )
+    elif reclaimed:
+        logger.info("persona %d deleted; reclaimed %d bytes of character assets", persona_id, reclaimed)
+    return reclaimed

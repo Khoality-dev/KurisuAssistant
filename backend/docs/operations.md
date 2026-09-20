@@ -220,3 +220,31 @@ Ollama server is unreachable" in the model picker.
 
 Model caches under `data/` (`face_recognition/models/`, `gesture_detection/models/`)
 are re-downloaded on demand and need no backup.
+
+**Character assets follow their persona.** Deleting a persona removes its
+directory under `backend/data/character_assets/` (#234). Directories whose
+persona no longer exists — left by a database restored from an older backup,
+by two checkouts sharing `backend/data/`, or by deletions made before #234 —
+are found by the sweep, which lists first and removes only when told to:
+
+```bash
+docker compose exec api python -m scripts.sweep_character_assets           # dry run
+docker compose exec api python -m scripts.sweep_character_assets --apply   # remove them
+```
+
+Only a directory named by a plain decimal number that is not a live persona id
+is an orphan; anything else under that root is reported as unrecognised and
+left alone. Both modes print how many live persona ids the database has, and
+`--apply` refuses to run when that number is zero — a fresh or not-yet-restored
+database would make every directory an orphan — unless
+`--allow-empty-database` says that is really the state of things. After
+`--apply`, each directory is checked: one that is still there (permissions,
+usually) is listed as `could not remove`, is not counted in the total, and
+makes the script exit non-zero. This is a script and not a migration on
+purpose: a migration that deletes directories would run against whatever rows
+the restored database happens to have.
+
+A persona delete that could not remove its directory logs a warning naming the
+directory and the bytes left behind (`left N bytes behind under …; run
+python -m scripts.sweep_character_assets`); the delete itself still succeeds,
+because the row is already gone by then.
