@@ -14,9 +14,26 @@ export interface PersonaCharacterData {
   poseTree: PoseTree | null;
 }
 
+/**
+ * What the main renderer tells the character window about the session.
+ *
+ * Only ever the access token. The refresh token is 30 days of account access
+ * and stays in the window that can use it; the character window gets an hour
+ * at a time and asks for another when one is refused (#237).
+ */
+export interface CharacterSession {
+  accessToken: string | null;
+}
+
 export interface CharacterWindowAPI {
   open: () => Promise<void>;
   close: () => Promise<void>;
+  /** Main renderer → character window: here is the session (pushed on every token change, and first thing on `ready`). */
+  sendSession: (data: CharacterSession) => void;
+  onSession: (cb: (data: CharacterSession) => void) => () => void;
+  /** Character window → main renderer: my token was refused, push a fresh one. */
+  requestSession: () => void;
+  onSessionRequest: (cb: () => void) => () => void;
   sendAmplitude: (data: AmplitudeState) => void;
   sendPersonasUpdate: (data: { personas: PersonaCharacterData[]; activePersonaId: number | null }) => void;
   sendGestureUpdate: (data: { gestures: string[] }) => void;

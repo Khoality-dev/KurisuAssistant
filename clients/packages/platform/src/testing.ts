@@ -9,6 +9,7 @@
  * can do and nothing is silently implied.
  */
 import { setBridge, type Capabilities, type PlatformBridge } from './index';
+import type { CharacterWindowAPI } from './types';
 import { webBridge } from './web';
 
 export interface FakeBridgeOptions extends Partial<Omit<PlatformBridge, 'capabilities'>> {
@@ -32,4 +33,46 @@ export function installBridge(overrides: FakeBridgeOptions = {}): PlatformBridge
 /** Forget the installed bridge, so the next resolve detects the real host. */
 export function resetBridge(): void {
   setBridge(null);
+}
+
+
+/** What a recording character window saw, in the order it saw it. */
+export interface CharacterWindowCall {
+  method: string;
+  data?: unknown;
+}
+
+/**
+ * A character window that records what the main renderer sends it.
+ *
+ * Every member of the interface is here, so adding one to `CharacterWindowAPI`
+ * is a type error until this fake learns it — the way a stub with only the
+ * members one suite happened to call would not be.
+ */
+export function fakeCharacterWindow(): CharacterWindowAPI & { calls: CharacterWindowCall[] } {
+  const calls: CharacterWindowCall[] = [];
+  const record = (method: string) => (data?: unknown) => { calls.push({ method, data }); };
+  const subscription = (method: string) => () => { calls.push({ method }); return () => {}; };
+  return {
+    calls,
+    open: async () => { calls.push({ method: 'open' }); },
+    close: async () => { calls.push({ method: 'close' }); },
+    sendSession: record('sendSession'),
+    onSession: subscription('onSession'),
+    requestSession: () => { calls.push({ method: 'requestSession' }); },
+    onSessionRequest: subscription('onSessionRequest'),
+    sendAmplitude: record('sendAmplitude'),
+    sendPersonasUpdate: record('sendPersonasUpdate'),
+    sendGestureUpdate: record('sendGestureUpdate'),
+    sendFaceUpdate: record('sendFaceUpdate'),
+    sendSubtitle: record('sendSubtitle'),
+    onAmplitude: subscription('onAmplitude'),
+    onPersonasUpdate: subscription('onPersonasUpdate'),
+    onGestureUpdate: subscription('onGestureUpdate'),
+    onFaceUpdate: subscription('onFaceUpdate'),
+    onSubtitle: subscription('onSubtitle'),
+    onWindowClosed: subscription('onWindowClosed'),
+    signalReady: () => { calls.push({ method: 'signalReady' }); },
+    onCharacterReady: subscription('onCharacterReady'),
+  };
 }

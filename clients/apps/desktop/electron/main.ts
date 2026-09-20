@@ -180,6 +180,18 @@ function createWindow() {
       characterWindow.close();
     }
   });
+
+  // A reload of the main renderer (Electron's default menu still offers
+  // View → Reload) starts it with no memory of the character window while the
+  // window itself lives on, holding a token nobody will refresh. The window
+  // goes with the renderer that was feeding it; the new renderer opens a fresh
+  // one on the next toggle (#237).
+  mainWindow.webContents.on('did-start-navigation', (details) => {
+    if (!details.isMainFrame || details.isSameDocument) return;
+    if (characterWindow && !characterWindow.isDestroyed()) {
+      characterWindow.close();
+    }
+  });
 }
 
 // --- Character Window ---
@@ -266,6 +278,23 @@ ipcMain.on('character:personas-update', (_event, data) => {
 ipcMain.on('character:ready', () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('character:ready');
+  }
+});
+
+// IPC relay: the session. The character window is a second renderer with its
+// own module memory and no login of its own, so the main renderer pushes the
+// access token down (`character:session`) and the character window asks for a
+// fresh one when its own is refused (`character:session-request`). Nothing here
+// inspects or stores the token (#237).
+ipcMain.on('character:session', (_event, data) => {
+  if (characterWindow && !characterWindow.isDestroyed()) {
+    characterWindow.webContents.send('character:session', data);
+  }
+});
+
+ipcMain.on('character:session-request', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('character:session-request');
   }
 });
 

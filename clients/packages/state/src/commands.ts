@@ -5,6 +5,8 @@
  * Add new commands to the `commands` array below.
  */
 
+import { resolveBridge } from '@kurisu/platform';
+
 export interface CommandContext {
   activeConversationId: number | null;
   personaId: number | null;
@@ -97,6 +99,13 @@ const commands: Command[] = [
     name: 'live-animate',
     description: 'Toggle the animated character window',
     execute: () => {
+      // The window is the only character surface today, and only a host
+      // that lends one has anything to toggle; the browser build does not.
+      // A control whose capability is absent says so rather than sitting
+      // inert (clients/CLAUDE.md), and a command is a control (#237).
+      if (!resolveBridge().capabilities.characterWindow) {
+        return 'This host has no character window.';
+      }
       window.dispatchEvent(new Event('kurisu:toggle-character'));
       return '';
     },

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { apiClient } from '@kurisu/api';
+import { apiClient, storage } from '@kurisu/api';
 import type { AmplitudeState, Message, PoseTree } from '@kurisu/models';
 import { resolveBridge } from '@kurisu/platform';
+import { greetCharacterWindow } from './characterSession';
 
 interface PersonaEntry { name: string; poseTree: PoseTree | null }
 
@@ -125,16 +126,34 @@ export function useCharacterPanel({
     sendPersonaState();
   }, [characterWindowOpen, personaMap, activePersonaId, sendPersonaState]);
 
-  // Re-send state when character window signals it's ready (after loading)
+  // The window's `ready`: the session first, then the personas — the window
+  // loads nothing until it has been told the session (#237). Not gated on
+  // `characterWindowOpen`: a `ready` is proof the window exists, and the flag
+  // can lag it — the main process focuses an existing window without a second
+  // `ready`, and a reload of this renderer starts the flag at false while the
+  // window is still there.
   useEffect(() => {
-    if (!characterWindowOpen) return;
     const api = resolveBridge().characterWindow;
     if (!api) return;
     const cleanup = api.onCharacterReady(() => {
-      sendPersonaState();
+      greetCharacterWindow(api, { accessToken: storage.getToken() }, sendPersonaState);
     });
     return cleanup;
-  }, [characterWindowOpen, sendPersonaState]);
+  }, [sendPersonaState]);
+
+  // The window's token was refused. A refresh re-pushes on its own — it ends in
+  // `storage.setToken` — and when there is nothing to refresh with, the window
+  // is answered with what this one holds so its wait ends rather than times out.
+  // Ungated for the same reason as `ready`.
+  useEffect(() => {
+    const api = resolveBridge().characterWindow;
+    if (!api) return;
+    return api.onSessionRequest(() => {
+      apiClient.tryRefresh().catch(() => {
+        api.sendSession({ accessToken: storage.getToken() });
+      });
+    });
+  }, []);
 
   // Re-fetch character configs when saved in the editor dialog
   useEffect(() => {

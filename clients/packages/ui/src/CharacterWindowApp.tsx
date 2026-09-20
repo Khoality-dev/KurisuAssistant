@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CharacterRenderer } from './videocall/CharacterRenderer';
+import { clearImageCache } from './videocall/engine/ImageCache';
 import type { AmplitudeState } from '@kurisu/models';
 import type { PoseTree } from '@kurisu/models';
+import { configureAuthedFetch, storage } from '@kurisu/api';
 import { resolveBridge } from '@kurisu/platform';
 
 interface PersonaEntry {
@@ -9,7 +11,23 @@ interface PersonaEntry {
   poseTree: PoseTree | null;
 }
 
+/**
+ * Where this window stands with the session (#237). It never logs in: the main
+ * renderer pushes the access token over IPC, and nothing is fetched before the
+ * first push has arrived — even one saying there is no session — because the
+ * asset routes are header-authenticated and a fetch without the token reads as
+ * a missing file, not a refusal.
+ */
+type SessionState = 'pending' | 'signed-out' | 'ready';
+
+/** How long to wait for the main renderer to answer a session request. */
+const SESSION_REQUEST_TIMEOUT_MS = 10_000;
+
 export const CharacterWindowApp: React.FC = () => {
+  const [session, setSession] = useState<SessionState>('pending');
+  // Counts sessions that carried a token; a renderer whose load failed retries on the next one.
+  const [sessionVersion, setSessionVersion] = useState(0);
+  const sessionWaitersRef = useRef<Array<(token: string | null) => void>>([]);
   const [personaMap, setPersonaMap] = useState<Map<number, PersonaEntry>>(new Map());
   const [activePersonaId, setActivePersonaId] = useState<number | null>(null);
   const [subtitleText, setSubtitleText] = useState('');
@@ -26,6 +44,36 @@ export const CharacterWindowApp: React.FC = () => {
   useEffect(() => {
     const api = resolveBridge().characterWindow;
     if (!api) return;
+
+    // The session, pushed by the main window. Adopted, never `setToken`-ed:
+    // this window holds no refresh token and must not touch the keychain.
+    const cleanupSession = api.onSession(({ accessToken }) => {
+      storage.adoptToken(accessToken);
+      const waiters = sessionWaitersRef.current;
+      sessionWaitersRef.current = [];
+      for (const resolve of waiters) resolve(accessToken);
+      if (accessToken) {
+        setSession('ready');
+        setSessionVersion((v) => v + 1);
+      } else {
+        clearImageCache();
+        setSession('signed-out');
+      }
+    });
+
+    // A refused token: ask the main window for a fresh one and wait for the
+    // next push. `fetchAuthedBlob` retries once with whatever comes back.
+    configureAuthedFetch({
+      refreshAccessToken: () => new Promise<string | null>((resolve) => {
+        const timer = setTimeout(() => {
+          sessionWaitersRef.current = sessionWaitersRef.current.filter((w) => w !== waiter);
+          resolve(null);
+        }, SESSION_REQUEST_TIMEOUT_MS);
+        const waiter = (token: string | null) => { clearTimeout(timer); resolve(token); };
+        sessionWaitersRef.current.push(waiter);
+        api.requestSession();
+      }),
+    });
 
     const cleanupAmplitude = api.onAmplitude((data) => {
       amplitudeRef.current = data;
@@ -129,6 +177,8 @@ export const CharacterWindowApp: React.FC = () => {
     api.signalReady();
 
     return () => {
+      configureAuthedFetch({ refreshAccessToken: null });
+      cleanupSession();
       cleanupAmplitude();
       cleanupPersonas();
       cleanupGestures();
@@ -190,7 +240,20 @@ export const CharacterWindowApp: React.FC = () => {
         </div>
       </div>
 
-      {personaMap.size === 0 ? (
+      {session !== 'ready' ? (
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <span style={{ color: 'rgba(0,0,0,0.4)', fontSize: 14 }}>
+            {session === 'signed-out' ? 'Signed out' : 'Connecting…'}
+          </span>
+        </div>
+      ) : personaMap.size === 0 ? (
         <div
           style={{
             flex: 1,
@@ -225,6 +288,7 @@ export const CharacterWindowApp: React.FC = () => {
             {entry.poseTree ? (
               <CharacterRenderer
                 poseTree={entry.poseTree}
+                sessionVersion={sessionVersion}
                 amplitudeRef={activePersonaId === id ? amplitudeRef : silentRef}
                 gesturesRef={activePersonaId === id || activePersonaId === null ? gesturesRef : undefined}
                 facesRef={activePersonaId === id || activePersonaId === null ? facesRef : undefined}

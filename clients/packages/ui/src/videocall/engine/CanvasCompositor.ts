@@ -9,7 +9,7 @@ import {
   type ProcessedPose,
 } from '@kurisu/models';
 import { getCachedImage } from './ImageCache';
-import { storage } from '@kurisu/api';
+import { fetchAuthedBlob } from '@kurisu/api';
 
 type BlinkState = 'open' | 'closing' | 'closed' | 'opening';
 type CompositorState = 'idle' | 'transitioning';
@@ -521,13 +521,8 @@ export class CanvasCompositor {
     const videoPromises = [...videoUrls].map(async (url) => {
       try {
         // Character assets require authentication, like every other route in
-        // that router.
-        const token = storage.getToken();
-        const resp = await fetch(url, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (!resp.ok) return;
-        const blob = await resp.blob();
+        // that router; a refused or missing video is skipped, as before.
+        const blob = await fetchAuthedBlob(url);
         const hashBuffer = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
         const hash = Array.from(new Uint8Array(hashBuffer)).map((b) => b.toString(16).padStart(2, '0')).join('');
 

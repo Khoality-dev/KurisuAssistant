@@ -64,6 +64,24 @@ function credentialsBridge() {
   return resolveBridge().credentials ?? undefined;
 }
 
+/**
+ * Hand the access token to the character window, when the host has one.
+ *
+ * That window is a second renderer with its own copy of this module's memory
+ * and no login of its own, so the only way it can call the authenticated asset
+ * routes is to be told the token by this window (#237). It is told on every
+ * change of the access token — a login, a refresh, a sign-out — and only the
+ * access token crosses: the refresh token is 30 days of account access and
+ * stays in the window that can use it.
+ */
+function pushSessionToCharacterWindow(): void {
+  try {
+    resolveBridge().characterWindow?.sendSession({ accessToken: tokens.access });
+  } catch (error) {
+    console.error('Failed to push the session to the character window:', error);
+  }
+}
+
 function rememberMeEnabled(): boolean {
   try {
     return localStorage.getItem(STORAGE_KEYS.REMEMBER_ME) === 'true';
@@ -174,6 +192,7 @@ export const storage = {
   setToken(token: string): void {
     tokens.access = token;
     persistTokens();
+    pushSessionToCharacterWindow();
   },
 
   getToken(): string | null {
@@ -183,6 +202,17 @@ export const storage = {
   clearToken(): void {
     tokens.access = null;
     persistTokens();
+    pushSessionToCharacterWindow();
+  },
+
+  /**
+   * The character window's way in: take the access token the main window
+   * pushed, and nothing more. That window must never call `setToken` —
+   * `persistTokens` writes both fields from this module's memory, and a window
+   * that holds no refresh token would null the persisted 30-day one.
+   */
+  adoptToken(token: string | null): void {
+    tokens.access = token;
   },
 
   setRefreshToken(token: string): void {
@@ -204,6 +234,7 @@ export const storage = {
     tokens.access = null;
     tokens.refresh = null;
     credentialsBridge()?.clear().catch((error) => console.error('Failed to clear tokens:', error));
+    pushSessionToCharacterWindow();
   },
 
   /**

@@ -34,6 +34,15 @@ plaintext would reinstate the vulnerability the move was made to close (#91).
 Memory holds the tokens either way, so a no-remember-me session still builds
 working authed URLs.
 
+The character window is a second renderer with its own, empty copy of that
+memory and no login. The main renderer pushes it the access token over
+`character:session` on every change (`storage.setToken`, `clearToken`,
+`clearTokens`) and first thing when the window reports ready; the window takes
+it with `storage.adoptToken`, which touches memory only — never the keychain,
+which a window holding no refresh token would otherwise overwrite. A refused
+fetch there asks the main renderer for a fresh token over
+`character:session-request` (#237; see [character.md](character.md)).
+
 ## Storage keys (localStorage)
 
 `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_tts_emo_audio`, `kurisu_tts_emo_alpha`, `kurisu_tts_use_emo_text`, `kurisu_selected_persona_id`, `kurisu_persona_conversations`, `kurisu_media_volume`

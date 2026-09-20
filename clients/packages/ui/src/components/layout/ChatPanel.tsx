@@ -1,10 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { useConversationStore } from '@kurisu/state';
+import { useCapabilities } from '@kurisu/hooks';
+import { resolveBridge } from '@kurisu/platform';
 import { ChatWidget } from '../chat/ChatWidget';
 
 export const ChatPanel: React.FC = () => {
+  const { characterWindow: hasCharacterWindow } = useCapabilities();
   const [characterVisible, setCharacterVisible] = useState(false);
+  const characterVisibleRef = useRef(false);
 
   // /refresh — reload the current conversation
   useEffect(() => {
@@ -16,12 +20,39 @@ export const ChatPanel: React.FC = () => {
     return () => window.removeEventListener('kurisu:refresh-conversation', handler);
   }, []);
 
-  // /character — toggle the character window
+  // /live-animate and the Face button on the chat header: open or close the
+  // character window. The window is the only character surface today (an
+  // inline panel is #241), so a host without one has nothing to toggle. The
+  // flag flips before `open()` resolves, so the feed to the window is on
+  // before the window can ask for it; a `ready` from the window sets it too,
+  // for the case where this renderer's idea of the window is stale (#237).
   useEffect(() => {
-    const handler = () => setCharacterVisible((v) => !v);
-    window.addEventListener('kurisu:toggle-character', handler);
-    return () => window.removeEventListener('kurisu:toggle-character', handler);
-  }, []);
+    const api = resolveBridge().characterWindow;
+    if (!hasCharacterWindow || !api) return;
+    const show = (visible: boolean) => {
+      characterVisibleRef.current = visible;
+      setCharacterVisible(visible);
+    };
+    const toggle = () => {
+      if (characterVisibleRef.current) {
+        api.close().catch((error) => console.error('Failed to close the character window:', error));
+      } else {
+        show(true);
+        api.open().catch((error) => {
+          console.error('Failed to open the character window:', error);
+          show(false);
+        });
+      }
+    };
+    window.addEventListener('kurisu:toggle-character', toggle);
+    const offClosed = api.onWindowClosed(() => show(false));
+    const offReady = api.onCharacterReady(() => show(true));
+    return () => {
+      window.removeEventListener('kurisu:toggle-character', toggle);
+      offClosed();
+      offReady();
+    };
+  }, [hasCharacterWindow]);
 
   return (
     <Box

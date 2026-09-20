@@ -11,7 +11,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { MockBackend } from './server';
+import { MockBackend, ONE_POSE_CHARACTER } from './server';
 import {
   WIRE_PROTOCOL,
   WS_AUTH_SUBPROTOCOL,
@@ -102,6 +102,58 @@ describe('mock backend: assistant / persona / sub-agent split', () => {
     expect(Object.keys(body[0]).sort()).toEqual([
       'avatar_uuid', 'character_config', 'description', 'enabled', 'id',
       'name', 'preferred_name', 'system_prompt', 'voice_reference',
+    ]);
+  });
+
+  it('serves a pose image only to a bearer, and 404s a pose the persona lacks', async () => {
+    mock.setCharacterConfig(1, ONE_POSE_CHARACTER);
+    const bare = await fetch(`${mock.url}/character-assets/1/p1/base`);
+    expect(bare.status).toBe(401);
+
+    const authed = await fetch(`${mock.url}/character-assets/1/p1/base`, {
+      headers: { Authorization: 'Bearer test-access-token' },
+    });
+    expect(authed.status).toBe(200);
+    expect(authed.headers.get('content-type')).toBe('image/png');
+    expect((await authed.arrayBuffer()).byteLength).toBeGreaterThan(0);
+    expect(mock.lastCharacterAssetRequest).toEqual({
+      path: '/character-assets/1/p1/base',
+      authorization: 'Bearer test-access-token',
+    });
+
+    // Not the `{}` catch-all: a missing asset is a 404, as on the backend.
+    const missing = await fetch(`${mock.url}/character-assets/1/nope/base`, {
+      headers: { Authorization: 'Bearer test-access-token' },
+    });
+    expect(missing.status).toBe(404);
+  });
+
+  it('refuses an expired bearer on the asset route, and takes the refreshed one', async () => {
+    mock.setCharacterConfig(1, ONE_POSE_CHARACTER);
+    mock.expireAccessToken();
+
+    const stale = await fetch(`${mock.url}/character-assets/1/p1/base`, {
+      headers: { Authorization: 'Bearer test-access-token' },
+    });
+    expect(stale.status).toBe(401);
+
+    // The rest of the mock still authenticates nobody: the stale token is
+    // refused by the one route that looks, and nowhere else.
+    expect((await get('/personas/1')).status).toBe(200);
+
+    const refreshed = await fetch(`${mock.url}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: 'test-refresh-token' }),
+    });
+    const { access_token } = await refreshed.json() as { access_token: string };
+    const fresh = await fetch(`${mock.url}/character-assets/1/p1/base`, {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
+    expect(fresh.status).toBe(200);
+    expect(mock.characterAssetRequests.map((r) => [r.authorization, r.status])).toEqual([
+      ['Bearer test-access-token', 401],
+      ['Bearer test-access-token-refreshed', 200],
     ]);
   });
 

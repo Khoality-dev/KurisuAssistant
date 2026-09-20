@@ -5,6 +5,7 @@
  * for a DOM or a widget library.
  */
 export * from './authedAsset';
+export * from './characterSession';
 export * from './useAudioAmplitude';
 export * from './useCapabilities';
 export * from './useCharacterPanel';

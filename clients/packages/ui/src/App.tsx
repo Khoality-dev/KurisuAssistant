@@ -7,7 +7,7 @@ import { LoginWindow } from './components/LoginWindow';
 import { MainLayout } from './components/layout/MainLayout';
 import { UpdateDialog } from './components/UpdateDialog';
 import { UpdateRequiredScreen } from './components/UpdateRequiredScreen';
-import { apiClient } from '@kurisu/api';
+import { apiClient, configureAuthedFetch } from '@kurisu/api';
 import { wsManager } from '@kurisu/api';
 import { WIRE_PROTOCOL } from '@kurisu/models';
 // Side-effect import: registers WebSocket listener for client-side MCP servers
@@ -25,6 +25,10 @@ const MainApp: React.FC = () => {
   const { isAuthenticated, initializeAuth, logout } = useAuthStore();
 
   useEffect(() => {
+    // A raw asset fetch refused with a 401 refreshes the way the axios
+    // interceptor does; the character window has its own answer to this.
+    configureAuthedFetch({ refreshAccessToken: () => apiClient.tryRefresh() });
+
     // A mismatch can also surface after startup — a 426 on any request, or the
     // socket closing with 4426 — when the server is updated under a running
     // client, or the user points it at another server (#150).
