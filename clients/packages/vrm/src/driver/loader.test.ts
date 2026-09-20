@@ -48,7 +48,8 @@ describe('the GLB header check', () => {
   });
 
   it('refuses a JSON chunk that is not an object', () => {
-    expect(() => readGlbHeader(glb([1, 2]))).toThrow(/unreadable header/);
+    expect(() => readGlbHeader(glb('just a string'))).toThrow(/unreadable header/);
+    expect(() => readGlbHeader(glb(null))).toThrow(/unreadable header/);
     const broken = glb(VRM1);
     new Uint8Array(broken, 20).set(new TextEncoder().encode('{"a":'));
     expect(() => readGlbHeader(broken)).toThrow(/unreadable header/);
