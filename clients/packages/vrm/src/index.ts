@@ -1,0 +1,68 @@
+/**
+ * `@kurisu/vrm` — the VRM character driver.
+ *
+ * Import this lazily (`await import('@kurisu/vrm')`) after `supportsWebGL`
+ * says the display can draw: it carries three.js, and a 2D-only user's
+ * bundle should not.
+ */
+export { createVrmDriver, type VrmDriver, type VrmDriverOptions, type VrmDriverInfo, type VrmFrameSnapshot } from './driver/VrmDriver';
+export { supportsWebGL } from './probe';
+export {
+  VrmLoadError,
+  checkVrmHeader,
+  readGlbHeader,
+  readExpressionModel,
+  loadVrmModel,
+  loadVrmClip,
+  modelCacheKey,
+  hasCachedModel,
+  evictModel,
+  clearModelCache,
+  LOOK_AT_PROXY_NAME,
+  type LoadedModel,
+  type ModelLoader,
+  type ClipLoader,
+  type VrmMetaSummary,
+} from './driver/loader';
+export { defaultRendererFactory, type RendererFactory, type StageRenderer } from './driver/scene';
+export { stepMouth, INITIAL_MOUTH, type MouthState, type LipSyncOptions } from './driver/lipSync';
+export {
+  createIdleState,
+  stepIdle,
+  blinkTimingOf,
+  MAX_IDLE_STEP_MS,
+  type IdleState,
+  type IdleFrame,
+  type IdleInputs,
+  type BlinkState,
+  type BlinkPhase,
+} from './driver/idle';
+export {
+  createExpressionState,
+  stepExpressions,
+  appliedWeights,
+  degrade,
+  everyEmotion,
+  FULL_MODEL,
+  OVERRIDE_CAP,
+  type ExpressionModel,
+  type ExpressionState,
+  type ExpressionInputs,
+  type OverrideMode,
+} from './driver/expressions';
+export {
+  createReactionTimers,
+  matchReactions,
+  DEFAULT_COOLDOWN_MS,
+  type ReactionInputs,
+  type ReactionTimers,
+} from './driver/reactionTable';
+export { describeClip, EXPRESSION_PREFIX, type LoadedClip } from './driver/vrmaPlayer';
+export {
+  parseHostMessage,
+  HostMessageError,
+  HOST_MESSAGE_TYPES,
+  type HostMessage,
+  type HostMessageType,
+  type PageEvent,
+} from './page/host';

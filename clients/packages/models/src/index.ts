@@ -6,8 +6,10 @@
  */
 export * from './binaryFrame';
 export * from './character';
+export * from './characterDriver';
 export * from './constants';
 export * from './events';
 export * from './files';
 export * from './id';
+export * from './speech';
 export * from './types';

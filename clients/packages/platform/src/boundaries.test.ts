@@ -113,6 +113,10 @@ describe('the layers point one way', () => {
     ['api', ['@kurisu/state', '@kurisu/hooks', '@kurisu/ui', 'react']],
     ['state', ['@kurisu/hooks', '@kurisu/ui']],
     ['hooks', ['@kurisu/ui']],
+    // The VRM driver sits beside `models`: it is imported by `ui` and by the
+    // page an Android WebView hosts, so it may know the protocol's shapes and
+    // nothing about a platform, a server, a store or a screen (#239).
+    ['vrm', ['@kurisu/platform', '@kurisu/api', '@kurisu/state', '@kurisu/hooks', '@kurisu/ui', 'react']],
   ];
 
   it.each(forbidden)('%s does not import what sits above it', (pkg, banned) => {
@@ -126,7 +130,7 @@ describe('the layers point one way', () => {
 
   // `ui` is deliberately absent: it is the package that renders, and the only
   // one allowed a widget library. Every other package is billed by both apps.
-  it.each(['models', 'platform', 'api', 'state', 'hooks'])(
+  it.each(['models', 'platform', 'api', 'state', 'hooks', 'vrm'])(
     '%s renders nothing, so it imports no widget library',
     (pkg) => {
       // The screens are the app's, and one day a second app's with a different
@@ -139,4 +143,54 @@ describe('the layers point one way', () => {
       expect(offenders).toEqual([]);
     },
   );
+});
+
+describe('three.js lives in one package', () => {
+  // A WebGL engine is the heaviest thing a client carries and the Android page
+  // bundle is built from `vrm` alone; a second package that imported three
+  // would pull it into the main window's chunk and the browser build for every
+  // 2D user (#239).
+  it('is imported only by vrm', () => {
+    const offenders: string[] = [];
+    for (const pkg of readdirSync(PACKAGES)) {
+      if (pkg === 'vrm') continue;
+      try {
+        if (!statSync(join(PACKAGES, pkg, 'src')).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      for (const [dep, files] of externalImportsOf(pkg)) {
+        if (/^three(\/|$)|^@pixiv\//.test(dep)) offenders.push(`${pkg} imports ${dep} in ${files.join(', ')}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('is pinned to one exact version in vrm', () => {
+    const deps = manifest('vrm').dependencies ?? {};
+    for (const name of ['three', '@pixiv/three-vrm', '@pixiv/three-vrm-animation']) {
+      expect(deps[name], `${name} must be pinned exactly`).toMatch(/^\d+\.\d+\.\d+$/);
+    }
+  });
+});
+
+describe('every package runs in CI', () => {
+  // The root scripts fan out with `--workspaces --if-present`: a member
+  // without a `typecheck` or `test` script is skipped silently and green,
+  // which is how the packages' suites went unrun for months (#225).
+  it('declares both a typecheck and a test script', () => {
+    const missing: string[] = [];
+    for (const pkg of readdirSync(PACKAGES)) {
+      let scripts: Record<string, string>;
+      try {
+        scripts = manifest(pkg).scripts ?? {};
+      } catch {
+        continue; // not a package
+      }
+      for (const script of ['typecheck', 'test']) {
+        if (!scripts[script]) missing.push(`${pkg} has no ${script} script`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
 });
