@@ -7,6 +7,7 @@
  * changes shape, change the scenario that mirrors it.
  */
 
+import type { CharacterConfigDTO } from '@kurisu/models';
 import { ONE_POSE_CHARACTER } from './server';
 import type { MockBackend, MockBackendOptions, MockConversationSeed, StreamScript } from './server';
 
@@ -21,6 +22,41 @@ export interface Scenario {
 
 /** The persona every scenario starts with; `settings.spec.ts` asserts the name. */
 const KURISU = { id: 1, name: 'Kurisu', description: 'The default persona.' };
+
+/**
+ * A VRM character with the emotion channel on, as the backend stores it once
+ * its defaults have filled the settings in (`character/schema.py`): no model
+ * uploaded yet, no clips, every dial at its default. The shape `GET /personas`
+ * returns for a persona switched to 3D and nothing more (#235, #243).
+ */
+const VRM_EMOTION_CHARACTER: CharacterConfigDTO = {
+  kind: 'vrm',
+  vrm: {
+    model: null,
+    clips: [],
+    idle: {
+      procedural: true,
+      arms_lowered: true,
+      breath_period_ms: 4000,
+      breath_amplitude_deg: 2,
+      sway_amplitude_deg: 1.5,
+      sway_period_ms: 7000,
+      blink: {
+        blink_min_interval: 2000,
+        blink_max_interval: 6000,
+        blink_close_duration: 100,
+        blink_hold_duration: 50,
+        blink_open_duration: 100,
+      },
+      look_at: 'camera',
+      idle_clip_ids: [],
+      idle_clip_interval_ms: [8000, 20000],
+    },
+    emotion: { enabled: true, default_expression: 'neutral', intensity: 1, attack_ms: 180, release_ms: 400, thinking: null },
+    reactions: [],
+    camera: { target: 'upper_body', fov: 24, offset_y: 0, background: '#ffffff' },
+  },
+};
 const AMADEUS = { id: 2, name: 'Amadeus', description: 'A second persona, for handoffs.' };
 
 const SHORT_REPLY: StreamScript = {
@@ -368,6 +404,24 @@ export const SCENARIOS: Record<string, Scenario> = {
     options: {
       personas: [{ ...KURISU, character_config: ONE_POSE_CHARACTER }, AMADEUS],
       stream: SHORT_REPLY,
+    },
+  },
+  emotion: {
+    // A VRM persona with the emotion channel on (#243): the reply carries the
+    // persona's feeling on the chunks and the stored message keeps the cues.
+    // Nothing renders it yet — applying a cue to a face is #244.
+    description: 'A VRM persona whose reply carries emotion cues on the chunks and in the history.',
+    options: {
+      personas: [
+        { ...KURISU, character_config: VRM_EMOTION_CHARACTER },
+        AMADEUS,
+      ],
+      stream: {
+        chunks: [
+          { content: 'Hello there. ', role: 'assistant', delayMs: 20, emotion: 'happy', emotionAt: 0 },
+          { content: 'Goodbye.', role: 'assistant', delayMs: 20, emotion: 'sad', emotionAt: 13 },
+        ],
+      },
     },
   },
   'no-model': {

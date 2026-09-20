@@ -552,6 +552,31 @@ describe('mock backend: streaming', () => {
     expect(assistantMessages.map((m: any) => m.content)).toEqual(['Kurisu here. ', 'Amadeus here.']);
   });
 
+  it('carries emotion cues on assistant chunks and keeps them on the stored message', async () => {
+    mock.setStream({
+      chunks: [
+        { content: 'Hello there. ', role: 'assistant', emotion: 'happy', emotionAt: 0 },
+        { content: 'Goodbye.', role: 'assistant', emotion: 'sad', emotionAt: 13 },
+        { content: '{"result":"42"}', role: 'tool', name: 'lookup' },
+        { content: 'Plain.', role: 'assistant' },
+      ],
+    });
+    const chunks = (await chat({ conversation_id: null })).filter((e) => e.type === 'stream_chunk');
+    expect(chunks.map((c) => [c.emotion, c.emotion_at])).toEqual([
+      ['happy', 0], ['sad', 13], [null, null], [null, null],
+    ]);
+
+    // The backend stores the cues per assistant message and the history serves
+    // them only where there are some; a tool message never has any (#243).
+    const { body } = await get(`/conversations/${chunks[0].conversation_id}`);
+    const messages = body.messages.filter((m: any) => m.role !== 'user');
+    expect(messages.map((m: any) => m.emotion_cues ?? null)).toEqual([
+      [{ emotion: 'happy', at: 0 }, { emotion: 'sad', at: 13 }],
+      null,
+      null,
+    ]);
+  });
+
   it('reports the last turn on a later connect, so a reconnect knows who spoke', async () => {
     const events = await chat({ conversation_id: null });
     const conversationId = events.find((e) => e.type === 'stream_chunk').conversation_id;

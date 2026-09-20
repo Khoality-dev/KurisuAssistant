@@ -45,7 +45,7 @@ fetch there asks the main renderer for a fresh token over
 
 ## Storage keys (localStorage)
 
-`kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_tts_emo_audio`, `kurisu_tts_emo_alpha`, `kurisu_tts_use_emo_text`, `kurisu_selected_persona_id`, `kurisu_persona_conversations`, `kurisu_media_volume`
+`kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_selected_persona_id`, `kurisu_persona_conversations`, `kurisu_media_volume`
 
 Pre-split keys `kurisu_selected_agent_id` and `kurisu_agent_conversations` are removed once at startup by `storage.clearLegacyAgentKeys()` — both were caches that re-derive from the backend, so nothing is migrated.
 

@@ -382,61 +382,6 @@ export const storage = {
     }
   },
 
-  /**
-   * Save viXTTS emotion settings to persistent storage
-   */
-  setTTSEmotionAudio(emoAudio: string): void {
-    try {
-      localStorage.setItem('kurisu_tts_emo_audio', emoAudio);
-    } catch (error) {
-      console.error('Failed to save TTS emotion audio:', error);
-    }
-  },
-
-  getTTSEmotionAudio(): string | null {
-    try {
-      return localStorage.getItem('kurisu_tts_emo_audio');
-    } catch (error) {
-      console.error('Failed to get TTS emotion audio:', error);
-      return null;
-    }
-  },
-
-  setTTSEmotionAlpha(alpha: number): void {
-    try {
-      localStorage.setItem('kurisu_tts_emo_alpha', alpha.toString());
-    } catch (error) {
-      console.error('Failed to save TTS emotion alpha:', error);
-    }
-  },
-
-  getTTSEmotionAlpha(): number {
-    try {
-      const value = localStorage.getItem('kurisu_tts_emo_alpha');
-      return value ? parseFloat(value) : 1.0;
-    } catch (error) {
-      console.error('Failed to get TTS emotion alpha:', error);
-      return 1.0;
-    }
-  },
-
-  setTTSUseEmotionText(use: boolean): void {
-    try {
-      localStorage.setItem('kurisu_tts_use_emo_text', use.toString());
-    } catch (error) {
-      console.error('Failed to save TTS use emotion text:', error);
-    }
-  },
-
-  getTTSUseEmotionText(): boolean {
-    try {
-      return localStorage.getItem('kurisu_tts_use_emo_text') === 'true';
-    } catch (error) {
-      console.error('Failed to get TTS use emotion text:', error);
-      return false;
-    }
-  },
-
   setBackendUrl(url: string): void {
     try {
       localStorage.setItem(STORAGE_KEYS.BACKEND_URL, url);

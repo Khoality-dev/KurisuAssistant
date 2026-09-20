@@ -96,9 +96,7 @@ fun TtsAsrScreen(
                 Switch(checked = state.autoPlay, onCheckedChange = viewModel::setAutoPlay)
             }
 
-            // Emotion controls (viXTTS only)
-            if (state.ttsBackend.lowercase().contains("vixtts") || state.ttsBackend.lowercase().contains("gpt-sovits")) {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 Text("Emotion (viXTTS)", style = MaterialTheme.typography.titleSmall)
 
                 Text("Emotion strength: ${"%.1f".format(state.emotionAlpha)}")

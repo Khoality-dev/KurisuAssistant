@@ -7,9 +7,6 @@ object StorageKeys {
     const val TTS_LANGUAGE = "kurisu_tts_language"
     const val TTS_AUTO_PLAY = "kurisu_tts_auto_play"
     const val TTS_BACKEND = "kurisu_tts_backend"
-    const val TTS_EMO_AUDIO = "kurisu_tts_emo_audio"
-    const val TTS_EMO_ALPHA = "kurisu_tts_emo_alpha"
-    const val TTS_USE_EMO_TEXT = "kurisu_tts_use_emo_text"
     const val BACKEND_URL = "kurisu_backend_url"
     // There is exactly one assistant, so there is nothing to select locally, and
     // the default persona lives on the assistant row server-side — two devices

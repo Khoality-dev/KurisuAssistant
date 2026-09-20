@@ -38,6 +38,14 @@ data class StreamChunkEvent(
     @SerialName("frame_id") val frameId: Int = 0,
     val images: List<String>? = null,
     @SerialName("token_count") val tokenCount: Int? = null,
+    // The persona's feeling, when it changed inside this chunk (#243): set on
+    // assistant chunks of a VRM persona with the emotion channel on, null
+    // otherwise. [emotionAt] is where it takes effect — an offset into this LLM
+    // round's accumulated content (this chunk's content starts there), counted
+    // in UTF-16 code units, i.e. Kotlin's String.length. Optional on the wire,
+    // so no protocol change; a face that follows it is #246.
+    val emotion: String? = null,
+    @SerialName("emotion_at") val emotionAt: Int? = null,
 ) : ServerEvent
 
 @Serializable

@@ -137,6 +137,22 @@ export type VrmEmotion = 'neutral' | 'happy' | 'angry' | 'sad' | 'relaxed' | 'su
 export const VRM_EMOTIONS: readonly VrmEmotion[] = ['neutral', 'happy', 'angry', 'sad', 'relaxed', 'surprised'];
 
 /**
+ * Where the persona's feeling changed inside an assistant message (#243).
+ *
+ * The backend strips the tags the model wrote and reports each one as a cue:
+ * the label, and `at`, an offset into the message's clean text — in UTF-16
+ * code units, i.e. `String.length`, so slicing the accumulated text at `at`
+ * is exact. A stream carries them one per `stream_chunk` (`emotion` /
+ * `emotion_at`, the chunk's content starting at that offset); the history
+ * carries the whole list on the message (`emotion_cues`). Applying a cue to a
+ * face when the sentence is *spoken*, not when its text arrives, is #244.
+ */
+export interface EmotionCue {
+  emotion: VrmEmotion;
+  at: number;
+}
+
+/**
  * The five gesture names the vision pipeline emits (backend
  * `models/gesture_detection/classifier.py`). One copy, for every editor that
  * offers them.

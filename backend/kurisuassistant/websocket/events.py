@@ -211,6 +211,16 @@ class StreamChunkEvent(BaseEvent):
     model_name: Optional[str] = None  # LLM model used
     provider_type: Optional[str] = None  # LLM provider used
     token_count: Optional[int] = None  # Running context token estimate
+    # The persona's feeling, when it changed inside this chunk (#243). Set on
+    # assistant chunks of a VRM persona with the emotion channel on, otherwise
+    # both stay None. ``emotion`` is one of the VRM preset names (neutral,
+    # happy, angry, sad, relaxed, surprised); ``emotion_at`` is where it takes
+    # effect: an offset into this LLM round's accumulated stripped content —
+    # this chunk's ``content`` begins there — counted in UTF-16 code units,
+    # because that is how both clients measure the text they accumulate.
+    # Optional fields, so no wire-protocol change (version.py).
+    emotion: Optional[str] = None
+    emotion_at: Optional[int] = None
 
 
 @dataclass

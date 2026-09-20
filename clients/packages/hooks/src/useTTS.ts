@@ -106,11 +106,6 @@ export function useTTS(
       voice?: string,
       language?: string,
       backend?: string,
-      emotionParams?: {
-        emo_audio?: string;
-        emo_alpha?: number;
-        use_emo_text?: boolean;
-      },
     ) => {
       try {
         // Stop current audio if playing
@@ -125,7 +120,7 @@ export function useTTS(
 
         setIsPlaying(true);
 
-        const audioBlob = await apiClient.synthesize(text, voice, language, backend, emotionParams);
+        const audioBlob = await apiClient.synthesize(text, voice, language, backend);
 
         // Use amplitude path for lip sync if callback is set
         if (amplitudeCallbackRef.current) {
@@ -245,15 +240,9 @@ export function useTTS(
     // No stored choice means no `provider` on the request, so the server's
     // default TTS model answers; the client does not guess one (#200).
     const backend = storage.getTTSBackend() || undefined;
-    const emotionParams = backend === 'vixtts'
-      ? {
-          emo_alpha: storage.getTTSEmotionAlpha(),
-          use_emo_text: storage.getTTSUseEmotionText(),
-        }
-        : undefined;
 
     const trimmed = text.trim();
-    const audioPromise = apiClient.synthesize(trimmed, voice, undefined, backend, emotionParams);
+    const audioPromise = apiClient.synthesize(trimmed, voice, undefined, backend);
     ttsQueueRef.current.push({ audioPromise, text: trimmed });
     setIsQueueActive(true);
 

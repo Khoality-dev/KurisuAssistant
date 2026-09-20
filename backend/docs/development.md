@@ -143,7 +143,7 @@ Three markers, registered in `pytest.ini`:
 
 - **unmarked** — pure unit tests, no services.
 - **`db`** — needs Postgres: the migration tests and the *system tests* (`tests/test_system_chat.py`), which run the real app on a fresh database created for the session, create and activate their own account, log in as it, open `/ws/chat` and drive whole turns — streaming, thinking, the tool loop with its approval gate, compaction — with the model played by the mock Ollama. CI provides Postgres (`backend-test.yml`); locally they skip unless `POSTGRES_HOST`/`POSTGRES_PORT` point at one. A throwaway is `docker run --rm -d -p 127.0.0.1:55432:5432 -e POSTGRES_USER=kurisu -e POSTGRES_PASSWORD=kurisu -e POSTGRES_DB=kurisu pgvector/pgvector:pg16`.
-- **`integration`** — needs a real external service. Never runs in CI: a live model call costs money on a paid provider and needs a GPU otherwise.
+- **`integration`** — needs a real external service. Never runs in CI: a live model call costs money on a paid provider and needs a GPU otherwise. One of them is a measurement rather than a check: `tests/test_emotion_compliance.py` sends twenty prompts to the model at `LLM_API_URL` (`EMOTION_TEST_MODEL`, default `qwen3:8b`) with the Expression block and prints where the emotion tags landed — sentence starts, mid-sentence, every sentence, unknown labels — for a person deciding whether that model, or the prompt wording, is good enough (#243). Run it with `pytest tests/test_emotion_compliance.py -m integration -s`.
 
 ### Mock Ollama
 

@@ -3,7 +3,7 @@
  */
 
 import { config } from './config';
-import { newId, encodeVisionFrame, WIRE_PROTOCOL, WS_AUTH_SUBPROTOCOL, WS_WIRE_PROTOCOL_MISMATCH, WS_WIRE_SUBPROTOCOL_PREFIX, type EventType } from '@kurisu/models';
+import { newId, encodeVisionFrame, WIRE_PROTOCOL, WS_AUTH_SUBPROTOCOL, WS_WIRE_PROTOCOL_MISMATCH, WS_WIRE_SUBPROTOCOL_PREFIX, type EventType, type VrmEmotion } from '@kurisu/models';
 
 
 // Base event interface
@@ -62,6 +62,14 @@ export interface StreamChunkEvent extends BaseEvent {
   conversation_id: number;
   images: string[] | null;
   token_count: number | null;
+  // The persona's feeling, when it changed inside this chunk (#243): set on
+  // assistant chunks of a VRM persona with the emotion channel on, absent or
+  // null otherwise. `emotion_at` is where it takes effect — an offset into
+  // this LLM round's accumulated content (this chunk's `content` starts
+  // there), in UTF-16 code units, i.e. `String.length`. Optional on the wire,
+  // so no protocol change; applying it to a face is #244.
+  emotion?: VrmEmotion | null;
+  emotion_at?: number | null;
 }
 
 export interface DoneEvent extends BaseEvent {

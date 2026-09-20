@@ -255,6 +255,7 @@ is what makes infinite scroll work.
                   "voice_reference": "kurisu_ref"},
       "model_name": "llama3.2:latest",
       "provider_type": "ollama",
+      "emotion_cues": [{"emotion": "happy", "at": 0}],
       "created_at": "2026-09-04T10:30:05Z",
       "has_raw_data": true
     }
@@ -271,7 +272,19 @@ is what makes infinite scroll work.
 
 Optional per-message keys, present only when set: `name`, `images`, `thinking`,
 `model_name`, `provider_type`, `tool_args`, `tool_status`, `context_files`,
-`persona_id` + `persona`.
+`emotion_cues`, `persona_id` + `persona`.
+
+`emotion_cues` (#243) is where the persona's feeling changed inside an assistant
+message, in order: `[{"emotion": "happy", "at": 0}, {"emotion": "sad", "at": 13}]`.
+`emotion` is one of the six VRM preset names (`neutral`, `happy`, `angry`, `sad`,
+`relaxed`, `surprised`); `at` is an offset into `content` **in UTF-16 code units**
+(`String.length` in both clients). It is present only on assistant messages of a
+persona whose character is a VRM model with the emotion channel on — the same
+messages whose `stream_chunk`s carried `emotion` / `emotion_at`
+(`websocket.md`). The tags the model wrote to say so are stripped before anything
+is stored: `content` is the clean text, and so is `raw_output` (below) — the cue
+list is the only record of where they stood. A reloaded conversation can set the
+character's resting face from the last cue of the last assistant message.
 
 There is **no** `frame_id` and **no** `frames` block. Frames were removed in
 migration `0caebafdf4cc`; `compacted_context` is the sole summary source.
@@ -351,6 +364,11 @@ summary asserting something with no source.
   "raw_output": "Full LLM response text"
 }
 ```
+
+`raw_output` is the assistant's text as the handler accumulated it, which is
+**after** the emotion tags were stripped (#243): it equals the message's
+`content`, not the bytes the model produced. Where a tag stood is
+`emotion_cues` on the message.
 
 ---
 

@@ -53,7 +53,20 @@ data class Message(
     @SerialName("tool_kind") val toolKind: String? = null,   // "tool" | "sub_agent"
     @SerialName("duration_ms") val durationMs: Int? = null,
     @SerialName("context_files") val contextFiles: JsonArray? = null,
+    // Where the persona's feeling changed inside an assistant message (#243),
+    // served by the history for a VRM persona with the emotion channel on.
+    @SerialName("emotion_cues") val emotionCues: List<EmotionCue>? = null,
     val queued: Boolean? = null,
+)
+
+/**
+ * One change of feeling inside an assistant message: the VRM preset name and
+ * `at`, an offset into the message's text in UTF-16 code units (String.length).
+ */
+@Serializable
+data class EmotionCue(
+    val emotion: String,
+    val at: Int,
 )
 
 @Serializable
@@ -148,9 +161,6 @@ data class TTSRequest(
     val voice: String? = null,
     val language: String? = null,
     val provider: String? = null,
-    @SerialName("emo_audio") val emoAudio: String? = null,
-    @SerialName("emo_alpha") val emoAlpha: Float? = null,
-    @SerialName("use_emo_text") val useEmoText: Boolean? = null,
 )
 
 // ─── The assistant / persona / sub-agent split (wire protocol 4) ───────────

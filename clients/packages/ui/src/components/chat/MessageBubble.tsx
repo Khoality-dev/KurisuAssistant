@@ -85,7 +85,7 @@ interface MessageBubbleProps {
   expandedThinking: Set<number>;
   onToggleThinking: (index: number) => void;
   searchHighlight?: string;
-  ttsRef: React.RefObject<{ speak: (text: string, voice?: string, language?: string, backend?: string, emotionParams?: { emo_audio?: string; emo_alpha?: number; use_emo_text?: boolean }) => Promise<void>; stopTTS: () => void; clearQueue: () => void; isTTSPlaying: boolean; setActivePersonaForTTS: (personaId: number | null) => void }>;
+  ttsRef: React.RefObject<{ speak: (text: string, voice?: string, language?: string, backend?: string) => Promise<void>; stopTTS: () => void; clearQueue: () => void; isTTSPlaying: boolean; setActivePersonaForTTS: (personaId: number | null) => void }>;
   isQueueActive?: boolean;
 }
 
@@ -140,16 +140,9 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
         }
         // Unset means the server's default model (#200).
         const currentBackend = storage.getTTSBackend() || undefined;
-        const emotionParams =
-          currentBackend === 'vixtts'
-            ? {
-                emo_alpha: storage.getTTSEmotionAlpha(),
-                use_emo_text: storage.getTTSUseEmotionText(),
-              }
-            : undefined;
 
         const voice = message.voice_reference || message.persona?.voice_reference || undefined;
-        await ttsRef.current?.speak(message.content, voice, undefined, currentBackend, emotionParams);
+        await ttsRef.current?.speak(message.content, voice, undefined, currentBackend);
       } catch (error) {
         console.error('Failed to play TTS:', error);
       } finally {

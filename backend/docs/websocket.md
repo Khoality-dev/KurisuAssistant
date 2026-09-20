@@ -114,7 +114,9 @@ One per content chunk, thinking chunk and completed tool call.
   "images": null,
   "model_name": "llama3.2:latest",
   "provider_type": "ollama",
-  "token_count": 1840
+  "token_count": 1840,
+  "emotion": null,
+  "emotion_at": null
 }
 ```
 
@@ -133,6 +135,22 @@ One per content chunk, thinking chunk and completed tool call.
 - `images` is a list of image UUIDs. A `role: "user"` chunk with only images is
   sent when the user's message carried attachments.
 - `token_count` is a running estimate of the context size (word count × 1.3).
+- `emotion` and `emotion_at` say the persona's feeling changed inside this chunk
+  (#243). They are set on assistant chunks of a persona whose character is a
+  VRM model with the emotion channel on, and null everywhere else. `emotion` is
+  one of the six VRM preset names — `neutral`, `happy`, `angry`, `sad`,
+  `relaxed`, `surprised`. `emotion_at` is where it takes effect: an offset into
+  the accumulated **stripped** content of the current LLM round, which is where
+  this chunk's `content` begins, **counted in UTF-16 code units** — the unit
+  `String.length` uses in both clients — so an emoji before it counts as two.
+  A chunk can carry at most one cue; a reply with two tags in one piece arrives
+  as two chunks, split at the second tag. A cue may ride an empty `content`
+  when the tag stood at the very end of what the model had sent so far. The
+  tags the model wrote (`[[emotion:happy]]`) never reach the client: the
+  backend strips them and `messages.message` holds the clean text. A tool call
+  starts a new round, and the offsets restart at 0 with it. Both fields are
+  optional, so their arrival is not a wire-protocol change; a client that
+  ignores them sees exactly the stream it saw before.
 
 ### `tool_approval_request`
 

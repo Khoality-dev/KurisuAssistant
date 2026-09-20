@@ -1,4 +1,4 @@
-import type { CharacterConfig } from './character';
+import type { CharacterConfig, EmotionCue } from './character';
 
 export interface LoginResponse {
   access_token: string;
@@ -50,6 +50,7 @@ export interface Message {
   tool_args?: Record<string, unknown>; // Tool input arguments (for tool role messages)
   tool_status?: string; // "success" | "error" | "denied" (from backend)
   context_files?: Array<{ path: string; fileName: string; startLine?: number; endLine?: number; startColumn?: number; endColumn?: number }>;
+  emotion_cues?: EmotionCue[]; // Where the persona's feeling changed (assistant messages of a VRM persona, #243)
   queued?: boolean; // Queued message waiting to be processed
   // Render-only stable key that survives the transition from streaming → store → DB-id'd reload.
   // Without it, React keys flip from "stream-X" → "stream--Y" → "msg-Z" and Framer Motion replays
@@ -138,10 +139,6 @@ export interface TTSRequest {
   voice?: string;
   language?: string;
   provider?: string;
-  // viXTTS emotion parameters
-  emo_audio?: string;
-  emo_alpha?: number;
-  use_emo_text?: boolean;
 }
 
 /**

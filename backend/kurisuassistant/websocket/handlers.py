@@ -519,6 +519,11 @@ class ChatSessionHandler:
         current_tool_status: Optional[str] = None
         current_tool_calls: Optional[List[Dict]] = None
         current_tool_call_id: Optional[str] = None
+        # Where the feeling changed inside the assistant message being
+        # accumulated (#243). One LLM round is one assistant message, and the
+        # agent counts its offsets from the start of the round, so they are
+        # stored as they arrive and reset with the message.
+        current_emotion_cues: List[Dict] = []
         final_assistant_content = ""
         last_model_name: Optional[str] = None
         last_provider_type: Optional[str] = None
@@ -580,6 +585,7 @@ class ChatSessionHandler:
                         "tool_status": current_tool_status if current_role == "tool" else None,
                         "tool_calls": current_tool_calls if current_role == "assistant" else None,
                         "tool_call_id": current_tool_call_id if current_role == "tool" else None,
+                        "emotion_cues": current_emotion_cues or None,
                     }
                     await self._save_message(completed_msg, conversation_id)
                     conversation_messages.append({
@@ -600,10 +606,13 @@ class ChatSessionHandler:
                 current_tool_status = chunk.tool_status if chunk.tool_status else None
                 current_tool_calls = chunk.tool_calls
                 current_tool_call_id = chunk.tool_call_id
+                current_emotion_cues = []
             else:
                 chunk_content += chunk.content
                 if chunk.thinking:
                     chunk_thinking += chunk.thinking
+            if chunk.role == "assistant" and chunk.emotion is not None:
+                current_emotion_cues.append({"emotion": chunk.emotion, "at": chunk.emotion_at})
 
         if chunk_content or chunk_thinking:
             raw_in = (
@@ -627,6 +636,7 @@ class ChatSessionHandler:
                 "provider_type": last_provider_type if current_role == "assistant" else None,
                 "tool_args": current_tool_args if current_role == "tool" else None,
                 "tool_status": current_tool_status if current_role == "tool" else None,
+                "emotion_cues": current_emotion_cues or None,
             }
             await self._save_message(completed_msg, conversation_id)
             conversation_messages.append({
@@ -1240,4 +1250,5 @@ class ChatSessionHandler:
             tool_calls=msg.get("tool_calls"),
             tool_call_id=msg.get("tool_call_id"),
             context_files=msg.get("context_files"),
+            emotion_cues=msg.get("emotion_cues"),
         ))

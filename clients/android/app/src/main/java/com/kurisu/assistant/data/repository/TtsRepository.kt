@@ -18,18 +18,12 @@ class TtsRepository @Inject constructor(
         voice: String? = null,
         language: String? = null,
         backend: String? = null,
-        emoAudio: String? = null,
-        emoAlpha: Float? = null,
-        useEmoText: Boolean? = null,
     ): ByteArray {
         val request = TTSRequest(
             text = text,
             voice = voice?.ifBlank { null },
             language = language?.ifBlank { null },
             provider = backend?.ifBlank { null },
-            emoAudio = emoAudio,
-            emoAlpha = emoAlpha,
-            useEmoText = useEmoText,
         )
         val responseBody = api.synthesize(request)
         return responseBody.bytes()

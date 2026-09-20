@@ -92,6 +92,12 @@ class Message(Base):
     # with no matching request, which strict providers reject.
     tool_calls = Column(JSON, nullable=True)
     tool_call_id = Column(String, nullable=True)
+    # Where the persona's feeling changed inside an assistant message (#243):
+    # ``[{"emotion": "happy", "at": 42}, ...]``, ``at`` in UTF-16 code units of
+    # ``message``. The tags the model wrote are stripped before anything is
+    # stored — ``message`` and ``raw_output`` both hold the clean text — so
+    # this column is the only record of where they stood.
+    emotion_cues = Column(JSON, nullable=True)
     context_files = Column(JSON, nullable=True)
     images = Column(JSON, nullable=True)
     conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), nullable=False)

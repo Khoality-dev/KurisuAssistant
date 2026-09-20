@@ -75,6 +75,13 @@ the most one request may take.
 - The server keeps the multipart `/tts/file` shape, so the adapter stays simple.
 - It validates the language itself and refuses an unsupported one with a 400,
   which is why there is no second language table in the backend.
+- It takes no emotion parameters. `POST /tts` declares `text`, `voice`,
+  `language` and `provider` and nothing else; the `emo_audio` / `emo_alpha` /
+  `use_emo_text` fields the clients once sent for the old in-process viXTTS were
+  silently dropped by FastAPI from #212 on, and both clients stopped sending them
+  and removed the settings that edited them in #243. The persona's feeling is a
+  different thing — a tag in the reply for the character's face, `agents.md`
+  "The emotion channel" — and never reaches the voice.
 
 ## Provider Setup
 

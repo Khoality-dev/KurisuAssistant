@@ -61,6 +61,7 @@ messages
   tool_args(JSON)?, tool_status?                    on a tool message
   tool_calls(JSON)?                                 on the assistant message that made them
   tool_call_id?                                     on the tool message answering one
+  emotion_cues(JSON)?                               where the persona's feeling changed, see below
   context_files(JSON)?, images(JSON, list of UUIDs)?
   conversation_id→conversations (CASCADE, indexed)
   persona_id→personas (SET NULL)                    set on assistant messages only
@@ -193,6 +194,16 @@ assistant message and `tool_call_id` on the tool message keep a call paired with
 its result when history is replayed. Ollama tolerates the pairing being absent;
 OpenAI-compatible endpoints, which the NVIDIA provider speaks, reject it.
 
+**An assistant message remembers where its feeling changed.** `emotion_cues`
+(#243, migration `236f4ed54660_add_emotion_cues_to_messages`) is
+`[{"emotion": "happy", "at": 42}, ...]` — the VRM preset name and an offset into
+`message` in UTF-16 code units, the unit both clients count in. It is filled
+only for a persona whose character is a VRM model with the emotion channel on.
+The tags the model wrote (`[[emotion:happy]]`) are stripped before the row is
+written, so `message` and `raw_output` both hold the clean text and this column
+is the only record of the tags; nothing else reads it — Recall indexes
+`message`, and the prompt replays `message`.
+
 **Cascades are uneven.** `messages → conversations`,
 `face_photos → face_identities`, and every user-owned table cascades in the
 database as well as in the ORM. It was ORM-only for `conversations`, `skills`,
@@ -242,7 +253,7 @@ Repositories live in `db/repositories/`, one per table over a generic
 
 ## Migrations
 
-Alembic, 58 revisions with a single head (`4281377948c4`, create_passages_table), replayable onto an empty
+Alembic, 59 revisions with a single head (`236f4ed54660`, add_emotion_cues_to_messages), replayable onto an empty
 database. Run automatically by `docker-entrypoint.sh` before the app starts.
 
 ```bash

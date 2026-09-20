@@ -32,6 +32,7 @@ class MessageRepository(BaseRepository[Message]):
         tool_calls: Optional[list] = None,
         tool_call_id: Optional[str] = None,
         context_files: Optional[list] = None,
+        emotion_cues: Optional[list] = None,
     ) -> Message:
         """Create a new message."""
         data = {
@@ -67,6 +68,8 @@ class MessageRepository(BaseRepository[Message]):
             data["tool_call_id"] = tool_call_id
         if context_files is not None:
             data["context_files"] = context_files
+        if emotion_cues is not None:
+            data["emotion_cues"] = emotion_cues
 
         return self.create(**data)
 
