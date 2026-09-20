@@ -12,6 +12,11 @@ Folder structure:
 The directory names are persona ids, and the same ids are embedded in the URLs
 inside ``character_config``. Migration 0dacee9f63b8 renamed ``agents`` to
 ``personas`` without re-keying precisely so that neither has to be rewritten.
+
+Every id and file name a request supplies is joined onto one of these paths, so
+each passes ``paths.safe_segment`` first — on upload and on serve alike. What a
+saved config is allowed to delete is decided in ``kurisuassistant/character/``,
+not here.
 """
 
 import logging
@@ -25,6 +30,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from kurisuassistant.character import paths
+from kurisuassistant.character.config_write import cleanup_after_write, plan_character_config
 from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.db.models import User
 from kurisuassistant.db.service import get_db_service
@@ -33,11 +40,6 @@ from kurisuassistant.db.repositories import PersonaRepository
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/character-assets", tags=["character"])
-
-# Storage directory for character assets
-from kurisuassistant.core.paths import DATA_DIR
-CHAR_ASSETS_DIR = DATA_DIR / "character_assets"
-CHAR_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class MigrateIdsRequest(BaseModel):
@@ -67,12 +69,12 @@ class ComputePatchResponse(BaseModel):
 
 def _pose_dir(persona_id: int, pose_id: str) -> Path:
     """Return the directory for a specific pose's assets."""
-    return CHAR_ASSETS_DIR / str(persona_id) / pose_id
+    return paths.persona_dir(persona_id) / pose_id
 
 
 def _edges_dir(persona_id: int) -> Path:
     """Return the directory for a persona's edge transition videos."""
-    return CHAR_ASSETS_DIR / str(persona_id) / "edges"
+    return paths.persona_dir(persona_id) / "edges"
 
 
 async def _require_persona(user_id: int, persona_id: int) -> None:
@@ -156,6 +158,7 @@ async def upload_base_image(
 
     Saved to ``{persona_id}/{pose_id}/base.png``.  Re-uploading overwrites.
     """
+    paths.safe_segment(pose_id, "pose_id")
     await _require_persona(user.id, persona_id)
 
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -202,6 +205,7 @@ async def compute_patch(
         raise HTTPException(
             status_code=400, detail=f"part must be one of: {', '.join(sorted(VALID_PARTS))}"
         )
+    paths.safe_segment(pose_id, "pose_id")
 
     await _require_persona(user.id, persona_id)
 
@@ -264,6 +268,7 @@ async def upload_video(
 
     Saved to ``{persona_id}/edges/{edge_id}.mp4|.webm``.  Re-uploading overwrites.
     """
+    paths.safe_segment(edge_id, "edge_id")
     await _require_persona(user.id, persona_id)
 
     if not file.content_type or file.content_type not in VALID_VIDEO_TYPES:
@@ -303,13 +308,16 @@ async def migrate_ids(
     - Pose folders: ``{persona_id}/{old_node_id}/`` → ``{persona_id}/{new_node_id}/``
     - Edge video files: replaces old node IDs in filenames under ``edges/``
     """
+    id_mapping = body.id_mapping
+    for old_id, new_id in id_mapping.items():
+        paths.safe_segment(old_id, "id")
+        paths.safe_segment(new_id, "id")
     await _require_persona(user.id, persona_id)
 
-    id_mapping = body.id_mapping
     if not id_mapping:
         return {"message": "No IDs to migrate"}
 
-    persona_dir = CHAR_ASSETS_DIR / str(persona_id)
+    persona_dir = paths.persona_dir(persona_id)
     if not persona_dir.exists():
         return {"message": "No assets to migrate"}
 
@@ -364,6 +372,7 @@ async def get_edge_video(
     These two serving routes were not, so any persona's character assets could be
     read by walking the sequential persona ids.
     """
+    paths.safe_segment(edge_id, "edge_id")
     await _require_persona(user.id, persona_id)
     edges = _edges_dir(persona_id)
     for ext, media_type in [(".mp4", "video/mp4"), (".webm", "video/webm")]:
@@ -385,6 +394,8 @@ async def get_pose_asset(
     user: User = Depends(get_authenticated_user)
 ):
     """Serve a pose asset (base image or patch)."""
+    paths.safe_segment(pose_id, "pose_id")
+    paths.safe_segment(filename, "filename")
     await _require_persona(user.id, persona_id)
     pose = _pose_dir(persona_id, pose_id)
     for ext, media_type in [(".png", "image/png"), (".jpg", "image/jpeg")]:
@@ -398,69 +409,7 @@ async def get_pose_asset(
     raise HTTPException(status_code=404, detail="Pose asset not found")
 
 
-# ─── Cleanup helpers ───
-
-def _extract_referenced_paths(config: Optional[dict]) -> set[str]:
-    """Extract all referenced asset paths from a character config.
-
-    Returns paths relative to the /character-assets/ URL prefix, without extensions.
-    E.g. {"1/pose-default/base", "1/pose-default/left_eye_0", "1/edges/edge-abc"}
-    """
-    paths = set()
-    if not config or "pose_tree" not in config:
-        return paths
-    pose_tree = config.get("pose_tree", {})
-    for node in pose_tree.get("nodes", []):
-        pc = node.get("pose_config")
-        if not pc:
-            continue
-        url = pc.get("base_image_url", "")
-        if url.startswith("/character-assets/"):
-            paths.add(url[len("/character-assets/"):])
-        for part_key in ("left_eye", "right_eye", "mouth"):
-            for patch in pc.get(part_key, {}).get("patches", []):
-                purl = patch.get("image_url", "")
-                if purl.startswith("/character-assets/"):
-                    paths.add(purl[len("/character-assets/"):])
-    for edge in pose_tree.get("edges", []):
-        for transition in edge.get("transitions", []):
-            for vurl in transition.get("video_urls", []):
-                if vurl and vurl.startswith("/character-assets/"):
-                    paths.add(vurl[len("/character-assets/"):])
-    return paths
-
-
-def _file_to_ref_path(file_path: Path, persona_id: int) -> str:
-    """Convert a disk file path to the reference path (relative, no extension).
-
-    E.g. data/character_assets/1/pose-default/base.png → "1/pose-default/base"
-    Uses forward slashes (POSIX) to match URL paths regardless of OS.
-    """
-    persona_dir = CHAR_ASSETS_DIR / str(persona_id)
-    rel = file_path.relative_to(persona_dir).with_suffix('')
-    return f"{persona_id}/{rel.as_posix()}"
-
-
-def _cleanup_persona_assets(persona_id: int, referenced_paths: set[str]) -> None:
-    """Delete unreferenced files under a persona's asset directory and clean up empty dirs."""
-    persona_dir = CHAR_ASSETS_DIR / str(persona_id)
-    if not persona_dir.exists():
-        return
-
-    for file_path in persona_dir.rglob("*"):
-        if not file_path.is_file():
-            continue
-        ref_path = _file_to_ref_path(file_path, persona_id)
-        if ref_path not in referenced_paths:
-            file_path.unlink()
-            logger.debug("Deleted orphaned character asset: %s", file_path)
-
-    # Clean up empty directories (bottom-up)
-    for dir_path in sorted(persona_dir.rglob("*"), reverse=True):
-        if dir_path.is_dir() and not any(dir_path.iterdir()):
-            dir_path.rmdir()
-            logger.debug("Removed empty directory: %s", dir_path)
-
+# ─── Config ───
 
 @router.patch("/{persona_id}/character-config")
 async def update_character_config(
@@ -470,8 +419,10 @@ async def update_character_config(
 ):
     """Update a persona's character animation config (pose tree).
 
-    Automatically cleans up orphaned asset files when the config changes
-    (e.g., old base images and patches no longer referenced).
+    Files the new config no longer references are removed — after the row is
+    written, and only when the config could be classified. A body that is not a
+    pose-tree config, or that points at another persona's assets, is refused
+    with 422 and nothing on disk is touched (``kurisuassistant/character/``).
     """
     await _require_persona(user.id, persona_id)
 
@@ -488,8 +439,8 @@ async def update_character_config(
             "character_config": persona.character_config,
         }
 
-    referenced_paths = _extract_referenced_paths(config)
-    _cleanup_persona_assets(persona_id, referenced_paths)
-
+    referenced = plan_character_config(persona_id, config)
     db = get_db_service()
-    return await db.execute(_update_config)
+    result = await db.execute(_update_config)
+    await cleanup_after_write(persona_id, referenced)
+    return result

@@ -463,7 +463,10 @@ The first persona a user creates also becomes their `default_persona_id`, so a n
 conversation has someone to bind to.
 
 **Errors:** `400` reserved name (`Administrator`, `User`, `App Guide`) or a
-duplicate name.
+duplicate name; `422` a `character_config` that is not a pose-tree config, or one
+naming any `/character-assets/` URL — a persona that does not exist yet has no id
+for an asset to belong to, so send `null` or an asset-free pose tree and upload
+after (see Character Assets).
 
 ### GET /personas/{persona_id}
 
@@ -476,7 +479,10 @@ reference or avatar is removed). `name`, `description` and `enabled` may not be
 null.
 
 **Errors:** `400` reserved or duplicate name, or a non-nullable field sent as null;
-`404` not found.
+`404` not found; `422` a `character_config` that is not a pose-tree config or that
+names another persona's assets — refused before anything is written, and the
+files it no longer references are removed only after the write (see Character
+Assets).
 
 ### DELETE /personas/{persona_id}
 
@@ -510,9 +516,10 @@ Downloads `application/json` with a `Content-Disposition` attachment filename.
 **Media does not travel.** `avatar_uuid`, `voice_reference` and `character_config`
 all name files that exist only on the exporting server; every URL inside a
 character config is prefixed with that install's persona id. Shipping the
-references without the files gives the importing install broken art, and its next
-config save runs the asset cleanup, which deletes whatever the config no longer
-references.
+references without the files gives the importing install broken art. Saving such
+a config is refused (`422`) because its URLs carry another persona's id (#233);
+only when the ids happen to coincide does the save go through, and then the
+cleanup removes whatever the config no longer references.
 
 ### POST /personas/import
 
@@ -1128,6 +1135,12 @@ directories nor those URLs had to be rewritten.
 the caller** — including the two serving routes, which previously did not, so any
 persona's assets could be read by walking sequential ids.
 
+**Every id and file name a request supplies is checked before it is joined onto a
+path** — `pose_id`, `edge_id`, `filename`, both sides of a `migrate-ids` mapping —
+on upload and on serve alike. Empty, `.`/`..`, a separator, a NUL, or one of the
+reserved directory names (`edges`, `.incoming`, `vrm`, `vrma`) is a 400 `Invalid
+<name>.`; Starlette percent-decodes path parameters, so `%2e%2e` is `..` here.
+
 ### POST /character-assets/upload-base
 
 **Query:** `persona_id` (int), `pose_id` (string). **Request:**
@@ -1172,9 +1185,21 @@ video files on disk. → `{"message": "Migrated N IDs"}`.
 
 **Request:** the character config object (with `pose_tree`).
 
-Writes it to `personas.character_config` and **cleans up orphaned asset files** —
-anything the new config no longer references is deleted. This is why an imported
-config pointing at another install's ids is dangerous.
+Writes it to `personas.character_config`, then **removes the asset files the new
+config no longer references**. The sweep is fail-closed and runs after the write
+(`kurisuassistant/character/`, #233): a body that is not a pose-tree config, or
+whose `/character-assets/` URLs are not under this persona's id, is refused with
+`422` and nothing on disk is touched — an imported config pointing at another
+install's ids used to empty the directory. "A pose-tree config" means the shape
+the clients write and nothing looser: `pose_tree` an object whose `nodes` and
+`edges` are lists of objects, `patches` and `video_urls` lists — a `null`, list or
+string where an object belongs is refused, not read as an empty tree (a
+`{"pose_tree": null}` used to sweep everything with a 200). A write that fails
+leaves every file in place, and once the row is written the sweep never fails the
+response: a file already gone or a directory an upload just filled is logged and
+left for the next save. `.incoming/` (uploads in flight) and symlinks are never
+walked. `PATCH /personas/{id}` writes the same column through the same rules; an
+explicit `null` there clears the column and removes every file.
 
 ```json
 {"message": "Character config updated", "character_config": {...}}

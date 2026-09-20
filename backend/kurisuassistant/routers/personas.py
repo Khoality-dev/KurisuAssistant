@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from kurisuassistant.character.config_write import cleanup_after_write, plan_character_config
 from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.core.image_access import owns_image
 from kurisuassistant.core.errors import internal_error
@@ -164,6 +165,10 @@ async def create_persona(
     """
     _reject_reserved(body.name)
 
+    # A persona that does not exist yet owns no assets, so a config that names
+    # any is refused; null and an asset-free pose tree pass.
+    plan_character_config(None, body.character_config)
+
     def _create(session):
         persona_repo = PersonaRepository(session)
         _reject_unowned_avatar(session, user.id, body.avatar_uuid)
@@ -225,9 +230,19 @@ async def update_persona(
     body: PersonaUpdate,
     user: User = Depends(get_authenticated_user),
 ) -> PersonaResponse:
-    """Update a persona. Omitted fields are untouched; an explicit null clears."""
+    """Update a persona. Omitted fields are untouched; an explicit null clears.
+
+    ``character_config`` goes through the same classification and cleanup as
+    the character-config route: refused before the write when it cannot be
+    classified, and the files it no longer names are removed after the write.
+    """
     _reject_reserved(body.name)
     fields = _update_fields(body)
+    referenced = (
+        plan_character_config(persona_id, fields["character_config"])
+        if "character_config" in fields
+        else None
+    )
 
     def _update(session):
         persona_repo = PersonaRepository(session)
@@ -248,7 +263,10 @@ async def update_persona(
         return _persona_to_response(persona_repo.update_persona(persona, **fields))
 
     db = get_db_service()
-    return await db.execute(_update)
+    result = await db.execute(_update)
+    if referenced is not None:
+        await cleanup_after_write(persona_id, referenced)
+    return result
 
 
 @router.delete("/{persona_id}")
