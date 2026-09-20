@@ -5,8 +5,12 @@ not name. That makes the classification the dangerous step: a config the walker
 misreads as "references nothing" empties the directory. So ``referenced_paths``
 is fail-closed — it answers ``None`` for anything it cannot classify, and
 ``cleanup_persona_assets`` deletes nothing on ``None``. An *empty* set is a real
-answer ("keep nothing") and is only ever produced on purpose, by a caller
-clearing the config.
+answer ("keep nothing") and comes from exactly two places: a caller clearing the
+config on purpose, and a well-formed pose tree that happens to reference no
+file. It never comes from a shape the walker did not recognise: a ``null`` or
+list where a dict belongs, a string where a list belongs, is ``None``, not an
+empty tree — ``[]`` and ``{}`` used to be coerced into "nothing referenced" and
+the directory went with them.
 """
 
 import logging
@@ -18,6 +22,8 @@ from kurisuassistant.character import paths
 logger = logging.getLogger(__name__)
 
 URL_PREFIX = "/character-assets/"
+
+_PARTS = ("left_eye", "right_eye", "mouth")
 
 
 def _own_ref(url: str, persona_id: Optional[int]) -> Optional[str]:
@@ -36,47 +42,88 @@ def _own_ref(url: str, persona_id: Optional[int]) -> Optional[str]:
     return ref
 
 
+def _list_or_none(container: dict, key: str) -> Optional[list]:
+    """A list-valued member; missing or ``null`` is empty, anything else is unclassifiable."""
+    value = container.get(key)
+    if value is None:
+        return []
+    return value if isinstance(value, list) else None
+
+
 def referenced_paths(persona_id: Optional[int], config) -> Optional[set[str]]:
     """Every asset a config references, as ``{persona_id}/{rel-without-suffix}``.
 
     ``None`` means the config could not be classified and nothing may be deleted
-    on its account: a body that is not a pose-tree config, or one whose URLs are
-    not under ``/character-assets/{persona_id}/``. ``persona_id`` is ``None`` for
-    a persona that does not exist yet (``POST /personas``), where any asset URL
-    is foreign by definition.
+    on its account: a body that is not a pose-tree config, a pose tree whose
+    shape is not the one the clients write (a dict of nodes and edges, each a
+    dict, patches and video URLs in lists), or one whose URLs are not under
+    ``/character-assets/{persona_id}/``. ``persona_id`` is ``None`` for a persona
+    that does not exist yet (``POST /personas``), where any asset URL is foreign
+    by definition. A URL outside ``/character-assets/`` is neither kept nor
+    deleted: it is not ours.
     """
     if not isinstance(config, dict) or "pose_tree" not in config:
         return None
-    pose_tree = config.get("pose_tree") or {}
+    pose_tree = config["pose_tree"]
     if not isinstance(pose_tree, dict):
+        return None
+    nodes = _list_or_none(pose_tree, "nodes")
+    edges = _list_or_none(pose_tree, "edges")
+    if nodes is None or edges is None:
         return None
 
     refs: set[str] = set()
 
     def _take(url) -> bool:
-        if not isinstance(url, str) or not url:
+        if url is None or url == "":
             return True
+        if not isinstance(url, str):
+            return False
         if not url.startswith(URL_PREFIX):
-            return True  # an external URL is not ours to keep or delete
+            return True
         ref = _own_ref(url, persona_id)
         if ref is None:
             return False
         refs.add(ref)
         return True
 
-    for node in pose_tree.get("nodes") or []:
-        pc = node.get("pose_config") if isinstance(node, dict) else None
-        if not pc:
-            continue
-        if not _take(pc.get("base_image_url", "")):
+    for node in nodes:
+        if not isinstance(node, dict):
             return None
-        for part_key in ("left_eye", "right_eye", "mouth"):
-            for patch in (pc.get(part_key) or {}).get("patches") or []:
-                if not _take(patch.get("image_url", "")):
+        pc = node.get("pose_config")
+        if pc is None:
+            continue
+        if not isinstance(pc, dict):
+            return None
+        if not _take(pc.get("base_image_url")):
+            return None
+        for part_key in _PARTS:
+            part = pc.get(part_key)
+            if part is None:
+                continue
+            if not isinstance(part, dict):
+                return None
+            patches = _list_or_none(part, "patches")
+            if patches is None:
+                return None
+            for patch in patches:
+                if not isinstance(patch, dict):
                     return None
-    for edge in pose_tree.get("edges") or []:
-        for transition in (edge.get("transitions") or []) if isinstance(edge, dict) else []:
-            for vurl in transition.get("video_urls") or []:
+                if not _take(patch.get("image_url")):
+                    return None
+    for edge in edges:
+        if not isinstance(edge, dict):
+            return None
+        transitions = _list_or_none(edge, "transitions")
+        if transitions is None:
+            return None
+        for transition in transitions:
+            if not isinstance(transition, dict):
+                return None
+            video_urls = _list_or_none(transition, "video_urls")
+            if video_urls is None:
+                return None
+            for vurl in video_urls:
                 if not _take(vurl):
                     return None
     return refs
@@ -95,8 +142,12 @@ def cleanup_persona_assets(persona_id: int, referenced: Optional[set[str]]) -> N
     """Remove every file the config no longer names, then the directories left empty.
 
     Runs *after* the config has been written — a failed save must not cost the
-    files the old config still needs. Refuses to act on ``None``. Never enters
-    ``.incoming/``: a streamed upload in progress has no reference yet.
+    files the old config still needs — and so it must never fail the response
+    either: the row is committed, and a second save, an upload landing in a
+    directory the walk just saw empty, or a file already gone are all things a
+    later sweep will get right. Refuses to act on ``None``. Never enters
+    ``.incoming/``: a streamed upload in progress has no reference yet. Never
+    follows a symlink: the store writes none, so one is not its file to touch.
     """
     if referenced is None:
         logger.warning(
@@ -110,15 +161,25 @@ def cleanup_persona_assets(persona_id: int, referenced: Optional[set[str]]) -> N
 
     incoming = persona_dir / paths.INCOMING_DIR_NAME
     for file_path in persona_dir.rglob("*"):
-        if not file_path.is_file() or incoming in file_path.parents:
+        if file_path.is_symlink() or incoming in file_path.parents:
             continue
-        if file_to_ref_path(file_path, persona_id) not in referenced:
-            file_path.unlink()
-            logger.debug("Deleted orphaned character asset: %s", file_path)
+        try:
+            if not file_path.is_file():
+                continue
+            if file_to_ref_path(file_path, persona_id) not in referenced:
+                file_path.unlink(missing_ok=True)
+                logger.debug("Deleted orphaned character asset: %s", file_path)
+        except OSError as error:
+            logger.warning("persona %d: could not remove %s: %s", persona_id, file_path, error)
 
     for dir_path in sorted(persona_dir.rglob("*"), reverse=True):
-        if dir_path == incoming or incoming in dir_path.parents:
+        if dir_path.is_symlink() or dir_path == incoming or incoming in dir_path.parents:
             continue
-        if dir_path.is_dir() and not any(dir_path.iterdir()):
-            dir_path.rmdir()
-            logger.debug("Removed empty directory: %s", dir_path)
+        try:
+            if dir_path.is_dir() and not any(dir_path.iterdir()):
+                dir_path.rmdir()
+                logger.debug("Removed empty directory: %s", dir_path)
+        except OSError:
+            # Gone already, or something arrived in it since the walk began —
+            # either way the next sweep sees the truth.
+            continue

@@ -7,12 +7,15 @@ did not. Now both classify the body here before writing, write, and sweep
 afterwards with the set this module handed them.
 """
 
+import logging
 from typing import Optional
 
 import anyio
 from fastapi import HTTPException
 
 from kurisuassistant.character.references import cleanup_persona_assets, referenced_paths
+
+logger = logging.getLogger(__name__)
 
 
 def plan_character_config(persona_id: Optional[int], body) -> set[str]:
@@ -38,6 +41,11 @@ async def cleanup_after_write(persona_id: int, referenced: set[str]) -> None:
     """Sweep the persona's directory once the row is committed.
 
     Off the event loop: the walk touches every file the persona owns, and the
-    VRM store will put tens of megabytes there.
+    VRM store will put tens of megabytes there. Never raises — the row is
+    already written, so the response is a success whatever the disk said; the
+    sweep logs what it could not do and the next save tries again.
     """
-    await anyio.to_thread.run_sync(cleanup_persona_assets, persona_id, referenced)
+    try:
+        await anyio.to_thread.run_sync(cleanup_persona_assets, persona_id, referenced)
+    except Exception:  # noqa: BLE001 — a committed save must not turn into a 500
+        logger.exception("persona %d: asset cleanup failed after the config was saved", persona_id)

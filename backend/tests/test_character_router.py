@@ -13,6 +13,8 @@ a stub repository, because none of this is about SQL.
 """
 
 import io
+import os
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -172,14 +174,49 @@ def via_persona(client, config):
 WRITERS = pytest.mark.parametrize("write", [via_character, via_persona], ids=["character-config", "personas"])
 
 
+# Shapes the walker must refuse rather than read as "references nothing". The
+# first four were coerced into an empty tree (``or {}`` / ``or []``) and emptied
+# the directory with a 200; the rest raised inside the walk and answered 500.
+UNCLASSIFIABLE = [
+    pytest.param({"poses": []}, id="no-pose_tree"),
+    pytest.param({"pose_tree": None}, id="pose_tree-null"),
+    pytest.param({"pose_tree": []}, id="pose_tree-list"),
+    pytest.param({"pose_tree": ""}, id="pose_tree-string"),
+    pytest.param({"pose_tree": {"nodes": [None]}}, id="node-null"),
+    pytest.param({"pose_tree": {"nodes": {"a": 1}}}, id="nodes-dict"),
+    pytest.param({"pose_tree": {"nodes": [{"pose_config": "x"}]}}, id="pose_config-string"),
+    pytest.param({"pose_tree": {"nodes": [{"pose_config": {"mouth": []}}]}}, id="part-list"),
+    pytest.param({"pose_tree": {"nodes": [{"pose_config": {"mouth": {"patches": ["x"]}}}]}}, id="patch-string"),
+    pytest.param({"pose_tree": {"edges": [{"transitions": "x"}]}}, id="transitions-string"),
+    pytest.param({"pose_tree": {"edges": [{"transitions": [{"video_urls": [1]}]}]}}, id="video_url-number"),
+    pytest.param({"pose_tree": {"edges": ["e1"]}}, id="edge-string"),
+]
+
+
 class TestWhatASaveMayDelete:
     @WRITERS
-    def test_a_config_that_cannot_be_classified_is_refused_and_nothing_is_unlinked(self, store, write):
+    @pytest.mark.parametrize("config", UNCLASSIFIABLE)
+    def test_a_config_that_cannot_be_classified_is_refused_and_nothing_is_unlinked(self, store, write, config):
         before = store.files()
-        response = write(store.client, {"poses": []})
+        response = write(store.client, config)
         assert response.status_code == 422
         assert store.files() == before
         assert store.persona.character_config == {"pose_tree": {"default_pose_ids": [], "nodes": [], "edges": []}}
+
+    @WRITERS
+    def test_a_well_formed_tree_that_references_nothing_keeps_nothing(self, store, write):
+        """The empty set is a real answer — but only from a shape the walker recognised."""
+        response = write(store.client, {"pose_tree": {"default_pose_ids": [], "nodes": [], "edges": []}})
+        assert response.status_code == 200
+        assert store.files() == INCOMING_ONLY
+
+    def test_a_patch_that_does_not_mention_the_config_touches_nothing(self, store):
+        """A rename must never be a sweep: the persona route only plans when the field is sent."""
+        before = store.files()
+        response = store.client.patch(f"/personas/{PERSONA}", json={"name": "renamed"})
+        assert response.status_code == 200
+        assert store.persona.name == "renamed"
+        assert store.files() == before
 
     @WRITERS
     def test_a_pose_tree_keeps_what_it_names_and_removes_the_rest(self, store, write):
@@ -216,6 +253,48 @@ class TestWhatASaveMayDelete:
         assert created.status_code == 200
 
 
+class TestTheSweepNeverFailsTheSave:
+    """Once the row is committed the response is a success whatever the disk does."""
+
+    def test_a_file_removed_underneath_the_sweep_is_not_an_error(self, store, monkeypatch):
+        # A second save (or the operator) took ``p2/base.png`` between the walk
+        # listing it and the unlink; the old sweep let that become a 500.
+        original = Path.unlink
+        raised = []
+
+        def vanish(self, *args, **kwargs):
+            if self.name == "base.png" and self.parent.name == "p2" and not raised:
+                raised.append(self)
+                raise FileNotFoundError(self)
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "unlink", vanish)
+        response = via_character(store.client, pose_tree())
+        assert response.status_code == 200
+        assert raised, "the race was never exercised"
+        assert "p1/base.png" in store.files()
+
+    def test_a_symlink_inside_the_persona_dir_is_left_alone(self, store, tmp_path):
+        outside = tmp_path / "elsewhere"
+        outside.mkdir()
+        (outside / "keep.png").write_bytes(b"x")
+        empty = tmp_path / "empty-elsewhere"
+        empty.mkdir()
+        persona_dir = store.root / str(PERSONA)
+        os.symlink(outside, persona_dir / "linked")
+        os.symlink(empty, persona_dir / "linked-empty")
+        os.symlink(outside / "keep.png", persona_dir / "p2" / "linked.png")
+
+        response = via_character(store.client, pose_tree())
+        assert response.status_code == 200
+        assert (outside / "keep.png").exists()
+        assert empty.exists()
+        assert (persona_dir / "linked").is_symlink()
+        assert (persona_dir / "linked-empty").is_symlink()
+        assert (persona_dir / "p2" / "linked.png").is_symlink()
+        assert not (persona_dir / "p2" / "base.png").exists()
+
+
 BAD_SEGMENTS = ["vrm", "vrma", "edges", ".incoming", "..", "%2e%2e", "a%2Fb", "a%5Cb"]
 # In a *path* a raw ``..`` is resolved by the client and an encoded slash splits the
 # segment before routing, so neither reaches a handler; ``%2e%2e`` does, as ``..``.
@@ -230,6 +309,15 @@ class TestPathSegments:
         response = store.client.post(
             f"/character-assets/upload-base?persona_id={PERSONA}&pose_id={bad}",
             files={"file": ("k.png", io.BytesIO(b"x"), "image/png")},
+        )
+        assert (response.status_code, response.json()["detail"]) == (400, "Invalid pose_id.")
+
+    @pytest.mark.parametrize("bad", BAD_SEGMENTS + [""])
+    def test_compute_patch_refuses_a_bad_pose_id(self, store, bad):
+        # ``safe_segment`` runs before the base image is read, so no image is needed.
+        response = store.client.post(
+            f"/character-assets/compute-patch?persona_id={PERSONA}&pose_id={bad}&part=mouth&index=0",
+            files={"keyframe": ("k.png", io.BytesIO(b"x"), "image/png")},
         )
         assert (response.status_code, response.json()["detail"]) == (400, "Invalid pose_id.")
 
