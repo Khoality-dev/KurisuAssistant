@@ -1128,6 +1128,12 @@ directories nor those URLs had to be rewritten.
 the caller** — including the two serving routes, which previously did not, so any
 persona's assets could be read by walking sequential ids.
 
+**Every id and file name a request supplies is checked before it is joined onto a
+path** — `pose_id`, `edge_id`, `filename`, both sides of a `migrate-ids` mapping —
+on upload and on serve alike. Empty, `.`/`..`, a separator, a NUL, or one of the
+reserved directory names (`edges`, `.incoming`, `vrm`, `vrma`) is a 400 `Invalid
+<name>.`; Starlette percent-decodes path parameters, so `%2e%2e` is `..` here.
+
 ### POST /character-assets/upload-base
 
 **Query:** `persona_id` (int), `pose_id` (string). **Request:**
@@ -1172,9 +1178,15 @@ video files on disk. → `{"message": "Migrated N IDs"}`.
 
 **Request:** the character config object (with `pose_tree`).
 
-Writes it to `personas.character_config` and **cleans up orphaned asset files** —
-anything the new config no longer references is deleted. This is why an imported
-config pointing at another install's ids is dangerous.
+Writes it to `personas.character_config`, then **removes the asset files the new
+config no longer references**. The sweep is fail-closed and runs after the write
+(`kurisuassistant/character/`, #233): a body that is not a pose-tree config, or
+whose `/character-assets/` URLs are not under this persona's id, is refused with
+`422` and nothing on disk is touched — an imported config pointing at another
+install's ids used to empty the directory. A write that fails leaves every file in
+place. `.incoming/` (uploads in flight) is never walked. `PATCH /personas/{id}`
+writes the same column through the same rules; an explicit `null` there clears the
+column and removes every file.
 
 ```json
 {"message": "Character config updated", "character_config": {...}}

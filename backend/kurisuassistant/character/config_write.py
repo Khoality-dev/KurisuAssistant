@@ -1,0 +1,43 @@
+"""The one way ``character_config`` is written.
+
+Two routes accept the column — ``PATCH /character-assets/{id}/character-config``
+and ``PATCH /personas/{id}`` (plus ``POST /personas``) — and both used to have
+their own idea of what a save meant: one swept the asset directory, the other
+did not. Now both classify the body here before writing, write, and sweep
+afterwards with the set this module handed them.
+"""
+
+from typing import Optional
+
+import anyio
+from fastapi import HTTPException
+
+from kurisuassistant.character.references import cleanup_persona_assets, referenced_paths
+
+
+def plan_character_config(persona_id: Optional[int], body) -> set[str]:
+    """Validate a config about to be written and return the files it keeps.
+
+    ``None`` (the client clearing the column) keeps nothing: the empty set. A
+    body the walker cannot classify — not a pose-tree config, or one pointing
+    at another persona's assets — is refused with 422 before anything is
+    written, so a bad save can never reach the sweep.
+    """
+    if body is None:
+        return set()
+    refs = referenced_paths(persona_id, body)
+    if refs is None:
+        raise HTTPException(
+            status_code=422,
+            detail="character_config must be a pose-tree config whose asset URLs belong to this persona.",
+        )
+    return refs
+
+
+async def cleanup_after_write(persona_id: int, referenced: set[str]) -> None:
+    """Sweep the persona's directory once the row is committed.
+
+    Off the event loop: the walk touches every file the persona owns, and the
+    VRM store will put tens of megabytes there.
+    """
+    await anyio.to_thread.run_sync(cleanup_persona_assets, persona_id, referenced)
