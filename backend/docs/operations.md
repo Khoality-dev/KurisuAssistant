@@ -220,3 +220,20 @@ Ollama server is unreachable" in the model picker.
 
 Model caches under `data/` (`face_recognition/models/`, `gesture_detection/models/`)
 are re-downloaded on demand and need no backup.
+
+**Character assets follow their persona.** Deleting a persona removes its
+directory under `backend/data/character_assets/` (#234). Directories whose
+persona no longer exists — left by a database restored from an older backup,
+by two checkouts sharing `backend/data/`, or by deletions made before #234 —
+are found by the sweep, which lists first and removes only when told to:
+
+```bash
+docker compose exec api python -m scripts.sweep_character_assets           # dry run
+docker compose exec api python -m scripts.sweep_character_assets --apply   # remove them
+```
+
+Only a directory named by a number that is not a live persona id is an orphan;
+anything else under that root is reported as unrecognised and left alone. This
+is a script and not a migration on purpose: a migration that deletes
+directories would run against whatever rows the restored database happens to
+have.

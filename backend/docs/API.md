@@ -488,6 +488,11 @@ Assets).
 
 → `{"message": "Persona deleted successfully"}`
 
+The row goes first, then everything under `data/character_assets/{persona_id}/`
+— pose art, patches, transition videos — is removed (#234). A disk failure at
+that point leaves files for the operator's sweep (`docs/operations.md`), never a
+live persona without its assets.
+
 **Error:** `400` this is the user's **only** persona. Deleting the *default* is
 allowed: the FK clears the pointer and the oldest remaining persona takes over,
 deterministically.

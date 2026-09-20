@@ -15,7 +15,11 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from kurisuassistant.character.config_write import cleanup_after_write, plan_character_config
+from kurisuassistant.character.config_write import (
+    cleanup_after_write,
+    plan_character_config,
+    remove_after_delete,
+)
 from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.core.image_access import owns_image
 from kurisuassistant.core.errors import internal_error
@@ -274,12 +278,16 @@ async def delete_persona(
     persona_id: int,
     user: User = Depends(get_authenticated_user),
 ):
-    """Delete a persona.
+    """Delete a persona, then its character assets.
 
     The user's last persona cannot be deleted: a new conversation binds to the
     assistant's default persona and has no fallback, so a user with none can no
     longer chat. Deleting the *default* is allowed — the FK clears the pointer and
     the oldest remaining persona takes over, deterministically rather than at random.
+
+    The row goes first and the directory under ``data/character_assets/`` after,
+    so a disk failure can strand files for the operator's sweep but never a live
+    persona without its assets. Until #234 nothing removed the directory at all.
     """
     def _delete(session):
         persona_repo = PersonaRepository(session)
@@ -309,7 +317,9 @@ async def delete_persona(
         return {"message": "Persona deleted successfully"}
 
     db = get_db_service()
-    return await db.execute(_delete)
+    result = await db.execute(_delete)
+    await remove_after_delete(persona_id)
+    return result
 
 
 @router.patch("/{persona_id}/enabled")

@@ -14,6 +14,7 @@ the directory went with them.
 """
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -183,3 +184,25 @@ def cleanup_persona_assets(persona_id: int, referenced: Optional[set[str]]) -> N
             # Gone already, or something arrived in it since the walk began —
             # either way the next sweep sees the truth.
             continue
+
+
+def directory_bytes(directory: Path) -> int:
+    """Bytes held by every file under ``directory`` (0 when it does not exist)."""
+    if not directory.exists():
+        return 0
+    return sum(p.stat().st_size for p in directory.rglob("*") if p.is_file())
+
+
+def remove_persona_assets(persona_id: int) -> int:
+    """Remove everything a deleted persona owned; returns the bytes reclaimed.
+
+    Called once the row is gone: a disk failure here leaves stray files for the
+    operator's sweep to find, never a live persona without its assets. Errors
+    are ignored for the same reason — the persona is already deleted.
+    """
+    persona_dir = paths.persona_dir(persona_id)
+    reclaimed = directory_bytes(persona_dir)
+    shutil.rmtree(persona_dir, ignore_errors=True)
+    if reclaimed:
+        logger.info("persona %d deleted; reclaimed %d bytes of character assets", persona_id, reclaimed)
+    return reclaimed
