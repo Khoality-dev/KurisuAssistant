@@ -22,6 +22,9 @@ from kurisuassistant.character.references import (
 logger = logging.getLogger(__name__)
 
 
+logger = logging.getLogger(__name__)
+
+
 def plan_character_config(persona_id: Optional[int], body) -> set[str]:
     """Validate a config about to be written and return the files it keeps.
 
@@ -56,5 +59,13 @@ async def cleanup_after_write(persona_id: int, referenced: set[str]) -> None:
 
 
 async def remove_after_delete(persona_id: int) -> int:
-    """Reclaim a deleted persona's directory, off the event loop; returns the bytes."""
-    return await anyio.to_thread.run_sync(remove_persona_assets, persona_id)
+    """Reclaim a deleted persona's directory, off the event loop; returns the bytes.
+
+    Never raises: the row is already gone, so the response must say so whatever
+    the disk did. ``remove_persona_assets`` logs what it could not remove.
+    """
+    try:
+        return await anyio.to_thread.run_sync(remove_persona_assets, persona_id)
+    except Exception:  # noqa: BLE001 — a failed reclaim is a log line, not a failed delete
+        logger.exception("persona %d deleted; reclaiming its character assets failed", persona_id)
+        return 0

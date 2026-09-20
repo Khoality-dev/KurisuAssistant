@@ -232,8 +232,19 @@ docker compose exec api python -m scripts.sweep_character_assets           # dry
 docker compose exec api python -m scripts.sweep_character_assets --apply   # remove them
 ```
 
-Only a directory named by a number that is not a live persona id is an orphan;
-anything else under that root is reported as unrecognised and left alone. This
-is a script and not a migration on purpose: a migration that deletes
-directories would run against whatever rows the restored database happens to
-have.
+Only a directory named by a plain decimal number that is not a live persona id
+is an orphan; anything else under that root is reported as unrecognised and
+left alone. Both modes print how many live persona ids the database has, and
+`--apply` refuses to run when that number is zero — a fresh or not-yet-restored
+database would make every directory an orphan — unless
+`--allow-empty-database` says that is really the state of things. After
+`--apply`, each directory is checked: one that is still there (permissions,
+usually) is listed as `could not remove`, is not counted in the total, and
+makes the script exit non-zero. This is a script and not a migration on
+purpose: a migration that deletes directories would run against whatever rows
+the restored database happens to have.
+
+A persona delete that could not remove its directory logs a warning naming the
+directory and the bytes left behind (`left N bytes behind under …; run
+python -m scripts.sweep_character_assets`); the delete itself still succeeds,
+because the row is already gone by then.

@@ -9,6 +9,10 @@ Same shape as ``test_character_router.py``: the store is ``tmp_path`` through
 """
 
 import io
+import logging
+import os
+import stat
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -31,12 +35,14 @@ class FakePersona:
 
 class FakePersonaRepository:
     deleted: list = []
+    # What the caller owns; a test narrows it to model "not yours" and "only one".
+    owned: list = [DELETED, KEPT]
 
     def __init__(self, session):
         pass
 
     def list_by_user(self, user_id):
-        return [FakePersona(DELETED), FakePersona(KEPT)]
+        return [FakePersona(pid) for pid in FakePersonaRepository.owned]
 
     def delete_by_user_and_id(self, user_id, persona_id):
         FakePersonaRepository.deleted.append(persona_id)
@@ -67,6 +73,7 @@ def seed(root, persona_id, files=("p1/base.png", "edges/e1.mp4")):
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "CHAR_ASSETS_DIR", tmp_path)
     FakePersonaRepository.deleted = []
+    FakePersonaRepository.owned = [DELETED, KEPT]
     monkeypatch.setattr(personas, "PersonaRepository", FakePersonaRepository)
     monkeypatch.setattr(personas, "AssistantRepository", FakeAssistantRepository)
     monkeypatch.setattr(personas, "get_db_service", lambda: FakeDBService())
@@ -92,6 +99,62 @@ class TestDeletePersona:
         assert response.status_code == 200
         assert FakePersonaRepository.deleted == [DELETED]
         assert not (tmp_path / str(DELETED)).exists()
+
+    # The two refusals below hold on the pre-#234 route as well (it removed
+    # nothing, ever); they pin that the directory is only ever removed *after*
+    # a delete the route accepted — the persona id comes from the URL, and only
+    # the DB step checks it is the caller's.
+    def test_a_persona_that_is_not_yours_is_refused_and_its_directory_stays(self, client, tmp_path):
+        FakePersonaRepository.owned = [KEPT]
+        seed(tmp_path, DELETED)
+        response = client.delete(f"/personas/{DELETED}")
+        assert response.status_code == 404
+        assert FakePersonaRepository.deleted == []
+        assert (tmp_path / str(DELETED) / "p1" / "base.png").exists()
+
+    def test_the_only_persona_is_refused_and_its_directory_stays(self, client, tmp_path):
+        FakePersonaRepository.owned = [DELETED]
+        seed(tmp_path, DELETED)
+        response = client.delete(f"/personas/{DELETED}")
+        assert response.status_code == 400
+        assert FakePersonaRepository.deleted == []
+        assert (tmp_path / str(DELETED) / "p1" / "base.png").exists()
+
+    def test_a_file_that_cannot_be_measured_does_not_fail_the_delete(self, client, tmp_path, monkeypatch):
+        seed(tmp_path, DELETED)
+        real_stat = Path.stat
+
+        def flaky_stat(self, *args, **kwargs):
+            if self.name == "base.png":
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_stat(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "stat", flaky_stat)
+        response = client.delete(f"/personas/{DELETED}")
+        assert response.status_code == 200
+        assert FakePersonaRepository.deleted == [DELETED]
+        assert not (tmp_path / str(DELETED)).exists()
+
+    def test_a_directory_that_cannot_be_removed_is_logged_and_the_delete_still_succeeds(
+        self, client, tmp_path, caplog
+    ):
+        if os.geteuid() == 0:
+            pytest.skip("root ignores directory permissions")
+        seed(tmp_path, DELETED)
+        pose_dir = tmp_path / str(DELETED) / "p1"
+        pose_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)  # no write bit: rmtree cannot unlink base.png
+        try:
+            with caplog.at_level(logging.WARNING, logger="kurisuassistant.character.references"):
+                response = client.delete(f"/personas/{DELETED}")
+        finally:
+            pose_dir.chmod(stat.S_IRWXU)
+        assert response.status_code == 200
+        assert FakePersonaRepository.deleted == [DELETED]
+        assert (pose_dir / "base.png").exists()
+        assert any(
+            "left behind" in r.getMessage() and "sweep_character_assets" in r.getMessage()
+            for r in caplog.records
+        )
 
 
 class TestSweep:
@@ -122,3 +185,72 @@ class TestSweep:
     def test_a_missing_root_is_empty(self, tmp_path):
         found = sweep_character_assets.find_orphans(tmp_path / "nope", live_ids=set())
         assert found.orphans == [] and found.unrecognised == []
+
+    @pytest.mark.parametrize("name", ["²", "①", "٣", "007", "-1", "1.0", " 1"])
+    def test_a_name_that_is_not_a_plain_decimal_is_unrecognised(self, tmp_path, name):
+        seed(tmp_path, 1)
+        (tmp_path / name).mkdir()
+        found = sweep_character_assets.sweep(tmp_path, live_ids={1}, apply=True, out=io.StringIO())
+        assert found.orphans == []
+        assert [e.name for e in found.unrecognised] == [name]
+        assert (tmp_path / name).exists()
+
+    def test_apply_reports_what_it_could_not_remove_and_counts_only_what_went(self, root):
+        if os.geteuid() == 0:
+            pytest.skip("root ignores directory permissions")
+        stuck = root / "9" / "p1"
+        stuck.chmod(stat.S_IRUSR | stat.S_IXUSR)
+        out = io.StringIO()
+        try:
+            found = sweep_character_assets.sweep(root, live_ids={1}, apply=True, out=out)
+        finally:
+            stuck.chmod(stat.S_IRWXU)
+        assert [d.name for d in found.left_behind] == ["9"]
+        assert (root / "9").exists() and not (root / "10").exists()
+        text = out.getvalue()
+        assert f"could not remove {root / '9'}" in text
+        assert "removed 1 directories, 4 bytes; 1 could not be removed" in text
+
+    @pytest.fixture
+    def cli(self, root, monkeypatch):
+        monkeypatch.setattr(paths, "CHAR_ASSETS_DIR", root)
+        calls = {"live": {1}}
+        monkeypatch.setattr(sweep_character_assets, "live_persona_ids", lambda: calls["live"])
+        return calls
+
+    def test_main_dry_runs_by_default(self, root, cli):
+        out = io.StringIO()
+        assert sweep_character_assets.main([], out=out) == 0
+        assert (root / "9").exists() and (root / "10").exists()
+        assert "1 live persona ids" in out.getvalue()
+        assert "would remove" in out.getvalue()
+
+    def test_main_apply_removes_only_the_numeric_orphans(self, root, cli):
+        assert sweep_character_assets.main(["--apply"], out=io.StringIO()) == 0
+        assert not (root / "9").exists() and not (root / "10").exists()
+        assert (root / "1" / "p1" / "base.png").exists()
+        assert (root / "notes").exists() and (root / "stray.txt").exists()
+
+    def test_main_apply_refuses_an_empty_database(self, root, cli):
+        cli["live"] = set()
+        out = io.StringIO()
+        assert sweep_character_assets.main(["--apply"], out=out) == 2
+        assert "refusing --apply" in out.getvalue() and "--allow-empty-database" in out.getvalue()
+        assert (root / "1").exists() and (root / "9").exists() and (root / "10").exists()
+
+    def test_main_apply_with_an_empty_database_when_told_so(self, root, cli):
+        cli["live"] = set()
+        assert sweep_character_assets.main(["--apply", "--allow-empty-database"], out=io.StringIO()) == 0
+        assert not (root / "1").exists() and not (root / "9").exists() and not (root / "10").exists()
+        assert (root / "notes").exists()
+
+    def test_main_exits_non_zero_when_something_was_left_behind(self, root, cli):
+        if os.geteuid() == 0:
+            pytest.skip("root ignores directory permissions")
+        stuck = root / "9" / "p1"
+        stuck.chmod(stat.S_IRUSR | stat.S_IXUSR)
+        try:
+            code = sweep_character_assets.main(["--apply"], out=io.StringIO())
+        finally:
+            stuck.chmod(stat.S_IRWXU)
+        assert code == 1
