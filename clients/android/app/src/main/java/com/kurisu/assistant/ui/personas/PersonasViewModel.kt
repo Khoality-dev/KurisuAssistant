@@ -11,10 +11,13 @@ import com.kurisu.assistant.data.remote.api.KurisuApiService
 import com.kurisu.assistant.data.repository.AssistantRepository
 import com.kurisu.assistant.data.repository.PersonaRepository
 import com.kurisu.assistant.data.repository.TtsRepository
+import com.kurisu.assistant.domain.character.CharacterConfigKind
 import com.kurisu.assistant.domain.tts.TtsQueueManager
 import com.kurisu.assistant.service.CoreState
 import com.kurisu.assistant.ui.assistant.apiErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.File
+import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -22,8 +25,6 @@ import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
-import java.io.File
-import javax.inject.Inject
 
 /**
  * The persona editor's draft.
@@ -42,7 +43,7 @@ data class PersonaDraft(
     val systemPrompt: String = "",
     val avatarUuid: String? = null,
     val enabled: Boolean = true,
-    val hasCharacterConfig: Boolean = false,
+    val character: CharacterConfigKind = CharacterConfigKind.NONE,
 ) {
     val isNew: Boolean get() = id == null
 }
@@ -183,7 +184,7 @@ class PersonasViewModel @Inject constructor(
                 systemPrompt = persona.systemPrompt,
                 avatarUuid = persona.avatarUuid,
                 enabled = persona.enabled,
-                hasCharacterConfig = persona.characterConfig != null,
+                character = CharacterConfigKind.of(persona.characterConfig),
             )
         )
     }

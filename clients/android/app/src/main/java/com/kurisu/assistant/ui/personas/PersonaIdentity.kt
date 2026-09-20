@@ -15,6 +15,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
+import com.kurisu.assistant.domain.character.CharacterConfigKind
+import com.kurisu.assistant.domain.character.metaLabel
 import com.kurisu.assistant.ui.common.personaInitials
 
 /**
@@ -79,10 +81,10 @@ private fun InitialsAvatar(
  */
 fun personaMeta(
     voiceReference: String?,
-    hasCharacterConfig: Boolean,
+    character: CharacterConfigKind,
     enabled: Boolean = true,
 ): String = buildString {
     append(voiceReference?.takeIf { it.isNotBlank() } ?: "no voice")
-    if (hasCharacterConfig) append(" · character")
+    character.metaLabel()?.let { append(" · $it") }
     if (!enabled) append(" · disabled")
 }

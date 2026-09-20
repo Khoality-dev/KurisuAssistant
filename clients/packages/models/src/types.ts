@@ -1,3 +1,5 @@
+import type { CharacterConfig } from './character';
+
 export interface LoginResponse {
   access_token: string;
   refresh_token: string;
@@ -219,9 +221,8 @@ export interface ComputePatchResponseDTO {
   patch: PatchResultDTO;
 }
 
-export interface CharacterConfigDTO {
-  [key: string]: any;
-}
+/** `personas.character_config` on the wire: `{ kind, pose_tree?, vrm? }` (character.ts). */
+export type CharacterConfigDTO = CharacterConfig;
 
 export interface UploadVideoResponseDTO {
   asset_id: string;

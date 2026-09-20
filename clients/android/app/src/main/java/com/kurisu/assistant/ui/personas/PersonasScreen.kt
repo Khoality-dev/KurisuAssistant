@@ -67,6 +67,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kurisu.assistant.data.model.Persona
+import com.kurisu.assistant.domain.character.CharacterConfigKind
+import com.kurisu.assistant.domain.character.rowStatus
 import com.kurisu.assistant.ui.theme.KurisuTheme
 import java.io.File
 
@@ -310,7 +312,7 @@ private fun PersonaRow(
                 Text(
                     personaMeta(
                         persona.voiceReference,
-                        persona.characterConfig != null,
+                        CharacterConfigKind.of(persona.characterConfig),
                         persona.enabled,
                     ),
                     style = KurisuTheme.extraTypography.metadataSmall,
@@ -552,7 +554,7 @@ private fun PersonaEditor(
 
                 CharacterRow(
                     personaId = draft.id,
-                    configured = draft.hasCharacterConfig,
+                    character = draft.character,
                     onPreviewCharacter = onPreviewCharacter,
                 )
 
@@ -626,10 +628,10 @@ private fun Field(
 @Composable
 private fun CharacterRow(
     personaId: Int?,
-    configured: Boolean,
+    character: CharacterConfigKind,
     onPreviewCharacter: ((personaId: Int) -> Unit)?,
 ) {
-    val canPreview = configured && personaId != null && onPreviewCharacter != null
+    val canPreview = character.isConfigured && personaId != null && onPreviewCharacter != null
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -642,14 +644,15 @@ private fun CharacterRow(
         Column(modifier = Modifier.weight(1f)) {
             Text("Character animation", style = MaterialTheme.typography.bodyLarge)
             Text(
-                "Poses, blink and lip sync — edited on the desktop client",
+                if (character == CharacterConfigKind.VRM) "A 3D model — this app cannot show it yet"
+                else "Poses, blink and lip sync — edited on the desktop client",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Spacer(Modifier.width(12.dp))
         Text(
-            if (configured) "Configured" else "None",
+            character.rowStatus(),
             style = KurisuTheme.extraTypography.metadata,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

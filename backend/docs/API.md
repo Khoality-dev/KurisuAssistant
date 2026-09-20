@@ -444,6 +444,27 @@ All of the user's personas, enabled or not, oldest first.
 `preferred_name` is what **this persona calls the user**, overriding
 `users.preferred_name`.
 
+#### `character_config`
+
+`null`, or `{"kind": "pose_graph" | "vrm", "pose_tree"?: {...}, "vrm"?: {...}}`
+(wire protocol 7, #235). `kind` says which character system the persona shows;
+the two members are kept side by side, so a persona can switch back without
+uploading anything again. `pose_tree` is the 2D rig the graph editor writes
+(`clients/apps/desktop/docs/character.md`); `vrm` is the 3D model's settings,
+typed and validated in `kurisuassistant/character/schema.py`, of which `model`
+and `clips` are **server-owned** — written by the asset routes, ignored in a
+body. Every row is stamped by migration `3eb07d0e8d1f`, so a reader never sees a
+config without `kind`.
+
+Both writers (`POST`/`PATCH /personas`, `PATCH /character-assets/{id}/character-config`)
+apply a body the same way, a **merge per member**: `kind` is replaced; a member
+left out is kept; a member sent as `null` is cleared, and the files it named are
+removed after the write. Refused with `422`, nothing written and nothing on disk
+touched: no `kind` or an unknown one, a member of the wrong shape, an unknown key
+inside `vrm`, a clip id the stored clips do not hold, or a `/character-assets/`
+URL under another persona's id. `POST /personas` accepts only `null` or a config
+that names no file — the persona has no id yet for a file to belong to.
+
 ### POST /personas
 
 **Request:** `application/json`
@@ -463,10 +484,10 @@ The first persona a user creates also becomes their `default_persona_id`, so a n
 conversation has someone to bind to.
 
 **Errors:** `400` reserved name (`Administrator`, `User`, `App Guide`) or a
-duplicate name; `422` a `character_config` that is not a pose-tree config, or one
-naming any `/character-assets/` URL — a persona that does not exist yet has no id
-for an asset to belong to, so send `null` or an asset-free pose tree and upload
-after (see Character Assets).
+duplicate name; `422` a `character_config` without a `kind`, one that is not the
+shape the clients write, or one naming any `/character-assets/` URL — a persona
+that does not exist yet has no id for an asset to belong to, so send `null` or a
+kinded config that names no file and upload after (see Character Assets).
 
 ### GET /personas/{persona_id}
 
@@ -476,13 +497,15 @@ after (see Character Assets).
 
 Every field optional; an explicit `null` clears the column (that is how a voice
 reference or avatar is removed). `name`, `description` and `enabled` may not be
-null.
+null. `character_config` is merged member by member and swept afterwards exactly
+as `PATCH /character-assets/{id}/character-config` does (see `character_config`
+above); `null` clears it and removes every file the persona owned.
 
 **Errors:** `400` reserved or duplicate name, or a non-nullable field sent as null;
-`404` not found; `422` a `character_config` that is not a pose-tree config or that
-names another persona's assets — refused before anything is written, and the
-files it no longer references are removed only after the write (see Character
-Assets).
+`404` not found; `422` a `character_config` without a `kind`, one the server cannot
+classify, or one that names another persona's assets — refused before anything is
+written, and the files it no longer references are removed only after the write
+(see Character Assets).
 
 ### DELETE /personas/{persona_id}
 
@@ -1189,27 +1212,36 @@ video files on disk. → `{"message": "Migrated N IDs"}`.
 
 ### PATCH /character-assets/{persona_id}/character-config
 
-**Request:** the character config object (with `pose_tree`).
+**Request:** `{"kind": "pose_graph" | "vrm", "pose_tree"?: {...} | null, "vrm"?: {...} | null}`
+— the shape under `GET /personas` → `character_config`, and the merge rules there.
 
-Writes it to `personas.character_config`, then **removes the asset files the new
-config no longer references**. The sweep is fail-closed and runs after the write
-(`kurisuassistant/character/`, #233): a body that is not a pose-tree config, or
-whose `/character-assets/` URLs are not under this persona's id, is refused with
-`422` and nothing on disk is touched — an imported config pointing at another
-install's ids used to empty the directory. "A pose-tree config" means the shape
-the clients write and nothing looser: `pose_tree` an object whose `nodes` and
-`edges` are lists of objects, `patches` and `video_urls` lists — a `null`, list or
-string where an object belongs is refused, not read as an empty tree (a
-`{"pose_tree": null}` used to sweep everything with a 200). A write that fails
-leaves every file in place, and once the row is written the sweep never fails the
-response: a file already gone or a directory an upload just filled is logged and
-left for the next save. `.incoming/` (uploads in flight) and symlinks are never
-walked. `PATCH /personas/{id}` writes the same column through the same rules; an
-explicit `null` there clears the column and removes every file.
+Merges the body over the stored config member by member, writes the result, then
+**removes the asset files the merged config no longer references** — whichever
+`kind` is selected, both members' files are references. The sweep is fail-closed
+and runs after the write (`kurisuassistant/character/`, #233): a body without a
+recognised `kind`, or whose `/character-assets/` URLs are not under this persona's
+id, is refused with `422` and nothing on disk is touched — an imported config
+pointing at another install's ids used to empty the directory, and a kind-less
+`{"pose_tree": ...}` is what a protocol-6 client saved (#235). "The shape the
+clients write" is meant strictly: `pose_tree` an object whose `nodes` and `edges`
+are lists of objects, `patches` and `video_urls` lists, every URL a string; `vrm`
+an object whose `model` is null or an object with a string `url` and whose `clips`
+are such objects — a list or string where an object belongs is refused, not read
+as an empty tree (a kind-less `{"pose_tree": null}` used to sweep everything with
+a 200). A member sent as `null` *with* a `kind` is the deliberate clear of that
+member. A write that fails leaves every file in place, and once the row is written
+the sweep never fails the response: a file already gone or a directory an upload
+just filled is logged and left for the next save. `.incoming/` (uploads in flight)
+and symlinks are never walked. `PATCH /personas/{id}` writes the same column
+through the same rules; an explicit `null` there clears the column and removes
+every file.
 
 ```json
-{"message": "Character config updated", "character_config": {...}}
+{"message": "Character config updated", "character_config": {"kind": "vrm", "pose_tree": {...}, "vrm": {...}}}
 ```
+
+The response carries the **merged** config, so a client that sent stale
+server-owned references sees what is actually stored.
 
 ### GET /character-assets/{persona_id}/edges/{edge_id}
 

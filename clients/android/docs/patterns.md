@@ -67,6 +67,7 @@ alive, and the pieces that must stay in step with the desktop client.
 - 60fps loop via `withFrameNanos`
 - Blink FSM, breathing sine wave, mouth amplitude mapping
 - Pose tree state machine with AND-logic edge transitions
+- **`character_config` is read once, by `domain/character/CharacterConfigKind.of`** (#235): the backend stamps every config with `kind` (`pose_graph` | `vrm`, wire protocol 7) and there is no kind-less fallback here. `POSE_GRAPH` is drawn; `VRM` is recognised and the sheet says "3D character — update the app to see it" instead of the old "no character configured" that contradicted a persona list saying "character"; `UNSUPPORTED` is an unknown kind or a `vrm` member whose server-owned `sha256`/clip ids fail their regexes (they become file names on this device one day); `NONE` is null or a pose graph with no tree. The persona list (`personaMeta`), the chat header's persona sheet and the editor's character row all go through the same enum. Rendering a VRM on Android is #246
 
 ## Vision frames are binary
 

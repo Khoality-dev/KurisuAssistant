@@ -11,6 +11,7 @@ import com.kurisu.assistant.data.remote.api.KurisuApiService
 import com.kurisu.assistant.data.repository.AssistantRepository
 import com.kurisu.assistant.data.repository.PersonaRepository
 import com.kurisu.assistant.data.repository.TtsRepository
+import com.kurisu.assistant.domain.character.CharacterConfigKind
 import com.kurisu.assistant.domain.tts.TtsQueueManager
 import com.kurisu.assistant.service.CoreState
 import com.kurisu.assistant.ui.common.personaInitials
@@ -408,10 +409,12 @@ class PersonaInitialsTest {
 
     @Test
     fun `the meta line names the voice, the rig and a disabled persona`() {
-        assertThat(personaMeta("kurisu_neutral.wav", hasCharacterConfig = true))
+        assertThat(personaMeta("kurisu_neutral.wav", CharacterConfigKind.POSE_GRAPH))
             .isEqualTo("kurisu_neutral.wav · character")
-        assertThat(personaMeta(null, hasCharacterConfig = false)).isEqualTo("no voice")
-        assertThat(personaMeta("", hasCharacterConfig = false, enabled = false))
+        assertThat(personaMeta("kurisu_neutral.wav", CharacterConfigKind.VRM))
+            .isEqualTo("kurisu_neutral.wav · 3D character")
+        assertThat(personaMeta(null, CharacterConfigKind.NONE)).isEqualTo("no voice")
+        assertThat(personaMeta("", CharacterConfigKind.NONE, enabled = false))
             .isEqualTo("no voice · disabled")
     }
 }

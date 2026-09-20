@@ -42,9 +42,11 @@ import { apiClient } from '@kurisu/api';
 import {
   migrateEdgeToTransitions,
   migratePoseTreeIds,
+  parseCharacterConfig,
   type AnimationEdge,
   type AnimationNode,
   type CharacterConfigDTO,
+  type CharacterKind,
   type Persona,
   type PoseConfig,
   type PoseTree,
@@ -94,6 +96,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
   const [saveVersion, setSaveVersion] = useState(0);
   const initialLoadRef = useRef(true);  // Skip auto-save on initial load
   const savingRef = useRef(false);
+  const kindRef = useRef<CharacterKind>('pose_graph');  // what the persona showed when the editor opened
   const triggerAutoSave = useCallback(() => {
     setSaveVersion((v) => v + 1);
   }, []);
@@ -126,8 +129,12 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
       const nodesMap = new Map<string, AnimationNode>();
       const edgesMap = new Map<string, AnimationEdge>();
 
-      if (cc?.pose_tree?.nodes?.length) {
-        let poseTree = cc.pose_tree as PoseTree;
+      const parsed = parseCharacterConfig(cc);
+      // Editing the graph must not switch the persona to it: the autosave
+      // sends back whichever kind was selected when the editor opened.
+      kindRef.current = parsed?.kind ?? 'pose_graph';
+      if (parsed?.poseTree?.nodes?.length) {
+        let poseTree = parsed.poseTree as PoseTree;
 
         for (const n of poseTree.nodes) {
           if (!n.position) n.position = { x: 0, y: 0 };
@@ -235,7 +242,10 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
           animationNodesRef.current,
           animationEdgesRef.current,
         );
-        await apiClient.updateCharacterConfig(persona.id, { pose_tree: poseTree });
+        // `kind` is required on the wire (protocol 7). Only `pose_tree` travels:
+        // a member left out of the body is kept server-side, so the VRM
+        // settings this editor knows nothing about survive every autosave.
+        await apiClient.updateCharacterConfig(persona.id, { kind: kindRef.current, pose_tree: poseTree });
         setSaveStatus('saved');
         onSaved();
         // Notify the character panel to re-fetch this persona's config.

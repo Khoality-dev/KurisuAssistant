@@ -15,6 +15,21 @@ Bumping rules:
 - Bump rarely; treat each bump as a coordinated release across all clients.
 
 Update log (most recent first):
+- 7: A persona's `character_config` says which character system it uses. Every
+     config now carries a required `kind` — `"pose_graph"` (today's 2D rig) or
+     `"vrm"` (a 3D model, #224) — beside its members `pose_tree` and `vrm`, and a
+     body without one is refused with 422 on both write paths
+     (`PATCH /character-assets/{id}/character-config`, `PATCH`/`POST /personas`).
+     Required-ness changed, hence the bump: an installed client that saves
+     `{"pose_tree": ...}` — the graph editor's autosave — would 422 on every
+     keystroke against this backend, and would read a `kind: "vrm"` persona as
+     "no character". A save is now a merge per member (absent = kept, `null` =
+     cleared, `kind` free to change) instead of a replacement, and existing rows
+     are stamped `kind: "pose_graph"` by migration; `GET /personas` returns the
+     stamped shape. `vrm.model` and `vrm.clips` are server-owned and ignored in
+     a body. The three copies to keep in step: this file, the TypeScript
+     `constants.ts` and the Android `build.gradle.kts` `WIRE_PROTOCOL` field, plus
+     the regenerated `protocol/events.json`.
 - 6: Webcam frames leave the JSON envelope. `vision_frame` is no longer a JSON
      event; a frame is a WebSocket **binary** message
      `[version][type][header length][JSON header][JPEG]`, described in
@@ -90,4 +105,4 @@ Update log (most recent first):
 """
 
 __version__ = "0.6.0"
-WIRE_PROTOCOL = 6
+WIRE_PROTOCOL = 7

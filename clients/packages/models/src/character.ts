@@ -98,16 +98,23 @@ export interface AnimationEdge {
   transitions: EdgeTransition[];
 }
 
-/** Configurable animation timing for a pose node */
-export interface AnimationSettings {
-  breathing_enabled: boolean;      // default true
-  breathing_amplitude: number;     // pixels, default 3
-  breathing_period: number;        // ms, default 3500
+/**
+ * When and how fast the eyes close. Shared by both character kinds, so the
+ * persisted keys are the 2D rig's own and a VRM blinks on the same clock.
+ */
+export interface BlinkTiming {
   blink_min_interval: number;      // ms, default 2000
   blink_max_interval: number;      // ms, default 6000
   blink_close_duration: number;    // ms, default 100
   blink_hold_duration: number;     // ms, default 50
   blink_open_duration: number;     // ms, default 100
+}
+
+/** Configurable animation timing for a pose node */
+export interface AnimationSettings extends BlinkTiming {
+  breathing_enabled: boolean;      // default true
+  breathing_amplitude: number;     // pixels, default 3
+  breathing_period: number;        // ms, default 3500
 }
 
 /** The full animation tree for a character */
@@ -117,10 +124,130 @@ export interface PoseTree {
   edges: AnimationEdge[];
 }
 
-/** Complete character configuration for one persona */
+// ─── The character config: which system a persona uses, and each system's settings ───
+
+/** Which character system a persona shows. Wire protocol 7 made it required (#235). */
+export type CharacterKind = 'pose_graph' | 'vrm';
+
+/**
+ * The VRM 1.0 preset expressions plus neutral. A VRM 0.x model has no `surprised`;
+ * the renderer degrades a preset the model lacks, the wire set does not shrink.
+ */
+export type VrmEmotion = 'neutral' | 'happy' | 'angry' | 'sad' | 'relaxed' | 'surprised';
+export const VRM_EMOTIONS: readonly VrmEmotion[] = ['neutral', 'happy', 'angry', 'sad', 'relaxed', 'surprised'];
+
+/**
+ * The five gesture names the vision pipeline emits (backend
+ * `models/gesture_detection/classifier.py`). One copy, for every editor that
+ * offers them.
+ */
+export const GESTURE_NAMES = ['wave', 'thumbs_up', 'peace_sign', 'pointing', 'open_palm'] as const;
+export type GestureName = (typeof GESTURE_NAMES)[number];
+
+/**
+ * SERVER-OWNED. Written by the model upload route in the transaction that accepts
+ * the bytes; a value in a saved body is ignored and replaced by the stored one.
+ */
+export interface VrmAssetRef {
+  url: string;          // '/character-assets/{persona_id}/vrm/model' — root-relative, extension-less
+  sha256: string;       // the ETag, the cache key; validated `^[0-9a-f]{64}$` before it names a file
+  bytes: number;
+  uploaded_at: string;  // ISO-8601
+}
+
+/** SERVER-OWNED like `VrmAssetRef`; `name` and `loop` are edited through the clip routes. */
+export interface VrmClipRef {
+  id: string;           // 8 hex chars, server-generated
+  name: string;
+  url: string;          // '/character-assets/{persona_id}/vrma/{id}'
+  sha256: string;
+  bytes: number;
+  loop: boolean;
+}
+
+export interface VrmReaction {
+  id: string;
+  name: string;
+  /** The same condition objects the 2D graph uses, AND-ed; first match wins. */
+  when: TransitionCondition[];
+  play:
+    | { type: 'clip'; clip_id: string; crossfade_ms?: number }
+    | { type: 'expression'; expression: VrmEmotion; weight: number; hold_ms: number };
+  cooldown_ms: number;  // default 4000
+}
+
+export interface VrmIdleSettings {
+  procedural: boolean;              // breathing + sway + look-at
+  arms_lowered: boolean;            // A/T-pose correction at load
+  breath_period_ms: number;         // 4000
+  breath_amplitude_deg: number;     // 2 — chest pitch in degrees; the VRM rig carries rotations, not scale
+  sway_amplitude_deg: number;       // 1.5
+  sway_period_ms: number;           // 7000
+  blink: BlinkTiming;
+  look_at: 'camera' | 'drift' | 'off';
+  idle_clip_ids: string[];          // [] = procedural only
+  idle_clip_interval_ms: [number, number];
+}
+
+export interface VrmEmotionSettings {
+  enabled: boolean;
+  default_expression: VrmEmotion;
+  intensity: number;                // 0..1
+  attack_ms: number;                // 180
+  release_ms: number;               // 400
+  thinking?: VrmEmotion | null;
+}
+
+export interface VrmCamera {
+  target: 'head' | 'upper_body' | 'full_body';
+  fov: number;                      // 24
+  offset_y: number;                 // metres
+  background: string;               // '#ffffff'
+}
+
+export interface VrmSettings {
+  model: VrmAssetRef | null;        // null until the first upload
+  clips: VrmClipRef[];
+  idle: VrmIdleSettings;
+  emotion: VrmEmotionSettings;
+  reactions: VrmReaction[];
+  camera: VrmCamera;
+}
+
+/**
+ * `personas.character_config`. `kind` selects what renders; the two members are
+ * kept side by side so switching back needs no upload. A save is a merge: a
+ * member left out is kept, `null` clears it, and `kind` may change on its own.
+ */
 export interface CharacterConfig {
-  persona_id: number;
-  pose_tree: PoseTree;
+  kind: CharacterKind;
+  pose_tree?: PoseTree | null;
+  vrm?: VrmSettings | null;
+}
+
+/** What a reader gets: the selector plus both members, absent ones as null. */
+export interface ParsedCharacterConfig {
+  kind: CharacterKind;
+  poseTree: PoseTree | null;
+  vrm: VrmSettings | null;
+}
+
+/**
+ * The ONE reader of a persona's `character_config`.
+ *
+ * Returns null for null, a non-object, and anything without a recognised
+ * `kind` — there is no kind-less fallback: the backend stamps every row and
+ * refuses a save without one (wire protocol 7), so a config with no `kind` is
+ * not "a pose graph from before", it is something this client cannot classify.
+ */
+export function parseCharacterConfig(dto: unknown): ParsedCharacterConfig | null {
+  if (!dto || typeof dto !== 'object') return null;
+  const c = dto as Record<string, unknown>;
+  const kind = c.kind;
+  if (kind !== 'pose_graph' && kind !== 'vrm') return null;
+  const poseTree = c.pose_tree && typeof c.pose_tree === 'object' ? (c.pose_tree as PoseTree) : null;
+  const vrm = c.vrm && typeof c.vrm === 'object' ? (c.vrm as VrmSettings) : null;
+  return { kind, poseTree, vrm };
 }
 
 // ─── Migration ───

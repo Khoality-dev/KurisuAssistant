@@ -29,7 +29,7 @@ assistants                                          exactly one row per user
 personas                                            presentation only
   id, user_id→users (CASCADE, NOT NULL)
   name, description, system_prompt
-  voice_reference?, avatar_uuid?, character_config(JSON)?
+  voice_reference?, avatar_uuid?, character_config(JSON)?   {kind, pose_tree?, vrm?}; NULL = none
   preferred_name?           what this persona calls the *user*
   enabled(bool), created_at
   unique (user_id, name)
@@ -141,6 +141,16 @@ hand-write a directory rename plus a structured JSON URL rewrite to compensate;
 one of them computed its data directory from a `DATA_DIR` environment variable
 that `core/paths.py` never reads, so outside Docker it renamed nothing. The rename
 avoids all of that, and the migration deliberately touches no files.
+
+**`character_config` carries its `kind`.** Migration `3eb07d0e8d1f_add_kind_to_character_config`
+(wire protocol 7, #235) stamped every pose-tree row `kind: "pose_graph"`, turned the
+JSON literal `null` — which SQLAlchemy's default `none_as_null=False` had been
+writing for every persona created through the API — and `{}` into SQL `NULL`, and
+left anything it could not classify alone with a warning. The model now declares
+`JSON(none_as_null=True)`, so a Python `None` lands as SQL `NULL` from here on.
+Data only, no disk work, as ever for this column. `downgrade` pops `kind` from
+every row; upgrading again recovers it from the members, except that a row holding
+both comes back `pose_graph` whichever it said before.
 
 **The FK columns were renamed, not re-pointed.** `conversations.main_agent_id` is
 now `conversations.persona_id` and `messages.agent_id` is now

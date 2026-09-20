@@ -21,6 +21,7 @@ import {
   WS_AUTH_SUBPROTOCOL,
   WS_WIRE_SUBPROTOCOL_PREFIX,
   WS_WIRE_PROTOCOL_MISMATCH,
+  type CharacterConfigDTO,
 } from '@kurisu/models';
 
 /**
@@ -29,7 +30,8 @@ import {
  * window has something to fetch, and what the `character` scenario seeds.
  * The URL is root-relative and extension-less, the backend's convention.
  */
-export const ONE_POSE_CHARACTER: Record<string, unknown> = {
+export const ONE_POSE_CHARACTER: CharacterConfigDTO = {
+  kind: 'pose_graph',
   pose_tree: {
     default_pose_ids: ['p1'],
     nodes: [{
@@ -64,7 +66,7 @@ export interface MockPersona {
   preferred_name?: string | null;
   voice_reference?: string | null;
   avatar_uuid?: string | null;
-  character_config?: Record<string, unknown> | null;
+  character_config?: CharacterConfigDTO | null;
   enabled?: boolean;
 }
 
@@ -548,7 +550,7 @@ export class MockBackend {
   }
 
   /** Give a persona a character config, the way the desktop editor's PATCH does. */
-  setCharacterConfig(personaId: number, config: Record<string, unknown> | null): void {
+  setCharacterConfig(personaId: number, config: CharacterConfigDTO | null): void {
     const persona = this.personas.find((p) => p.id === personaId);
     if (!persona) throw new Error(`no persona ${personaId}`);
     persona.character_config = config;

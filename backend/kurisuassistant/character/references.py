@@ -6,7 +6,7 @@ misreads as "references nothing" empties the directory. So ``referenced_paths``
 is fail-closed — it answers ``None`` for anything it cannot classify, and
 ``cleanup_persona_assets`` deletes nothing on ``None``. An *empty* set is a real
 answer ("keep nothing") and comes from exactly two places: a caller clearing the
-config on purpose, and a well-formed pose tree that happens to reference no
+config on purpose, and a well-formed config that happens to reference no
 file. It never comes from a shape the walker did not recognise: a ``null`` or
 list where a dict belongs, a string where a list belongs, is ``None``, not an
 empty tree — ``[]`` and ``{}`` used to be coerced into "nothing referenced" and
@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Optional
 
 from kurisuassistant.character import paths
+from kurisuassistant.character.schema import KINDS
 
 logger = logging.getLogger(__name__)
 
@@ -54,23 +55,21 @@ def _list_or_none(container: dict, key: str) -> Optional[list]:
 def referenced_paths(persona_id: Optional[int], config) -> Optional[set[str]]:
     """Every asset a config references, as ``{persona_id}/{rel-without-suffix}``.
 
-    ``None`` means the config could not be classified and nothing may be deleted
-    on its account: a body that is not a pose-tree config, a pose tree whose
-    shape is not the one the clients write (a dict of nodes and edges, each a
-    dict, patches and video URLs in lists), or one whose URLs are not under
-    ``/character-assets/{persona_id}/``. ``persona_id`` is ``None`` for a persona
-    that does not exist yet (``POST /personas``), where any asset URL is foreign
-    by definition. A URL outside ``/character-assets/`` is neither kept nor
-    deleted: it is not ours.
+    Both members are walked whatever ``kind`` says: a persona keeps its pose art
+    while it shows a VRM model and vice versa, so the files the other system
+    needs are references too. ``None`` means the config could not be classified
+    and nothing may be deleted on its account: no recognised ``kind``; a member
+    whose shape is not the one the clients write (a pose tree is a dict of nodes
+    and edges, each a dict, with patches and video URLs in lists; a VRM member
+    is a dict whose ``model`` is null or a dict with a string ``url`` and whose
+    ``clips`` are dicts with string ``url``s); or a URL not under
+    ``/character-assets/{persona_id}/``. A member that is missing or ``null``
+    references nothing. ``persona_id`` is ``None`` for a persona that does not
+    exist yet (``POST /personas``), where any asset URL is foreign by definition.
+    A URL outside ``/character-assets/`` is neither kept nor deleted: it is not
+    ours.
     """
-    if not isinstance(config, dict) or "pose_tree" not in config:
-        return None
-    pose_tree = config["pose_tree"]
-    if not isinstance(pose_tree, dict):
-        return None
-    nodes = _list_or_none(pose_tree, "nodes")
-    edges = _list_or_none(pose_tree, "edges")
-    if nodes is None or edges is None:
+    if not isinstance(config, dict) or config.get("kind") not in KINDS:
         return None
 
     refs: set[str] = set()
@@ -88,46 +87,87 @@ def referenced_paths(persona_id: Optional[int], config) -> Optional[set[str]]:
         refs.add(ref)
         return True
 
+    pose_tree = config.get("pose_tree")
+    if pose_tree is not None:
+        if not isinstance(pose_tree, dict):
+            return None
+        if not _walk_pose_tree(pose_tree, _take):
+            return None
+
+    vrm = config.get("vrm")
+    if vrm is not None:
+        if not isinstance(vrm, dict):
+            return None
+        if not _walk_vrm(vrm, _take):
+            return None
+    return refs
+
+
+def _walk_pose_tree(pose_tree: dict, take) -> bool:
+    """Feed every pose-tree URL to ``take``; ``False`` when the shape or a URL is not ours."""
+    nodes = _list_or_none(pose_tree, "nodes")
+    edges = _list_or_none(pose_tree, "edges")
+    if nodes is None or edges is None:
+        return False
     for node in nodes:
         if not isinstance(node, dict):
-            return None
+            return False
         pc = node.get("pose_config")
         if pc is None:
             continue
         if not isinstance(pc, dict):
-            return None
-        if not _take(pc.get("base_image_url")):
-            return None
+            return False
+        if not take(pc.get("base_image_url")):
+            return False
         for part_key in _PARTS:
             part = pc.get(part_key)
             if part is None:
                 continue
             if not isinstance(part, dict):
-                return None
+                return False
             patches = _list_or_none(part, "patches")
             if patches is None:
-                return None
+                return False
             for patch in patches:
                 if not isinstance(patch, dict):
-                    return None
-                if not _take(patch.get("image_url")):
-                    return None
+                    return False
+                if not take(patch.get("image_url")):
+                    return False
     for edge in edges:
         if not isinstance(edge, dict):
-            return None
+            return False
         transitions = _list_or_none(edge, "transitions")
         if transitions is None:
-            return None
+            return False
         for transition in transitions:
             if not isinstance(transition, dict):
-                return None
+                return False
             video_urls = _list_or_none(transition, "video_urls")
             if video_urls is None:
-                return None
+                return False
             for vurl in video_urls:
-                if not _take(vurl):
-                    return None
-    return refs
+                if not take(vurl):
+                    return False
+    return True
+
+
+def _walk_vrm(vrm: dict, take) -> bool:
+    """Feed the model and clip URLs to ``take``; ``False`` when the shape or a URL is not ours."""
+    model = vrm.get("model")
+    if model is not None:
+        if not isinstance(model, dict) or not isinstance(model.get("url"), str):
+            return False
+        if not take(model["url"]):
+            return False
+    clips = _list_or_none(vrm, "clips")
+    if clips is None:
+        return False
+    for clip in clips:
+        if not isinstance(clip, dict) or not isinstance(clip.get("url"), str):
+            return False
+        if not take(clip["url"]):
+            return False
+    return True
 
 
 def file_to_ref_path(file_path: Path, persona_id: int) -> str:
