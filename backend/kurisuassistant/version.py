@@ -26,10 +26,13 @@ Update log (most recent first):
      "no character". A save is now a merge per member (absent = kept, `null` =
      cleared, `kind` free to change) instead of a replacement, and existing rows
      are stamped `kind: "pose_graph"` by migration; `GET /personas` returns the
-     stamped shape. `vrm.model` and `vrm.clips` are server-owned and ignored in
-     a body. The three copies to keep in step: this file, the TypeScript
+     stamped shape. `vrm.model` and `vrm.clips` are server-owned: a body must
+     leave them out, send `null`, or echo the exact shape `GET /personas`
+     returned, and the stored values win either way. The three copies to keep in step: this file, the TypeScript
      `constants.ts` and the Android `build.gradle.kts` `WIRE_PROTOCOL` field, plus
-     the regenerated `protocol/events.json`.
+     the regenerated `protocol/events.json`. `__version__` moves to 0.7.0 with
+     it: `backend-v0.6.0` is tagged at protocol 6, and a release that breaks
+     the wire is a new minor, as every bump before this one was.
 - 6: Webcam frames leave the JSON envelope. `vision_frame` is no longer a JSON
      event; a frame is a WebSocket **binary** message
      `[version][type][header length][JSON header][JPEG]`, described in
@@ -104,5 +107,5 @@ Update log (most recent first):
 - 1: Initial wire protocol baseline.
 """
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 WIRE_PROTOCOL = 7

@@ -9,9 +9,9 @@ afterwards with the set the plan handed them.
 A save is a **merge per member**, not a replacement. ``kind`` is a selector and
 may change freely; ``pose_tree`` and ``vrm`` are kept when a body leaves them
 out and cleared when it sends ``null`` — so the graph editor's autosave, which
-knows nothing about VRM settings, cannot erase them, and switching kinds never
-deletes anything by itself. ``vrm.model`` and ``vrm.clips`` are server-owned:
-whatever a body says, the stored values win.
+knows nothing about VRM settings, cannot erase them, and a kind change removes
+nothing that either member still references. ``vrm.model`` and ``vrm.clips``
+are server-owned: whatever a body says, the stored values win.
 """
 
 import logging
@@ -23,8 +23,8 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from kurisuassistant.character.references import (
+    classify,
     cleanup_persona_assets,
-    referenced_paths,
     remove_persona_assets,
 )
 from kurisuassistant.character.schema import CharacterConfigBody, clip_ids_named
@@ -54,7 +54,9 @@ def merge_character_config(stored, body: dict) -> dict:
     try:
         parsed = CharacterConfigBody.model_validate(body)
     except ValidationError as exc:
-        raise _invalid(exc.errors(include_url=False, include_input=False))
+        # No ``ctx``: a validator's own ``ValueError`` rides in it and is not
+        # JSON, which would turn this 422 into a 500 at the response.
+        raise _invalid(exc.errors(include_url=False, include_input=False, include_context=False))
 
     previous = stored if isinstance(stored, dict) else {}
     merged: dict = {
@@ -90,19 +92,22 @@ def plan_character_config(persona_id: Optional[int], body, stored=None) -> Plann
 
     ``None`` (the client clearing the column) writes NULL and keeps nothing: the
     empty set. Anything else is merged over ``stored`` (§ module docstring) and
-    then classified by the walker; a merged config it cannot classify — a
-    member pointing at another persona's assets — is refused with 422 before
-    anything is written, so a bad save can never reach the sweep.
+    then classified by the walker; a merged config it cannot classify — a member
+    that is not the shape the clients write, or one pointing at another
+    persona's assets — is refused with 422 before anything is written, so a bad
+    save can never reach the sweep. The detail names the member and the cause,
+    because the member at fault may be one the body never sent: a stored member
+    the walker refuses has to be cleared (``null``) before anything else saves.
     """
     if body is None:
         return PlannedWrite(config=None, referenced=set())
     if not isinstance(body, dict):
         raise _invalid("character_config must be an object or null.")
     merged = merge_character_config(stored, body)
-    refs = referenced_paths(persona_id, merged)
-    if refs is None:
-        raise _invalid("character_config asset URLs must belong to this persona.")
-    return PlannedWrite(config=merged, referenced=refs)
+    classification = classify(persona_id, merged)
+    if classification.refs is None:
+        raise _invalid(classification.refusal)
+    return PlannedWrite(config=merged, referenced=classification.refs)
 
 
 async def cleanup_after_write(persona_id: int, referenced: set[str]) -> None:

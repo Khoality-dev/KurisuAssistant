@@ -424,8 +424,9 @@ async def update_character_config(
     graph editor's autosave cannot erase VRM settings it knows nothing about.
     Files the merged config no longer references are removed — after the row is
     written, and only when the config could be classified. A body without a
-    recognised ``kind``, or with a member pointing at another persona's assets,
-    is refused with 422 and nothing on disk is touched
+    recognised ``kind``, a member that is not the shape the clients write, or a
+    member pointing at another persona's assets is refused with 422 — the detail
+    names the member and the cause — and nothing on disk is touched
     (``kurisuassistant/character/``).
     """
     await _require_persona(user.id, persona_id)

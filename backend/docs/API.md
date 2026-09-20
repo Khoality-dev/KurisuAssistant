@@ -452,9 +452,13 @@ the two members are kept side by side, so a persona can switch back without
 uploading anything again. `pose_tree` is the 2D rig the graph editor writes
 (`clients/apps/desktop/docs/character.md`); `vrm` is the 3D model's settings,
 typed and validated in `kurisuassistant/character/schema.py`, of which `model`
-and `clips` are **server-owned** — written by the asset routes, ignored in a
-body. Every row is stamped by migration `3eb07d0e8d1f`, so a reader never sees a
-config without `kind`.
+and `clips` are **server-owned** — written by the asset routes; a body must
+leave them out, send `null`, or echo the exact shape `GET /personas` returned
+(a partial echo is `422`), and whatever it sends, the stored values win.
+Migration `3eb07d0e8d1f` stamps every pose-tree row; a legacy row it could not
+classify is left as it was, with a warning in the migration log, so a reader can
+still meet a config without `kind` and must treat it as unclassifiable — the
+desktop reads it as no character, Android as one that needs a newer app.
 
 Both writers (`POST`/`PATCH /personas`, `PATCH /character-assets/{id}/character-config`)
 apply a body the same way, a **merge per member**: `kind` is replaced; a member
@@ -462,8 +466,13 @@ left out is kept; a member sent as `null` is cleared, and the files it named are
 removed after the write. Refused with `422`, nothing written and nothing on disk
 touched: no `kind` or an unknown one, a member of the wrong shape, an unknown key
 inside `vrm`, a clip id the stored clips do not hold, or a `/character-assets/`
-URL under another persona's id. `POST /personas` accepts only `null` or a config
-that names no file — the persona has no id yet for a file to belong to.
+URL under another persona's id. The `detail` names the member and the cause —
+`character_config.pose_tree is not the shape the clients write.`,
+`character_config.vrm names another persona's assets.` — and the member at fault
+may be one the body never sent: a stored member the server can no longer read
+has to be cleared (`null`) before any other save goes through. `POST /personas`
+accepts only `null` or a config that names no file — the persona has no id yet
+for a file to belong to.
 
 ### POST /personas
 

@@ -24,7 +24,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from kurisuassistant.character import paths
-from kurisuassistant.character.references import referenced_paths
+from kurisuassistant.character.references import Classification, classify, referenced_paths
 from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.routers import character, personas
 
@@ -204,10 +204,16 @@ UNCLASSIFIABLE = [
     pytest.param({"pose_tree": {"edges": ["e1"]}}, id="edge-string"),
 ]
 
-# The same loose shapes inside a kinded body. ``pose_tree`` must be an object or
-# null at the schema (a list or string is 422 there); everything inside it is
-# the walker's to refuse — a node, part, patch or transition of the wrong type,
-# or a video URL that is not a string — with nothing unlinked.
+# The same loose shapes inside a kinded body. Two layers refuse them, and both
+# must answer 422 with nothing unlinked. The schema stops a ``pose_tree`` that is
+# not an object or null (the list and string cases) and a ``vrm`` whose
+# ``model``/``clips`` are not the full ``VrmAssetRef``/``VrmClipRef`` shape (the
+# two VRM cases: an int ``url`` and the missing ``sha256``/``bytes`` fields die in
+# pydantic, before the walker). Everything *inside* a pose tree is the walker's
+# to refuse — a node, part, patch or transition of the wrong type, or a video
+# URL that is not a string. The walker's own VRM strictness is exercised
+# directly in ``TestReferencedPaths``, because the write path replaces a body's
+# ``model``/``clips`` with the stored values before the walk ever sees them.
 MALFORMED_MEMBERS = [
     pytest.param({"kind": "pose_graph", "pose_tree": []}, id="kinded-pose_tree-list"),
     pytest.param({"kind": "pose_graph", "pose_tree": ""}, id="kinded-pose_tree-string"),
@@ -233,6 +239,29 @@ class TestWhatASaveMayDelete:
         assert response.status_code == 422
         assert store.files() == before
         assert store.persona.character_config == EMPTY_GRAPH
+
+    @WRITERS
+    def test_the_detail_names_the_member_and_the_cause(self, store, write):
+        """A malformed member and a foreign URL are different mistakes; the client is told which."""
+        shape = write(store.client, {"kind": "pose_graph", "pose_tree": {"nodes": [{"pose_config": {"mouth": []}}]}})
+        assert shape.status_code == 422
+        assert shape.json()["detail"] == "character_config.pose_tree is not the shape the clients write."
+        foreign = write(store.client, pose_tree(OTHER))
+        assert foreign.status_code == 422
+        assert foreign.json()["detail"] == "character_config.pose_tree names another persona's assets."
+
+    @WRITERS
+    def test_a_stored_member_the_body_never_sent_is_named_when_it_is_refused(self, store, write):
+        """The member at fault may be one already in the row: the detail says so, so it can be cleared."""
+        store.persona.character_config = {"kind": "vrm", "vrm": {"model": "x", "clips": []}}
+        before = store.files()
+        response = write(store.client, {"kind": "vrm", "vrm": {}})
+        assert response.status_code == 422
+        assert response.json()["detail"] == "character_config.vrm is not the shape the clients write."
+        assert store.files() == before
+        cleared = write(store.client, {"kind": "vrm", "vrm": None})
+        assert cleared.status_code == 200
+        assert store.persona.character_config == {"kind": "vrm"}
 
     @WRITERS
     def test_a_well_formed_tree_that_references_nothing_keeps_nothing(self, store, write):
@@ -388,15 +417,15 @@ class TestKindAndMembers:
         # The pose art is still referenced, so the sweep keeps it.
         assert store.files() == {"p1/base.png", "p1/mouth_0.png", "edges/e1.mp4", ".incoming/part"}
 
-    def test_a_kind_flip_alone_changes_nothing_on_disk(self, store):
+    def test_a_kind_flip_keeps_every_file_either_member_references(self, store):
+        """A kind-only body still sweeps — it removes the seed's one orphan and nothing else."""
         store.persona.character_config = both_kinds()
         (store.root / str(PERSONA) / "vrm").mkdir()
         (store.root / str(PERSONA) / "vrm" / "model.vrm").write_bytes(b"glb")
-        (store.root / str(PERSONA) / "p2" / "base.png").unlink()  # the one orphan the seed plants
-        before = store.files()
+        referenced = store.files() - {"p2/base.png"}
         for kind in ("vrm", "pose_graph", "vrm"):
             assert via_character(store.client, {"kind": kind}).status_code == 200
-            assert store.files() == before
+            assert store.files() == referenced
             assert store.persona.character_config == {**both_kinds(), "kind": kind}
 
     def test_clearing_one_member_removes_its_files_and_keeps_the_other(self, store):
@@ -457,10 +486,17 @@ class TestKindAndMembers:
         assert created.status_code == 200
         assert created.json()["character_config"]["kind"] == "vrm"
         assert created.json()["character_config"]["vrm"]["camera"]["fov"] == 24
-        refused = store.client.post(
+        treeless = store.client.post(
             "/personas", json={"name": "new", "character_config": {"kind": "pose_graph"}}
         )
-        assert refused.status_code == 200, "a pose_graph kind with no tree names no file"
+        assert treeless.status_code == 200, "a pose_graph kind with no tree names no file"
+
+    @pytest.mark.parametrize("interval, status", [
+        ([1000, 5000], 200), ([5000, 5000], 200), ([5000, 1000], 422), ([-1, 5000], 422), ([1000], 422),
+    ])
+    def test_the_idle_clip_interval_is_a_bounded_range(self, store, interval, status):
+        body = {"kind": "vrm", "vrm": {"idle": {"idle_clip_interval_ms": interval}}}
+        assert via_character(store.client, body).status_code == status
 
 
 class TestReferencedPaths:
@@ -481,9 +517,32 @@ class TestReferencedPaths:
         {"kind": "vrm", "vrm": "not an object"},
         {"kind": "vrm", "vrm": {"model": {"url": f"/character-assets/{OTHER}/vrm/model"}}},
         {"kind": "vrm", "vrm": {"clips": [{"url": f"/character-assets/{OTHER}/vrma/x"}]}},
+        # The VRM member's own shape rules — only reachable here, because the
+        # write path swaps a body's model/clips for the stored ones first.
+        {"kind": "vrm", "vrm": {"model": "x"}},
+        {"kind": "vrm", "vrm": {"model": {"url": 1}}},
+        {"kind": "vrm", "vrm": {"model": {}}},
+        {"kind": "vrm", "vrm": {"clips": "x"}},
+        {"kind": "vrm", "vrm": {"clips": [1]}},
+        {"kind": "vrm", "vrm": {"clips": [{"url": 1}]}},
     ])
     def test_what_it_cannot_place_is_none(self, config):
         assert referenced_paths(PERSONA, config) is None
+
+    @pytest.mark.parametrize("config, refusal", [
+        ("x", "character_config must be an object."),
+        ({"pose_tree": {}}, 'character_config.kind must be "pose_graph" or "vrm".'),
+        ({"kind": "vrm", "vrm": {"clips": [1]}}, "character_config.vrm is not the shape the clients write."),
+        ({"kind": "vrm", "vrm": {"clips": [{"url": f"/character-assets/{OTHER}/vrma/x"}]}},
+         "character_config.vrm names another persona's assets."),
+        ({"kind": "pose_graph", "pose_tree": {"edges": ["e1"]}},
+         "character_config.pose_tree is not the shape the clients write."),
+    ])
+    def test_a_refusal_says_which_member_and_why(self, config, refusal):
+        assert classify(PERSONA, config) == Classification(None, refusal)
+
+    def test_a_classification_that_succeeds_carries_no_refusal(self):
+        assert classify(PERSONA, {"kind": "vrm"}) == Classification(set(), None)
 
     def test_a_config_with_no_members_references_nothing(self):
         assert referenced_paths(PERSONA, {"kind": "vrm"}) == set()

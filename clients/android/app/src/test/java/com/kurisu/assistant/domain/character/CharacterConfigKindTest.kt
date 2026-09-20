@@ -71,8 +71,12 @@ class CharacterConfigKindTest {
             .isEqualTo("This persona has no character configured.")
         assertThat(CharacterConfigKind.VRM.unrenderableMessage())
             .isEqualTo("3D character — update the app to see it.")
+        assertThat(CharacterConfigKind.UNSUPPORTED.unrenderableMessage())
+            .isEqualTo("This character needs a newer app.")
         assertThat(CharacterConfigKind.VRM.metaLabel()).isEqualTo("3D character")
+        assertThat(CharacterConfigKind.UNSUPPORTED.metaLabel()).isEqualTo("character (needs update)")
         assertThat(CharacterConfigKind.NONE.metaLabel()).isNull()
         assertThat(CharacterConfigKind.VRM.rowStatus()).isEqualTo("3D model")
+        assertThat(CharacterConfigKind.UNSUPPORTED.rowStatus()).isEqualTo("Needs update")
     }
 }

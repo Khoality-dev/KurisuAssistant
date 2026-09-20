@@ -146,11 +146,15 @@ avoids all of that, and the migration deliberately touches no files.
 (wire protocol 7, #235) stamped every pose-tree row `kind: "pose_graph"`, turned the
 JSON literal `null` — which SQLAlchemy's default `none_as_null=False` had been
 writing for every persona created through the API — and `{}` into SQL `NULL`, and
-left anything it could not classify alone with a warning. The model now declares
-`JSON(none_as_null=True)`, so a Python `None` lands as SQL `NULL` from here on.
-Data only, no disk work, as ever for this column. `downgrade` pops `kind` from
-every row; upgrading again recovers it from the members, except that a row holding
-both comes back `pose_graph` whichever it said before.
+left anything it could not classify alone — a value that is not an object, or an
+object with neither `pose_tree` nor `vrm` — with a warning on the migration log
+(the `alembic.runtime.migration` logger, which `alembic.ini` shows; a module
+logger would not be). The model now declares `JSON(none_as_null=True)`, so a
+Python `None` lands as SQL `NULL` from here on. Data only, no disk work, as ever
+for this column. `downgrade` pops `kind` from every row, writing SQL `NULL` for a
+row that held nothing else; upgrading again recovers `kind` from the members,
+except that a row holding both comes back `pose_graph` whichever it said before,
+and the kind-only row stays `NULL`.
 
 **The FK columns were renamed, not re-pointed.** `conversations.main_agent_id` is
 now `conversations.persona_id` and `messages.agent_id` is now

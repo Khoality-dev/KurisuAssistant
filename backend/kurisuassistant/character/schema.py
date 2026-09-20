@@ -14,9 +14,9 @@ whatever a body says with the stored values. They are declared here so that a
 body may echo what ``GET /personas`` returned, not so a client can set them.
 """
 
-from typing import Literal, Optional, Union
+from typing import Annotated, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 CharacterKind = Literal["pose_graph", "vrm"]
 KINDS: frozenset[str] = frozenset({"pose_graph", "vrm"})
@@ -93,7 +93,16 @@ class VrmIdleSettings(_Strict):
     blink: BlinkTiming = Field(default_factory=BlinkTiming)
     look_at: Literal["camera", "drift", "off"] = "camera"
     idle_clip_ids: list[str] = Field(default_factory=list)
-    idle_clip_interval_ms: tuple[int, int] = (8000, 20000)
+    # ``[min, max]`` of the pause between idle clips; the renderer draws a random
+    # wait from it, so the two are bounded like every other timing here.
+    idle_clip_interval_ms: tuple[Annotated[int, Field(ge=0)], Annotated[int, Field(ge=0)]] = (8000, 20000)
+
+    @model_validator(mode="after")
+    def _interval_is_a_range(self):
+        lo, hi = self.idle_clip_interval_ms
+        if lo > hi:
+            raise ValueError("idle_clip_interval_ms must be [min, max] with min <= max")
+        return self
 
 
 class VrmEmotionSettings(_Strict):

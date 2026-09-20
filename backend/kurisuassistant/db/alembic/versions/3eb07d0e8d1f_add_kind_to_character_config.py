@@ -16,7 +16,7 @@ created through the API had the JSON literal ``null`` in the column, which
 Per row:
 
 * JSON ``null``            → SQL ``NULL``, silently (that is what it meant).
-* not an object            → left alone, logged.
+* not an object            → left alone, logged as a WARNING.
 * has ``kind`` already     → left alone.
 * has ``pose_tree``        → ``kind: "pose_graph"`` added; ``pose_tree`` untouched.
                              (Also when a ``vrm`` member sits beside it: the 2D rig
@@ -35,11 +35,14 @@ No disk work, as ever for this column (see 0dacee9f63b8).
 back byte-identical to what a protocol-6 backend wrote, and a ``vrm`` row loses
 the one key that backend would not have understood anyway; it keeps its ``vrm``
 member, which that backend never reads, and its ``pose_tree`` if it has one.
-There is no older backend that reads ``kind``, so there is nothing to keep it
-for. Upgrading again recovers the selector from the members — except for a row
-that holds both, which comes back as ``pose_graph`` whichever it said before.
-The rows normalised from JSON ``null`` to SQL ``NULL`` are not restored: both
-read back as ``None``.
+A row whose only key was ``kind`` (``{"kind": "vrm"}`` is what a first save
+with no members stores) becomes SQL ``NULL`` rather than ``{}``: it selected
+nothing, and ``{}`` is what the next upgrade would null anyway. There is no
+older backend that reads ``kind``, so there is nothing to keep it for. Upgrading
+again recovers the selector from the members — except for a row that holds
+both, which comes back as ``pose_graph`` whichever it said before, and the
+kind-only row, which stays ``NULL``. The rows normalised from JSON ``null`` to
+SQL ``NULL`` are not restored: both read back as ``None``.
 
 Revision ID: 3eb07d0e8d1f
 Revises: 4281377948c4
@@ -53,7 +56,10 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-logger = logging.getLogger(__name__)
+# alembic.ini keeps this logger at INFO and the root at WARNING; a migration's own
+# module logger inherits the root and its lines would never reach the console.
+# The two data migrations before this one (0dacee9f63b8, facf3c9e62a8) do the same.
+logger = logging.getLogger("alembic.runtime.migration")
 
 # revision identifiers, used by Alembic.
 revision: str = '3eb07d0e8d1f'
@@ -88,7 +94,7 @@ def upgrade() -> None:
         if config is None:
             _write(conn, persona_id, None)
         elif not isinstance(config, dict):
-            logger.info("persona %d: character_config is not an object; left as-is", persona_id)
+            logger.warning("persona %d: character_config is not an object; left as-is", persona_id)
         elif "kind" in config:
             continue
         elif "pose_tree" in config:
@@ -107,10 +113,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Remove `kind` from every row that has one; everything else is left as it is."""
+    """Remove `kind` from every row that has one; everything else is left as it is.
+
+    A row that held nothing but ``kind`` is written as SQL ``NULL``, not ``{}``.
+    """
     conn = op.get_bind()
     for persona_id, config in _rows(conn):
         if isinstance(config, dict) and "kind" in config:
             # An explicit UPDATE per row: mutating the dict alone would change
             # nothing in the database.
-            _write(conn, persona_id, {k: v for k, v in config.items() if k != "kind"})
+            rest = {k: v for k, v in config.items() if k != "kind"}
+            _write(conn, persona_id, rest or None)

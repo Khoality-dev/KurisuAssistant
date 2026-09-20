@@ -38,6 +38,7 @@ VRM = {"model": None, "clips": [], "idle": {"procedural": True}, "reactions": []
 #   8 not an object               → left as-is, logged
 #   9 both members, no kind       → pose_graph (the rig every protocol-6 client rendered)
 #  10 vrm member only, no kind    → vrm
+#  11 kind and nothing else       → untouched (what a first save with no members stores)
 ROWS = {
     1: {"pose_tree": POSE_TREE},
     2: None,
@@ -49,6 +50,7 @@ ROWS = {
     8: '"hello"',
     9: {"pose_tree": POSE_TREE, "vrm": VRM},
     10: {"vrm": VRM},
+    11: {"kind": "vrm"},
 }
 
 
@@ -125,13 +127,18 @@ def seeded_db():
         admin.dispose()
 
 
-def _configs(engine) -> dict:
-    """Every persona's column as text, so SQL NULL and JSON null stay distinguishable."""
+def _texts(engine) -> dict:
+    """Every persona's column as the stored text — the only view that can show a row was untouched."""
     with engine.connect() as conn:
         rows = conn.execute(
             sa.text("SELECT id, character_config::text FROM personas ORDER BY id")
         ).fetchall()
-    return {pid: (None if text is None else json.loads(text)) for pid, text in rows}
+    return {pid: text for pid, text in rows}
+
+
+def _configs(engine) -> dict:
+    """Every persona's column parsed, so SQL NULL and JSON null stay distinguishable."""
+    return {pid: (None if text is None else json.loads(text)) for pid, text in _texts(engine).items()}
 
 
 def _sql_null(engine, persona_id: int) -> bool:
@@ -152,18 +159,20 @@ def test_upgrade_stamps_normalises_and_leaves_alone_per_row(seeded_db):
     from alembic import command
 
     engine, config = seeded_db
+    before = _texts(engine)
     command.upgrade(config, KIND_REVISION)
     after = _configs(engine)
+    text = _texts(engine)
 
     assert after[1] == {"pose_tree": POSE_TREE, "kind": "pose_graph"}
-    assert after[1]["pose_tree"] == POSE_TREE, "the tree itself is byte-identical"
+    assert after[1]["pose_tree"] == POSE_TREE, "the tree itself is unchanged"
     assert after[2] is None and _sql_null(engine, 2)
     assert after[3] is None and _sql_null(engine, 3), "JSON null becomes SQL NULL"
     assert after[4] is None and _sql_null(engine, 4), "{} becomes SQL NULL"
-    assert after[5] == ROWS[5]
-    assert after[6] == ROWS[6]
+    # "Left alone" means the stored text did not change, not merely that it parses equal.
+    for untouched in (5, 6, 7, 8, 11):
+        assert text[untouched] == before[untouched], f"row {untouched} must be byte-identical"
     assert after[7] == ROWS[7], "no pose tree and no kind: left as-is, not guessed"
-    assert after[8] == "hello"
     assert after[9] == {**ROWS[9], "kind": "pose_graph"}
     assert after[10] == {**ROWS[10], "kind": "vrm"}
 
@@ -181,24 +190,31 @@ def test_downgrade_pops_kind_from_every_row_and_nothing_else(seeded_db):
     assert after[6] == {"vrm": VRM}, "a vrm row keeps its member and loses the selector"
     assert after[7] == ROWS[7]
     assert after[8] == "hello"
+    assert after[9] == ROWS[9], "the inferred kind comes off a both-members row too"
+    assert after[10] == ROWS[10], "and off a vrm-only row"
+    assert after[11] is None and _sql_null(engine, 11), "a row that held only the selector becomes NULL, not {}"
     # The rows normalised to SQL NULL are not restored: both read back as None.
     assert after[3] is None and after[4] is None
 
 
-def test_a_round_trip_is_byte_identical_for_pose_graphs_and_recovers_kind_for_vrm(seeded_db):
+def test_a_round_trip_keeps_stamped_rows_byte_identical_and_the_rest_equal(seeded_db):
     from alembic import command
 
     engine, config = seeded_db
     command.upgrade(config, KIND_REVISION)
-    once = _configs(engine)
+    once, once_text = _configs(engine), _texts(engine)
     command.downgrade(config, PRE_KIND_REVISION)
     command.upgrade(config, KIND_REVISION)
-    twice = _configs(engine)
+    twice, twice_text = _configs(engine), _texts(engine)
 
-    assert twice[1] == once[1]
+    # Rows the migration itself stamped come back byte for byte: the same code
+    # writes the same keys in the same order.
+    assert twice_text[1] == once_text[1]
+    assert twice_text[10] == once_text[10], "the vrm-only row is recognised again from its member"
+    # Rows seeded with `kind` first are re-serialised member-first: equal, not byte-identical.
     assert twice[5] == once[5]
-    assert twice[6] == once[6], "the vrm-only row is recognised again from its member"
-    assert twice[10] == once[10]
+    assert twice[6] == once[6]
+    assert twice[11] is None, "a kind-only row is NULL after the round trip"
     # The one thing a round trip cannot keep: which of two members was selected.
     # Row 9 held both and said vrm before the downgrade; it says pose_graph after.
     with engine.begin() as conn:

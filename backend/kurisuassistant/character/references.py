@@ -15,8 +15,9 @@ the directory went with them.
 
 import logging
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from kurisuassistant.character import paths
 from kurisuassistant.character.schema import KINDS
@@ -26,6 +27,24 @@ logger = logging.getLogger(__name__)
 URL_PREFIX = "/character-assets/"
 
 _PARTS = ("left_eye", "right_eye", "mouth")
+
+# The two reasons a member is refused, worded to finish the sentence
+# "character_config.<member> …" in a 422 detail. A client that sent a member of
+# the wrong shape and one that pointed at another persona's art need to be told
+# different things, and the desktop shows the detail verbatim.
+SHAPE = "is not the shape the clients write"
+FOREIGN = "names another persona's assets"
+
+# What ``take`` answers: ``None`` when the URL is fine, else why it is not.
+_Take = Callable[[object], Optional[str]]
+
+
+@dataclass(frozen=True)
+class Classification:
+    """What a config references — or, when ``refs`` is ``None``, why it could not be read."""
+
+    refs: Optional[set[str]]
+    refusal: Optional[str]
 
 
 def _own_ref(url: str, persona_id: Optional[int]) -> Optional[str]:
@@ -52,8 +71,8 @@ def _list_or_none(container: dict, key: str) -> Optional[list]:
     return value if isinstance(value, list) else None
 
 
-def referenced_paths(persona_id: Optional[int], config) -> Optional[set[str]]:
-    """Every asset a config references, as ``{persona_id}/{rel-without-suffix}``.
+def classify(persona_id: Optional[int], config) -> Classification:
+    """Every asset a config references, as ``{persona_id}/{rel-without-suffix}`` — or why not.
 
     Both members are walked whatever ``kind`` says: a persona keeps its pose art
     while it shows a VRM model and vice versa, so the files the other system
@@ -68,106 +87,116 @@ def referenced_paths(persona_id: Optional[int], config) -> Optional[set[str]]:
     exist yet (``POST /personas``), where any asset URL is foreign by definition.
     A URL outside ``/character-assets/`` is neither kept nor deleted: it is not
     ours.
+
+    A refusal names the member and the cause — ``SHAPE`` or ``FOREIGN`` — so the
+    write path can tell the client which of the two it got wrong, and whether it
+    was the body or a member the store already held.
     """
-    if not isinstance(config, dict) or config.get("kind") not in KINDS:
-        return None
+    if not isinstance(config, dict):
+        return Classification(None, "character_config must be an object.")
+    if config.get("kind") not in KINDS:
+        return Classification(None, 'character_config.kind must be "pose_graph" or "vrm".')
 
     refs: set[str] = set()
 
-    def _take(url) -> bool:
+    def _take(url) -> Optional[str]:
         if url is None or url == "":
-            return True
+            return None
         if not isinstance(url, str):
-            return False
+            return SHAPE
         if not url.startswith(URL_PREFIX):
-            return True
+            return None
         ref = _own_ref(url, persona_id)
         if ref is None:
-            return False
+            return FOREIGN
         refs.add(ref)
-        return True
+        return None
 
-    pose_tree = config.get("pose_tree")
-    if pose_tree is not None:
-        if not isinstance(pose_tree, dict):
-            return None
-        if not _walk_pose_tree(pose_tree, _take):
-            return None
-
-    vrm = config.get("vrm")
-    if vrm is not None:
-        if not isinstance(vrm, dict):
-            return None
-        if not _walk_vrm(vrm, _take):
-            return None
-    return refs
+    for member, walk in (("pose_tree", _walk_pose_tree), ("vrm", _walk_vrm)):
+        value = config.get(member)
+        if value is None:
+            continue
+        why = SHAPE if not isinstance(value, dict) else walk(value, _take)
+        if why is not None:
+            return Classification(None, f"character_config.{member} {why}.")
+    return Classification(refs, None)
 
 
-def _walk_pose_tree(pose_tree: dict, take) -> bool:
-    """Feed every pose-tree URL to ``take``; ``False`` when the shape or a URL is not ours."""
+def referenced_paths(persona_id: Optional[int], config) -> Optional[set[str]]:
+    """``classify`` without the reason: the set, or ``None`` when nothing may be deleted."""
+    return classify(persona_id, config).refs
+
+
+def _walk_pose_tree(pose_tree: dict, take: _Take) -> Optional[str]:
+    """Feed every pose-tree URL to ``take``; the reason when the shape or a URL is not ours."""
     nodes = _list_or_none(pose_tree, "nodes")
     edges = _list_or_none(pose_tree, "edges")
     if nodes is None or edges is None:
-        return False
+        return SHAPE
     for node in nodes:
         if not isinstance(node, dict):
-            return False
+            return SHAPE
         pc = node.get("pose_config")
         if pc is None:
             continue
         if not isinstance(pc, dict):
-            return False
-        if not take(pc.get("base_image_url")):
-            return False
+            return SHAPE
+        why = take(pc.get("base_image_url"))
+        if why is not None:
+            return why
         for part_key in _PARTS:
             part = pc.get(part_key)
             if part is None:
                 continue
             if not isinstance(part, dict):
-                return False
+                return SHAPE
             patches = _list_or_none(part, "patches")
             if patches is None:
-                return False
+                return SHAPE
             for patch in patches:
                 if not isinstance(patch, dict):
-                    return False
-                if not take(patch.get("image_url")):
-                    return False
+                    return SHAPE
+                why = take(patch.get("image_url"))
+                if why is not None:
+                    return why
     for edge in edges:
         if not isinstance(edge, dict):
-            return False
+            return SHAPE
         transitions = _list_or_none(edge, "transitions")
         if transitions is None:
-            return False
+            return SHAPE
         for transition in transitions:
             if not isinstance(transition, dict):
-                return False
+                return SHAPE
             video_urls = _list_or_none(transition, "video_urls")
             if video_urls is None:
-                return False
+                return SHAPE
             for vurl in video_urls:
-                if not take(vurl):
-                    return False
-    return True
+                why = take(vurl)
+                if why is not None:
+                    return why
+    return None
 
 
-def _walk_vrm(vrm: dict, take) -> bool:
-    """Feed the model and clip URLs to ``take``; ``False`` when the shape or a URL is not ours."""
+def _walk_vrm(vrm: dict, take: _Take) -> Optional[str]:
+    """Feed the model and clip URLs to ``take``; the reason when the shape or a URL is not ours."""
     model = vrm.get("model")
     if model is not None:
         if not isinstance(model, dict) or not isinstance(model.get("url"), str):
-            return False
-        if not take(model["url"]):
-            return False
+            return SHAPE
+        why = take(model["url"])
+        if why is not None:
+            return why
     clips = _list_or_none(vrm, "clips")
     if clips is None:
-        return False
+        return SHAPE
     for clip in clips:
         if not isinstance(clip, dict) or not isinstance(clip.get("url"), str):
-            return False
-        if not take(clip["url"]):
-            return False
-    return True
+            return SHAPE
+        why = take(clip["url"])
+        if why is not None:
+            return why
+    return None
 
 
 def file_to_ref_path(file_path: Path, persona_id: int) -> str:

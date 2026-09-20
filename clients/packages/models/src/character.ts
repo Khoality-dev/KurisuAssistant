@@ -146,7 +146,8 @@ export type GestureName = (typeof GESTURE_NAMES)[number];
 
 /**
  * SERVER-OWNED. Written by the model upload route in the transaction that accepts
- * the bytes; a value in a saved body is ignored and replaced by the stored one.
+ * the bytes. A saved body must leave it out, send null, or echo exactly what
+ * GET /personas returned (a partial echo is 422); the stored value wins either way.
  */
 export interface VrmAssetRef {
   url: string;          // '/character-assets/{persona_id}/vrm/model' — root-relative, extension-less
