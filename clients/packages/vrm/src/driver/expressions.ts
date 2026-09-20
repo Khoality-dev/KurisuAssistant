@@ -9,10 +9,17 @@
  * model has no `surprised` at all and `setValue` on a missing preset is a
  * silent no-op, so a cue for a preset the model lacks degrades to neutral.
  * And an expression may declare `overrideMouth`/`overrideBlink`, which
- * three-vrm honours by subtracting from the mouth and blink weights — a happy
- * face exported with `overrideMouth: block` would mute lip sync for its whole
- * hold, so such an expression is capped while the mouth or the eyelids are
- * busy. Pure: the model's table is read once at load and passed in.
+ * three-vrm honours by multiplying the mouth (or blink) presets by one minus
+ * the override amount — for `blend` that amount is the expression's weight,
+ * for `block` it is a step: any weight above zero mutes the channel entirely.
+ * So while speech plays, an expression that `block`s the mouth is driven to
+ * zero and one that `blend`s it is capped at `OVERRIDE_CAP`, and both changes
+ * go through the envelope rather than landing in one frame. The blink channel
+ * is handled once per expression, not once per blink: a `blend` override is
+ * capped for as long as the face is up (a per-blink cap would ramp the whole
+ * face down and up every two to six seconds), and a `block` override is the
+ * model author's choice that this face does not blink, which stands. Pure:
+ * the model's table is read once at load and passed in.
  */
 import type { EmotionCue, VrmEmotion, VrmEmotionSettings } from '@kurisu/models';
 import { VRM_EMOTIONS } from '@kurisu/models';
@@ -38,13 +45,28 @@ export interface ExpressionState {
 export interface ExpressionInputs {
   cue: EmotionCue | null;
   isThinking: boolean;
+  /** Speech is playing: an expression overriding the mouth is capped (blend) or driven to zero (block). */
   isPlaying: boolean;
-  /** The blink is closing or closed, so a `overrideBlink` expression is capped. */
-  blinkBusy: boolean;
 }
 
-/** The cap on an expression that would otherwise mute the mouth or the eyelids. */
+/** The cap on a `blend`-overriding expression while the channel it overrides is needed. */
 export const OVERRIDE_CAP = 0.6;
+
+/**
+ * The ceiling on one preset's envelope this frame, given what it overrides.
+ * Mouth: only while speech plays; `block` mutes the mouth at any weight, so
+ * its ceiling is zero. Blink: constant while the face is up, `block` untouched.
+ */
+export function overrideCeiling(emotion: VrmEmotion, model: ExpressionModel, isPlaying: boolean): number {
+  let ceiling = 1;
+  if (isPlaying) {
+    const mouth = model.overrideMouth[emotion];
+    if (mouth === 'block') ceiling = 0;
+    else if (mouth === 'blend') ceiling = Math.min(ceiling, OVERRIDE_CAP);
+  }
+  if (model.overrideBlink[emotion] === 'blend') ceiling = Math.min(ceiling, OVERRIDE_CAP);
+  return ceiling;
+}
 
 const ALL: readonly VrmEmotion[] = VRM_EMOTIONS;
 
@@ -90,7 +112,7 @@ export function stepExpressions(
   dtMs: number,
   model: ExpressionModel = FULL_MODEL,
 ): ExpressionState {
-  const dt = Math.max(0, dtMs);
+  const dt = Number.isFinite(dtMs) ? Math.max(0, dtMs) : 0;
   const rest = restingOf(settings, model);
   const enabled = settings.enabled !== false;
   let current = { ...prev.current };
@@ -120,13 +142,15 @@ export function stepExpressions(
   }
 
   // Envelopes: the current preset rises at the attack rate, every other falls
-  // at the release rate. A cue arriving mid-release therefore cross-fades.
+  // at the release rate. A cue arriving mid-release therefore cross-fades, and
+  // an override ceiling that drops (speech starts) is a release, not a pop.
   const attack = Math.max(1, settings.attack_ms ?? 180);
   const release = Math.max(1, settings.release_ms ?? 400);
   const weights = everyEmotion(0);
   for (const e of ALL) {
-    const target = e === current.emotion ? current.weight : 0;
-    const w = prev.weights[e] ?? 0;
+    const wanted = e === current.emotion ? current.weight : 0;
+    const target = e === 'neutral' ? wanted : Math.min(wanted, overrideCeiling(e, model, inputs.isPlaying));
+    const w = Number.isFinite(prev.weights[e]) ? prev.weights[e] : 0;
     const rate = target > w ? dt / attack : dt / release;
     const next = target > w ? Math.min(target, w + rate) : Math.max(target, w - rate);
     weights[e] = next;
@@ -136,14 +160,13 @@ export function stepExpressions(
 }
 
 /**
- * The weights to hand to the model this frame: intensity applied, overriding
- * expressions capped while the mouth or eyelids need their channel, and the
- * non-neutral sum clamped to one. Neutral takes whatever is left.
+ * The weights to hand to the model this frame: intensity applied and the
+ * non-neutral sum clamped to one. Neutral takes whatever is left. The override
+ * ceilings are already in the envelope, so nothing here can jump.
  */
 export function appliedWeights(
   state: ExpressionState,
   settings: VrmEmotionSettings,
-  inputs: Pick<ExpressionInputs, 'isPlaying' | 'blinkBusy'>,
   model: ExpressionModel = FULL_MODEL,
 ): Record<VrmEmotion, number> {
   const intensity = Math.max(0, Math.min(1, settings.intensity ?? 1));
@@ -151,9 +174,7 @@ export function appliedWeights(
   let sum = 0;
   for (const e of ALL) {
     if (e === 'neutral' || !model.available[e]) continue;
-    let w = state.weights[e] * intensity;
-    if (inputs.isPlaying && model.overrideMouth[e] !== 'none') w = Math.min(w, OVERRIDE_CAP);
-    if (inputs.blinkBusy && model.overrideBlink[e] !== 'none') w = Math.min(w, OVERRIDE_CAP);
+    const w = state.weights[e] * intensity;
     out[e] = w;
     sum += w;
   }

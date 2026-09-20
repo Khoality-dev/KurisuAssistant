@@ -39,6 +39,18 @@ describe('stepMouth', () => {
     expect(s.ou).toBeLessThan(s.aa);
   });
 
+  it('reads a NaN amplitude as silence and recovers a poisoned state', () => {
+    const open = settle(0.9, true, 40);
+    const nan = stepMouth(open, Number.NaN, true, 16);
+    expect(Number.isFinite(nan.aa)).toBe(true);
+    expect(nan.aa).toBeLessThan(open.aa);
+    const poisoned: MouthState = { aa: Number.NaN, ih: Number.NaN, ou: Number.NaN, phase: Number.NaN };
+    const healed = settle(0.5, true, 30, poisoned);
+    expect(Number.isFinite(healed.aa) && healed.aa > 0).toBe(true);
+    expect(settle(0.9, false, 60, poisoned)).toMatchObject({ aa: 0, ih: 0, ou: 0 });
+    expect(Number.isFinite(stepMouth(open, 0.5, true, Number.NaN).aa)).toBe(true);
+  });
+
   it('clamps a wild amplitude into 0..1', () => {
     expect(settle(7, true, 100).aa).toBeLessThanOrEqual(1);
     expect(settle(-3, true, 100).aa).toBe(0);

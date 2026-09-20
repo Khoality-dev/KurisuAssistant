@@ -48,20 +48,24 @@ export function stepMouth(
 ): MouthState {
   const attack = options.attackMs ?? DEFAULT_ATTACK_MS;
   const release = options.releaseMs ?? DEFAULT_RELEASE_MS;
-  const dt = Math.max(0, dtMs);
-  const target = isPlaying ? clamp01(amplitude) : 0;
-  const tau = target > prev.aa ? attack : release;
+  // A NaN from a missing curve window must not poison the state for good:
+  // it reads as silence, and a poisoned previous state reads as closed.
+  const dt = Number.isFinite(dtMs) ? Math.max(0, dtMs) : 0;
+  const prevAa = Number.isFinite(prev.aa) ? prev.aa : 0;
+  const prevPhase = Number.isFinite(prev.phase) ? prev.phase : 0;
+  const target = isPlaying && Number.isFinite(amplitude) ? clamp01(amplitude) : 0;
+  const tau = target > prevAa ? attack : release;
   const k = tau <= 0 ? 1 : 1 - Math.exp(-dt / tau);
-  let aa = prev.aa + (target - prev.aa) * k;
+  let aa = prevAa + (target - prevAa) * k;
 
   if (!isPlaying && aa < CLOSED) {
-    return { aa: 0, ih: 0, ou: 0, phase: prev.phase };
+    return { aa: 0, ih: 0, ou: 0, phase: prevPhase };
   }
 
   // A slow, deterministic wobble: two incommensurate rates so it never settles
   // into a visible loop. Only ever a fraction of `aa`, so the total opening is
   // still what the amplitude says.
-  const phase = prev.phase + (dt / 1000) * (2 * Math.PI * 0.9) * (0.6 + 0.8 * aa);
+  const phase = prevPhase + (dt / 1000) * (2 * Math.PI * 0.9) * (0.6 + 0.8 * aa);
   const ih = aa * 0.35 * (0.5 + 0.5 * Math.sin(phase));
   const ou = aa * 0.25 * (0.5 + 0.5 * Math.sin(phase * 0.61 + 1.3));
   aa = clamp01(aa);

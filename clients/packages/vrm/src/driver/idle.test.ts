@@ -92,6 +92,31 @@ describe('stepIdle', () => {
     expect(Math.max(...frames.map((f) => f.breathPitchRad))).toBeGreaterThan(maxPitch * 0.9);
   });
 
+  it('keeps the sway inside the configured amplitude', () => {
+    const { frames } = run(13, 20000, 16);
+    const maxYaw = (SETTINGS.sway_amplitude_deg * Math.PI) / 180;
+    for (const f of frames) expect(Math.abs(f.swayYawRad)).toBeLessThanOrEqual(maxYaw + 1e-9);
+    expect(Math.max(...frames.map((f) => Math.abs(f.swayYawRad)))).toBeGreaterThan(maxYaw * 0.8);
+  });
+
+  it('treats a blink timing of all zeros as no blinking, not a loop that never ends', () => {
+    const zero = { ...SETTINGS, blink: { blink_min_interval: 0, blink_max_interval: 0, blink_close_duration: 0, blink_hold_duration: 0, blink_open_duration: 0 } };
+    const { frames } = run(1, 200, 16, zero);
+    expect(frames.every((f) => f.blinkWeight === 0 && f.blinkPhase === 'open')).toBe(true);
+    // Zero durations with a real interval still terminate and still blink.
+    const instant = { ...SETTINGS, blink: { ...SETTINGS.blink, blink_close_duration: 0, blink_hold_duration: 0, blink_open_duration: 0 } };
+    expect(() => run(1, 2000, 16, instant)).not.toThrow();
+  });
+
+  it('takes a non-finite dt as a zero step', () => {
+    const state = createIdleState(4, SETTINGS);
+    const r = stepIdle(state, Number.NaN, SETTINGS);
+    expect(r.state.tMs).toBe(0);
+    expect(Number.isFinite(r.frame.breathPitchRad)).toBe(true);
+    const again = stepIdle({ ...state, tMs: Number.NaN }, 16, SETTINGS);
+    expect(again.state.tMs).toBe(16);
+  });
+
   it('turns everything but the blink off when procedural is false', () => {
     const { frames } = run(9, 200, 16, { ...SETTINGS, procedural: false });
     for (const f of frames) {

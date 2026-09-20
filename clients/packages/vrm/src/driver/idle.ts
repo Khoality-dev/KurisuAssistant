@@ -7,8 +7,10 @@
  * normalised rig copies rotations (and only the hips' position) onto the real
  * skeleton, so a scale written to a normalised bone renders nothing. And the
  * blink runs on the 2D rig's own timings (`BlinkTiming`), so a persona's two
- * characters blink alike. Deterministic for a seed; `dt` is clamped so a tab
- * that was hidden for a minute does not fling the spring bones on return.
+ * characters blink alike, and a timing of all zeros means no blinking rather
+ * than a loop that never ends. Deterministic for a seed; `dt` is clamped (and
+ * a non-finite one is a zero step) so a tab that was hidden for a minute does
+ * not fling the spring bones on return.
  */
 import type { BlinkTiming, VrmIdleSettings } from '@kurisu/models';
 
@@ -93,7 +95,18 @@ export function createIdleState(seed: number, settings: VrmIdleSettings): IdleSt
   };
 }
 
+/** A blink cycle with no length at all: every timing zero. Blinking is off, not a loop. */
+function blinkDisabled(timing: BlinkTiming): boolean {
+  const cycle =
+    Math.max(0, timing.blink_close_duration) + Math.max(0, timing.blink_hold_duration) + Math.max(0, timing.blink_open_duration)
+    + Math.max(0, timing.blink_min_interval, timing.blink_max_interval);
+  return !(cycle > 0);
+}
+
 function stepBlink(blink: BlinkState, rng: number, dt: number, timing: BlinkTiming): { blink: BlinkState; rng: number; weight: number } {
+  if (blinkDisabled(timing)) {
+    return { blink: { phase: 'open', elapsedMs: 0, untilNextMs: Infinity }, rng, weight: 0 };
+  }
   let { phase, elapsedMs, untilNextMs } = blink;
   let remaining = dt;
   let state = rng;
@@ -160,8 +173,8 @@ export function stepIdle(
   settings: VrmIdleSettings,
   inputs: IdleInputs = { attention: false },
 ): { state: IdleState; frame: IdleFrame } {
-  const dt = Math.min(Math.max(0, dtMs), MAX_IDLE_STEP_MS);
-  const tMs = prev.tMs + dt;
+  const dt = Number.isFinite(dtMs) ? Math.min(Math.max(0, dtMs), MAX_IDLE_STEP_MS) : 0;
+  const tMs = (Number.isFinite(prev.tMs) ? prev.tMs : 0) + dt;
   const timing = blinkTimingOf(settings);
 
   const b = stepBlink(prev.blink, prev.rng, dt, timing);
@@ -177,8 +190,10 @@ export function stepIdle(
   const breathPitchRad = procedural ? breathAmpRad * breath : 0;
   // 2 mm of bob per degree of chest pitch, in phase with the breath.
   const hipsBobM = procedural ? (settings.breath_amplitude_deg ?? 2) * 0.002 * breath : 0;
+  // Two incommensurate sines so the sway never reads as a loop, normalised so
+  // their sum peaks at exactly the configured amplitude.
   const swayYawRad = procedural
-    ? swayAmpRad * (Math.sin((2 * Math.PI * tMs) / swayPeriod) + 0.4 * Math.sin((2 * Math.PI * tMs) / (swayPeriod * 0.37) + 1))
+    ? (swayAmpRad / 1.4) * (Math.sin((2 * Math.PI * tMs) / swayPeriod) + 0.4 * Math.sin((2 * Math.PI * tMs) / (swayPeriod * 0.37) + 1))
     : 0;
   const swayRollRad = procedural ? 0.5 * swayAmpRad * Math.sin((2 * Math.PI * tMs) / (swayPeriod * 1.7)) : 0;
 

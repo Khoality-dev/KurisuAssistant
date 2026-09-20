@@ -9,9 +9,14 @@
  * uncompressed), is refused with a sentence rather than a stack trace.
  *
  * Parsed models are cached by `${url}@${sha256}` so switching personas back
- * and forth costs a scene swap, not a parse; the cache is the owner of a
- * model's GPU resources and `evictModel`/`clearModelCache` are the only
- * things that dispose them. A driver's `dispose` only lets go.
+ * and forth costs a scene swap, not a parse. A parsed model is one mutable
+ * scene graph, and three lets an object have one parent, so the cache hands
+ * each *instance* to one owner at a time: a driver acquires an instance (a
+ * free one, or its own from an earlier load), and a second live driver asking
+ * for the same key — the editor's preview beside the window — gets a second
+ * parse rather than stealing the first. The cache owns a model's GPU
+ * resources and `evictModel`/`clearModelCache` are the only things that
+ * dispose them; a driver's `dispose` only releases what it held.
  */
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
@@ -124,7 +129,7 @@ function str(value: unknown): string | null {
   return typeof value === 'string' && value.length ? value.slice(0, MAX_META) : null;
 }
 
-function summariseMeta(vrm: VRM): VrmMetaSummary {
+export function summariseMeta(vrm: VRM): VrmMetaSummary {
   const meta = vrm.meta as unknown as Record<string, unknown>;
   if (meta.metaVersion === '1') {
     const authors = Array.isArray(meta.authors) ? (meta.authors as unknown[]).map(str).filter((a): a is string => !!a) : [];
@@ -208,42 +213,186 @@ export const loadVrmClip: ClipLoader = async (bytes, source) => {
 
 // ─── The parsed-model cache ───
 
-const cache = new Map<string, Promise<LoadedModel>>();
+/** Who holds an instance: a driver's private token. */
+export type ModelOwner = symbol;
+
+interface Waiter {
+  owner: ModelOwner;
+  load: () => Promise<LoadedModel>;
+  signal: AbortSignal;
+}
+
+interface Instance {
+  key: string;
+  owner: ModelOwner | null;
+  model: LoadedModel | null;
+  /** The parse in flight, shared by every waiter on this instance. */
+  pending: Promise<LoadedModel> | null;
+  /** Callers still wanting the result; each brought its own fetch and signal. */
+  waiters: Set<Waiter>;
+}
+
+const instances = new Map<string, Instance[]>();
 
 export function modelCacheKey(url: string, sha256: string): string {
   return `${url}@${sha256}`;
 }
 
-/** The cached model for a key, loading it once if absent. A failed load is not cached. */
-export function cachedModel(key: string, load: () => Promise<LoadedModel>): Promise<LoadedModel> {
-  const hit = cache.get(key);
-  if (hit) return hit;
-  const pending = load().catch((error) => {
-    cache.delete(key);
-    throw error;
+function abortError(): Error {
+  const e = new Error('The character load was abandoned.');
+  e.name = 'AbortError';
+  return e;
+}
+
+function isAbort(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
+function disposeModel(model: LoadedModel): void {
+  model.vrm.scene.removeFromParent();
+  VRMUtils.deepDispose(model.vrm.scene);
+}
+
+function forget(inst: Instance): void {
+  const list = instances.get(inst.key);
+  if (!list) return;
+  const rest = list.filter((i) => i !== inst);
+  if (rest.length) instances.set(inst.key, rest);
+  else instances.delete(inst.key);
+}
+
+/**
+ * Run the parse for an instance. A waiter's own fetch may honour that
+ * waiter's signal, so when the parse dies of an abort while someone else is
+ * still waiting, the next waiter's fetch is tried; any other failure is
+ * everyone's. A parse that lands after every waiter has gone is dropped —
+ * nobody asked for it, and a model nobody references is a GPU leak.
+ */
+async function parse(inst: Instance): Promise<LoadedModel> {
+  for (;;) {
+    const next = [...inst.waiters].find((w) => !w.signal.aborted) ?? [...inst.waiters][0];
+    if (!next) {
+      forget(inst);
+      throw abortError();
+    }
+    let model: LoadedModel;
+    try {
+      model = await next.load();
+    } catch (error) {
+      if (isAbort(error) && [...inst.waiters].some((w) => w !== next && !w.signal.aborted)) {
+        inst.waiters.delete(next);
+        continue;
+      }
+      forget(inst);
+      throw error;
+    }
+    if (inst.waiters.size === 0 || [...inst.waiters].every((w) => w.signal.aborted)) {
+      disposeModel(model);
+      forget(inst);
+      throw abortError();
+    }
+    inst.model = model;
+    inst.pending = null;
+    return model;
+  }
+}
+
+/**
+ * The model for a key, held by `owner` until `releaseModel`. Rejects with an
+ * `AbortError` when `signal` fires first; the shared parse carries on for
+ * whoever else is waiting.
+ */
+export function acquireModel(
+  key: string,
+  owner: ModelOwner,
+  load: () => Promise<LoadedModel>,
+  signal: AbortSignal,
+): Promise<LoadedModel> {
+  if (signal.aborted) return Promise.reject(abortError());
+  const list = instances.get(key) ?? [];
+  let inst = list.find((i) => i.owner === owner) ?? list.find((i) => i.owner === null);
+  if (!inst) {
+    inst = { key, owner, model: null, pending: null, waiters: new Set() };
+    instances.set(key, [...list, inst]);
+  }
+  inst.owner = owner;
+  if (inst.model) return Promise.resolve(inst.model);
+
+  const waiter: Waiter = { owner, load, signal };
+  inst.waiters.add(waiter);
+  if (!inst.pending) inst.pending = parse(inst);
+  const pending = inst.pending;
+  const mine = inst;
+
+  // A waiter that gives up lets go of the claim — unless the same owner is
+  // still waiting on this instance through a newer load.
+  const letGo = () => {
+    mine.waiters.delete(waiter);
+    if (mine.owner === owner && ![...mine.waiters].some((w) => w.owner === owner)) mine.owner = null;
+  };
+
+  return new Promise<LoadedModel>((resolve, reject) => {
+    const onAbort = () => {
+      letGo();
+      reject(abortError());
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    pending.then(
+      (model) => {
+        signal.removeEventListener('abort', onAbort);
+        if (signal.aborted) {
+          letGo();
+          reject(abortError());
+        } else {
+          mine.waiters.delete(waiter);
+          resolve(model);
+        }
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        letGo();
+        reject(signal.aborted ? abortError() : error);
+      },
+    );
   });
-  cache.set(key, pending);
-  return pending;
 }
 
+/** Let go of the instance `owner` holds for `key`; the parse stays cached for the next load. */
+export function releaseModel(key: string, owner: ModelOwner): void {
+  for (const inst of instances.get(key) ?? []) {
+    if (inst.owner === owner) inst.owner = null;
+  }
+}
+
+/** Whether any instance of the key is parsed or parsing. */
 export function hasCachedModel(key: string): boolean {
-  return cache.has(key);
+  return (instances.get(key) ?? []).length > 0;
 }
 
-/** Drop one model and free its GPU resources. The caller must not be drawing it. */
+/** How many parsed instances of a key exist — one per driver that drew it at the same time. */
+export function cachedInstanceCount(key: string): number {
+  return (instances.get(key) ?? []).filter((i) => i.model).length;
+}
+
+/** Drop every instance of a key and free its GPU resources. The callers must not be drawing it. */
 export async function evictModel(key: string): Promise<void> {
-  const pending = cache.get(key);
-  cache.delete(key);
-  if (!pending) return;
-  try {
-    const loaded = await pending;
-    loaded.vrm.scene.removeFromParent();
-    VRMUtils.deepDispose(loaded.vrm.scene);
-  } catch {
-    // a load that failed owns nothing
+  const list = instances.get(key) ?? [];
+  instances.delete(key);
+  for (const inst of list) {
+    if (inst.model) {
+      disposeModel(inst.model);
+      inst.model = null;
+    } else if (inst.pending) {
+      try {
+        const model = await inst.pending;
+        disposeModel(model);
+      } catch {
+        // a load that failed owns nothing
+      }
+    }
   }
 }
 
 export async function clearModelCache(): Promise<void> {
-  await Promise.all([...cache.keys()].map(evictModel));
+  await Promise.all([...instances.keys()].map(evictModel));
 }

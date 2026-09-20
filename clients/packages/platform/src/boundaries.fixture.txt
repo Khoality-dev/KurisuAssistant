@@ -1,0 +1,4 @@
+// A fixture for boundaries.test.ts: three spellings of an import the scan must see.
+import * as THREE from 'three';
+const lazy = () => import('@pixiv/three-vrm');
+const loader = require('three/examples/jsm/loaders/GLTFLoader.js');

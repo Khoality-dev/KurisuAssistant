@@ -47,12 +47,15 @@ shapes and nothing about a host, a server, a store or a screen.
   have one, and nothing may import `ui` but an app.
 - **three.js is `vrm`'s alone.** `three` and `@pixiv/three-vrm*` are pinned to exact
   versions in `packages/vrm/package.json` (three 0.186.x, the pixiv packages 3.5.5,
-  whose peer range is `three >= 0.137`) and no other package may import them: a
-  WebGL engine is the heaviest thing a client carries, `ui` reaches it through a
-  dynamic import after `supportsWebGL()` says the display can draw, and the Android
-  page bundle is built from `vrm` alone. The driver contract both character kinds
-  implement — `CharacterDriver` in `models/src/characterDriver.ts` — names no canvas,
-  and `@kurisu/vrm/testing` exports the conformance cases every driver must pass.
+  whose peer range is `three >= 0.137`) and no other member — package or app — may
+  import them, statically, lazily or by `require`: a WebGL engine is the heaviest
+  thing a client carries. `ui` asks `supportsWebGL()` from `@kurisu/vrm/probe` (an
+  entry that imports nothing) and only then reaches the engine through a dynamic
+  import of `@kurisu/vrm`; nothing below `ui` may import `@kurisu/vrm` at all; and the
+  Android page bundle is built from `vrm` alone. The driver contract both character
+  kinds implement — `CharacterDriver` in `models/src/characterDriver.ts` — names no
+  canvas, and `@kurisu/vrm/testing` exports the conformance cases every driver must
+  pass, with a `probe` so they check what a driver did, not only that it did not throw.
 - **Every package declares `typecheck` and `test`.** The root scripts fan out with
   `--if-present`, so a member without them is skipped silently and green; the
   boundary test refuses that.

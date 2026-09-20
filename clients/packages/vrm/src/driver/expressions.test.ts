@@ -14,7 +14,7 @@ import {
 } from './expressions';
 
 const SETTINGS: VrmEmotionSettings = { enabled: true, default_expression: 'neutral', intensity: 1, attack_ms: 180, release_ms: 400, thinking: 'relaxed' };
-const QUIET: ExpressionInputs = { cue: null, isThinking: false, isPlaying: false, blinkBusy: false };
+const QUIET: ExpressionInputs = { cue: null, isThinking: false, isPlaying: false };
 
 function advance(state: ExpressionState, inputs: ExpressionInputs, ms: number, settings = SETTINGS, model = FULL_MODEL): ExpressionState {
   let s = state;
@@ -38,7 +38,7 @@ describe('stepExpressions', () => {
     s = stepExpressions(s, { ...QUIET, cue: { emotion: 'sad', hold_ms: 5000 } }, SETTINGS, 16);
     for (let i = 0; i < 40; i++) {
       s = stepExpressions(s, QUIET, SETTINGS, 16);
-      const w = appliedWeights(s, SETTINGS, QUIET);
+      const w = appliedWeights(s, SETTINGS);
       expect(nonNeutralSum(w)).toBeLessThanOrEqual(1 + 1e-9);
       expect(w.neutral).toBeGreaterThanOrEqual(0);
     }
@@ -70,24 +70,62 @@ describe('stepExpressions', () => {
     s = advance(s, { ...QUIET, cue: { emotion: 'surprised', hold_ms: 5000 } }, 300, SETTINGS, vrm0);
     expect(s.current.emotion).toBe('neutral');
     expect(s.weights.surprised).toBe(0);
-    const w = appliedWeights(s, SETTINGS, QUIET, vrm0);
+    const w = appliedWeights(s, SETTINGS, vrm0);
     expect(w.surprised).toBe(0);
     expect(w.neutral).toBeCloseTo(1, 5);
   });
 
-  it('caps an overrideMouth expression while speech plays, and lifts the cap after', () => {
+  it('drives an overrideMouth: block expression to zero while speech plays, and lifts it after', () => {
+    // three-vrm mutes the mouth entirely for `block` at any weight above zero,
+    // so the only weight that keeps lip sync alive is none at all.
     const model: ExpressionModel = { ...FULL_MODEL, overrideMouth: { ...everyEmotion<'none' | 'block' | 'blend'>('none'), happy: 'block' } };
     let s = createExpressionState(SETTINGS, model);
     s = advance(s, { ...QUIET, cue: { emotion: 'happy', hold_ms: 9000 } }, 400, SETTINGS, model);
-    expect(appliedWeights(s, SETTINGS, { isPlaying: true, blinkBusy: false }, model).happy).toBeCloseTo(OVERRIDE_CAP, 5);
-    expect(appliedWeights(s, SETTINGS, { isPlaying: false, blinkBusy: false }, model).happy).toBeCloseTo(1, 5);
+    expect(appliedWeights(s, SETTINGS, model).happy).toBeCloseTo(1, 5);
+    s = advance(s, { ...QUIET, isPlaying: true }, 600, SETTINGS, model);
+    expect(appliedWeights(s, SETTINGS, model).happy).toBe(0);
+    s = advance(s, QUIET, 400, SETTINGS, model);
+    expect(appliedWeights(s, SETTINGS, model).happy).toBeCloseTo(1, 5);
   });
 
-  it('caps an overrideBlink expression while the eyelids are busy', () => {
-    const model: ExpressionModel = { ...FULL_MODEL, overrideBlink: { ...everyEmotion<'none' | 'block' | 'blend'>('none'), sad: 'blend' } };
+  it('caps an overrideMouth: blend expression at OVERRIDE_CAP while speech plays', () => {
+    const model: ExpressionModel = { ...FULL_MODEL, overrideMouth: { ...everyEmotion<'none' | 'block' | 'blend'>('none'), happy: 'blend' } };
+    let s = createExpressionState(SETTINGS, model);
+    s = advance(s, { ...QUIET, cue: { emotion: 'happy', hold_ms: 9000 } }, 400, SETTINGS, model);
+    s = advance(s, { ...QUIET, isPlaying: true }, 600, SETTINGS, model);
+    expect(appliedWeights(s, SETTINGS, model).happy).toBeCloseTo(OVERRIDE_CAP, 5);
+  });
+
+  it('ramps the cap through the envelope instead of popping', () => {
+    const model: ExpressionModel = { ...FULL_MODEL, overrideMouth: { ...everyEmotion<'none' | 'block' | 'blend'>('none'), happy: 'block' } };
+    let s = createExpressionState(SETTINGS, model);
+    s = advance(s, { ...QUIET, cue: { emotion: 'happy', hold_ms: 9000 } }, 400, SETTINGS, model);
+    const before = s.weights.happy;
+    s = stepExpressions(s, { ...QUIET, isPlaying: true }, SETTINGS, 16, model);
+    // One frame of release at 400 ms: at most 16/400 of the way down.
+    expect(before - s.weights.happy).toBeCloseTo(16 / 400, 5);
+    expect(s.weights.happy).toBeGreaterThan(0.9);
+  });
+
+  it('caps an overrideBlink: blend expression for as long as it is up, and leaves block to the model', () => {
+    // A per-blink cap would ramp the whole face every two to six seconds;
+    // a constant cap keeps some blink, and `block` is the author's choice.
+    const model: ExpressionModel = {
+      ...FULL_MODEL,
+      overrideBlink: { ...everyEmotion<'none' | 'block' | 'blend'>('none'), sad: 'blend', angry: 'block' },
+    };
     let s = createExpressionState(SETTINGS, model);
     s = advance(s, { ...QUIET, cue: { emotion: 'sad', hold_ms: 9000 } }, 400, SETTINGS, model);
-    expect(appliedWeights(s, SETTINGS, { isPlaying: false, blinkBusy: true }, model).sad).toBeCloseTo(OVERRIDE_CAP, 5);
+    expect(appliedWeights(s, SETTINGS, model).sad).toBeCloseTo(OVERRIDE_CAP, 5);
+    s = createExpressionState(SETTINGS, model);
+    s = advance(s, { ...QUIET, cue: { emotion: 'angry', hold_ms: 9000 } }, 400, SETTINGS, model);
+    expect(appliedWeights(s, SETTINGS, model).angry).toBeCloseTo(1, 5);
+  });
+
+  it('treats a non-finite dt or a poisoned weight as zero', () => {
+    let s = createExpressionState(SETTINGS);
+    s = stepExpressions({ ...s, weights: { ...s.weights, happy: Number.NaN } }, { ...QUIET, cue: { emotion: 'happy', hold_ms: 100 } }, SETTINGS, Number.NaN);
+    for (const w of Object.values(s.weights)) expect(Number.isFinite(w)).toBe(true);
   });
 
   it('shows the thinking face while thinking and lets a cue outrank it', () => {
@@ -101,7 +139,7 @@ describe('stepExpressions', () => {
   it('scales every weight by intensity', () => {
     let s = createExpressionState(SETTINGS);
     s = advance(s, { ...QUIET, cue: { emotion: 'happy', hold_ms: 5000 } }, 400);
-    expect(appliedWeights(s, { ...SETTINGS, intensity: 0.4 }, QUIET).happy).toBeCloseTo(0.4, 5);
+    expect(appliedWeights(s, { ...SETTINGS, intensity: 0.4 }).happy).toBeCloseTo(0.4, 5);
   });
 
   it('ignores cues and the thinking face when the channel is disabled', () => {

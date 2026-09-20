@@ -4,6 +4,9 @@
  * Asked BEFORE the three.js chunk is imported: on a machine without hardware
  * graphics, and under happy-dom where `getContext()` is always null, the
  * surface shows a sentence instead of a black box and never loads the engine.
+ * Reached as `@kurisu/vrm/probe` — this file imports nothing, and the package
+ * root is not the way in, because that would carry the engine with the
+ * question.
  */
 export function supportsWebGL(canvas: HTMLCanvasElement): boolean {
   try {
