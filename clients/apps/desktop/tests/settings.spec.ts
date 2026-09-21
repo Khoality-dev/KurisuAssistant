@@ -107,16 +107,29 @@ test.describe('settings', () => {
     await openSettings(page);
     await page.getByText('Account', { exact: true }).first().click();
 
-    // The app's number is `app.getVersion()` of the built app — package.json's
-    // 0.0.1 in this suite — and the backend's is what the mock reports (#257).
-    await expect(page.getByTestId('version-row-app')).toHaveText('App: v0.0.1');
+    // The app's number is package.json's, baked in at build time; the mock
+    // reports the same one by default, so the two agree and nothing is said
+    // about a mismatch (#257).
+    await expect(page.getByTestId('version-row-app')).toHaveText(`App: v${MOCK_BACKEND_VERSION}`);
     await expect(page.getByTestId('version-row-backend')).toHaveText(`Backend: v${MOCK_BACKEND_VERSION}`);
     await expect(page.getByTestId('version-row-protocol')).toHaveText(
       `Protocol: ${WIRE_PROTOCOL} (backend ${WIRE_PROTOCOL})`,
     );
-    // Those two are different releases, so the sentence is shown.
+    await expect(page.getByTestId('version-mismatch')).toHaveCount(0);
+  });
+
+  test('account section says plainly when the backend is another release', async ({ page, mock }) => {
+    // `mock` starts before Electron boots, so this is what `/version` says first.
+    mock.setBackendVersion('9.9.9');
+    await page.reload();
+
+    await login(page);
+    await openSettings(page);
+    await page.getByText('Account', { exact: true }).first().click();
+
+    await expect(page.getByTestId('version-row-backend')).toHaveText('Backend: v9.9.9');
     await expect(page.getByTestId('version-mismatch')).toHaveText(
-      `This app is v0.0.1; the backend is v${MOCK_BACKEND_VERSION} — update whichever is behind.`,
+      `This app is v${MOCK_BACKEND_VERSION}; the backend is v9.9.9 — update whichever is behind.`,
     );
   });
 });
