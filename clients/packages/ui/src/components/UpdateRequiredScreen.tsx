@@ -18,7 +18,7 @@ interface Props {
 }
 
 /** The sentence under the offer, for each state of the flow. Exported so the states are a test. */
-export function describeUpdateState(state: UpdateFlowState, appVersion: string | null | undefined): string | null {
+export function describeUpdateState(state: UpdateFlowState): string | null {
   switch (state.status) {
     case 'idle':
       return null;
@@ -49,7 +49,7 @@ export const UpdateRequiredScreen: React.FC<Props> = ({ info, appVersion, onChan
   const offerUpdate = side !== 'server';
   const selfUpdating = flow.hasUpdater && flow.canSelfUpdate !== false;
   const busy = flow.state.status === 'checking' || flow.state.status === 'downloading';
-  const note = describeUpdateState(flow.state, appVersion);
+  const note = describeUpdateState(flow.state);
 
   const openReleases = () => {
     void resolveBridge().openExternal(RELEASES_URL);

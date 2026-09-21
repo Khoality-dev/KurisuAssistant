@@ -136,15 +136,15 @@ describe('UpdateRequiredScreen', () => {
 
 describe('describeUpdateState', () => {
   it('has a sentence for every resting state and none for idle', () => {
-    expect(describeUpdateState({ status: 'idle' }, '0.7.0')).toBeNull();
-    expect(describeUpdateState({ status: 'checking' }, '0.7.0')).toBe('Checking for a newer release…');
-    expect(describeUpdateState({ status: 'available', version: '1.0.0' }, '0.7.0')).toBe('Version 1.0.0 is available.');
-    expect(describeUpdateState({ status: 'downloading', version: null, percent: 7.6 }, '0.7.0')).toBe('Downloading the update… 8%');
-    expect(describeUpdateState({ status: 'ready', version: '1.0.0' }, '0.7.0')).toBe('Version 1.0.0 is downloaded. Restart to finish.');
-    expect(describeUpdateState({ status: 'none', version: null }, '0.7.0')).toBe(
+    expect(describeUpdateState({ status: 'idle' })).toBeNull();
+    expect(describeUpdateState({ status: 'checking' })).toBe('Checking for a newer release…');
+    expect(describeUpdateState({ status: 'available', version: '1.0.0' })).toBe('Version 1.0.0 is available.');
+    expect(describeUpdateState({ status: 'downloading', version: null, percent: 7.6 })).toBe('Downloading the update… 8%');
+    expect(describeUpdateState({ status: 'ready', version: '1.0.0' })).toBe('Version 1.0.0 is downloaded. Restart to finish.');
+    expect(describeUpdateState({ status: 'none', version: null })).toBe(
       'No newer release was found. The server is what has to be updated.',
     );
-    expect(describeUpdateState({ status: 'unavailable', reason: 'why' }, '0.7.0')).toBe('why');
-    expect(describeUpdateState({ status: 'error', message: 'boom' }, '0.7.0')).toBe('boom');
+    expect(describeUpdateState({ status: 'unavailable', reason: 'why' })).toBe('why');
+    expect(describeUpdateState({ status: 'error', message: 'boom' })).toBe('boom');
   });
 });

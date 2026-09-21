@@ -19,7 +19,6 @@ import type {
   MCPAPI,
   McpServerAPI,
   UpdaterAPI,
-  UpdateCheckResult,
 } from './types';
 import { webBridge } from './web';
 
