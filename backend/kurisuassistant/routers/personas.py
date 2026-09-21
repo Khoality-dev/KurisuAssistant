@@ -170,8 +170,8 @@ async def create_persona(
     _reject_reserved(body.name)
 
     # A persona that does not exist yet owns no assets, so a config that names
-    # any is refused; null and an asset-free pose tree pass.
-    plan_character_config(None, body.character_config)
+    # any is refused; null and a config referencing no file pass, normalised.
+    character_config = plan_character_config(None, body.character_config).config
 
     def _create(session):
         persona_repo = PersonaRepository(session)
@@ -184,7 +184,7 @@ async def create_persona(
             preferred_name=body.preferred_name,
             voice_reference=body.voice_reference,
             avatar_uuid=body.avatar_uuid,
-            character_config=body.character_config,
+            character_config=character_config,
             enabled=body.enabled,
         )
         _adopt_as_default_if_unset(session, user.id, persona.id)
@@ -236,23 +236,27 @@ async def update_persona(
 ) -> PersonaResponse:
     """Update a persona. Omitted fields are untouched; an explicit null clears.
 
-    ``character_config`` goes through the same classification and cleanup as
-    the character-config route: refused before the write when it cannot be
-    classified, and the files it no longer names are removed after the write.
+    ``character_config`` goes through the same merge, classification and
+    cleanup as the character-config route: merged member by member over what
+    is stored, refused before the write when it cannot be classified, and the
+    files it no longer names are removed after the write.
     """
     _reject_reserved(body.name)
     fields = _update_fields(body)
-    referenced = (
-        plan_character_config(persona_id, fields["character_config"])
-        if "character_config" in fields
-        else None
-    )
+    planned: dict = {}
 
     def _update(session):
         persona_repo = PersonaRepository(session)
         persona = persona_repo.get_by_user_and_id(user.id, persona_id)
         if not persona:
             raise HTTPException(status_code=404, detail="Persona not found")
+
+        if "character_config" in fields:
+            plan = plan_character_config(
+                persona_id, fields["character_config"], persona.character_config
+            )
+            fields["character_config"] = plan.config
+            planned["referenced"] = plan.referenced
 
         if "avatar_uuid" in fields:
             _reject_unowned_avatar(session, user.id, fields["avatar_uuid"])
@@ -268,8 +272,8 @@ async def update_persona(
 
     db = get_db_service()
     result = await db.execute(_update)
-    if referenced is not None:
-        await cleanup_after_write(persona_id, referenced)
+    if "referenced" in planned:
+        await cleanup_after_write(persona_id, planned["referenced"])
     return result
 
 

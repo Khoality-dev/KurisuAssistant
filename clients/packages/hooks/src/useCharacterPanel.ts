@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiClient, storage } from '@kurisu/api';
-import type { AmplitudeState, Message, PoseTree } from '@kurisu/models';
+import { parseCharacterConfig, type AmplitudeState, type Message, type PoseTree } from '@kurisu/models';
 import { resolveBridge } from '@kurisu/platform';
 import { greetCharacterWindow } from './characterSession';
 
@@ -40,14 +40,16 @@ export function useCharacterPanel({
     if (!forceRefresh && personaCacheRef.current.has(personaId)) return;
     personaCacheRef.current.add(personaId);
     apiClient.getPersona(personaId).then((persona) => {
-      const cc = persona.character_config;
-      const poseTree = cc?.pose_tree ?? null;
+      // The window draws pose graphs only; a persona showing its VRM model
+      // reads as "no avatar" here until the 3D renderer lands (#240).
+      const cfg = parseCharacterConfig(persona.character_config);
+      const poseTree = cfg?.kind === 'pose_graph' ? cfg.poseTree : null;
       // Migrate legacy video_url to video_urls on edges
       if (poseTree?.edges) {
         for (const e of poseTree.edges) {
           const raw = e as any;
           if (raw.video_url && !raw.video_urls?.length) {
-            e.video_urls = [raw.video_url];
+            raw.video_urls = [raw.video_url];
             delete raw.video_url;
           }
         }

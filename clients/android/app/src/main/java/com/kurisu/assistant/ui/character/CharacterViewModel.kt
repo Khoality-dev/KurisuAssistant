@@ -9,7 +9,9 @@ import com.kurisu.assistant.data.remote.websocket.WebSocketManager
 import com.kurisu.assistant.data.repository.AssistantRepository
 import com.kurisu.assistant.data.repository.PersonaRepository
 import com.kurisu.assistant.domain.character.CharacterCompositor
+import com.kurisu.assistant.domain.character.CharacterConfigKind
 import com.kurisu.assistant.domain.character.CompositorState
+import com.kurisu.assistant.domain.character.unrenderableMessage
 import com.kurisu.assistant.data.local.EncryptedPreferences
 import com.kurisu.assistant.domain.character.ImageCache
 import com.kurisu.assistant.domain.chat.ChatStreamProcessor
@@ -18,7 +20,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.JsonObject
 import javax.inject.Inject
 
 data class CharacterUiState(
@@ -122,16 +124,7 @@ class CharacterViewModel @Inject constructor(
                 }
                 boundPersonaId = resolvedId
 
-                val configJson = personaRepository.getPersona(resolvedId).characterConfig?.toString()
-                if (configJson == null) {
-                    _state.update { it.copy(
-                        isLoaded = false,
-                        isLoading = false,
-                        error = "This persona has no character configured.",
-                    ) }
-                    return@launch
-                }
-                loadCharacterConfig(configJson)
+                loadCharacterConfig(personaRepository.getPersona(resolvedId).characterConfig)
             } catch (e: Exception) {
                 android.util.Log.e("CharacterVM", "Failed to load character config", e)
                 boundPersonaId = null
@@ -140,22 +133,22 @@ class CharacterViewModel @Inject constructor(
         }
     }
 
-    fun loadCharacterConfig(configJson: String) {
+    /**
+     * Draw what the config names, or say why not. Only a pose graph is drawn on
+     * this build; a VRM persona is recognised and reported as such (#235), so the
+     * sheet no longer contradicts a persona list that says "3D character".
+     */
+    fun loadCharacterConfig(config: JsonObject?) {
         viewModelScope.launch {
             try {
                 val baseUrl = prefs.getBackendUrl()
-                // Parse the pose_tree from the character_config JSON
-                val jsonObj = json.parseToJsonElement(configJson).jsonObject
-                val poseTreeJson = jsonObj["pose_tree"]
-                if (poseTreeJson == null) {
-                    _state.update { it.copy(
-                        isLoaded = false,
-                        isLoading = false,
-                        error = "This persona has no character configured.",
-                    ) }
+                val kind = CharacterConfigKind.of(config)
+                val cannotDraw = kind.unrenderableMessage()
+                if (cannotDraw != null || config == null) {
+                    _state.update { it.copy(isLoaded = false, isLoading = false, error = cannotDraw) }
                     return@launch
                 }
-                val poseTree = json.decodeFromJsonElement(PoseTree.serializer(), poseTreeJson)
+                val poseTree = json.decodeFromJsonElement(PoseTree.serializer(), config.getValue("pose_tree"))
                 compositor.loadPoseTree(poseTree, baseUrl)
                 _state.update { it.copy(isLoaded = true, isLoading = false, error = null) }
             } catch (e: Exception) {

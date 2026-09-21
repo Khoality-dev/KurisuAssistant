@@ -417,14 +417,20 @@ async def update_character_config(
     config: dict,
     user: User = Depends(get_authenticated_user)
 ):
-    """Update a persona's character animation config (pose tree).
+    """Save a persona's character config: which system it uses, and that system's settings.
 
-    Files the new config no longer references are removed — after the row is
-    written, and only when the config could be classified. A body that is not a
-    pose-tree config, or that points at another persona's assets, is refused
-    with 422 and nothing on disk is touched (``kurisuassistant/character/``).
+    The body is merged over what is stored, member by member (``kind`` replaced;
+    ``pose_tree`` and ``vrm`` kept when absent, cleared when ``null``), so the
+    graph editor's autosave cannot erase VRM settings it knows nothing about.
+    Files the merged config no longer references are removed — after the row is
+    written, and only when the config could be classified. A body without a
+    recognised ``kind``, a member that is not the shape the clients write, or a
+    member pointing at another persona's assets is refused with 422 — the detail
+    names the member and the cause — and nothing on disk is touched
+    (``kurisuassistant/character/``).
     """
     await _require_persona(user.id, persona_id)
+    planned: dict = {}
 
     def _update_config(session):
         persona_repo = PersonaRepository(session)
@@ -433,14 +439,15 @@ async def update_character_config(
         if not persona:
             raise HTTPException(status_code=404, detail="Persona not found")
 
-        persona = persona_repo.update_persona(persona, character_config=config)
+        plan = plan_character_config(persona_id, config, persona.character_config)
+        planned["referenced"] = plan.referenced
+        persona = persona_repo.update_persona(persona, character_config=plan.config)
         return {
             "message": "Character config updated",
             "character_config": persona.character_config,
         }
 
-    referenced = plan_character_config(persona_id, config)
     db = get_db_service()
     result = await db.execute(_update_config)
-    await cleanup_after_write(persona_id, referenced)
+    await cleanup_after_write(persona_id, planned["referenced"])
     return result

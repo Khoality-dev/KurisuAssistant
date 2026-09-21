@@ -25,9 +25,17 @@ import { AnimatePresence } from 'framer-motion';
 import { apiClient } from '@kurisu/api';
 import { usePersonaStore } from '@kurisu/state';
 import { storage } from '@kurisu/api';
-import type { Persona } from '@kurisu/models';
+import { parseCharacterConfig, type Persona } from '@kurisu/models';
 import { ResourceCard } from './ResourceCard';
 import { PersonaEditDialog } from './PersonaEditDialog';
+
+/** The card's one word for the character: which system the persona shows, if any. */
+function characterLabel(config: Persona['character_config']): string | null {
+  const parsed = parseCharacterConfig(config);
+  if (!parsed) return null;
+  if (parsed.kind === 'vrm') return '3D model';
+  return parsed.poseTree ? 'pose graph' : null;
+}
 
 /**
  * Personas: how the assistant sounds. A name, a prompt, a voice, a face — and
@@ -256,7 +264,7 @@ export const PersonasSection: React.FC = () => {
                     body={persona.system_prompt || 'No system prompt set'}
                     meta={[
                       persona.voice_reference ? `voice: ${persona.voice_reference}` : null,
-                      persona.character_config ? 'character graph' : null,
+                      characterLabel(persona.character_config),
                     ]}
                     badge={persona.id === defaultPersonaId
                       ? <Chip label="Default" size="small" color="primary" />

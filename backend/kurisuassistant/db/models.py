@@ -133,7 +133,11 @@ class Persona(Base):
     # Presentation
     voice_reference = Column(String, nullable=True)
     avatar_uuid = Column(String, nullable=True)
-    character_config = Column(JSON, nullable=True)
+    # `{kind, pose_tree?, vrm?}` — see kurisuassistant/character/schema.py. A Python
+    # None lands as SQL NULL: with SQLAlchemy's default (none_as_null=False) it was
+    # stored as the JSON literal `null`, so every persona created through the API
+    # carried a non-NULL column that read back as None.
+    character_config = Column(JSON(none_as_null=True), nullable=True)
     preferred_name = Column(Text, nullable=True)  # what this persona calls the *user*
 
     enabled = Column(Boolean, default=True, nullable=False)

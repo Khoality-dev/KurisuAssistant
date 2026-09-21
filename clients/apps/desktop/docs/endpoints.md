@@ -21,7 +21,7 @@ The REST and WebSocket surface this client calls. The contract itself lives in t
 - `POST /character-assets/upload-video?persona_id=&edge_id=` — Upload transition video → `{persona_id}/edges/{edge_id}.mp4|.webm`
 - `GET /character-assets/{persona_id}/{pose_id}/{filename}` — Serve pose asset (base/patch image, no-cache)
 - `GET /character-assets/{persona_id}/edges/{edge_id}` — Serve transition video (no-cache)
-- `PATCH /character-assets/{persona_id}/character-config` — Update pose tree config (cleans up orphaned assets incl. videos)
+- `PATCH /character-assets/{persona_id}/character-config` — Merge `{kind, pose_tree?, vrm?}` over the stored character config (a member left out is kept, `null` clears it); sweeps the files neither member references afterwards (see character.md)
 - `POST /character-assets/{persona_id}/migrate-ids` — Rename asset files/folders on disk to match migrated IDs
 - `GET /faces`, `POST /faces`, `GET /faces/{id}`, `DELETE /faces/{id}` — Face identity CRUD
 - `POST /faces/{id}/photos`, `DELETE /faces/{id}/photos/{photo_id}` — Face photo management
