@@ -1,52 +1,44 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { apiClient, storage } from '@kurisu/api';
-import { parseCharacterConfig, type AmplitudeState, type Message, type PoseTree } from '@kurisu/models';
-import { resolveBridge } from '@kurisu/platform';
-import { greetCharacterWindow } from './characterSession';
-
-interface PersonaEntry { name: string; poseTree: PoseTree | null }
+import { useEffect, useRef, useCallback } from 'react';
+import { apiClient } from '@kurisu/api';
+import { parseCharacterConfig, type Message } from '@kurisu/models';
+import { characterSurfaceWanted, publishSubtitle, useCharacterStore } from '@kurisu/state';
 
 interface UseCharacterPanelParams {
-  characterWindowOpen: boolean;
   messages: Message[];
   currentConversationId: number | null;
 }
 
-export function useCharacterPanel({
-  characterWindowOpen,
-  messages,
-  currentConversationId,
-}: UseCharacterPanelParams) {
-  // Amplitude state (updated via ref to avoid re-renders, sent to character window via IPC)
-  const amplitudeRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false, isThinking: false });
-  const onAmplitudeUpdate = useCallback((amplitude: number, isPlaying: boolean) => {
-    amplitudeRef.current = { ...amplitudeRef.current, amplitude, isPlaying };
-  }, []);
-
-  // Character panel state for every persona seen in the conversation
-  const [personaMap, setPersonaMap] = useState<Map<number, PersonaEntry>>(new Map());
-  const [activePersonaId, setActivePersonaId] = useState<number | null>(null);
+/**
+ * Which personas are in the conversation and which one is speaking, kept in
+ * the character store for whatever surface is showing (#238).
+ *
+ * This is the producer of the persona half of the feed and nothing else:
+ * speech, thinking, gestures and faces are written by their own producers,
+ * and the IPC mirror to the second window is `useCharacterBridgeSync`. A
+ * persona's config is fetched the first time it appears in the conversation,
+ * again (bypassing the cache) when it starts speaking, and again when the
+ * editor saves it.
+ */
+export function useCharacterPanel({ messages, currentConversationId }: UseCharacterPanelParams) {
+  const wanted = useCharacterStore(characterSurfaceWanted);
   const personaCacheRef = useRef<Set<number>>(new Set()); // IDs already fetched
 
-  // Subtitle: send TTS segment text + duration to character window for word-by-word reveal
+  // Subtitle: the sentence about to play and how long it lasts, for whichever surface shows subtitles.
   const onTTSPlaybackStart = useCallback((text: string, duration: number) => {
-    resolveBridge().characterWindow?.sendSubtitle({ text, isUser: false, duration });
+    publishSubtitle({ text, isUser: false, duration });
   }, []);
 
-  // Fetch a persona and add/update the character panel map.
-  // forceRefresh=true bypasses the cache (used when a persona starts speaking, to
-  // pick up config changes saved since it was last fetched).
+  // Fetch a persona and add/update the store's entry. forceRefresh=true
+  // bypasses the cache (used when a persona starts speaking, to pick up config
+  // changes saved since it was last fetched).
   const fetchPersonaForPanel = useCallback((personaId: number, personaName?: string, forceRefresh = false) => {
     if (!forceRefresh && personaCacheRef.current.has(personaId)) return;
     personaCacheRef.current.add(personaId);
     apiClient.getPersona(personaId).then((persona) => {
-      // The window draws pose graphs only; a persona showing its VRM model
-      // reads as "no avatar" here until the 3D renderer lands (#240).
-      const cfg = parseCharacterConfig(persona.character_config);
-      const poseTree = cfg?.kind === 'pose_graph' ? cfg.poseTree : null;
+      const character = parseCharacterConfig(persona.character_config);
       // Migrate legacy video_url to video_urls on edges
-      if (poseTree?.edges) {
-        for (const e of poseTree.edges) {
+      if (character?.poseTree?.edges) {
+        for (const e of character.poseTree.edges) {
           const raw = e as any;
           if (raw.video_url && !raw.video_urls?.length) {
             raw.video_urls = [raw.video_url];
@@ -54,17 +46,17 @@ export function useCharacterPanel({
           }
         }
       }
-      setPersonaMap((prev) => {
-        const next = new Map(prev);
-        next.set(personaId, { name: persona.name, poseTree });
-        return next;
+      useCharacterStore.getState().setPersona(personaId, {
+        name: persona.name,
+        avatarUuid: persona.avatar_uuid ?? null,
+        character,
       });
     }).catch(() => {
-      // Still add to map with null config so we show the name
-      setPersonaMap((prev) => {
-        const next = new Map(prev);
-        next.set(personaId, { name: personaName || `Persona ${personaId}`, poseTree: null });
-        return next;
+      // Still add to the store with no character, so a surface shows the name
+      useCharacterStore.getState().setPersona(personaId, {
+        name: personaName || `Persona ${personaId}`,
+        avatarUuid: null,
+        character: null,
       });
     });
   }, []);
@@ -72,109 +64,49 @@ export function useCharacterPanel({
   // Set the speaking persona during streaming (for lip sync)
   const pushPersonaCharacterConfig = useCallback((personaId: number | undefined, personaName?: string) => {
     if (!personaId) return;
-    setActivePersonaId(personaId);
+    useCharacterStore.getState().setActivePersonaId(personaId);
     fetchPersonaForPanel(personaId, personaName, true);
   }, [fetchPersonaForPanel]);
 
-  // Reset the persona map when the conversation changes
+  const setActivePersonaId = useCallback((id: number | null) => {
+    useCharacterStore.getState().setActivePersonaId(id);
+  }, []);
+
+  // Reset the personas when the conversation changes
   useEffect(() => {
-    setPersonaMap(new Map());
+    useCharacterStore.getState().clearPersonas();
     personaCacheRef.current.clear();
-    setActivePersonaId(null);
+    useCharacterStore.getState().setActivePersonaId(null);
   }, [currentConversationId]);
 
-  // Scan messages for personas to populate the character panel. Tool messages
-  // carry no persona (the wire sets persona_id/persona_name to null on them), so
+  // Scan messages for personas while a surface is showing. Tool messages carry
+  // no persona (the wire sets persona_id/persona_name to null on them), so
   // they are skipped by the persona_id guard.
   useEffect(() => {
-    if (!characterWindowOpen) return;
+    if (!wanted) return;
     for (const msg of messages) {
       const name = msg.persona?.name || msg.name;
       if (msg.persona_id && !personaCacheRef.current.has(msg.persona_id)) {
         fetchPersonaForPanel(msg.persona_id, name);
       }
     }
-  }, [messages, characterWindowOpen, fetchPersonaForPanel]);
-
-  // IPC bridge: send amplitude to character window at ~30fps
-  useEffect(() => {
-    if (!characterWindowOpen) return;
-    const api = resolveBridge().characterWindow;
-    if (!api) return;
-    const interval = setInterval(() => {
-      api.sendAmplitude(amplitudeRef.current);
-    }, 33);
-    return () => clearInterval(interval);
-  }, [characterWindowOpen]);
-
-  // IPC bridge: send persona map + active persona to character window
-  const personaStateRef = useRef({ personaMap, activePersonaId });
-  personaStateRef.current = { personaMap, activePersonaId };
-
-  const sendPersonaState = useCallback(() => {
-    const api = resolveBridge().characterWindow;
-    if (!api) return;
-    const { personaMap: map, activePersonaId: id } = personaStateRef.current;
-    const personas = Array.from(map.entries()).map(([personaId, entry]) => ({
-      id: personaId,
-      name: entry.name,
-      poseTree: entry.poseTree,
-    }));
-    api.sendPersonasUpdate({ personas, activePersonaId: id });
-  }, []);
-
-  useEffect(() => {
-    if (!characterWindowOpen) return;
-    sendPersonaState();
-  }, [characterWindowOpen, personaMap, activePersonaId, sendPersonaState]);
-
-  // The window's `ready`: the session first, then the personas — the window
-  // loads nothing until it has been told the session (#237). Not gated on
-  // `characterWindowOpen`: a `ready` is proof the window exists, and the flag
-  // can lag it — the main process focuses an existing window without a second
-  // `ready`, and a reload of this renderer starts the flag at false while the
-  // window is still there.
-  useEffect(() => {
-    const api = resolveBridge().characterWindow;
-    if (!api) return;
-    const cleanup = api.onCharacterReady(() => {
-      greetCharacterWindow(api, { accessToken: storage.getToken() }, sendPersonaState);
-    });
-    return cleanup;
-  }, [sendPersonaState]);
-
-  // The window's token was refused. A refresh re-pushes on its own — it ends in
-  // `storage.setToken` — and when there is nothing to refresh with, the window
-  // is answered with what this one holds so its wait ends rather than times out.
-  // Ungated for the same reason as `ready`.
-  useEffect(() => {
-    const api = resolveBridge().characterWindow;
-    if (!api) return;
-    return api.onSessionRequest(() => {
-      apiClient.tryRefresh().catch(() => {
-        api.sendSession({ accessToken: storage.getToken() });
-      });
-    });
-  }, []);
+  }, [messages, wanted, fetchPersonaForPanel]);
 
   // Re-fetch character configs when saved in the editor dialog
   useEffect(() => {
     const handler = (e: Event) => {
       const personaId = (e as CustomEvent).detail?.personaId as number | undefined;
-      if (personaId && personaMap.has(personaId)) {
+      if (personaId && useCharacterStore.getState().personas.has(personaId)) {
         fetchPersonaForPanel(personaId, undefined, true);
       }
     };
     window.addEventListener('character-config-saved', handler);
     return () => window.removeEventListener('character-config-saved', handler);
-  }, [personaMap, fetchPersonaForPanel]);
+  }, [fetchPersonaForPanel]);
 
   return {
-    amplitudeRef,
-    activePersonaId,
     setActivePersonaId,
     pushPersonaCharacterConfig,
-    onAmplitudeUpdate,
     onTTSPlaybackStart,
   };
 }

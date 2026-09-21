@@ -7,6 +7,7 @@
  */
 export * from './appToolsHandler';
 export * from './authStore';
+export * from './characterFeedStore';
 export * from './commands';
 export * from './conversationStore';
 export * from './explorerStore';

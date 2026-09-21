@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CharacterRenderer } from './videocall/CharacterRenderer';
+import { CharacterSurface } from './character/CharacterSurface';
+import { SubtitleQueue, type SubtitleView } from './character/subtitleQueue';
 import { clearImageCache } from './videocall/engine/ImageCache';
-import type { AmplitudeState } from '@kurisu/models';
-import type { PoseTree } from '@kurisu/models';
 import { configureAuthedFetch, storage } from '@kurisu/api';
 import { resolveBridge } from '@kurisu/platform';
-
-interface PersonaEntry {
-  name: string;
-  poseTree: PoseTree | null;
-}
+import {
+  publishSpeech,
+  publishSpeechSync,
+  pushGestures,
+  resetCharacterFeed,
+  setFaces,
+  setThinking,
+  useCharacterStore,
+} from '@kurisu/state';
 
 /**
  * Where this window stands with the session (#237). It never logs in: the main
@@ -23,23 +26,20 @@ type SessionState = 'pending' | 'signed-out' | 'ready';
 /** How long to wait for the main renderer to answer a session request. */
 const SESSION_REQUEST_TIMEOUT_MS = 10_000;
 
+/**
+ * The second window: a renderer with no login and no producers of its own.
+ * Every IPC message is written into this renderer's copy of the character
+ * feed store, and the surfaces below read the store exactly as an inline
+ * panel in the main window would (#238).
+ */
 export const CharacterWindowApp: React.FC = () => {
   const [session, setSession] = useState<SessionState>('pending');
-  // Counts sessions that carried a token; a renderer whose load failed retries on the next one.
+  // Counts sessions that carried a token; a surface whose load failed retries on the next one.
   const [sessionVersion, setSessionVersion] = useState(0);
   const sessionWaitersRef = useRef<Array<(token: string | null) => void>>([]);
-  const [personaMap, setPersonaMap] = useState<Map<number, PersonaEntry>>(new Map());
-  const [activePersonaId, setActivePersonaId] = useState<number | null>(null);
-  const [subtitleText, setSubtitleText] = useState('');
-  const [subtitleVisible, setSubtitleVisible] = useState(false);
-  const [subtitleIsUser, setSubtitleIsUser] = useState(false);
-  const subtitleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const subtitleQueueRef = useRef<Array<{ text: string; durationMs: number }>>([]);
-  const subtitleDrainingRef = useRef(false);
-  const amplitudeRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false, isThinking: false });
-  const silentRef = useRef<AmplitudeState>({ amplitude: 0, isPlaying: false, isThinking: false });
-  const gesturesRef = useRef<string[]>([]);
-  const facesRef = useRef<string[]>([]);
+  const personas = useCharacterStore((s) => s.personas);
+  const activePersonaId = useCharacterStore((s) => s.activePersonaId);
+  const [subtitle, setSubtitle] = useState<SubtitleView>({ text: '', isUser: false, visible: false });
 
   useEffect(() => {
     const api = resolveBridge().characterWindow;
@@ -57,6 +57,7 @@ export const CharacterWindowApp: React.FC = () => {
         setSessionVersion((v) => v + 1);
       } else {
         clearImageCache();
+        resetCharacterFeed();
         setSession('signed-out');
       }
     });
@@ -75,103 +76,28 @@ export const CharacterWindowApp: React.FC = () => {
       }),
     });
 
-    const cleanupAmplitude = api.onAmplitude((data) => {
-      amplitudeRef.current = data;
-    });
+    // The feed, into this renderer's store.
+    const cleanupSpeech = api.onSpeech((segment) => publishSpeech(segment));
+    const cleanupSync = api.onSpeechSync((sync) => publishSpeechSync(sync));
+    const cleanupFeed = api.onFeed(({ isThinking }) => setThinking(isThinking));
+    const cleanupGestures = api.onGestureUpdate(({ gestures }) => pushGestures(gestures));
+    const cleanupFaces = api.onFaceUpdate(({ faces }) => setFaces(faces));
 
     const cleanupPersonas = api.onPersonasUpdate((data) => {
-      setActivePersonaId(data.activePersonaId);
-      // Only rebuild personaMap if the personas actually changed (avoids re-triggering loadPoseTree)
-      setPersonaMap((prev) => {
-        if (prev.size === data.personas.length) {
-          let same = true;
-          for (const persona of data.personas) {
-            const existing = prev.get(persona.id);
-            if (!existing || existing.name !== persona.name ||
-                JSON.stringify(existing.poseTree?.default_pose_ids) !== JSON.stringify(persona.poseTree?.default_pose_ids) ||
-                existing.poseTree?.nodes?.length !== persona.poseTree?.nodes?.length ||
-                existing.poseTree?.edges?.length !== persona.poseTree?.edges?.length) {
-              same = false;
-              break;
-            }
-          }
-          if (same) return prev;
-        }
-        const map = new Map<number, PersonaEntry>();
-        for (const persona of data.personas) {
-          map.set(persona.id, { name: persona.name, poseTree: persona.poseTree });
-        }
-        return map;
-      });
-    });
-
-    const cleanupGestures = api.onGestureUpdate((data) => {
-      gesturesRef.current = data.gestures;
-    });
-
-    const cleanupFaces = api.onFaceUpdate((data) => {
-      facesRef.current = data.faces;
-    });
-
-    // Helper: clear subtitle timer
-    const clearSubtitleTimer = () => {
-      if (subtitleTimerRef.current) { clearTimeout(subtitleTimerRef.current); subtitleTimerRef.current = null; }
-    };
-
-    // Split text into sentences on .!?。！？\n boundaries
-    const splitSentences = (text: string): string[] =>
-      text.split(/(?<=[.!?。！？\n])\s*/).map(s => s.trim()).filter(Boolean);
-
-    // Queue drain: show one sentence at a time for its duration, fade only after last
-    const drainQueue = () => {
-      if (subtitleQueueRef.current.length === 0) {
-        subtitleDrainingRef.current = false;
-        subtitleTimerRef.current = setTimeout(() => setSubtitleVisible(false), 1000);
-        return;
+      const store = useCharacterStore.getState();
+      const seen = new Set<number>();
+      for (const persona of data.personas) {
+        seen.add(persona.id);
+        store.setPersona(persona.id, { name: persona.name, avatarUuid: persona.avatarUuid, character: persona.character });
       }
-      subtitleDrainingRef.current = true;
-      const item = subtitleQueueRef.current.shift()!;
-      setSubtitleText(item.text);
-      setSubtitleIsUser(false);
-      setSubtitleVisible(true);
-      subtitleTimerRef.current = setTimeout(drainQueue, item.durationMs);
-    };
-
-    const cleanupSubtitle = api.onSubtitle((data) => {
-      if (!data.text) {
-        // Cancel: clear everything and hide
-        clearSubtitleTimer();
-        subtitleQueueRef.current = [];
-        subtitleDrainingRef.current = false;
-        setSubtitleVisible(false);
-        return;
+      for (const id of store.personas.keys()) {
+        if (!seen.has(id)) store.removePersona(id);
       }
-
-      if (data.isUser) {
-        // User text: show immediately, interrupt queue
-        clearSubtitleTimer();
-        subtitleQueueRef.current = [];
-        subtitleDrainingRef.current = false;
-        setSubtitleText(data.text);
-        setSubtitleIsUser(true);
-        setSubtitleVisible(true);
-        const words = data.text.split(/\s+/).filter(Boolean);
-        const displayMs = Math.max(1500, words.length * 350);
-        subtitleTimerRef.current = setTimeout(() => setSubtitleVisible(false), displayMs);
-      } else {
-        // Persona text: split into sentences, push to queue, let drain handle timing
-        const chunkDurationMs = (data.duration || 4) * 1000;
-        const sentences = splitSentences(data.text);
-        if (!sentences.length) return;
-        const perSentenceMs = chunkDurationMs / sentences.length;
-        for (const sentence of sentences) {
-          subtitleQueueRef.current.push({ text: sentence, durationMs: perSentenceMs });
-        }
-        if (!subtitleDrainingRef.current) {
-          drainQueue();
-        }
-      }
+      store.setActivePersonaId(data.activePersonaId);
     });
+
+    const subtitles = new SubtitleQueue(setSubtitle);
+    const cleanupSubtitle = api.onSubtitle((data) => subtitles.handle(data));
 
     // Signal to main renderer that listeners are ready — triggers initial data push
     api.signalReady();
@@ -179,13 +105,14 @@ export const CharacterWindowApp: React.FC = () => {
     return () => {
       configureAuthedFetch({ refreshAccessToken: null });
       cleanupSession();
-      cleanupAmplitude();
+      cleanupSpeech();
+      cleanupSync();
+      cleanupFeed();
       cleanupPersonas();
       cleanupGestures();
       cleanupFaces();
       cleanupSubtitle();
-      if (subtitleTimerRef.current) clearTimeout(subtitleTimerRef.current);
-      subtitleQueueRef.current = [];
+      subtitles.dispose();
     };
   }, []);
 
@@ -223,20 +150,20 @@ export const CharacterWindowApp: React.FC = () => {
         <div
           style={{
             maxWidth: '90%',
-            padding: subtitleText ? '6px 16px' : 0,
+            padding: subtitle.text ? '6px 16px' : 0,
             backgroundColor: 'rgba(0, 0, 0, 0.65)',
             borderRadius: 8,
             color: '#fff',
             fontSize: 15,
             lineHeight: 1.4,
             textAlign: 'center',
-            fontStyle: subtitleIsUser ? 'italic' : 'normal',
-            opacity: subtitleVisible ? (subtitleIsUser ? 0.7 : 1) : 0,
+            fontStyle: subtitle.isUser ? 'italic' : 'normal',
+            opacity: subtitle.visible ? (subtitle.isUser ? 0.7 : 1) : 0,
             transition: 'opacity 0.4s ease',
             wordBreak: 'break-word',
           }}
         >
-          {subtitleText}
+          {subtitle.text}
         </div>
       </div>
 
@@ -253,7 +180,7 @@ export const CharacterWindowApp: React.FC = () => {
             {session === 'signed-out' ? 'Signed out' : 'Connecting…'}
           </span>
         </div>
-      ) : personaMap.size === 0 ? (
+      ) : personas.size === 0 ? (
         <div
           style={{
             flex: 1,
@@ -267,7 +194,7 @@ export const CharacterWindowApp: React.FC = () => {
           </span>
         </div>
       ) : (
-        Array.from(personaMap.entries()).map(([id, entry]) => (
+        Array.from(personas.entries()).map(([id, entry]) => (
           <div
             key={id}
             style={{
@@ -285,19 +212,12 @@ export const CharacterWindowApp: React.FC = () => {
                 : {}),
             }}
           >
-            {entry.poseTree ? (
-              <CharacterRenderer
-                poseTree={entry.poseTree}
-                sessionVersion={sessionVersion}
-                amplitudeRef={activePersonaId === id ? amplitudeRef : silentRef}
-                gesturesRef={activePersonaId === id || activePersonaId === null ? gesturesRef : undefined}
-                facesRef={activePersonaId === id || activePersonaId === null ? facesRef : undefined}
-              />
-            ) : (
-              <span style={{ color: 'rgba(0,0,0,0.3)', fontSize: 14 }}>
-                No avatar
-              </span>
-            )}
+            <CharacterSurface
+              character={entry.character}
+              active={activePersonaId === id}
+              receivesStimuli={activePersonaId === id || activePersonaId === null}
+              retryToken={sessionVersion}
+            />
             <span
               style={{
                 position: 'absolute',

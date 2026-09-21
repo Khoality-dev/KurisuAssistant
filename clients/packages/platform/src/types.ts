@@ -5,13 +5,22 @@
  * one host. They live here now because a second host — a browser tab — has to
  * answer the same interface, and answer "no" to most of it.
  */
-import type { AmplitudeState, FileEntry, PoseTree } from '@kurisu/models';
+import type { FileEntry, ParsedCharacterConfig, SpeechSegment, SpeechSync } from '@kurisu/models';
 
-/** One persona's animation state, as shipped to the character window. */
+/**
+ * One persona's character, as shipped to the character window: the parsed
+ * config, whatever its kind, so the window picks the driver (#238).
+ */
 export interface PersonaCharacterData {
   id: number;
   name: string;
-  poseTree: PoseTree | null;
+  avatarUuid: string | null;
+  character: ParsedCharacterConfig | null;
+}
+
+/** What the streaming turn is doing, beyond speech. */
+export interface CharacterFeedState {
+  isThinking: boolean;
 }
 
 /**
@@ -34,14 +43,26 @@ export interface CharacterWindowAPI {
   /** Character window → main renderer: my token was refused, push a fresh one. */
   requestSession: () => void;
   onSessionRequest: (cb: () => void) => () => void;
-  sendAmplitude: (data: AmplitudeState) => void;
+  /**
+   * Main renderer → character window: one spoken sentence with its RMS curve
+   * and start time (null when speech ends), and, a few times a second while it
+   * plays, the producer's real position. The window clocks the mouth itself;
+   * nothing crosses at frame rate (#238).
+   */
+  sendSpeech: (segment: SpeechSegment | null) => void;
+  onSpeech: (cb: (segment: SpeechSegment | null) => void) => () => void;
+  sendSpeechSync: (sync: SpeechSync) => void;
+  onSpeechSync: (cb: (sync: SpeechSync) => void) => () => void;
+  /** Main renderer → character window: the turn's state, on change. */
+  sendFeed: (data: CharacterFeedState) => void;
+  onFeed: (cb: (data: CharacterFeedState) => void) => () => void;
   sendPersonasUpdate: (data: { personas: PersonaCharacterData[]; activePersonaId: number | null }) => void;
-  sendGestureUpdate: (data: { gestures: string[] }) => void;
+  /** One burst of gestures; `seq` rises per burst so a receiver takes each once. */
+  sendGestureUpdate: (data: { gestures: string[]; seq: number }) => void;
   sendFaceUpdate: (data: { faces: string[] }) => void;
   sendSubtitle: (data: { text: string; isUser: boolean; duration?: number }) => void;
-  onAmplitude: (cb: (data: AmplitudeState) => void) => () => void;
   onPersonasUpdate: (cb: (data: { personas: PersonaCharacterData[]; activePersonaId: number | null }) => void) => () => void;
-  onGestureUpdate: (cb: (data: { gestures: string[] }) => void) => () => void;
+  onGestureUpdate: (cb: (data: { gestures: string[]; seq: number }) => void) => () => void;
   onFaceUpdate: (cb: (data: { faces: string[] }) => void) => () => void;
   onSubtitle: (cb: (data: { text: string; isUser: boolean; duration?: number }) => void) => () => void;
   onWindowClosed: (cb: () => void) => () => void;

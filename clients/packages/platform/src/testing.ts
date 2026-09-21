@@ -42,31 +42,58 @@ export interface CharacterWindowCall {
   data?: unknown;
 }
 
+export type FakeCharacterWindow = CharacterWindowAPI & {
+  calls: CharacterWindowCall[];
+  /**
+   * Deliver an event to whatever subscribed with the matching `on*` — the
+   * window's `ready`, a pushed session, a spoken sentence — so a test can play
+   * the other renderer. The method is the subscription's name.
+   */
+  fire: (method: keyof CharacterWindowAPI & `on${string}`, data?: unknown) => void;
+};
+
 /**
- * A character window that records what the main renderer sends it.
+ * A character window that records what the main renderer sends it, and keeps
+ * the handlers the renderer subscribes so a test can fire them.
  *
  * Every member of the interface is here, so adding one to `CharacterWindowAPI`
  * is a type error until this fake learns it — the way a stub with only the
  * members one suite happened to call would not be.
  */
-export function fakeCharacterWindow(): CharacterWindowAPI & { calls: CharacterWindowCall[] } {
+export function fakeCharacterWindow(): FakeCharacterWindow {
   const calls: CharacterWindowCall[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  type Handler = (data?: any) => void;
+  const handlers = new Map<string, Set<Handler>>();
   const record = (method: string) => (data?: unknown) => { calls.push({ method, data }); };
-  const subscription = (method: string) => () => { calls.push({ method }); return () => {}; };
+  // `any` on the callback keeps one helper assignable to every `on*` member,
+  // whose payloads differ; the fake records, it does not type-check them.
+  const subscription = (method: string) => (cb: Handler) => {
+    calls.push({ method });
+    const set = handlers.get(method) ?? new Set<Handler>();
+    set.add(cb);
+    handlers.set(method, set);
+    return () => { set.delete(cb); };
+  };
   return {
     calls,
+    fire: (method, data) => { for (const cb of handlers.get(method) ?? []) cb(data); },
     open: async () => { calls.push({ method: 'open' }); },
     close: async () => { calls.push({ method: 'close' }); },
     sendSession: record('sendSession'),
     onSession: subscription('onSession'),
     requestSession: () => { calls.push({ method: 'requestSession' }); },
     onSessionRequest: subscription('onSessionRequest'),
-    sendAmplitude: record('sendAmplitude'),
+    sendSpeech: record('sendSpeech'),
+    onSpeech: subscription('onSpeech'),
+    sendSpeechSync: record('sendSpeechSync'),
+    onSpeechSync: subscription('onSpeechSync'),
+    sendFeed: record('sendFeed'),
+    onFeed: subscription('onFeed'),
     sendPersonasUpdate: record('sendPersonasUpdate'),
     sendGestureUpdate: record('sendGestureUpdate'),
     sendFaceUpdate: record('sendFaceUpdate'),
     sendSubtitle: record('sendSubtitle'),
-    onAmplitude: subscription('onAmplitude'),
     onPersonasUpdate: subscription('onPersonasUpdate'),
     onGestureUpdate: subscription('onGestureUpdate'),
     onFaceUpdate: subscription('onFaceUpdate'),

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Typography } from '@mui/material';
-import { useConversationStore } from '@kurisu/state';
-import { useCapabilities } from '@kurisu/hooks';
+import { useConversationStore, useCharacterStore } from '@kurisu/state';
+import { useCapabilities, useCharacterBridgeSync } from '@kurisu/hooks';
 import { resolveBridge } from '@kurisu/platform';
 import { ChatWidget } from '../chat/ChatWidget';
 
@@ -9,6 +9,11 @@ export const ChatPanel: React.FC = () => {
   const { characterWindow: hasCharacterWindow } = useCapabilities();
   const [characterVisible, setCharacterVisible] = useState(false);
   const characterVisibleRef = useRef(false);
+
+  // The feed to the second window: mirrored while it is open, and its
+  // `ready`/session handshake answered, from the one place that owns the
+  // window's state (#238).
+  useCharacterBridgeSync();
 
   // /refresh — reload the current conversation
   useEffect(() => {
@@ -32,6 +37,7 @@ export const ChatPanel: React.FC = () => {
     const show = (visible: boolean) => {
       characterVisibleRef.current = visible;
       setCharacterVisible(visible);
+      useCharacterStore.getState().setWindowOpen(visible);
     };
     const toggle = () => {
       if (characterVisibleRef.current) {
@@ -51,6 +57,7 @@ export const ChatPanel: React.FC = () => {
       window.removeEventListener('kurisu:toggle-character', toggle);
       offClosed();
       offReady();
+      useCharacterStore.getState().setWindowOpen(false);
     };
   }, [hasCharacterWindow]);
 

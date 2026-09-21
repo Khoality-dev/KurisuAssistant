@@ -6,9 +6,8 @@ import { storage } from '@kurisu/api';
 import { stripNarration, fileToBase64 } from '@kurisu/api';
 import { useExplorerStore } from '@kurisu/state';
 import { usePersonaStore } from '@kurisu/state';
-import { newId, WS_ERROR_NO_MODEL_SELECTED, type Message, type AmplitudeState } from '@kurisu/models';
-import { handleCommand } from '@kurisu/state';
-import { resolveBridge } from '@kurisu/platform';
+import { newId, WS_ERROR_NO_MODEL_SELECTED, type Message } from '@kurisu/models';
+import { handleCommand, publishSubtitle, setThinking } from '@kurisu/state';
 
 /**
  * A streaming bubble, plus the two tool-call fields the wire sends but the stored
@@ -34,7 +33,6 @@ export interface UseStreamingChatParams {
   queueText: (text: string, voice?: string) => void;
   clearQueue: () => void;
   // Character panel
-  amplitudeRef: React.MutableRefObject<AmplitudeState>;
   pushPersonaCharacterConfig: (personaId: number | undefined, personaName?: string) => void;
 }
 
@@ -85,7 +83,6 @@ export function useStreamingChat({
   setCurrentConversationId,
   queueText,
   clearQueue,
-  amplitudeRef,
   pushPersonaCharacterConfig,
 }: UseStreamingChatParams): UseStreamingChatReturn {
   const [isStreaming, setIsStreaming] = useState(false);
@@ -496,11 +493,11 @@ export function useStreamingChat({
     // Always accumulate thinking + update isThinking for character transitions
     if (event.thinking) {
       state.accumulatedThinking += event.thinking;
-      amplitudeRef.current = { ...amplitudeRef.current, isThinking: true };
+      setThinking(true);
       scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
     }
     if (event.content) {      // Content arrived, so the thinking phase is over
-      amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
+      setThinking(false);
     }
 
     // Update running token count from server and persist to store
@@ -538,7 +535,7 @@ export function useStreamingChat({
     }
 
     // Clear thinking state
-    amplitudeRef.current = { ...amplitudeRef.current, isThinking: false };
+    setThinking(false);
 
     // Flush remaining TTS buffer
     if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
@@ -837,7 +834,7 @@ export function useStreamingChat({
       };
 
       // Send user text as subtitle
-      resolveBridge().characterWindow?.sendSubtitle({ text, isUser: true });
+      publishSubtitle({ text, isUser: true });
 
       // Add user message + placeholder to local streaming state (not store)
       updateStreaming([userMessage, { role: 'assistant', content: '', _clientKey: newId() }]);
@@ -936,7 +933,7 @@ export function useStreamingChat({
     ttsVoiceRef.current = undefined;
 
     // Clear subtitle
-    resolveBridge().characterWindow?.sendSubtitle({ text: '', isUser: false });
+    publishSubtitle({ text: '', isUser: false });
 
     // Finalize streaming messages and merge into store. Read from the ref so
     // the side effect runs exactly once (StrictMode re-invokes state updaters).

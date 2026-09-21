@@ -1,40 +1,37 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { apiClient, describeSpeechFailure } from '@kurisu/api';
 import { storage } from '@kurisu/api';
-import { useAudioAmplitude } from './useAudioAmplitude';
+import { publishSpeech, publishSpeechSync } from '@kurisu/state';
+import type { SpeechSegment } from '@kurisu/models';
+import { curveOfWav, useAudioAmplitude, type AmplitudeCurve, type PlaybackListeners } from './useAudioAmplitude';
 
+/** How long a sentence that could not be synthesized is held, so its subtitle and cues still show (#244). */
+export const FAILED_SENTENCE_MS = 4000;
 
 /**
- * Parse WAV header to get audio duration in seconds.
+ * One sentence for the character feed: the curve and the moment its audio
+ * began, pushed once. Every surface clocks the mouth from this (#238).
  */
-function getWavDuration(buffer: ArrayBuffer): number | null {
-  const view = new DataView(buffer);
-  if (view.byteLength < 44) return null;
+function segmentOf(text: string, curve: AmplitudeCurve | null, startedAt: number): SpeechSegment {
+  return {
+    text,
+    startedAt,
+    durationMs: curve?.durationMs ?? FAILED_SENTENCE_MS,
+    windowMs: curve?.windowMs ?? 1000 / 30,
+    curve: curve?.values ?? null,
+    cues: [],
+  };
+}
 
-  let byteRate = 0;
-  let dataSize = 0;
-  let offset = 12;
-  while (offset + 8 <= view.byteLength) {
-    const id = String.fromCharCode(
-      view.getUint8(offset), view.getUint8(offset + 1),
-      view.getUint8(offset + 2), view.getUint8(offset + 3),
-    );
-    const size = view.getUint32(offset + 4, true);
-    if (id === 'fmt ') {
-      byteRate = view.getUint32(offset + 16, true);
-    } else if (id === 'data') {
-      dataSize = size;
-      break;
-    }
-    offset += 8 + size;
-    if (size % 2 !== 0) offset++;
-  }
-  if (byteRate === 0 || dataSize === 0) return null;
-  return dataSize / byteRate;
+/** What playback tells the feed. */
+function feedListeners(text: string): PlaybackListeners {
+  return {
+    onPlaying: (curve, startedAt) => publishSpeech(segmentOf(text, curve, startedAt)),
+    onProgress: (positionMs, at) => publishSpeechSync({ positionMs, at }),
+  };
 }
 
 export function useTTS(
-  onAmplitudeUpdate?: (amplitude: number, isPlaying: boolean) => void,
   onPlaybackStart?: (text: string, duration: number) => void,
   /**
    * A sentence that could not be synthesized or played, as one line for the
@@ -50,12 +47,8 @@ export function useTTS(
   // that did not exist and synthesis failed later (#151).
   const [backends, setBackends] = useState<string[]>([]);
   const [backendsError, setBackendsError] = useState<string | null>(null);
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null);
 
   const amplitudeController = useAudioAmplitude();
-  const amplitudeCallbackRef = useRef(onAmplitudeUpdate);
-  amplitudeCallbackRef.current = onAmplitudeUpdate;
   const playbackStartCallbackRef = useRef(onPlaybackStart);
   playbackStartCallbackRef.current = onPlaybackStart;
   const errorCallbackRef = useRef(onError);
@@ -69,7 +62,6 @@ export function useTTS(
   // Queue-based streaming TTS state
   const ttsQueueRef = useRef<Array<{ audioPromise: Promise<Blob>; text: string }>>([]);
   const isPlayingQueueRef = useRef(false);
-  const currentQueueAudioRef = useRef<HTMLAudioElement | null>(null);
   const [isQueueActive, setIsQueueActive] = useState(false);
 
   const loadVoices = useCallback(async (backend?: string) => {
@@ -99,6 +91,7 @@ export function useTTS(
 
   /**
    * Play text as speech (single-shot, e.g. from MessageBubble play button).
+   * The character hears it like any sentence: the curve goes out on `playing`.
    */
   const speak = useCallback(
     async (
@@ -108,55 +101,14 @@ export function useTTS(
       backend?: string,
     ) => {
       try {
-        // Stop current audio if playing
-        if (currentAudioRef.current) {
-          currentAudioRef.current.pause();
-          currentAudioRef.current.currentTime = 0;
-        }
-        if (audioUrlRef.current) {
-          URL.revokeObjectURL(audioUrlRef.current);
-          audioUrlRef.current = null;
-        }
-
         setIsPlaying(true);
-
         const audioBlob = await apiClient.synthesize(text, voice, language, backend);
-
-        // Use amplitude path for lip sync if callback is set
-        if (amplitudeCallbackRef.current) {
-          const cb = amplitudeCallbackRef.current;
-          try {
-            await amplitudeController.playWithAmplitude(audioBlob, cb);
-          } finally {
-            setIsPlaying(false);
-          }
-          return;
+        try {
+          await amplitudeController.playWithAmplitude(audioBlob, feedListeners(text));
+        } finally {
+          publishSpeech(null);
+          setIsPlaying(false);
         }
-
-        // Plain audio path (no character panel)
-        const audioUrl = URL.createObjectURL(audioBlob);
-        audioUrlRef.current = audioUrl;
-        const audio = new Audio(audioUrl);
-
-        audio.onended = () => {
-          setIsPlaying(false);
-          if (audioUrlRef.current) {
-            URL.revokeObjectURL(audioUrlRef.current);
-            audioUrlRef.current = null;
-          }
-        };
-
-        audio.onerror = () => {
-          setIsPlaying(false);
-          console.error('Audio playback error');
-          if (audioUrlRef.current) {
-            URL.revokeObjectURL(audioUrlRef.current);
-            audioUrlRef.current = null;
-          }
-        };
-
-        currentAudioRef.current = audio;
-        await audio.play();
       } catch (error) {
         setIsPlaying(false);
         console.error('TTS error:', error);
@@ -168,68 +120,38 @@ export function useTTS(
   );
 
   /**
-   * Play a single audio blob. Uses amplitude path if callback is set.
-   * The onAmplitude callback is kept alive across blobs in a queue
-   * by passing a wrapper that always calls `true` for isPlaying,
-   * so the mouth doesn't snap shut between sentences.
-   */
-  const playBlobAsync = useCallback((blob: Blob, onAmplitude?: (amp: number, playing: boolean) => void): Promise<void> => {
-    if (onAmplitude) {
-      // Wrap: always report playing=true (queue manages the final false)
-      return amplitudeController.playWithAmplitude(blob, (amp) => onAmplitude(amp, true));
-    }
-
-    // Plain audio path
-    return new Promise((resolve, reject) => {
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      currentQueueAudioRef.current = audio;
-      audio.onended = () => {
-        URL.revokeObjectURL(url);
-        currentQueueAudioRef.current = null;
-        resolve();
-      };
-      audio.onerror = (e) => {
-        URL.revokeObjectURL(url);
-        currentQueueAudioRef.current = null;
-        reject(e);
-      };
-      audio.play().catch(reject);
-    });
-  }, [amplitudeController]);
-
-  /**
-   * Sequential playback loop — plays queued audio blobs in FIFO order.
+   * Sequential playback loop — plays queued audio blobs in FIFO order. The
+   * feed's segment stays up across sentences and is dropped once at the end,
+   * so the mouth does not snap shut between them.
    */
   const playQueue = useCallback(async () => {
     isPlayingQueueRef.current = true;
-    const cb = amplitudeCallbackRef.current;
 
     while (ttsQueueRef.current.length > 0) {
       const item = ttsQueueRef.current.shift()!;
       try {
         const blob = await item.audioPromise;
+        const curve = await curveOfWav(blob);
         // Notify subtitle system with text + audio duration before playback
         const psCb = playbackStartCallbackRef.current;
-        if (psCb) {
-          const duration = getWavDuration(await blob.arrayBuffer());
-          if (duration) psCb(item.text, duration);
-        }
-        await playBlobAsync(blob, cb || undefined);
+        if (psCb && curve) psCb(item.text, curve.durationMs / 1000);
+        await amplitudeController.playWithAmplitude(blob, feedListeners(item.text), curve);
       } catch (e) {
         console.error('TTS queue playback error:', e);
         reportFailure('Speech', e);
-        // TTS failed — still send subtitle with 4s fallback duration
+        // TTS failed — still send subtitle with 4s fallback duration, and hold
+        // a silent segment for as long, so a cue on it still lands (#244).
         const psCb = playbackStartCallbackRef.current;
-        if (psCb) psCb(item.text, 4);
+        if (psCb) psCb(item.text, FAILED_SENTENCE_MS / 1000);
+        publishSpeech(segmentOf(item.text, null, Date.now()));
       }
     }
 
     // Signal done
-    if (cb) cb(0, false);
+    publishSpeech(null);
     isPlayingQueueRef.current = false;
     setIsQueueActive(false);
-  }, [playBlobAsync, reportFailure]);
+  }, [amplitudeController, reportFailure]);
 
   /**
    * Queue text for synthesis and sequential playback (used during streaming).
@@ -256,13 +178,8 @@ export function useTTS(
    */
   const clearQueue = useCallback(() => {
     ttsQueueRef.current = [];
-    if (currentQueueAudioRef.current) {
-      currentQueueAudioRef.current.pause();
-      currentQueueAudioRef.current = null;
-    }
     amplitudeController.stop();
-    const cb = amplitudeCallbackRef.current;
-    if (cb) cb(0, false);
+    publishSpeech(null);
     isPlayingQueueRef.current = false;
     setIsQueueActive(false);
   }, [amplitudeController]);
@@ -271,34 +188,17 @@ export function useTTS(
    * Stop current single-shot speech.
    */
   const stop = useCallback(() => {
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      currentAudioRef.current.currentTime = 0;
-    }
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current);
-      audioUrlRef.current = null;
-    }
     amplitudeController.stop();
-    const cb = amplitudeCallbackRef.current;
-    if (cb) cb(0, false);
+    publishSpeech(null);
     setIsPlaying(false);
   }, [amplitudeController]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause();
-      }
-      if (audioUrlRef.current) {
-        URL.revokeObjectURL(audioUrlRef.current);
-      }
-      if (currentQueueAudioRef.current) {
-        currentQueueAudioRef.current.pause();
-      }
       ttsQueueRef.current = [];
       isPlayingQueueRef.current = false;
+      publishSpeech(null);
     };
   }, []);
 

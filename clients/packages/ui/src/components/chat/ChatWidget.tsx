@@ -44,7 +44,7 @@ import type { Assistant, Conversation } from '@kurisu/models';
 import { storage } from '@kurisu/api';
 
 import { useTTS } from '@kurisu/hooks';
-import { useVisionStore } from '@kurisu/state';
+import { useVisionStore, setThinking } from '@kurisu/state';
 import { useCharacterPanel } from '@kurisu/hooks';
 import { useCapabilities } from '@kurisu/hooks';
 import { useInteractiveASR } from '@kurisu/hooks';
@@ -141,25 +141,23 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     }
   }, [searchMatchIdx, searchMatches]);
 
-  // Character panel hook
+  // The persona half of the character feed: who is in the conversation and
+  // who is speaking, for whichever surface is showing (#238).
   const {
-    amplitudeRef,
     setActivePersonaId,
     pushPersonaCharacterConfig,
-    onAmplitudeUpdate,
     onTTSPlaybackStart,
   } = useCharacterPanel({
-    characterWindowOpen,
     messages,
     currentConversationId: currentConversation?.id || null,
   });
 
-  // TTS (with amplitude callback for character lip sync). A failed synthesis
-  // goes to the same toast as a failed send; the streaming hook that owns that
-  // toast is created below, so it is reached through a ref (#200).
+  // TTS — the speech half of the feed comes from inside the hook. A failed
+  // synthesis goes to the same toast as a failed send; the streaming hook that
+  // owns that toast is created below, so it is reached through a ref (#200).
   const speechErrorRef = useRef<(message: string) => void>(() => {});
   const onSpeechError = useCallback((message: string) => speechErrorRef.current(message), []);
-  const { speak, stop: stopTTS, isPlaying: isTTSPlaying, queueText, clearQueue, isQueueActive } = useTTS(onAmplitudeUpdate, onTTSPlaybackStart, onSpeechError);
+  const { speak, stop: stopTTS, isPlaying: isTTSPlaying, queueText, clearQueue, isQueueActive } = useTTS(onTTSPlaybackStart, onSpeechError);
   const setActivePersonaForTTS = useCallback((id: number | null) => {
     setActivePersonaId(id);
   }, [setActivePersonaId]);
@@ -178,7 +176,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     setCurrentConversationId,
     queueText,
     clearQueue,
-    amplitudeRef,
     pushPersonaCharacterConfig,
   });
 
@@ -209,9 +206,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   useEffect(() => {
     if (!isQueueActive && !streaming.isStreaming) {
       setActivePersonaId(null);
-      amplitudeRef.current = { amplitude: 0, isPlaying: false, isThinking: false };
+      setThinking(false);
     }
-  }, [isQueueActive, streaming.isStreaming, setActivePersonaId, amplitudeRef]);
+  }, [isQueueActive, streaming.isStreaming, setActivePersonaId]);
 
   // /context slash command opens the breakdown dialog
   useEffect(() => {
