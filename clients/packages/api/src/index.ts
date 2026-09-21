@@ -9,6 +9,7 @@ export * from './chat';
 export * from './client';
 export * from './config';
 export * from './fileSource';
+export * from './requestFailure';
 export * from './speechErrors';
 export * from './storage';
 export * from './websocket';

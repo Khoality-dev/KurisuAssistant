@@ -24,7 +24,7 @@ import {
   Delete as DeleteIcon,
   Add as AddIcon,
 } from '@mui/icons-material';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { config } from '@kurisu/api';
 import type { AnimationEdge, EdgeTransition, TransitionCondition } from '@kurisu/models';
 
@@ -241,7 +241,7 @@ export const EdgeEditor: React.FC<EdgeEditorProps> = ({
         transitions: finalTransitions,
       });
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to save edge');
+      setError(describeRequestFailure(err, 'Failed to save edge'));
     } finally {
       setUploading(false);
     }

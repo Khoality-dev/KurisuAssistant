@@ -39,7 +39,7 @@ import FaceIcon from '@mui/icons-material/Face';
 import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '@kurisu/state';
 import { useAuthStore } from '@kurisu/state';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 import type { Assistant, Conversation } from '@kurisu/models';
 import { storage } from '@kurisu/api';
 
@@ -282,7 +282,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     try {
       setModels(await apiClient.getModels());
     } catch (err: any) {
-      setModelsError(err?.response?.data?.detail || err?.message || 'Could not load models');
+      setModelsError(describeRequestFailure(err, 'Could not load models'));
     }
   }, []);
 
@@ -299,7 +299,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
       setAssistant(await apiClient.updateAssistant({ model_name: model.name, provider_type: model.provider }));
       setModelMenuAnchor(null);
     } catch (err: any) {
-      setModelsError(err?.response?.data?.detail || err?.message || 'Could not change model');
+      setModelsError(describeRequestFailure(err, 'Could not change model'));
     }
   }, [assistant?.model_name, assistant?.provider_type]);
 
@@ -332,7 +332,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         storage.setPersonaConversationId(id, convId);
         await loadConversation(convId);
       } catch (err: any) {
-        setPersonaSheetError(err?.response?.data?.detail || err?.message || 'Failed to switch persona');
+        setPersonaSheetError(describeRequestFailure(err, 'Failed to switch persona'));
         return;
       }
     }

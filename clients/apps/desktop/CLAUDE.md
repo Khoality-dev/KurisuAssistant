@@ -27,7 +27,7 @@ Dependencies install at the workspace root: `npm ci` from `clients/`, never from
 
 - [Architecture](docs/architecture.md) — the file-by-file map, and the code style it follows
 - [Chat runtime](docs/chat.md) — streaming, TTS, interactive voice mode, conversations, slash commands, shortcuts
-- [Authentication and storage](docs/auth.md) — login and refresh, QR login, where tokens live, localStorage keys
+- [Authentication and storage](docs/auth.md) — login and refresh, QR login, where tokens live, localStorage keys, what the login screen says when a proxy or the network fails (#263; Android says the same)
 - [Security model](docs/security.md) — host-tool boundary, MCP spawn consent, the built-in MCP server, certificates
 - [MCP servers](docs/mcp.md) — the servers this client starts and calls
 - [Character animation](docs/character.md) — the feed store every surface reads, the driver seam, the second window, the 2D engine, the graph editor

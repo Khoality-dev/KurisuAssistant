@@ -12,7 +12,7 @@ import {
   Typography,
 } from '@mui/material';
 import { Save as SaveIcon } from '@mui/icons-material';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 import type { SubAgent, SubAgentCreate, SubAgentUpdate } from '@kurisu/models';
 import { ModelPicker } from '../ModelPicker';
 import { ToolGroupChecklist } from './ToolGroupChecklist';
@@ -137,7 +137,7 @@ export const SubAgentEditDialog: React.FC<SubAgentEditDialogProps> = ({
       }
       onClose();
     } catch (err: any) {
-      onError(err?.response?.data?.detail || err?.message || 'Failed to save the sub-agent.');
+      onError(describeRequestFailure(err, 'Failed to save the sub-agent.'));
     } finally {
       setSaving(false);
     }

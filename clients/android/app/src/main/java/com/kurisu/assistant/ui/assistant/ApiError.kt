@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import retrofit2.HttpException
+import com.kurisu.assistant.domain.net.RequestFailure
 
 private val errorJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -17,8 +18,14 @@ private val errorJson = Json { ignoreUnknownKeys = true; isLenient = true }
  * Retrofit turns those into an `HttpException` whose `message` is the useless
  * "HTTP 400 Bad Request", so without unwrapping `detail` the guards look like a
  * switch that silently refuses to move.
+ *
+ * When there is no `detail` the failure is not the API talking — a proxy's own
+ * page, nothing at the address, an untrusted certificate, a timeout — and
+ * `RequestFailure` names each in a sentence (#263) before the exception's own
+ * wording is considered at all. `origin` is the server address to name when
+ * nothing answered; the login screen has it, the rest leave it out.
  */
-fun apiErrorMessage(t: Throwable, fallback: String): String {
+fun apiErrorMessage(t: Throwable, fallback: String, origin: String? = null): String {
     val detail = (t as? HttpException)?.let { http ->
         // errorBody() is a one-shot stream; read it once and tolerate anything.
         val body = runCatching { http.response()?.errorBody()?.string() }.getOrNull()
@@ -32,6 +39,7 @@ fun apiErrorMessage(t: Throwable, fallback: String): String {
         }
     }
     return detail?.takeIf { it.isNotBlank() }
+        ?: RequestFailure.describe(t, origin)
         ?: t.message?.takeIf { it.isNotBlank() }
         ?: fallback
 }

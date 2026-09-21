@@ -10,7 +10,7 @@ import {
   Typography,
 } from '@mui/material';
 import { Save as SaveIcon } from '@mui/icons-material';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 import type { Assistant, AssistantUpdate } from '@kurisu/models';
 import { ToolGroupChecklist } from './ToolGroupChecklist';
 import { useAvailableTools } from './useAvailableTools';
@@ -68,7 +68,7 @@ export const AssistantSection: React.FC = () => {
       setAssistant(data);
       setForm(toForm(data));
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to load the assistant');
+      setError(describeRequestFailure(err, 'Failed to load the assistant'));
     } finally {
       setLoading(false);
     }
@@ -117,7 +117,7 @@ export const AssistantSection: React.FC = () => {
       setForm(toForm(next));
       flash('Assistant saved.');
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to save the assistant');
+      setError(describeRequestFailure(err, 'Failed to save the assistant'));
     } finally {
       setSaving(false);
     }

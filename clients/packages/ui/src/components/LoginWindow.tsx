@@ -13,7 +13,7 @@ import {
 } from '@mui/material';
 import { motion } from 'framer-motion';
 import { useAuthStore } from '@kurisu/state';
-import { storage } from '@kurisu/api';
+import { storage, describeRequestFailure } from '@kurisu/api';
 import { resolveBridge } from '@kurisu/platform';
 
 const MotionPaper = motion(Paper);
@@ -57,7 +57,7 @@ export const LoginWindow: React.FC = () => {
         await register(username, password, email || undefined, rememberMe);
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'An error occurred');
+      setError(describeRequestFailure(err, 'An error occurred'));
     } finally {
       setLoading(false);
     }

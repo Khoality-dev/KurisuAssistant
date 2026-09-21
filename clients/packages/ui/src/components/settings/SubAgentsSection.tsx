@@ -21,7 +21,7 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { AnimatePresence } from 'framer-motion';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 import type { SubAgent } from '@kurisu/models';
 import { ResourceCard } from './ResourceCard';
 import { SubAgentEditDialog } from './SubAgentEditDialog';
@@ -56,7 +56,7 @@ export const SubAgentsSection: React.FC = () => {
       setModels(await apiClient.getModels());
     } catch (err: any) {
       console.error('Failed to load models:', err);
-      setError(err.response?.data?.detail || 'Failed to load the model list');
+      setError(describeRequestFailure(err, 'Failed to load the model list'));
     }
   };
 
@@ -65,7 +65,7 @@ export const SubAgentsSection: React.FC = () => {
       setLoading(true);
       setSubAgents(await apiClient.listSubAgents());
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to load sub-agents');
+      setError(describeRequestFailure(err, 'Failed to load sub-agents'));
     } finally {
       setLoading(false);
     }
@@ -82,7 +82,7 @@ export const SubAgentsSection: React.FC = () => {
       await apiClient.toggleSubAgentEnabled(subAgent.id, enabled);
       await loadSubAgents();
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to change the sub-agent');
+      setError(describeRequestFailure(err, 'Failed to change the sub-agent'));
     }
   };
 
@@ -97,7 +97,7 @@ export const SubAgentsSection: React.FC = () => {
       URL.revokeObjectURL(url);
       flash(`Sub-agent "${subAgent.name}" exported.`);
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to export the sub-agent');
+      setError(describeRequestFailure(err, 'Failed to export the sub-agent'));
     }
   };
 
@@ -107,7 +107,7 @@ export const SubAgentsSection: React.FC = () => {
       flash(`Sub-agent "${subAgent.name}" imported.`);
       await loadSubAgents();
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to import the sub-agent');
+      setError(describeRequestFailure(err, 'Failed to import the sub-agent'));
     }
   };
 
@@ -119,7 +119,7 @@ export const SubAgentsSection: React.FC = () => {
       setDeleteTarget(null);
       await loadSubAgents();
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to delete the sub-agent');
+      setError(describeRequestFailure(err, 'Failed to delete the sub-agent'));
       setDeleteTarget(null);
     }
   };

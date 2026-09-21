@@ -23,7 +23,7 @@ import {
   FileDownload as ExportIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 import type { Skill } from '@kurisu/models';
 
 const MotionCard = motion(Card);
@@ -51,7 +51,7 @@ export const SkillsSection: React.FC = () => {
       const skillsRes = await apiClient.listSkills();
       setSkills(skillsRes);
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to load skills');
+      setError(describeRequestFailure(err, 'Failed to load skills'));
     } finally {
       setLoading(false);
     }
@@ -92,7 +92,7 @@ export const SkillsSection: React.FC = () => {
       const skillsRes = await apiClient.listSkills();
       setSkills(skillsRes);
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to save skill');
+      setError(describeRequestFailure(err, 'Failed to save skill'));
     } finally {
       setSkillSaving(false);
     }
@@ -103,7 +103,7 @@ export const SkillsSection: React.FC = () => {
       await apiClient.deleteSkill(skill.id);
       setSkills(prev => prev.filter(s => s.id !== skill.id));
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to delete skill');
+      setError(describeRequestFailure(err, 'Failed to delete skill'));
     }
   };
 
@@ -144,7 +144,7 @@ export const SkillsSection: React.FC = () => {
             instructions: data.instructions || '',
           });
         } catch (err: any) {
-          setError(err.response?.data?.detail || err.message || `Failed to import ${file.name}`);
+          setError(describeRequestFailure(err, `Failed to import ${file.name}`));
         }
       }
       const skillsRes = await apiClient.listSkills();
