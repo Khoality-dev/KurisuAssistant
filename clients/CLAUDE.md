@@ -56,6 +56,12 @@ shapes and nothing about a host, a server, a store or a screen.
   kinds implement — `CharacterDriver` in `models/src/characterDriver.ts` — names no
   canvas, and `@kurisu/vrm/testing` exports the conformance cases every driver must
   pass, with a `probe` so they check what a driver did, not only that it did not throw.
+  The 2D adapter over `CanvasCompositor` (`ui/src/character/PoseGraphDriver.ts`) passes
+  them too. What a driver is fed comes from one place, `state/src/characterFeedStore.ts`:
+  producers (`useTTS`, `useStreamingChat`, `visionStore`, `useCharacterPanel`) write it,
+  a surface's own frame loop reads it, and nothing crosses a process boundary at frame
+  rate — the second window mirrors the store over IPC (`hooks/src/characterBridgeSync.ts`)
+  and clocks the mouth itself from the sentence's curve (`models/src/speechClock.ts`).
 - **Every package declares `typecheck` and `test`.** The root scripts fan out with
   `--if-present`, so a member without them is skipped silently and green; the
   boundary test refuses that.

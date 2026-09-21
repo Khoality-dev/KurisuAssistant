@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { wsManager, VisionResultEvent, ConnectedEvent } from '@kurisu/api';
 import type { VisionResult } from '@kurisu/models';
-import { resolveBridge } from '@kurisu/platform';
+import { pushGestures, setFaces } from './characterFeedStore';
 
 interface VisionState {
   isActive: boolean;
@@ -204,15 +204,10 @@ wsManager.on('vision_result', (event: VisionResultEvent) => {
     },
   });
 
-  // Forward gestures to character window via IPC
-  if (event.gestures.length > 0) {
-    const gestureNames = event.gestures.map((g) => g.gesture);
-    resolveBridge().characterWindow?.sendGestureUpdate({ gestures: gestureNames });
-  }
-
-  // Forward detected face names to character window via IPC
-  const faceNames = event.faces.filter((f) => f.name).map((f) => f.name);
-  resolveBridge().characterWindow?.sendFaceUpdate({ faces: faceNames });
+  // Into the character feed: gestures as one burst (one-shot), faces as
+  // level state. Whatever surface is showing reads them from there (#238).
+  pushGestures(event.gestures.map((g) => g.gesture));
+  setFaces(event.faces.filter((f) => f.name).map((f) => f.name));
 
   // Backpressure: one result returned, send next frame to refill the pipeline
   if (_inflightFrames > 0) _inflightFrames--;

@@ -212,17 +212,31 @@ contextBridge.exposeInMainWorld('electron', {
       return () => { ipcRenderer.removeListener('character:session-request', handler); };
     },
 
-    sendAmplitude: (data: { amplitude: number; isPlaying: boolean; isThinking: boolean }) =>
-      ipcRenderer.send('character:amplitude', data),
-    sendPersonasUpdate: (data: { personas: Array<{ id: number; name: string; poseTree: any }>; activePersonaId: number | null }) =>
-      ipcRenderer.send('character:personas-update', data),
-
-    onAmplitude: (cb: (data: { amplitude: number; isPlaying: boolean; isThinking: boolean }) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: { amplitude: number; isPlaying: boolean; isThinking: boolean }) => cb(data);
-      ipcRenderer.on('character:amplitude', handler);
-      return () => { ipcRenderer.removeListener('character:amplitude', handler); };
+    // The speech feed: one message per spoken sentence (its RMS curve and the
+    // moment it began) and a position sync a few times a second while it
+    // plays. The window clocks the mouth itself, so nothing crosses at frame
+    // rate and hiding the main window to the tray cannot stall it (#238).
+    sendSpeech: (segment: any) => ipcRenderer.send('character:speech', segment),
+    onSpeech: (cb: (segment: any) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, segment: any) => cb(segment);
+      ipcRenderer.on('character:speech', handler);
+      return () => { ipcRenderer.removeListener('character:speech', handler); };
     },
-    onPersonasUpdate: (cb: (data: { personas: Array<{ id: number; name: string; poseTree: any }>; activePersonaId: number | null }) => void) => {
+    sendSpeechSync: (sync: { positionMs: number; at: number }) => ipcRenderer.send('character:speech-sync', sync),
+    onSpeechSync: (cb: (sync: { positionMs: number; at: number }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, sync: { positionMs: number; at: number }) => cb(sync);
+      ipcRenderer.on('character:speech-sync', handler);
+      return () => { ipcRenderer.removeListener('character:speech-sync', handler); };
+    },
+    sendFeed: (data: { isThinking: boolean }) => ipcRenderer.send('character:feed', data),
+    onFeed: (cb: (data: { isThinking: boolean }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { isThinking: boolean }) => cb(data);
+      ipcRenderer.on('character:feed', handler);
+      return () => { ipcRenderer.removeListener('character:feed', handler); };
+    },
+    sendPersonasUpdate: (data: { personas: Array<{ id: number; name: string; avatarUuid: string | null; character: any }>; activePersonaId: number | null }) =>
+      ipcRenderer.send('character:personas-update', data),
+    onPersonasUpdate: (cb: (data: { personas: Array<{ id: number; name: string; avatarUuid: string | null; character: any }>; activePersonaId: number | null }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: any) => cb(data);
       ipcRenderer.on('character:personas-update', handler);
       return () => { ipcRenderer.removeListener('character:personas-update', handler); };
@@ -233,10 +247,10 @@ contextBridge.exposeInMainWorld('electron', {
       return () => { ipcRenderer.removeListener('character:window-closed', handler); };
     },
 
-    sendGestureUpdate: (data: { gestures: string[] }) =>
+    sendGestureUpdate: (data: { gestures: string[]; seq: number }) =>
       ipcRenderer.send('character:gesture-update', data),
-    onGestureUpdate: (cb: (data: { gestures: string[] }) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: { gestures: string[] }) => cb(data);
+    onGestureUpdate: (cb: (data: { gestures: string[]; seq: number }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { gestures: string[]; seq: number }) => cb(data);
       ipcRenderer.on('character:gesture-update', handler);
       return () => { ipcRenderer.removeListener('character:gesture-update', handler); };
     },
@@ -249,10 +263,10 @@ contextBridge.exposeInMainWorld('electron', {
       return () => { ipcRenderer.removeListener('character:face-update', handler); };
     },
 
-    sendSubtitle: (data: { text: string; isUser: boolean }) =>
+    sendSubtitle: (data: { text: string; isUser: boolean; duration?: number }) =>
       ipcRenderer.send('character:subtitle', data),
-    onSubtitle: (cb: (data: { text: string; isUser: boolean }) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: { text: string; isUser: boolean }) => cb(data);
+    onSubtitle: (cb: (data: { text: string; isUser: boolean; duration?: number }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { text: string; isUser: boolean; duration?: number }) => cb(data);
       ipcRenderer.on('character:subtitle', handler);
       return () => { ipcRenderer.removeListener('character:subtitle', handler); };
     },

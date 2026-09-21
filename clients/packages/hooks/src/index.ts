@@ -5,9 +5,11 @@
  * for a DOM or a widget library.
  */
 export * from './authedAsset';
+export * from './characterBridgeSync';
 export * from './characterSession';
 export * from './useAudioAmplitude';
 export * from './useCapabilities';
+export * from './useCharacterBridgeSync';
 export * from './useCharacterPanel';
 export * from './useConnectionStatus';
 export * from './useContextBreakdown';

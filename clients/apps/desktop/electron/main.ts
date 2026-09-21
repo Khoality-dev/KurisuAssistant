@@ -261,12 +261,16 @@ ipcMain.handle('character:close-window', () => {
   }
 });
 
-// IPC relay: main renderer → character renderer
-ipcMain.on('character:amplitude', (_event, data) => {
-  if (characterWindow && !characterWindow.isDestroyed()) {
-    characterWindow.webContents.send('character:amplitude', data);
-  }
-});
+// IPC relay: main renderer → character renderer. The feed is one message per
+// spoken sentence plus a position sync a few times a second, never a
+// per-frame stream (#238); nothing here inspects any of it.
+for (const channel of ['character:speech', 'character:speech-sync', 'character:feed']) {
+  ipcMain.on(channel, (_event, data) => {
+    if (characterWindow && !characterWindow.isDestroyed()) {
+      characterWindow.webContents.send(channel, data);
+    }
+  });
+}
 
 ipcMain.on('character:personas-update', (_event, data) => {
   if (characterWindow && !characterWindow.isDestroyed()) {

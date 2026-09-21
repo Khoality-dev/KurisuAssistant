@@ -30,7 +30,7 @@ Dependencies install at the workspace root: `npm ci` from `clients/`, never from
 - [Authentication and storage](docs/auth.md) — login and refresh, QR login, where tokens live, localStorage keys
 - [Security model](docs/security.md) — host-tool boundary, MCP spawn consent, the built-in MCP server, certificates
 - [MCP servers](docs/mcp.md) — the servers this client starts and calls
-- [Character animation](docs/character.md) — pose graph, canvas compositing, the graph editor
+- [Character animation](docs/character.md) — the feed store every surface reads, the driver seam, the second window, the 2D engine, the graph editor
 - [Testing](docs/testing.md) — unit and e2e suites, and the Docker route for headless machines
 - [Backend endpoints](docs/endpoints.md) — the REST and WebSocket surface this client calls
 - [Screens](docs/screens.md) — screenshots and how they are captured
