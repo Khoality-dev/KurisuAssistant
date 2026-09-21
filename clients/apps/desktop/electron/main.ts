@@ -242,13 +242,6 @@ function createCharacterWindow() {
 }
 
 // Open external URLs in system browser
-// The app's own version, answered synchronously because the preload reads it
-// at load time and exposes it as a value (#257). `app.getVersion()` is the
-// packaged package.json's number — the one electron-updater compares.
-ipcMain.on('app:version', (event) => {
-  event.returnValue = app.getVersion();
-});
-
 ipcMain.handle('shell:open-external', (_event, url: string) => {
   return shell.openExternal(url);
 });
