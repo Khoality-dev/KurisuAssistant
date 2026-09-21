@@ -94,12 +94,12 @@ retrying silently for ever. The image carries the application code — the Docke
 
 ## Releases and Deployment
 
-There is no long-lived `dev` branch. Work happens on short-lived branches merged into `main` through pull requests, and a release is a tag on `main`: `backend-vX.Y.Z`, with X.Y.Z equal to `__version__` in `version.py`. The tag *is* the release — nothing else marks one, and the backend has no publish workflow. A deployment is a checkout of a release tag with `docker compose up -d --build` run from its `backend/`.
+There is no long-lived `dev` branch. Work happens on short-lived branches merged into `main` through pull requests, and a release is a tag on `main`: `vX.Y.Z`, with X.Y.Z equal to `__version__` in `version.py` — one tag for the backend and both clients (#256). The root `release.yml` builds the desktop installers and the Android APK from that tag and publishes them under one GitHub release; it refuses a tag whose number is not `__version__`. For the backend the tag *is* the release — there is no backend artifact, and a deployment is a checkout of the tag with `docker compose up -d --build` run from its `backend/`. To release: bump `__version__`, merge, then `git tag vX.Y.Z && git push origin vX.Y.Z`. (`backend-vX.Y.Z` was the backend's own tag before #256; the last is `backend-v0.6.0`.)
 
 Keep a deployment's checkout separate from the one you develop in. The checkout is a build context, an env file and a `data/` directory — the running code comes from the image, so editing the tree changes nothing until the next `--build`, and the image keeps running if the tree moves. What still makes a shared tree a bad idea is `data/` and the fixed project name: a second stack started from the same directory writes into the same user data. Move a deployment with checkout and rebuild in one step:
 
 ```bash
-git fetch --tags && git checkout backend-vX.Y.Z && docker compose up -d --build
+git fetch --tags && git checkout vX.Y.Z && docker compose up -d --build
 ```
 
 **Moving an existing deployment onto the profile split needs two things written
@@ -117,7 +117,7 @@ or its override:
 
 Migrations run on container start, so the restart is also what applies them. `docker-compose.yml` pins `name: kurisuassistant`, so the project adopts the same containers and volumes (`postgres-container`, `kurisuassistant_postgres-data`) whichever directory it is started from — a checkout under a new path continues the same database instead of silently creating an empty one.
 
-When a release bumps `WIRE_PROTOCOL`, publish the client releases first — `android-v*` and `desktop-v*` tags trigger the publish workflows — and deploy the backend tag after. The backend rejects a mismatched client with 426 and Android hard-gates on it, so deploying first locks every installed app out.
+When a release bumps `WIRE_PROTOCOL`, let the tag's release run finish — it publishes both clients — and deploy the backend from that tag after, once the updaters have had their chance. The backend rejects a mismatched client with 426 and Android hard-gates on it, so deploying first locks every installed app out.
 
 ### A second instance
 

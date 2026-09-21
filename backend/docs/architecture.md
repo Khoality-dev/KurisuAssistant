@@ -229,12 +229,12 @@ the subprotocol list alongside its token. A mismatch is closed with 4426 before
 authentication. Saying nothing is still allowed on both transports, so curl and
 internal tooling keep working.
 
-Releases are tags on `main`, not branches: `backend-vX.Y.Z`, with X.Y.Z equal to
-`__version__`. The backend has no publish workflow — a deployment checks the tag out
-and rebuilds (see `development.md`, "Releases and Deployment"). The clients are released by
-tag too (`desktop-v*`, `android-v*`), and those tags *do* trigger publish workflows.
-When a release bumps `WIRE_PROTOCOL`, the clients must be published before the
-backend is deployed.
+Releases are tags on `main`, not branches: `vX.Y.Z`, with X.Y.Z equal to
+`__version__`, one tag for the backend and both clients (#256). The tag triggers the
+root `release.yml`, which builds and publishes the clients; the backend has no
+artifact — a deployment checks the tag out and rebuilds (see `development.md`,
+"Releases and Deployment"). When a release bumps `WIRE_PROTOCOL`, the clients that
+release publishes must have shipped before the backend is deployed.
 
 ## Data
 

@@ -1,0 +1,328 @@
+name: Release
+
+# One release per version (#256):
+#
+#   1. Bump `__version__` in backend/kurisuassistant/version.py, merge to main.
+#   2. git tag vX.Y.Z && git push origin vX.Y.Z
+#
+# The tag builds BOTH clients at that version and publishes them under ONE
+# GitHub release named `vX.Y.Z`: the Windows installer, the Linux AppImage and
+# deb, electron-updater's latest.yml / latest-linux.yml, and the signed Android
+# APK. There is no backend artifact: the backend is released by the same tag,
+# and a deployment checks it out and rebuilds (backend/docs/operations.md).
+#
+# One version number. The `check` job refuses a tag whose X.Y.Z is not the
+# backend's `__version__`; the desktop's package.json version and the Android
+# versionName / versionCode are set FROM the tag at build time, so nothing else
+# has to be bumped — the committed client values are what a local build gets.
+#
+# How installed apps find it:
+#   - desktop: electron-updater reads this repository's `releases/latest`
+#     ("build.publish" in clients/apps/desktop/package.json). GitHub's
+#     "latest" is the newest release that is neither a draft nor a
+#     pre-release, so the unified release must be a plain release — and it is.
+#   - Android: `UpdateRepository` lists the releases and `AndroidReleases`
+#     takes the newest of ours by version — a `vX.Y.Z` release carrying an
+#     APK, or, from before #256, an `android-vX.Y.Z` one.
+#
+# Transition: a phone still running an app from before #256 only recognises
+# `android-v*` tags, so until every install has moved past the first unified
+# release the `android-alias` job ALSO publishes the APK as a pre-release
+# `android-vX.Y.Z` (a pre-release never takes `releases/latest` from the
+# desktop). Set the repository variable ANDROID_LEGACY_ALIAS to `false` to
+# stop it; then delete that job.
+#
+# Required secrets (Android signing only — #229):
+#   KURISU_KEYSTORE_BASE64   — release keystore, base64-encoded
+#   KURISU_KEYSTORE_PASSWORD — its password; the key inside uses the same one
+#                              (a PKCS12 keystore has exactly one), and the key
+#                              alias is read from the keystore at build time
+# The release itself is created with the workflow's own token.
+#
+# Asset names have no spaces. electron-builder's default NSIS name is
+# "<productName> Setup <version>.exe" and GitHub rewrites spaces in an
+# uploaded asset's name, while latest.yml keeps the original — so the updater
+# would 404 on the download. "build.win.artifactName" and
+# "build.linux.artifactName" in clients/apps/desktop/package.json pin
+# space-free names, and the `files:` globs below match them (including the
+# .blockmap files electron-updater uses for differential downloads).
+#
+# A manual run (workflow_dispatch) takes an EXISTING tag and rebuilds and
+# republishes it — for a run that failed halfway. It never creates a tag, and
+# `make_latest: legacy` means republishing an older tag never moves
+# `releases/latest` back to it.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to rebuild and republish (vX.Y.Z)'
+        required: true
+        type: string
+
+permissions:
+  contents: write   # the release is created here
+
+jobs:
+  # Resolves the tag being released and refuses one whose number is not the
+  # backend's. Everything downstream checks out this tag by name, so a manual
+  # re-run builds the tagged tree, never the branch the run was started from.
+  check:
+    name: Tag matches the version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      sha: ${{ steps.verify.outputs.sha }}
+    steps:
+      - name: Resolve the tag
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSHED_TAG: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ "$EVENT_NAME" == "push" ]]; then tag="$PUSHED_TAG"; else tag="$INPUT_TAG"; fi
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$tag' is not a release tag; releases are tagged vX.Y.Z." >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve.outputs.tag }}
+
+      - name: The tag's number is the backend's __version__
+        id: verify
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          py_version="$(sed -nE 's/^__version__ = "([^"]+)".*/\1/p' backend/kurisuassistant/version.py | head -1)"
+          if [[ "$VERSION" != "$py_version" ]]; then
+            echo "::error::Tag v$VERSION does not match __version__ = \"$py_version\" in backend/kurisuassistant/version.py. Bump __version__ on main, then tag that commit." >&2
+            exit 1
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$VERSION from $(git rev-parse --short HEAD)"
+
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    needs: check
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            builder_args: ''
+            artifact: release-desktop-windows
+          - os: ubuntu-latest
+            builder_args: '--linux'
+            artifact: release-desktop-linux
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: clients/apps/desktop
+
+    steps:
+      - name: Checkout the tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: clients/package-lock.json
+
+      - name: Install dependencies
+        # The workspace root owns the lockfile and every member's dependencies
+        # hoist into it, so this is the only directory `npm ci` can run in.
+        working-directory: clients
+        run: npm ci
+        env:
+          # @vscode/ripgrep downloads a prebuilt binary from the GitHub API in a
+          # postinstall hook. Unauthenticated calls are rate-limited per runner
+          # IP, so this intermittently fails the whole job with a 403 before any
+          # test runs. The token raises the limit; it needs no extra scope.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set version from tag
+        shell: bash
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        # --allow-same-version: a re-dispatch of a tag whose package.json already
+        # carries the number must not fail with EVERSIONNOTCHANGED.
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      # electron-builder writes latest.yml next to the installer whenever
+      # "build.publish" is configured; uploading is a separate job so the
+      # release is created once, by the workflow's own token.
+      - name: Build Electron app
+        shell: bash
+        run: npx vite build && npx electron-builder ${{ matrix.builder_args }} --publish never
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            clients/apps/desktop/release/*.exe
+            clients/apps/desktop/release/*.exe.blockmap
+            clients/apps/desktop/release/*.AppImage
+            clients/apps/desktop/release/*.deb
+            clients/apps/desktop/release/latest*.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  android:
+    name: Android
+    needs: check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/android
+    # Promote secrets to job-level env so the `if:` conditionals below can read them.
+    # Empty string when the secret isn't set — that's how we detect missing config.
+    env:
+      KURISU_KEYSTORE_BASE64: ${{ secrets.KURISU_KEYSTORE_BASE64 }}
+      KURISU_KEYSTORE_PASSWORD: ${{ secrets.KURISU_KEYSTORE_PASSWORD }}
+
+    steps:
+      - name: Checkout the tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Decode the release keystore from the base64 secret. If the secret is
+      # missing these two steps are skipped and the build step below FAILS,
+      # naming the values it needs — rather than publishing an APK signed with
+      # the debug key to the channel real users update from (#100).
+      - name: Decode release keystore
+        if: env.KURISU_KEYSTORE_BASE64 != ''
+        run: |
+          printf '%s' "$KURISU_KEYSTORE_BASE64" | base64 -d > kurisu-release.jks
+
+      # The alias is not a secret — it is the name of the one key entry in the
+      # keystore — so it is read from the keystore rather than configured. The
+      # key password is the store password: a PKCS12 keystore (the Android
+      # Studio default) has one password for both, and keytool refuses to set
+      # a different one. A JKS whose key has its own password fails at the
+      # build step with Gradle's message; convert it (keytool -importkeystore
+      # -deststoretype pkcs12) rather than adding a secret.
+      - name: Write .env for Gradle
+        if: env.KURISU_KEYSTORE_BASE64 != ''
+        run: |
+          alias="$(keytool -list -keystore kurisu-release.jks -storepass "$KURISU_KEYSTORE_PASSWORD" 2>/dev/null \
+            | sed -nE 's/^([^,]+), .*PrivateKeyEntry.*/\1/p' | head -1)"
+          if [[ -z "$alias" ]]; then
+            echo "No private key entry found in the keystore (wrong password, or not a keystore)" >&2
+            exit 1
+          fi
+          {
+            echo "KURISU_KEYSTORE=kurisu-release.jks"
+            echo "KURISU_KEYSTORE_PASSWORD=$KURISU_KEYSTORE_PASSWORD"
+            echo "KURISU_KEY_ALIAS=$alias"
+            echo "KURISU_KEY_PASSWORD=$KURISU_KEYSTORE_PASSWORD"
+          } > .env
+
+      # versionName and versionCode come from the tag (app/build.gradle.kts
+      # reads kurisu.releaseVersion); the committed values are the dev fallback.
+      - name: Build prod release APK
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: chmod +x ./gradlew && ./gradlew assembleProdRelease -Pkurisu.releaseVersion="$VERSION"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: clients/android/app/build/outputs/apk/prod/release/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish v${{ needs.check.outputs.version }}
+    needs: [check, desktop, android]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect every package
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+
+      - name: What is being published
+        run: ls -l dist
+
+      # One release, one tag, both clients. `releases/latest` is what
+      # electron-updater resolves; `legacy` lets GitHub pick the highest
+      # semver among the plain releases, so a manual rebuild of an older tag
+      # never moves "latest" backwards. The APK rides along and the Android
+      # updater finds it by version, not by slot.
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.check.outputs.tag }}
+          target_commitish: ${{ needs.check.outputs.sha }}
+          name: v${{ needs.check.outputs.version }}
+          prerelease: false
+          make_latest: legacy
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/*.AppImage
+            dist/*.deb
+            dist/latest.yml
+            dist/latest-linux.yml
+            dist/*.apk
+
+  # Transition only (see the header): the same APK under the tag an app from
+  # before #256 knows how to look for. Remove this job — and the
+  # `android-v*` branch in AndroidReleases — once no installed app predates
+  # the first unified release. Runs unless ANDROID_LEGACY_ALIAS is `false`.
+  android-alias:
+    name: android-v${{ needs.check.outputs.version }} (legacy alias)
+    needs: [check, publish]
+    if: vars.ANDROID_LEGACY_ALIAS != 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect the APK
+        uses: actions/download-artifact@v4
+        with:
+          name: release-android
+          path: dist
+
+      - name: Publish the alias pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v${{ needs.check.outputs.version }}
+          target_commitish: ${{ needs.check.outputs.sha }}
+          name: Android v${{ needs.check.outputs.version }}
+          body: >-
+            The same APK as release v${{ needs.check.outputs.version }}, under the
+            tag apps from before #256 look for. Pre-release on purpose: `releases/latest`
+            stays the unified release.
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: dist/*.apk

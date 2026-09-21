@@ -69,6 +69,28 @@ fun gitIsDirty(): Boolean = try {
         .inputStream.bufferedReader().readText().isNotBlank()
 } catch (e: Exception) { false }
 
+// A release is built from the tag `vX.Y.Z` (#256): the root release.yml passes
+// `-Pkurisu.releaseVersion=X.Y.Z`, versionName becomes that number and
+// versionCode is derived from it as X*10000 + Y*100 + Z — which rises with every
+// release for as long as Y and Z stay below 100, and is far above the hand-kept
+// codes the android-v* releases shipped with (11 at the last one). Without the
+// property — every local and dev-flavor build — the literals in defaultConfig
+// apply, and the dev flavor stamps the commit onto them.
+val releaseVersion: String? = (project.findProperty("kurisu.releaseVersion") as String?)
+    ?.trim()?.takeIf { it.isNotEmpty() }
+
+fun releaseVersionCode(version: String): Int {
+    val parts = version.split(".")
+    require(parts.size == 3 && parts.all { it.toIntOrNull() != null }) {
+        "kurisu.releaseVersion must be X.Y.Z, got '$version'"
+    }
+    val (major, minor, patch) = parts.map { it.toInt() }
+    require(minor < 100 && patch < 100) {
+        "kurisu.releaseVersion '$version': the minor and patch numbers must stay below 100 for versionCode to keep rising"
+    }
+    return major * 10000 + minor * 100 + patch
+}
+
 android {
     namespace = "com.kurisu.assistant"
     compileSdk = 35
@@ -77,8 +99,8 @@ android {
         applicationId = "com.kurisu.assistant"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.3.0"
+        versionCode = releaseVersion?.let(::releaseVersionCode) ?: 11
+        versionName = releaseVersion ?: "0.3.0"
         // Wire-protocol integer — must equal backend `WIRE_PROTOCOL` in
         // KurisuAssistant/kurisuassistant/version.py. Bump on any breaking
         // change to REST/WebSocket payloads, headers, or auth flow. Sent on
@@ -230,7 +252,7 @@ val verifyReleaseSigning = tasks.register("verifyReleaseSigning") {
                     appendLine("A local build reads these from clients/android/.env, which is")
                     appendLine("gitignored; the environment template lists the names. CI reads")
                     appendLine("repository secrets of the same names, which the release workflow")
-                    appendLine("(.github/workflows/android-release.yml) writes into that file")
+                    appendLine("(.github/workflows/release.yml) writes into that file")
                     appendLine("before it builds.")
                     appendLine()
                     appendLine("This used to fall back to the debug key that ships in every")
