@@ -146,8 +146,12 @@ export const VRM_EMOTIONS: readonly VrmEmotion[] = ['neutral', 'happy', 'angry',
  * `emotion_at`, the chunk's content starting at that offset); the history
  * carries the whole list on the message (`emotion_cues`). Applying a cue to a
  * face when the sentence is *spoken*, not when its text arrives, is #244.
+ *
+ * This is the cue as recorded — not the `EmotionCue` a driver is fed
+ * (`characterDriver.ts`), which carries a hold and a weight instead of an
+ * offset. #244 turns one into the other when the sentence plays.
  */
-export interface EmotionCue {
+export interface EmotionCueRecord {
   emotion: VrmEmotion;
   at: number;
 }
