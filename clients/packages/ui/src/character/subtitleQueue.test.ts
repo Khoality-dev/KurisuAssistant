@@ -84,11 +84,11 @@ describe('SubtitleQueue', () => {
     const { queue, views, advance } = harness();
     queue.handle({ text: 'A long sentence. Another one.', isUser: false, duration: 10 });
     queue.handle({ text: 'wait', isUser: true });
-    expect(views.at(-1)).toEqual({ text: 'wait', isUser: true, visible: true });
+    expect(views[views.length - 1]).toEqual({ text: 'wait', isUser: true, visible: true });
     advance(1499);
-    expect(views.at(-1)?.visible).toBe(true);
+    expect(views[views.length - 1]?.visible).toBe(true);
     advance(1);
-    expect(views.at(-1)).toEqual({ text: 'wait', isUser: true, visible: false });
+    expect(views[views.length - 1]).toEqual({ text: 'wait', isUser: true, visible: false });
     // The interrupted queue is gone: nothing else shows.
     advance(20000);
     expect(views.filter((v) => v.text === 'Another one.')).toEqual([]);
@@ -98,7 +98,7 @@ describe('SubtitleQueue', () => {
     const { queue, views, advance, t } = harness();
     queue.handle({ text: 'A. B. C.', isUser: false, duration: 3 });
     queue.handle({ text: '', isUser: false });
-    expect(views.at(-1)).toEqual({ text: 'A.', isUser: false, visible: false });
+    expect(views[views.length - 1]).toEqual({ text: 'A.', isUser: false, visible: false });
     expect(t.pendingCount).toBe(0);
     advance(5000);
     expect(views).toHaveLength(2);

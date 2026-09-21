@@ -75,7 +75,8 @@ function render(props: Partial<React.ComponentProps<typeof CharacterSurface>>) {
 }
 async function settle() { await act(async () => { await Promise.resolve(); await Promise.resolve(); }); }
 function step(ms = 16) { clock += ms; act(() => { frame?.(); }); }
-const last = () => drivers.at(-1)!;
+const last = () => drivers[drivers.length - 1];
+const lastInput = () => last().inputs[last().inputs.length - 1];
 
 describe('CharacterSurface', () => {
   beforeEach(() => {
@@ -111,12 +112,12 @@ describe('CharacterSurface', () => {
     await settle();
     publishSpeech({ text: 'hi', startedAt: clock, durationMs: 400, windowMs: 100, curve: [0, 1, 1, 0], cues: [] });
     step(50);
-    expect(last().inputs.at(-1)).toMatchObject({ amplitude: 0.5, isPlaying: true });
+    expect(lastInput()).toMatchObject({ amplitude: 0.5, isPlaying: true });
     step(100);
-    expect(last().inputs.at(-1)).toMatchObject({ amplitude: 1, isPlaying: true });
+    expect(lastInput()).toMatchObject({ amplitude: 1, isPlaying: true });
     publishSpeech(null);
     step();
-    expect(last().inputs.at(-1)).toMatchObject({ amplitude: 0, isPlaying: false });
+    expect(lastInput()).toMatchObject({ amplitude: 0, isPlaying: false });
   });
 
   it('only the active persona hears speech and thinking; stimuli follow receivesStimuli', async () => {
@@ -127,10 +128,10 @@ describe('CharacterSurface', () => {
     setFaces(['Khoa']);
     pushGestures(['wave']);
     step(50);
-    expect(last().inputs.at(-1)).toEqual({ amplitude: 0, isPlaying: false, isThinking: false, gestures: [], faces: [], cue: null });
+    expect(lastInput()).toEqual({ amplitude: 0, isPlaying: false, isThinking: false, gestures: [], faces: [], cue: null });
     render({ active: true, receivesStimuli: true });
     step(50);
-    expect(last().inputs.at(-1)).toMatchObject({ amplitude: 1, isPlaying: true, isThinking: true, faces: ['Khoa'], gestures: [] });
+    expect(lastInput()).toMatchObject({ amplitude: 1, isPlaying: true, isThinking: true, faces: ['Khoa'], gestures: [] });
   });
 
   it('takes a gesture burst once', async () => {
@@ -138,12 +139,12 @@ describe('CharacterSurface', () => {
     await settle();
     pushGestures(['wave']);
     step();
-    expect(last().inputs.at(-1)?.gestures).toEqual(['wave']);
+    expect(lastInput()?.gestures).toEqual(['wave']);
     step();
-    expect(last().inputs.at(-1)?.gestures).toEqual([]);
+    expect(lastInput()?.gestures).toEqual([]);
     pushGestures(['thumbs_up']);
     step();
-    expect(last().inputs.at(-1)?.gestures).toEqual(['thumbs_up']);
+    expect(lastInput()?.gestures).toEqual(['thumbs_up']);
   });
 
   it('reloads when the config content changes, not when only its identity does', async () => {

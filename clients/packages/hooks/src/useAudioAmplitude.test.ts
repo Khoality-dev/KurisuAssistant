@@ -89,7 +89,7 @@ describe('computeAmplitudeCurve', () => {
     expect(curve.windowMs).toBeCloseTo((533 / 16000) * 1000, 3);
     expect(curve.durationMs).toBe(1000);
     expect(curve.values[0]).toBe(1);        // rms 0.5 × 4, clamped
-    expect(curve.values.at(-1)).toBe(0);
+    expect(curve.values[curve.values.length - 1]).toBe(0);
     expect(curve.values).toHaveLength(Math.ceil(16000 / 533));
   });
 });
