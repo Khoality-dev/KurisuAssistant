@@ -39,8 +39,18 @@ name: Release
 #                              alias is read from the keystore at build time
 # The release itself is created with the workflow's own token.
 #
+# Asset names have no spaces. electron-builder's default NSIS name is
+# "<productName> Setup <version>.exe" and GitHub rewrites spaces in an
+# uploaded asset's name, while latest.yml keeps the original — so the updater
+# would 404 on the download. "build.win.artifactName" and
+# "build.linux.artifactName" in clients/apps/desktop/package.json pin
+# space-free names, and the `files:` globs below match them (including the
+# .blockmap files electron-updater uses for differential downloads).
+#
 # A manual run (workflow_dispatch) takes an EXISTING tag and rebuilds and
-# republishes it — for a run that failed halfway. It never creates a tag.
+# republishes it — for a run that failed halfway. It never creates a tag, and
+# `make_latest: legacy` means republishing an older tag never moves
+# `releases/latest` back to it.
 
 on:
   push:
@@ -148,7 +158,9 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.check.outputs.version }}
-        run: npm version "$VERSION" --no-git-tag-version
+        # --allow-same-version: a re-dispatch of a tag whose package.json already
+        # carries the number must not fail with EVERSIONNOTCHANGED.
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       # electron-builder writes latest.yml next to the installer whenever
       # "build.publish" is configured; uploading is a separate job so the
@@ -260,9 +272,11 @@ jobs:
       - name: What is being published
         run: ls -l dist
 
-      # One release, one tag, both clients. `make_latest` is what
-      # electron-updater's `releases/latest` resolves to; the APK rides along
-      # and the Android updater finds it by version, not by slot.
+      # One release, one tag, both clients. `releases/latest` is what
+      # electron-updater resolves; `legacy` lets GitHub pick the highest
+      # semver among the plain releases, so a manual rebuild of an older tag
+      # never moves "latest" backwards. The APK rides along and the Android
+      # updater finds it by version, not by slot.
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
@@ -270,7 +284,7 @@ jobs:
           target_commitish: ${{ needs.check.outputs.sha }}
           name: v${{ needs.check.outputs.version }}
           prerelease: false
-          make_latest: true
+          make_latest: legacy
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |

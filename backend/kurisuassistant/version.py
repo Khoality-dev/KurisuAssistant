@@ -3,7 +3,9 @@
 `__version__` is the release version (semver, plain X.Y.Z). Since #256 it is the
 version of the whole release: the tag `vX.Y.Z` must equal it — the root
 `release.yml` refuses one that does not — and the desktop and Android builds
-take their version from that tag. Bump it here, merge, then tag.
+take their version from that tag. Bump it here, merge, then tag. Keep the
+minor and patch numbers below 100: Android derives its versionCode as
+X*10000 + Y*100 + Z from this number, and `tests/test_version_tag.py` checks.
 
 `WIRE_PROTOCOL` is a monotonically increasing integer bumped on **any breaking
 change** to the wire format clients depend on (REST request/response shapes,
