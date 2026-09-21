@@ -331,6 +331,9 @@ export class MockBackend {
   public lastCharacterAssetRequest: { path: string; authorization: string | null } | null = null;
   /** Every `/character-assets` GET so far, oldest first, with the status it got. */
   public characterAssetRequests: Array<{ path: string; authorization: string | null; status: number }> = [];
+  /** Answer every request as a proxy that refuses this network; see `refuseLikeAProxy`. */
+  private proxyRefusal: number | null = null;
+
   /** A bearer the asset route now refuses; see `expireAccessToken`. */
   private expiredAssetBearer: string | null = null;
   public lastMcpServerCreate: any = null;
@@ -574,6 +577,17 @@ export class MockBackend {
     this.expiredAssetBearer = `Bearer ${token}`;
   }
 
+  /**
+   * Stand in for something in front of the server — an operator's nginx with a
+   * LAN allow-list, a dead upstream — that answers with its own HTML page and
+   * no JSON `detail`. Every request gets it, `/version` and the login alike,
+   * which is what the login screen has to explain in a sentence rather than
+   * as "Request failed with status code 403" (#263). `null` restores the mock.
+   */
+  refuseLikeAProxy(status: number | null = 403): void {
+    this.proxyRefusal = status;
+  }
+
   /** Give a persona a character config, the way the desktop editor's PATCH does. */
   setCharacterConfig(personaId: number, config: CharacterConfigDTO | null): void {
     const persona = this.personas.find((p) => p.id === personaId);
@@ -809,6 +823,13 @@ export class MockBackend {
     if (method === 'OPTIONS') {
       res.statusCode = 204;
       res.end();
+      return;
+    }
+
+    if (this.proxyRefusal !== null) {
+      res.statusCode = this.proxyRefusal;
+      res.setHeader('Content-Type', 'text/html');
+      res.end(`<html><head><title>${this.proxyRefusal}</title></head><body><center><h1>${this.proxyRefusal}</h1></center><hr><center>nginx</center></body></html>`);
       return;
     }
 

@@ -14,7 +14,7 @@ import {
   CameraAlt as CameraAltIcon,
   Close as CloseIcon,
 } from '@mui/icons-material';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { useWebcamCapture, type CapturedPhoto } from '@kurisu/hooks';
 
 interface FaceCreateDialogProps {
@@ -95,7 +95,7 @@ export const FaceCreateDialog: React.FC<FaceCreateDialogProps> = ({ open, onClos
       handleClose();
       onCreated(name, count);
     } catch (err: any) {
-      const detail = err.response?.data?.detail || err.message;
+      const detail = describeRequestFailure(err);
       onError(`Failed to register face: ${detail}`);
     } finally {
       setCreating(false);

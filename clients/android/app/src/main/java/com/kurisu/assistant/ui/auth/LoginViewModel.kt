@@ -128,8 +128,10 @@ class LoginViewModel @Inject constructor(
             } catch (e: Exception) {
                 // The server's own sentence, not "HTTP 403 Forbidden". This is
                 // the screen where an unactivated account is told why a correct
-                // password did not let it in, so the detail is the whole point.
-                _state.update { it.copy(error = apiErrorMessage(e, "Authentication failed")) }
+                // password did not let it in, so the detail is the whole point —
+                // and when there is none, a proxy's refusal or a dead address is
+                // named against the URL typed above (#263).
+                _state.update { it.copy(error = apiErrorMessage(e, "Authentication failed", origin = s.serverUrl.trim())) }
             } finally {
                 _state.update { it.copy(isLoading = false) }
             }

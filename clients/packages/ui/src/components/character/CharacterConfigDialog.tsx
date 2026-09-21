@@ -38,7 +38,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 import {
   migrateEdgeToTransitions,
   migratePoseTreeIds,
@@ -252,7 +252,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
         // The key must stay `personaId`: useCharacterPanel reads exactly that.
         window.dispatchEvent(new CustomEvent('character-config-saved', { detail: { personaId: persona.id } }));
       } catch (err: any) {
-        setError(err.response?.data?.detail || err.message || 'Auto-save failed');
+        setError(describeRequestFailure(err, 'Auto-save failed'));
         setSaveStatus('idle');
       } finally {
         savingRef.current = false;

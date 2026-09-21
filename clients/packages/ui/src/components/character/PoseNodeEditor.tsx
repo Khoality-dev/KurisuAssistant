@@ -34,7 +34,7 @@ import {
   Face as FaceIcon,
 } from '@mui/icons-material';
 import { Slider, Divider } from '@mui/material';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { config } from '@kurisu/api';
 import type { PatchInfo, PoseConfig, AnimationSettings } from '@kurisu/models';
 import { PreviewCanvas, PREVIEW_W, PREVIEW_H } from './PreviewCanvas';
@@ -189,7 +189,7 @@ export const PoseNodeEditor: React.FC<PoseNodeEditorProps> = ({
         setPatches([]);
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to upload base image');
+      setError(describeRequestFailure(err, 'Failed to upload base image'));
     } finally {
       setUploading(false);
     }
@@ -214,7 +214,7 @@ export const PoseNodeEditor: React.FC<PoseNodeEditorProps> = ({
       };
       setPatches((prev) => [...prev, newPatch]);
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to compute patch');
+      setError(describeRequestFailure(err, 'Failed to compute patch'));
     } finally {
       setUploading(false);
     }

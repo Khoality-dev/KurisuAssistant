@@ -13,7 +13,7 @@ import {
   GetApp as GetAppIcon,
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 
 interface ModelPickerProps {
   label: string;
@@ -90,11 +90,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
       await onRefresh();
       onSuccess?.(result.message);
     } catch (error: any) {
-      onError?.(
-        error.response?.data?.detail ||
-        error.message ||
-        `Failed to pull model "${trimmedValue}"`
-      );
+      onError?.(describeRequestFailure(error, `Failed to pull model "${trimmedValue}"`));
     } finally {
       setIsPulling(false);
     }

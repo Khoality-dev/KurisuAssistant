@@ -33,7 +33,7 @@ import {
   Computer as ComputerIcon,
   Cloud as CloudIcon,
 } from '@mui/icons-material';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 import {
   PLAYWRIGHT_MCP_ARGS,
   PLAYWRIGHT_MCP_PACKAGE,
@@ -171,7 +171,7 @@ export const ToolsSection: React.FC = () => {
       await applyToolsResponse(toolsRes);
       setMcpServers(serversRes);
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to load data');
+      setError(describeRequestFailure(err, 'Failed to load data'));
     } finally {
       setLoading(false);
     }
@@ -338,7 +338,7 @@ export const ToolsSection: React.FC = () => {
       const toolsRes = await apiClient.listTools();
       await applyToolsResponse(toolsRes);
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to save MCP server');
+      setError(describeRequestFailure(err, 'Failed to save MCP server'));
     } finally {
       setServerSaving(false);
     }
@@ -350,7 +350,7 @@ export const ToolsSection: React.FC = () => {
       setMcpServers(prev => prev.filter(s => s.id !== server.id));
       if (server.location === 'client') await refreshClientMCPServers();
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to delete MCP server');
+      setError(describeRequestFailure(err, 'Failed to delete MCP server'));
     }
   };
 
@@ -362,7 +362,7 @@ export const ToolsSection: React.FC = () => {
       );
       if (server.location === 'client') await refreshClientMCPServers();
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to toggle MCP server');
+      setError(describeRequestFailure(err, 'Failed to toggle MCP server'));
     }
   };
 

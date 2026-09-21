@@ -12,7 +12,7 @@ import {
   Typography,
 } from '@mui/material';
 import QRCode from 'qrcode';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { storage } from '@kurisu/api';
 
 interface Props {
@@ -61,8 +61,7 @@ export const LoginQrDialog: React.FC<Props> = ({ open, username, onClose }) => {
       }
       setGenerated(true);
     } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      setError(detail || err?.message || 'Could not verify password');
+      setError(describeRequestFailure(err, 'Could not verify password'));
     } finally {
       setVerifying(false);
     }

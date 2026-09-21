@@ -22,7 +22,7 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { AnimatePresence } from 'framer-motion';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { usePersonaStore } from '@kurisu/state';
 import { storage } from '@kurisu/api';
 import { parseCharacterConfig, type Persona } from '@kurisu/models';
@@ -82,7 +82,7 @@ export const PersonasSection: React.FC = () => {
       // Keep the sidebar/chat selector in step with what was just edited.
       void reloadPersonaStore();
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to load personas');
+      setError(describeRequestFailure(err, 'Failed to load personas'));
     } finally {
       setLoading(false);
     }
@@ -101,7 +101,7 @@ export const PersonasSection: React.FC = () => {
       setDefaultPersonaId(assistant.default_persona_id);
       flash(`New conversations start with ${persona.name}.`);
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to set the default persona');
+      setError(describeRequestFailure(err, 'Failed to set the default persona'));
     }
   };
 
@@ -112,7 +112,7 @@ export const PersonasSection: React.FC = () => {
     } catch (err: any) {
       // The backend refuses to disable the default persona: a new conversation
       // would have nobody to bind to.
-      setError(err.response?.data?.detail || err.message || 'Failed to change the persona');
+      setError(describeRequestFailure(err, 'Failed to change the persona'));
     }
   };
 
@@ -127,7 +127,7 @@ export const PersonasSection: React.FC = () => {
       URL.revokeObjectURL(url);
       flash(`Persona "${persona.name}" exported. Avatar, voice and character art stay behind.`);
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to export the persona');
+      setError(describeRequestFailure(err, 'Failed to export the persona'));
     }
   };
 
@@ -137,7 +137,7 @@ export const PersonasSection: React.FC = () => {
       flash(`Persona "${persona.name}" imported.`);
       await loadPersonas();
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to import the persona');
+      setError(describeRequestFailure(err, 'Failed to import the persona'));
     }
   };
 
@@ -152,7 +152,7 @@ export const PersonasSection: React.FC = () => {
     } catch (err: any) {
       // The last persona cannot be deleted — a user with none could not start a
       // conversation at all.
-      setError(err.response?.data?.detail || err.message || 'Failed to delete the persona');
+      setError(describeRequestFailure(err, 'Failed to delete the persona'));
       setDeleteTarget(null);
     }
   };

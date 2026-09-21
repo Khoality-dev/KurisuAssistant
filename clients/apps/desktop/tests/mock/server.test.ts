@@ -214,6 +214,27 @@ describe('mock backend: /version', () => {
   });
 });
 
+describe('mock backend: a proxy in front', () => {
+  it('answers everything with the proxy page and no detail while it refuses, then recovers', async () => {
+    mock.refuseLikeAProxy(403);
+    const refused = await fetch(`${mock.url}/login`, { method: 'POST', body: 'username=tester&password=password' });
+    expect(refused.status).toBe(403);
+    expect(refused.headers.get('content-type')).toContain('text/html');
+    expect(await refused.text()).toContain('nginx');
+    // Even the exempt handshake route: a LAN allow-list sees no difference.
+    expect((await fetch(`${mock.url}/version`)).status).toBe(403);
+
+    mock.refuseLikeAProxy(null);
+    expect((await get('/version')).status).toBe(200);
+  });
+
+  it('can stand in for a dead upstream too', async () => {
+    mock.refuseLikeAProxy(502);
+    expect((await fetch(`${mock.url}/version`)).status).toBe(502);
+    mock.refuseLikeAProxy(null);
+  });
+});
+
 describe('mock backend: conversations', () => {
   it('binds a new conversation to the assistant default persona', async () => {
     const events = await chat({ conversation_id: null });

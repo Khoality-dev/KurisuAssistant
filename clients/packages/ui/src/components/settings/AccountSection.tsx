@@ -15,7 +15,7 @@ import {
   QrCode2 as QrCodeIcon,
 } from '@mui/icons-material';
 import { useAuthStore } from '@kurisu/state';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { ModelPicker } from '../ModelPicker';
 import { LoginQrDialog } from './LoginQrDialog';
 import { VersionRows } from './VersionRows';
@@ -109,7 +109,7 @@ export const AccountSection: React.FC = () => {
       setModels(data);
     } catch (error: any) {
       console.error('Failed to load models:', error);
-      setErrorMessage(error.response?.data?.detail || error.message || 'Failed to load models from Ollama');
+      setErrorMessage(describeRequestFailure(error, 'Failed to load models from Ollama'));
     }
   };
 

@@ -36,7 +36,7 @@ import {
   CameraAlt as CameraAltIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { useVisionStore } from '@kurisu/state';
 import { useWebcamCapture } from '@kurisu/hooks';
 import { FaceCreateDialog } from './FaceCreateDialog';
@@ -218,7 +218,7 @@ export const FacesSection: React.FC = () => {
       loadFaces();
       setSuccessMessage('Photo captured and added');
     } catch (err: any) {
-      const detail = err.response?.data?.detail || err.message;
+      const detail = describeRequestFailure(err);
       setError(`Failed to add photo: ${detail}`);
     }
   }, [captureFrame, selectedFace, loadFaces]);

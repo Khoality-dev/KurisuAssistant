@@ -17,7 +17,7 @@ import {
   Save as SaveIcon,
   Videocam as CharacterIcon,
 } from '@mui/icons-material';
-import { apiClient } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@kurisu/api';
 import type { Persona, PersonaCreate, PersonaUpdate } from '@kurisu/models';
 import { CharacterConfigDialog } from '../character/CharacterConfigDialog';
 
@@ -101,7 +101,7 @@ export const PersonaEditDialog: React.FC<PersonaEditDialogProps> = ({
       const { image_uuid } = await apiClient.uploadImage(file);
       setForm((prev) => ({ ...prev, avatar_uuid: image_uuid }));
     } catch (err: any) {
-      onError(err?.response?.data?.detail || err?.message || 'Failed to upload the avatar.');
+      onError(describeRequestFailure(err, 'Failed to upload the avatar.'));
     } finally {
       setUploadingAvatar(false);
     }
@@ -141,7 +141,7 @@ export const PersonaEditDialog: React.FC<PersonaEditDialogProps> = ({
       }
       onClose();
     } catch (err: any) {
-      onError(err?.response?.data?.detail || err?.message || 'Failed to save the persona.');
+      onError(describeRequestFailure(err, 'Failed to save the persona.'));
     } finally {
       setSaving(false);
     }
