@@ -74,13 +74,9 @@ export const TTSSection: React.FC = () => {
   // '' is "the server's default": the request then names no provider (#200).
   const [ttsBackend, setTtsBackendState] = useState(storage.getTTSBackend() || '');
   const [ttsAutoPlay, setTtsAutoPlayState] = useState(storage.getTTSAutoPlay());
-  const [ttsEmotionAlpha, setTtsEmotionAlphaState] = useState(storage.getTTSEmotionAlpha());
-  const [ttsUseEmotionText, setTtsUseEmotionTextState] = useState(storage.getTTSUseEmotionText());
 
   const setTtsBackend = (v: string) => { setTtsBackendState(v); storage.setTTSBackend(v); };
   const setTtsAutoPlay = (v: boolean) => { setTtsAutoPlayState(v); storage.setTTSAutoPlay(v); };
-  const setTtsEmotionAlpha = (v: number) => { setTtsEmotionAlphaState(v); storage.setTTSEmotionAlpha(v); };
-  const setTtsUseEmotionText = (v: boolean) => { setTtsUseEmotionTextState(v); storage.setTTSUseEmotionText(v); };
 
   useEffect(() => {
     loadBackends();
@@ -276,54 +272,6 @@ export const TTSSection: React.FC = () => {
           When enabled, agent replies are spoken while the response text is still streaming.
         </Typography>
       </Box>
-
-      {/* viXTTS emotion controls */}
-      {ttsBackend === 'vixtts' && (
-        <>
-          <Divider sx={{ mb: 3 }} />
-          <Typography variant="h6" sx={{ mb: 3 }}>
-            Emotion Controls (viXTTS)
-          </Typography>
-
-          <Box sx={{ mb: 3 }}>
-            <Typography gutterBottom>
-              Emotion Strength: {ttsEmotionAlpha.toFixed(1)}
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Typography variant="body2" sx={{ minWidth: 30 }}>
-                0.0
-              </Typography>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.1"
-                value={ttsEmotionAlpha}
-                onChange={(e) => setTtsEmotionAlpha(parseFloat(e.target.value))}
-                style={{ flex: 1 }}
-              />
-              <Typography variant="body2" sx={{ minWidth: 30 }}>
-                1.0
-              </Typography>
-            </Box>
-          </Box>
-
-          <Box sx={{ mb: 4 }}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={ttsUseEmotionText}
-                  onChange={(e) => setTtsUseEmotionText(e.target.checked)}
-                />
-              }
-              label="Infer emotion from text content"
-            />
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-              When enabled, the model will analyze the text to determine emotional tone
-            </Typography>
-          </Box>
-        </>
-      )}
     </Box>
   );
 };

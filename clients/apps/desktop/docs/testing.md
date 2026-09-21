@@ -48,6 +48,7 @@ specs:
 | `slow` | One chunk every 400 ms for a while — long enough to press Stop |
 | `character` | Kurisu has a one-pose character, so the character window has art to fetch — with a bearer, as on the backend |
 | `no-model` | A fresh account with no model chosen: the first message is refused with `NO_MODEL_SELECTED` |
+| `emotion` | Kurisu is a VRM persona with the emotion channel on: the reply's chunks carry `emotion` / `emotion_at` and the stored message keeps `emotion_cues` (#243); nothing renders them until #244 |
 
 The mock has no tool-approval flow: nothing in the client is driven by `tool_approval_request` from
 here yet, and adding it means adding it to the mock first.

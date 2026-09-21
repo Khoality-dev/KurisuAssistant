@@ -96,28 +96,6 @@ fun TtsAsrScreen(
                 Switch(checked = state.autoPlay, onCheckedChange = viewModel::setAutoPlay)
             }
 
-            // Emotion controls (viXTTS only)
-            if (state.ttsBackend.lowercase().contains("vixtts") || state.ttsBackend.lowercase().contains("gpt-sovits")) {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                Text("Emotion (viXTTS)", style = MaterialTheme.typography.titleSmall)
-
-                Text("Emotion strength: ${"%.1f".format(state.emotionAlpha)}")
-                Slider(
-                    value = state.emotionAlpha,
-                    onValueChange = viewModel::setEmotionAlpha,
-                    valueRange = 0f..1f,
-                    steps = 9,
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Infer emotion from text", modifier = Modifier.weight(1f))
-                    Switch(checked = state.useEmotionText, onCheckedChange = viewModel::setUseEmotionText)
-                }
-            }
-
             // ASR
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
             Text("Speech Recognition", style = MaterialTheme.typography.titleMedium)

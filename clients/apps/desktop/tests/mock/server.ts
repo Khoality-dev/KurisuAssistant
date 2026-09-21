@@ -22,6 +22,8 @@ import {
   WS_WIRE_SUBPROTOCOL_PREFIX,
   WS_WIRE_PROTOCOL_MISMATCH,
   type CharacterConfigDTO,
+  type EmotionCue,
+  type VrmEmotion,
 } from '@kurisu/models';
 
 /**
@@ -130,6 +132,15 @@ export interface StreamChunk {
    */
   toolKind?: 'tool' | 'sub_agent';
   durationMs?: number;
+  /**
+   * Assistant chunks only: the persona's feeling changed here (#243). Goes out
+   * as `emotion` / `emotion_at` on the chunk and is kept on the stored message
+   * as `emotion_cues`, exactly as the backend does after stripping the model's
+   * tags. `emotionAt` is the offset into the round's accumulated content (this
+   * chunk's content starts there), in UTF-16 code units.
+   */
+  emotion?: VrmEmotion;
+  emotionAt?: number;
 }
 
 export interface StreamScript {
@@ -239,6 +250,8 @@ interface StoredMessage {
   name: string | null;
   tool_args: Record<string, unknown> | null;
   tool_status: string | null;
+  /** Assistant messages of a VRM persona: where the feeling changed (#243). */
+  emotion_cues?: EmotionCue[] | null;
   created_at: string;
 }
 
@@ -1499,6 +1512,7 @@ export class MockBackend {
       ...(m.name ? { name: m.name } : {}),
       ...(m.tool_args ? { tool_args: m.tool_args } : {}),
       ...(m.tool_status ? { tool_status: m.tool_status } : {}),
+      ...(m.emotion_cues?.length ? { emotion_cues: m.emotion_cues } : {}),
       // Only an assistant message has a speaker. The embedded stamp is what the
       // bubble renders its name and avatar from on a reload.
       ...(m.persona_id !== null
@@ -1632,6 +1646,7 @@ export class MockBackend {
           role: string; content: string; thinking: string;
           personaId: number | null; name: string | null;
           toolArgs: Record<string, unknown> | null; toolStatus: string | null;
+          emotionCues: EmotionCue[];
         };
         const segments: Segment[] = [];
         let aborted = false;
@@ -1662,10 +1677,14 @@ export class MockBackend {
               name: label,
               toolArgs: chunk.toolArgs ?? null,
               toolStatus: chunk.toolStatus ?? (isTool ? 'success' : null),
+              emotionCues: [],
             });
           } else {
             last.content += chunk.content;
             if (chunk.thinking) last.thinking += chunk.thinking;
+          }
+          if (!isTool && chunk.emotion) {
+            segments[segments.length - 1].emotionCues.push({ emotion: chunk.emotion, at: chunk.emotionAt ?? 0 });
           }
 
           send({
@@ -1688,6 +1707,10 @@ export class MockBackend {
             conversation_id: conversationId,
             images: null,
             token_count: null,
+            // Only an assistant chunk of a VRM persona with emotion on carries
+            // these; the backend leaves them null everywhere else.
+            emotion: (!isTool && chunk.emotion) ? chunk.emotion : null,
+            emotion_at: (!isTool && chunk.emotion) ? (chunk.emotionAt ?? 0) : null,
           });
         }
 
@@ -1702,6 +1725,7 @@ export class MockBackend {
             name: seg.name,
             tool_args: seg.toolArgs,
             tool_status: seg.toolStatus,
+            emotion_cues: seg.emotionCues.length ? seg.emotionCues : null,
             created_at: new Date().toISOString(),
           });
         }

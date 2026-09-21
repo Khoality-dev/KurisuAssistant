@@ -5,7 +5,6 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -32,9 +31,6 @@ class PreferencesDataStore @Inject constructor(
     private val KEY_TTS_VOICE = stringPreferencesKey(StorageKeys.TTS_VOICE)
     private val KEY_TTS_LANGUAGE = stringPreferencesKey(StorageKeys.TTS_LANGUAGE)
     private val KEY_TTS_BACKEND = stringPreferencesKey(StorageKeys.TTS_BACKEND)
-    private val KEY_TTS_EMO_AUDIO = stringPreferencesKey(StorageKeys.TTS_EMO_AUDIO)
-    private val KEY_TTS_EMO_ALPHA = floatPreferencesKey(StorageKeys.TTS_EMO_ALPHA)
-    private val KEY_TTS_USE_EMO_TEXT = booleanPreferencesKey(StorageKeys.TTS_USE_EMO_TEXT)
     private val KEY_BACKEND_URL = stringPreferencesKey(StorageKeys.BACKEND_URL)
     private val KEY_PERSONA_CONVERSATIONS = stringPreferencesKey(StorageKeys.PERSONA_CONVERSATIONS)
     private val KEY_AUDIO_INPUT_DEVICE_TYPE = intPreferencesKey(StorageKeys.AUDIO_INPUT_DEVICE_TYPE)
@@ -63,15 +59,6 @@ class PreferencesDataStore @Inject constructor(
 
     suspend fun getTTSBackend(): String? = ds.data.first()[KEY_TTS_BACKEND]
     suspend fun setTTSBackend(backend: String) { ds.edit { it[KEY_TTS_BACKEND] = backend } }
-
-    suspend fun getTTSEmotionAudio(): String? = ds.data.first()[KEY_TTS_EMO_AUDIO]
-    suspend fun setTTSEmotionAudio(audio: String) { ds.edit { it[KEY_TTS_EMO_AUDIO] = audio } }
-
-    suspend fun getTTSEmotionAlpha(): Float? = ds.data.first()[KEY_TTS_EMO_ALPHA]
-    suspend fun setTTSEmotionAlpha(alpha: Float) { ds.edit { it[KEY_TTS_EMO_ALPHA] = alpha } }
-
-    suspend fun getTTSUseEmotionText(): Boolean? = ds.data.first()[KEY_TTS_USE_EMO_TEXT]
-    suspend fun setTTSUseEmotionText(use: Boolean) { ds.edit { it[KEY_TTS_USE_EMO_TEXT] = use } }
 
     // Persona -> last conversation (JSON map: personaId -> conversationId).
     //

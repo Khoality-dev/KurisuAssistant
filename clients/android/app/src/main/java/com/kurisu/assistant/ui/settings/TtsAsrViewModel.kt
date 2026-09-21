@@ -28,8 +28,6 @@ data class TtsAsrUiState(
     val ttsBackend: String = "",
     val backends: List<String> = emptyList(),
     val autoPlay: Boolean = true,
-    val emotionAlpha: Float = 0.5f,
-    val useEmotionText: Boolean = false,
     val asrLanguage: String = "",
     val asrMode: String = "fixed",
     val asrFixedModel: String = "",
@@ -65,8 +63,6 @@ class TtsAsrViewModel @Inject constructor(
         viewModelScope.launch {
             val backend = prefs.getTTSBackend() ?: ""
             val autoPlay = prefs.getTTSAutoPlay()
-            val alpha = prefs.getTTSEmotionAlpha() ?: 0.5f
-            val useEmo = prefs.getTTSUseEmotionText() ?: false
             val lang = prefs.getAsrLanguage()
             val deviceType = prefs.getAudioInputDeviceType()
             audioRecorder.preferredDeviceType = deviceType
@@ -80,8 +76,6 @@ class TtsAsrViewModel @Inject constructor(
             _state.update { it.copy(
                 ttsBackend = backend,
                 autoPlay = autoPlay,
-                emotionAlpha = alpha,
-                useEmotionText = useEmo,
                 asrLanguage = lang,
                 asrMode = asrMode,
                 asrFixedModel = asrFixed,
@@ -138,16 +132,6 @@ class TtsAsrViewModel @Inject constructor(
     fun setAutoPlay(v: Boolean) {
         _state.update { it.copy(autoPlay = v) }
         viewModelScope.launch { prefs.setTTSAutoPlay(v) }
-    }
-
-    fun setEmotionAlpha(v: Float) {
-        _state.update { it.copy(emotionAlpha = v) }
-        viewModelScope.launch { prefs.setTTSEmotionAlpha(v) }
-    }
-
-    fun setUseEmotionText(v: Boolean) {
-        _state.update { it.copy(useEmotionText = v) }
-        viewModelScope.launch { prefs.setTTSUseEmotionText(v) }
     }
 
     fun setAsrLanguage(v: String) {

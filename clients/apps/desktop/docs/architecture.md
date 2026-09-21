@@ -47,7 +47,7 @@ electron/preload.ts       — contextBridge: hostTools, appTools, explorer, driv
   settings/
     SettingsPage.tsx       — Left nav sidebar (13 sections) + lazy-loaded content area. `tests/settings.spec.ts` asserts the label list, so adding or renaming a section fails there until the spec agrees.
     AccountSection.tsx     — Ollama URL, summary model, context size
-    TTSSection.tsx         — TTS backend, auto-play, voice, emotion controls, ASR language
+    TTSSection.tsx         — TTS backend, auto-play, voice, ASR language
     AppearanceSection.tsx  — Light/dark theme toggle
     AssistantSection.tsx   — The one assistant's capability form: tools, extended thinking, deferred tools, memory + memory notes, voice wake word. No model and no default persona (#197): the model is picked from the chat header's menu, the default persona from PersonasSection's "Make default". One PATCH of only the changed fields; Revert restores the last-loaded values. Nothing to create or delete — the assistant is made at registration.
     PersonasSection.tsx    — Persona grid (`ResourceCard`) + enable toggle, export, delete, import, New Persona. Delete is refused for the last persona and disabling the default is refused, both server-side; the detail comes back in the 400 and is shown as-is.

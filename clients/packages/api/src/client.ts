@@ -438,18 +438,12 @@ class APIClient {
     voice?: string,
     language?: string,
     backend?: string,
-    emotionParams?: {
-      emo_audio?: string;
-      emo_alpha?: number;
-      use_emo_text?: boolean;
-    },
   ): Promise<Blob> {
     const requestData: TTSRequest = {
       text,
       voice,
       language,
       provider: backend, // Map 'backend' to 'provider' for API
-      ...emotionParams, // Spread emotion parameters if provided
     };
 
     const response = await this.client.post('/tts', requestData, {

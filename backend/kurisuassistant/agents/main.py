@@ -13,11 +13,33 @@ import time
 import uuid
 from typing import AsyncGenerator, Dict, List
 
+from kurisuassistant.character.emotion_source import (
+    EMOTION_LABEL_ORDER,
+    EmotionSource,
+    emotion_channel_enabled,
+    utf16_length,
+)
+from kurisuassistant.character.emotion_tags import EmotionTagStripper, split_at_utf16
 from kurisuassistant.websocket.events import StreamChunkEvent
 
 from .base import BaseAgent, AgentContext, async_iterate
 
 logger = logging.getLogger(__name__)
+
+# Asked of the model only when the persona has a VRM character with emotion on
+# (``emotion_channel_enabled``); a pose-graph persona's prompt is byte-identical
+# to before. The six labels are the VRM preset expressions, so nothing between
+# the model and the face has to translate. The tags never reach the user: the
+# stripper below removes them and reports where they stood (#243).
+EXPRESSION_PROMPT = (
+    "## Expression\n"
+    "You are voiced by an animated character with a face. When the feeling of "
+    "what you say changes, put one tag at the very start of that sentence, with "
+    "nothing before it: "
+    + ", ".join(f"[[emotion:{label}]]" for label in EMOTION_LABEL_ORDER)
+    + ". Do not tag every sentence — an untagged sentence keeps the last "
+    "feeling. Never explain or mention the tags."
+)
 
 
 class MainAgent(BaseAgent):
@@ -49,6 +71,43 @@ class MainAgent(BaseAgent):
             if isinstance(extra_tool, SubAgentTool) and extra_tool.name == tool_name:
                 return True
         return False
+
+    def _new_emotion_source(self) -> "EmotionSource | None":
+        """A fresh stripper for one LLM round, or None when the persona has no channel.
+
+        Without a source the loop yields the model's text untouched, exactly as
+        before the channel existed; the prompt did not ask for tags either.
+        """
+        if emotion_channel_enabled(self.identity.character_config):
+            return EmotionTagStripper()
+        return None
+
+    @staticmethod
+    def _clean_pieces(source, delta: str, units_before: int):
+        """Run one streamed piece through the source; yield ``(text, cue)`` pairs.
+
+        A cue rides the text that follows it, so a piece carrying two tags goes
+        out as up to three events: the text before the first tag with no cue,
+        then each tagged stretch with its cue. A cue that lands at the very end
+        rides an empty piece — the face changes for text the next chunk brings.
+        ``units_before`` is the UTF-16 length of the round's clean text so far,
+        which turns the source's round-wide offsets into offsets into ``delta``.
+        """
+        if source is None:
+            yield delta, None
+            return
+        clean, cues = source.feed(delta)
+        if not cues:
+            yield clean, None
+            return
+        head, rest = split_at_utf16(clean, cues[0][0] - units_before)
+        yield head, None
+        for i, cue in enumerate(cues):
+            if i + 1 < len(cues):
+                piece, rest = split_at_utf16(rest, cues[i + 1][0] - cue[0])
+            else:
+                piece, rest = rest, ""
+            yield piece, cue
 
     async def _prepare_messages(
         self,
@@ -99,6 +158,9 @@ class MainAgent(BaseAgent):
                     "attempting any task that matches a skill name. Do NOT guess or improvise — "
                     "always read the skill first and follow its instructions exactly."
                 )
+
+        if emotion_channel_enabled(self.identity.character_config):
+            system_parts.append(EXPRESSION_PROMPT)
 
         system_parts.append(
             "## Recall\n"
@@ -265,6 +327,13 @@ class MainAgent(BaseAgent):
                 full_content = ""
                 full_thinking = ""
                 all_tool_calls = []
+                # One source per round: cue offsets count this round's clean
+                # text from zero, which is also what the handler saves as one
+                # assistant message. ``clean_units`` is that text's UTF-16
+                # length, kept as a running count rather than re-measured from
+                # ``full_content`` on every chunk.
+                emotion_source = self._new_emotion_source()
+                clean_units = 0
 
                 async for chunk in async_iterate(stream):
                     msg = chunk.message
@@ -285,9 +354,42 @@ class MainAgent(BaseAgent):
                         )
 
                     if msg.content:
-                        full_content += msg.content
+                        pieces = self._clean_pieces(
+                            emotion_source, msg.content, clean_units,
+                        )
+                        for piece, cue in pieces:
+                            # Nothing to show and nothing to say: a chunk that was
+                            # entirely a held-back partial tag. Only this branch
+                            # skips — the thinking, tool_calls and cap chunks are
+                            # emitted as they always were.
+                            if not piece and cue is None:
+                                continue
+                            full_content += piece
+                            if emotion_source is not None:
+                                clean_units += utf16_length(piece)
+                            yield StreamChunkEvent(
+                                content=piece,
+                                role="assistant",
+                                persona_id=self.identity.id,
+                                persona_name=self.identity.name,
+                                name=self.identity.name,
+                                conversation_id=context.conversation_id,
+                                model_name=model,
+                                provider_type=self.capabilities.provider_type,
+                                emotion=cue[1] if cue else None,
+                                emotion_at=cue[0] if cue else None,
+                            )
+
+                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                        all_tool_calls.extend(msg.tool_calls)
+
+                if emotion_source is not None:
+                    tail = emotion_source.flush()
+                    if tail:
+                        full_content += tail
+                        clean_units += utf16_length(tail)
                         yield StreamChunkEvent(
-                            content=msg.content,
+                            content=tail,
                             role="assistant",
                             persona_id=self.identity.id,
                             persona_name=self.identity.name,
@@ -296,9 +398,11 @@ class MainAgent(BaseAgent):
                             model_name=model,
                             provider_type=self.capabilities.provider_type,
                         )
-
-                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                        all_tool_calls.extend(msg.tool_calls)
+                    stats = emotion_source.stats
+                    logger.info(
+                        "Emotion tags for '%s': %d known, %d unknown",
+                        self.identity.name, stats["known"], stats["unknown"],
+                    )
 
                 if not all_tool_calls:
                     break

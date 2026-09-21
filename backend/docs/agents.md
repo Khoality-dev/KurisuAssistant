@@ -96,14 +96,20 @@ to the model as a plain function.
    `users.system_prompt`, then the preferred name (the persona's
    `preferred_name` if set, else the user's), then the current time
 2. the user's skill names, with an instruction to load one before acting
-3. a **Recall** section: past conversations and drive files are searchable
+3. an **Expression** section, only when the persona's `character_config` is a
+   VRM model with `vrm.emotion.enabled` (#243): it asks the model to open a
+   sentence with `[[emotion:happy]]` (or `sad`, `angry`, `relaxed`, `surprised`,
+   `neutral` — the VRM preset expressions) when its feeling changes, to leave a
+   sentence untagged when it does not, and never to mention the tags. See
+   "The emotion channel" below for what happens to them.
+4. a **Recall** section: past conversations and drive files are searchable
    through `recall_regex` (wording) and `recall_semantic` (meaning); use one
    before saying you do not remember, and quote and cite what it returns (#6,
    `retrieval.md`)
-4. the deferred-tool protocol, when `assistants.use_deferred_tools` is set
-5. the **assistant's** memory, when `assistants.memory_enabled` and it is non-empty
-6. the conversation's `compacted_context`, when there is one
-7. the available sub-agents and what each is for, built at runtime from the
+5. the deferred-tool protocol, when `assistants.use_deferred_tools` is set
+6. the **assistant's** memory, when `assistants.memory_enabled` and it is non-empty
+7. the conversation's `compacted_context`, when there is one
+8. the available sub-agents and what each is for, built at runtime from the
    injected `SubAgentTool` adapters
 
 A `SubAgent` builds a much smaller one: its own `system_prompt` and nothing else —
@@ -112,6 +118,46 @@ no skills list, no memory, no compacted context, no sub-agent guide.
 History follows, replayed with the tool-call linkage intact: an assistant message
 carries the `tool_calls` it made, a tool message carries the `tool_call_id` it
 answers. Dropping that pairing is an API error on OpenAI-compatible providers.
+
+## The emotion channel
+
+A VRM character has a face, and the face needs to know how the persona feels.
+The persona says so in its own reply — the Expression block above asks for a
+tag at the start of a sentence whose feeling differs from the last — and the
+backend takes the tag out before anyone sees it (#243).
+
+The loop asks an `EmotionSource` (`character/emotion_source.py`) two things
+about every streamed piece: what text to show, and where in it the feeling
+changed. The one source today is `EmotionTagStripper`
+(`character/emotion_tags.py`): it consumes every complete `[[emotion:<label>]]`
+with a known label and reports a cue `(offset, label)`; a tag split across
+chunks is held back until it completes (never more than 22 characters of
+delay, and never shown as a partial); an unknown label passes through verbatim,
+so a model that invents one is visible rather than silent; `flush()` releases a
+dangling partial when the round ends. Cue offsets are into the round's clean
+text, **in UTF-16 code units** — what `String.length` means in both clients —
+so an emoji before a tag counts as two. A classifier that reads the sentence
+instead of tags is the same two methods (#247, Jev), and `agents/main.py` would
+not know the difference.
+
+One source per LLM round: a tool call starts a new round, and its offsets
+restart at 0, which is also where the handler starts a new assistant message.
+The clean text is what accumulates into the assistant message replayed next
+round, so the model never sees its own tags come back and learns to echo them.
+Each cue leaves as `emotion` / `emotion_at` on the `stream_chunk` whose
+`content` starts there (`websocket.md`); the handler collects them per assistant
+message into `messages.emotion_cues`, and the history serves them
+(`API.md`). `messages.message` and `raw_output` both hold the stripped text —
+the cue column is the only record of where the tags stood. The round's tag
+counts go to the log at INFO, which is the compliance signal; a by-hand
+`integration` test, `tests/test_emotion_compliance.py`, prints where a live
+model actually puts its tags (`development.md`).
+
+A pose-graph persona, a persona with no character, and a persona with the
+channel switched off get neither the block nor a stripper: their prompt and
+their stream are byte-identical to a backend without the channel. Turning a
+cue into an expression at the moment that sentence is *spoken* is the clients'
+half (#244 desktop, #246 Android).
 
 ## Tool access
 

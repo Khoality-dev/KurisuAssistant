@@ -75,6 +75,17 @@ the most one request may take.
 - The server keeps the multipart `/tts/file` shape, so the adapter stays simple.
 - It validates the language itself and refuses an unsupported one with a 400,
   which is why there is no second language table in the backend.
+- It takes no emotion parameters. `POST /tts` declares `text`, `voice`,
+  `language` and `provider` and nothing else, and it never declared more: the
+  `emo_audio` / `emo_alpha` / `use_emo_text` fields the clients sent were
+  dropped by FastAPI's embedded-body parsing at every revision of the route.
+  The last code that read them in-process was the viXTTS provider
+  (`models/tts/vixtts_provider.py`, `kwargs.get('emo_alpha', 1.0)`), removed
+  with the move to the universal-voice proxy (b79e8c4); nothing after it ever
+  looked. Both clients stopped sending the fields and removed the settings that
+  edited them in #243. The persona's feeling is a different thing — a tag in
+  the reply for the character's face, `agents.md` "The emotion channel" — and
+  never reaches the voice.
 
 ## Provider Setup
 

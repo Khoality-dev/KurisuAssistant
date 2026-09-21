@@ -115,6 +115,8 @@ async def get_conversation(
                     message_dict["tool_status"] = msg.tool_status
                 if getattr(msg, 'context_files', None):
                     message_dict["context_files"] = msg.context_files
+                if getattr(msg, 'emotion_cues', None):
+                    message_dict["emotion_cues"] = msg.emotion_cues
                 if msg.persona_id:
                     message_dict["persona_id"] = msg.persona_id
                     if msg.persona:
