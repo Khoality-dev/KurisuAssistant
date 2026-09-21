@@ -22,7 +22,7 @@ import {
   WS_WIRE_SUBPROTOCOL_PREFIX,
   WS_WIRE_PROTOCOL_MISMATCH,
   type CharacterConfigDTO,
-  type EmotionCue,
+  type EmotionCueRecord,
   type VrmEmotion,
 } from '@kurisu/models';
 
@@ -251,7 +251,7 @@ interface StoredMessage {
   tool_args: Record<string, unknown> | null;
   tool_status: string | null;
   /** Assistant messages of a VRM persona: where the feeling changed (#243). */
-  emotion_cues?: EmotionCue[] | null;
+  emotion_cues?: EmotionCueRecord[] | null;
   created_at: string;
 }
 
@@ -1646,7 +1646,7 @@ export class MockBackend {
           role: string; content: string; thinking: string;
           personaId: number | null; name: string | null;
           toolArgs: Record<string, unknown> | null; toolStatus: string | null;
-          emotionCues: EmotionCue[];
+          emotionCues: EmotionCueRecord[];
         };
         const segments: Segment[] = [];
         let aborted = false;
