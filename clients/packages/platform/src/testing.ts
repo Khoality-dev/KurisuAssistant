@@ -9,7 +9,7 @@
  * can do and nothing is silently implied.
  */
 import { setBridge, type Capabilities, type PlatformBridge } from './index';
-import type { CharacterWindowAPI } from './types';
+import type { CharacterWindowAPI, UpdateCheckResult, UpdaterAPI } from './types';
 import { webBridge } from './web';
 
 export interface FakeBridgeOptions extends Partial<Omit<PlatformBridge, 'capabilities'>> {
@@ -101,5 +101,49 @@ export function fakeCharacterWindow(): FakeCharacterWindow {
     onWindowClosed: subscription('onWindowClosed'),
     signalReady: () => { calls.push({ method: 'signalReady' }); },
     onCharacterReady: subscription('onCharacterReady'),
+  };
+}
+
+/** What a recording updater was told, in order. */
+export interface UpdaterCall {
+  method: 'canSelfUpdate' | 'checkForUpdates' | 'installUpdate';
+}
+
+export type FakeUpdater = UpdaterAPI & {
+  calls: UpdaterCall[];
+  /** Deliver an updater event to whatever subscribed: the download's progress, the finished download. */
+  fire: (method: 'onUpdateAvailable' | 'onDownloadProgress' | 'onUpdateDownloaded', data: unknown) => void;
+};
+
+/**
+ * An updater that answers what the test says and records what it was asked
+ * (#264). Every member of `UpdaterAPI` is here, so a new member is a type
+ * error until the fake learns it.
+ */
+export function fakeUpdater(answers: {
+  canSelfUpdate?: boolean;
+  check?: UpdateCheckResult | Error;
+} = {}): FakeUpdater {
+  const calls: UpdaterCall[] = [];
+  const handlers = new Map<string, Array<(data: any) => void>>();
+  const subscribe = (method: string) => (cb: (data: any) => void) => {
+    const list = handlers.get(method) ?? [];
+    list.push(cb);
+    handlers.set(method, list);
+    return () => { handlers.set(method, (handlers.get(method) ?? []).filter((h) => h !== cb)); };
+  };
+  return {
+    calls,
+    fire: (method, data) => { (handlers.get(method) ?? []).forEach((h) => h(data)); },
+    onUpdateAvailable: subscribe('onUpdateAvailable'),
+    onDownloadProgress: subscribe('onDownloadProgress'),
+    onUpdateDownloaded: subscribe('onUpdateDownloaded'),
+    installUpdate: () => { calls.push({ method: 'installUpdate' }); },
+    canSelfUpdate: async () => { calls.push({ method: 'canSelfUpdate' }); return answers.canSelfUpdate ?? true; },
+    checkForUpdates: async () => {
+      calls.push({ method: 'checkForUpdates' });
+      if (answers.check instanceof Error) throw answers.check;
+      return answers.check ?? { status: 'none', version: null };
+    },
   };
 }

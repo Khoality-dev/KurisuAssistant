@@ -32,6 +32,13 @@ test.describe('update required', () => {
     ).toBeVisible();
     await expect(page.getByText(`Server: ${MOCK_BACKEND_VERSION} · wire ${WIRE_PROTOCOL + 1}`)).toBeVisible();
 
+    // The gate offers the update (#264). The suite runs the unpackaged build,
+    // which cannot replace itself, so the offer is the release page rather
+    // than the in-app download — and it says so.
+    await expect(page.getByRole('button', { name: 'Get the update' })).toBeVisible();
+    await expect(page.getByTestId('update-note')).toContainText('cannot update itself');
+    await expect(page.getByRole('button', { name: 'Update now' })).toHaveCount(0);
+
     await page.getByRole('button', { name: 'Change server' }).click();
 
     // Back on the login form, with the one field the user needs reachable.
@@ -48,6 +55,8 @@ test.describe('update required', () => {
     await expect(
       page.getByText(`This app speaks wire protocol ${WIRE_PROTOCOL} but the server speaks ${WIRE_PROTOCOL - 1}. Ask the operator to update the server.`),
     ).toBeVisible();
+    // Nothing to offer this app: the server is the side behind (#264).
+    await expect(page.getByTestId('update-offer')).toHaveCount(0);
   });
 
   test('a 426 on a request mid-session raises the same screen', async ({ page, mock }) => {
