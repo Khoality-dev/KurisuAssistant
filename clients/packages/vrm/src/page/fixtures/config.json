@@ -1,0 +1,25 @@
+{
+  "t": "config",
+  "personaName": "Kurisu",
+  "character": {
+    "kind": "vrm",
+    "pose_tree": null,
+    "vrm": {
+      "model": { "url": "/character-assets/1/vrm/model", "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "bytes": 12345678, "uploaded_at": "2026-09-20T00:00:00Z" },
+      "clips": [
+        { "id": "a1b2c3d4", "name": "Idle sway", "url": "/character-assets/1/vrma/a1b2c3d4", "sha256": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210", "bytes": 4096, "loop": true }
+      ],
+      "idle": {
+        "procedural": true, "arms_lowered": true, "breath_period_ms": 4000, "breath_amplitude_deg": 2,
+        "sway_amplitude_deg": 1.5, "sway_period_ms": 7000,
+        "blink": { "blink_min_interval": 2000, "blink_max_interval": 6000, "blink_close_duration": 100, "blink_hold_duration": 50, "blink_open_duration": 100 },
+        "look_at": "camera", "idle_clip_ids": ["a1b2c3d4"], "idle_clip_interval_ms": [8000, 20000]
+      },
+      "emotion": { "enabled": true, "default_expression": "neutral", "intensity": 1, "attack_ms": 180, "release_ms": 400, "thinking": "relaxed" },
+      "reactions": [
+        { "id": "deadbeef", "name": "Wave back", "when": [{ "type": "gesture", "value": "wave" }], "play": { "type": "expression", "expression": "happy", "weight": 1, "hold_ms": 2500 }, "cooldown_ms": 4000 }
+      ],
+      "camera": { "target": "upper_body", "fov": 24, "offset_y": 0, "background": "#ffffff" }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@kurisu/vrm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The VRM character driver: three.js lives here and nowhere else. Depends on @kurisu/models only, so the same code drives the desktop, the browser build and the page an Android WebView hosts. `@kurisu/vrm/probe` is the engine-free entry a surface asks before it imports the rest.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./probe": "./src/probe.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@kurisu/models": "*",
+    "@pixiv/three-vrm": "3.5.5",
+    "@pixiv/three-vrm-animation": "3.5.5",
+    "three": "0.186.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.186.0",
+    "happy-dom": "^20.9.0",
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.9"
+  }
+}

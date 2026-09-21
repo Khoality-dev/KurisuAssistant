@@ -10,6 +10,7 @@ clients/
 │   ├── api/           the server as this client calls it: REST, socket, tokens
 │   ├── state/         what the client knows between renders (zustand)
 │   ├── hooks/         React bindings over state and api
+│   ├── vrm/           the 3D character driver — three.js lives here and nowhere else
 │   └── ui/            the screens — the only package that renders
 └── apps/
     └── desktop/       the Electron shell: main process, a root, packaging
@@ -30,7 +31,10 @@ An app's own commands (`electron:dev`, `test:e2e`, the packaging build) still ru
 ## The layering, and why a test enforces it
 
 `models` → `platform` → `api` → `state` → `hooks` → `ui` → an app. Nothing points
-back up, and `boundaries.test.ts` fails when something does.
+back up, and `boundaries.test.ts` fails when something does. `vrm` sits beside
+`models`, off that line: it depends on `models` alone and is imported by `ui`
+and by the page an Android WebView hosts (#239), so it may know the protocol's
+shapes and nothing about a host, a server, a store or a screen.
 
 - **`models` depends on nothing.** It is the backend's shape and it is imported by every app and every future one, so a dependency here is a dependency everywhere: it needs a conversation, not an `npm install`.
 - **`platform` is the only place that may name `window.electron`**, and only in `src/electron.ts`. The renderer reached for it about 130 times, in forty spellings of the same guard, while a document said where the seam was — which is why this is a test (`boundaries.test.ts`) and not a paragraph.
@@ -41,6 +45,20 @@ back up, and `boundaries.test.ts` fails when something does.
   `api` may not import React at all — it is the layer a non-React client would reuse
   as-is. `ui` is the exception and the reason the rule exists: it renders, so it may
   have one, and nothing may import `ui` but an app.
+- **three.js is `vrm`'s alone.** `three` and `@pixiv/three-vrm*` are pinned to exact
+  versions in `packages/vrm/package.json` (three 0.186.x, the pixiv packages 3.5.5,
+  whose peer range is `three >= 0.137`) and no other member — package or app — may
+  import them, statically, lazily or by `require`: a WebGL engine is the heaviest
+  thing a client carries. `ui` asks `supportsWebGL()` from `@kurisu/vrm/probe` (an
+  entry that imports nothing) and only then reaches the engine through a dynamic
+  import of `@kurisu/vrm`; nothing below `ui` may import `@kurisu/vrm` at all; and the
+  Android page bundle is built from `vrm` alone. The driver contract both character
+  kinds implement — `CharacterDriver` in `models/src/characterDriver.ts` — names no
+  canvas, and `@kurisu/vrm/testing` exports the conformance cases every driver must
+  pass, with a `probe` so they check what a driver did, not only that it did not throw.
+- **Every package declares `typecheck` and `test`.** The root scripts fan out with
+  `--if-present`, so a member without them is skipped silently and green; the
+  boundary test refuses that.
 - **A screen asks what the host can do, not what it is.** `useCapabilities()` from
   `@kurisu/hooks`, and `requireFiles()`/`requireHostTools()`/… from `@kurisu/platform`
   for the call that follows the check. A control whose capability is absent is not
