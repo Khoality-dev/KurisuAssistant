@@ -10,6 +10,7 @@ import { UpdateRequiredScreen } from './components/UpdateRequiredScreen';
 import { apiClient, configureAuthedFetch } from '@kurisu/api';
 import { wsManager } from '@kurisu/api';
 import { WIRE_PROTOCOL } from '@kurisu/models';
+import { resolveBridge } from '@kurisu/platform';
 // Side-effect import: registers WebSocket listener for client-side MCP servers
 import '@kurisu/state';
 
@@ -82,10 +83,23 @@ const MainApp: React.FC = () => {
   }
 
   if (versionMismatch) {
-    return <UpdateRequiredScreen info={versionMismatch} onChangeServer={changeServer} />;
+    // The gate carries its own update offer (#264); the startup dialog stays
+    // off it so one download is not reported twice.
+    return (
+      <UpdateRequiredScreen
+        info={versionMismatch}
+        appVersion={resolveBridge().appVersion}
+        onChangeServer={changeServer}
+      />
+    );
   }
 
-  return isAuthenticated ? <MainLayout /> : <LoginWindow />;
+  return (
+    <>
+      {isAuthenticated ? <MainLayout /> : <LoginWindow />}
+      <UpdateDialog />
+    </>
+  );
 };
 
 export const App: React.FC = () => {
@@ -112,7 +126,6 @@ export const App: React.FC = () => {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <MainApp />
-      <UpdateDialog />
     </ThemeProvider>
   );
 };

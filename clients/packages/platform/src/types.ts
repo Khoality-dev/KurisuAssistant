@@ -192,12 +192,38 @@ export interface McpServerAPI {
   rotateToken: () => Promise<McpServerInfo>;
 }
 
+/**
+ * What a check for updates found (#264).
+ *
+ * `none` carries the newest release the check saw, so a screen can say "you
+ * already have vX" instead of "update the app" a second time. `unavailable`
+ * is the host saying it cannot look at all — an unpackaged build, or a Linux
+ * install that is not the AppImage — with the reason in one sentence.
+ */
+export type UpdateCheckResult =
+  | { status: 'available'; version: string }
+  | { status: 'none'; version: string | null }
+  | { status: 'unavailable'; reason: string };
+
 /** Replacing the app with a newer one. Only an installed app can do this. */
 export interface UpdaterAPI {
   onUpdateAvailable: (cb: (info: { version: string }) => void) => () => void;
   onDownloadProgress: (cb: (progress: { percent: number }) => void) => () => void;
   onUpdateDownloaded: (cb: (info: { version: string }) => void) => () => void;
   installUpdate: () => void;
+  /**
+   * Whether this install can replace itself: a packaged build on a platform
+   * electron-updater serves (NSIS on Windows, the AppImage on Linux). A `.deb`
+   * or an unpackaged run answers false, and the only offer left is the release
+   * page (#264).
+   */
+  canSelfUpdate: () => Promise<boolean>;
+  /**
+   * Ask now, rather than waiting for the startup check. When a release is
+   * found the download starts and reports through `onDownloadProgress` /
+   * `onUpdateDownloaded` exactly as the startup check does.
+   */
+  checkForUpdates: () => Promise<UpdateCheckResult>;
 }
 
 export interface ExtensionsAPI {

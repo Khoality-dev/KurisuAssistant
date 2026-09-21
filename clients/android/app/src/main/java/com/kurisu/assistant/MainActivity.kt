@@ -21,6 +21,8 @@ import com.kurisu.assistant.ui.navigation.KurisuNavGraph
 import com.kurisu.assistant.ui.navigation.Routes
 import com.kurisu.assistant.ui.theme.KurisuTheme
 import com.kurisu.assistant.ui.update.installApk
+import com.kurisu.assistant.ui.version.UpdateFlow
+import com.kurisu.assistant.ui.version.UpdateFlowState
 import com.kurisu.assistant.ui.version.UpdateRequiredScreen
 import com.kurisu.assistant.ui.version.VersionCheckPlaceholder
 import dagger.hilt.android.AndroidEntryPoint
@@ -83,21 +85,43 @@ class MainActivity : ComponentActivity() {
                         gateDismissed = false
                     }
 
+                    // The gate's own update flow (#264): every step lands in a state
+                    // the screen renders, and a failure is a sentence, not a swallowed
+                    // exception.
+                    var updateFlow by remember { mutableStateOf<UpdateFlowState>(UpdateFlowState.Idle) }
+
                     val check = versionCheck
                     when {
                         check is VersionCheck.Mismatch && !gateDismissed -> UpdateRequiredScreen(
                             info = check.info,
-                            onCheckForUpdate = {
+                            flow = updateFlow,
+                            onUpdate = {
                                 scope.launch {
-                                    val release = updateRepository.checkForUpdate()
-                                    if (release != null) {
-                                        val asset = release.assets.firstOrNull { it.name.endsWith(".apk") }
-                                        if (asset != null) {
-                                            val file = updateRepository.downloadApk(asset.browserDownloadUrl) {}
-                                            installApk(this@MainActivity, file)
+                                    updateFlow = UpdateFlowState.Checking
+                                    val release = try {
+                                        updateRepository.checkForUpdate()
+                                    } catch (e: Exception) {
+                                        updateFlow = UpdateFlow.failed("check for updates", e)
+                                        return@launch
+                                    }
+                                    val asset = release?.assets?.firstOrNull { it.name.endsWith(".apk") }
+                                    if (release == null || asset == null) {
+                                        updateFlow = UpdateFlowState.None
+                                        return@launch
+                                    }
+                                    updateFlow = UpdateFlowState.Downloading(release.tagName, 0f)
+                                    try {
+                                        val file = updateRepository.downloadApk(asset.browserDownloadUrl) { progress ->
+                                            updateFlow = UpdateFlowState.Downloading(release.tagName, progress)
                                         }
+                                        updateFlow = UpdateFlowState.Ready(release.tagName, file)
+                                    } catch (e: Exception) {
+                                        updateFlow = UpdateFlow.failed("download the update", e)
                                     }
                                 }
+                            },
+                            onInstall = {
+                                (updateFlow as? UpdateFlowState.Ready)?.let { installApk(this@MainActivity, it.file) }
                             },
                             onChangeServer = {
                                 scope.launch {

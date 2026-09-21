@@ -1,5 +1,4 @@
-import React, { useEffect, useState } from 'react';
-import { resolveBridge } from '@kurisu/platform';
+import React from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -10,78 +9,53 @@ import {
   LinearProgress,
   Box,
 } from '@mui/material';
+import { useUpdateFlow } from './useUpdateFlow';
 
-type UpdateState = 'idle' | 'available' | 'downloading' | 'ready';
-
+/**
+ * The startup updater's prompt. It only ever *reacts*: the main process
+ * checks on launch, and this reports what it found. The state is
+ * `useUpdateFlow`'s, shared with the update gate (#264), so a download begun
+ * from either shows the same progress in both.
+ */
 export const UpdateDialog: React.FC = () => {
-  const [state, setState] = useState<UpdateState>('idle');
-  const [version, setVersion] = useState('');
-  const [progress, setProgress] = useState(0);
+  const { state, install, dismiss } = useUpdateFlow();
 
-  useEffect(() => {
-    const updater = resolveBridge().updater;
-    if (!updater) return;
+  if (state.status !== 'available' && state.status !== 'downloading' && state.status !== 'ready') {
+    return null;
+  }
 
-    const unsubs = [
-      updater.onUpdateAvailable((info) => {
-        setVersion(info.version);
-        setState('available');
-      }),
-      updater.onDownloadProgress((p) => {
-        setState('downloading');
-        setProgress(p.percent);
-      }),
-      updater.onUpdateDownloaded((info) => {
-        setVersion(info.version);
-        setState('ready');
-      }),
-    ];
-
-    return () => unsubs.forEach((unsub) => unsub());
-  }, []);
-
-  if (state === 'idle') return null;
-
-  const handleInstall = () => {
-    resolveBridge().updater?.installUpdate();
-  };
-
-  const handleClose = () => {
-    if (state !== 'downloading') {
-      setState('idle');
-    }
-  };
+  const version = 'version' in state ? state.version : null;
 
   return (
-    <Dialog open onClose={handleClose} maxWidth="xs" fullWidth>
+    <Dialog open onClose={dismiss} maxWidth="xs" fullWidth>
       <DialogTitle>
-        {state === 'ready' ? 'Update Ready' : 'Update Available'}
+        {state.status === 'ready' ? 'Update Ready' : 'Update Available'}
       </DialogTitle>
       <DialogContent>
         <Typography variant="body1" sx={{ mb: 2 }}>
-          {state === 'ready'
+          {state.status === 'ready'
             ? `Version ${version} has been downloaded and is ready to install.`
-            : `A new version (${version}) is available.`}
+            : `A new version (${version ?? '…'}) is available.`}
         </Typography>
-        {state === 'downloading' && (
+        {state.status === 'downloading' && (
           <Box>
-            <LinearProgress variant="determinate" value={progress} />
+            <LinearProgress variant="determinate" value={state.percent} />
             <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-              {Math.round(progress)}%
+              {Math.round(state.percent)}%
             </Typography>
           </Box>
         )}
       </DialogContent>
       <DialogActions>
-        {state === 'ready' ? (
+        {state.status === 'ready' ? (
           <>
-            <Button onClick={handleClose}>Later</Button>
-            <Button variant="contained" onClick={handleInstall}>
+            <Button onClick={dismiss}>Later</Button>
+            <Button variant="contained" onClick={install}>
               Restart Now
             </Button>
           </>
-        ) : state === 'available' ? (
-          <Button onClick={handleClose}>Dismiss</Button>
+        ) : state.status === 'available' ? (
+          <Button onClick={dismiss}>Dismiss</Button>
         ) : null}
       </DialogActions>
     </Dialog>

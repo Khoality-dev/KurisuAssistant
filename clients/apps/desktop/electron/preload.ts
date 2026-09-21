@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld('electron', {
       return () => { ipcRenderer.removeListener('updater:update-downloaded', handler); };
     },
     installUpdate: () => ipcRenderer.send('updater:install'),
+    // The gate's "Update now" (#264): ask now instead of waiting for the
+    // startup check, and learn first whether this install can update itself.
+    canSelfUpdate: () => ipcRenderer.invoke('updater:can-self-update'),
+    checkForUpdates: () => ipcRenderer.invoke('updater:check'),
   },
 
   extensions: {

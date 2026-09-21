@@ -89,7 +89,8 @@ electron/preload.ts       — contextBridge: hostTools, appTools, explorer, driv
   EdgeEditor.tsx           — Transition edge editor: video upload, condition config
   PoseGraphNode.tsx        — Custom React Flow node component
   UpdateDialog.tsx         — Auto-update notification
-  UpdateRequiredScreen.tsx — The wire-protocol gate: both numbers, which side is behind (`@kurisu/api`'s `wireProtocol.ts`), and "Change server" back to the login form (#150)
+  UpdateRequiredScreen.tsx — The wire-protocol gate: both numbers, which side is behind (`@kurisu/api`'s `wireProtocol.ts`), the update offer when this app is behind (#264) and "Change server" back to the login form (#150)
+  useUpdateFlow.ts — One updater state machine (idle/checking/available/downloading/ready/none/unavailable/error) shared by `UpdateDialog` and the gate; `check()` asks the host now, the events report the download (#264)
 @kurisu/hooks  (clients/packages/hooks/src/)
   useTTS.ts               — TTS synthesis/playback: speak(), queueText(), clearQueue(), onPlaybackStart subtitle callback. Publishes each spoken sentence to the character feed as a `SpeechSegment` (curve + `startedAt` from the audio element's `playing` event) and a `SpeechSync` every 500 ms; `null` when the queue drains (#238). `backends` is only what `/tts/models` lists (no fallback list), `backendsError` says why it is empty (#151)
   useAudioAmplitude.ts    — WAV parsed by hand for the RMS curve (no Web Audio); `playSegment()` plays a blob through a plain `Audio` and reports the curve on `playing` and the position while playing — nothing per frame leaves it

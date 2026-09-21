@@ -303,6 +303,46 @@ ipcMain.on('character:session-request', () => {
 });
 
 // IPC: install update and restart
+/**
+ * Whether electron-updater can replace this install (#264).
+ *
+ * It needs a packaged build, and on Linux only the AppImage carries the
+ * machinery — a `.deb` install has nothing to swap in, and electron-updater
+ * refuses it with an error only once a download is attempted. Answering it up
+ * front lets the update gate offer the release page instead of a button that
+ * would fail.
+ */
+function canSelfUpdate(): boolean {
+  if (!app.isPackaged) return false;
+  if (process.platform === 'linux') return Boolean(process.env.APPIMAGE);
+  return true;
+}
+
+ipcMain.handle('updater:can-self-update', () => canSelfUpdate());
+
+// The gate's "Update now": the same check the startup runs, but on demand and
+// with an answer the renderer can show — found (the download then reports
+// through the events below), nothing newer (with the newest version seen), or
+// an install that cannot look (#264).
+ipcMain.handle('updater:check', async () => {
+  if (!canSelfUpdate()) {
+    return {
+      status: 'unavailable',
+      reason: app.isPackaged
+        ? 'This install cannot update itself; get the new release from the releases page.'
+        : 'An unpackaged build cannot update itself.',
+    };
+  }
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    if (!result) return { status: 'unavailable', reason: 'The updater is not active in this build.' };
+    if (result.isUpdateAvailable) return { status: 'available', version: result.updateInfo.version };
+    return { status: 'none', version: result.updateInfo?.version ?? null };
+  } catch (error) {
+    return { status: 'unavailable', reason: `Could not check for updates: ${(error as Error).message}` };
+  }
+});
+
 ipcMain.on('updater:install', () => {
   autoUpdater.quitAndInstall();
 });
