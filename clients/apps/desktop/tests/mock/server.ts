@@ -16,6 +16,9 @@ import http from 'http';
 import { AddressInfo } from 'net';
 import { WebSocketServer, WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
+// Inlined by esbuild into the standalone CLI bundle, so the number is right
+// from `dist-mock/` too (a runtime file read would resolve relative to there).
+import desktopPackage from '../../package.json';
 import {
   WIRE_PROTOCOL,
   WS_AUTH_SUBPROTOCOL,
@@ -148,11 +151,14 @@ export interface StreamScript {
 }
 
 /**
- * What `/version` and the 426 body report as `backend_version`. Exported so a
- * spec asserting on the update screen does not hard-code it — the number moves
- * with the backend, and the screen's copy is what those tests are about.
+ * What `/version` and the 426 body report as `backend_version` unless a spec
+ * says otherwise (`setBackendVersion`). It is the desktop's own package.json
+ * version: one number covers the backend and both clients (#256), so the mock
+ * a build is tested against is the same release as that build, and Settings →
+ * Account shows no mismatch unless a spec asks for one (#257). Exported so a
+ * spec asserting on the update screen does not hard-code it.
  */
-export const MOCK_BACKEND_VERSION = '0.5.0';
+export const MOCK_BACKEND_VERSION: string = desktopPackage.version;
 
 // Defaults mimic a real LLM emitting tokens every ~40ms (Ollama-ish).
 const DEFAULT_STREAM: StreamScript = {
@@ -306,6 +312,7 @@ export class MockBackend {
    * `/version`, a 426 on every other request, and 4426 on the socket (#150).
    */
   private wireProtocol: number = WIRE_PROTOCOL;
+  private backendVersion: string = MOCK_BACKEND_VERSION;
   /** Endpoints answering 502 as if the service behind them were down (#151). */
   private unreachable: Set<'/tts/models' | '/models'> = new Set();
   /** The mock's drive: flat rows with parent links, as the real table is. */
@@ -499,6 +506,11 @@ export class MockBackend {
   /** Speak another wire protocol from now on; see `wireProtocol`. */
   setWireProtocol(n: number) {
     this.wireProtocol = n;
+  }
+
+  /** Report another release as `backend_version` — a backend the app is not in step with (#257). */
+  setBackendVersion(version: string) {
+    this.backendVersion = version;
   }
 
   /** Make `/tts/models` or `/models` answer 502, as the backend does when the service behind it is down. */
@@ -805,7 +817,7 @@ export class MockBackend {
     // and every later locator times out. Taken from the client constant rather
     // than hardcoded, so a protocol bump cannot silently break the whole suite.
     if (pathOnly === '/version' && method === 'GET') {
-      return this.json(res, { backend_version: MOCK_BACKEND_VERSION, wire_protocol: this.wireProtocol });
+      return this.json(res, { backend_version: this.backendVersion, wire_protocol: this.wireProtocol });
     }
 
     // The backend's middleware: any request stamped with another protocol is
@@ -821,7 +833,7 @@ export class MockBackend {
           detail: 'wire_protocol_mismatch',
           client_wire_protocol: Number.isNaN(declared) ? -1 : declared,
           server_wire_protocol: this.wireProtocol,
-          backend_version: MOCK_BACKEND_VERSION,
+          backend_version: this.backendVersion,
         }));
       }
     }

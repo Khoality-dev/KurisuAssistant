@@ -22,6 +22,7 @@ export function electronBridge(): PlatformBridge | null {
   return {
     platform: 'electron',
     os: api.platform,
+    appVersion: api.appVersion,
     capabilities: {
       localFiles: true,
       hostTools: true,

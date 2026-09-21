@@ -61,6 +61,8 @@ the sub-agent and the model that ran it.
 | ![Skills](assets/07-settings-skills.png) | |
 | Skills, appended to the assistant's prompt | |
 
+Settings → Account is not captured. Since #257 it ends in three rows — `App: vX.Y.Z`, `Backend: vX.Y.Z`, `Protocol: N (backend N)` — and, when the two versions are different releases, the sentence "This app is vA; the backend is vB — update whichever is behind." A capture of that section is owed; the stub bridge in `capture.screens.ts` answers `appVersion` with the mock's own number so the picture would show no mismatch.
+
 ---
 
 ## Regenerating these

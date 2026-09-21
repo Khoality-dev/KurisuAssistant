@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
+  // Baked in by vite.config.ts from package.json, so an unpackaged run (the
+  // e2e suite) reports the same number an installed build does (#257).
+  appVersion: __APP_VERSION__,
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
   openPath: (filePath: string) => ipcRenderer.invoke('shell:open-path', filePath),
 

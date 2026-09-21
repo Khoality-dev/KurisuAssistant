@@ -18,6 +18,7 @@ import { useAuthStore } from '@kurisu/state';
 import { apiClient } from '@kurisu/api';
 import { ModelPicker } from '../ModelPicker';
 import { LoginQrDialog } from './LoginQrDialog';
+import { VersionRows } from './VersionRows';
 import type { UserProfile } from '@kurisu/models';
 
 const ApiKeyField: React.FC<{
@@ -294,6 +295,9 @@ export const AccountSection: React.FC = () => {
           Show login QR
         </Button>
       </Box>
+
+      {/* Which release this is, and whether the backend is the same one */}
+      <VersionRows />
 
       {/* Save Button */}
       <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>

@@ -77,6 +77,15 @@ export interface PlatformBridge {
   readonly capabilities: Capabilities;
   /** The OS underneath, where the host knows it. `null` in a browser. */
   readonly os: string | null;
+  /**
+   * The version of the app itself, where the host is one.
+   *
+   * An installed app carries a release number, the same one the updater reads
+   * (#257). A page served by the backend has none of its own yet: it is
+   * whatever that backend shipped, so it answers `null` and the screen shows
+   * only the backend's number.
+   */
+  readonly appVersion: string | null;
   readonly files: ExplorerAPI | null;
   readonly transfers: DriveTransferAPI | null;
   readonly credentials: CredentialsAPI | null;

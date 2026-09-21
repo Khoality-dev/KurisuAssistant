@@ -13,3 +13,4 @@ export * from './files';
 export * from './id';
 export * from './speech';
 export * from './types';
+export * from './versionParity';

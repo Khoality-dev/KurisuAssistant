@@ -11,7 +11,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { MockBackend, ONE_POSE_CHARACTER } from './server';
+import { MOCK_BACKEND_VERSION, MockBackend, ONE_POSE_CHARACTER } from './server';
 import {
   WIRE_PROTOCOL,
   WS_AUTH_SUBPROTOCOL,
@@ -194,6 +194,23 @@ describe('mock backend: assistant / persona / sub-agent split', () => {
     // The catch-all returns {} rather than a list, so a client still calling it
     // gets nothing usable instead of a plausible-looking fixture.
     expect((await get('/agents')).body).toEqual({});
+  });
+});
+
+describe('mock backend: /version', () => {
+  it('reports the desktop package.json version by default, so a build and its mock are one release', async () => {
+    const { status, body } = await get('/version');
+    expect(status).toBe(200);
+    expect(body.backend_version).toBe(MOCK_BACKEND_VERSION);
+    expect(MOCK_BACKEND_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it('reports another release once a spec asks for one, on /version and in the 426 body alike', async () => {
+    mock.setBackendVersion('9.9.9');
+    expect((await get('/version')).body.backend_version).toBe('9.9.9');
+    const refused = await fetch(`${mock.url}/personas`, { headers: { 'X-Wire-Protocol': '1' } });
+    expect(refused.status).toBe(426);
+    expect((await refused.json()).backend_version).toBe('9.9.9');
   });
 });
 

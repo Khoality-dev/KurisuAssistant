@@ -113,6 +113,8 @@ No authentication.
 {"backend_version": "0.4.0", "wire_protocol": 4}
 ```
 
+Both clients call it at startup for the wire-protocol gate, and again from their About / Settings → Account rows to show the backend's version beside their own (#257).
+
 ### The `X-Wire-Protocol` header
 
 Clients ship their own `WIRE_PROTOCOL` constant and send it on every REST request.

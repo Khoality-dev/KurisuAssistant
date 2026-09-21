@@ -6,6 +6,20 @@ import fs from 'fs';
 import path from 'path';
 
 /**
+ * The app's version, baked in at build time from this package.json.
+ *
+ * `app.getVersion()` reads the packaged app's package.json — right for an
+ * installed build (electron-builder writes the release number there first) but
+ * under Playwright, which runs the unpackaged `dist-electron/main.js`, it falls
+ * back to the Electron binary's own version and Settings read "v43.6.0" (#257).
+ * A define is the same number in every build: what `package.json` says.
+ */
+const APP_VERSION = JSON.stringify(
+  (JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf-8')) as { version: string }).version,
+);
+const defineAppVersion = { define: { __APP_VERSION__: APP_VERSION } };
+
+/**
  * Vite plugin to serve ONNX Runtime .mjs files directly,
  * bypassing Vite's module transform which breaks Emscripten-generated code.
  */
@@ -41,16 +55,19 @@ export default defineConfig({
     electron([
       {
         entry: 'electron/main.ts',
+        vite: defineAppVersion,
       },
       {
         entry: 'electron/preload.ts',
         onstart(options) {
           options.reload();
         },
+        vite: defineAppVersion,
       },
     ]),
     renderer(),
   ],
+  ...defineAppVersion,
   server: {
     port: 5173,
   },

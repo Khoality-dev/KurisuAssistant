@@ -11,6 +11,8 @@
 
 import { test, expect } from './fixtures';
 import { Page } from '@playwright/test';
+import { WIRE_PROTOCOL } from '@kurisu/models';
+import { MOCK_BACKEND_VERSION } from './mock/server';
 
 async function login(page: Page) {
   await page.getByLabel('Username').fill('tester');
@@ -98,5 +100,36 @@ test.describe('settings', () => {
     // User profile from mock: username=tester, preferred_name=Tester.
     // AccountSection shows Ollama URL / API keys / model picker — verify the section header.
     await expect(page.getByRole('heading', { level: 3, name: /Account/i }).or(page.getByText(/Ollama/i)).first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('account section says which release the app and the backend are', async ({ page }) => {
+    await login(page);
+    await openSettings(page);
+    await page.getByText('Account', { exact: true }).first().click();
+
+    // The app's number is package.json's, baked in at build time; the mock
+    // reports the same one by default, so the two agree and nothing is said
+    // about a mismatch (#257).
+    await expect(page.getByTestId('version-row-app')).toHaveText(`App: v${MOCK_BACKEND_VERSION}`);
+    await expect(page.getByTestId('version-row-backend')).toHaveText(`Backend: v${MOCK_BACKEND_VERSION}`);
+    await expect(page.getByTestId('version-row-protocol')).toHaveText(
+      `Protocol: ${WIRE_PROTOCOL} (backend ${WIRE_PROTOCOL})`,
+    );
+    await expect(page.getByTestId('version-mismatch')).toHaveCount(0);
+  });
+
+  test('account section says plainly when the backend is another release', async ({ page, mock }) => {
+    // `mock` starts before Electron boots, so this is what `/version` says first.
+    mock.setBackendVersion('9.9.9');
+    await page.reload();
+
+    await login(page);
+    await openSettings(page);
+    await page.getByText('Account', { exact: true }).first().click();
+
+    await expect(page.getByTestId('version-row-backend')).toHaveText('Backend: v9.9.9');
+    await expect(page.getByTestId('version-mismatch')).toHaveText(
+      `This app is v${MOCK_BACKEND_VERSION}; the backend is v9.9.9 — update whichever is behind.`,
+    );
   });
 });
