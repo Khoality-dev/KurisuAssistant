@@ -52,7 +52,7 @@ def embedder(mock_ollama, monkeypatch):
     """Embeddings through the mock Ollama, with a fresh provider per test."""
     monkeypatch.setenv("EMBEDDING_PROVIDER", "ollama")
     monkeypatch.setenv("EMBEDDING_MODEL", EMBED_MODEL)
-    monkeypatch.setenv("LLM_API_URL", mock_ollama.url)
+    monkeypatch.setenv("EMBEDDING_API_URL", mock_ollama.url)
     embedding_service.reset()
     yield mock_ollama
     embedding_service.reset()

@@ -143,12 +143,6 @@ class TestPayloads:
         assert tool["tool_call_id"] == call["id"], "the result points back at its call"
         assert messages[0] == {"role": "system", "content": "Be brief."}
 
-    def test_env_var_is_the_fallback_key(self, monkeypatch):
-        monkeypatch.setenv("POE_API_KEY", "from-env")
-        assert PoeProvider().api_key == "from-env"
-        monkeypatch.setenv("NVIDIA_API_KEY", "nv-env")
-        assert NvidiaProvider().api_key == "nv-env"
-
 
 # ---------------------------------------------------------------------------
 # Streaming

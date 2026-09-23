@@ -39,7 +39,7 @@ def drive_root(tmp_path, monkeypatch):
 def embedder(mock_ollama, monkeypatch):
     monkeypatch.setenv("EMBEDDING_PROVIDER", "ollama")
     monkeypatch.setenv("EMBEDDING_MODEL", EMBED_MODEL)
-    monkeypatch.setenv("LLM_API_URL", mock_ollama.url)
+    monkeypatch.setenv("EMBEDDING_API_URL", mock_ollama.url)
     embedding_service.reset()
     yield mock_ollama
     embedding_service.reset()

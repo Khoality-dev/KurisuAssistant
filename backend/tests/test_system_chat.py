@@ -11,7 +11,7 @@ locally without it, fails on CI.
 
 import pytest
 
-from tests.conftest import SYSTEM_TEST_PASSWORD, SYSTEM_TEST_USER
+from tests.conftest import SYSTEM_TEST_PASSWORD, SYSTEM_TEST_USER, _create_activated_user
 
 from kurisuassistant.version import WIRE_PROTOCOL
 from tests.mock_ollama import DEFAULT_MODEL, Reply, ToolCall
@@ -261,6 +261,37 @@ class TestNoModelSelected:
         assert events[-1]["type"] == "done"
         assert content_of(events) == "You said: hello there"
         assert mock_ollama.state.requests_to("/api/chat")[0]["model"] == DEFAULT_MODEL
+
+
+class TestNoOllamaUrl:
+    """An account with no Ollama URL of its own is told to set one (#293).
+
+    It used to be sent to the server's Ollama instead, so nothing looked wrong
+    until that server's quota or model list got in the way.
+    """
+
+    def test_an_ollama_model_without_a_url_says_where_to_set_it(self, system_client, mock_ollama):
+        _create_activated_user("no-ollama-url", "no-ollama-url-password")
+        resp = system_client.post(
+            "/login", data={"username": "no-ollama-url", "password": "no-ollama-url-password"},
+        )
+        assert resp.status_code == 200, resp.text
+        headers = {
+            "Authorization": f"Bearer {resp.json()['access_token']}",
+            "X-Wire-Protocol": str(WIRE_PROTOCOL),
+        }
+
+        with system_client.websocket_connect("/ws/chat", headers=headers) as ws:
+            ws.receive_json()
+            ws.send_json(chat_request("hello"))
+            events = events_until_done(ws)
+
+        error = events[-1]
+        assert error["type"] == "error"
+        assert error["code"] == "PROVIDER_NOT_CONFIGURED"
+        assert "Ollama URL" in error["error"] and "Account settings" in error["error"]
+        assert "reference:" not in error["error"], "a missing setting is not a crash"
+        assert not mock_ollama.state.requests, "no Ollama was contacted on the account's behalf"
 
 
 class TestToolLoop:

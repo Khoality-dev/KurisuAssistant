@@ -1,6 +1,6 @@
 """How well a real model follows the ``## Expression`` prompt (#243). By hand only.
 
-Twenty short prompts against the live model at ``LLM_API_URL`` (an Ollama;
+Twenty short prompts against the live model at ``EMOTION_TEST_OLLAMA_URL`` (an Ollama;
 ``EMOTION_TEST_MODEL`` picks the model, default ``qwen3:8b``). For each reply it
 prints where the tags landed — at the start of a sentence, mid-sentence, on
 every sentence, unknown labels — and ends with a summary. Nothing here is
@@ -72,7 +72,7 @@ def classify(reply: str) -> dict:
 def test_tag_placement_against_the_live_model():
     import httpx
 
-    url = os.environ.get("LLM_API_URL", "http://localhost:11434").rstrip("/")
+    url = os.environ.get("EMOTION_TEST_OLLAMA_URL", "http://localhost:11434").rstrip("/")
     model = os.environ.get("EMOTION_TEST_MODEL", "qwen3:8b")
     system = "You are Kurisu, a warm and slightly sarcastic assistant.\n\n" + EXPRESSION_PROMPT
 

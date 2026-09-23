@@ -1,7 +1,7 @@
 """``python -m tests.mock_ollama [--host H] [--port P] [--model NAME ...] [--no-auto-pull]``
 
-Runs the mock as a plain process, so a backend started with
-``LLM_API_URL=http://127.0.0.1:<port>`` talks to it and a client can be driven
+Runs the mock as a plain process, so an account whose Ollama URL is
+``http://127.0.0.1:<port>`` talks to it and a client can be driven
 against a real backend that never needs a GPU or a paid model. Script it over
 HTTP through ``/_mock/*``.
 """

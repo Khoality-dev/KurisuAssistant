@@ -95,6 +95,14 @@ def _create_activated_user(username: str, password: str) -> None:
         user.is_active = True
 
 
+def _set_ollama_url(username: str, url: str) -> None:
+    from kurisuassistant.db.models import User
+    from kurisuassistant.db.session import get_session
+
+    with get_session() as session:
+        session.query(User).filter_by(username=username).one().ollama_url = url
+
+
 @pytest.fixture(scope="session")
 def system_db():
     """A fresh database migrated to head, with one activated test account.
@@ -138,12 +146,12 @@ def system_db():
 
 @pytest.fixture(scope="session")
 def system_client(system_db, mock_ollama_server):
-    """The real FastAPI app, lifespan running, with Ollama pointed at the mock.
+    """The real FastAPI app, lifespan running, with the test account's Ollama at the mock.
 
-    ``OllamaProvider`` reads ``LLM_API_URL`` when it is built (once per turn), so
-    setting it here reaches every chat, compaction and consolidation call.
+    The Ollama URL is the account's own setting (#293), so storing it here reaches
+    every chat, compaction and consolidation call the account makes.
     """
-    os.environ["LLM_API_URL"] = mock_ollama_server.url
+    _set_ollama_url(SYSTEM_TEST_USER, mock_ollama_server.url)
     from kurisuassistant.main import app
 
     with TestClient(app) as client:
