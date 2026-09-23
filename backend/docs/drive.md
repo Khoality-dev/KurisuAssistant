@@ -99,7 +99,11 @@ A node belonging to someone else is **404, never 403**.
 `utils/drive_storage.store_stream` writes incrementally to
 `data/drive/{user_id}/.incoming/{uuid}`, hashing and counting as it goes, and
 `os.replace`s the file into place only when the stream ends. A refused,
-cancelled or abandoned upload leaves nothing behind.
+cancelled or abandoned upload leaves nothing behind. The streaming itself —
+the bounded write, the unlink on any failure, the `.incoming` sweep — is
+`utils/blob_stream.py` (`write_stream`, `sweep_incoming`), shared since #236
+with the character store's VRM models and clips; the drive keeps its own paths,
+quota and wording around it.
 
 **Both write routes take a raw body, and that is load-bearing rather than a
 style choice.** A handler declaring an `UploadFile` makes FastAPI call
@@ -116,10 +120,12 @@ it is measured **again inside the write transaction**, where the check and the
 insert are atomic — every write runs on the single database thread. Without
 that, concurrent uploads each see the same headroom and overshoot it together.
 
-Nothing else in this backend streams: all nine other `UploadFile` routes read the
-whole body into memory first, so their size ceiling is checked after the upload
-has already been paid for. Here the file ceiling and the account's quota are both
-enforced as the bytes arrive.
+The only other routes that stream are the character store's
+(`PUT /character-assets/{id}/vrm/model` and `…/vrma`, #236), over the same
+`blob_stream` core. The other `UploadFile` routes read the whole body into memory
+first — the three pose-graph routes at least bounded to their ceiling plus one
+byte — so their size check comes after the upload has been paid for. Here the
+file ceiling and the account's quota are both enforced as the bytes arrive.
 
 A part-file is unlinked on every exception, including a client hanging up — but
 not when the process is killed outright, and an orphan there counts against no
@@ -195,6 +201,19 @@ assistant reaches them through `recall_regex` and `recall_semantic`, which cite
 the full path and the page. Those tools are built-in, so **drive passages are
 gated on `drive_read`**: included only when it is in the allowlist and not
 denied, which keeps the rule above. `retrieval.md` has the whole of it.
+
+## Why a persona's 3D model is not a drive file
+
+A VRM model is tens of megabytes and would fit the drive's machinery, and it
+borrows that machinery (`blob_stream`, the quota measured again inside the write
+transaction, `nosniff`). It does not live here (#236): no persona row points at a
+`drive_nodes` row, so deleting one could not clean up the other; drive deletion is
+hard and reachable by the assistant's own `drive_delete` under Full access, which
+would take a persona's face with it; and drive downloads are `private, no-store`
+attachments, where the character window needs an `ETag` and a `304` so it does not
+download the model on every open. The character store keeps the files under
+`data/character_assets/{persona_id}/`, the refs in `character_config`, and its own
+quota — `API.md`, Character Assets.
 
 ## What is deliberately not here
 

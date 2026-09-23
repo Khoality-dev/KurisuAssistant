@@ -8,7 +8,7 @@
  */
 
 import type { CharacterConfigDTO } from '@kurisu/models';
-import { ONE_POSE_CHARACTER } from './server';
+import { ONE_POSE_CHARACTER, VRM_CHARACTER_WITH_MODEL } from './server';
 import type { MockBackend, MockBackendOptions, MockConversationSeed, StreamScript } from './server';
 
 export interface Scenario {
@@ -422,6 +422,16 @@ export const SCENARIOS: Record<string, Scenario> = {
           { content: 'Goodbye.', role: 'assistant', delayMs: 20, emotion: 'sad', emotionAt: 13 },
         ],
       },
+    },
+  },
+  vrm: {
+    // The 3D character store (#236): Kurisu is a VRM persona whose model is
+    // already uploaded (the in-code fixture), so its model GET answers bytes
+    // with an ETag and a 304, and the upload routes have something to replace.
+    description: 'Kurisu is a VRM persona with a model uploaded; the character store routes answer (a bearer is required to fetch).',
+    options: {
+      personas: [{ ...KURISU, character_config: VRM_CHARACTER_WITH_MODEL }, AMADEUS],
+      stream: SHORT_REPLY,
     },
   },
   'no-model': {

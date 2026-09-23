@@ -223,6 +223,13 @@ Ollama server is unreachable" in the model picker.
 Model caches under `data/` (`face_recognition/models/`, `gesture_detection/models/`)
 are re-downloaded on demand and need no backup.
 
+**3D characters are the large part of that directory.** A persona's VRM model is
+typically 15–40 MB and may be up to `CHARACTER_MODEL_MAX_BYTES` (100 MiB), plus its
+`.vrma` clips; an account may hold up to `CHARACTER_ASSETS_QUOTA_BYTES` (1 GiB) of
+them across its personas (#236). Ten active accounts with models is gigabytes under
+`backend/data/character_assets/`, inside the backup surface above — size the backup
+for it, or raise the quota knowing it lands there. Pose-graph art is not metered.
+
 **Character assets follow their persona.** Deleting a persona removes its
 directory under `backend/data/character_assets/` (#234). Directories whose
 persona no longer exists — left by a database restored from an older backup,

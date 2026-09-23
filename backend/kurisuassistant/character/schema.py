@@ -35,6 +35,14 @@ class VrmAssetRef(_Strict):
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     bytes: int = Field(ge=0)
     uploaded_at: str
+    # Written by the upload from the file itself (#236). The defaults are for a
+    # ref stored before these existed, which no released server wrote.
+    filename: str = "model.vrm"
+    spec_version: Literal["0.x", "1.0"] = "1.0"
+    # Which of the six presets the model defines; a VRM 0.x has no `surprised`.
+    expressions: list[VrmEmotion] = Field(
+        default_factory=lambda: ["neutral", "happy", "angry", "sad", "relaxed", "surprised"]
+    )
 
 
 class VrmClipRef(_Strict):
