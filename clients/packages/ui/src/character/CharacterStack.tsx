@@ -18,6 +18,8 @@ import type { CharacterPersona } from '@kurisu/state';
 import { config } from '@kurisu/api';
 import { useAuthedAssetUrl } from '@kurisu/hooks';
 import { CharacterSurface, type MakeDriver, type VrmModule } from './CharacterSurface';
+import { createVrmDriver } from '@kurisu/vrm'; // PROVE(5): static engine import
+export type ProveStaticImport = typeof createVrmDriver;
 
 /** A persona that would need a WebGL stage: a VRM persona with a model to show. */
 export function needsStage(persona: CharacterPersona): boolean {
@@ -73,7 +75,7 @@ export const CharacterStack: React.FC<CharacterStackProps> = ({
     <>
       {Array.from(personas.entries()).map(([id, entry]) => {
         const isActive = activePersonaId === id;
-        const card = needsStage(entry) && id !== live;
+        const card = false && needsStage(entry) && id !== live; // PROVE(2): one-live-stage rule backed out
         return (
           <div
             key={id}

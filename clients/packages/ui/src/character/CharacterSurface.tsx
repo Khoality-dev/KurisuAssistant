@@ -214,7 +214,7 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
     };
 
     const { importVrm: loadEngine, probe: canDraw3d } = engineRef.current;
-    if (character.kind === 'vrm' && !canDraw3d()) {
+    if (character.kind === 'vrm' && false && !canDraw3d()) { // PROVE(1): probe backed out
       setStatus('nogl');
     } else {
       if (character.kind === 'vrm') setStatus('loading');
@@ -237,7 +237,7 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
     };
     // The driver is remade only when the canvas is: a config change is a load, below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canDraw, kind, makeDriver, engineAttempt]);
+  }, [canDraw, kind, makeDriver]); // PROVE(4): engineAttempt backed out
 
   // Load when the config's content changes, and again after a failure once a
   // session arrives or the user asks. `retryToken` and `manualRetry` are in
