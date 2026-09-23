@@ -57,7 +57,7 @@ API on `API_DEV_PORT` (15598, loopback) so it cannot collide with the first.
 
 ```
 main.py                  FastAPI app: middleware, router mounting, lifespan
-version.py               __version__ and WIRE_PROTOCOL (see "Versioning")
+version.py               WIRE_PROTOCOL, the version the build was stamped with, the release-tag check
 
 core/
   deps.py                get_authenticated_user; get_db is a legacy no-op
@@ -216,7 +216,7 @@ are rate limited per client address.
 
 ## Versioning
 
-`version.py` holds `__version__` and `WIRE_PROTOCOL`. The integer is bumped on any
+`version.py` holds `WIRE_PROTOCOL` and resolves `__version__` from the image. The integer is bumped on any
 breaking change to what clients depend on: renamed or removed fields, changed
 types, changed event names, a restructured auth handshake. Adding an optional
 field does not bump it.
@@ -229,8 +229,10 @@ the subprotocol list alongside its token. A mismatch is closed with 4426 before
 authentication. Saying nothing is still allowed on both transports, so curl and
 internal tooling keep working.
 
-Releases are tags on `main`, not branches: `vX.Y.Z`, with X.Y.Z equal to
-`__version__`, one tag for the backend and both clients (#256). The tag triggers the
+Releases are tags on `main`, not branches: `vX.Y.Z`, one tag for the backend and
+both clients (#256), and no file in the tree holds the number (#291): the image is
+stamped with `KURISU_VERSION` from `git describe --tags` when a deployment builds
+it, and anything that is not a plain X.Y.Z reports itself as a dev build. The tag triggers the
 root `release.yml`, which builds and publishes the clients; the backend has no
 artifact — a deployment checks the tag out and rebuilds (see `development.md`,
 "Releases and Deployment"). When a release bumps `WIRE_PROTOCOL`, the clients that

@@ -1,11 +1,17 @@
-"""Single source of truth for backend version + wire-protocol compatibility.
+"""The backend's version, and wire-protocol compatibility.
 
-`__version__` is the release version (semver, plain X.Y.Z). Since #256 it is the
-version of the whole release: the tag `vX.Y.Z` must equal it — the root
-`release.yml` refuses one that does not — and the desktop and Android builds
-take their version from that tag. Bump it here, merge, then tag. Keep the
-minor and patch numbers below 100: Android derives its versionCode as
-X*10000 + Y*100 + Z from this number, and `tests/test_version_tag.py` checks.
+A release is a tag alone (#291): pushing `vX.Y.Z` on `main` releases the backend
+and both clients, and no file in the tree holds the number. The backend learns
+its version from the image it runs in — a deployment stamps `KURISU_VERSION`
+from its checkout (`git describe --tags`) when it builds — so a backend built
+from a release tag reports that tag's number, and a build from anything else
+reports what it was built from (`0.8.0-3-gc3fa067`), or `dev` when nothing
+stamped it; neither is ever mistaken for a release. The clients compare only
+the leading X.Y.Z (`versionParity`), so a dev build after 0.8.0 still reads as
+0.8.0 and `dev` never claims a mismatch. `release.yml` asks this module
+(`python3 backend/kurisuassistant/version.py vX.Y.Z`) whether a tag may be
+released: minor and patch stay below 100 because Android derives its
+versionCode as X*10000 + Y*100 + Z.
 
 `WIRE_PROTOCOL` is a monotonically increasing integer bumped on **any breaking
 change** to the wire format clients depend on (REST request/response shapes,
@@ -112,5 +118,47 @@ Update log (most recent first):
 - 1: Initial wire protocol baseline.
 """
 
-__version__ = "0.7.1"
+import os
+import re
+import sys
+
+_RELEASE = re.compile(r"\d+\.\d+\.\d+")
+_RELEASE_TAG = re.compile(r"v(\d+)\.(\d+)\.(\d+)")
+
+
+def resolve_version(raw: str | None) -> str:
+    """The version a build reports, from what it was stamped with.
+
+    A leading ``v`` is dropped, so the tag and ``git describe`` output read as
+    versions; an empty stamp is ``dev``.
+    """
+    text = (raw or "").strip()
+    return text.removeprefix("v") if text else "dev"
+
+
+def is_release(value: str) -> bool:
+    """Whether a version names a release: a plain X.Y.Z and nothing more."""
+    return bool(_RELEASE.fullmatch(value))
+
+
+def release_tag_problem(tag: str) -> str | None:
+    """Why ``tag`` may not be released, or None when it may."""
+    match = _RELEASE_TAG.fullmatch(tag or "")
+    if not match:
+        return f"'{tag}' is not a release tag; releases are tagged vX.Y.Z."
+    _, minor, patch = (int(part) for part in match.groups())
+    if minor >= 100 or patch >= 100:
+        return f"'{tag}': minor and patch must stay below 100 (Android's versionCode is X*10000 + Y*100 + Z)."
+    return None
+
+
+__version__ = resolve_version(os.environ.get("KURISU_VERSION"))
 WIRE_PROTOCOL = 7
+
+
+if __name__ == "__main__":
+    # `python3 backend/kurisuassistant/version.py vX.Y.Z` — the release workflow's check.
+    problem = release_tag_problem(sys.argv[1] if len(sys.argv) > 1 else "")
+    if problem:
+        print(problem, file=sys.stderr)
+        sys.exit(1)

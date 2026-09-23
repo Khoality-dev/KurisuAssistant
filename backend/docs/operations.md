@@ -133,10 +133,10 @@ logging in again.
 Back up first. Migrations run on container start and are forward-only.
 
 ```bash
-git fetch --tags && git checkout vX.Y.Z && docker compose up -d --build
+git fetch --tags && git checkout vX.Y.Z && KURISU_VERSION=$(git describe --tags) docker compose up -d --build
 ```
 
-`--build` is what ships the code; `up -d` alone reuses the old image.
+`--build` is what ships the code; `up -d` alone reuses the old image. `KURISU_VERSION` is what the backend reports as its version (#291): without it the image reports `dev`, which both clients show as the backend's version and never count as a mismatch — so a forgotten stamp is visible, not alarming.
 
 A release tag `vX.Y.Z` is the backend's and both clients' at once (#256): the
 clients are built and published from it by CI; the backend is what you check

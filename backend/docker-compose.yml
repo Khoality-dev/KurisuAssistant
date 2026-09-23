@@ -136,6 +136,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # Baked into the image, never set at run time (#291): build with
+        # `KURISU_VERSION=$(git describe --tags) docker compose up -d --build`.
+        # Unset, the backend reports "dev".
+        KURISU_VERSION: ${KURISU_VERSION:-}
     container_name: kurisu-api
     # Only the database. The speech services are called over HTTP per request,
     # so the API starts and serves text without them — and naming a profiled
