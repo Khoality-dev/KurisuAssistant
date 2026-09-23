@@ -422,6 +422,9 @@ export class MockBackend {
       character_config: null,
       enabled: true,
       ...p,
+      // The store routes edit a persona's config in place; a shared fixture such as
+      // VRM_CHARACTER_WITH_MODEL must reach the next test as it was written.
+      character_config: p.character_config ? structuredClone(p.character_config) : null,
     }));
 
     const assistant = opts.assistant ?? {};

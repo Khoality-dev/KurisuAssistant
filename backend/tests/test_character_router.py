@@ -598,7 +598,9 @@ class TestPathSegments:
         )
         assert (response.status_code, response.json()["detail"]) == (400, "Invalid edge_id.")
 
-    @pytest.mark.parametrize("bad", [b for b in SERVING_BAD if b != "edges"])
+    # ``edges`` and ``vrma`` as a pose id reach their own routes first, which refuse
+    # ``base`` as an edge or clip id; that is covered with those routes.
+    @pytest.mark.parametrize("bad", [b for b in SERVING_BAD if b not in ("edges", "vrma")])
     def test_serving_a_pose_refuses_a_bad_pose_id(self, store, bad):
         response = store.client.get(f"/character-assets/{PERSONA}/{bad}/base")
         assert (response.status_code, response.json()["detail"]) == (400, "Invalid pose_id.")
