@@ -97,7 +97,9 @@ export function deletedFiles(config: Persona['character_config'], vrmBytes?: num
  * The one thing about the assistant that IS decided here is which persona a new
  * conversation starts with (#197). That is `assistants.default_persona_id`, so
  * "Make default" is a PATCH of the assistant, not of the persona — the card
- * only wears the badge.
+ * only wears the badge. A persona is optional (#302): with no default, new
+ * conversations are answered by the assistant itself, which is where every
+ * account starts, and "Clear default" goes back there.
  */
 export const PersonasSection: React.FC = () => {
   const reloadPersonaStore = usePersonaStore((s) => s.loadPersonas);
@@ -166,13 +168,23 @@ export const PersonasSection: React.FC = () => {
     }
   };
 
+  const handleClearDefault = async () => {
+    try {
+      const assistant = await apiClient.updateAssistant({ default_persona_id: null });
+      setDefaultPersonaId(assistant.default_persona_id);
+      flash('New conversations are answered by the assistant itself.');
+    } catch (err: any) {
+      setError(describeRequestFailure(err, 'Failed to clear the default persona'));
+    }
+  };
+
   const handleToggleEnabled = async (persona: Persona, enabled: boolean) => {
     try {
+      // Disabling the default is allowed: the server clears the default, and
+      // new conversations go back to the assistant (#302).
       await apiClient.togglePersonaEnabled(persona.id, enabled);
       await loadPersonas();
     } catch (err: any) {
-      // The backend refuses to disable the default persona: a new conversation
-      // would have nobody to bind to.
       setError(describeRequestFailure(err, 'Failed to change the persona'));
     }
   };
@@ -211,8 +223,8 @@ export const PersonasSection: React.FC = () => {
       setDeleteTarget(null);
       await loadPersonas();
     } catch (err: any) {
-      // The last persona cannot be deleted — a user with none could not start a
-      // conversation at all.
+      // Any persona can be deleted, the last one included (#302); what is left
+      // here is a network or server failure.
       setError(describeRequestFailure(err, 'Failed to delete the persona'));
       setDeleteTarget(null);
     }
@@ -288,8 +300,8 @@ export const PersonasSection: React.FC = () => {
         <Paper sx={{ p: 4, textAlign: 'center', maxWidth: 600, mx: 'auto' }}>
           <Typography variant="h6" gutterBottom>No personas yet</Typography>
           <Typography color="text.secondary" sx={{ mb: 3 }}>
-            Create one to give your assistant a name and a voice. Your first persona becomes the
-            one new conversations start with.
+            Without one, the assistant answers as itself. Create a persona to give it a name, a
+            voice and a face, and make it the default if new conversations should start with it.
           </Typography>
           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
             <Button variant="outlined" startIcon={<ImportIcon />} onClick={() => importInputRef.current?.click()}>
@@ -330,19 +342,31 @@ export const PersonasSection: React.FC = () => {
                     badge={persona.id === defaultPersonaId
                       ? <Chip label="Default" size="small" color="primary" />
                       : undefined}
-                    action={persona.id !== defaultPersonaId && persona.enabled
+                    action={persona.id === defaultPersonaId
                       ? (
                         <Button
                           size="small"
                           onClick={(e) => {
                             e.stopPropagation();
-                            void handleMakeDefault(persona);
+                            void handleClearDefault();
                           }}
                         >
-                          Make default
+                          Clear default
                         </Button>
                       )
-                      : undefined}
+                      : persona.enabled
+                        ? (
+                          <Button
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleMakeDefault(persona);
+                            }}
+                          >
+                            Make default
+                          </Button>
+                        )
+                        : undefined}
                     enabled={persona.enabled}
                     onToggleEnabled={(enabled) => void handleToggleEnabled(persona, enabled)}
                     onExport={() => void handleExport(persona)}
@@ -375,8 +399,9 @@ export const PersonasSection: React.FC = () => {
         <DialogTitle>Delete {deleteTarget?.name}?</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2 }}>
-            Past conversations keep their messages — the next message in one falls back to your
-            default persona. Everything below is deleted from the server. This cannot be undone.
+            Past conversations keep their messages, and the assistant answers in them from now on.
+            {deleteTarget?.id === defaultPersonaId ? ' New conversations go back to the assistant too.' : ''}
+            {' '}Everything below is deleted from the server. This cannot be undone.
           </Typography>
           <Paper variant="outlined" sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
             {deleteTarget && deletedFiles(deleteTarget.character_config, vrmBytes[deleteTarget.id]).map((line) => (

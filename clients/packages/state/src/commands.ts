@@ -57,10 +57,9 @@ const commands: Command[] = [
   {
     name: 'resume',
     description: 'Pick a previous conversation to resume',
-    execute: (_args, ctx) => {
-      if (!ctx.personaId) {
-        return 'No persona selected';
-      }
+    // With no persona selected the picker lists the assistant's own
+    // conversations: a persona is optional (#302).
+    execute: () => {
       window.dispatchEvent(new Event('kurisu:open-resume-picker'));
       return '';
     },

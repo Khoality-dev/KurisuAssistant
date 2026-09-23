@@ -258,6 +258,18 @@ class APIClient {
   }
 
   /**
+   * The latest conversation the assistant answered as itself, with no persona
+   * (#302), or null. There is no server filter for a null binding, so it is
+   * picked from the full list.
+   */
+  async getLatestAssistantConversation(): Promise<Conversation | null> {
+    const answered = (await this.getConversations())
+      .filter((c) => c.persona_id === null && c.message_count > 0)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    return answered[0] ?? null;
+  }
+
+  /**
    * The latest conversation bound to a persona, or null. `?persona_id=` returns a
    * one-element list with no message_count and no last_message, so only the id is
    * dependable here.
@@ -576,7 +588,7 @@ class APIClient {
     return response.data;
   }
 
-  /** Create a persona. The user's first persona also becomes their default. */
+  /** Create a persona. It does not become the default: only `updateAssistant` does that (#302). */
   async createPersona(data: PersonaCreate): Promise<Persona> {
     const response = await this.client.post<Persona>('/personas', data, {
       headers: this.getHeaders(),
@@ -592,8 +604,8 @@ class APIClient {
   }
 
   /**
-   * Delete a persona. The backend refuses (400) to delete the last one — a user
-   * with no persona cannot start a conversation.
+   * Delete a persona, the last one included: the assistant answers without one
+   * (#302). Deleting the default leaves no default.
    */
   async deletePersona(id: number): Promise<void> {
     await this.client.delete(`/personas/${id}`, {
@@ -601,7 +613,7 @@ class APIClient {
     });
   }
 
-  /** Enable/disable a persona. Disabling the default is refused (400). */
+  /** Enable/disable a persona. Disabling the default clears the default (#302). */
   async togglePersonaEnabled(id: number, enabled: boolean): Promise<Persona> {
     const response = await this.client.patch<Persona>(`/personas/${id}/enabled`, { enabled }, {
       headers: this.getHeaders(),

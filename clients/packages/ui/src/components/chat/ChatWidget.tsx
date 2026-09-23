@@ -40,6 +40,7 @@ import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '@kurisu/state';
 import { useAuthStore } from '@kurisu/state';
 import { apiClient, describeRequestFailure } from '@kurisu/api';
+import { ASSISTANT_NAME } from '@kurisu/models';
 import type { Assistant, Conversation } from '@kurisu/models';
 import { storage } from '@kurisu/api';
 
@@ -59,6 +60,14 @@ import { ChatComposer } from './ChatComposer';
 import { ToolApprovalBar, ApprovalRequest } from './ToolApprovalBar';
 import { NoModelPrompt } from './NoModelPrompt';
 import { resolveBridge } from '@kurisu/platform';
+
+/** One row of the "who should answer?" sheet; `id: null` is the assistant itself. */
+interface SheetOption {
+  id: number | null;
+  name: string;
+  description: string | null;
+  avatar_uuid: string | null;
+}
 
 interface ChatWidgetProps {
   characterWindowOpen?: boolean;
@@ -190,9 +199,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
 
   // Who is answering here. The server binding on the loaded conversation wins
   // over the client-side selection: the conversation is bound backend-side and
-  // that binding is what the next turn will actually use.
+  // that binding is what the next turn will actually use — and a null binding
+  // on a loaded conversation is the assistant itself, not "unknown" (#302).
   const personas = usePersonaStore((s) => s.personas);
-  const activePersonaId = currentConversation?.persona_id ?? personaId;
+  const activePersonaId = currentConversation ? currentConversation.persona_id : personaId;
   const activePersona = useMemo(
     () => personas.find((p) => p.id === activePersonaId) || null,
     [personas, activePersonaId],
@@ -228,8 +238,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   useEffect(() => {
     if (!resumeDialogOpen) return;
     setResumeLoading(true);
+    // With no persona chosen, the assistant's own conversations (#302).
     apiClient.getConversations(personaId ?? undefined)
-      .then((convs) => setResumeConversations(convs))
+      .then((convs) => setResumeConversations(personaId === null ? convs.filter((c) => c.persona_id === null) : convs))
       .catch((err) => {
         console.error('Failed to load conversations:', err);
         setResumeConversations([]);
@@ -323,13 +334,20 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   // and any other client — sees the same answerer. With no conversation open yet
   // there is nothing to patch; the selection alone decides who the conversation
   // about to be created binds to.
-  const handlePersonaPick = useCallback(async (id: number) => {
+  //
+  // `null` is the assistant itself, with no persona (#302): the PATCH hands the
+  // open conversation to it, and with none open a new chat names no persona.
+  const handlePersonaPick = useCallback(async (id: number | null) => {
     setPersonaSheetError('');
     const convId = currentConversation?.id;
     if (convId && id !== currentConversation?.persona_id) {
       try {
         await apiClient.patchConversation(convId, { persona_id: id });
-        storage.setPersonaConversationId(id, convId);
+        // The conversation leaves the bucket it was in, so reopening that
+        // persona (or the assistant) does not land back on it.
+        const previous = currentConversation?.persona_id ?? 'unbound';
+        if (storage.getPersonaConversationId(previous) === convId) storage.clearPersonaConversationId(previous);
+        storage.setPersonaConversationId(id ?? 'unbound', convId);
         await loadConversation(convId);
       } catch (err: any) {
         setPersonaSheetError(describeRequestFailure(err, 'Failed to switch persona'));
@@ -342,9 +360,15 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
     setPersonaSheetOpen(false);
   }, [currentConversation?.id, currentConversation?.persona_id, loadConversation, selectPersona, storePersonaId]);
 
+  // Who can be picked: the assistant itself first, then every enabled persona.
   // A disabled persona cannot answer, so it is not offered.
-  const selectablePersonas = useMemo(
-    () => personas.filter((p) => p.enabled),
+  const sheetOptions = useMemo<SheetOption[]>(
+    () => [
+      { id: null, name: ASSISTANT_NAME, description: 'No persona — the assistant itself', avatar_uuid: null },
+      ...personas.filter((p) => p.enabled).map((p) => ({
+        id: p.id, name: p.name, description: p.description || null, avatar_uuid: p.avatar_uuid,
+      })),
+    ],
     [personas],
   );
 
@@ -352,9 +376,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
   useEffect(() => {
     if (!personaSheetOpen) return;
     setPersonaSheetError('');
-    const idx = selectablePersonas.findIndex((p) => p.id === activePersonaId);
+    const idx = sheetOptions.findIndex((o) => o.id === (activePersona?.id ?? null));
     setPersonaActiveIdx(idx >= 0 ? idx : 0);
-  }, [personaSheetOpen, selectablePersonas, activePersonaId]);
+  }, [personaSheetOpen, sheetOptions, activePersona]);
 
   // Keyboard navigation for the persona sheet
   useEffect(() => {
@@ -365,19 +389,19 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
         setPersonaSheetOpen(false);
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setPersonaActiveIdx((i) => Math.min(i + 1, Math.max(0, selectablePersonas.length - 1)));
+        setPersonaActiveIdx((i) => Math.min(i + 1, Math.max(0, sheetOptions.length - 1)));
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setPersonaActiveIdx((i) => Math.max(0, i - 1));
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        const persona = selectablePersonas[personaActiveIdx];
-        if (persona) void handlePersonaPick(persona.id);
+        const option = sheetOptions[personaActiveIdx];
+        if (option) void handlePersonaPick(option.id);
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [personaSheetOpen, selectablePersonas, personaActiveIdx, handlePersonaPick]);
+  }, [personaSheetOpen, sheetOptions, personaActiveIdx, handlePersonaPick]);
 
   // Interactive ASR hook
   const asr = useInteractiveASR({
@@ -642,7 +666,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
               )}
             </Avatar>
             <Typography variant="caption" sx={{ fontWeight: 600, minWidth: 0 }} noWrap>
-              {activePersona?.name || 'Default persona'}
+              {activePersona?.name || ASSISTANT_NAME}
             </Typography>
           </ListItemButton>
         </Tooltip>
@@ -1128,63 +1152,57 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
             </Alert>
           )}
           <Box sx={{ flex: 1, overflowY: 'auto' }}>
-            {selectablePersonas.length === 0 ? (
-              <Typography color="text.secondary" sx={{ p: 4, textAlign: 'center' }}>
-                No personas available.
-              </Typography>
-            ) : (
-                <List disablePadding>
-                  {selectablePersonas.map((persona, idx) => {
-                    const isCurrent = persona.id === activePersonaId;
-                    const isActive = idx === personaActiveIdx;
-                    return (
-                      <React.Fragment key={persona.id}>
-                        {idx > 0 && <Divider component="li" />}
-                        <ListItemButton
-                          onClick={() => { void handlePersonaPick(persona.id); }}
-                          onMouseEnter={() => setPersonaActiveIdx(idx)}
-                          selected={isCurrent}
-                          ref={(el) => {
-                            if (isActive && el) el.scrollIntoView({ block: 'nearest' });
-                          }}
-                          sx={{
-                            py: 1.25,
-                            px: 3,
-                            gap: 1.5,
-                            ...(isActive && { bgcolor: 'action.hover' }),
-                          }}
-                        >
-                          <Avatar
-                            src={persona.avatar_uuid ? apiClient.getImageUrl(persona.avatar_uuid) : undefined}
-                            sx={{
-                              width: 40,
-                              height: 40,
-                              bgcolor: (t) => (t.palette.mode === 'light' ? '#F3F4F6' : '#262626'),
-                              flexShrink: 0,
-                            }}
-                          >
-                            {!persona.avatar_uuid && (
-                              <SmartToyIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
-                            )}
-                          </Avatar>
-                          <ListItemText
-                            primary={
-                              <Typography variant="body2" sx={{ fontWeight: isCurrent ? 600 : 500 }}>
-                                {persona.name}
-                              </Typography>
-                            }
-                            secondary={persona.description ? (
-                              <Typography variant="caption" color="text.secondary" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
-                                {persona.description}
-                              </Typography>
-                            ) : null}
-                          />
-                        </ListItemButton>
-                      </React.Fragment>
-                    );
-                  })}
-                </List>
-            )}
+            <List disablePadding>
+              {sheetOptions.map((option, idx) => {
+                const isCurrent = option.id === (activePersona?.id ?? null);
+                const isActive = idx === personaActiveIdx;
+                return (
+                  <React.Fragment key={option.id ?? 'assistant'}>
+                    {idx > 0 && <Divider component="li" />}
+                    <ListItemButton
+                      onClick={() => { void handlePersonaPick(option.id); }}
+                      onMouseEnter={() => setPersonaActiveIdx(idx)}
+                      selected={isCurrent}
+                      ref={(el) => {
+                        if (isActive && el) el.scrollIntoView({ block: 'nearest' });
+                      }}
+                      sx={{
+                        py: 1.25,
+                        px: 3,
+                        gap: 1.5,
+                        ...(isActive && { bgcolor: 'action.hover' }),
+                      }}
+                    >
+                      <Avatar
+                        src={option.avatar_uuid ? apiClient.getImageUrl(option.avatar_uuid) : undefined}
+                        sx={{
+                          width: 40,
+                          height: 40,
+                          bgcolor: (t) => (t.palette.mode === 'light' ? '#F3F4F6' : '#262626'),
+                          flexShrink: 0,
+                        }}
+                      >
+                        {!option.avatar_uuid && (
+                          <SmartToyIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
+                        )}
+                      </Avatar>
+                      <ListItemText
+                        primary={
+                          <Typography variant="body2" sx={{ fontWeight: isCurrent ? 600 : 500 }}>
+                            {option.name}
+                          </Typography>
+                        }
+                        secondary={option.description ? (
+                          <Typography variant="caption" color="text.secondary" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+                            {option.description}
+                          </Typography>
+                        ) : null}
+                      />
+                    </ListItemButton>
+                  </React.Fragment>
+                );
+              })}
+            </List>
           </Box>
         </Box>
       )}

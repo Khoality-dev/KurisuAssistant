@@ -47,7 +47,7 @@ async function handleGetAssistant(): Promise<ToolResult> {
     `- Deferred tools: ${a.use_deferred_tools ? 'on' : 'off'}`,
     `- Memory: ${a.memory_enabled ? 'on' : 'off'}`,
     `- Wake word: ${a.trigger_word || 'none'}`,
-    `- Default persona: ${a.default_persona_id ?? 'none'}`,
+    `- Default persona: ${a.default_persona_id ?? 'none (the assistant answers as itself)'}`,
   ];
   return ok(lines.join('\n'));
 }

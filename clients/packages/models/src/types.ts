@@ -73,7 +73,7 @@ export interface ConversationLastMessage {
 export interface Conversation {
   id: number;
   title: string;
-  persona_id: number | null;  // null until the first message binds a persona
+  persona_id: number | null;  // null = the assistant itself, no persona (#302)
   message_count: number;
   created_at: string;
   updated_at: string;

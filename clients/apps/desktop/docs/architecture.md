@@ -44,7 +44,7 @@ electron/preload.ts       — contextBridge: hostTools, appTools, explorer, driv
     FileEditor.tsx         — Monaco editor: Ctrl+S save, auto-detect language, binary detection with Open Anyway, image preview, selection→chat context
     FileIcon.tsx           — Custom SVG icons by type (folder, TS, JS, PY, JSON, MD, HTML, CSS, image, config, default)
   conversations/
-    ConversationsPage.tsx  — Persona list with search, last message preview, timestamps (no avatar, #192). Click loads conversation into ChatPanel.
+    ConversationsPage.tsx  — An Assistant row (the assistant's own conversation, #302) then every persona, with search, last message preview, timestamps (no avatar, #192). Click loads conversation into ChatPanel.
   settings/
     SettingsPage.tsx       — Left nav sidebar (13 sections) + lazy-loaded content area, in a `ScreenErrorBoundary` keyed on the section. `tests/settings.spec.ts` asserts the label list, so adding or renaming a section fails there until the spec agrees.
     AccountSection.tsx     — Ollama URL, summary model, context size, and the version rows
@@ -52,7 +52,7 @@ electron/preload.ts       — contextBridge: hostTools, appTools, explorer, driv
     TTSSection.tsx         — TTS backend, auto-play, voice, ASR language
     AppearanceSection.tsx  — Light/dark theme toggle
     AssistantSection.tsx   — The one assistant's capability form: tools, extended thinking, deferred tools, memory + memory notes, voice wake word. No model and no default persona (#197): the model is picked from the chat header's menu, the default persona from PersonasSection's "Make default". One PATCH of only the changed fields; Revert restores the last-loaded values. Nothing to create or delete — the assistant is made at registration.
-    PersonasSection.tsx    — Persona grid (`ResourceCard`) + enable toggle, export, delete, import, New Persona. Delete is refused for the last persona and disabling the default is refused, both server-side; the detail comes back in the 400 and is shown as-is.
+    PersonasSection.tsx    — Persona grid (`ResourceCard`) + enable toggle, export, delete, import, New Persona. Any persona can be deleted, the last one included, and the default can be disabled — either leaves no default, so new chats go back to the assistant (#302). **Clear default** on the default card does the same on purpose (`PATCH /assistant {default_persona_id: null}`).
     PersonaEditDialog.tsx  — One persona, presentation only: avatar upload, name, description, system prompt, "Calls you" (`preferred_name`), voice (`GET /tts/voices`, an unlisted saved value kept as an option), and the **Character** block — two kind cards whose pick is a `PATCH {kind}` that saves at once and removes nothing, and a button into `CharacterConfigDialog` (pose graph) or `VrmSetupDialog` (3D) — disabled while creating, since character assets are stored under the persona id. The editors write `character_config` themselves through `PATCH /character-assets/{persona_id}/character-config`, so this form never sends it back; it keeps the config the server last returned in its own state, and the section reloads on dialog close instead of on save, so an auto-save cannot replace the persona under an open form.
     SubAgentsSection.tsx   — Sub-agent grid + the same toggle/export/delete/import actions.
     SubAgentEditDialog.tsx — One sub-agent: name, description, task instructions, model (empty = the assistant's), tools, thinking, deferred tools. No avatar, voice, memory or wake word — a sub-agent has no identity.
@@ -107,7 +107,7 @@ electron/preload.ts       — contextBridge: hostTools, appTools, explorer, driv
 @kurisu/state  (clients/packages/state/src/)
   authStore.ts            — Auth state, login/register/logout, token persistence
   conversationStore.ts    — Current conversation + messages (paginated 20/page). No conversation list — persona selection drives conversation via localStorage mapping.
-  personaStore.ts         — Persona list, selected persona ID (persisted), persona previews (last message per persona for the sidebar). Persona selection triggers conversation load via the persona-conversation mapping.
+  personaStore.ts         — Persona list, selected persona ID (persisted; null is the assistant itself, never replaced by the first persona, #302), previews (last message per persona, and `assistantPreview` for the assistant's own conversation). Selection triggers conversation load via the persona-conversation mapping (`'unbound'` for the assistant).
   layoutStore.ts          — Layout state: activePage (workspace/conversations/settings), chatPanelWidth, workspaceTreeWidth, settingsSection (persisted)
   explorerStore.ts        — The editor half of the explorer: open/close/save files, dirty detection, selections for chat context, view mode. Browsing state lives in `FullExplorer`, which is the only thing that renders it — the store used to carry a second, unrendered copy.
   transferStore.ts        — Uploads and downloads, and the tray. Holds the rows and the lifecycle; the bytes never pass through it (see `electron/driveTransfers.ts`).

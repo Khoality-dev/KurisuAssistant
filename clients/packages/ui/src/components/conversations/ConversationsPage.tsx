@@ -11,6 +11,8 @@ import { Search as SearchIcon } from '@mui/icons-material';
 import { usePersonaStore } from '@kurisu/state';
 import { storage } from '@kurisu/api';
 import { useConversationStore } from '@kurisu/state';
+import { ASSISTANT_NAME } from '@kurisu/models';
+import type { PersonaPreview } from '@kurisu/state';
 
 function formatRelativeTime(dateStr: string | null | undefined): string {
   if (!dateStr) return '';
@@ -28,8 +30,15 @@ function formatRelativeTime(dateStr: string | null | undefined): string {
   return date.toLocaleDateString();
 }
 
+/** One row: the assistant itself (`id: null`) or a persona. */
+interface Row {
+  id: number | null;
+  name: string;
+  preview: PersonaPreview | null | undefined;
+}
+
 export const ConversationsPage: React.FC = () => {
-  const { personas, selectedPersonaId, selectPersona, personaPreviews, loadPersonaPreviews } = usePersonaStore();
+  const { personas, selectedPersonaId, selectPersona, personaPreviews, assistantPreview, loadPersonaPreviews } = usePersonaStore();
   const { loadConversation } = useConversationStore();
   const [search, setSearch] = React.useState('');
 
@@ -37,19 +46,25 @@ export const ConversationsPage: React.FC = () => {
     loadPersonaPreviews();
   }, [loadPersonaPreviews]);
 
-  const handleSelectPersona = async (id: number) => {
+  const handleSelect = async (id: number | null) => {
     selectPersona(id);
-    // Load the conversation this persona is mapped to, if any.
-    const conversationId = storage.getPersonaConversationId(id);
+    // Load the conversation this row is mapped to, if any.
+    const conversationId = storage.getPersonaConversationId(id ?? 'unbound');
     if (conversationId) {
       await loadConversation(conversationId);
     }
   };
 
-  // Every persona is listed: sub-agents are a separate resource and never speak.
-  const filteredPersonas = search
-    ? personas.filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
-    : personas;
+  // The assistant itself heads the list — a persona is optional, and its own
+  // conversations must stay reachable with none (#302) — then every persona.
+  // Sub-agents are a separate resource and never speak.
+  const rows: Row[] = [
+    { id: null, name: ASSISTANT_NAME, preview: assistantPreview },
+    ...personas.map((p) => ({ id: p.id, name: p.name, preview: personaPreviews[p.id] })),
+  ];
+  const filteredRows = search
+    ? rows.filter((r) => r.name.toLowerCase().includes(search.toLowerCase()))
+    : rows;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -74,18 +89,18 @@ export const ConversationsPage: React.FC = () => {
 
       {/* Persona list */}
       <List sx={{ flex: 1, overflow: 'auto', px: 1.5, py: 0 }}>
-        {filteredPersonas.map((persona) => {
-          const preview = personaPreviews[persona.id];
+        {filteredRows.map((row) => {
+          const preview = row.preview;
           const hasMessage = !!preview?.lastMessage;
           const timestamp = preview?.lastMessage?.created_at;
           const messageText = preview?.lastMessage?.content;
-          const isSelected = persona.id === selectedPersonaId;
+          const isSelected = row.id === selectedPersonaId;
 
           return (
             <ListItemButton
-              key={persona.id}
+              key={row.id ?? 'assistant'}
               selected={isSelected}
-              onClick={() => handleSelectPersona(persona.id)}
+              onClick={() => handleSelect(row.id)}
               sx={{
                 py: 1.5,
                 px: 2,
@@ -95,10 +110,9 @@ export const ConversationsPage: React.FC = () => {
               }}
             >
               {/*
-                No avatar. One assistant answers every row through the same
-                default persona, so the face was the same face repeated down the
-                list — it distinguished nothing and took the width the name and
-                the preview needed (#192).
+                No avatar. The face was the same face repeated down the list —
+                it distinguished nothing and took the width the name and the
+                preview needed (#192).
               */}
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 0.25 }}>
@@ -107,7 +121,7 @@ export const ConversationsPage: React.FC = () => {
                     sx={{ fontWeight: isSelected ? 700 : 500, fontSize: '0.875rem' }}
                     noWrap
                   >
-                    {persona.name}
+                    {row.name}
                   </Typography>
                   {hasMessage && (
                     <Typography
