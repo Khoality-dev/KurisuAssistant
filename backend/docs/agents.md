@@ -38,17 +38,24 @@ and were removed.
 
 ## Choosing the persona
 
-A conversation binds to one persona, stored as `conversations.persona_id`. It is
-null until the first message, then `agents/selection.py::pick_persona` resolves it
-from the user's **enabled** personas, in this fixed order:
+**A persona is optional (#302).** With none, the assistant answers as itself:
+`selection.assistant_identity()` is a `PersonaConfig` with no id, the name
+`Assistant`, and no prompt, voice or character, so the rest of the turn runs
+unchanged and its chunks carry `persona_id: null`. A new account has no persona
+and `assistants.default_persona_id` starts null.
+
+A conversation binds to at most one persona, stored as `conversations.persona_id`;
+null means the assistant itself. `agents/selection.py::pick_persona` resolves who
+answers from the user's **enabled** personas, in this fixed order:
 
 1. an explicit override — the `persona_id` on this `chat_request`, or the binding
-   the conversation already has (also settable with `PATCH /conversations/{id}`);
-2. the user's `assistants.default_persona_id`;
-3. the first enabled persona by id, so the same input always gives the same
-   answer;
-4. otherwise `ValueError` — a user with no enabled persona has no voice, and the
-   handler answers `error` with code `NO_PERSONAS`.
+   the conversation already has (also settable with `PATCH /conversations/{id}`,
+   where `null` hands the conversation to the assistant);
+2. the user's `assistants.default_persona_id` — **only for a conversation nothing
+   has answered yet**, so a conversation with the assistant stays with it when a
+   default is chosen later;
+3. otherwise the assistant itself. There is no "first persona" fallback and no
+   `NO_PERSONAS` refusal any more.
 
 An id that names a persona which is not enabled (disabled, deleted, or another
 user's) is logged and skipped rather than honoured.
@@ -64,10 +71,11 @@ every later override**, so a per-turn switch survives to the next message and
 across a reconnect. Compaction no longer moves the conversation at all, so the
 binding it carries is simply the one already on the row (#99).
 
-`POST /personas` and `POST /personas/import` adopt the new persona as the default
-when the assistant has none, deleting the default hands it to the oldest remaining
-persona, and the user's last persona cannot be deleted — all because step 2 has no
-fallback worth relying on.
+Creating or importing a persona does not make it the default; only the user does,
+with `PATCH /assistant`. Any persona can be deleted, the last one included, and
+the default can be disabled: either hands new conversations back to the assistant
+(the FK is `SET NULL`; disabling clears the pointer explicitly), and conversations
+bound to a deleted persona go to the assistant too.
 
 ## The turn loop
 
@@ -92,7 +100,8 @@ to the model as a plain function.
 
 `MainAgent._prepare_messages` assembles it in this order, joined with blank lines:
 
-1. `You are {persona name}.` plus the persona's `system_prompt`, then the user's
+1. `You are {persona name}.` plus the persona's `system_prompt` — or, with no
+   persona, `You are the user's personal assistant.` — then the user's
    `users.system_prompt`, then the preferred name (the persona's
    `preferred_name` if set, else the user's), then the current time
 2. the user's skill names, with an instruction to load one before acting

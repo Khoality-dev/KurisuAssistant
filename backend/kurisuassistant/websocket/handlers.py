@@ -88,11 +88,15 @@ class _TurnSetup:
     and saves a second trip to the DB thread.
     """
     conversation_id: int
-    # The conversation's current persona binding — None until the first message
-    # binds it.
+    # The conversation's persona binding — None when the assistant answers as
+    # itself, or when nothing has answered yet.
     persona_id: Optional[int]
     assistant: AssistantConfig
     default_persona_id: Optional[int]
+    # Nothing in the conversation has been answered yet. Only then does the
+    # assistant's default persona apply (#302): an existing conversation with
+    # the assistant stays with it when a default is set later.
+    unanswered: bool = True
     system_messages: List[Dict] = field(default_factory=list)
     user_system_prompt: str = ""
     preferred_name: str = ""
@@ -273,26 +277,19 @@ class ChatSessionHandler:
 
             personas, sub_agents = await self._load_agents()
 
-            if not personas:
-                await self.send_event(ErrorEvent(
-                    error="No personas available. Please create at least one persona.",
-                    code="NO_PERSONAS",
-                ))
-                return
-
             # Binding precedence: an explicit choice for this turn (``persona_id``
             # on this chat_request, or a PATCH that already wrote
             # ``conversations.persona_id``) → the conversation's existing
-            # binding → the assistant's default persona. A new conversation
-            # adopts the default silently; nothing scans for a trigger word and
-            # nothing is picked at random.
+            # binding → for a conversation nothing has answered yet, the
+            # assistant's default persona → the assistant itself. A persona is
+            # optional (#302): an account with none is answered by the assistant.
             override_id = (
                 event.persona_id if event.persona_id is not None else setup.persona_id
             )
             persona = pick_persona(
                 personas,
                 override_id=override_id,
-                default_persona_id=setup.default_persona_id,
+                default_persona_id=setup.default_persona_id if setup.unanswered else None,
             )
             self._task_persona_id = persona.id
             if persona.id != setup.persona_id:
@@ -711,10 +708,14 @@ class ChatSessionHandler:
                 conversation = conv_repo.create_conversation(self.user_id, title=title)
                 conversation_id = conversation.id
                 persona_id = None
+                unanswered = True
             else:
                 conversation_id = event.conversation_id
                 conv = conv_repo.get_by_user_and_id(self.user_id, conversation_id)
                 persona_id = conv.persona_id if conv else None
+                unanswered = session.query(Message.id).filter(
+                    Message.conversation_id == conversation_id,
+                ).first() is None
 
             system_prompt, preferred_name = user_repo.get_preferences(user)
 
@@ -723,6 +724,7 @@ class ChatSessionHandler:
                 persona_id=persona_id,
                 assistant=assistant,
                 default_persona_id=default_persona_id,
+                unanswered=unanswered,
                 system_messages=build_system_messages(system_prompt, preferred_name),
                 user_system_prompt=system_prompt,
                 preferred_name=preferred_name or "",
@@ -738,8 +740,8 @@ class ChatSessionHandler:
 
         return await db.execute(_do_setup)
 
-    async def _persist_persona(self, conversation_id: int, persona_id: int) -> None:
-        """Write the conversation's persona binding.
+    async def _persist_persona(self, conversation_id: int, persona_id: Optional[int]) -> None:
+        """Write the conversation's persona binding; None is the assistant itself.
 
         Runs on the first bind and on every later override, so a rebind
         survives to the next message.

@@ -64,8 +64,9 @@ address.
 ### POST /register
 
 Create an account. The same transaction also provisions the account's single
-`assistants` row and its first persona (named `Assistant`) — without both, the
-account can log in but cannot chat.
+`assistants` row — without it, the account can log in but cannot chat. No persona
+is made: the assistant answers as itself until the user creates one and makes it
+the default (#302).
 
 It cannot provision a **model**: which one to use depends on the operator's
 providers, and there is nothing to ask at registration. So `model_name` on the new
@@ -313,7 +314,7 @@ Update the title, the bound persona, or both. Replaces the old
 | Field | Type | Description |
 |---|---|---|
 | `title` | string | New title. Empty or whitespace is rejected. |
-| `persona_id` | integer or null | Rebind the conversation. **`null` unbinds it**, so the next message falls back to the assistant's default persona. |
+| `persona_id` | integer or null | Rebind the conversation. **`null` hands it to the assistant itself** (#302); the default persona applies only to a conversation nothing has answered yet. |
 
 **Response:** `200 OK`
 ```json
@@ -530,8 +531,9 @@ face.
 | `character_config` | object | no | null |
 | `enabled` | boolean | no | `true` |
 
-The first persona a user creates also becomes their `default_persona_id`, so a new
-conversation has someone to bind to.
+Creating a persona does not make it the default: `default_persona_id` changes only
+through `PATCH /assistant`, and while it is null new conversations are answered by
+the assistant itself (#302).
 
 **Errors:** `400` reserved name (`Administrator`, `User`, `App Guide`) or a
 duplicate name; `422` a `character_config` without a `kind`, one that is not the
@@ -567,15 +569,17 @@ that point never fails the delete: the response is still `200`, a warning is
 logged with what was left behind, and the operator's sweep
 (`docs/operations.md`) reclaims it. Never a live persona without its assets.
 
-**Error:** `400` this is the user's **only** persona. Deleting the *default* is
-allowed: the FK clears the pointer and the oldest remaining persona takes over,
-deterministically.
+Any persona can be deleted, the last one included (#302). Deleting the *default*
+clears the pointer (the FK is `SET NULL`), so new conversations go back to the
+assistant; conversations bound to it are answered by the assistant from then on.
 
 ### PATCH /personas/{persona_id}/enabled
 
 **Request:** `{"enabled": false}` → the updated persona.
 
-**Error:** `400` this is the default persona — make another one the default first.
+Disabling the default persona clears `default_persona_id`, here and through
+`PATCH /personas/{id}` with `enabled: false`: new conversations go back to the
+assistant (#302).
 
 ### GET /personas/{persona_id}/export
 
@@ -610,8 +614,7 @@ again (#236).
 Accepts version 3 persona files and legacy version 2 agent exports whose
 `agent_type` is `main`; a v2 main agent's model, tools and memory are **dropped**,
 because capability belongs to the importing user's own assistant. A name collision
-gets a ` (2)` suffix. Importing when the assistant has no default persona adopts
-this one.
+gets a ` (2)` suffix. An imported persona does not become the default.
 
 **Errors:** `400` not `.json`, invalid JSON, unsupported version, or the file
 describes a sub-agent.

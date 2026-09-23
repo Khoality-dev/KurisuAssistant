@@ -136,7 +136,11 @@ class MainAgent(BaseAgent):
 
         system_parts = []
 
-        base_prompt = f"You are {self.identity.name}."
+        # A persona is optional (#302): with none, the assistant speaks as itself.
+        if self.identity.id is None:
+            base_prompt = "You are the user's personal assistant."
+        else:
+            base_prompt = f"You are {self.identity.name}."
         if self.identity.system_prompt:
             base_prompt += "\n\n" + self.identity.system_prompt
         if context.user_system_prompt:

@@ -23,7 +23,7 @@ assistants                                          exactly one row per user
   memory(text)?             ONE document per user, shared by every persona
   memory_enabled(bool)
   trigger_word?             voice wake word; selects nothing
-  default_persona_id→personas (SET NULL)            who answers a new conversation
+  default_persona_id→personas (SET NULL)            who answers a new conversation; null = the assistant
   created_at
 
 personas                                            presentation only
@@ -47,7 +47,7 @@ sub_agents                                          task-only workers, no identi
 conversations
   id, user_id→users
   title
-  persona_id→personas (SET NULL)    null until the first message binds one
+  persona_id→personas (SET NULL)    null = the assistant itself (#302)
   compacted_context(text, not null, default '')
   compacted_up_to_id(int, not null, default 0)
   created_at, updated_at(indexed)
@@ -266,6 +266,5 @@ The first run seeds nothing (#148); accounts are registered and then activated b
 hand via `users.is_active`. It used to seed an `admin` / `admin` account and warn at startup while
 that password is unchanged. Seeding — and registration — also calls
 `core/accounts.py::provision_user`, which gives the account its one `assistants`
-row and a first persona named `Assistant`. Without both, the account can log in
-but cannot chat: a new conversation reads `assistants.default_persona_id` and there
-is no fallback.
+row. Without it, the account can log in but cannot chat. No persona is made: a
+persona is optional, and with none the assistant answers as itself (#302).

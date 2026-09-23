@@ -165,8 +165,9 @@ async def create_persona(
 ) -> PersonaResponse:
     """Create a persona.
 
-    The first persona a user creates also becomes their default, so a new
-    conversation has someone to bind to.
+    It does not become the default: a persona is optional, and the assistant
+    keeps answering new conversations as itself until the user chooses one
+    (#302).
     """
     _reject_reserved(body.name)
 
@@ -188,7 +189,6 @@ async def create_persona(
             character_config=character_config,
             enabled=body.enabled,
         )
-        _adopt_as_default_if_unset(session, user.id, persona.id)
         return _persona_to_response(persona)
 
     db = get_db_service()
@@ -198,17 +198,17 @@ async def create_persona(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-def _adopt_as_default_if_unset(session, user_id: int, persona_id: int) -> None:
-    """Point the assistant at this persona when it has no default yet.
+def _stop_defaulting_to(session, user_id: int, persona_id: int) -> None:
+    """Hand new conversations back to the assistant when their default persona is disabled.
 
-    A new conversation silently uses ``assistants.default_persona_id`` and there
-    is no fallback, so leaving that null after the user has a persona means their
-    next chat has nobody to answer it.
+    A disabled persona answers nobody, so leaving it as the default would only
+    mean the default silently does nothing; clearing it says what happens (#302).
     """
     assistant_repo = AssistantRepository(session)
-    assistant = assistant_repo.get_or_create_for_user(user_id)
-    if assistant.default_persona_id is None:
-        assistant_repo.update_assistant(assistant, default_persona_id=persona_id)
+    assistant = assistant_repo.get_by_user(user_id)
+    if assistant is not None and assistant.default_persona_id == persona_id:
+        assistant_repo.update_assistant(assistant, default_persona_id=None)
+        logger.info("user %d disabled their default persona; the assistant answers new chats", user_id)
 
 
 @router.get("/{persona_id}")
@@ -269,6 +269,9 @@ async def update_persona(
                     status_code=400, detail=f"A persona named '{new_name}' already exists."
                 )
 
+        if fields.get("enabled") is False:
+            _stop_defaulting_to(session, user.id, persona_id)
+
         return _persona_to_response(persona_repo.update_persona(persona, **fields))
 
     db = get_db_service()
@@ -288,10 +291,10 @@ async def delete_persona(
 ):
     """Delete a persona, then its character assets.
 
-    The user's last persona cannot be deleted: a new conversation binds to the
-    assistant's default persona and has no fallback, so a user with none can no
-    longer chat. Deleting the *default* is allowed — the FK clears the pointer and
-    the oldest remaining persona takes over, deterministically rather than at random.
+    Any persona can go, the last one included: the assistant answers without
+    one (#302). Deleting the default clears the pointer (the FK is ``SET NULL``),
+    so new conversations go back to the assistant rather than to whichever
+    persona happens to be next; conversations bound to it go to the assistant too.
 
     The row goes first and the directory under ``data/character_assets/`` after,
     so a disk failure can strand files for the operator's sweep but never a live
@@ -302,26 +305,8 @@ async def delete_persona(
         personas = persona_repo.list_by_user(user.id)
         if not any(p.id == persona_id for p in personas):
             raise HTTPException(status_code=404, detail="Persona not found")
-        if len(personas) == 1:
-            raise HTTPException(
-                status_code=400,
-                detail="This is your only persona. Create another one before deleting it.",
-            )
-
-        assistant_repo = AssistantRepository(session)
-        assistant = assistant_repo.get_by_user(user.id)
-        was_default = assistant is not None and assistant.default_persona_id == persona_id
 
         persona_repo.delete_by_user_and_id(user.id, persona_id)
-
-        if was_default:
-            replacement = next(p.id for p in personas if p.id != persona_id)
-            assistant_repo.update_assistant(assistant, default_persona_id=replacement)
-            logger.info(
-                "user %d deleted their default persona; default is now %d",
-                user.id, replacement,
-            )
-
         return {"message": "Persona deleted successfully"}
 
     db = get_db_service()
@@ -343,16 +328,11 @@ async def toggle_persona_enabled(
     user, so any authenticated user could toggle anyone's agent.
     """
     def _toggle(session):
-        assistant = AssistantRepository(session).get_by_user(user.id)
-        if not body.enabled and assistant and assistant.default_persona_id == persona_id:
-            raise HTTPException(
-                status_code=400,
-                detail="This is your default persona. Make another one the default first.",
-            )
-
         persona = PersonaRepository(session).set_enabled(user.id, persona_id, body.enabled)
         if not persona:
             raise HTTPException(status_code=404, detail="Persona not found")
+        if not body.enabled:
+            _stop_defaulting_to(session, user.id, persona_id)
         return _persona_to_response(persona)
 
     db = get_db_service()
@@ -436,7 +416,6 @@ async def import_persona(
             name=deduplicate_name(requested, taken),
             **fields,
         )
-        _adopt_as_default_if_unset(session, user.id, persona.id)
         return _persona_to_response(persona)
 
     db = get_db_service()
