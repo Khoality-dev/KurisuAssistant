@@ -39,7 +39,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * The chat header's persona switch is a PER-CONVERSATION override.
+ * The chat header's persona switch is a PER-CONVERSATION override, and a
+ * persona is optional: with none, the assistant answers as itself (#302).
  *
  * The one thing that must never happen is the switch leaking into
  * `assistants.default_persona_id`: pick a different voice for one thread and
@@ -247,4 +248,106 @@ class ChatViewModelPersonaTest {
             assertThat(vm.state.value.persona?.id).isEqualTo(kurisu.id)
             assertThat(vm.state.value.conversationId).isNull()
         }
+
+    // ─── A persona is optional (#302) ─────────────────────────────────
+
+    @Test
+    fun `with no default the assistant answers, not the first persona`() = runTest(testDispatcher) {
+        coEvery { assistantRepo.getAssistant() } returns assistant().copy(defaultPersonaId = null)
+        coEvery { personaRepo.getConversationIdForPersona(null) } returns null
+
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        assertThat(vm.state.value.persona).isNull()
+        assertThat(coreState.state.value.currentPersonaId).isNull()
+        coVerify(exactly = 1) { personaRepo.getConversationIdForPersona(null) }
+        coVerify(exactly = 0) { personaRepo.getConversationIdForPersona(kurisu.id) }
+    }
+
+    @Test
+    fun `a default that is disabled is the assistant too`() = runTest(testDispatcher) {
+        coEvery { personaRepo.listPersonas() } returns listOf(kurisu.copy(enabled = false), coach)
+        coEvery { personaRepo.getConversationIdForPersona(null) } returns null
+
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        assertThat(vm.state.value.persona).isNull()
+    }
+
+    @Test
+    fun `a conversation bound to nobody is the assistant's`() = runTest(testDispatcher) {
+        coEvery { convRepo.getConversation(421, 20, 0) } returns detail(421, null)
+
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        assertThat(vm.state.value.conversationId).isEqualTo(421)
+        assertThat(vm.state.value.persona).isNull()
+        assertThat(coreState.state.value.currentPersonaId).isNull()
+    }
+
+    @Test
+    fun `switching a chat to the assistant unbinds it on the server`() = runTest(testDispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.switchPersona(null)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { convRepo.setConversationPersona(421, null) }
+        coVerify(exactly = 1) { personaRepo.setConversationIdForPersona(null, 421) }
+        assertThat(vm.state.value.persona).isNull()
+        coVerify(exactly = 0) { assistantRepo.updateAssistant(any<AssistantUpdate>()) }
+    }
+
+    @Test
+    fun `a turn in a conversation already bound carries no persona override`() = runTest(testDispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.sendMessage("hello")
+        advanceUntilIdle()
+
+        // The server holds the binding; re-sending it every turn would rebind the
+        // conversation to whatever the header happened to show.
+        coVerify(exactly = 1) {
+            wsManager.sendChatRequest(text = "hello", modelName = "", conversationId = 421, personaId = null, images = any())
+        }
+    }
+
+    @Test
+    fun `a new chat's first turn carries the persona the header shows`() = runTest(testDispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+        vm.clearCurrentConversation()
+        advanceUntilIdle()
+
+        vm.sendMessage("hello")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            wsManager.sendChatRequest(text = "hello", modelName = "", conversationId = null, personaId = kurisu.id, images = any())
+        }
+    }
+
+    @Test
+    fun `a new chat with no default is the assistant's`() = runTest(testDispatcher) {
+        coEvery { assistantRepo.getAssistant() } returns assistant().copy(defaultPersonaId = null)
+        coEvery { personaRepo.getConversationIdForPersona(null) } returns 500
+        coEvery { convRepo.getConversation(500, 20, 0) } returns detail(500, null)
+
+        val vm = newViewModel()
+        advanceUntilIdle()
+        vm.switchPersona(coach)
+        advanceUntilIdle()
+
+        vm.clearCurrentConversation()
+        advanceUntilIdle()
+
+        // Not the persona this thread was switched to, and not the first one.
+        assertThat(vm.state.value.persona).isNull()
+        assertThat(vm.state.value.conversationId).isNull()
+    }
 }

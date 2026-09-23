@@ -278,23 +278,51 @@ class PersonasViewModelTest {
         }
 
     @Test
-    fun `enabling and disabling goes through the guarded route and surfaces its refusal`() =
+    fun `enabling and disabling goes through its own route and surfaces a refusal`() =
         runTest {
-            coEvery { personaRepo.setPersonaEnabled(1, false) } throws
-                httpError(400, "This is your default persona. Make another one the default first.")
+            coEvery { personaRepo.setPersonaEnabled(3, false) } throws httpError(404, "Persona not found")
             val vm = viewModel()
             advanceUntilIdle()
 
-            vm.openPersona(kurisu)
+            vm.openPersona(coach)
             vm.setDraftEnabled(false)
             advanceUntilIdle()
 
-            coVerify(exactly = 1) { personaRepo.setPersonaEnabled(1, false) }
-            assertThat(vm.state.value.message)
-                .isEqualTo("This is your default persona. Make another one the default first.")
+            coVerify(exactly = 1) { personaRepo.setPersonaEnabled(3, false) }
+            assertThat(vm.state.value.message).isEqualTo("Persona not found")
             // The switch must snap back: the server said no.
             assertThat(vm.state.value.draft?.enabled).isTrue()
         }
+
+    @Test
+    fun `disabling the default hands new chats back to the assistant`() = runTest {
+        // The server clears the default when it is disabled (#302); the screen
+        // must stop showing the badge rather than name a persona that answers no one.
+        coEvery { personaRepo.setPersonaEnabled(1, false) } returns kurisu.copy(enabled = false)
+        val vm = viewModel()
+        advanceUntilIdle()
+
+        vm.openPersona(kurisu)
+        vm.setDraftEnabled(false)
+        advanceUntilIdle()
+
+        assertThat(vm.state.value.draft?.enabled).isFalse()
+        assertThat(vm.state.value.defaultPersonaId).isNull()
+    }
+
+    @Test
+    fun `the default can be cleared, so new chats go to the assistant itself`() = runTest {
+        coEvery { assistantRepo.clearDefaultPersona() } returns assistant.copy(defaultPersonaId = null)
+        val vm = viewModel()
+        advanceUntilIdle()
+
+        vm.clearDefault()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { assistantRepo.clearDefaultPersona() }
+        assertThat(vm.state.value.defaultPersonaId).isNull()
+        assertThat(vm.state.value.message).isEqualTo("New chats will use the assistant itself")
+    }
 
     @Test
     fun `a persona that does not exist yet toggles enabled locally`() = runTest {
@@ -343,9 +371,10 @@ class PersonasViewModelTest {
     // ─── Delete ───────────────────────────────────────────────────────
 
     @Test
-    fun `deleting the last persona is refused, and the refusal is the message`() = runTest {
-        coEvery { personaRepo.deletePersona(1) } throws
-            httpError(400, "This is your only persona. Create another one before deleting it.")
+    fun `the last persona can be deleted, and the default goes with it`() = runTest {
+        // A persona is optional (#302): the assistant answers without one.
+        coEvery { personaRepo.listPersonas() } returnsMany listOf(listOf(kurisu), emptyList())
+        coEvery { assistantRepo.getAssistant() } returnsMany listOf(assistant, assistant.copy(defaultPersonaId = null))
         val vm = viewModel()
         advanceUntilIdle()
 
@@ -353,8 +382,23 @@ class PersonasViewModelTest {
         vm.deletePersona()
         advanceUntilIdle()
 
-        assertThat(vm.state.value.message)
-            .isEqualTo("This is your only persona. Create another one before deleting it.")
+        coVerify(exactly = 1) { personaRepo.deletePersona(1) }
+        assertThat(vm.state.value.message).isEqualTo("Kurisu deleted")
+        assertThat(vm.state.value.personas).isEmpty()
+        assertThat(vm.state.value.defaultPersonaId).isNull()
+    }
+
+    @Test
+    fun `a refused delete says why`() = runTest {
+        coEvery { personaRepo.deletePersona(1) } throws httpError(404, "Persona not found")
+        val vm = viewModel()
+        advanceUntilIdle()
+
+        vm.confirmDelete(kurisu)
+        vm.deletePersona()
+        advanceUntilIdle()
+
+        assertThat(vm.state.value.message).isEqualTo("Persona not found")
         assertThat(vm.state.value.deleting).isNull()
     }
 
