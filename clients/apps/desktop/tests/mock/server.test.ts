@@ -11,7 +11,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { MOCK_BACKEND_VERSION, MockBackend, ONE_POSE_CHARACTER } from './server';
+import { MOCK_BACKEND_VERSION, MockBackend, ONE_POSE_CHARACTER, VRM_CHARACTER_WITH_MODEL } from './server';
+import { VRMA_CLIP_BYTES, VRMA_CLIP_SHA256, VRM_MODEL_BYTES, VRM_MODEL_SHA256, buildGlb, sha256Hex } from './vrmFixture';
 import {
   WIRE_PROTOCOL,
   WS_AUTH_SUBPROTOCOL,
@@ -929,5 +930,177 @@ describe('Kurisu Drive', () => {
     expect(body.file_count).toBe(2);
     expect(body.used_bytes).toBe('# Q3 revenue notes'.length + '# Reading list'.length);
     expect(body.quota_bytes).toBeGreaterThan(0);
+  });
+});
+
+describe('the 3D character store (#236)', () => {
+  /**
+   * The routes the persona editor and the character window call. The mock
+   * validates the way the backend does closely enough that the editor sees the
+   * same refusal codes, and serves what it stored with the backend's headers.
+   */
+  let store: MockBackend;
+  const BEARER = { Authorization: 'Bearer test-access-token' };
+
+  beforeEach(async () => {
+    await mock.stop();
+    store = new MockBackend({
+      personas: [
+        { id: 1, name: 'Kurisu', character_config: VRM_CHARACTER_WITH_MODEL },
+        { id: 2, name: 'Amadeus', character_config: ONE_POSE_CHARACTER },
+      ],
+    });
+    await store.start();
+    mock = store;
+  });
+
+  const put = (path: string, bytes: Uint8Array, params: Record<string, string>) =>
+    fetch(`${store.url}${path}?${new URLSearchParams(params)}`, {
+      method: 'PUT',
+      headers: { ...BEARER, 'Content-Type': 'application/octet-stream' },
+      body: bytes,
+    });
+  // Every store route wants a bearer, as on the backend; the file-level helpers send none.
+  const storePatch = async (path: string, body: unknown) => {
+    const res = await fetch(`${store.url}${path}`, {
+      method: 'PATCH',
+      headers: { ...BEARER, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json() };
+  };
+  const storeDelete = (path: string) => fetch(`${store.url}${path}`, { method: 'DELETE', headers: BEARER });
+  const storeGet = async (path: string) => {
+    const res = await fetch(`${store.url}${path}`, { headers: BEARER });
+    return { status: res.status, body: await res.json() };
+  };
+
+  it('serves the seeded model with the stored sha as its ETag, and a 304', async () => {
+    const res = await fetch(`${store.url}/character-assets/1/vrm/model`, { headers: BEARER });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('model/gltf-binary');
+    expect(res.headers.get('etag')).toBe(`"${VRM_MODEL_SHA256}"`);
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(Buffer.from(await res.arrayBuffer()).equals(VRM_MODEL_BYTES)).toBe(true);
+
+    const again = await fetch(`${store.url}/character-assets/1/vrm/model`, {
+      headers: { ...BEARER, 'If-None-Match': `"${VRM_MODEL_SHA256}"` },
+    });
+    expect(again.status).toBe(304);
+  });
+
+  it('wants a bearer to serve a model, as the backend does', async () => {
+    expect((await fetch(`${store.url}/character-assets/1/vrm/model`)).status).toBe(401);
+  });
+
+  it('uploads a model to a pose-graph persona without changing what shows', async () => {
+    const res = await put('/character-assets/2/vrm/model', VRM_MODEL_BYTES, { sha256: VRM_MODEL_SHA256, filename: 'k.vrm' });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.model_url).toBe('/character-assets/2/vrm/model');
+    expect(body.meta.spec_version).toBe('1.0');
+    expect(body.character_config.kind).toBe('pose_graph');
+    expect(body.character_config.vrm.model).toMatchObject({ sha256: VRM_MODEL_SHA256, filename: 'k.vrm', spec_version: '1.0' });
+    expect(body.character_config.pose_tree).toBeTruthy();
+  });
+
+  it.each([
+    ['not_glb', Buffer.from('not a model at all')],
+    ['not_vrm', buildGlb({ asset: { version: '2.0' } })],
+    ['no_humanoid', buildGlb({ extensions: { VRMC_vrm: { humanoid: { humanBones: {} } } } })],
+  ])('refuses a model with %s', async (code, bytes) => {
+    const res = await put('/character-assets/1/vrm/model', bytes, { sha256: sha256Hex(bytes) });
+    expect(res.status).toBe(415);
+    expect((await res.json()).detail.code).toBe(code);
+  });
+
+  it('refuses a body that does not match its digest', async () => {
+    const res = await put('/character-assets/1/vrm/model', VRM_MODEL_BYTES, { sha256: '0'.repeat(64) });
+    expect(res.status).toBe(400);
+    expect((await res.json()).detail.code).toBe('digest_mismatch');
+  });
+
+  it('refuses past the quota with 507 and the figures', async () => {
+    await store.stop();
+    store = new MockBackend({ personas: [{ id: 1, name: 'Kurisu' }], characterQuotaBytes: 10 });
+    await store.start();
+    mock = store;
+    const res = await put('/character-assets/1/vrm/model', VRM_MODEL_BYTES, { sha256: VRM_MODEL_SHA256 });
+    expect(res.status).toBe(507);
+    expect((await res.json()).detail).toMatchObject({ code: 'quota', quota_bytes: 10 });
+  });
+
+  it('adds, renames, guards and deletes a clip', async () => {
+    const added = await put('/character-assets/1/vrma', VRMA_CLIP_BYTES, { sha256: VRMA_CLIP_SHA256, name: 'wave' });
+    expect(added.status).toBe(200);
+    const { clip } = await added.json();
+    expect(clip.id).toMatch(/^[0-9a-f]{8}$/);
+    expect(clip.url).toBe(`/character-assets/1/vrma/${clip.id}`);
+
+    const renamed = await storePatch(`/character-assets/1/vrma/${clip.id}`, { name: 'shy wave', loop: true });
+    expect(renamed.body.clip).toMatchObject({ name: 'shy wave', loop: true });
+
+    // In the idle rotation: the delete is refused until it is taken out.
+    await storePatch('/character-assets/1/character-config', {
+      kind: 'vrm', vrm: { ...VRM_CHARACTER_WITH_MODEL.vrm, idle: { ...VRM_CHARACTER_WITH_MODEL.vrm!.idle, idle_clip_ids: [clip.id] } },
+    });
+    const refused = await storeDelete(`/character-assets/1/vrma/${clip.id}`);
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).detail.code).toBe('clip_in_use');
+
+    await storePatch('/character-assets/1/character-config', {
+      kind: 'vrm', vrm: { ...VRM_CHARACTER_WITH_MODEL.vrm, idle: { ...VRM_CHARACTER_WITH_MODEL.vrm!.idle, idle_clip_ids: [] } },
+    });
+    const removed = await storeDelete(`/character-assets/1/vrma/${clip.id}`);
+    expect(removed.status).toBe(204);
+  });
+
+  it('a config save cannot drop the server-owned model ref', async () => {
+    const { body } = await storePatch('/character-assets/1/character-config', { kind: 'vrm', vrm: { ...VRM_CHARACTER_WITH_MODEL.vrm, model: null } });
+    expect(body.character_config.vrm.model.sha256).toBe(VRM_MODEL_SHA256);
+  });
+
+  it('deleting the model keeps the settings', async () => {
+    const res = await storeDelete('/character-assets/1/vrm/model');
+    expect(res.status).toBe(204);
+    const persona = (await get('/personas/1')).body;
+    expect(persona.character_config.vrm.model).toBeNull();
+    expect(persona.character_config.vrm.camera.target).toBe('upper_body');
+  });
+
+  it('reports usage as the sum of the stored refs', async () => {
+    const { body } = await storeGet('/character-assets/usage');
+    expect(body.used_bytes).toBe(VRM_MODEL_BYTES.length);
+    expect(body.per_persona).toEqual([{ persona_id: 1, bytes: VRM_MODEL_BYTES.length }, { persona_id: 2, bytes: 0 }]);
+    expect(body.max_model_bytes).toBe(100 * 1024 * 1024);
+  });
+
+  it.each([
+    ['PUT', '/character-assets/1/vrm/model'],
+    ['DELETE', '/character-assets/1/vrm/model'],
+    ['PUT', '/character-assets/1/vrma'],
+    ['PATCH', '/character-assets/1/vrma/abcdef12'],
+    ['DELETE', '/character-assets/1/vrma/abcdef12'],
+    ['PATCH', '/character-assets/1/character-config'],
+    ['GET', '/character-assets/usage'],
+  ])('%s %s wants a bearer, and refuses an expired one', async (method, path) => {
+    const body = method === 'GET' || method === 'DELETE' ? undefined : method === 'PUT' ? VRM_MODEL_BYTES : '{}';
+    expect((await fetch(`${store.url}${path}`, { method, body })).status).toBe(401);
+    store.expireAccessToken();
+    expect((await fetch(`${store.url}${path}`, { method, body, headers: BEARER })).status).toBe(401);
+  });
+
+  it('refuses an over-quota body with 507 even when its digest is wrong, as the backend does', async () => {
+    await store.stop();
+    store = new MockBackend({ personas: [{ id: 1, name: 'Kurisu' }], characterQuotaBytes: 10 });
+    await store.start();
+    mock = store;
+    const res = await put('/character-assets/1/vrm/model', VRM_MODEL_BYTES, { sha256: '0'.repeat(64) });
+    expect(res.status).toBe(507);
+  });
+
+  it('answers a character-assets path it does not have with 404, not the {} catch-all', async () => {
+    const res = await fetch(`${store.url}/character-assets/1/nothing-here`, { headers: BEARER });
+    expect(res.status).toBe(404);
   });
 });

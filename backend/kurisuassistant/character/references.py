@@ -14,6 +14,7 @@ the directory went with them.
 """
 
 import logging
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +28,8 @@ logger = logging.getLogger(__name__)
 URL_PREFIX = "/character-assets/"
 
 _PARTS = ("left_eye", "right_eye", "mouth")
+
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 
 # The two reasons a member is refused, worded to finish the sentence
 # "character_config.<member> …" in a 422 detail. A client that sent a member of
@@ -99,7 +102,13 @@ def classify(persona_id: Optional[int], config) -> Classification:
 
     refs: set[str] = set()
 
-    def _take(url) -> Optional[str]:
+    def _take(url, stored_as: Optional[str] = None) -> Optional[str]:
+        """Check a URL is this persona's and keep the file it names.
+
+        ``stored_as`` is for an asset whose file is not named by its URL: the
+        VRM model is served at ``…/vrm/model`` but stored content-addressed as
+        ``vrm/{sha256}.vrm`` (#236), so the file to keep comes from its ref.
+        """
         if url is None or url == "":
             return None
         if not isinstance(url, str):
@@ -109,7 +118,7 @@ def classify(persona_id: Optional[int], config) -> Classification:
         ref = _own_ref(url, persona_id)
         if ref is None:
             return FOREIGN
-        refs.add(ref)
+        refs.add(f"{persona_id}/{stored_as}" if stored_as else ref)
         return None
 
     for member, walk in (("pose_tree", _walk_pose_tree), ("vrm", _walk_vrm)):
@@ -178,13 +187,22 @@ def _walk_pose_tree(pose_tree: dict, take: _Take) -> Optional[str]:
     return None
 
 
-def _walk_vrm(vrm: dict, take: _Take) -> Optional[str]:
-    """Feed the model and clip URLs to ``take``; the reason when the shape or a URL is not ours."""
+def _walk_vrm(vrm: dict, take) -> Optional[str]:
+    """Feed the model and clip URLs to ``take``; the reason when the shape or a URL is not ours.
+
+    The model's file is ``vrm/{sha256}.vrm`` — content-addressed, so a replaced
+    model is a new file and the old one is swept — which makes a model ref
+    without a well-formed ``sha256`` unplaceable.
+    """
     model = vrm.get("model")
     if model is not None:
         if not isinstance(model, dict) or not isinstance(model.get("url"), str):
             return SHAPE
-        why = take(model["url"])
+        sha = model.get("sha256")
+        if not isinstance(sha, str) or not _SHA256.fullmatch(sha):
+            # The URL is checked first so a foreign model still reads as foreign.
+            return take(model["url"]) or SHAPE
+        why = take(model["url"], f"vrm/{sha}")
         if why is not None:
             return why
     clips = _list_or_none(vrm, "clips")

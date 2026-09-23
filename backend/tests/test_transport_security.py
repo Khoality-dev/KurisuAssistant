@@ -58,7 +58,14 @@ class TestMcpTlsVerification:
 # ---------------------------------------------------------------------------
 
 def route_signatures(module):
-    """Map of route path -> parameter names, for every router-decorated function."""
+    """Map of ``(method, path)`` -> (function name, parameter dump, module source).
+
+    Keyed on the method as well as the path: several routes share a path
+    (``PUT``/``GET``/``DELETE`` on ``/{persona_id}/vrm/model``), and a dict keyed
+    on the path alone kept only the last handler declared for it — so an
+    unauthenticated ``PUT`` would have passed every check below as long as the
+    ``GET`` after it was guarded.
+    """
     import ast
 
     tree = ast.parse(inspect.getsource(module))
@@ -73,33 +80,55 @@ def route_signatures(module):
                 and getattr(decorator.func.value, "id", None) == "router"
                 and decorator.args
             ):
-                routes[decorator.args[0].value] = (node.name, ast.dump(node.args), inspect.getsource(module))
+                key = (decorator.func.attr.upper(), decorator.args[0].value)
+                assert key not in routes, f"{key} is declared twice"
+                routes[key] = (node.name, ast.dump(node.args), inspect.getsource(module))
     return routes
+
+
+# Every route that names a persona, by method: each must check the persona is the
+# caller's. The VRM routes (#236) are listed one method at a time on purpose.
+PERSONA_ROUTES = [
+    ("GET", "/{persona_id}/edges/{edge_id}"),
+    ("GET", "/{persona_id}/{pose_id}/{filename}"),
+    ("PUT", "/{persona_id}/vrm/model"),
+    ("GET", "/{persona_id}/vrm/model"),
+    ("DELETE", "/{persona_id}/vrm/model"),
+    ("PUT", "/{persona_id}/vrma"),
+    ("GET", "/{persona_id}/vrma/{clip_id}"),
+    ("PATCH", "/{persona_id}/vrma/{clip_id}"),
+    ("DELETE", "/{persona_id}/vrma/{clip_id}"),
+]
+
+AUTHENTICATED_ROUTES = PERSONA_ROUTES + [("GET", "/usage")]
 
 
 class TestCharacterAssetsRequireAuth:
     """Both serving routes were open; persona ids are sequential and guessable."""
 
-    @pytest.mark.parametrize(
-        "path", ["/{persona_id}/edges/{edge_id}", "/{persona_id}/{pose_id}/{filename}"],
-    )
-    def test_route_takes_an_authenticated_user(self, path):
-        name, args_dump, _ = route_signatures(character)[path]
+    @pytest.mark.parametrize("key", AUTHENTICATED_ROUTES, ids=lambda k: f"{k[0]} {k[1]}")
+    def test_route_takes_an_authenticated_user(self, key):
+        name, args_dump, _ = route_signatures(character)[key]
         assert "get_authenticated_user" in args_dump, f"{name} does not require authentication"
 
-    @pytest.mark.parametrize(
-        "path", ["/{persona_id}/edges/{edge_id}", "/{persona_id}/{pose_id}/{filename}"],
-    )
-    def test_route_checks_ownership(self, path):
-        name, _, source = route_signatures(character)[path]
+    @pytest.mark.parametrize("key", PERSONA_ROUTES, ids=lambda k: f"{k[0]} {k[1]}")
+    def test_route_checks_ownership(self, key):
+        name, _, source = route_signatures(character)[key]
         body = source.split(f"async def {name}(")[1].split("\n@router")[0]
         assert "_require_persona" in body, (
             f"{name} serves files without checking the persona belongs to the caller"
         )
 
     def test_every_route_in_the_router_is_authenticated(self):
-        for path, (name, args_dump, _) in route_signatures(character).items():
-            assert "get_authenticated_user" in args_dump, f"{path} ({name}) is unauthenticated"
+        for key, (name, args_dump, _) in route_signatures(character).items():
+            assert "get_authenticated_user" in args_dump, f"{key} ({name}) is unauthenticated"
+
+    def test_same_path_different_method_is_checked_separately(self):
+        """The PUT and the GET on the model path are two entries, not one."""
+        routes = route_signatures(character)
+        assert ("PUT", "/{persona_id}/vrm/model") in routes
+        assert ("GET", "/{persona_id}/vrm/model") in routes
+        assert routes[("PUT", "/{persona_id}/vrm/model")][0] != routes[("GET", "/{persona_id}/vrm/model")][0]
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,12 @@ The REST and WebSocket surface this client calls. The contract itself lives in t
 - `GET /character-assets/{persona_id}/edges/{edge_id}` — Serve transition video (no-cache)
 - `PATCH /character-assets/{persona_id}/character-config` — Merge `{kind, pose_tree?, vrm?}` over the stored character config (a member left out is kept, `null` clears it); sweeps the files neither member references afterwards (see character.md)
 - `POST /character-assets/{persona_id}/migrate-ids` — Rename asset files/folders on disk to match migrated IDs
+- `PUT /character-assets/{persona_id}/vrm/model?sha256=&filename=` — Upload or replace the persona's VRM model, raw body (`apiClient.uploadCharacterModel`, which hashes the file with `crypto.subtle`, sends no timeout and reports progress). The server writes the ref (`url`, `sha256`, `bytes`, `filename`, `spec_version`, `expressions`) into `vrm.model` and answers with the stored config, which the client adopts (#236)
+- `DELETE /character-assets/{persona_id}/vrm/model` — Remove the model; the VRM settings stay
+- `PUT /character-assets/{persona_id}/vrma?sha256=&name=&loop=` — Add a VRMA clip (`uploadCharacterClip`); `PATCH /character-assets/{persona_id}/vrma/{clip_id}` renames it or sets `loop`; `DELETE` removes it and is refused `clip_in_use` while the idle rotation or a reaction plays it
+- `GET /character-assets/{persona_id}/vrm/model`, `GET /character-assets/{persona_id}/vrma/{clip_id}` — Serve the file with `ETag` = the stored sha and a `304` on `If-None-Match` (header auth; `fetchAuthedBytes`)
+- `GET /character-assets/usage` — `{used_bytes, quota_bytes, max_model_bytes, max_clip_bytes, per_persona}` (`getCharacterUsage`); lets the editor refuse a file over the ceiling before sending it
+- Every failure of those six calls is a `CharacterUploadError` (`@kurisu/api`) whose `code` is the server's (`not_glb`, `not_vrm`, `no_humanoid`, `not_vrma`, `bad_json`, `too_large`, `quota`, `digest_mismatch`, `clip_in_use`) or `network`/`unknown`/`cancelled` — the editor words each code itself, and drops `cancelled` (the caller aborted: checked after hashing and before the request, and on an aborted request) without a message
 - `GET /faces`, `POST /faces`, `GET /faces/{id}`, `DELETE /faces/{id}` — Face identity CRUD
 - `POST /faces/{id}/photos`, `DELETE /faces/{id}/photos/{photo_id}` — Face photo management
 - `GET /faces/{id}/photos/{photo_id}/image` — Serve face photo image

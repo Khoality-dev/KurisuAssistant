@@ -6,6 +6,7 @@
  */
 export * from './binaryFrame';
 export * from './character';
+export * from './characterAssets';
 export * from './characterDriver';
 export * from './characterFingerprint';
 export * from './constants';

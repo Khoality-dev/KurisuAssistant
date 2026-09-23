@@ -174,6 +174,16 @@ export interface VrmAssetRef {
   sha256: string;       // the ETag, the cache key; validated `^[0-9a-f]{64}$` before it names a file
   bytes: number;
   uploaded_at: string;  // ISO-8601
+  /**
+   * Written by the upload from the file (#236). Optional because the stored row
+   * is served as written: a ref from before these existed has none of them —
+   * read a missing `filename` as "model.vrm", `spec_version` as '1.0' and
+   * `expressions` as all six (what the server's schema defaults to).
+   */
+  filename?: string;
+  spec_version?: '0.x' | '1.0';
+  /** Which of the six presets the model defines. A VRM 0.x never has `surprised`. */
+  expressions?: VrmEmotion[];
 }
 
 /** SERVER-OWNED like `VrmAssetRef`; `name` and `loop` are edited through the clip routes. */

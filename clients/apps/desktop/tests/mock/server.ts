@@ -16,6 +16,7 @@ import http from 'http';
 import { AddressInfo } from 'net';
 import { WebSocketServer, WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
+import { VRM_MODEL_BYTES, VRM_MODEL_SHA256, inspect as inspectVrm, sha256Hex } from './vrmFixture';
 // Inlined by esbuild into the standalone CLI bundle, so the number is right
 // from `dist-mock/` too (a runtime file read would resolve relative to there).
 import desktopPackage from '../../package.json';
@@ -26,7 +27,9 @@ import {
   WS_WIRE_PROTOCOL_MISMATCH,
   type CharacterConfigDTO,
   type EmotionCueRecord,
+  type VrmClipRef,
   type VrmEmotion,
+  type VrmSettings,
 } from '@kurisu/models';
 
 /**
@@ -61,6 +64,61 @@ const TINY_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
   'base64',
 );
+
+/** The VRM settings the backend fills in when a persona first gets a VRM member (`character/schema.py`). */
+export function defaultVrmSettings(): VrmSettings {
+  return {
+    model: null,
+    clips: [],
+    idle: {
+      procedural: true,
+      arms_lowered: true,
+      breath_period_ms: 4000,
+      breath_amplitude_deg: 2,
+      sway_amplitude_deg: 1.5,
+      sway_period_ms: 7000,
+      blink: {
+        blink_min_interval: 2000,
+        blink_max_interval: 6000,
+        blink_close_duration: 100,
+        blink_hold_duration: 50,
+        blink_open_duration: 100,
+      },
+      look_at: 'camera',
+      idle_clip_ids: [],
+      idle_clip_interval_ms: [8000, 20000],
+    },
+    emotion: { enabled: true, default_expression: 'neutral', intensity: 1, attack_ms: 180, release_ms: 400, thinking: null },
+    reactions: [],
+    camera: { target: 'upper_body', fov: 24, offset_y: 0, background: '#ffffff' },
+  };
+}
+
+/**
+ * Persona 1 as a VRM persona with a model already uploaded — the fixture from
+ * `vrmFixture.ts`, whose bytes `GET /character-assets/1/vrm/model` serves. What
+ * the `vrm` scenario seeds (#236).
+ */
+export const VRM_CHARACTER_WITH_MODEL: CharacterConfigDTO = {
+  kind: 'vrm',
+  vrm: {
+    ...defaultVrmSettings(),
+    model: {
+      url: '/character-assets/1/vrm/model',
+      sha256: VRM_MODEL_SHA256,
+      bytes: VRM_MODEL_BYTES.length,
+      uploaded_at: '2026-09-21T10:00:00Z',
+      filename: 'kurisu_v2.vrm',
+      spec_version: '1.0',
+      expressions: ['neutral', 'happy', 'angry', 'sad', 'relaxed', 'surprised'],
+    },
+  },
+};
+
+/** The backend's per-file ceilings and per-account quota (`character/assets.py`). */
+export const CHARACTER_MODEL_MAX_BYTES = 100 * 1024 * 1024;
+export const CHARACTER_CLIP_MAX_BYTES = 16 * 1024 * 1024;
+export const CHARACTER_ASSETS_QUOTA_BYTES = 1024 * 1024 * 1024;
 
 /** Presentation only: no model, no tools, no memory, no wake word. */
 export interface MockPersona {
@@ -235,6 +293,8 @@ export interface MockBackendOptions {
   models?: Array<{ name: string; provider?: string }>;
   drive?: MockDriveEntry[];
   driveQuotaBytes?: number;
+  /** The 3D character store's per-account quota; defaults to the backend's 1 GiB. */
+  characterQuotaBytes?: number;
   assistant?: MockAssistant;
   subAgents?: MockSubAgent[];
   stream?: StreamScript;
@@ -334,6 +394,16 @@ export class MockBackend {
   /** Answer every request as a proxy that refuses this network; see `refuseLikeAProxy`. */
   private proxyRefusal: number | null = null;
 
+  /**
+   * Uploaded VRM models and clips, keyed by their URL. A persona seeded with
+   * the fixture's sha (`VRM_CHARACTER_WITH_MODEL`) is served the fixture bytes
+   * without an upload.
+   */
+  private characterFiles = new Map<string, Buffer>();
+  private characterQuotaBytes = CHARACTER_ASSETS_QUOTA_BYTES;
+  /** The most recent model or clip upload, so a spec can assert what was sent. */
+  public lastCharacterUpload: { path: string; sha256: string | null; bytes: number; status: number } | null = null;
+
   /** A bearer the asset route now refuses; see `expireAccessToken`. */
   private expiredAssetBearer: string | null = null;
   public lastMcpServerCreate: any = null;
@@ -408,6 +478,7 @@ export class MockBackend {
     }
 
     if (opts.driveQuotaBytes !== undefined) this.driveQuotaBytes = opts.driveQuotaBytes;
+    if (opts.characterQuotaBytes !== undefined) this.characterQuotaBytes = opts.characterQuotaBytes;
     for (const entry of opts.drive ?? []) this.seedDriveEntry(entry);
     for (const seed of opts.conversations ?? []) this.seedConversation(seed);
     for (const skill of opts.skills ?? []) {
@@ -1367,6 +1438,177 @@ export class MockBackend {
         return this.json(res, { message: 'Skill deleted successfully' });
       }
     }
+    // ── The 3D character store (#236) ─────────────────────────────────────
+    // Above the generic pose route below, which has the same shape and would
+    // 404 "vrm" as a pose id — the backend declares these first for the same
+    // reason. Refusals carry `detail: {code, message}` as the backend's do.
+    // Every one of these wants a bearer, as on the backend — and honours
+    // `expireAccessToken`, so a spec can drive the refresh round trip through
+    // an upload as well as through the window's fetch.
+    const storeRoute = /^\/character-assets\/(usage|\d+\/(character-config|vrm\/model|vrma(\/[^/]+)?))$/.test(pathOnly);
+    if (storeRoute) {
+      const authorization = req.headers.authorization ?? null;
+      if (!authorization?.startsWith('Bearer ') || authorization === this.expiredAssetBearer) {
+        if (method === 'GET') {
+          this.lastCharacterAssetRequest = { path: pathOnly, authorization };
+          this.characterAssetRequests.push({ path: pathOnly, authorization, status: 401 });
+        }
+        // Drain an upload's body before answering, as the server does.
+        if (method === 'PUT' || method === 'PATCH') await this.readRaw(req);
+        return this.error(res, 401, authorization ? 'Token has expired' : 'Not authenticated');
+      }
+    }
+    if (pathOnly === '/character-assets/usage' && method === 'GET') {
+      const per = this.personas.map((p) => ({ persona_id: p.id, bytes: this.characterBytes(p.character_config) }));
+      return this.json(res, {
+        used_bytes: per.reduce((sum, e) => sum + e.bytes, 0),
+        quota_bytes: this.characterQuotaBytes,
+        max_model_bytes: CHARACTER_MODEL_MAX_BYTES,
+        max_clip_bytes: CHARACTER_CLIP_MAX_BYTES,
+        per_persona: per,
+      });
+    }
+    const configMatch = pathOnly.match(/^\/character-assets\/(\d+)\/character-config$/);
+    if (configMatch && method === 'PATCH') {
+      const persona = this.findPersona(Number(configMatch[1]));
+      if (!persona) return this.error(res, 404, 'Persona not found');
+      const body = await this.readJson(req);
+      if (body.kind !== 'pose_graph' && body.kind !== 'vrm') {
+        return this.error(res, 422, 'character_config.kind must be "pose_graph" or "vrm".');
+      }
+      persona.character_config = this.mergeCharacterConfig(persona.character_config ?? null, body);
+      return this.json(res, { message: 'Character config updated', character_config: persona.character_config });
+    }
+    const modelMatch = pathOnly.match(/^\/character-assets\/(\d+)\/vrm\/model$/);
+    const clipsMatch = pathOnly.match(/^\/character-assets\/(\d+)\/vrma$/);
+    const clipMatch = pathOnly.match(/^\/character-assets\/(\d+)\/vrma\/([^/]+)$/);
+    if (modelMatch || clipsMatch || clipMatch) {
+      const personaId = Number((modelMatch ?? clipsMatch ?? clipMatch)![1]);
+      const persona = this.findPersona(personaId);
+      if (!persona) {
+        if (method === 'PUT') await this.readRaw(req);
+        return this.error(res, 404, 'Persona not found');
+      }
+      const refuse = (status: number, code: string, message: string, extra: Record<string, unknown> = {}) => {
+        if (this.lastCharacterUpload) this.lastCharacterUpload.status = status;
+        res.setHeader('Content-Type', 'application/json');
+        res.statusCode = status;
+        return res.end(JSON.stringify({ detail: { code, message, ...extra } }));
+      };
+
+      if (method === 'PUT' && (modelMatch || clipsMatch)) {
+        const isModel = !!modelMatch;
+        const bytes = await this.readRaw(req);
+        const sha = query.get('sha256');
+        this.lastCharacterUpload = { path: pathOnly, sha256: sha, bytes: bytes.length, status: 200 };
+        if (!sha || !/^[0-9a-f]{64}$/.test(sha)) return this.error(res, 422, 'sha256 is required.');
+        // The backend's order: the quota before the stream, the ceiling and the
+        // quota as the bytes arrive, and only then the digest and the format —
+        // so an over-quota body is a 507 whatever else is wrong with it.
+        const max = isModel ? CHARACTER_MODEL_MAX_BYTES : CHARACTER_CLIP_MAX_BYTES;
+        const replaced = isModel ? (persona.character_config?.vrm?.model?.bytes ?? 0) : 0;
+        const used = this.personas.reduce((sum, p) => sum + this.characterBytes(p.character_config), 0);
+        const remaining = this.characterQuotaBytes - used + replaced;
+        const full = () => refuse(507, 'quota', 'Your 3D character storage is full.', { used_bytes: used, quota_bytes: this.characterQuotaBytes });
+        if (remaining <= 0) return full();
+        if (bytes.length > max) {
+          return refuse(413, 'too_large', `That ${isModel ? 'model' : 'animation'} is larger than the ${max / (1024 * 1024)} MB limit.`, { max_bytes: max });
+        }
+        if (bytes.length > remaining) return full();
+        if (sha256Hex(bytes) !== sha) return refuse(400, 'digest_mismatch', 'The file changed on the way. Try the upload again.');
+        const found = inspectVrm(bytes, isModel ? 'model' : 'clip');
+        if (!found.ok) return refuse(415, found.code, `Refused: ${found.code}.`);
+        const config = this.withVrm(persona.character_config ?? null);
+        if (isModel && found.kind === 'model') {
+          const url = `/character-assets/${personaId}/vrm/model`;
+          const model = {
+            url, sha256: sha, bytes: bytes.length, uploaded_at: new Date().toISOString(),
+            filename: (query.get('filename') ?? 'model.vrm').slice(0, 128),
+            spec_version: found.spec_version,
+            expressions: found.expressions as VrmEmotion[],
+          };
+          config.vrm!.model = model;
+          persona.character_config = config;
+          this.characterFiles.set(url, bytes);
+          return this.json(res, {
+            model_url: url, sha256: sha, bytes: bytes.length, uploaded_at: model.uploaded_at,
+            meta: found.meta, character_config: config,
+          });
+        }
+        const id = randomUUID().replace(/-/g, '').slice(0, 8);
+        const clip: VrmClipRef = {
+          id, name: (query.get('name') ?? 'animation').slice(0, 128),
+          url: `/character-assets/${personaId}/vrma/${id}`,
+          sha256: sha, bytes: bytes.length, loop: query.get('loop') === 'true',
+        };
+        config.vrm!.clips = [...config.vrm!.clips, clip];
+        persona.character_config = config;
+        this.characterFiles.set(clip.url, bytes);
+        return this.json(res, { clip, character_config: config });
+      }
+
+      if (modelMatch && method === 'DELETE') {
+        const vrm = persona.character_config?.vrm;
+        if (vrm?.model) {
+          this.characterFiles.delete(vrm.model.url);
+          vrm.model = null;
+        }
+        res.statusCode = 204;
+        return res.end();
+      }
+
+      if (clipMatch && (method === 'PATCH' || method === 'DELETE')) {
+        const clipId = clipMatch[2];
+        if (!/^[0-9a-f]{8}$/.test(clipId)) return this.error(res, 400, 'Invalid clip_id.');
+        const vrm = persona.character_config?.vrm;
+        const clip = vrm?.clips.find((c) => c.id === clipId);
+        if (!vrm || !clip) return this.error(res, 404, 'Clip not found');
+        if (method === 'PATCH') {
+          const body = await this.readJson(req);
+          if (typeof body.name === 'string') clip.name = body.name.slice(0, 128);
+          if (typeof body.loop === 'boolean') clip.loop = body.loop;
+          return this.json(res, { clip, character_config: persona.character_config });
+        }
+        const inUse = vrm.idle.idle_clip_ids.includes(clipId)
+          || vrm.reactions.some((r) => r.play.type === 'clip' && r.play.clip_id === clipId);
+        if (inUse) return refuse(409, 'clip_in_use', 'That animation still plays while idle or in a reaction.');
+        vrm.clips = vrm.clips.filter((c) => c.id !== clipId);
+        this.characterFiles.delete(clip.url);
+        res.statusCode = 204;
+        return res.end();
+      }
+
+      if (method === 'GET' && (modelMatch || clipMatch)) {
+        const authorization = req.headers.authorization ?? null;
+        const seen = { path: pathOnly, authorization, status: 200 };
+        this.lastCharacterAssetRequest = { path: pathOnly, authorization };
+        this.characterAssetRequests.push(seen);
+        const deny = (status: number, detail: string) => {
+          seen.status = status;
+          return this.error(res, status, detail);
+        };
+        const vrm = persona.character_config?.vrm;
+        const ref = modelMatch ? vrm?.model : vrm?.clips.find((c) => c.id === clipMatch![2]);
+        if (!ref) return deny(404, modelMatch ? 'Model not found' : 'Clip not found');
+        const body = this.characterFiles.get(ref.url) ?? (ref.sha256 === VRM_MODEL_SHA256 ? VRM_MODEL_BYTES : null);
+        if (!body) return deny(404, 'Not found');
+        const etag = `"${ref.sha256}"`;
+        res.setHeader('ETag', etag);
+        res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        if (req.headers['if-none-match'] === etag) {
+          seen.status = 304;
+          res.statusCode = 304;
+          return res.end();
+        }
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'model/gltf-binary');
+        res.setHeader('Content-Length', String(body.length));
+        return res.end(body);
+      }
+      return this.error(res, 405, 'Method Not Allowed');
+    }
+
     // Character assets. The backend's router authenticates by header only
     // (`routers/character.py`), and the second window used to send no header
     // at all, so this is the one route here that insists on a bearer: the
@@ -1394,6 +1636,13 @@ export class MockBackend {
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Content-Length', String(TINY_PNG.length));
       return res.end(TINY_PNG);
+    }
+    // Every other `/character-assets` path is a 404, not the `{}` below: a
+    // route the mock does not have must look missing, never like an empty
+    // success (#236).
+    if (pathOnly.startsWith('/character-assets/')) {
+      if (method === 'PUT' || method === 'POST') await this.readRaw(req);
+      return this.error(res, 404, 'Not found');
     }
 
     if (pathOnly === '/faces') return this.json(res, []);
@@ -1564,6 +1813,53 @@ export class MockBackend {
           }
         : {}),
     };
+  }
+
+  // ── The 3D character store ──────────────────────────────────────────────
+
+  /** VRM bytes one persona's stored refs account for — what the quota sums. */
+  private characterBytes(config: CharacterConfigDTO | null | undefined): number {
+    const vrm = config?.vrm;
+    if (!vrm) return 0;
+    return (vrm.model?.bytes ?? 0) + vrm.clips.reduce((sum, c) => sum + c.bytes, 0);
+  }
+
+  /** A copy of the config with a VRM member, created with the defaults when there was none. */
+  private withVrm(config: CharacterConfigDTO | null): CharacterConfigDTO {
+    const base: CharacterConfigDTO = config ? JSON.parse(JSON.stringify(config)) : { kind: 'vrm' };
+    if (!base.vrm) base.vrm = defaultVrmSettings();
+    return base;
+  }
+
+  /**
+   * The backend's merge (`config_write.merge_character_config`): `kind`
+   * replaced; `pose_tree` and `vrm` kept when absent and cleared when `null`;
+   * `vrm.model` and `vrm.clips` are the stored ones whatever the body says.
+   */
+  private mergeCharacterConfig(stored: CharacterConfigDTO | null, body: any): CharacterConfigDTO {
+    const merged: CharacterConfigDTO = { kind: body.kind };
+    if (stored?.pose_tree) merged.pose_tree = stored.pose_tree;
+    if (stored?.vrm) merged.vrm = stored.vrm;
+    if ('pose_tree' in body) {
+      if (body.pose_tree === null) delete merged.pose_tree;
+      else merged.pose_tree = body.pose_tree;
+    }
+    if ('vrm' in body) {
+      if (body.vrm === null) {
+        for (const ref of [stored?.vrm?.model, ...(stored?.vrm?.clips ?? [])]) {
+          if (ref) this.characterFiles.delete(ref.url);
+        }
+        delete merged.vrm;
+      } else {
+        merged.vrm = {
+          ...defaultVrmSettings(),
+          ...body.vrm,
+          model: stored?.vrm?.model ?? null,
+          clips: stored?.vrm?.clips ?? [],
+        };
+      }
+    }
+    return merged;
   }
 
   private json(res: http.ServerResponse, body: unknown) {

@@ -20,6 +20,7 @@ from kurisuassistant.character.config_write import (
     plan_character_config,
     remove_after_delete,
 )
+from kurisuassistant.character.locks import persona_lock
 from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.core.image_access import owns_image
 from kurisuassistant.core.errors import internal_error
@@ -271,9 +272,12 @@ async def update_persona(
         return _persona_to_response(persona_repo.update_persona(persona, **fields))
 
     db = get_db_service()
-    result = await db.execute(_update)
-    if "referenced" in planned:
-        await cleanup_after_write(persona_id, planned["referenced"])
+    # Held from the commit through the sweep, so an upload's ref cannot land
+    # between them and have its file swept (``character/locks.py``).
+    async with persona_lock(persona_id):
+        result = await db.execute(_update)
+        if "referenced" in planned:
+            await cleanup_after_write(persona_id, planned["referenced"])
     return result
 
 
@@ -321,8 +325,9 @@ async def delete_persona(
         return {"message": "Persona deleted successfully"}
 
     db = get_db_service()
-    result = await db.execute(_delete)
-    await remove_after_delete(persona_id)
+    async with persona_lock(persona_id):
+        result = await db.execute(_delete)
+        await remove_after_delete(persona_id)
     return result
 
 

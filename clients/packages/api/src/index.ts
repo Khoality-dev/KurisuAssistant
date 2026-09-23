@@ -5,6 +5,7 @@
  * sources that sit on top of both. Nothing here knows what a screen is.
  */
 export * from './authedFetch';
+export * from './characterUploads';
 export * from './chat';
 export * from './client';
 export * from './config';

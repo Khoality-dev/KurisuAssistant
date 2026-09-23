@@ -577,7 +577,10 @@ character config is prefixed with that install's persona id. Shipping the
 references without the files gives the importing install broken art. Saving such
 a config is refused (`422`) because its URLs carry another persona's id (#233);
 only when the ids happen to coincide does the save go through, and then the
-cleanup removes whatever the config no longer references.
+cleanup removes whatever the config no longer references. That includes a 3D
+character: the `.vrm` model and its `.vrma` clips (tens of megabytes) stay on the
+exporting server, and a persona imported elsewhere has to have its model uploaded
+again (#236).
 
 ### POST /personas/import
 
@@ -1193,6 +1196,12 @@ directories nor those URLs had to be rewritten.
 the caller** — including the two serving routes, which previously did not, so any
 persona's assets could be read by walking sequential ids.
 
+**Uploads are bounded.** The three pose-graph routes below read at most
+`CHARACTER_IMAGE_MAX_BYTES` (16 MiB) or `CHARACTER_VIDEO_MAX_BYTES` (32 MiB, the
+video) and answer `413` past it, before anything on disk changes. The VRM model and
+clips stream instead (below). A size or format refusal from any character route is
+`detail: {"code", "message", ...}` rather than a string.
+
 **Every id and file name a request supplies is checked before it is joined onto a
 path** — `pose_id`, `edge_id`, `filename`, both sides of a `migrate-ids` mapping —
 on upload and on serve alike. Empty, `.`/`..`, a separator, a NUL, or one of the
@@ -1271,6 +1280,114 @@ every file.
 
 The response carries the **merged** config, so a client that sent stale
 server-owned references sees what is actually stored.
+
+### The 3D character: `.vrm` models and `.vrma` clips (#236)
+
+A persona holds at most one VRM model, at `{persona_id}/vrm/{sha256}.vrm`
+(content-addressed: a replacement is placed beside the old file before its ref is
+committed, and the old file is removed after, so a GET always streams the bytes
+its `ETag` names; the public URL stays `…/vrm/model`), and any
+number of VRMA clips, at `{persona_id}/vrma/{clip_id}.vrma` — in the character
+store, not Kurisu Drive (`drive.md` says why). Their refs, `vrm.model` and
+`vrm.clips` in `character_config`, are **server-owned**: these routes write them in
+the database transaction that accepts the bytes, a config save puts the stored
+values back over whatever its body says, and the stored refs are the one source of
+truth for what the cleanup keeps, what the ETag is and how much of the quota is used
+(`kurisuassistant/character/assets.py`). Any persona may hold a model or clips
+whatever its `kind` — uploading does not change what shows.
+
+Uploads are the **raw request body** (`application/octet-stream`), not multipart,
+streamed to `{persona_id}/.incoming/` and moved into place under the persona's
+lock — a model before its ref is committed (it is content-addressed, so nothing
+names it until then), a clip after; a hang-up or a refusal leaves nothing behind,
+a persona deleted while its upload streams is a `404`, and every upload first
+sweeps part-files older than a day. Each one carries `?sha256=` (lowercase hex, the
+client's digest of the body) and is refused `400 digest_mismatch` when the bytes
+hash to anything else. Every "commit, then touch the disk" step — these uploads and
+deletes, a config save and its sweep, a persona delete — holds a per-persona lock,
+so a sweep can never remove a file an upload is placing (`character/locks.py`; the
+API is one process).
+
+**Limits** (`docker-compose.yml`): `CHARACTER_MODEL_MAX_BYTES` 100 MiB,
+`CHARACTER_CLIP_MAX_BYTES` 16 MiB per file, `413 too_large` with `max_bytes` past
+them, checked as the bytes arrive; `CHARACTER_ASSETS_QUOTA_BYTES` 1 GiB per account
+across all its personas, `507 quota` with `used_bytes`/`quota_bytes`. Usage is the
+sum of the stored refs' `bytes` — replacing a model counts the old one back in, and
+pose art is not metered — measured again inside the transaction that records a new
+ref, so two uploads that each fit but not together cannot both land. nginx
+gives exactly the two streamed uploads (`PUT …/vrm/model`, `PUT …/vrma`, a regex
+location) 128M so that the backend's `413`, which names the limit, is the one a
+client sees; the rest of `/character-assets/` keeps the server-wide 50M.
+
+**Validation** reads the 12-byte glTF header and the JSON chunk only, bounded
+before anything is parsed (`CHARACTER_MODEL_JSON_MAX_BYTES`, 16 MiB, and never past
+the end of the file), and parses it in a worker thread. Refusals are `415` with a
+`code`: `not_glb` (not a glTF 2.0 binary), `not_vrm` (a 3D file without a `VRM` or
+`VRMC_vrm` extension — a Blender `.glb`), `no_humanoid` (no humanoid with hips, so
+nothing could move), `bad_json` (the chunk is missing, too large, deeper than the
+parser allows, or not JSON), `not_vrma` (a clip without `VRMC_vrm_animation`).
+
+#### PUT /character-assets/{persona_id}/vrm/model
+
+**Query:** `sha256` (required), `filename` (display only, cut to 128 characters).
+Uploads or replaces the model. The ref records what the file says about itself:
+
+```json
+{
+  "model_url": "/character-assets/3/vrm/model",
+  "sha256": "9f2c…", "bytes": 19293184, "uploaded_at": "2026-09-22T10:00:00Z",
+  "meta": {"spec_version": "1.0", "title": "Kurisu", "authors": ["…"], "license_name": null,
+           "license_url": "https://vrm.dev/licenses/1.0/", "avatar_permission": "onlyAuthor",
+           "commercial_usage": "personalNonProfit"},
+  "character_config": {"kind": "vrm", "vrm": {"model": {"url": "/character-assets/3/vrm/model",
+    "sha256": "9f2c…", "bytes": 19293184, "uploaded_at": "…", "filename": "kurisu_v2.vrm",
+    "spec_version": "1.0", "expressions": ["neutral", "happy", "angry", "sad", "relaxed", "surprised"]}, "…": "…"}}
+}
+```
+
+`expressions` lists which of the six emotion presets the model defines — a VRM 0.x
+has no `surprised`. `meta` strings are cut to 256 characters; they come from an
+untrusted file, so a client renders them as text. A persona with no `vrm` member
+gets one with the defaults; one with no config at all becomes `kind: "vrm"`.
+
+#### DELETE /character-assets/{persona_id}/vrm/model
+
+Clears `vrm.model`, then unlinks the file. The rest of the VRM settings stay. `204`,
+also when there was no model.
+
+#### PUT /character-assets/{persona_id}/vrma
+
+**Query:** `sha256` (required), `name` (default `animation`), `loop` (default
+`false`). Adds a clip; its id is eight hex digits generated here.
+→ `{"clip": {"id", "name", "url", "sha256", "bytes", "loop"}, "character_config": {...}}`.
+
+#### PATCH /character-assets/{persona_id}/vrma/{clip_id}
+
+**Request:** `{"name"?: string, "loop"?: boolean}` — the two fields of a clip a user
+edits. → the same shape as the upload. `404` for an id the persona does not hold.
+
+#### DELETE /character-assets/{persona_id}/vrma/{clip_id}
+
+Removes the ref, then the file. `409 clip_in_use` while `vrm.idle.idle_clip_ids` or
+a reaction still plays it — take it out of those first. `204`.
+
+#### GET /character-assets/{persona_id}/vrm/model · GET /character-assets/{persona_id}/vrma/{clip_id}
+
+`model/gltf-binary`, with `ETag: "<sha256>"` read from the stored ref (never
+re-hashed), `Cache-Control: private, max-age=0, must-revalidate` and
+`X-Content-Type-Options: nosniff`; a matching `If-None-Match` is `304` with no body,
+which is what keeps a second open of the character window from downloading the
+model again. `404` when there is no ref or its file is missing. Declared before the
+generic pose route. A clip id that is not eight lowercase hex digits is `400`.
+
+#### GET /character-assets/usage
+
+```json
+{"used_bytes": 19593184, "quota_bytes": 1073741824, "max_model_bytes": 104857600,
+ "max_clip_bytes": 16777216, "per_persona": [{"persona_id": 3, "bytes": 19593184}]}
+```
+
+The shape of `GET /drive/usage`, from the stored refs.
 
 ### GET /character-assets/{persona_id}/edges/{edge_id}
 

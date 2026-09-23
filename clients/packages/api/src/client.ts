@@ -4,7 +4,10 @@ import {
   WIRE_PROTOCOL,
   type Assistant,
   type AssistantUpdate,
+  type CharacterClipUpload,
   type CharacterConfigDTO,
+  type CharacterModelUpload,
+  type CharacterUsage,
   type ComputePatchResponseDTO,
   type Conversation,
   type ConversationDetail,
@@ -40,6 +43,7 @@ import {
   type UserProfile,
   type VoicesResponse,
 } from '@kurisu/models';
+import { sha256Hex, throwIfCancelled, toCharacterUploadError } from './characterUploads';
 import { wsManager } from './websocket';
 
 /**
@@ -842,6 +846,124 @@ class APIClient {
     );
     return response.data;
   }
+
+  // VRM models and clips (#236). Raw bodies, not multipart: an `UploadFile`
+  // route spools the whole request before it authenticates. The digest rides
+  // the query string and the server refuses a body that does not match it.
+  // Every failure is a `CharacterUploadError` (`characterUploads.ts`); an
+  // aborted upload is one with `code: 'cancelled'`, which a caller drops silently.
+
+  /** Upload (or replace) a persona's VRM model; the server records the ref and returns the stored config. */
+  async uploadCharacterModel(
+    personaId: number,
+    file: Blob,
+    opts: { filename?: string; onProgress?: (loaded: number, total: number) => void; signal?: AbortSignal } = {},
+  ): Promise<CharacterModelUpload> {
+    try {
+      throwIfCancelled(opts.signal);
+      const sha256 = await sha256Hex(file);
+      // Hashing a large model takes a moment; an abort during it must not
+      // start the upload.
+      throwIfCancelled(opts.signal);
+      const name = opts.filename ?? (typeof File !== 'undefined' && file instanceof File ? file.name : undefined);
+      const response = await this.client.put<CharacterModelUpload>(
+        `/character-assets/${personaId}/vrm/model`,
+        file,
+        {
+          headers: { ...this.getHeaders(), 'Content-Type': 'application/octet-stream' },
+          params: { sha256, ...(name ? { filename: name } : {}) },
+          signal: opts.signal,
+          // A 100 MB model does not finish inside the default 30 s.
+          timeout: 0,
+          onUploadProgress: (event) => opts.onProgress?.(event.loaded, event.total ?? file.size),
+        },
+      );
+      return response.data;
+    } catch (error) {
+      throw toCharacterUploadError(error);
+    }
+  }
+
+  /** Remove a persona's model; its settings stay. */
+  async deleteCharacterModel(personaId: number): Promise<void> {
+    try {
+      await this.client.delete(`/character-assets/${personaId}/vrm/model`, { headers: this.getHeaders() });
+    } catch (error) {
+      throw toCharacterUploadError(error);
+    }
+  }
+
+  /** Add a VRMA clip to a persona. */
+  async uploadCharacterClip(
+    personaId: number,
+    file: Blob,
+    opts: { name?: string; loop?: boolean; onProgress?: (loaded: number, total: number) => void; signal?: AbortSignal } = {},
+  ): Promise<CharacterClipUpload> {
+    try {
+      throwIfCancelled(opts.signal);
+      const sha256 = await sha256Hex(file);
+      // Hashing a large model takes a moment; an abort during it must not
+      // start the upload.
+      throwIfCancelled(opts.signal);
+      const name = opts.name ?? (typeof File !== 'undefined' && file instanceof File ? file.name.replace(/\.vrma$/i, '') : undefined);
+      const response = await this.client.put<CharacterClipUpload>(
+        `/character-assets/${personaId}/vrma`,
+        file,
+        {
+          headers: { ...this.getHeaders(), 'Content-Type': 'application/octet-stream' },
+          params: { sha256, ...(name ? { name } : {}), ...(opts.loop ? { loop: true } : {}) },
+          signal: opts.signal,
+          timeout: 0,
+          onUploadProgress: (event) => opts.onProgress?.(event.loaded, event.total ?? file.size),
+        },
+      );
+      return response.data;
+    } catch (error) {
+      throw toCharacterUploadError(error);
+    }
+  }
+
+  /** Rename a clip or change whether it loops. */
+  async updateCharacterClip(
+    personaId: number,
+    clipId: string,
+    patch: { name?: string; loop?: boolean },
+  ): Promise<CharacterClipUpload> {
+    try {
+      const response = await this.client.patch<CharacterClipUpload>(
+        `/character-assets/${personaId}/vrma/${encodeURIComponent(clipId)}`,
+        patch,
+        { headers: this.getHeaders() },
+      );
+      return response.data;
+    } catch (error) {
+      throw toCharacterUploadError(error);
+    }
+  }
+
+  /** Remove a clip. Refused with `clip_in_use` while the idle rotation or a reaction plays it. */
+  async deleteCharacterClip(personaId: number, clipId: string): Promise<void> {
+    try {
+      await this.client.delete(`/character-assets/${personaId}/vrma/${encodeURIComponent(clipId)}`, {
+        headers: this.getHeaders(),
+      });
+    } catch (error) {
+      throw toCharacterUploadError(error);
+    }
+  }
+
+  /** How much of the account's 3D character storage is used, and the ceilings. */
+  async getCharacterUsage(): Promise<CharacterUsage> {
+    try {
+      const response = await this.client.get<CharacterUsage>('/character-assets/usage', {
+        headers: this.getHeaders(),
+      });
+      return response.data;
+    } catch (error) {
+      throw toCharacterUploadError(error);
+    }
+  }
+
   // Face Recognition Methods
 
   async listFaces(): Promise<FaceIdentity[]> {

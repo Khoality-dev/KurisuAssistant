@@ -8,6 +8,16 @@ Folder structure:
   data/character_assets/{persona_id}/{pose_id}/base.png
   data/character_assets/{persona_id}/{pose_id}/{part}_{index}.png
   data/character_assets/{persona_id}/edges/{edge_id}.mp4|.webm
+  data/character_assets/{persona_id}/vrm/model.vrm
+  data/character_assets/{persona_id}/vrma/{clip_id}.vrma
+  data/character_assets/{persona_id}/.incoming/        (uploads in flight)
+
+The VRM model and clips stream in (raw body, not ``UploadFile``, which spools
+the whole request before the handler — and so before the ownership check —
+runs), are validated from their glTF header and JSON chunk, and have their refs
+written into ``character_config`` in the transaction that accepts them
+(``kurisuassistant/character/assets.py``). Every "commit, then touch the disk"
+pair holds the persona's lock (``character/locks.py``).
 
 The directory names are persona ids, and the same ids are embedded in the URLs
 inside ``character_config``. Migration 0dacee9f63b8 renamed ``agents`` to
@@ -20,19 +30,27 @@ not here.
 """
 
 import logging
+import os
+import re
 import shutil
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import anyio
 import cv2
 import numpy as np
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from kurisuassistant.character import paths
+from kurisuassistant.character import assets, paths
 from kurisuassistant.character.config_write import cleanup_after_write, plan_character_config
+from kurisuassistant.character.locks import persona_lock
 from kurisuassistant.core.deps import get_authenticated_user
+from kurisuassistant.core.errors import internal_error
+from kurisuassistant.utils.blob_stream import sweep_incoming, write_stream
 from kurisuassistant.db.models import User
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.repositories import PersonaRepository
@@ -77,19 +95,36 @@ def _edges_dir(persona_id: int) -> Path:
     return paths.persona_dir(persona_id) / "edges"
 
 
-async def _require_persona(user_id: int, persona_id: int) -> None:
-    """Confirm the persona belongs to the user. 404 otherwise.
+async def _require_persona(user_id: int, persona_id: int):
+    """Confirm the persona belongs to the user and return its ``character_config``. 404 otherwise.
 
     There is no system-agent escape hatch any more: ``is_system`` is gone, and it
-    was the one branch here that served a row nobody owned.
+    was the one branch here that served a row nobody owned. The config comes
+    back so a serving route reads its ref without a second query.
     """
     db = get_db_service()
 
     def _get(session):
-        return PersonaRepository(session).get_by_user_and_id(user_id, persona_id) is not None
+        persona = PersonaRepository(session).get_by_user_and_id(user_id, persona_id)
+        return (persona is not None, persona.character_config if persona is not None else None)
 
-    if not await db.execute(_get):
+    found, config = await db.execute(_get)
+    if not found:
         raise HTTPException(status_code=404, detail="Persona not found")
+    return config
+
+
+async def _read_upload(file: UploadFile, limit: int, what: str) -> bytes:
+    """Read an ``UploadFile`` whole, refusing anything over ``limit``.
+
+    One byte past the limit is read so an oversized upload is refused rather
+    than silently truncated. These three routes decode what they read, so they
+    cannot stream; the ceiling is what keeps a multi-gigabyte body out of memory.
+    """
+    data = await file.read(limit + 1)
+    if len(data) > limit:
+        raise assets.too_large(limit, what)
+    return data
 
 
 def _save_image(image: np.ndarray, path: Path) -> None:
@@ -164,7 +199,7 @@ async def upload_base_image(
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
 
-    contents = await file.read()
+    contents = await _read_upload(file, assets.IMAGE_MAX_BYTES, "image")
     nparr = np.frombuffer(contents, np.uint8)
     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
@@ -219,7 +254,7 @@ async def compute_patch(
     if not keyframe.content_type or not keyframe.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
 
-    contents = await keyframe.read()
+    contents = await _read_upload(keyframe, assets.IMAGE_MAX_BYTES, "image")
     nparr = np.frombuffer(contents, np.uint8)
     variant = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
@@ -274,6 +309,10 @@ async def upload_video(
     if not file.content_type or file.content_type not in VALID_VIDEO_TYPES:
         raise HTTPException(status_code=400, detail="File must be video/mp4 or video/webm")
 
+    # Read (bounded) before anything on disk changes, so a refused upload
+    # leaves the previous video in place.
+    contents = await _read_upload(file, assets.VIDEO_MAX_BYTES, "video")
+
     ext = ".mp4" if file.content_type == "video/mp4" else ".webm"
     edges = _edges_dir(persona_id)
     edges.mkdir(parents=True, exist_ok=True)
@@ -285,7 +324,6 @@ async def upload_video(
             if old_path.exists():
                 old_path.unlink()
 
-    contents = await file.read()
     path = edges / f"{edge_id}{ext}"
     path.write_bytes(contents)
 
@@ -354,6 +392,473 @@ async def migrate_ids(
                 logger.info("Migrated edge video: %s → %s", video_file.name, new_path.name)
 
     return {"message": f"Migrated {len(id_mapping)} IDs"}
+
+
+# ─── VRM model and clips (#236) ───
+# Declared before the serving routes below: "/{persona_id}/vrm/model" and
+# "/{persona_id}/vrma/{clip_id}" have the generic pose route's shape, and FastAPI
+# matches in declaration order ("vrm" and "vrma" are reserved segments too, so
+# the generic route would refuse them rather than serve them).
+
+_SHA256 = r"^[0-9a-f]{64}$"
+_CLIP_ID = r"^[0-9a-f]{8}$"
+
+
+class _Gone(Exception):
+    """The persona was deleted while the bytes were arriving."""
+
+
+class _OverQuota(Exception):
+    """The bytes arrived but no longer fit — measured inside the write transaction."""
+
+    def __init__(self, used: int):
+        self.used = used
+
+
+class ClipUpdate(BaseModel):
+    name: Optional[str] = None
+    loop: Optional[bool] = None
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+async def _account_usage(user_id: int) -> tuple[int, list[dict], Optional[dict]]:
+    """``(used, per_persona, configs_by_id)`` from the stored refs."""
+    def _read(session):
+        personas = PersonaRepository(session).list_by_user(user_id)
+        used, per = assets.account_usage(personas)
+        return used, per, {p.id: p.character_config for p in personas}
+
+    return await get_db_service().execute(_read)
+
+
+async def _stream_upload(
+    user_id: int, persona_id: int, request: Request, max_bytes: int, what: str, reclaimable
+) -> tuple[Path, int, str]:
+    """Stream the body into the persona's ``.incoming``; returns ``(temp, size, sha256)``.
+
+    The quota check here is advisory — it only saves the transfer of a file
+    that could never fit. The binding check is in the write transaction.
+    ``reclaimable(config)`` is the bytes this upload would release (the model it
+    replaces), counted back in.
+    """
+    used, _per, configs = await _account_usage(user_id)
+    # Checked again here, right before a directory is created: a persona
+    # deleted since the route's ownership check must not get a fresh
+    # `.incoming` under a directory its delete just removed.
+    if persona_id not in configs:
+        raise HTTPException(status_code=404, detail="Persona not found")
+    remaining = assets.QUOTA_BYTES - used + reclaimable(configs.get(persona_id))
+    if remaining <= 0:
+        raise assets.over_quota(used, assets.QUOTA_BYTES)
+
+    incoming = paths.persona_dir(persona_id) / paths.INCOMING_DIR_NAME
+    await anyio.to_thread.run_sync(lambda: incoming.mkdir(parents=True, exist_ok=True))
+    await anyio.to_thread.run_sync(sweep_incoming, incoming)
+    temp = incoming / uuid.uuid4().hex
+    size, digest = await write_stream(
+        temp,
+        request.stream(),
+        max_bytes,
+        remaining,
+        too_large=lambda: assets.too_large(max_bytes, what),
+        over_quota=lambda: assets.over_quota(used, assets.QUOTA_BYTES),
+    )
+    return temp, size, digest
+
+
+def _discard(temp: Path) -> None:
+    temp.unlink(missing_ok=True)
+
+
+def _commit_ref(user_id: int, persona_id: int, size: int, reclaimed, update):
+    """The write transaction: re-read, re-measure, record the ref. Runs on the DB thread."""
+    def _persist(session):
+        repo = PersonaRepository(session)
+        persona = repo.get_by_user_and_id(user_id, persona_id)
+        if persona is None:
+            raise _Gone()
+        # Measured again here, not trusted from before the stream: every
+        # `_persist` runs on the single database thread, so this check and the
+        # write below are atomic with respect to every other upload.
+        used, _per = assets.account_usage(repo.list_by_user(user_id))
+        if used - reclaimed(persona.character_config) + size > assets.QUOTA_BYTES:
+            raise _OverQuota(used)
+        config = assets.with_vrm(persona.character_config, update)
+        repo.update_persona(persona, character_config=config)
+        return persona.character_config
+
+    return _persist
+
+
+def _check_digest(expected: str, actual: str) -> None:
+    if expected != actual:
+        raise assets.refusal(
+            400, "digest_mismatch",
+            "The file changed on the way. Try the upload again.",
+        )
+
+
+async def _place(temp: Path, final: Path) -> None:
+    def _move():
+        final.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(str(temp), str(final))
+
+    await anyio.to_thread.run_sync(_move)
+
+
+@router.get("/usage")
+async def get_character_usage(user: User = Depends(get_authenticated_user)):
+    """How much of the account's 3D character storage is used, from the stored refs.
+
+    The shape of ``GET /drive/usage``. Pose art is not metered and not counted.
+    """
+    used, per, _configs = await _account_usage(user.id)
+    return {
+        "used_bytes": used,
+        "quota_bytes": assets.QUOTA_BYTES,
+        "max_model_bytes": assets.MODEL_MAX_BYTES,
+        "max_clip_bytes": assets.CLIP_MAX_BYTES,
+        "per_persona": per,
+    }
+
+
+@router.put("/{persona_id}/vrm/model")
+async def upload_vrm_model(
+    persona_id: int,
+    request: Request,
+    sha256: str = Query(..., pattern=_SHA256),
+    filename: Optional[str] = Query(None),
+    user: User = Depends(get_authenticated_user),
+):
+    """Upload (or replace) a persona's VRM model: the raw body, streamed.
+
+    ``?sha256=`` is the digest the client computed; a body that does not hash
+    to it is refused (400) and nothing is stored. The file must be a glTF 2.0
+    binary with a VRM (0.x) or VRMC_vrm (1.0) extension and a humanoid with
+    hips (415 otherwise), within ``CHARACTER_MODEL_MAX_BYTES`` (413) and the
+    account's ``CHARACTER_ASSETS_QUOTA_BYTES`` (507). Any kind of persona may
+    hold a model: uploading one does not change what shows.
+
+    The ref — url, sha256, bytes, filename, spec version, the faces the model
+    has — is written into ``character_config`` in the transaction that accepts
+    it, and the file is moved into place after the commit, under the persona's
+    lock. Returns the ref's fields, the model's meta and the stored config.
+    """
+    await _require_persona(user.id, persona_id)
+    reclaimed = lambda config: assets.persona_bytes(  # noqa: E731
+        {"vrm": {"model": assets.stored_model(config)}}
+    )
+    temp, size, digest = await _stream_upload(
+        user.id, persona_id, request, assets.MODEL_MAX_BYTES, "model", reclaimed
+    )
+    try:
+        _check_digest(sha256, digest)
+        info = await anyio.to_thread.run_sync(assets.inspect_model_file, temp)
+        ref = {
+            "url": assets.model_url(persona_id),
+            "sha256": digest,
+            "bytes": size,
+            "uploaded_at": _now(),
+            "filename": assets.display_filename(filename, "model.vrm"),
+            "spec_version": info.spec_version,
+            "expressions": info.expressions,
+        }
+
+        def _update(vrm):
+            vrm["model"] = ref
+
+        persona_dir = paths.persona_dir(persona_id)
+        final = assets.model_path(persona_dir, digest)
+        async with persona_lock(persona_id):
+            # Under the lock nothing can delete the persona or change its model,
+            # so what is read here stays true until the lock is released.
+            previous = assets.stored_model_path(persona_dir, assets.stored_model(
+                await _require_persona(user.id, persona_id)
+            ))
+            # Placed *before* the ref is committed: the file is content-addressed,
+            # so no served ref names it until the commit, and once the commit
+            # lands every GET resolves the new ref to bytes already in place.
+            await _place(temp, final)
+            try:
+                config = await get_db_service().execute(
+                    _commit_ref(user.id, persona_id, size, reclaimed, _update)
+                )
+            except (_Gone, _OverQuota):
+                # Refused inside the transaction: nothing was committed.
+                if final != previous:
+                    await anyio.to_thread.run_sync(lambda: final.unlink(missing_ok=True))
+                raise
+            except BaseException:
+                # The commit may or may not have landed (a timeout waiting for the
+                # database thread says nothing about the thread itself). Keep the
+                # new file unless the row says it is unreferenced; if it is, the
+                # next config save's sweep reclaims it.
+                if final != previous and not await _names_model(user.id, persona_id, digest):
+                    await anyio.to_thread.run_sync(lambda: final.unlink(missing_ok=True))
+                raise
+            if previous is not None and previous != final:
+                await anyio.to_thread.run_sync(lambda: previous.unlink(missing_ok=True))
+    except FileNotFoundError:
+        # The persona was deleted while the bytes arrived: its directory, and
+        # the part-file in it, went with it.
+        raise HTTPException(status_code=404, detail="Persona not found")
+    except _Gone:
+        raise HTTPException(status_code=404, detail="Persona not found")
+    except _OverQuota as over:
+        raise assets.over_quota(over.used, assets.QUOTA_BYTES)
+    finally:
+        await anyio.to_thread.run_sync(_discard, temp)
+
+    return {
+        "model_url": ref["url"],
+        "sha256": digest,
+        "bytes": size,
+        "uploaded_at": ref["uploaded_at"],
+        "meta": info.meta,
+        "character_config": config,
+    }
+
+
+async def _names_model(user_id: int, persona_id: int, sha256: str) -> bool:
+    """Whether the stored model ref names this digest; ``True`` when that cannot be read."""
+    try:
+        config = await _require_persona(user_id, persona_id)
+    except HTTPException:
+        return False
+    except Exception:  # noqa: BLE001 — unknown means keep the file, never unlink it
+        return True
+    model = assets.stored_model(config)
+    return bool(model) and model.get("sha256") == sha256
+
+
+@router.delete("/{persona_id}/vrm/model", status_code=204)
+async def delete_vrm_model(persona_id: int, user: User = Depends(get_authenticated_user)):
+    """Remove a persona's VRM model: the ref, then the file. Its settings stay.
+
+    204 whether or not there was one.
+    """
+    await _require_persona(user.id, persona_id)
+
+    def _clear(session):
+        repo = PersonaRepository(session)
+        persona = repo.get_by_user_and_id(user.id, persona_id)
+        if persona is None:
+            raise HTTPException(status_code=404, detail="Persona not found")
+        model = assets.stored_model(persona.character_config)
+        if model is None:
+            return None
+
+        def _update(vrm):
+            vrm["model"] = None
+
+        repo.update_persona(persona, character_config=assets.with_vrm(persona.character_config, _update))
+        return assets.stored_model_path(paths.persona_dir(persona_id), model)
+
+    async with persona_lock(persona_id):
+        target = await get_db_service().execute(_clear)
+        if target is not None:
+            await anyio.to_thread.run_sync(lambda: target.unlink(missing_ok=True))
+    return Response(status_code=204)
+
+
+@router.put("/{persona_id}/vrma")
+async def upload_vrm_clip(
+    persona_id: int,
+    request: Request,
+    sha256: str = Query(..., pattern=_SHA256),
+    name: Optional[str] = Query(None),
+    loop: bool = Query(False),
+    user: User = Depends(get_authenticated_user),
+):
+    """Add a VRMA clip to a persona: the raw body, streamed.
+
+    Same digest, size and quota rules as the model, ``CHARACTER_CLIP_MAX_BYTES``
+    per file; the file must carry ``VRMC_vrm_animation`` (415 otherwise). The
+    clip id is generated here — a request never names a path. Returns the clip
+    ref and the stored config.
+    """
+    await _require_persona(user.id, persona_id)
+    nothing = lambda config: 0  # noqa: E731 — a new clip replaces nothing
+    temp, size, digest = await _stream_upload(
+        user.id, persona_id, request, assets.CLIP_MAX_BYTES, "animation", nothing
+    )
+    try:
+        _check_digest(sha256, digest)
+        await anyio.to_thread.run_sync(assets.inspect_clip_file, temp)
+        created: dict = {}
+
+        def _update(vrm):
+            clips = [c for c in (vrm.get("clips") or []) if isinstance(c, dict)]
+            taken = {c.get("id") for c in clips}
+            clip_id = uuid.uuid4().hex[:8]
+            while clip_id in taken:
+                clip_id = uuid.uuid4().hex[:8]
+            clip = {
+                "id": clip_id,
+                "name": assets.display_filename(name, "animation"),
+                "url": assets.clip_url(persona_id, clip_id),
+                "sha256": digest,
+                "bytes": size,
+                "loop": bool(loop),
+            }
+            vrm["clips"] = clips + [clip]
+            created.update(clip)
+
+        async with persona_lock(persona_id):
+            config = await get_db_service().execute(
+                _commit_ref(user.id, persona_id, size, nothing, _update)
+            )
+            try:
+                await _place(temp, assets.clip_path(paths.persona_dir(persona_id), created["id"]))
+            except OSError as error:
+                logger.error("persona %d: clip accepted but not moved into place: %s", persona_id, error)
+                raise internal_error(error, "Error storing the animation")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Persona not found")
+    except _Gone:
+        raise HTTPException(status_code=404, detail="Persona not found")
+    except _OverQuota as over:
+        raise assets.over_quota(over.used, assets.QUOTA_BYTES)
+    finally:
+        await anyio.to_thread.run_sync(_discard, temp)
+
+    return {"clip": dict(created), "character_config": config}
+
+
+def _clip_id(clip_id: str) -> str:
+    """A clip id is eight lowercase hex digits, generated here; anything else names no clip."""
+    if not re.fullmatch(_CLIP_ID, clip_id):
+        raise HTTPException(status_code=400, detail="Invalid clip_id.")
+    return clip_id
+
+
+@router.patch("/{persona_id}/vrma/{clip_id}")
+async def update_vrm_clip(
+    persona_id: int,
+    clip_id: str,
+    body: ClipUpdate,
+    user: User = Depends(get_authenticated_user),
+):
+    """Rename a clip or change whether it loops — the two fields of a clip ref a user edits."""
+    _clip_id(clip_id)
+    await _require_persona(user.id, persona_id)
+    updated: dict = {}
+
+    def _patch(session):
+        repo = PersonaRepository(session)
+        persona = repo.get_by_user_and_id(user.id, persona_id)
+        if persona is None:
+            raise HTTPException(status_code=404, detail="Persona not found")
+        if not any(c.get("id") == clip_id for c in assets.stored_clips(persona.character_config)):
+            raise HTTPException(status_code=404, detail="Clip not found")
+
+        def _update(vrm):
+            clips = []
+            for clip in vrm.get("clips") or []:
+                if isinstance(clip, dict) and clip.get("id") == clip_id:
+                    clip = dict(clip)
+                    if body.name is not None:
+                        clip["name"] = assets.display_filename(body.name, clip.get("name") or "animation")
+                    if body.loop is not None:
+                        clip["loop"] = body.loop
+                    updated.update(clip)
+                clips.append(clip)
+            vrm["clips"] = clips
+
+        repo.update_persona(persona, character_config=assets.with_vrm(persona.character_config, _update))
+        return persona.character_config
+
+    config = await get_db_service().execute(_patch)
+    return {"clip": dict(updated), "character_config": config}
+
+
+@router.delete("/{persona_id}/vrma/{clip_id}", status_code=204)
+async def delete_vrm_clip(persona_id: int, clip_id: str, user: User = Depends(get_authenticated_user)):
+    """Remove a clip: the ref, then the file.
+
+    409 ``clip_in_use`` while the idle rotation or a reaction still plays it —
+    the editor takes those references out first, so a save can never be left
+    naming a clip that is gone.
+    """
+    _clip_id(clip_id)
+    await _require_persona(user.id, persona_id)
+
+    def _remove(session):
+        repo = PersonaRepository(session)
+        persona = repo.get_by_user_and_id(user.id, persona_id)
+        if persona is None:
+            raise HTTPException(status_code=404, detail="Persona not found")
+        config = persona.character_config
+        if not any(c.get("id") == clip_id for c in assets.stored_clips(config)):
+            raise HTTPException(status_code=404, detail="Clip not found")
+        if assets.clip_in_use(config, clip_id):
+            raise assets.refusal(
+                409, "clip_in_use",
+                "That animation still plays while idle or in a reaction. Turn those off first.",
+            )
+
+        def _update(vrm):
+            vrm["clips"] = [c for c in (vrm.get("clips") or []) if not (isinstance(c, dict) and c.get("id") == clip_id)]
+
+        repo.update_persona(persona, character_config=assets.with_vrm(config, _update))
+
+    async with persona_lock(persona_id):
+        await get_db_service().execute(_remove)
+        target = assets.clip_path(paths.persona_dir(persona_id), clip_id)
+        await anyio.to_thread.run_sync(lambda: target.unlink(missing_ok=True))
+    return Response(status_code=204)
+
+
+def _serve_ref(request: Request, ref: Optional[dict], path: Path, missing: str):
+    """Serve a stored VRM file with the ETag its ref recorded at upload.
+
+    ``FileResponse`` answers ``Range`` but not ``If-None-Match``, so without the
+    explicit 304 every window open would ship the whole model again. The ETag
+    comes from the row, never from hashing the file per request, and it cannot
+    be stale: the upload wrote both under one lock.
+    """
+    if not ref or not isinstance(ref.get("sha256"), str):
+        raise HTTPException(status_code=404, detail=missing)
+    etag = f'"{ref["sha256"]}"'
+    headers = {
+        "ETag": etag,
+        "Cache-Control": "private, max-age=0, must-revalidate",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=missing)
+    return FileResponse(path=path, media_type=assets.MEDIA_TYPE, headers=headers)
+
+
+@router.get("/{persona_id}/vrm/model")
+async def get_vrm_model(persona_id: int, request: Request, user: User = Depends(get_authenticated_user)):
+    """Serve a persona's VRM model (``model/gltf-binary``), with ``ETag`` and 304."""
+    config = await _require_persona(user.id, persona_id)
+    ref = assets.stored_model(config)
+    # The file is the one the ref's own sha names, so the bytes and the ETag
+    # come from the same row and cannot disagree.
+    path = assets.stored_model_path(paths.persona_dir(persona_id), ref)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return _serve_ref(request, ref, path, "Model not found")
+
+
+@router.get("/{persona_id}/vrma/{clip_id}")
+async def get_vrm_clip(
+    persona_id: int, clip_id: str, request: Request, user: User = Depends(get_authenticated_user)
+):
+    """Serve one of a persona's VRMA clips, with ``ETag`` and 304."""
+    _clip_id(clip_id)
+    config = await _require_persona(user.id, persona_id)
+    ref = next((c for c in assets.stored_clips(config) if c.get("id") == clip_id), None)
+    return _serve_ref(
+        request, ref, assets.clip_path(paths.persona_dir(persona_id), clip_id), "Clip not found",
+    )
 
 
 # ─── Serving endpoints ───
@@ -448,6 +953,7 @@ async def update_character_config(
         }
 
     db = get_db_service()
-    result = await db.execute(_update_config)
-    await cleanup_after_write(persona_id, planned["referenced"])
+    async with persona_lock(persona_id):
+        result = await db.execute(_update_config)
+        await cleanup_after_write(persona_id, planned["referenced"])
     return result

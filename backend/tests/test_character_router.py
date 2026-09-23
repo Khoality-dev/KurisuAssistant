@@ -369,6 +369,8 @@ VRM_MODEL = {
     "bytes": 3,
     "uploaded_at": "2026-09-20T00:00:00Z",
 }
+# The model is stored content-addressed (#236): its file is named by its sha.
+MODEL_FILE = f"{'a' * 64}.vrm"
 VRM_CLIP = {
     "id": "deadbeef",
     "name": "wave",
@@ -421,7 +423,7 @@ class TestKindAndMembers:
         """A kind-only body still sweeps — it removes the seed's one orphan and nothing else."""
         store.persona.character_config = both_kinds()
         (store.root / str(PERSONA) / "vrm").mkdir()
-        (store.root / str(PERSONA) / "vrm" / "model.vrm").write_bytes(b"glb")
+        (store.root / str(PERSONA) / "vrm" / MODEL_FILE).write_bytes(b"glb")
         referenced = store.files() - {"p2/base.png"}
         for kind in ("vrm", "pose_graph", "vrm"):
             assert via_character(store.client, {"kind": kind}).status_code == 200
@@ -431,11 +433,11 @@ class TestKindAndMembers:
     def test_clearing_one_member_removes_its_files_and_keeps_the_other(self, store):
         store.persona.character_config = both_kinds()
         (store.root / str(PERSONA) / "vrm").mkdir()
-        (store.root / str(PERSONA) / "vrm" / "model.vrm").write_bytes(b"glb")
+        (store.root / str(PERSONA) / "vrm" / MODEL_FILE).write_bytes(b"glb")
         response = via_character(store.client, {"kind": "vrm", "pose_tree": None})
         assert response.status_code == 200
         assert store.persona.character_config == {"kind": "vrm", "vrm": vrm_settings()}
-        assert store.files() == {"vrm/model.vrm", ".incoming/part"}
+        assert store.files() == {f"vrm/{MODEL_FILE}", ".incoming/part"}
 
     def test_the_response_carries_the_merged_config(self, store):
         store.persona.character_config = pose_tree()
@@ -505,7 +507,7 @@ class TestReferencedPaths:
     def test_both_members_are_collected(self):
         refs = referenced_paths(PERSONA, both_kinds())
         assert refs == {f"{PERSONA}/p1/base", f"{PERSONA}/p1/mouth_0", f"{PERSONA}/edges/e1",
-                        f"{PERSONA}/vrm/model", f"{PERSONA}/vrma/deadbeef"}
+                        f"{PERSONA}/vrm/{'a' * 64}", f"{PERSONA}/vrma/deadbeef"}
 
     def test_the_selected_kind_does_not_narrow_the_walk(self):
         assert referenced_paths(PERSONA, {**both_kinds(), "kind": "vrm"}) == referenced_paths(PERSONA, both_kinds())
@@ -522,6 +524,9 @@ class TestReferencedPaths:
         {"kind": "vrm", "vrm": {"model": "x"}},
         {"kind": "vrm", "vrm": {"model": {"url": 1}}},
         {"kind": "vrm", "vrm": {"model": {}}},
+        # A model ref names its file by its sha; without a well-formed one there is no file to keep.
+        {"kind": "vrm", "vrm": {"model": {"url": f"/character-assets/{PERSONA}/vrm/model"}}},
+        {"kind": "vrm", "vrm": {"model": {"url": f"/character-assets/{PERSONA}/vrm/model", "sha256": "../../x"}}},
         {"kind": "vrm", "vrm": {"clips": "x"}},
         {"kind": "vrm", "vrm": {"clips": [1]}},
         {"kind": "vrm", "vrm": {"clips": [{"url": 1}]}},
@@ -540,6 +545,17 @@ class TestReferencedPaths:
     ])
     def test_a_refusal_says_which_member_and_why(self, config, refusal):
         assert classify(PERSONA, config) == Classification(None, refusal)
+
+    def test_a_replaced_model_file_is_swept_and_the_current_one_kept(self, store):
+        """Content-addressed: the file the ref's sha names is kept, any other ``vrm/*.vrm`` goes."""
+        store.persona.character_config = {"kind": "vrm", "vrm": vrm_settings()}
+        vrm_dir = store.root / str(PERSONA) / "vrm"
+        vrm_dir.mkdir()
+        (vrm_dir / MODEL_FILE).write_bytes(b"current")
+        (vrm_dir / f"{'f' * 64}.vrm").write_bytes(b"replaced")
+        assert via_character(store.client, {"kind": "vrm"}).status_code == 200
+        assert f"vrm/{MODEL_FILE}" in store.files()
+        assert f"vrm/{'f' * 64}.vrm" not in store.files()
 
     def test_a_classification_that_succeeds_carries_no_refusal(self):
         assert classify(PERSONA, {"kind": "vrm"}) == Classification(set(), None)

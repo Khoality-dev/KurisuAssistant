@@ -23,7 +23,6 @@ import logging
 import mimetypes
 import os
 import uuid
-from hashlib import sha256
 from pathlib import Path
 from typing import AsyncIterator, Optional, Tuple
 
@@ -31,6 +30,11 @@ import anyio
 from fastapi import HTTPException
 
 from kurisuassistant.core.paths import DATA_DIR
+from kurisuassistant.utils.blob_stream import (  # noqa: F401 — re-exported for callers and tests
+    INCOMING_MAX_AGE_SECONDS,
+    sweep_incoming,
+    write_stream,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -147,83 +151,44 @@ async def store_stream(
     the whole stream has arrived, so a cancelled or refused upload never leaves
     a half-file that a row could later be pointed at. ``quota_remaining`` is the
     space this account still has; pass the file's current size back in when
-    replacing one, since its bytes are about to be released.
+    replacing one, since its bytes are about to be released. The streaming
+    itself is ``utils/blob_stream``, shared with the character store.
     """
     incoming = user_dir(user_id) / ".incoming"
     await anyio.to_thread.run_sync(lambda: incoming.mkdir(parents=True, exist_ok=True))
-    await anyio.to_thread.run_sync(_sweep_incoming, incoming)
+    await anyio.to_thread.run_sync(sweep_incoming, incoming)
 
     storage_key = uuid.uuid4().hex
     temp_path = incoming / storage_key
-    digest = sha256()
-    size = 0
+    # Read at call time: tests lower the ceiling on this module.
+    max_bytes = MAX_FILE_BYTES
 
+    size, checksum = await write_stream(
+        temp_path,
+        chunks,
+        max_bytes,
+        quota_remaining,
+        too_large=lambda: HTTPException(
+            status_code=413,
+            detail=f"That file is larger than the {max_bytes // (1024 * 1024)} MB limit.",
+        ),
+        over_quota=lambda: HTTPException(
+            status_code=507,
+            detail="Your drive is full. Remove something, or ask for more space.",
+        ),
+    )
     try:
-        handle = await anyio.to_thread.run_sync(lambda: open(temp_path, "wb"))
-        try:
-            async for chunk in chunks:
-                if not chunk:
-                    continue
-                size += len(chunk)
-                if size > MAX_FILE_BYTES:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=(
-                            "That file is larger than the "
-                            f"{MAX_FILE_BYTES // (1024 * 1024)} MB limit."
-                        ),
-                    )
-                if size > quota_remaining:
-                    raise HTTPException(
-                        status_code=507,
-                        detail="Your drive is full. Remove something, or ask for more space.",
-                    )
-                digest.update(chunk)
-                await anyio.to_thread.run_sync(handle.write, chunk)
-        finally:
-            await anyio.to_thread.run_sync(handle.close)
-
         final_path = blob_path(user_id, storage_key)
         await anyio.to_thread.run_sync(
             lambda: final_path.parent.mkdir(parents=True, exist_ok=True)
         )
         await anyio.to_thread.run_sync(os.replace, str(temp_path), str(final_path))
-        return storage_key, size, digest.hexdigest()
+        return storage_key, size, checksum
     except BaseException:
         # Includes the client hanging up mid-upload, which arrives as a
         # cancellation rather than an exception the handler would catch.
         await anyio.to_thread.run_sync(lambda: temp_path.unlink(missing_ok=True))
         raise
-
-
-#: How long a part-file may sit in ``.incoming`` before it is assumed abandoned.
-#: Comfortably longer than any upload the ceiling above allows.
-INCOMING_MAX_AGE_SECONDS = 24 * 60 * 60
-
-
-def _sweep_incoming(incoming: Path) -> None:
-    """Remove part-files nothing is writing any more.
-
-    ``store_stream`` unlinks its own temp file on every exception, including a
-    client hanging up — but not when the process is killed outright, and those
-    orphans count against no quota because the quota is the sum of the rows.
-    Sweeping here rather than on a schedule keeps it self-healing and costs one
-    listdir of a directory that is normally empty.
-    """
-    from time import time
-
-    cutoff = time() - INCOMING_MAX_AGE_SECONDS
-    try:
-        entries = list(incoming.iterdir())
-    except OSError:
-        return
-    for entry in entries:
-        try:
-            if entry.is_file() and entry.stat().st_mtime < cutoff:
-                entry.unlink(missing_ok=True)
-        except OSError:
-            # Another request may be mid-upload into it; leave it alone.
-            continue
 
 
 async def read_text(user_id: int, storage_key: str, max_bytes: int) -> Tuple[str, bool]:
