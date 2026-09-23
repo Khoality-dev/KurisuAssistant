@@ -494,6 +494,20 @@ has to be cleared (`null`) before any other save goes through. `POST /personas`
 accepts only `null` or a config that names no file — the persona has no id yet
 for a file to belong to.
 
+A `vrm` body **replaces the whole member** (bar the server-owned `model` and
+`clips`): a sub-member it leaves out resets to its default rather than keeping
+the stored value, so a writer sends everything it wants kept. `vrm: {}` is the
+schema's defaults — no built-in moves and no reactions; the desktop editor
+writes its own starting set ("Natural" movement with `idle.idle_motions:
+["stretch", "look_around"]`, and the reactions `wave`, `think`, `greet`, #242)
+when it first saves the member. A reaction's `play` is a clip
+(`{"type": "clip", "clip_id"}`), an expression (`{"type": "expression",
+"expression", "weight", "hold_ms"}`) or a built-in move (`{"type": "motion",
+"motion": "wave" | "nod" | "think" | "bow" | "stretch" | "look_around"}`) that
+needs no uploaded file; `idle.idle_motions` puts built-in moves in the idle
+rotation, and an absent list means none. A `face` condition naming `*` means any
+face.
+
 ### POST /personas
 
 **Request:** `application/json`

@@ -35,6 +35,16 @@ Presentation only — a name, a prompt, a voice, a face. The editor is also the 
 thing decided here that belongs to the assistant is which persona a new conversation starts with:
 **Make default** on a card, and the **Default** badge on the one that has it (#197).
 
+Each card says which character the persona has — "3D model · kurisu_v2.vrm", "3D model · none
+uploaded", "2D pose graph · 4 poses" or "No character". The edit dialog's **Character** block
+picks the system with two cards (2D pose graph, 3D model), each saying what that persona has of it;
+picking one saves at once and removes nothing, so switching back needs no upload (#242). Its button
+opens the graph editor or **Set up {name} in 3D**: a live preview with Speak / Think / Wave and the
+six faces (a face the model lacks is struck through), and five steps — her model (upload, replace,
+remove), how she moves (Still, Calm, Natural, Lively), feelings, reactions (five on/off recipes,
+each with Try) and framing — plus an optional Fine-tune with every number and her own `.vrma`
+animations. Deleting a persona lists the character files that go with it, with their sizes.
+
 ## Sub-agents
 
 ![Sub-agents](assets/05-settings-sub-agents.png)

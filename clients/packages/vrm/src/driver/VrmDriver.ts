@@ -6,7 +6,9 @@
  * (so it never sees a token), `update` runs the per-frame authority order —
  * clip → procedural idle for the bones the clip leaves alone → look-at →
  * expressions → `vrm.update` → render — and `dispose` lets go of everything
- * it holds. The renderer and the two loaders are injectable, which is what
+ * it holds. Built-in moves (`motions.ts`) sit between the clips and the
+ * procedural idle: a bone a clip animates is the clip's, a bone a move uses
+ * is the move's, blended in and out over the idle pose. The renderer and the two loaders are injectable, which is what
  * lets the whole stage run headless under happy-dom against fakes: the
  * three.js scene graph, mixer and quaternion maths all run without a GPU.
  *
@@ -30,7 +32,9 @@ import type {
   VrmEmotion,
   VrmEmotionSettings,
   VrmIdleSettings,
+  VrmMotion,
   VrmReaction,
+  VrmReactionPlay,
   VrmSettings,
 } from '@kurisu/models';
 import { VRM_EMOTIONS } from '@kurisu/models';
@@ -59,6 +63,7 @@ import {
 } from './loader';
 import { createStage, defaultRendererFactory, frameCamera, resizeStage, type RendererFactory, type Stage } from './scene';
 import { describeClip, VrmaPlayer } from './vrmaPlayer';
+import { blendEuler, MOTION_BONES, MOTION_DURATION_MS, sampleMotion, type Euler3, type MotionBone } from './motions';
 
 export interface VrmDriverOptions {
   rendererFactory?: RendererFactory;
@@ -84,6 +89,17 @@ export interface VrmDriverOptions {
 export interface VrmDriverInfo {
   /** Present once `load` resolved. */
   readonly model: { meta: VrmMetaSummary; expressions: ExpressionModel } | null;
+  /**
+   * Play what a reaction plays, now, whatever its conditions say: the editor's
+   * "Try" buttons. An expression rides the next frame as a cue.
+   */
+  trigger(play: VrmReactionPlay): void;
+  /**
+   * New idle, emotion, reaction and camera settings without reloading the
+   * model: the editor changes them on every click. A new model or a changed
+   * clip list still needs `load`.
+   */
+  configure(settings: VrmSettings): void;
   /** The last frame's outputs; for tests and the editor's preview overlay. */
   snapshot(): VrmFrameSnapshot;
 }
@@ -100,6 +116,8 @@ export interface VrmFrameSnapshot {
   reactionsFired: number;
   /** Normalised bone nodes a clip owned in the last frame. */
   ownedNodes: string[];
+  /** The built-in move under way, if any. */
+  motion: VrmMotion | null;
   framesDrawn: number;
 }
 
@@ -115,6 +133,8 @@ const DEFAULT_IDLE: VrmIdleSettings = {
   blink: { blink_min_interval: 2000, blink_max_interval: 6000, blink_close_duration: 100, blink_hold_duration: 50, blink_open_duration: 100 },
   look_at: 'camera',
   idle_clip_ids: [],
+  // Absent in a stored config means none: it moves as it did before the field existed.
+  idle_motions: [],
   idle_clip_interval_ms: [8000, 20000],
 };
 
@@ -126,6 +146,9 @@ const DEFAULT_EMOTION: VrmEmotionSettings = {
   release_ms: 400,
   thinking: null,
 };
+
+/** How long a replaced move's pose takes to hand over to the new one. */
+const HANDOFF_MS = 250;
 
 /** The longest frame the animation accepts, so a backgrounded tab returns without a leap. */
 const MAX_FRAME_MS = 50;
@@ -175,6 +198,16 @@ export function createVrmDriver(canvas: HTMLCanvasElement, options: VrmDriverOpt
   let reactionsFired = 0;
   let lastOwnedNodes: string[] = [];
   let lastLookMode: IdleFrame['lookAt']['mode'] | null = null;
+  /** The built-in move under way. */
+  let motion: { name: VrmMotion; elapsedMs: number } | null = null;
+  /** When built-in moves are in the idle rotation: quiet time left before the next pick. */
+  let untilNextIdleMs = 0;
+  /** What `applyMotion` last wrote to each move bone, before the 0.x conjugation. */
+  let lastWritten: Partial<Record<MotionBone, [number, number, number]>> = {};
+  /** A move replaced mid-way: the pose it left, faded out over `HANDOFF_MS` so nothing snaps. */
+  let handoff: { pose: Partial<Record<MotionBone, [number, number, number]>>; elapsedMs: number } | null = null;
+  /** An expression a `trigger` asked for, for the next frame. */
+  let pendingCue: EmotionCue | null = null;
 
   function ensureStage(): Stage {
     if (!stage) stage = createStage(canvas, options.rendererFactory ?? defaultRendererFactory, settings?.camera);
@@ -213,6 +246,10 @@ export function createVrmDriver(canvas: HTMLCanvasElement, options: VrmDriverOpt
     reactionsFired = 0;
     lastOwnedNodes = [];
     lastLookMode = null;
+    motion = null;
+    handoff = null;
+    lastWritten = {};
+    pendingCue = null;
     mouth = INITIAL_MOUTH;
   }
 
@@ -251,6 +288,107 @@ export function createVrmDriver(canvas: HTMLCanvasElement, options: VrmDriverOpt
       setRotation(hips, 0, frame.swayYawRad, frame.swayRollRad);
       hips.position.y = hipsRestY + frame.hipsBobM;
     }
+  }
+
+  /** What the idle holds a move's bone at: the lowered arms, or the rest pose. */
+  function restOf(name: MotionBone): Euler3 {
+    if (!idleSettings.arms_lowered) return [0, 0, 0];
+    switch (name) {
+      case 'leftUpperArm': return [0, 0, -ARM_DROP_RAD];
+      case 'rightUpperArm': return [0, 0, ARM_DROP_RAD];
+      case 'leftLowerArm': return [0, 0, -FOREARM_BEND_RAD];
+      case 'rightLowerArm': return [0, 0, FOREARM_BEND_RAD];
+      default: return [0, 0, 0];
+    }
+  }
+
+  /**
+   * The built-in move, blended over the idle pose, on the bones no clip owns.
+   * Every move bone a clip does not own is written each frame — at rest when no
+   * move uses it — so a finished move never leaves the head turned.
+   */
+  function applyMotion(dt: number, owned: Set<string>): void {
+    let fromWeight = 1;
+    if (handoff) {
+      handoff.elapsedMs += dt;
+      const k = Math.min(1, handoff.elapsedMs / HANDOFF_MS);
+      fromWeight = 1 - k * k * (3 - 2 * k);
+    }
+    let targets: Partial<Record<MotionBone, Euler3>> = {};
+    let weight = 0;
+    if (motion) {
+      motion.elapsedMs += dt;
+      const frame = sampleMotion(motion.name, motion.elapsedMs, idleSettings.arms_lowered ? ARM_DROP_RAD : 0);
+      if (frame.done) motion = null;
+      else {
+        targets = frame.targets;
+        weight = frame.weight;
+      }
+    }
+    for (const name of MOTION_BONES) {
+      const node = bone(name);
+      if (!node || owned.has(node.name)) continue;
+      const rest = restOf(name);
+      const target = targets[name];
+      let pose = target ? blendEuler(rest, target, weight) : [rest[0], rest[1], rest[2]] as [number, number, number];
+      const left = handoff?.pose[name];
+      if (left && fromWeight > 0) pose = blendEuler(pose, left, fromWeight);
+      lastWritten[name] = pose;
+      setRotation(node, pose[0], pose[1], pose[2]);
+    }
+    if (handoff && fromWeight <= 0) handoff = null;
+  }
+
+  /**
+   * Start a move. One replacing a move still under way would begin at its
+   * idle-weighted start and snap the pose, so the pose the old one left is
+   * handed off and faded out over the new one's first `HANDOFF_MS`.
+   */
+  function startMotion(name: VrmMotion): void {
+    if (motion) handoff = { pose: { ...lastWritten }, elapsedMs: 0 };
+    motion = { name, elapsedMs: 0 };
+  }
+
+  /**
+   * The idle rotation. With no built-in moves it is the clips' own schedule,
+   * unchanged. With some, the moves and the idle clips are one pool: after a
+   * quiet wait one is picked and played **once** — a move, or a clip on the
+   * one-shot slot (its `loop` flag does not apply here) — and the wait only
+   * runs while nothing is playing and she is neither speaking nor thinking.
+   */
+  function stepIdleRotation(dt: number, input: DriverInput): void {
+    if (!player) return;
+    const clipIds = idleSettings.idle_clip_ids ?? [];
+    const interval = idleSettings.idle_clip_interval_ms ?? [8000, 20000];
+    const moves = Array.isArray(idleSettings.idle_motions) ? idleSettings.idle_motions : [];
+    if (!moves.length) {
+      player.stepIdle(dt, clipIds, interval);
+      return;
+    }
+    // Pooled: the idle slot stays empty; every pick is one play.
+    player.stepIdle(dt, [], interval);
+    const busy = input.isPlaying || input.isThinking || motion !== null || player.playingOneShot;
+    if (busy) return;
+    untilNextIdleMs -= dt;
+    if (untilNextIdleMs > 0) return;
+    const pool: Array<{ move: VrmMotion } | { clip: string }> = [
+      ...moves.map((m) => ({ move: m })),
+      ...clipIds.filter((id) => player!.has(id)).map((id) => ({ clip: id })),
+    ];
+    const pick = pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))];
+    if ('move' in pick) startMotion(pick.move);
+    else player.playOneShot(pick.clip);
+    untilNextIdleMs = nextIdleWait(interval);
+  }
+
+  function nextIdleWait([lo, hi]: [number, number]): number {
+    return Math.max(0, lo) + random() * Math.max(0, hi - lo);
+  }
+
+  function takeSettings(vrmSettings: VrmSettings): void {
+    idleSettings = { ...DEFAULT_IDLE, ...(vrmSettings.idle ?? {}) };
+    emotionSettings = { ...DEFAULT_EMOTION, ...(vrmSettings.emotion ?? {}) };
+    reactions = Array.isArray(vrmSettings.reactions) ? vrmSettings.reactions : [];
   }
 
   function applyLookAt(frame: IdleFrame, clipOwnsEyes: boolean): void {
@@ -319,7 +457,22 @@ export function createVrmDriver(canvas: HTMLCanvasElement, options: VrmDriverOpt
   /** The least a reaction may rest after firing: as long as what it plays. */
   function minCooldownMs(r: VrmReaction): number {
     if (r.play.type === 'clip') return player?.durationMs(r.play.clip_id) ?? 0;
+    if (r.play.type === 'motion') return MOTION_DURATION_MS[r.play.motion] ?? 0;
     return Math.max(0, r.play.hold_ms ?? 0);
+  }
+
+  /** Start what a reaction plays; an expression comes back as the frame's cue. */
+  function play(p: VrmReactionPlay): EmotionCue | null {
+    if (p.type === 'clip') {
+      player?.playOneShot(p.clip_id, p.crossfade_ms);
+      return null;
+    }
+    if (p.type === 'motion') {
+      if (MOTION_DURATION_MS[p.motion] != null) startMotion(p.motion);
+      return null;
+    }
+    if (p.type === 'expression') return { emotion: p.expression, weight: p.weight, hold_ms: p.hold_ms };
+    return null;
   }
 
   const driver: VrmDriver = {
@@ -392,9 +545,8 @@ export function createVrmDriver(canvas: HTMLCanvasElement, options: VrmDriverOpt
       loaded = model;
       loadedKey = key;
       settings = vrmSettings;
-      idleSettings = { ...DEFAULT_IDLE, ...(vrmSettings.idle ?? {}) };
-      emotionSettings = { ...DEFAULT_EMOTION, ...(vrmSettings.emotion ?? {}) };
-      reactions = Array.isArray(vrmSettings.reactions) ? vrmSettings.reactions : [];
+      takeSettings(vrmSettings);
+      untilNextIdleMs = nextIdleWait(idleSettings.idle_clip_interval_ms ?? [8000, 20000]);
       idle = createIdleState(options.seed ?? (now() | 0), idleSettings);
       expressions = createExpressionState(emotionSettings, model.expressions);
       timers = createReactionTimers();
@@ -419,7 +571,8 @@ export function createVrmDriver(canvas: HTMLCanvasElement, options: VrmDriverOpt
       const t = now();
 
       // 1. Reactions: at most one fires per frame; gestures are consumed by this update.
-      let cue: EmotionCue | null = input.cue;
+      let cue: EmotionCue | null = input.cue ?? pendingCue;
+      pendingCue = null;
       const matched = matchReactions(
         reactions,
         { isThinking: input.isThinking, gestures: input.gestures, faces: input.faces },
@@ -431,13 +584,12 @@ export function createVrmDriver(canvas: HTMLCanvasElement, options: VrmDriverOpt
       if (matched.fired) {
         lastReactionId = matched.fired.id;
         reactionsFired++;
-        const play = matched.fired.play;
-        if (play.type === 'clip') player.playOneShot(play.clip_id, play.crossfade_ms);
-        else if (!cue) cue = { emotion: play.expression, weight: play.weight, hold_ms: play.hold_ms };
+        const fromReaction = play(matched.fired.play);
+        if (fromReaction && !cue) cue = fromReaction;
       }
 
       // 2. Clips advance first; they own what they animate for this frame.
-      player.stepIdle(dt, idleSettings.idle_clip_ids ?? [], idleSettings.idle_clip_interval_ms ?? [8000, 20000]);
+      stepIdleRotation(dt, input);
       player.update(dt / 1000);
       const owned = player.authority;
       lastOwnedNodes = [...owned.nodes];
@@ -449,6 +601,7 @@ export function createVrmDriver(canvas: HTMLCanvasElement, options: VrmDriverOpt
       lastFrame = stepped.frame;
       lowerArms(owned.nodes);
       applyIdle(stepped.frame, owned.nodes);
+      applyMotion(dt, owned.nodes);
 
       // 4. Eyes.
       applyLookAt(stepped.frame, owned.lookAt);
@@ -461,6 +614,25 @@ export function createVrmDriver(canvas: HTMLCanvasElement, options: VrmDriverOpt
       loaded.vrm.update(dt / 1000);
       stage.renderer.render(stage.scene, stage.camera);
       framesDrawn++;
+    },
+
+    trigger(p: VrmReactionPlay): void {
+      if (disposed || !loaded) return;
+      const cue = play(p);
+      if (cue) pendingCue = cue;
+    },
+
+    configure(vrmSettings: VrmSettings): void {
+      if (disposed) return;
+      const before = idleSettings.idle_clip_interval_ms;
+      takeSettings(vrmSettings);
+      if (settings) settings = { ...settings, idle: vrmSettings.idle, emotion: vrmSettings.emotion, reactions: vrmSettings.reactions, camera: vrmSettings.camera };
+      const after = idleSettings.idle_clip_interval_ms ?? [8000, 20000];
+      if (!before || before[0] !== after[0] || before[1] !== after[1]) untilNextIdleMs = nextIdleWait(after);
+      if (stage) {
+        stage.scene.background = new THREE.Color(vrmSettings.camera?.background || '#ffffff');
+        if (loaded) frameCamera(stage, loaded.vrm, vrmSettings.camera);
+      }
     },
 
     resize(cssWidth: number, cssHeight: number, devicePixelRatio: number): void {
@@ -497,6 +669,7 @@ export function createVrmDriver(canvas: HTMLCanvasElement, options: VrmDriverOpt
         lastReactionId,
         reactionsFired,
         ownedNodes: [...lastOwnedNodes],
+        motion: motion?.name ?? null,
         framesDrawn,
       };
     },
