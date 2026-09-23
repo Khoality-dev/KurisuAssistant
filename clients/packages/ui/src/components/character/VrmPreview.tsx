@@ -79,7 +79,7 @@ export const VrmPreview = forwardRef<VrmPreviewHandle, VrmPreviewProps>(({ setti
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !settings.model) return;
-    if (!supportsWebGL(canvas)) {
+    if (!supportsWebGL()) {
       setState('nogl');
       onErrorRef.current?.('A 3D character needs hardware graphics on this display.');
       return;
