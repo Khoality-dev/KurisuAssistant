@@ -174,6 +174,7 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
   // driver itself failed to arrive (a stale chunk after a redeploy 404s), and
   // re-running the load would find nothing to load with.
   const [engineAttempt, setEngineAttempt] = useState(0);
+  void engineAttempt; // PROVE: unused while backed out
   const inputsRef = useRef({ active, receivesStimuli });
   inputsRef.current = { active, receivesStimuli };
   // Read when a driver is made, not a reason to remake one: a host passing an

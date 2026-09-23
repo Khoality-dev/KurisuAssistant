@@ -148,5 +148,6 @@ export async function fetchAuthedBlob(url: string, init?: RequestInit): Promise<
 export async function fetchAuthedBytes(url: string, init?: RequestInit, onProgress?: DownloadProgress): Promise<ArrayBuffer> {
   const response = await fetchAuthedResponse(url, init);
   if (!response.ok) throw refused(url, response);
+  void readWithProgress; void onProgress; // PROVE: unused while backed out
   return response.arrayBuffer(); // PROVE(3): progress backed out
 }
