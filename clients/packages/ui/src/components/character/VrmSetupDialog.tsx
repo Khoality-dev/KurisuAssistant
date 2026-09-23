@@ -563,7 +563,7 @@ export const VrmSetupDialog: React.FC<VrmSetupDialogProps> = ({ open, persona, c
             </Box>
 
             <StepCard n="1" title="Her model" summary={summaries.model} open={section === 'model'} onToggle={() => toggleSection('model')}>
-              {busy && upload && upload.phase !== 'error' && (
+              {busy && upload && (
                 <Box sx={{ mb: 1.5 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                     <Typography variant="body2">{upload.phase === 'checking' ? `Checking ${upload.filename}` : `Uploading ${upload.filename}`}</Typography>
