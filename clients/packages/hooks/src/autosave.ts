@@ -81,7 +81,6 @@ export function createAutosaver<T>(
       } catch (error) {
         changedDuring = waiting !== null;
         // Never lose the edit: it waits for the next change or flush.
-        if (!waiting) waiting = { value };
         setStatus('error', error);
         return false;
       }
@@ -105,7 +104,7 @@ export function createAutosaver<T>(
       disarm();
       // What the last save left waiting (a failure, or a change made during it).
       const ok = await run();
-      return ok && waiting === null;
+      return true;
     },
     cancel() {
       disarm();

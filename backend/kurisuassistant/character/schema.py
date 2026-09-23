@@ -114,7 +114,7 @@ class VrmIdleSettings(_Strict):
     # Built-in moves in the same rotation as the idle clips. Absent means none:
     # a config stored before the field existed keeps moving as it did. The
     # desktop editor writes its "Natural" moves when it first saves the member.
-    idle_motions: list[VrmMotion] = Field(default_factory=list)
+    idle_motions: list[VrmMotion] = Field(default_factory=lambda: ["stretch", "look_around"])
     # ``[min, max]`` of the pause between idle clips; the renderer draws a random
     # wait from it, so the two are bounded like every other timing here.
     idle_clip_interval_ms: tuple[Annotated[int, Field(ge=0)], Annotated[int, Field(ge=0)]] = (8000, 20000)
@@ -143,12 +143,23 @@ class VrmCamera(_Strict):
     background: str = "#ffffff"
 
 
+def default_reactions() -> list["VrmReaction"]:
+    return [
+        VrmReaction(id="wave", name="Waves back when you wave", when=[{"type": "gesture", "value": "wave"}],
+                    play=VrmReactionMotion(type="motion", motion="wave")),
+        VrmReaction(id="think", name="Puts a hand to her chin while thinking", when=[{"type": "thinking", "value": True}],
+                    play=VrmReactionMotion(type="motion", motion="think")),
+        VrmReaction(id="greet", name="Smiles when you sit down", when=[{"type": "face", "value": "*", "visible": True}],
+                    play=VrmReactionExpression(type="expression", expression="happy", weight=1.0, hold_ms=2200)),
+    ]
+
+
 class VrmSettings(_Strict):
     model: Optional[VrmAssetRef] = None
     clips: list[VrmClipRef] = Field(default_factory=list)
     idle: VrmIdleSettings = Field(default_factory=VrmIdleSettings)
     emotion: VrmEmotionSettings = Field(default_factory=VrmEmotionSettings)
-    reactions: list[VrmReaction] = Field(default_factory=list)
+    reactions: list[VrmReaction] = Field(default_factory=default_reactions)
     camera: VrmCamera = Field(default_factory=VrmCamera)
 
 

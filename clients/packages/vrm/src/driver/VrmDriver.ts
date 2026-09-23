@@ -202,6 +202,7 @@ export function createVrmDriver(canvas: HTMLCanvasElement, options: VrmDriverOpt
   let motion: { name: VrmMotion; elapsedMs: number } | null = null;
   /** When built-in moves are in the idle rotation: quiet time left before the next pick. */
   let untilNextIdleMs = 0;
+  let idlePick: string | null = null;
   /** What `applyMotion` last wrote to each move bone, before the 0.x conjugation. */
   let lastWritten: Partial<Record<MotionBone, [number, number, number]>> = {};
   /** A move replaced mid-way: the pose it left, faded out over `HANDOFF_MS` so nothing snaps. */
@@ -345,7 +346,6 @@ export function createVrmDriver(canvas: HTMLCanvasElement, options: VrmDriverOpt
    * handed off and faded out over the new one's first `HANDOFF_MS`.
    */
   function startMotion(name: VrmMotion): void {
-    if (motion) handoff = { pose: { ...lastWritten }, elapsedMs: 0 };
     motion = { name, elapsedMs: 0 };
   }
 
@@ -366,7 +366,7 @@ export function createVrmDriver(canvas: HTMLCanvasElement, options: VrmDriverOpt
       return;
     }
     // Pooled: the idle slot stays empty; every pick is one play.
-    player.stepIdle(dt, [], interval);
+    player.stepIdle(dt, idlePick ? [idlePick] : [], interval);
     const busy = input.isPlaying || input.isThinking || motion !== null || player.playingOneShot;
     if (busy) return;
     untilNextIdleMs -= dt;
@@ -377,7 +377,7 @@ export function createVrmDriver(canvas: HTMLCanvasElement, options: VrmDriverOpt
     ];
     const pick = pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))];
     if ('move' in pick) startMotion(pick.move);
-    else player.playOneShot(pick.clip);
+    else idlePick = pick.clip;
     untilNextIdleMs = nextIdleWait(interval);
   }
 

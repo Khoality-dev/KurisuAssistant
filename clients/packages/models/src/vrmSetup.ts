@@ -275,7 +275,6 @@ export function completeVrmSettings(stored: Partial<VrmSettings> | null | undefi
   const idle = { ...d.idle, ...(stored.idle ?? {}) } as VrmIdleSettings;
   idle.blink = { ...d.idle.blink, ...(stored.idle?.blink ?? {}) };
   // Absent means none — a config from before the field existed — never the new default.
-  if (!Array.isArray(stored.idle?.idle_motions)) idle.idle_motions = [];
   return {
     model: stored.model ?? null,
     clips: Array.isArray(stored.clips) ? stored.clips : [],
