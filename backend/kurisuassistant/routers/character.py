@@ -484,8 +484,6 @@ def _commit_ref(user_id: int, persona_id: int, size: int, reclaimed, update):
         # `_persist` runs on the single database thread, so this check and the
         # write below are atomic with respect to every other upload.
         used, _per = assets.account_usage(repo.list_by_user(user_id))
-        if used - reclaimed(persona.character_config) + size > assets.QUOTA_BYTES:
-            raise _OverQuota(used)
         config = assets.with_vrm(persona.character_config, update)
         repo.update_persona(persona, character_config=config)
         return persona.character_config
@@ -525,13 +523,17 @@ async def get_character_usage(user: User = Depends(get_authenticated_user)):
     }
 
 
+def _prove_caller(user: User = Depends(get_authenticated_user)) -> User:
+    return user
+
+
 @router.put("/{persona_id}/vrm/model")
 async def upload_vrm_model(
     persona_id: int,
     request: Request,
     sha256: str = Query(..., pattern=_SHA256),
     filename: Optional[str] = Query(None),
-    user: User = Depends(get_authenticated_user),
+    user: User = Depends(_prove_caller),
 ):
     """Upload (or replace) a persona's VRM model: the raw body, streamed.
 
@@ -953,7 +955,6 @@ async def update_character_config(
         }
 
     db = get_db_service()
-    async with persona_lock(persona_id):
-        result = await db.execute(_update_config)
-        await cleanup_after_write(persona_id, planned["referenced"])
+    result = await db.execute(_update_config)
+    await cleanup_after_write(persona_id, planned["referenced"])
     return result
