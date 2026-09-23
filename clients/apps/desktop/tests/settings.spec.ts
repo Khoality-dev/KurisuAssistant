@@ -124,12 +124,6 @@ test.describe('settings', () => {
     // column scrolling, each step card was squeezed shorter than its content and
     // clipped it: "Her model" lost its Replace and Remove buttons (#299).
     mock.setCharacterConfig(mock.getPersonas()[0].id, VRM_CHARACTER_WITH_MODEL);
-    await electronApp.evaluate(({ BrowserWindow }) => {
-      const main = BrowserWindow.getAllWindows().find((w) => w.getMinimumSize()[0] === 800);
-      if (!main) throw new Error('no main window');
-      main.unmaximize();
-      main.setSize(800, 600);
-    });
 
     await login(page);
     await openSettings(page);
@@ -139,6 +133,15 @@ test.describe('settings', () => {
     await card.click();
     await page.getByRole('button', { name: /Set up 3D character/ }).click();
     await expect(page.getByRole('button', { name: /Her model/ })).toBeVisible({ timeout: 10_000 });
+
+    // Then down to the smallest the main window allows.
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      const main = BrowserWindow.getAllWindows().find((w) => w.getMinimumSize()[0] === 800);
+      if (!main) throw new Error('no main window');
+      main.unmaximize();
+      main.setSize(800, 600);
+    });
+    await expect.poll(() => page.evaluate(() => window.innerHeight)).toBeLessThanOrEqual(600);
 
     const herModel = page.getByRole('button', { name: /Her model/ }).locator('xpath=..');
     for (const name of ['Replace', 'Remove']) {
