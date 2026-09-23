@@ -609,6 +609,11 @@ export class MockBackend {
     this.assistant.model_name = model;
   }
 
+  /** Overwrite assistant fields as they are stored — `null` included, which the constructor's defaults would replace. */
+  setAssistantFields(fields: Partial<Omit<MockAssistant, 'id'>>) {
+    Object.assign(this.assistant, fields);
+  }
+
   getPersonas(): ResolvedPersona[] {
     return [...this.personas];
   }

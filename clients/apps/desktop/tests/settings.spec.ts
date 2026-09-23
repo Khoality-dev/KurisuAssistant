@@ -92,6 +92,33 @@ test.describe('settings', () => {
     await expect(page.getByLabel('Wake word')).toHaveValue(wakeWord, { timeout: 10_000 });
   });
 
+  test('assistant and persona pages render for an account with nothing optional set', async ({ page, mock }) => {
+    // The state an account is in after a first model is picked and the default
+    // persona switched to 3D with no model uploaded: no wake word, no memory, a
+    // config that is only `{kind: "vrm"}`. Opening these left a blank window (#296).
+    mock.setAssistantFields({ trigger_word: null, memory: null, memory_enabled: true, model_name: 'glm-5.1:cloud', provider_type: 'ollama' });
+    mock.setCharacterConfig(mock.getPersonas()[0].id, { kind: 'vrm' } as any);
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+
+    await login(page);
+    await openSettings(page);
+
+    await page.getByText('Assistant', { exact: true }).first().click();
+    await expect(page.getByLabel('Wake word')).toHaveValue('', { timeout: 10_000 });
+
+    await page.getByText('Personas', { exact: true }).first().click();
+    // The card's character line, not the name: "Kurisu" is on the chat header too.
+    const card = page.getByText('3D model · none uploaded');
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    await card.click();
+    await page.getByRole('button', { name: /Set up 3D character/ }).click();
+    await expect(page.getByText('Drop a .vrm file here')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.getByText('This page could not be shown')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
   test('account section shows logged-in username', async ({ page }) => {
     await login(page);
     await openSettings(page);
