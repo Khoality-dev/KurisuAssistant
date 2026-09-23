@@ -266,14 +266,17 @@ describe('three.js lives in one package', () => {
   it('the lazy-import scan catches every static form, and lets the probe and a dynamic import through', () => {
     const banned = /^@kurisu\/vrm(\/(?!probe$).*)?$/;
     const statics = /(?:^|[\s;])(?:import|export)\s+(?:[^'";]*?\sfrom\s+)?['"]([^'"]+)['"]/g;
+    // Built from a constant, so the layer scans above (which read this file too)
+    // do not take the sample lines for real imports.
+    const VRM = '@kurisu/' + 'vrm';
     const sample = [
-      "import { createVrmDriver } from '@kurisu/vrm';",
-      "import type { VrmDriver } from '@kurisu/vrm';",
-      "export * from '@kurisu/vrm/testing';",
-      "import '@kurisu/vrm';",
-      "import { supportsWebGL } from '@kurisu/vrm/probe';",
-      "const m = await import('@kurisu/vrm');",
-      "type M = typeof import('@kurisu/vrm');",
+      `import { createVrmDriver } from '${VRM}';`,
+      `import type { VrmDriver } from '${VRM}';`,
+      `export * from '${VRM}/testing';`,
+      `import '${VRM}';`,
+      `import { supportsWebGL } from '${VRM}/probe';`,
+      `const m = await import('${VRM}');`,
+      `type M = typeof import('${VRM}');`,
     ].join('\n');
     const hits = [...sample.matchAll(statics)].map((m) => m[1]).filter((spec) => banned.test(spec));
     expect(hits).toEqual(['@kurisu/vrm', '@kurisu/vrm', '@kurisu/vrm/testing', '@kurisu/vrm']);
