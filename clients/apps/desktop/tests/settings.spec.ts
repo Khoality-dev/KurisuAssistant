@@ -12,7 +12,7 @@
 import { test, expect } from './fixtures';
 import { Page } from '@playwright/test';
 import { WIRE_PROTOCOL } from '@kurisu/models';
-import { MOCK_BACKEND_VERSION } from './mock/server';
+import { MOCK_BACKEND_VERSION, VRM_CHARACTER_WITH_MODEL } from './mock/server';
 
 async function login(page: Page) {
   await page.getByLabel('Username').fill('tester');
@@ -117,6 +117,40 @@ test.describe('settings', () => {
 
     await expect(page.getByText('This page could not be shown')).toHaveCount(0);
     expect(errors).toEqual([]);
+  });
+
+  test('every 3D setup step shows all of itself at the smallest window', async ({ page, mock, electronApp }) => {
+    // At the main window's minimum size the steps did not fit, and instead of the
+    // column scrolling, each step card was squeezed shorter than its content and
+    // clipped it: "Her model" lost its Replace and Remove buttons (#299).
+    mock.setCharacterConfig(mock.getPersonas()[0].id, VRM_CHARACTER_WITH_MODEL);
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      const main = BrowserWindow.getAllWindows().find((w) => w.getMinimumSize()[0] === 800);
+      if (!main) throw new Error('no main window');
+      main.unmaximize();
+      main.setSize(800, 600);
+    });
+
+    await login(page);
+    await openSettings(page);
+    await page.getByText('Personas', { exact: true }).first().click();
+    const card = page.getByText('3D model · kurisu_v2.vrm');
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    await card.click();
+    await page.getByRole('button', { name: /Set up 3D character/ }).click();
+    await expect(page.getByRole('button', { name: /Her model/ })).toBeVisible({ timeout: 10_000 });
+
+    const herModel = page.getByRole('button', { name: /Her model/ }).locator('xpath=..');
+    for (const name of ['Replace', 'Remove']) {
+      const button = herModel.getByRole('button', { name, exact: true });
+      await button.scrollIntoViewIfNeeded();
+      await expect(button, `${name} can be scrolled to`).toBeInViewport();
+    }
+    // No step is shorter than what it holds.
+    const clipped = await page.getByRole('button', { name: /Her model|How she moves/ }).evaluateAll(
+      (headers) => headers.map((h) => h.parentElement!).filter((c) => c.scrollHeight > c.clientHeight + 1).length,
+    );
+    expect(clipped).toBe(0);
   });
 
   test('account section shows logged-in username', async ({ page }) => {
