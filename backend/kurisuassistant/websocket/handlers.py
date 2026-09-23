@@ -497,7 +497,9 @@ class ChatSessionHandler:
             # as-is, and anything queued behind it would fail the same way.
             logger.info("user %d chose a provider it has not configured", self.user_id)
             self._message_queue.clear()
-            await self.send_event(ErrorEvent(error=str(e), code="PROVIDER_NOT_CONFIGURED"))
+            await self.send_event(ErrorEvent(
+                error=e.public_message, code="PROVIDER_NOT_CONFIGURED",
+            ))
         except Exception as e:
             reference = log_internal_error(e, "running a chat turn")
             await self.send_event(ErrorEvent(

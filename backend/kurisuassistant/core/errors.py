@@ -59,7 +59,7 @@ def internal_error(
     if isinstance(exc, ProviderNotConfigured):
         # A setting the user has not filled in yet (#293): nothing broke, so
         # nothing is logged, and the sentence already says what to do.
-        return HTTPException(status_code=400, detail=str(exc))
+        return HTTPException(status_code=400, detail=exc.public_message)
     if isinstance(exc, DBUnavailableError):
         # A stuck database is not the handler's fault and not permanent: say so
         # with a 503, whatever status the caller would have used (#153).

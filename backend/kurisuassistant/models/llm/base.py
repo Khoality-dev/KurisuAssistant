@@ -13,7 +13,13 @@ class ProviderNotConfigured(ValueError):
     The server has none of its own to fall back on (#293), so this is a setting
     the user fills in, not a failure: the message says which one and where, and
     callers show it as-is instead of as an internal error with a reference.
+    Only the sentences built below exist, so ``public_message`` is always one
+    written here, never text from somewhere else.
     """
+
+    @property
+    def public_message(self) -> str:
+        return self.args[0]
 
     @classmethod
     def missing_url(cls) -> "ProviderNotConfigured":
