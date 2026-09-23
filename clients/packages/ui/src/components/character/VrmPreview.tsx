@@ -12,7 +12,7 @@
  * three.js arrives through a dynamic import after `supportsWebGL` says the
  * display can draw, as on every other surface.
  */
-import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import type { ParsedCharacterConfig, VrmEmotion, VrmReactionPlay, VrmSettings } from '@kurisu/models';
 import { fetchAuthedBytes } from '@kurisu/api';
