@@ -17,7 +17,8 @@ import { Box, CircularProgress, Typography } from '@mui/material';
 import type { ParsedCharacterConfig, VrmEmotion, VrmReactionPlay, VrmSettings } from '@kurisu/models';
 import { fetchAuthedBytes } from '@kurisu/api';
 import { supportsWebGL } from '@kurisu/vrm/probe';
-import type { VrmDriver } from '@kurisu/vrm';
+// A type query, not `import type`: ui never names the engine statically (boundaries.test.ts).
+type VrmDriver = import('@kurisu/vrm').VrmDriver;
 
 export interface VrmPreviewHandle {
   /** Play what a reaction plays, now. */
