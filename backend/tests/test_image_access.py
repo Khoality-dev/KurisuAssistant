@@ -64,6 +64,16 @@ def _jpeg_bytes(shade: int = 128) -> bytes:
     return buf.tobytes()
 
 
+
+def _a_persona(client, headers) -> int:
+    """One of the account's personas, made if it has none — an account starts without any (#302)."""
+    personas = client.get("/personas", headers=headers).json()
+    if personas:
+        return personas[0]["id"]
+    resp = client.post("/personas", json={"name": "Face"}, headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()["id"]
+
 def _upload(client, headers, shade: int = 128) -> str:
     resp = client.post(
         "/images",
@@ -194,8 +204,7 @@ class TestLegacyFlatStore:
         intruder_token, _ = intruder
         image_uuid = self._plant_legacy_image()
 
-        personas = system_client.get("/personas", headers=headers).json()
-        self._attach_behind_the_api(personas[0]["id"], image_uuid)
+        self._attach_behind_the_api(_a_persona(system_client, headers), image_uuid)
 
         assert system_client.get(f"/images/{image_uuid}?token={token}").status_code == 200
         assert system_client.get(
@@ -231,9 +240,8 @@ class TestAttachingSomebodyElsesImage:
         intruder_token, intruder_headers = intruder
         victim_uuid = _upload(system_client, owner_headers)
 
-        personas = system_client.get("/personas", headers=intruder_headers).json()
         resp = system_client.patch(
-            f"/personas/{personas[0]['id']}",
+            f"/personas/{_a_persona(system_client, intruder_headers)}",
             json={"avatar_uuid": victim_uuid},
             headers=intruder_headers,
         )
@@ -262,9 +270,8 @@ class TestAttachingSomebodyElsesImage:
         intruder_token, intruder_headers = intruder
         own_uuid = _upload(system_client, intruder_headers, shade=32)
 
-        personas = system_client.get("/personas", headers=intruder_headers).json()
         resp = system_client.patch(
-            f"/personas/{personas[0]['id']}",
+            f"/personas/{_a_persona(system_client, intruder_headers)}",
             json={"avatar_uuid": own_uuid},
             headers=intruder_headers,
         )
@@ -274,9 +281,8 @@ class TestAttachingSomebodyElsesImage:
 
     def test_clearing_an_avatar_is_not_blocked(self, system_client, intruder):
         _, intruder_headers = intruder
-        personas = system_client.get("/personas", headers=intruder_headers).json()
         resp = system_client.patch(
-            f"/personas/{personas[0]['id']}", json={"avatar_uuid": None}, headers=intruder_headers,
+            f"/personas/{_a_persona(system_client, intruder_headers)}", json={"avatar_uuid": None}, headers=intruder_headers,
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["avatar_uuid"] is None

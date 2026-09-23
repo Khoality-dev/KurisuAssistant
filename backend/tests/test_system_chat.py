@@ -11,7 +11,7 @@ locally without it, fails on CI.
 
 import pytest
 
-from tests.conftest import SYSTEM_TEST_PASSWORD, SYSTEM_TEST_USER, _create_activated_user
+from tests.conftest import SYSTEM_TEST_PASSWORD, SYSTEM_TEST_USER, _create_activated_user, _set_ollama_url
 
 from kurisuassistant.version import WIRE_PROTOCOL
 from tests.mock_ollama import DEFAULT_MODEL, Reply, ToolCall
@@ -95,7 +95,8 @@ class TestChatTurn:
         assert content_of(events) == "You said: hello there"
         chunks = [e for e in events if e["type"] == "stream_chunk" and e["role"] == "assistant"]
         assert chunks, "the reply streamed"
-        assert chunks[0]["persona_name"] == "Assistant", "the seeded default persona answers"
+        assert chunks[0]["persona_name"] == "Assistant", "the assistant itself answers: the account has no persona"
+        assert chunks[0]["persona_id"] is None
         assert chunks[0]["conversation_id"] == events[-1]["conversation_id"] > 0
 
         sent = mock_ollama.state.requests_to("/api/chat")
@@ -292,6 +293,102 @@ class TestNoOllamaUrl:
         assert "Ollama URL" in error["error"] and "Account settings" in error["error"]
         assert "reference:" not in error["error"], "a missing setting is not a crash"
         assert not mock_ollama.state.requests, "no Ollama was contacted on the account's behalf"
+
+
+class TestPersonasAreOptional:
+    """The assistant answers with no persona at all (#302).
+
+    Each test makes its own account, because what is being checked is what an
+    account starts with and what it is left with when its personas go.
+    """
+
+    @staticmethod
+    def account(client, mock_ollama, name):
+        _create_activated_user(name, f"{name}-password")
+        _set_ollama_url(name, mock_ollama.url)
+        resp = client.post("/login", data={"username": name, "password": f"{name}-password"})
+        assert resp.status_code == 200, resp.text
+        return {"Authorization": f"Bearer {resp.json()['access_token']}", "X-Wire-Protocol": str(WIRE_PROTOCOL)}
+
+    @staticmethod
+    def turn(client, headers, text, conversation_id=None):
+        with client.websocket_connect("/ws/chat", headers=headers) as ws:
+            ws.receive_json()
+            ws.send_json(chat_request(text, conversation_id=conversation_id))
+            events = events_until_done(ws)
+        assert events[-1]["type"] == "done", events[-1]
+        chunks = [e for e in events if e["type"] == "stream_chunk" and e["role"] == "assistant"]
+        return events[-1]["conversation_id"], chunks
+
+    def test_a_new_account_has_no_persona_and_no_default(self, system_client, mock_ollama):
+        headers = self.account(system_client, mock_ollama, "fresh-account")
+        assert system_client.get("/personas", headers=headers).json() == []
+        assert system_client.get("/assistant", headers=headers).json()["default_persona_id"] is None
+
+    def test_the_assistant_answers_as_itself(self, system_client, mock_ollama):
+        headers = self.account(system_client, mock_ollama, "no-persona-chat")
+        conversation_id, chunks = self.turn(system_client, headers, "hello")
+
+        assert content_of(chunks) == "You said: hello"
+        assert {c["persona_id"] for c in chunks} == {None}
+        assert {c["name"] for c in chunks} == {"Assistant"}
+        prompt = mock_ollama.state.requests_to("/api/chat")[-1]["messages"][0]["content"]
+        assert prompt.startswith("You are the user's personal assistant.")
+
+        conversation = system_client.get(f"/conversations/{conversation_id}", headers=headers).json()
+        assert conversation["persona_id"] is None
+
+    def test_a_first_persona_does_not_become_the_default(self, system_client, mock_ollama):
+        headers = self.account(system_client, mock_ollama, "first-persona")
+        created = system_client.post("/personas", json={"name": "Kurisu"}, headers=headers)
+        assert created.status_code == 200, created.text
+        assert system_client.get("/assistant", headers=headers).json()["default_persona_id"] is None
+        _, chunks = self.turn(system_client, headers, "who are you")
+        assert {c["persona_id"] for c in chunks} == {None}
+
+    def test_a_default_answers_new_conversations_only(self, system_client, mock_ollama):
+        headers = self.account(system_client, mock_ollama, "default-later")
+        with_assistant, _ = self.turn(system_client, headers, "first")
+
+        persona = system_client.post("/personas", json={"name": "Kurisu"}, headers=headers).json()
+        resp = system_client.patch("/assistant", json={"default_persona_id": persona["id"]}, headers=headers)
+        assert resp.status_code == 200, resp.text
+
+        _, chunks = self.turn(system_client, headers, "still you?", conversation_id=with_assistant)
+        assert {c["persona_id"] for c in chunks} == {None}, "a conversation with the assistant stays with it"
+
+        _, chunks = self.turn(system_client, headers, "new chat")
+        assert {c["persona_id"] for c in chunks} == {persona["id"]}
+        assert {c["name"] for c in chunks} == {"Kurisu"}
+
+    def test_unbinding_a_conversation_hands_it_to_the_assistant(self, system_client, mock_ollama):
+        headers = self.account(system_client, mock_ollama, "unbind")
+        persona = system_client.post("/personas", json={"name": "Kurisu"}, headers=headers).json()
+        system_client.patch("/assistant", json={"default_persona_id": persona["id"]}, headers=headers)
+        conversation_id, chunks = self.turn(system_client, headers, "hi")
+        assert {c["persona_id"] for c in chunks} == {persona["id"]}
+
+        resp = system_client.patch(f"/conversations/{conversation_id}", json={"persona_id": None}, headers=headers)
+        assert resp.status_code == 200, resp.text
+        _, chunks = self.turn(system_client, headers, "and now?", conversation_id=conversation_id)
+        assert {c["persona_id"] for c in chunks} == {None}, "not the default again"
+
+    def test_disabling_and_deleting_every_persona_leaves_the_assistant(self, system_client, mock_ollama):
+        headers = self.account(system_client, mock_ollama, "remove-all")
+        persona = system_client.post("/personas", json={"name": "Kurisu"}, headers=headers).json()
+        system_client.patch("/assistant", json={"default_persona_id": persona["id"]}, headers=headers)
+
+        disabled = system_client.patch(f"/personas/{persona['id']}/enabled", json={"enabled": False}, headers=headers)
+        assert disabled.status_code == 200, disabled.text
+        assert system_client.get("/assistant", headers=headers).json()["default_persona_id"] is None
+        _, chunks = self.turn(system_client, headers, "anyone?")
+        assert {c["persona_id"] for c in chunks} == {None}
+
+        deleted = system_client.delete(f"/personas/{persona['id']}", headers=headers)
+        assert deleted.status_code == 200, deleted.text
+        assert system_client.get("/personas", headers=headers).json() == []
+        _, chunks = self.turn(system_client, headers, "still here?")
+        assert {c["persona_id"] for c in chunks} == {None}
 
 
 class TestToolLoop:

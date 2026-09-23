@@ -160,7 +160,6 @@ def store(tmp_path, monkeypatch):
     for module in (character, personas):
         monkeypatch.setattr(module, "PersonaRepository", FakePersonaRepository)
         monkeypatch.setattr(module, "get_db_service", lambda: FakeDBService())
-    monkeypatch.setattr(personas, "_adopt_as_default_if_unset", lambda *a, **k: None)
 
     app = FastAPI()
     app.dependency_overrides[get_authenticated_user] = lambda: type("U", (), {"id": 1, "username": "t"})()

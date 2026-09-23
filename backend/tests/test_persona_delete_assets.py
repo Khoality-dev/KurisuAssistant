@@ -100,8 +100,8 @@ class TestDeletePersona:
         assert FakePersonaRepository.deleted == [DELETED]
         assert not (tmp_path / str(DELETED)).exists()
 
-    # The two refusals below hold on the pre-#234 route as well (it removed
-    # nothing, ever); they pin that the directory is only ever removed *after*
+    # The refusal below holds on the pre-#234 route as well (it removed
+    # nothing, ever); it pins that the directory is only ever removed *after*
     # a delete the route accepted — the persona id comes from the URL, and only
     # the DB step checks it is the caller's.
     def test_a_persona_that_is_not_yours_is_refused_and_its_directory_stays(self, client, tmp_path):
@@ -112,13 +112,14 @@ class TestDeletePersona:
         assert FakePersonaRepository.deleted == []
         assert (tmp_path / str(DELETED) / "p1" / "base.png").exists()
 
-    def test_the_only_persona_is_refused_and_its_directory_stays(self, client, tmp_path):
+    def test_the_only_persona_is_deleted_with_its_directory(self, client, tmp_path):
+        """The assistant answers without one, so the last persona is not kept back (#302)."""
         FakePersonaRepository.owned = [DELETED]
         seed(tmp_path, DELETED)
         response = client.delete(f"/personas/{DELETED}")
-        assert response.status_code == 400
-        assert FakePersonaRepository.deleted == []
-        assert (tmp_path / str(DELETED) / "p1" / "base.png").exists()
+        assert response.status_code == 200
+        assert FakePersonaRepository.deleted == [DELETED]
+        assert not (tmp_path / str(DELETED)).exists()
 
     def test_a_file_that_cannot_be_measured_does_not_fail_the_delete(self, client, tmp_path, monkeypatch):
         seed(tmp_path, DELETED)

@@ -245,15 +245,18 @@ class TestPersisted:
 
     @pytest.fixture()
     def vrm_persona(self, system_client, headers):
-        """The account's default persona, switched to a VRM character with emotion on."""
-        personas = system_client.get("/personas", headers=headers).json()
-        persona = personas[0]
-        resp = system_client.patch(
-            f"/personas/{persona['id']}", json={"character_config": VRM_ON}, headers=headers,
+        """A VRM persona with emotion on, made the account's default for the test.
+
+        The account starts with no persona (#302), so the fixture makes one and
+        takes it away again, leaving the assistant answering as itself."""
+        resp = system_client.post(
+            "/personas", json={"name": "Vrm tester", "character_config": VRM_ON}, headers=headers,
         )
         assert resp.status_code == 200, resp.text
+        persona = resp.json()
+        system_client.patch("/assistant", json={"default_persona_id": persona["id"]}, headers=headers)
         yield persona
-        system_client.patch(f"/personas/{persona['id']}", json={"character_config": None}, headers=headers)
+        system_client.delete(f"/personas/{persona['id']}", headers=headers)
 
     def _turn(self, system_client, headers, text, conversation_id=None):
         from tests.test_system_chat import chat_request, events_until_done
