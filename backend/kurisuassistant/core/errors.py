@@ -18,6 +18,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from kurisuassistant.db.service import DBUnavailableError
+from kurisuassistant.models.llm.base import ProviderNotConfigured
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,10 @@ def internal_error(
         except Exception as e:
             raise internal_error(e, "listing conversations")
     """
+    if isinstance(exc, ProviderNotConfigured):
+        # A setting the user has not filled in yet (#293): nothing broke, so
+        # nothing is logged, and the sentence already says what to do.
+        return HTTPException(status_code=400, detail=str(exc))
     if isinstance(exc, DBUnavailableError):
         # A stuck database is not the handler's fault and not permanent: say so
         # with a 503, whatever status the caller would have used (#153).

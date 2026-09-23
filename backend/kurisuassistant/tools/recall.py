@@ -336,7 +336,7 @@ class RecallSemanticTool(_RecallTool):
             query = query[:MAX_QUERY_CHARS]
         if not embedding_service.enabled():
             raise _Refused(
-                "Error: semantic recall is switched off on this server (no embedding model). "
+                "Error: semantic recall is switched off on this server (no embedding model or endpoint). "
                 "Use recall_regex."
             )
         try:

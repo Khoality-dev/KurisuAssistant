@@ -41,7 +41,6 @@ class PoeProvider(OpenAICompatibleProvider):
 
     PROVIDER_NAME = "Poe"
     DEFAULT_BASE_URL = POE_BASE_URL
-    API_KEY_ENV = "POE_API_KEY"
 
     def _extend_payload(self, payload: Dict[str, Any], *, think: bool, options: Dict[str, Any]) -> None:
         # Poe caps output per model itself; only an explicit Ollama-style

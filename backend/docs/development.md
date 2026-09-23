@@ -107,10 +107,12 @@ down once.** The base file no longer hardcodes what one machine happened to
 have, so a deployment that relied on either must say so in its environment file
 or its override:
 
-- `LLM_API_URL` now defaults to the host's Ollama. If yours runs as a container
-  on a Docker network — the usual arrangement when Ollama is shared with other
-  stacks — set `LLM_API_URL=http://<its container name>:11434` explicitly, or
-  the API will look for an Ollama on the host and find none.
+- The server has no Ollama URL or provider keys of its own any more (#293). Each
+  account sets its Ollama URL and keys under Settings → Account; an Ollama that
+  runs as a container on a shared Docker network is `http://<its container name>:11434`
+  there. `LLM_API_URL` and the `*_API_KEY` variables are ignored, so move any
+  value they held into the accounts that used it, and set `EMBEDDING_API_URL`
+  (or `EMBEDDING_API_KEY`) for the retrieval index, which is off without it.
 - The `central` network attachment and any GPU reservation are in
   `docker-compose.override.yml` now (block above). Without it the API is
   published on `API_PORT` instead of being reachable through the proxy.
@@ -143,7 +145,7 @@ Three markers, registered in `pytest.ini`:
 
 - **unmarked** — pure unit tests, no services.
 - **`db`** — needs Postgres: the migration tests and the *system tests* (`tests/test_system_chat.py`), which run the real app on a fresh database created for the session, create and activate their own account, log in as it, open `/ws/chat` and drive whole turns — streaming, thinking, the tool loop with its approval gate, compaction — with the model played by the mock Ollama. CI provides Postgres (`backend-test.yml`); locally they skip unless `POSTGRES_HOST`/`POSTGRES_PORT` point at one. A throwaway is `docker run --rm -d -p 127.0.0.1:55432:5432 -e POSTGRES_USER=kurisu -e POSTGRES_PASSWORD=kurisu -e POSTGRES_DB=kurisu pgvector/pgvector:pg16`.
-- **`integration`** — needs a real external service. Never runs in CI: a live model call costs money on a paid provider and needs a GPU otherwise. One of them is a measurement rather than a check: `tests/test_emotion_compliance.py` sends twenty prompts to the model at `LLM_API_URL` (`EMOTION_TEST_MODEL`, default `qwen3:8b`) with the Expression block and prints where the emotion tags landed — sentence starts, mid-sentence, every sentence, unknown labels — for a person deciding whether that model, or the prompt wording, is good enough (#243). Run it with `pytest tests/test_emotion_compliance.py -m integration -s`.
+- **`integration`** — needs a real external service. Never runs in CI: a live model call costs money on a paid provider and needs a GPU otherwise. One of them is a measurement rather than a check: `tests/test_emotion_compliance.py` sends twenty prompts to the model at `EMOTION_TEST_OLLAMA_URL` (`EMOTION_TEST_MODEL`, default `qwen3:8b`) with the Expression block and prints where the emotion tags landed — sentence starts, mid-sentence, every sentence, unknown labels — for a person deciding whether that model, or the prompt wording, is good enough (#243). Run it with `pytest tests/test_emotion_compliance.py -m integration -s`.
 
 ### Mock Ollama
 
@@ -152,11 +154,11 @@ Three markers, registered in `pytest.ini`:
 It is also a plain process, for driving a client against a real backend that needs no GPU or paid model — two terminals, no containers:
 
 ```bash
-python -m tests.mock_ollama --port 11435                                        # the model
-LLM_API_URL=http://127.0.0.1:11435 uvicorn kurisuassistant.main:app --port 15597 # the backend, pointed at it
+python -m tests.mock_ollama --port 11435              # the model
+uvicorn kurisuassistant.main:app --port 15597         # the backend
 ```
 
-Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `GET /_mock/requests`, `DELETE /_mock/requests`, `POST /_mock/reset`, `GET /_mock/state`. (For a backend running in Docker, `LLM_API_URL=http://host.docker.internal:11435` reaches a mock on the host.)
+Then set the account's Ollama URL to `http://127.0.0.1:11435` under Settings → Account. Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `GET /_mock/requests`, `DELETE /_mock/requests`, `POST /_mock/reset`, `GET /_mock/state`. (For a backend running in Docker, the Ollama URL `http://host.docker.internal:11435` reaches a mock on the host.)
 
 ## Environment Variables
 
@@ -165,8 +167,6 @@ Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `G
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | — | Database connection |
-| `LLM_API_URL` | `http://localhost:11434` in-process, `http://host.docker.internal:11434` under Compose | Ollama server URL. The two defaults differ, and only the Compose one applies to a deployment. On Linux the host's Ollama must be started with `OLLAMA_HOST=0.0.0.0` or it refuses the container, which `GET /models` reports as a 502 naming this variable (#151) |
-| `GEMINI_API_KEY`, `NVIDIA_API_KEY`, `POE_API_KEY` | — | Cloud LLM providers; fallbacks when the user has no key stored |
 | `TTS_ENGINES`, `ASR_URL` | (docker-compose) | The synthesis engines as `name=url` pairs (the names are the model ids the clients store), and the recognition engine. An engine not listed is not part of this deployment, and a request for it is refused with a sentence naming the profile to start |
 | `TTS_IDLE_TIMEOUT` | `600` | Seconds without a request before a synthesis engine drops its own weights; `0` keeps them resident (#227) |
 | `TTS_DEFAULT_MODEL` | first configured | Which synthesis engine answers a request that names none |
@@ -185,7 +185,8 @@ Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `G
 | `VISION_DEVICE` | — | `cpu` or `cuda` for gesture detection; empty picks `cuda` when torch sees a GPU, else `cpu` (#152) |
 | `DRIVE_QUOTA_BYTES` | `16106127360` (15 GB) | How much Kurisu Drive one account may store. Registration is open by default, so an unmetered drive is a disk-exhaustion surface for the host; over it is `507` |
 | `DRIVE_MAX_FILE_BYTES` | `2147483648` (2 GB) | Largest single drive file, enforced as the bytes arrive rather than after; over it is `413`. Behind `--profile tls`, nginx's `client_max_body_size` for `/drive/` applies too and the smaller of the two wins |
-| `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL` | `ollama`, `bge-m3` | The one embedding model behind `recall_semantic` (#6): `ollama` pulls it from `LLM_API_URL` on first use, `gemini` and `nvidia` use the server-wide keys. Empty `EMBEDDING_MODEL` switches semantic recall off; `recall_regex` keeps working. Changing the model re-embeds everything in the background (`retrieval.md`) |
+| `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL` | `ollama`, `bge-m3` | The one embedding model behind `recall_semantic` (#6): `ollama` pulls it from `EMBEDDING_API_URL` on first use, `gemini` and `nvidia` use `EMBEDDING_API_KEY`. Empty `EMBEDDING_MODEL`, or no endpoint for the provider, switches semantic recall off; `recall_regex` keeps working. Changing the model re-embeds everything in the background (`retrieval.md`) |
+| `EMBEDDING_API_URL`, `EMBEDDING_API_KEY` | — | The embedding endpoint, for the index only. There is no server-wide Ollama URL or provider key for chat: each account stores its own (#293). On Linux a host Ollama must be started with `OLLAMA_HOST=0.0.0.0` or it refuses the container, which `GET /models` reports as a 502 naming the account's Ollama URL (#151) |
 | `RETRIEVAL_MAX_FILE_BYTES`, `RETRIEVAL_MAX_PASSAGES_PER_FILE` | `20971520` (20 MB), `2000` | Drive files over the byte cap are not indexed; a file stops chunking at the passage cap |
 
 Read by Compose rather than by the server:

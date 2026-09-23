@@ -47,8 +47,7 @@ def _unreachable(provider: str, label: str, exc: Exception) -> dict:
     """One entry of the ``unavailable`` list, logged in full with a reference."""
     reference = log_internal_error(exc, f"listing {label} models")
     if provider == "ollama":
-        detail = ("The Ollama server is unreachable. Check the server's LLM_API_URL, "
-                  "or the Ollama URL in your account settings.")
+        detail = "The Ollama server is unreachable. Check the Ollama URL in your Account settings."
     else:
         detail = f"{label} could not be reached with the stored key."
     return {"provider": provider, "detail": f"{detail} (reference: {reference})"}
@@ -63,16 +62,20 @@ async def list_models(
     A provider that cannot be reached is reported in ``unavailable`` rather
     than silently contributing nothing, and when *no* provider answered the
     response is a 502 — an empty picker used to be the only symptom of a wrong
-    ``LLM_API_URL``, and it reads as "no models installed" (#151).
+    Ollama URL, and it reads as "no models installed" (#151).
+
+    Only what the account has set is asked: no Ollama URL, no Ollama models;
+    no key, none of that provider's. The server has no fallback of its own (#293).
     """
     models: list = []
     unavailable: list = []
 
-    try:
-        ollama_models = await asyncio.to_thread(llm_list_models, api_url=user.ollama_url)
-        models.extend({"name": m, "provider": "ollama"} for m in ollama_models)
-    except Exception as e:
-        unavailable.append(_unreachable("ollama", "Ollama", e))
+    if user.ollama_url:
+        try:
+            ollama_models = await asyncio.to_thread(llm_list_models, api_url=user.ollama_url)
+            models.extend({"name": m, "provider": "ollama"} for m in ollama_models)
+        except Exception as e:
+            unavailable.append(_unreachable("ollama", "Ollama", e))
 
     for provider, key_attr, label in _KEYED_PROVIDERS:
         api_key = getattr(user, key_attr, None)

@@ -25,7 +25,6 @@ class NvidiaProvider(OpenAICompatibleProvider):
 
     PROVIDER_NAME = "NVIDIA NIM"
     DEFAULT_BASE_URL = NVIDIA_BASE_URL
-    API_KEY_ENV = "NVIDIA_API_KEY"
 
     def _extend_payload(self, payload: Dict[str, Any], *, think: bool, options: Dict[str, Any]) -> None:
         payload["max_tokens"] = min(options.get("num_ctx", 16384), 16384)

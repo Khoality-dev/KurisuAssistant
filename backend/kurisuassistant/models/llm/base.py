@@ -7,6 +7,23 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Any
 
 
+class ProviderNotConfigured(ValueError):
+    """The account has not stored the Ollama URL or API key this provider needs.
+
+    The server has none of its own to fall back on (#293), so this is a setting
+    the user fills in, not a failure: the message says which one and where, and
+    callers show it as-is instead of as an internal error with a reference.
+    """
+
+    @classmethod
+    def missing_url(cls) -> "ProviderNotConfigured":
+        return cls("No Ollama URL is set for this account. Add one in Account settings.")
+
+    @classmethod
+    def missing_key(cls, provider: str) -> "ProviderNotConfigured":
+        return cls(f"No {provider} API key is set for this account. Add one in Account settings.")
+
+
 class BaseLLMProvider(ABC):
     """Abstract base class for LLM providers."""
 

@@ -4,10 +4,11 @@ Embeddings are configured server-wide — ``EMBEDDING_PROVIDER`` and
 ``EMBEDDING_MODEL`` in the environment — rather than per user like the chat
 model. Every vector in ``passages`` must come from the same model for a distance
 between two of them to mean anything, and the index is one table, so the choice
-is the operator's. Credentials are the server-wide ``*_API_KEY`` fallbacks; the
-Ollama host is ``LLM_API_URL``. Setting ``EMBEDDING_MODEL`` empty switches the
-semantic side off: ``recall_regex`` keeps working and ``recall_semantic`` says why
-it cannot.
+is the operator's. Its endpoint is its own too — ``EMBEDDING_API_URL`` for
+Ollama, ``EMBEDDING_API_KEY`` for Gemini or NVIDIA — and never the chat settings,
+which belong to each account (#293). An empty ``EMBEDDING_MODEL``, or no endpoint
+for the chosen provider, switches the semantic side off: ``recall_regex`` keeps
+working and ``recall_semantic`` says why it cannot.
 
 Two kinds of failure, because the indexer treats them differently:
 
@@ -45,7 +46,7 @@ class EmbeddingError(Exception):
 
 
 class EmbeddingDisabled(EmbeddingError):
-    """``EMBEDDING_MODEL`` is empty: the operator switched the semantic side off."""
+    """No ``EMBEDDING_MODEL``, or no endpoint for it: the semantic side is off."""
 
 
 class TransientEmbedError(EmbeddingError):
@@ -65,8 +66,23 @@ def current_model() -> str:
     return os.getenv("EMBEDDING_MODEL", DEFAULT_MODEL).strip()
 
 
+def _api_url() -> str:
+    return os.getenv("EMBEDDING_API_URL", "").strip()
+
+
+def _api_key() -> str:
+    return os.getenv("EMBEDDING_API_KEY", "").strip()
+
+
+def missing_setting() -> Optional[str]:
+    """The variable the configured provider still needs, or None when it has it."""
+    if provider_name() == "ollama":
+        return None if _api_url() else "EMBEDDING_API_URL"
+    return None if _api_key() else "EMBEDDING_API_KEY"
+
+
 def enabled() -> bool:
-    return bool(current_model())
+    return bool(current_model()) and missing_setting() is None
 
 
 _lock = threading.Lock()
@@ -75,7 +91,7 @@ _ensured_model: Optional[str] = None
 
 
 def reset() -> None:
-    """Forget the cached provider (tests re-point ``LLM_API_URL`` / ``EMBEDDING_*``)."""
+    """Forget the cached provider (tests re-point ``EMBEDDING_*``)."""
     global _provider, _ensured_model
     with _lock:
         _provider = None
@@ -89,12 +105,17 @@ def _get_provider():
     model = current_model()
     if not model:
         raise EmbeddingDisabled("EMBEDDING_MODEL is empty")
+    missing = missing_setting()
+    if missing:
+        raise EmbeddingDisabled(f"{missing} is empty")
     with _lock:
         if _provider is None:
             from kurisuassistant.models.llm import create_llm_provider
 
             try:
-                _provider = create_llm_provider(provider_name())
+                _provider = create_llm_provider(
+                    provider_name(), api_url=_api_url(), api_key=_api_key(),
+                )
             except Exception as e:
                 raise TransientEmbedError(f"cannot build the {provider_name()} provider: {e}") from e
         if _ensured_model != model:

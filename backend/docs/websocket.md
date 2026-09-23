@@ -222,7 +222,7 @@ the history list while the watermark it wrote (`0`) trimmed nothing (#99).
 
 `code` is a string, not an HTTP status. Emitted values: `INTERNAL_ERROR` (with a
 log reference in the message), `QUEUE_FULL`, `NO_PERSONAS`, `NO_MODEL_SELECTED`,
-`NO_SUMMARY_MODEL`, `COMPACT_EMPTY`. `CANCELLED`, `TIMEOUT` and `UNAUTHORIZED` are
+`PROVIDER_NOT_CONFIGURED`, `NO_SUMMARY_MODEL`, `COMPACT_EMPTY`. `CANCELLED`, `TIMEOUT` and `UNAUTHORIZED` are
 declared on the dataclass.
 
 An error is a transient notice: nothing is persisted for it, unlike a
@@ -239,6 +239,14 @@ and offer their own way onto the Assistant screen instead of an error — Settin
 Assistant on desktop, a drawer entry on Android, which is why the sentence names
 the screen and not a path. A client that does not special-case it still shows
 `error`, which answers the question on its own.
+
+**`PROVIDER_NOT_CONFIGURED` is not a failure either.** The Ollama URL and the
+Gemini, NVIDIA and Poe keys exist only on the account; the server has no fallback
+of its own (#293). A turn whose model needs one the account has not stored is
+refused with this code, and `error` names the missing setting and says to add it
+in Account settings, with no log reference. Messages queued behind it are
+dropped, as for `NO_MODEL_SELECTED`. Neither client special-cases it yet, so it
+shows as the usual toast.
 
 ### `vision_result`
 

@@ -55,6 +55,7 @@ from kurisuassistant.db.repositories import (
     UserRepository,
 )
 from kurisuassistant.core.accounts import NO_MODEL_SELECTED_DETAIL
+from kurisuassistant.models.llm.base import ProviderNotConfigured
 from kurisuassistant.core.errors import GENERIC_MESSAGE, log_internal_error
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.utils.prompts import build_system_messages
@@ -489,6 +490,14 @@ class ChatSessionHandler:
                 error=NO_MODEL_SELECTED_DETAIL,
                 code="NO_MODEL_SELECTED",
             ))
+        except ProviderNotConfigured as e:
+            # The Ollama URL or key the chosen model needs is not stored on the
+            # account, and the server has none to lend (#293). Like the missing
+            # model above, it is a setting to fill in, so the sentence is shown
+            # as-is, and anything queued behind it would fail the same way.
+            logger.info("user %d chose a provider it has not configured", self.user_id)
+            self._message_queue.clear()
+            await self.send_event(ErrorEvent(error=str(e), code="PROVIDER_NOT_CONFIGURED"))
         except Exception as e:
             reference = log_internal_error(e, "running a chat turn")
             await self.send_event(ErrorEvent(

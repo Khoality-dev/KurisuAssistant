@@ -42,10 +42,12 @@ network change fields rather than adding services, so they cannot be profiles;
 they live in an untracked `docker-compose.override.yml`, which Compose loads
 automatically. `docs/development.md` has the block to paste.
 
-Ollama is not part of any of this. `LLM_API_URL` defaults to
-`http://host.docker.internal:11434`, which reaches an Ollama on the host itself;
-point it elsewhere, or use a cloud provider key, and each user picks their
-provider in the app.
+Ollama is not part of any of this, and the server has no model server of its
+own: each account stores its Ollama URL and its Gemini, NVIDIA or Poe keys under
+Settings → Account, and an account that has set none lists no models (#293).
+`http://host.docker.internal:11434` reaches an Ollama on the host itself. The
+retrieval index is the one exception, since it is shared: it has its own
+`EMBEDDING_API_URL` / `EMBEDDING_API_KEY` (`retrieval.md`).
 
 `docker-compose.dev.yml` is a different kind of overlay: a second, isolated API
 and database as its own Compose project, for running `main` beside a deployment.

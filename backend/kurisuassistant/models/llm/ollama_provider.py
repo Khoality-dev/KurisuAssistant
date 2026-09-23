@@ -1,11 +1,10 @@
 """Ollama LLM provider implementation."""
 
 import logging
-import os
 from typing import List, Dict, Optional
 from ollama import Client as OllamaClient
 
-from .base import BaseLLMProvider
+from .base import BaseLLMProvider, ProviderNotConfigured
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +16,11 @@ class OllamaProvider(BaseLLMProvider):
         """Initialize Ollama provider.
 
         Args:
-            api_url: Optional Ollama API URL (defaults to LLM_API_URL env var)
+            api_url: The account's Ollama URL. There is no server-wide default
+                (#293), so an empty one is refused.
         """
-        if api_url is None:
-            api_url = os.getenv("LLM_API_URL", "http://localhost:11434")
+        if not api_url:
+            raise ProviderNotConfigured.missing_url()
 
         logger.info(f"Initializing Ollama provider with URL: {api_url}")
         self.client = OllamaClient(host=api_url)
