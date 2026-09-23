@@ -436,8 +436,17 @@ describe('the VRM driver', () => {
     await clearModelCache();
     const vrm = settings({ clips: [WAVE_CLIP] });
     vrm.idle = { ...vrm.idle, idle_motions: ['nod'], idle_clip_ids: [WAVE_CLIP.id], idle_clip_interval_ms: [100, 100] };
-    let n = 0;
-    const h = harness(vrm, { [WAVE_CLIP.url]: { bones: ['leftUpperArm'], durationS: 0.5 } }, {}, { random: () => (n++ % 2 ? 0.9 : 0.1) });
+    // A seeded generator, not an alternating stub: every idle cycle draws twice (the
+    // pick and the wait), so an alternating 0.1/0.9 lands every pick on one value and
+    // the pool never mixes. mulberry32 is deterministic and spreads both draws.
+    let seed = 0x2f6b1c3d;
+    const random = () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const h = harness(vrm, { [WAVE_CLIP.url]: { bones: ['leftUpperArm'], durationS: 0.5 } }, {}, { random });
     await h.driver.load(h.config, h.deps());
     let moves = 0;
     let clips = 0;
