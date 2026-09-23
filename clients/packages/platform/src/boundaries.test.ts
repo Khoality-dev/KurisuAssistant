@@ -243,6 +243,45 @@ describe('three.js lives in one package', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('reaches the engine from ui lazily: no static import of @kurisu/vrm in the screens', () => {
+    // `CharacterSurface` imports the engine with `import('@kurisu/vrm')` once a
+    // VRM persona is on screen and the display passed the probe (#240). Any
+    // static specifier — `import … from`, `export … from`, `import type`, or a
+    // bare side-effect `import '…'` — of the package or a subpath of it other
+    // than the engine-free `/probe` would put three.js (or its entry's side
+    // effects) in the main window's chunk. Tests may import `/testing`.
+    const banned = /^@kurisu\/vrm(\/(?!probe$).*)?$/;
+    const statics = /(?:^|[\s;])(?:import|export)\s+(?:[^'";]*?\sfrom\s+)?['"]([^'"]+)['"]/g;
+    const offenders: string[] = [];
+    for (const file of sourceFiles(join(PACKAGES, 'ui', 'src'))) {
+      if (/\.test\.tsx?$/.test(file)) continue;
+      const text = readFileSync(file, 'utf8');
+      for (const match of text.matchAll(statics)) {
+        if (banned.test(match[1])) offenders.push(`${relative(PACKAGES, file)}: ${match[1]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('the lazy-import scan catches every static form, and lets the probe and a dynamic import through', () => {
+    const banned = /^@kurisu\/vrm(\/(?!probe$).*)?$/;
+    const statics = /(?:^|[\s;])(?:import|export)\s+(?:[^'";]*?\sfrom\s+)?['"]([^'"]+)['"]/g;
+    // Built from a constant, so the layer scans above (which read this file too)
+    // do not take the sample lines for real imports.
+    const VRM = '@kurisu/' + 'vrm';
+    const sample = [
+      `import { createVrmDriver } from '${VRM}';`,
+      `import type { VrmDriver } from '${VRM}';`,
+      `export * from '${VRM}/testing';`,
+      `import '${VRM}';`,
+      `import { supportsWebGL } from '${VRM}/probe';`,
+      `const m = await import('${VRM}');`,
+      `type M = typeof import('${VRM}');`,
+    ].join('\n');
+    const hits = [...sample.matchAll(statics)].map((m) => m[1]).filter((spec) => banned.test(spec));
+    expect(hits).toEqual(['@kurisu/vrm', '@kurisu/vrm', '@kurisu/vrm/testing', '@kurisu/vrm']);
+  });
+
   it('keeps the probe engine-free', () => {
     // `@kurisu/vrm/probe` is what a surface asks before importing the engine;
     // the question must not carry the answer's weight.

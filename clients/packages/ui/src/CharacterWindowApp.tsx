@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CharacterSurface } from './character/CharacterSurface';
+import { CharacterStack } from './character/CharacterStack';
 import { SubtitleQueue, type SubtitleView } from './character/subtitleQueue';
 import { clearImageCache } from './videocall/engine/ImageCache';
 import { configureAuthedFetch, storage } from '@kurisu/api';
@@ -132,6 +132,21 @@ export const CharacterWindowApp: React.FC = () => {
         overflow: 'hidden',
       }}
     >
+      {/* A 3D stage opts out of the window's drag region so it gets pointer
+          events; this strip along the top keeps the window movable (#240). */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 24,
+          zIndex: 20,
+          // @ts-expect-error Electron CSS property for frameless window dragging
+          WebkitAppRegion: 'drag',
+        }}
+      />
+
       {/* Subtitle overlay */}
       <div
         style={{
@@ -194,47 +209,7 @@ export const CharacterWindowApp: React.FC = () => {
           </span>
         </div>
       ) : (
-        Array.from(personas.entries()).map(([id, entry]) => (
-          <div
-            key={id}
-            style={{
-              flex: 1,
-              minHeight: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              position: 'relative',
-              overflow: 'hidden',
-              borderBottom: '1px solid rgba(0,0,0,0.1)',
-              ...(activePersonaId === id
-                ? { boxShadow: 'inset 0 0 20px rgba(37, 99, 235, 0.3)' }
-                : {}),
-            }}
-          >
-            <CharacterSurface
-              character={entry.character}
-              active={activePersonaId === id}
-              receivesStimuli={activePersonaId === id || activePersonaId === null}
-              retryToken={sessionVersion}
-            />
-            <span
-              style={{
-                position: 'absolute',
-                bottom: 4,
-                left: 0,
-                right: 0,
-                textAlign: 'center',
-                color: activePersonaId === id ? '#2563eb' : 'rgba(0,0,0,0.5)',
-                fontWeight: activePersonaId === id ? 600 : 400,
-                fontSize: 18,
-                textShadow: '0 1px 4px rgba(255,255,255,0.5)',
-              }}
-            >
-              {entry.name}
-            </span>
-          </div>
-        ))
+        <CharacterStack personas={personas} activePersonaId={activePersonaId} retryToken={sessionVersion} />
       )}
     </div>
   );

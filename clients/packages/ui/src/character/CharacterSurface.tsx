@@ -9,10 +9,16 @@
  * which is how the character window, the inline panel (#241) and the page an
  * Android WebView hosts (#245) draw the same thing.
  *
- * Only the pose graph has a driver here; a VRM persona shows "No avatar"
- * until #240 mounts `@kurisu/vrm` behind the same seam.
+ * A VRM persona (#240) is drawn by `@kurisu/vrm`, imported only when a VRM
+ * persona is on screen and only after `supportsWebGL` has said this display
+ * can draw one: the engine is three.js, and neither a 2D-only user's bundle
+ * nor a machine without hardware graphics should pay for it. While the model
+ * downloads the surface says how far it has got; when the download fails it
+ * says so and tries again when the connection or the session comes back.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Box, Button, LinearProgress, Typography } from '@mui/material';
+import { ErrorOutline as ErrorIcon, ViewInAr as ModelIcon } from '@mui/icons-material';
 import {
   characterFingerprint,
   createSpeechClockState,
@@ -20,12 +26,29 @@ import {
   type CharacterDriver,
   type ParsedCharacterConfig,
 } from '@kurisu/models';
-import { fetchAuthedBytes } from '@kurisu/api';
+import { config, fetchAuthedBytes } from '@kurisu/api';
 import { characterFeed, takeGestures } from '@kurisu/state';
+import { supportsWebGL } from '@kurisu/vrm/probe';
 import { createPoseGraphDriver } from './PoseGraphDriver';
+
+/** The part of `@kurisu/vrm` the surface needs; a type only, so nothing is imported until a VRM persona appears. */
+export type VrmModule = Pick<typeof import('@kurisu/vrm'), 'createVrmDriver'>;
+
+export interface MakeDriverDeps {
+  /** Loads the VRM engine. The surface's own prop, so a test can see it was never asked. */
+  importVrm: () => Promise<VrmModule>;
+}
+
+export type MakeDriver = (
+  character: ParsedCharacterConfig,
+  canvas: HTMLCanvasElement,
+  deps: MakeDriverDeps,
+) => CharacterDriver | null | Promise<CharacterDriver | null>;
 
 export interface CharacterSurfaceProps {
   character: ParsedCharacterConfig | null;
+  /** The persona's name, for the sentence that says where to upload a model. */
+  personaName?: string;
   /** This persona is speaking: it hears the sentence and the thinking state. */
   active: boolean;
   /** Gestures and faces reach it — the active persona, or everyone while nobody is. */
@@ -38,30 +61,100 @@ export interface CharacterSurfaceProps {
    */
   retryToken?: number;
   /** A test hands in a driver over fakes. */
-  makeDriver?: (character: ParsedCharacterConfig, canvas: HTMLCanvasElement) => CharacterDriver | null;
+  makeDriver?: MakeDriver;
+  /** A test hands in a spy, to see the engine is not loaded where it cannot draw. */
+  importVrm?: () => Promise<VrmModule>;
+  /** Whether this display can draw 3D; `supportsWebGL` unless a test says otherwise. */
+  probe?: () => boolean;
   /** The clock the feed's timestamps are on (`Date.now`). */
   now?: () => number;
 }
 
+/** What the surface is showing. Only a VRM persona shows `loading` and `failed`; a pose graph draws as its art arrives. */
+export type SurfaceStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'nogl';
+
+/** The words on screen, in one place so a test and a translator can find them. */
+export const SURFACE_TEXT = {
+  noAvatar: 'No avatar',
+  loading: 'Loading 3D model',
+  noModelTitle: 'No 3D model yet',
+  noModelBody: (name: string) => `Upload one in Settings → Personas → ${name} → Set up 3D character.`,
+  noGl: 'A 3D character needs hardware graphics on this display',
+  failedGeneric: 'Something went wrong loading the 3D model.',
+  failedTitle: (file: string) => `Couldn’t load ${file}`,
+  failedNetwork: 'The download stopped before the whole file arrived. The window tries again when the connection comes back.',
+  failedMissing: 'The server has no file for this model any more. Upload it again in the persona’s 3D setup.',
+  tryAgain: 'Try again',
+} as const;
+
 /** The feed's timestamps are `Date.now()` values; one instance, so the loop effect is stable. */
 const wallClock = () => Date.now();
 
-function defaultMakeDriver(character: ParsedCharacterConfig, canvas: HTMLCanvasElement): CharacterDriver | null {
+const importVrmEngine = (): Promise<VrmModule> => import('@kurisu/vrm');
+
+function defaultMakeDriver(character: ParsedCharacterConfig, canvas: HTMLCanvasElement, deps: MakeDriverDeps): CharacterDriver | null | Promise<CharacterDriver | null> {
   if (character.kind === 'pose_graph' && character.poseTree) return createPoseGraphDriver(canvas);
+  if (character.kind === 'vrm' && character.vrm?.model) {
+    // The canvas is keyed by kind below, so it leaves the document with this
+    // driver: its context may be released with it.
+    return deps.importVrm().then((m) => m.createVrmDriver(canvas, { releaseContextOnDispose: true }));
+  }
   return null;
 }
 
-/** Whether any driver here can draw this config. */
+/** Whether any driver here can draw this config: a pose graph with a tree, or a VRM persona with a model. */
 export function drawable(character: ParsedCharacterConfig | null): boolean {
-  return character?.kind === 'pose_graph' && character.poseTree !== null;
+  if (character?.kind === 'pose_graph') return character.poseTree !== null;
+  if (character?.kind === 'vrm') return !!character.vrm?.model;
+  return false;
 }
+
+/** `/character-assets/…` is the backend's; the page's own origin is `file://` in the packaged app. */
+function absoluteAssetUrl(url: string): string {
+  return /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `${config.apiBaseUrl}${url}`;
+}
+
+/** The model's file name as the user uploaded it, when the server recorded one. */
+function modelFileName(character: ParsedCharacterConfig | null): string {
+  const model = character?.vrm?.model as { filename?: unknown } | null | undefined;
+  return typeof model?.filename === 'string' && model.filename ? model.filename : 'the 3D model';
+}
+
+/**
+ * The sentence under "Couldn’t load …". Only a failure of the connection
+ * itself — `fetch` rejecting with a `TypeError`, or a body cut short — is
+ * promised a retry when the connection comes back; a refusal (401/403/5xx),
+ * an engine chunk that would not load or a renderer that would not start is
+ * not a network problem and is not described as one.
+ */
+export function failureBody(error: unknown): string {
+  if (error && typeof error === 'object') {
+    const e = error as { name?: string; message?: string; status?: number };
+    // By name, not `instanceof`: importing the class would carry the engine into this chunk.
+    if (e.name === 'VrmLoadError' && e.message) return e.message;
+    if (e.name === 'AssetRequestError' && e.status === 404) return SURFACE_TEXT.failedMissing;
+    if (e.name === 'DownloadInterruptedError' || error instanceof TypeError) return SURFACE_TEXT.failedNetwork;
+  }
+  return SURFACE_TEXT.failedGeneric;
+}
+
+const MB = 1_000_000;
+const mb = (bytes: number) => (bytes / MB).toFixed(1);
+
+/** Reports progress to React at most this often; a 60 MB body arrives in a thousand chunks. */
+const PROGRESS_INTERVAL_MS = 100;
+
+type NoDrag = React.CSSProperties & { WebkitAppRegion?: 'drag' | 'no-drag' };
 
 export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
   character,
+  personaName = 'this persona',
   active,
   receivesStimuli,
   retryToken = 0,
   makeDriver = defaultMakeDriver,
+  importVrm = importVrmEngine,
+  probe = supportsWebGL,
   now = wallClock,
 }) => {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -70,36 +163,86 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
   const loadFailedRef = useRef(false);
   const loadedRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<unknown>(null);
+  const [status, setStatus] = useState<SurfaceStatus>('idle');
+  const [progress, setProgress] = useState<{ received: number; total: number } | null>(null);
+  // Bumped when an asynchronously made driver arrives, so the load runs against it.
+  const [driverVersion, setDriverVersion] = useState(0);
+  // Bumped by "Try again" and by the connection coming back, when there is a driver to load again.
+  const [manualRetry, setManualRetry] = useState(0);
+  // Bumped by the same paths when there is no driver: the engine's chunk or the
+  // driver itself failed to arrive (a stale chunk after a redeploy 404s), and
+  // re-running the load would find nothing to load with.
+  const [engineAttempt, setEngineAttempt] = useState(0);
   const inputsRef = useRef({ active, receivesStimuli });
   inputsRef.current = { active, receivesStimuli };
+  // Read when a driver is made, not a reason to remake one: a host passing an
+  // inline function must not tear the stage down on every render.
+  const engineRef = useRef({ importVrm, probe });
+  engineRef.current = { importVrm, probe };
 
   const fingerprint = useMemo(() => characterFingerprint(character), [character]);
   const canDraw = drawable(character);
+  const kind = character?.kind ?? null;
+  const isVrm = kind === 'vrm';
 
   // One driver per mounted canvas; StrictMode's double mount makes two, each
-  // disposed by its own cleanup.
+  // disposed by its own cleanup. A VRM driver arrives after the engine's
+  // chunk does, and only if the display passed the probe first.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !character || !canDraw) return;
-    const driver = makeDriver(character, canvas);
-    driverRef.current = driver;
-    loadedRef.current = null;
-    loadFailedRef.current = false;
+    let cancelled = false;
+    let driver: CharacterDriver | null = null;
+    const adopt = (made: CharacterDriver | null) => {
+      if (cancelled) {
+        made?.dispose();
+        return;
+      }
+      driver = made;
+      driverRef.current = made;
+      loadedRef.current = null;
+      loadFailedRef.current = false;
+      setDriverVersion((v) => v + 1);
+    };
+    const refuse = (error: unknown) => {
+      if (cancelled) return;
+      loadFailedRef.current = true;
+      setLoadError(error);
+      setStatus('failed');
+      console.error('[CharacterSurface] Failed to start the character:', error);
+    };
+
+    const { importVrm: loadEngine, probe: canDraw3d } = engineRef.current;
+    if (character.kind === 'vrm' && !canDraw3d()) {
+      setStatus('nogl');
+    } else {
+      if (character.kind === 'vrm') setStatus('loading');
+      try {
+        const made = makeDriver(character, canvas, { importVrm: loadEngine });
+        if (made instanceof Promise) made.then(adopt, refuse);
+        else adopt(made);
+      } catch (error) {
+        refuse(error);
+      }
+    }
     return () => {
+      cancelled = true;
       abortRef.current?.abort();
       abortRef.current = null;
       driver?.dispose();
       driverRef.current = null;
       loadedRef.current = null;
+      setStatus('idle');
     };
     // The driver is remade only when the canvas is: a config change is a load, below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canDraw, makeDriver]);
+  }, [canDraw, kind, makeDriver, engineAttempt]);
 
   // Load when the config's content changes, and again after a failure once a
-  // session arrives. `retryToken` is in the deps so the effect runs on a bump;
-  // the guard makes a bump a no-op unless the last load failed.
+  // session arrives or the user asks. `retryToken` and `manualRetry` are in
+  // the deps so the effect runs on a bump; the guard makes a bump a no-op
+  // unless the last load failed.
   useEffect(() => {
     const driver = driverRef.current;
     if (!driver || !character) return;
@@ -111,13 +254,61 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
     loadedRef.current = fingerprint;
     loadFailedRef.current = false;
     setLoadError(null);
-    driver.load(character, { resolveAsset: fetchAuthedBytes, signal: controller.signal }).catch((error: unknown) => {
-      if (controller.signal.aborted) return;
-      loadFailedRef.current = true;
-      setLoadError(error instanceof Error ? error.message : String(error));
-      console.error('[CharacterSurface] Failed to load the character:', error);
-    });
-  }, [character, fingerprint, retryToken]);
+
+    const model = character.kind === 'vrm' ? character.vrm?.model ?? null : null;
+    let reportedAt = 0;
+    const onModelProgress = (received: number, total: number | null) => {
+      const t = Date.now();
+      const expected = total ?? model?.bytes ?? 0;
+      if (received < expected && t - reportedAt < PROGRESS_INTERVAL_MS) return;
+      reportedAt = t;
+      if (!controller.signal.aborted) setProgress({ received, total: expected });
+    };
+    if (character.kind === 'vrm') {
+      setStatus('loading');
+      setProgress(model ? { received: 0, total: model.bytes } : null);
+    }
+
+    const resolveAsset = (url: string) =>
+      fetchAuthedBytes(absoluteAssetUrl(url), { signal: controller.signal }, model && url === model.url ? onModelProgress : undefined);
+
+    driver.load(character, { resolveAsset, signal: controller.signal }).then(
+      () => {
+        if (controller.signal.aborted) return;
+        setStatus(character.kind === 'vrm' ? 'ready' : 'idle');
+      },
+      (error: unknown) => {
+        if (controller.signal.aborted) return;
+        loadFailedRef.current = true;
+        setLoadError(error);
+        if (character.kind === 'vrm') setStatus('failed');
+        console.error('[CharacterSurface] Failed to load the character:', error);
+      },
+    );
+  }, [character, fingerprint, retryToken, manualRetry, driverVersion]);
+
+  // Every retry path lands here: load again with the driver there is, or, if
+  // making the driver is what failed, make it again.
+  const retry = () => {
+    if (driverRef.current) setManualRetry((n) => n + 1);
+    else setEngineAttempt((n) => n + 1);
+  };
+  const retryRef = useRef(retry);
+  retryRef.current = retry;
+
+  // A session carrying a token arrived. The load effect retries a failed load
+  // by itself; a driver that never arrived needs making again.
+  useEffect(() => {
+    if (loadFailedRef.current && !driverRef.current) setEngineAttempt((n) => n + 1);
+  }, [retryToken]);
+
+  // A failed download tries again when the connection comes back.
+  useEffect(() => {
+    if (status !== 'failed' || typeof window === 'undefined') return;
+    const retry = () => retryRef.current();
+    window.addEventListener('online', retry);
+    return () => window.removeEventListener('online', retry);
+  }, [status]);
 
   // The frame loop: sample the feed, drive the driver. Refs, not state, so
   // nothing re-renders at frame rate.
@@ -174,23 +365,123 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
     });
     observer.observe(box);
     return () => observer.disconnect();
-  }, [canDraw]);
+  }, [canDraw, driverVersion]);
+
+  const noModel = isVrm && !character?.vrm?.model;
+  const backdrop = isVrm ? character?.vrm?.camera?.background ?? '#ffffff' : undefined;
+
+  const boxStyle: NoDrag = {
+    flex: 1,
+    minHeight: 0,
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    position: 'relative',
+    ...(isVrm
+      ? {
+          background: backdrop,
+          // The character window is a drag region; over a 3D stage that would
+          // swallow every pointer event, so this box opts out (the window
+          // keeps a drag strip along its top edge).
+          WebkitAppRegion: 'no-drag',
+        }
+      : {}),
+  };
+
+  const showCanvas = canDraw && status !== 'nogl';
 
   return (
-    <div
-      ref={boxRef}
-      data-testid="character-surface"
-      style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
-    >
-      {canDraw ? (
+    <div ref={boxRef} data-testid="character-surface" data-status={noModel ? 'no-model' : status} style={boxStyle}>
+      {showCanvas && (
         <canvas
+          // A 2D context and a WebGL one cannot share a canvas: a kind change is a new element.
+          key={kind ?? 'none'}
           ref={canvasRef}
-          style={{ display: 'block', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-          title={loadError ?? undefined}
+          style={
+            isVrm
+              ? { display: 'block', width: '100%', height: '100%' }
+              : { display: 'block', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }
+          }
+          title={!isVrm && loadError ? String((loadError as Error)?.message ?? loadError) : undefined}
         />
-      ) : (
-        <span style={{ color: 'rgba(0,0,0,0.3)', fontSize: 14 }}>No avatar</span>
+      )}
+
+      {noModel && (
+        <Notice icon={<ModelIcon />} title={SURFACE_TEXT.noModelTitle} body={SURFACE_TEXT.noModelBody(personaName)} />
+      )}
+
+      {isVrm && status === 'nogl' && <Notice icon={<ModelIcon />} title={SURFACE_TEXT.noGl} />}
+
+      {isVrm && !noModel && status === 'loading' && (
+        <Notice icon={<ModelIcon />} title={SURFACE_TEXT.loading} background={backdrop}>
+          <LinearProgress
+            variant={progress && progress.total > 0 ? 'determinate' : 'indeterminate'}
+            value={progress && progress.total > 0 ? Math.min(100, (progress.received / progress.total) * 100) : undefined}
+            sx={{ width: 180, borderRadius: 2, mt: 1 }}
+          />
+          {progress && progress.total > 0 && (
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, fontVariantNumeric: 'tabular-nums' }}>
+              {`${mb(progress.received)} of ${mb(progress.total)} MB`}
+            </Typography>
+          )}
+        </Notice>
+      )}
+
+      {isVrm && !noModel && status === 'failed' && (
+        <Notice
+          icon={<ErrorIcon color="error" />}
+          title={SURFACE_TEXT.failedTitle(modelFileName(character))}
+          body={failureBody(loadError)}
+          background={backdrop}
+        >
+          <Button size="small" variant="outlined" sx={{ mt: 1.5 }} onClick={retry}>
+            {SURFACE_TEXT.tryAgain}
+          </Button>
+        </Notice>
+      )}
+
+      {!canDraw && !isVrm && (
+        <span style={{ color: 'rgba(0,0,0,0.3)', fontSize: 14 }}>{SURFACE_TEXT.noAvatar}</span>
       )}
     </div>
   );
 };
+
+/** A centred message over the stage: an icon, a line, an optional sentence and whatever else. */
+const Notice: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  body?: string;
+  background?: string;
+  children?: React.ReactNode;
+}> = ({ icon, title, body, background, children }) => (
+  <Box
+    sx={{
+      position: 'absolute',
+      inset: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      textAlign: 'center',
+      px: 3,
+      gap: 0.5,
+      background: background ?? 'transparent',
+      color: 'text.secondary',
+      '& > svg': { fontSize: 32, opacity: 0.7 },
+    }}
+  >
+    {icon}
+    <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+      {title}
+    </Typography>
+    {body && (
+      <Typography variant="caption" sx={{ maxWidth: 280, lineHeight: 1.45 }}>
+        {body}
+      </Typography>
+    )}
+    {children}
+  </Box>
+);
