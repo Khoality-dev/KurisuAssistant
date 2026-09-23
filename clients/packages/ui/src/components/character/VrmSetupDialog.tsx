@@ -147,9 +147,13 @@ interface StepCardProps {
   children: React.ReactNode;
 }
 
-/** One step: a numbered header that says where it stands, and its choices when open. Outside the dialog so a re-render never remounts it mid-drag. */
+/**
+ * One step: a numbered header that says where it stands, and its choices when open. Outside the dialog so a re-render never remounts it mid-drag.
+ * `flexShrink: 0` because the steps column is a height-bounded flex column: with `overflow: hidden` a card's minimum height is 0, so on a short
+ * window the cards were squeezed and clipped their own content instead of the column scrolling (#299).
+ */
 const StepCard: React.FC<StepCardProps> = ({ n, title, summary, open, onToggle, children }) => (
-  <Paper variant="outlined" sx={{ borderColor: open ? 'primary.light' : 'divider', overflow: 'hidden' }}>
+  <Paper variant="outlined" sx={{ borderColor: open ? 'primary.light' : 'divider', overflow: 'hidden', flexShrink: 0 }}>
     <ButtonBase onClick={onToggle} sx={{ width: '100%', display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1.5, textAlign: 'left' }}>
       <Box sx={{
         width: 26, height: 26, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
