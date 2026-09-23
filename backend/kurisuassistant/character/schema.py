@@ -25,6 +25,11 @@ KINDS: frozenset[str] = frozenset({"pose_graph", "vrm"})
 # the renderer degrades a missing preset, the wire set does not shrink.
 VrmEmotion = Literal["neutral", "happy", "angry", "sad", "relaxed", "surprised"]
 
+# Moves every model can make without an uploaded clip: the renderer poses the
+# normalised rig itself. The editor offers them as the idle "now and then" moves
+# and as what a reaction plays.
+VrmMotion = Literal["wave", "nod", "think", "bow", "stretch", "look_around"]
+
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -67,6 +72,11 @@ class VrmReactionExpression(_Strict):
     hold_ms: int = Field(ge=0)
 
 
+class VrmReactionMotion(_Strict):
+    type: Literal["motion"]
+    motion: VrmMotion
+
+
 class VrmReaction(_Strict):
     id: str
     name: str = ""
@@ -75,7 +85,7 @@ class VrmReaction(_Strict):
     # ``type`` as false, which is the right failure for a condition this server
     # has never heard of.
     when: list[dict] = Field(default_factory=list)
-    play: Union[VrmReactionClip, VrmReactionExpression] = Field(discriminator="type")
+    play: Union[VrmReactionClip, VrmReactionExpression, VrmReactionMotion] = Field(discriminator="type")
     cooldown_ms: int = Field(default=4000, ge=0)
 
 
@@ -101,6 +111,10 @@ class VrmIdleSettings(_Strict):
     blink: BlinkTiming = Field(default_factory=BlinkTiming)
     look_at: Literal["camera", "drift", "off"] = "camera"
     idle_clip_ids: list[str] = Field(default_factory=list)
+    # Built-in moves in the same rotation as the idle clips. Absent means none:
+    # a config stored before the field existed keeps moving as it did. The
+    # desktop editor writes its "Natural" moves when it first saves the member.
+    idle_motions: list[VrmMotion] = Field(default_factory=list)
     # ``[min, max]`` of the pause between idle clips; the renderer draws a random
     # wait from it, so the two are bounded like every other timing here.
     idle_clip_interval_ms: tuple[Annotated[int, Field(ge=0)], Annotated[int, Field(ge=0)]] = (8000, 20000)

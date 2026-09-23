@@ -456,7 +456,50 @@ class TestKindAndMembers:
         assert vrm["idle"]["blink"]["blink_min_interval"] == 2000
         assert vrm["emotion"]["default_expression"] == "neutral"
         assert vrm["camera"]["target"] == "upper_body"
+        # Absent means none: the server adds no moves and no reactions of its own.
+        assert vrm["idle"]["idle_motions"] == []
         assert vrm["reactions"] == []
+
+    def test_a_vrm_body_replaces_the_whole_member(self, store):
+        """An omitted sub-member resets to its default: the body is the member, not a patch of it."""
+        full = {"kind": "vrm", "vrm": {"idle": {"idle_motions": ["nod"]}, "camera": {"target": "head"}}}
+        assert via_character(store.client, full).status_code == 200
+        assert via_character(store.client, {"kind": "vrm", "vrm": {"camera": {"target": "head"}}}).status_code == 200
+        vrm = store.persona.character_config["vrm"]
+        assert vrm["idle"]["idle_motions"] == []
+        assert vrm["camera"]["target"] == "head"
+
+    def test_the_editor_default_recipes_are_accepted_as_written(self, store):
+        reactions = [
+            {"id": "wave", "name": "Waves back when you wave", "when": [{"type": "gesture", "value": "wave"}],
+             "play": {"type": "motion", "motion": "wave"}, "cooldown_ms": 4000},
+            {"id": "greet", "name": "Smiles when you sit down", "when": [{"type": "face", "value": "*", "visible": True}],
+             "play": {"type": "expression", "expression": "happy", "weight": 1, "hold_ms": 2200}, "cooldown_ms": 4000},
+        ]
+        body = {"kind": "vrm", "vrm": {"idle": {"idle_motions": ["stretch", "look_around"]}, "reactions": reactions}}
+        assert via_character(store.client, body).status_code == 200
+        stored = store.persona.character_config["vrm"]
+        assert [r["id"] for r in stored["reactions"]] == ["wave", "greet"]
+        assert stored["idle"]["idle_motions"] == ["stretch", "look_around"]
+
+    def test_a_reaction_may_play_a_built_in_move(self, store):
+        reaction = {"id": "thumbs", "when": [{"type": "gesture", "value": "thumbs_up"}],
+                    "play": {"type": "motion", "motion": "nod"}}
+        response = via_character(store.client, {"kind": "vrm", "vrm": {"reactions": [reaction]}})
+        assert response.status_code == 200
+        assert store.persona.character_config["vrm"]["reactions"][0]["play"] == {"type": "motion", "motion": "nod"}
+        unknown = {**reaction, "play": {"type": "motion", "motion": "backflip"}}
+        assert via_character(store.client, {"kind": "vrm", "vrm": {"reactions": [unknown]}}).status_code == 422
+
+    @pytest.mark.parametrize("motions, status", [
+        ([], 200), (["wave", "nod", "think", "bow", "stretch", "look_around"], 200), (["moonwalk"], 422),
+    ])
+    def test_idle_motions_are_built_in_moves(self, store, motions, status):
+        body = {"kind": "vrm", "vrm": {"idle": {"idle_motions": motions}}}
+        assert via_character(store.client, body).status_code == status
+        if status == 200:
+            assert store.persona.character_config["vrm"]["idle"]["idle_motions"] == motions
+
 
     @WRITERS
     def test_server_owned_refs_in_a_body_are_ignored(self, store, write):
