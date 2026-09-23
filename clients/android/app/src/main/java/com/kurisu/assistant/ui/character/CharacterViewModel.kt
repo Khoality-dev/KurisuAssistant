@@ -6,7 +6,6 @@ import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.model.PoseTree
 import com.kurisu.assistant.data.model.VisionResultEvent
 import com.kurisu.assistant.data.remote.websocket.WebSocketManager
-import com.kurisu.assistant.data.repository.AssistantRepository
 import com.kurisu.assistant.data.repository.PersonaRepository
 import com.kurisu.assistant.domain.character.CharacterCompositor
 import com.kurisu.assistant.domain.character.CharacterConfigKind
@@ -45,7 +44,6 @@ class CharacterViewModel @Inject constructor(
     private val streamProcessor: ChatStreamProcessor,
     private val ttsQueueManager: TtsQueueManager,
     private val personaRepository: PersonaRepository,
-    private val assistantRepository: AssistantRepository,
     private val encryptedPreferences: EncryptedPreferences,
 ) : ViewModel() {
 
@@ -107,9 +105,10 @@ class CharacterViewModel @Inject constructor(
      *
      * This replaces a read of `savedStateHandle["agentId"]` against a route that
      * never carried an argument, so the id was always -1, the load never ran and
-     * the screen sat on "Loading character…" forever. A null [personaId] means the
-     * caller has no binding yet, so the assistant's default persona answers —
-     * the same persona the next message would go to.
+     * the screen sat on "Loading character…" forever. A null [personaId] is the
+     * assistant answering as itself (#302): it has no character, and the screen
+     * says so rather than borrowing the default persona's — the chat already
+     * resolves a new chat to its default persona before it gets here.
      */
     fun bindPersona(personaId: Int?) {
         if (personaId != null && personaId == boundPersonaId) return
@@ -117,11 +116,14 @@ class CharacterViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             try {
-                val resolvedId = personaId ?: assistantRepository.getAssistant().defaultPersonaId
-                if (resolvedId == null) {
-                    _state.update { it.copy(isLoading = false, error = "No persona is answering this chat yet.") }
+                if (personaId == null) {
+                    boundPersonaId = null
+                    _state.update {
+                        it.copy(isLoading = false, error = "The assistant is answering as itself, with no persona or character.")
+                    }
                     return@launch
                 }
+                val resolvedId: Int = personaId
                 boundPersonaId = resolvedId
 
                 loadCharacterConfig(personaRepository.getPersona(resolvedId).characterConfig)

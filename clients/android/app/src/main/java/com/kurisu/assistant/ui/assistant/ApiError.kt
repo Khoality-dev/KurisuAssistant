@@ -12,9 +12,8 @@ private val errorJson = Json { ignoreUnknownKeys = true; isLenient = true }
  * The message the user should read when a call fails.
  *
  * Several of the backend's rules are only expressible as a 4xx, and their text
- * is the whole explanation: "This is your only persona. Create another one
- * before deleting it.", "This is your default persona. Make another one the
- * default first.", "A disabled persona cannot be the default. Enable it first."
+ * is the whole explanation: "A disabled persona cannot be the default. Enable
+ * it first.", "A persona named 'Kurisu' already exists."
  * Retrofit turns those into an `HttpException` whose `message` is the useless
  * "HTTP 400 Bad Request", so without unwrapping `detail` the guards look like a
  * switch that silently refuses to move.

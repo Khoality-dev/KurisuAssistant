@@ -4,6 +4,8 @@ import com.kurisu.assistant.data.model.Assistant
 import com.kurisu.assistant.data.model.AssistantUpdate
 import com.kurisu.assistant.data.model.ModelInfo
 import com.kurisu.assistant.data.remote.api.KurisuApiService
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -27,6 +29,16 @@ class AssistantRepository @Inject constructor(
      * and several of these columns reject an explicit null.
      */
     suspend fun updateAssistant(data: AssistantUpdate): Assistant = api.updateAssistant(data)
+
+    /**
+     * New chats go to the assistant itself: `default_persona_id` set to null (#302).
+     *
+     * [AssistantUpdate] omits every null so a one-field patch cannot blank the
+     * rest of the row; this is the one patch that needs a null on the wire, so
+     * its body is built by hand.
+     */
+    suspend fun clearDefaultPersona(): Assistant =
+        api.patchAssistant(JsonObject(mapOf("default_persona_id" to JsonNull)))
 
     /** Models available to the assistant (and to sub-agents). */
     suspend fun listModels(): List<ModelInfo> = api.getModels().models

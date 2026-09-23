@@ -47,7 +47,10 @@ sealed class ChatModal {
 }
 
 data class ChatUiState(
-    /** The persona bound to THIS conversation — the one the header names. */
+    /**
+     * The persona bound to THIS conversation — the one the header names. Null is
+     * the assistant answering as itself: a persona is optional (#302).
+     */
     val persona: Persona? = null,
     /** The one assistant: model, tools, memory, wake word, default persona. */
     val assistant: Assistant? = null,
@@ -72,7 +75,16 @@ data class ChatUiState(
      * switch reads as temporary: this conversation moves, the default does not.
      */
     val defaultPersonaName: String?
-        get() = assistant?.defaultPersonaId?.let { id -> personas.find { it.id == id }?.name }
+        get() = defaultPersona?.name
+
+    /**
+     * Who a NEW conversation gets: the assistant's default persona while it is
+     * enabled, else nobody — the assistant itself. The server applies the same
+     * rule, and the conversations list must agree with it too, or New chat
+     * clears the wrong cached conversation.
+     */
+    val defaultPersona: Persona?
+        get() = assistant?.defaultPersonaId?.let { id -> personas.find { it.id == id && it.enabled } }
 }
 
 @HiltViewModel
@@ -92,6 +104,9 @@ class ChatViewModel @Inject constructor(
 
     companion object {
         private const val TAG = "ChatViewModel"
+
+        /** What the assistant is called when it answers as itself — the server's name for it. */
+        const val ASSISTANT_NAME = "Assistant"
     }
 
     private val _state = MutableStateFlow(ChatUiState())
@@ -197,11 +212,13 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Load the persona that answers by default, and its conversation.
+     * Load who answers by default, and their conversation.
      *
      * There is no local "selected persona": the assistant's `default_persona_id`
      * is the single source of truth, or two devices disagree about who answers.
-     * The wake word comes off the assistant too — it is a voice trigger, not a
+     * With no default — where every account starts — the assistant answers as
+     * itself, and there is no falling back to "the first persona" (#302). The
+     * wake word comes off the assistant too — it is a voice trigger, not a
      * persona picker.
      */
     private suspend fun loadPersona() {
@@ -210,20 +227,16 @@ class ChatViewModel @Inject constructor(
             voiceInteractionManager.setTriggerWord(assistant.triggerWord)
 
             val personas = personaRepository.listPersonas()
-            val persona = personas.find { it.id == assistant.defaultPersonaId }
-                ?: personas.firstOrNull { it.enabled }
+            _state.update { it.copy(assistant = assistant, personas = personas) }
+            val persona = _state.value.defaultPersona
+            _state.update { it.copy(persona = persona) }
+            coreState.setCurrentPersonaId(persona?.id)
 
-            _state.update { it.copy(assistant = assistant, personas = personas, persona = persona) }
-
-            if (persona != null) {
-                coreState.setCurrentPersonaId(persona.id)
-
-                val convId = personaRepository.getConversationIdForPersona(persona.id)
-                if (convId != null) {
-                    loadConversation(convId)
-                } else {
-                    _state.update { it.copy(messages = emptyList(), conversationId = null, hasMore = false) }
-                }
+            val convId = personaRepository.getConversationIdForPersona(persona?.id)
+            if (convId != null) {
+                loadConversation(convId)
+            } else {
+                _state.update { it.copy(messages = emptyList(), conversationId = null, hasMore = false) }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load persona/conversation", e)
@@ -234,19 +247,20 @@ class ChatViewModel @Inject constructor(
         val detail = conversationRepository.getConversation(id, 20, 0)
         _state.update { s ->
             // The server owns the binding, so a per-conversation override survives
-            // a reconnect, a process death and a second device. An unbound
-            // conversation keeps whoever is already in the header.
-            val bound = detail.personaId?.let { pid -> s.personas.find { it.id == pid } }
+            // a reconnect, a process death and a second device. A conversation
+            // bound to nobody — or to a persona since disabled — is the
+            // assistant's own (#302), and the header says so.
+            val bound = detail.personaId?.let { pid -> s.personas.find { it.id == pid && it.enabled } }
             s.copy(
                 messages = detail.messages,
                 conversationId = id,
                 hasMore = detail.hasMore,
                 isLoadingMore = false,
-                persona = bound ?: s.persona,
+                persona = bound,
             )
         }
         coreState.setConversationId(id)
-        _state.value.persona?.let { coreState.setCurrentPersonaId(it.id) }
+        coreState.setCurrentPersonaId(_state.value.persona?.id)
     }
 
     fun loadMoreMessages() {
@@ -321,22 +335,22 @@ class ChatViewModel @Inject constructor(
     fun clearCurrentConversation() {
         val personaId = _state.value.persona?.id
         viewModelScope.launch {
-            if (personaId != null) personaRepository.clearConversationIdForPersona(personaId)
+            personaRepository.clearConversationIdForPersona(personaId)
             _state.update { s ->
-                // A new chat opens with the assistant's default persona, silently.
-                // A per-conversation override belonged to the conversation that
+                // A new chat opens with the assistant's default persona, silently,
+                // or with the assistant itself when there is none (#302). A
+                // per-conversation override belonged to the conversation that
                 // just closed and must not follow the user into the next one.
-                val default = s.assistant?.defaultPersonaId?.let { id -> s.personas.find { it.id == id } }
                 s.copy(
                     messages = emptyList(),
                     conversationId = null,
                     hasMore = false,
-                    persona = default ?: s.persona,
+                    persona = s.defaultPersona,
                     commandFeedback = "Started a new conversation",
                 )
             }
             coreState.setConversationId(null)
-            _state.value.persona?.let { coreState.setCurrentPersonaId(it.id) }
+            coreState.setCurrentPersonaId(_state.value.persona?.id)
         }
     }
 
@@ -484,10 +498,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 loadConversation(conversationId)
-                val personaId = _state.value.persona?.id
-                if (personaId != null) {
-                    personaRepository.setConversationIdForPersona(personaId, conversationId)
-                }
+                personaRepository.setConversationIdForPersona(_state.value.persona?.id, conversationId)
                 _state.update { it.copy(modal = null) }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to resume conversation", e)
@@ -500,7 +511,8 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Rebind THIS conversation to [persona]. This conversation only.
+     * Rebind THIS conversation to [persona] — or, with null, hand it to the
+     * assistant itself (#302). This conversation only.
      *
      * The switch writes `persona_id` on the conversation, so it persists with no
      * message sent and survives a reconnect. It deliberately does not touch the
@@ -511,34 +523,35 @@ class ChatViewModel @Inject constructor(
      * The transcript does not change: past messages keep the persona that
      * actually produced them.
      */
-    fun switchPersona(persona: Persona) {
+    fun switchPersona(persona: Persona?) {
         val previous = _state.value.persona
         val convId = _state.value.conversationId
+        val answers = "${persona?.name ?: ASSISTANT_NAME} answers this chat"
 
         // The header must not lag a tap, so the swap is optimistic and reverted
         // if the PATCH fails.
         _state.update { it.copy(persona = persona, modal = null) }
-        coreState.setCurrentPersonaId(persona.id)
+        coreState.setCurrentPersonaId(persona?.id)
 
         if (convId == null) {
             // Nothing on the server to rebind yet — the first message will carry
             // this persona_id and create the conversation already bound.
-            _state.update { it.copy(commandFeedback = "${persona.name} answers this chat") }
+            _state.update { it.copy(commandFeedback = answers) }
             return
         }
 
         viewModelScope.launch {
             try {
-                conversationRepository.setConversationPersona(convId, persona.id)
-                personaRepository.setConversationIdForPersona(persona.id, convId)
-                _state.update { it.copy(commandFeedback = "${persona.name} answers this chat") }
+                conversationRepository.setConversationPersona(convId, persona?.id)
+                personaRepository.setConversationIdForPersona(persona?.id, convId)
+                _state.update { it.copy(commandFeedback = answers) }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to bind persona to conversation $convId", e)
                 _state.update { it.copy(
                     persona = previous,
                     commandFeedback = "Could not switch persona",
                 ) }
-                previous?.let { coreState.setCurrentPersonaId(it.id) }
+                coreState.setCurrentPersonaId(previous?.id)
             }
         }
     }
@@ -555,7 +568,11 @@ class ChatViewModel @Inject constructor(
                     text = text,
                     modelName = "",
                     conversationId = s.conversationId,
-                    personaId = s.persona?.id,
+                    // Only a chat that does not exist yet names who answers it:
+                    // an existing one is bound on the server (switches PATCH it),
+                    // and re-sending the header's persona every turn would rebind
+                    // the conversation to whatever the header happened to show.
+                    personaId = if (s.conversationId == null) s.persona?.id else null,
                     images = images,
                 )
             } catch (e: Exception) {
@@ -635,15 +652,18 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 conversationRepository.deleteConversation(convId)
-                val personaId = _state.value.persona?.id
-                if (personaId != null) personaRepository.clearConversationIdForPersona(personaId)
+                personaRepository.clearConversationIdForPersona(_state.value.persona?.id)
+                // What follows is a new chat, so it opens as one does: with the
+                // default persona, or the assistant itself when there is none.
                 _state.update { it.copy(
                     messages = emptyList(),
                     conversationId = null,
                     hasMore = false,
+                    persona = it.defaultPersona,
                     commandFeedback = "Conversation deleted",
                 ) }
                 coreState.setConversationId(null)
+                coreState.setCurrentPersonaId(_state.value.persona?.id)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to delete conversation $convId", e)
                 _state.update { it.copy(commandFeedback = "Could not delete the conversation") }

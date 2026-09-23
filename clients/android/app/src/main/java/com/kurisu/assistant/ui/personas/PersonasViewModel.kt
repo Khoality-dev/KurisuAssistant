@@ -169,6 +169,32 @@ class PersonasViewModel @Inject constructor(
         }
     }
 
+    /**
+     * New chats go to the assistant itself: no default persona (#302).
+     *
+     * Where every account starts, and what deleting or disabling the default
+     * returns to; this is the way back to it on purpose.
+     */
+    fun clearDefault() {
+        if (_state.value.defaultPersonaId == null) return
+        viewModelScope.launch {
+            _state.update { it.copy(isSaving = true) }
+            try {
+                val assistant = assistantRepository.clearDefaultPersona()
+                _state.update {
+                    it.copy(
+                        defaultPersonaId = assistant.defaultPersonaId,
+                        message = "New chats will use the assistant itself",
+                    )
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(message = apiErrorMessage(e, "Could not change the default")) }
+            } finally {
+                _state.update { it.copy(isSaving = false) }
+            }
+        }
+    }
+
     // ─── Editor ───────────────────────────────────────────────────────
 
     fun openNewPersona() = _state.update { it.copy(draft = PersonaDraft()) }
@@ -242,9 +268,9 @@ class PersonasViewModel @Inject constructor(
      * Enable or disable an existing persona, applied straight away.
      *
      * It goes through `PATCH /personas/{id}/enabled` rather than riding along in
-     * the save body because only that route refuses to disable the persona the
-     * assistant defaults to — patching `enabled` on the plain route would slip
-     * past the guard and leave new chats with nobody to answer them.
+     * the save body, so the switch takes effect without a save. Disabling the
+     * default persona is allowed: the server clears the default and new chats go
+     * to the assistant itself (#302), which the badge here mirrors at once.
      */
     fun setDraftEnabled(enabled: Boolean) {
         val draft = _state.value.draft ?: return
@@ -259,6 +285,9 @@ class PersonasViewModel @Inject constructor(
                 val updated = personaRepository.setPersonaEnabled(id, enabled)
                 editDraft { it.copy(enabled = updated.enabled) }
                 replaceInList(updated)
+                if (!updated.enabled && _state.value.defaultPersonaId == id) {
+                    _state.update { it.copy(defaultPersonaId = null) }
+                }
             } catch (e: Exception) {
                 _state.update { it.copy(message = apiErrorMessage(e, "Could not change that")) }
             } finally {
@@ -321,11 +350,10 @@ class PersonasViewModel @Inject constructor(
     fun dismissDelete() = _state.update { it.copy(deleting = null) }
 
     /**
-     * Delete a persona.
-     *
-     * The backend refuses to delete the last one — a user with none cannot start
-     * a chat — and returns the reason as the error detail. Surfacing it is the
-     * difference between an explained rule and a button that does nothing.
+     * Delete a persona — any of them, the last included: the assistant answers
+     * without one (#302). Deleting the default clears it on the server, and the
+     * reload below picks that up. A refusal's reason is the error detail, shown
+     * as the message rather than a button that does nothing.
      */
     fun deletePersona() {
         val persona = _state.value.deleting ?: return

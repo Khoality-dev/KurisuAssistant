@@ -58,8 +58,8 @@ interface KurisuApiService {
      *
      * The body is a raw [JsonObject] because this route reads it through
      * `model_fields_set`: an ABSENT key is left alone, while an explicit
-     * `"persona_id": null` UNBINDS the conversation so the next message falls
-     * back to the assistant's default persona. A typed DTO cannot tell those two
+     * `"persona_id": null` hands the conversation to the assistant itself
+     * (#302). A typed DTO cannot tell those two
      * apart. Build the body with [com.kurisu.assistant.data.repository.ConversationRepository].
      */
     @PATCH("/conversations/{id}")
@@ -134,6 +134,10 @@ interface KurisuApiService {
 
     @PATCH("/assistant")
     suspend fun updateAssistant(@Body data: AssistantUpdate): Assistant
+
+    /** A hand-built body, for the one patch that needs an explicit null. */
+    @PATCH("/assistant")
+    suspend fun patchAssistant(@Body body: JsonObject): Assistant
 
     // Personas — presentation. `/agents` is gone and is NOT aliased.
     @GET("/personas")

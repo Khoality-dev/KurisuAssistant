@@ -120,7 +120,8 @@ class ConversationsViewModel @Inject constructor(
             _state.update { it.copy(isLoading = true, error = null) }
             try {
                 // No row names a persona any more, so the persona list is read
-                // for one thing: which persona a new chat will take. The chat
+                // for one thing: who a new chat will get — the default persona
+                // while it is enabled, else the assistant itself (#302). The chat
                 // screen resolves it with this same rule, and the two must agree
                 // or `startNewChat` clears the wrong cached conversation.
                 val personas = personaRepository.listPersonas()
@@ -130,7 +131,7 @@ class ConversationsViewModel @Inject constructor(
                 val assistant = runCatching { assistantRepository.getAssistant() }.getOrNull()
                 triggerWord = assistant?.triggerWord
                 defaultPersonaId = assistant?.defaultPersonaId
-                    ?: personas.firstOrNull { it.enabled }?.id
+                    ?.takeIf { id -> personas.any { it.id == id && it.enabled } }
 
                 val rows = conversationRepository.getConversations().map { conv ->
                     ConversationRowUi(
@@ -187,12 +188,13 @@ class ConversationsViewModel @Inject constructor(
     /**
      * Start a new chat. There is no picker and no create call: the backend makes
      * the conversation when the first message arrives with a null
-     * `conversation_id`, and binds it to `assistants.default_persona_id`. All
-     * this does is make sure nothing stale is resumed instead.
+     * `conversation_id`, and binds it to `assistants.default_persona_id` — or
+     * leaves it to the assistant itself when there is none (#302). All this does
+     * is make sure nothing stale is resumed instead.
      */
     fun startNewChat(onReady: () -> Unit = {}) {
         viewModelScope.launch {
-            defaultPersonaId?.let { personaRepository.clearConversationIdForPersona(it) }
+            personaRepository.clearConversationIdForPersona(defaultPersonaId)
             coreState.setConversationId(null)
             // Navigating before the clear lands would let the chat's own load
             // read the stale cached id and resume the previous conversation, so
