@@ -108,7 +108,10 @@ test.describe('settings', () => {
     await expect(page.getByLabel('Wake word')).toHaveValue('', { timeout: 10_000 });
 
     await page.getByText('Personas', { exact: true }).first().click();
-    await page.getByText('Kurisu', { exact: true }).first().click();
+    // The card's character line, not the name: "Kurisu" is on the chat header too.
+    const card = page.getByText('3D model · none uploaded');
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    await card.click();
     await page.getByRole('button', { name: /Set up 3D character/ }).click();
     await expect(page.getByText('Drop a .vrm file here')).toBeVisible({ timeout: 10_000 });
 
