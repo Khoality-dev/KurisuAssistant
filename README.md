@@ -32,7 +32,7 @@ You need a Kurisu Assistant server URL and an account. If someone else hosts the
 2. Open the app and enter the complete server URL, including `http://` or `https://`.
 3. On a fresh self-hosted server, register in the app, then ask the server operator to activate your account before signing in.
 4. On desktop, open **Settings → Assistant**; on Android, open **Assistant** from the drawer. Select a model. The first message fails until a model is selected.
-5. Keep the default persona or create one using the client-specific guide, then start chatting. Grant microphone or camera permission only when you want those features.
+5. Start chatting — the assistant answers as itself — or first create a persona using the client-specific guide. Grant microphone or camera permission only when you want those features.
 
 On a physical Android phone, `localhost` means the phone itself. Use the server computer's LAN address or public hostname instead.
 
@@ -90,7 +90,7 @@ For backup, restore, updates, and removal, see [server operations](backend/docs/
 
 After signing in, configure at least one model provider under **Settings → Account**. Both clients support Ollama, Google Gemini, NVIDIA NIM and Poe; enter a provider's API key there and its models appear in the model pickers.
 
-Your account already has one assistant and one persona. Select the assistant's model, and optionally its tools, memory and voice wake word - those belong to the assistant, so they do not change when you switch persona. Then give the persona (or a new one) a personality, voice and avatar. A new conversation silently uses your default persona; the chat header switches persona for one conversation.
+Your account already has one assistant and no persona. Select the assistant's model, and optionally its tools, memory and voice wake word - those belong to the assistant, so they do not change when you switch persona. Personas are optional: create one to give the assistant a name, personality, voice and avatar, and make it the default if new conversations should use it. Without a default, a new conversation is answered by the assistant itself; the chat header switches persona for one conversation.
 
 For voice conversations, select an ASR language/model and TTS backend, then enable **TTS Auto-Play**. Enable **Always Listen** only when you want the microphone kept active for trigger words or dictation. Available models and voices depend on the services installed on the server.
 

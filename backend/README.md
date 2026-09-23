@@ -5,7 +5,7 @@ The API server behind the [desktop](../clients/desktop/) and [Android](../client
 ## Features
 
 - **Voice Conversations** — Clients run Silero VAD and send audio; the server transcribes it and answers with streamed text and TTS (GPT-SoVITS or viXTTS)
-- **One Assistant, Many Personas** — One assistant per account owns the model, tools, memory and voice wake word; personas own the name, prompt, voice and face, and a conversation binds to one. Task-only sub-agents with their own models can be delegated to mid-answer
+- **One Assistant, Many Personas** — One assistant per account owns the model, tools, memory and voice wake word; personas own the name, prompt, voice and face, and are optional: a conversation binds to one, or the assistant answers as itself. Task-only sub-agents with their own models can be delegated to mid-answer
 - **Assistant Memory** — Idle conversations are consolidated into one persistent memory document per account, shared by every persona and injected into later requests
 - **Rolling Context Compaction** — Long conversations are summarized in place once they approach the model's context window
 - **Vision Pipeline** — Face recognition (InsightFace) and gesture detection (YOLOv8-Pose + MediaPipe Hands) from client camera frames

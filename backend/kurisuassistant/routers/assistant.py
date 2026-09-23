@@ -7,9 +7,9 @@ memory) plus two things that are deliberately not per-persona:
 
 * ``trigger_word`` is a voice wake word. Saying it wakes the assistant; the
   conversation's bound persona answers. It never selects a persona.
-* ``default_persona_id`` is who answers in a conversation that has not been bound
-  to someone else. A new conversation uses it silently — there is no picker on
-  new-chat and no fallback if it is unset.
+* ``default_persona_id`` is who answers in a new conversation. Null — where every
+  account starts — means the assistant answers as itself; a persona is optional
+  (#302).
 """
 
 import logging

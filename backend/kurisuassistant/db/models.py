@@ -42,10 +42,11 @@ class Conversation(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     title = Column(Text, default='New conversation')
-    # Persona bound to this conversation — who answers. Null = not yet bound; the next
-    # incoming message binds it to the user's default persona (or an explicit override)
-    # and persists it. There is no trigger-word routing here: the trigger word wakes the
-    # assistant, it does not choose the voice.
+    # Persona bound to this conversation — who answers. Null = the assistant itself
+    # (#302). A conversation nothing has answered yet takes the user's default persona
+    # (or an explicit override) at its first message; one already answered keeps what it
+    # has. There is no trigger-word routing here: the trigger word wakes the assistant,
+    # it does not choose the voice.
     persona_id = Column(Integer, ForeignKey('personas.id', ondelete='SET NULL'), nullable=True)
     compacted_context = Column(Text, nullable=False, default="", server_default="")
     compacted_up_to_id = Column(Integer, nullable=False, default=0, server_default="0")
@@ -183,9 +184,9 @@ class Assistant(Base):
     # persona answers. It does not select a persona.
     trigger_word = Column(String, nullable=True)
 
-    # Persona used for new conversations, and by anything the server creates on the
-    # user's behalf (auto-compaction). SET NULL so deleting a persona cannot orphan
-    # the row; callers fall back to any enabled persona.
+    # Persona used for new conversations. Null = the assistant answers as itself
+    # (#302), which is what a new account starts with and what deleting or
+    # disabling the default returns to.
     default_persona_id = Column(
         Integer, ForeignKey('personas.id', ondelete='SET NULL'), nullable=True
     )

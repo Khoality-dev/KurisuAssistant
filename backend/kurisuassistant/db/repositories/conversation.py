@@ -140,8 +140,8 @@ class ConversationRepository(BaseRepository[Conversation]):
     def update_timestamp(self, conversation: Conversation) -> Conversation:
         return self.update(conversation, updated_at=datetime.utcnow())
 
-    def update_persona(self, conversation: Conversation, persona_id: int) -> Conversation:
-        """Persist the persona bound to a conversation (one-time at first message)."""
+    def update_persona(self, conversation: Conversation, persona_id: Optional[int]) -> Conversation:
+        """Persist who answers in a conversation; None is the assistant itself."""
         return self.update(conversation, persona_id=persona_id)
 
     def update_compacted_context(

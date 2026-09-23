@@ -221,7 +221,7 @@ the history list while the watermark it wrote (`0`) trimmed nothing (#99).
 ```
 
 `code` is a string, not an HTTP status. Emitted values: `INTERNAL_ERROR` (with a
-log reference in the message), `QUEUE_FULL`, `NO_PERSONAS`, `NO_MODEL_SELECTED`,
+log reference in the message), `QUEUE_FULL`, `NO_MODEL_SELECTED`,
 `PROVIDER_NOT_CONFIGURED`, `NO_SUMMARY_MODEL`, `COMPACT_EMPTY`. `CANCELLED`, `TIMEOUT` and `UNAUTHORIZED` are
 declared on the dataclass.
 
@@ -276,9 +276,11 @@ checked first precisely so that a message nobody can answer leaves no conversati
 behind.
 
 `persona_id` is an **optional per-turn override**. Omit it on an ordinary message:
-a new conversation silently adopts `assistants.default_persona_id` and an existing
-one keeps its binding. Sending it rebinds the conversation, and the binding is
-persisted. The old, ignored `agent_id` field is **not** accepted — a client that
+a conversation nothing has answered yet adopts `assistants.default_persona_id`, and
+one already answered keeps its binding — with none, the assistant answers as itself
+and its chunks carry `persona_id: null` and the name `Assistant` (#302).
+`NO_PERSONAS` is no longer sent: a persona is optional. Sending `persona_id`
+rebinds the conversation, and the binding is persisted. The old, ignored `agent_id` field is **not** accepted — a client that
 still sends it is simply ignored, as before.
 
 `model_name` is only a fallback: `assistants.model_name` wins when it is set. Both

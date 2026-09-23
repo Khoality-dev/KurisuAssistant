@@ -25,8 +25,8 @@ class ConversationUpdate(BaseModel):
     """Request body for PATCH /conversations/{id}.
 
     Both fields are optional and read through ``model_fields_set``. Sending
-    ``persona_id: null`` unbinds the conversation, so the next message falls back
-    to the assistant's default persona.
+    ``persona_id: null`` hands the conversation to the assistant itself (#302);
+    the default persona only ever applies to a conversation nothing has answered.
     """
     title: Optional[str] = None
     persona_id: Optional[int] = None

@@ -273,7 +273,7 @@ class ErrorEvent(BaseEvent):
     """
     type: EventType = field(default=EventType.ERROR)
     error: str = ""
-    # Emitted: INTERNAL_ERROR, QUEUE_FULL, NO_PERSONAS, NO_MODEL_SELECTED,
+    # Emitted: INTERNAL_ERROR, QUEUE_FULL, NO_MODEL_SELECTED,
     # PROVIDER_NOT_CONFIGURED, NO_SUMMARY_MODEL, COMPACT_EMPTY. Declared but not emitted here: CANCELLED,
     # TIMEOUT, UNAUTHORIZED. Keep this list and backend/docs/websocket.md in step.
     code: str = "INTERNAL_ERROR"

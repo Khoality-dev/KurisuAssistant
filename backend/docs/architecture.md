@@ -68,8 +68,8 @@ core/
   http.py                the shared httpx.AsyncClient for outbound calls
   paths.py               DATA_DIR, resolved from the package location, not from
                          the environment
-  accounts.py            provision_user(): the assistant row + first persona an
-                         account needs before it can chat
+  accounts.py            provision_user(): the assistant row an account needs
+                         before it can chat (no persona: they are optional, #302)
 
 routers/                 one module per surface, all mounted in main.py
   auth, users, version   accounts, profile, protocol handshake
@@ -114,7 +114,8 @@ agents/
   main.py                MainAgent: the assistant speaking as a persona; streams
                          to the user and runs the tool loop
   sub.py                 SubAgent and the adapter exposing one as a tool
-  selection.py           pick_persona(): override → default → first enabled, by id
+  selection.py           pick_persona(): override → default (unanswered chats
+                         only) → the assistant itself
 
 tools/
   base.py, registry.py   BaseTool and the global registry
@@ -151,8 +152,9 @@ utils/                   prompt assembly, image storage, memory consolidation,
 2. `ChatSessionHandler._setup_conversation` resolves or creates the conversation
    and reads the user's preferences, including their tool policies.
 3. A persona is resolved and persisted to `conversations.persona_id`: an explicit
-   override (`chat_request.persona_id`, or the binding already stored) → the
-   assistant's `default_persona_id` → the first enabled persona by id. Nothing
+   override (`chat_request.persona_id`, or the binding already stored) → for a
+   conversation nothing has answered yet, the assistant's `default_persona_id` →
+   the assistant itself, with no persona (#302). Nothing
    scans for a trigger word and nothing is picked at random; the trigger word is a
    voice wake word on the assistant and selects nothing. The write happens on a
    rebind too, so a per-turn override survives to the next message.

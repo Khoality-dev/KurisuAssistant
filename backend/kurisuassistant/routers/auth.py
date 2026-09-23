@@ -229,10 +229,10 @@ async def register(request: Request, form_data: OAuth2PasswordRequestForm = Depe
         user = UserRepository(session).create_user(
             form_data.username, hash_password(form_data.password),
         )
-        # In the same transaction as the account itself: an assistant row and a
-        # first persona are what make the account able to chat at all, and a user
-        # who lands halfway through has no way to create either. Rolling the whole
-        # registration back is recoverable — they can register again.
+        # In the same transaction as the account itself: the assistant row is what
+        # makes the account able to chat at all, and a user who lands halfway
+        # through has no way to create it. Rolling the whole registration back is
+        # recoverable — they can register again. No persona is made (#302).
         provision_user(session, user)
         return user.username
 
