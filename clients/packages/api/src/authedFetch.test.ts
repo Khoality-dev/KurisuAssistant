@@ -113,6 +113,32 @@ describe('authedFetch', () => {
     expect(refresher).not.toHaveBeenCalled();
   });
 
+  it('fetches a root-relative path from the backend, not from the page (#298)', async () => {
+    // What the server's refs hold — `vrm.model.url` is `/character-assets/{id}/vrm/model`.
+    // Fetched as-is it resolves against the page: `file://` in the packaged app,
+    // where it fails with "Failed to fetch" and never reaches the server.
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(respond(200));
+
+    await fetchAuthedBytes('/character-assets/23/vrm/model');
+
+    expect(fetchMock.mock.calls[0][0]).toBe(`${BACKEND}/character-assets/23/vrm/model`);
+    expect(authorizationOf(fetchMock.mock.calls[0]).get('Authorization')).toBe('Bearer stale');
+  });
+
+  it('retries a root-relative path at the backend too', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(respond(401))
+      .mockResolvedValueOnce(respond(200));
+    configureAuthedFetch({ refreshAccessToken: async () => 'fresh' });
+
+    await fetchAuthedBytes('/character-assets/23/vrma/abc12345');
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      `${BACKEND}/character-assets/23/vrma/abc12345`,
+      `${BACKEND}/character-assets/23/vrma/abc12345`,
+    ]);
+  });
+
   it('treats a root-relative path as the backend, and a lookalike host as foreign', () => {
     expect(isBackendOrigin('/character-assets/1/p1/base')).toBe(true);
     expect(isBackendOrigin(URL_UNDER_TEST)).toBe(true);

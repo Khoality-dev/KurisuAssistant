@@ -267,9 +267,9 @@ describe('CharacterSurface with a VRM persona', () => {
     expect(importVrm).toHaveBeenCalledTimes(1);
     expect(created).toHaveLength(1);
     expect(created[0].loads).toHaveLength(1);
-    // Root-relative in the config; the backend's origin on the wire, not the page's.
-    expect(fetchMock.mock.calls[0][0]).toMatch(/^.+\/character-assets\/1\/vrm\/model$/);
-    expect(fetchMock.mock.calls[0][0]).not.toBe(MODEL.url);
+    // The ref as stored: fetchAuthedBytes places a root-relative path on the
+    // backend for every caller (authedFetch.test.ts, #298).
+    expect(fetchMock.mock.calls[0][0]).toBe(MODEL.url);
   });
 
   it('while the model downloads, says how far it has got', async () => {
