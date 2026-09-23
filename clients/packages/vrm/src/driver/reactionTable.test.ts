@@ -124,9 +124,22 @@ describe('matchReactions', () => {
     expect(res.fired?.id).toBe('a');
   });
 
+  it('reads a face named * as any face: the first to arrive and the last to go', () => {
+    const anyone = reaction('any', [{ type: 'face', value: '*', visible: true }]);
+    const nobody = reaction('none', [{ type: 'face', value: '*', visible: false }]);
+    let res = matchReactions([anyone, nobody], { ...QUIET, faces: ['Unknown'] }, 16, primed([anyone, nobody]));
+    expect(res.fired?.id).toBe('any');
+    res = matchReactions([anyone, nobody], { ...QUIET, faces: ['Unknown', 'Khoa'] }, 32, res.timers);
+    expect(res.fired).toBeNull();
+    res = matchReactions([anyone, nobody], { ...QUIET, faces: ['Khoa'] }, 48, res.timers);
+    expect(res.fired).toBeNull();
+    res = matchReactions([anyone, nobody], QUIET, 64, res.timers);
+    expect(res.fired?.id).toBe('none');
+  });
+
   it('never fires more often than what it plays lasts, even with cooldown_ms 0', () => {
     const clip = reaction('c', [{ type: 'random', min_interval_ms: 0, max_interval_ms: 0 }], 0, { type: 'clip', clip_id: 'x' });
-    const minCooldownMs = (r: VrmReaction) => (r.play.type === 'clip' ? 500 : r.play.hold_ms ?? 0);
+    const minCooldownMs = (r: VrmReaction) => (r.play.type === 'clip' ? 500 : r.play.type === 'expression' ? r.play.hold_ms ?? 0 : 0);
     let timers = createReactionTimers();
     let fires = 0;
     for (let t = 16; t <= 1600; t += 16) {

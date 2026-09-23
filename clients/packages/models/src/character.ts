@@ -64,7 +64,8 @@ export interface GestureCondition {
 /** Face condition — fires when a specific face is or isn't visible via camera */
 export interface FaceCondition {
   type: 'face';
-  value: string;   // face identity name
+  /** A face identity name, `"Unknown"` for a stranger, or `"*"` for any face (VRM reactions). */
+  value: string;
   visible: boolean; // true = must be visible, false = must not be visible
 }
 
@@ -196,14 +197,24 @@ export interface VrmClipRef {
   loop: boolean;
 }
 
+/**
+ * Moves every VRM model can make with no uploaded clip: the renderer poses the
+ * normalised rig itself. Idle "now and then" moves, and what a reaction plays.
+ */
+export type VrmMotion = 'wave' | 'nod' | 'think' | 'bow' | 'stretch' | 'look_around';
+export const VRM_MOTIONS: readonly VrmMotion[] = ['wave', 'nod', 'think', 'bow', 'stretch', 'look_around'];
+
+export type VrmReactionPlay =
+  | { type: 'clip'; clip_id: string; crossfade_ms?: number }
+  | { type: 'expression'; expression: VrmEmotion; weight: number; hold_ms: number }
+  | { type: 'motion'; motion: VrmMotion };
+
 export interface VrmReaction {
   id: string;
   name: string;
   /** The same condition objects the 2D graph uses, AND-ed; first match wins. */
   when: TransitionCondition[];
-  play:
-    | { type: 'clip'; clip_id: string; crossfade_ms?: number }
-    | { type: 'expression'; expression: VrmEmotion; weight: number; hold_ms: number };
+  play: VrmReactionPlay;
   cooldown_ms: number;  // default 4000
 }
 
@@ -217,6 +228,13 @@ export interface VrmIdleSettings {
   blink: BlinkTiming;
   look_at: 'camera' | 'drift' | 'off';
   idle_clip_ids: string[];          // [] = procedural only
+  /**
+   * Built-in moves in the same rotation as the idle clips. Absent means none —
+   * a config stored before the field existed moves as it always did, and the
+   * server adds none of its own; the editor writes its starting set
+   * (`vrmSetup.ts` `defaultVrmSettings`) when it first saves the member.
+   */
+  idle_motions?: VrmMotion[];
   idle_clip_interval_ms: [number, number];
 }
 
@@ -236,6 +254,11 @@ export interface VrmCamera {
   background: string;               // '#ffffff'
 }
 
+/**
+ * The `vrm` member. A saved body replaces it whole (bar the server-owned
+ * `model` and `clips`): a sub-member left out resets to the server's default,
+ * so a writer sends everything it wants kept.
+ */
 export interface VrmSettings {
   model: VrmAssetRef | null;        // null until the first upload
   clips: VrmClipRef[];

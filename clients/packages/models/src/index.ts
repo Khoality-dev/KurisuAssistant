@@ -17,3 +17,4 @@ export * from './speech';
 export * from './speechClock';
 export * from './types';
 export * from './versionParity';
+export * from './vrmSetup';

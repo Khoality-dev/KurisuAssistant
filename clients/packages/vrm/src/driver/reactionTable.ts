@@ -14,7 +14,8 @@
  *   it ends. A reaction stays where it is, so the same conditions are read here
  *   as *edges*: `thinking: v` holds on the frame `isThinking` becomes `v`, and
  *   `face` on the frame the named face appears (`visible: true`) or goes
- *   (`visible: false`). The first frame seen only establishes the levels — a
+ *   (`visible: false`); a face named `*` is any face, so it holds when the
+ *   first face appears and when the last one goes. The first frame seen only establishes the levels — a
  *   resting `thinking: false` reaction must not fire at startup — while a
  *   gesture or a due timer may fire from the first frame on.
  * - The 2D engine arms every `random` timer of a node's outgoing transitions
@@ -84,8 +85,9 @@ function conditionHolds(
       return inputs.gestures.includes(c.value);
     case 'face': {
       if (!prev) return false;
-      const has = inputs.faces.includes(c.value);
-      const had = prev.faces.includes(c.value);
+      // `*` is any face at all — "smiles when you sit down" — named or not.
+      const has = c.value === '*' ? inputs.faces.length > 0 : inputs.faces.includes(c.value);
+      const had = c.value === '*' ? prev.faces.length > 0 : prev.faces.includes(c.value);
       return c.visible ? has && !had : !has && had;
     }
     default:

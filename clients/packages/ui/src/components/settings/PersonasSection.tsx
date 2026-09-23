@@ -26,15 +26,67 @@ import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { usePersonaStore } from '@kurisu/state';
 import { storage } from '@kurisu/api';
 import { parseCharacterConfig, type Persona } from '@kurisu/models';
+import {
+  AccountTree as GraphIcon,
+  Animation as AnimationIcon,
+  InfoOutlined as InfoIcon,
+  ViewInAr as ModelIcon,
+} from '@mui/icons-material';
 import { ResourceCard } from './ResourceCard';
 import { PersonaEditDialog } from './PersonaEditDialog';
+import { mb, modelFilename } from '../character/vrmSetupText';
 
-/** The card's one word for the character: which system the persona shows, if any. */
-function characterLabel(config: Persona['character_config']): string | null {
+/** The card's line for the character: which system the persona shows, and what it has. */
+export function characterLabel(config: Persona['character_config']): string {
   const parsed = parseCharacterConfig(config);
-  if (!parsed) return null;
-  if (parsed.kind === 'vrm') return '3D model';
-  return parsed.poseTree ? 'pose graph' : null;
+  if (!parsed) return 'No character';
+  if (parsed.kind === 'vrm') {
+    const model = parsed.vrm?.model;
+    return model ? `3D model · ${modelFilename(model)}` : '3D model · none uploaded';
+  }
+  const poses = parsed.poseTree?.nodes?.length ?? 0;
+  return poses ? `2D pose graph · ${poses} pose${poses === 1 ? '' : 's'}` : 'No character';
+}
+
+export interface DeletedFileLine {
+  kind: 'model' | 'clips' | 'graph' | 'none';
+  text: string;
+  size: string;
+}
+
+/**
+ * What deleting a persona takes with it, listed before it goes. Both members
+ * count whichever one shows: switching kinds removes nothing, so a persona can
+ * hold a model and a pose graph at once. `vrmBytes` is the server's own sum
+ * (`GET /character-assets/usage`) when it answered.
+ */
+export function deletedFiles(config: Persona['character_config'], vrmBytes?: number): DeletedFileLine[] {
+  const parsed = parseCharacterConfig(config);
+  const lines: DeletedFileLine[] = [];
+  const model = parsed?.vrm?.model;
+  const clips = parsed?.vrm?.clips ?? [];
+  if (model) {
+    const size = clips.length ? model.bytes : vrmBytes ?? model.bytes;
+    lines.push({ kind: 'model', text: `3D model · ${modelFilename(model)}`, size: mb(size) });
+  }
+  if (clips.length) {
+    const clipBytes = clips.reduce((sum, c) => sum + (c.bytes || 0), 0);
+    lines.push({ kind: 'clips', text: `${clips.length} of your own animation${clips.length === 1 ? '' : 's'}`, size: mb(clipBytes) });
+  }
+  const tree = parsed?.poseTree;
+  if (tree?.nodes?.length) {
+    let images = 0;
+    for (const n of tree.nodes) {
+      const pc = n.pose_config;
+      if (!pc) continue;
+      if (pc.base_image_url) images++;
+      images += (pc.left_eye?.patches?.length ?? 0) + (pc.right_eye?.patches?.length ?? 0) + (pc.mouth?.patches?.length ?? 0);
+    }
+    const videos = (tree.edges ?? []).reduce((sum, e) => sum + (e.transitions ?? []).reduce((t, x) => t + (x.video_urls?.length ?? 0), 0), 0);
+    lines.push({ kind: 'graph', text: `Pose graph · ${images} image${images === 1 ? '' : 's'}, ${videos} video${videos === 1 ? '' : 's'}`, size: '' });
+  }
+  if (!lines.length) lines.push({ kind: 'none', text: 'No character files', size: '' });
+  return lines;
 }
 
 /**
@@ -60,6 +112,15 @@ export const PersonasSection: React.FC = () => {
   const [editing, setEditing] = useState<Persona | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Persona | null>(null);
   const [defaultPersonaId, setDefaultPersonaId] = useState<number | null>(null);
+  /** The server's per-persona 3D bytes, for the delete confirm; absent if it did not answer. */
+  const [vrmBytes, setVrmBytes] = useState<Record<number, number>>({});
+
+  useEffect(() => {
+    if (!deleteTarget) return;
+    apiClient.getCharacterUsage()
+      .then((usage) => setVrmBytes(Object.fromEntries(usage.per_persona.map((p) => [p.persona_id, p.bytes]))))
+      .catch(() => setVrmBytes({}));
+  }, [deleteTarget]);
 
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -146,7 +207,7 @@ export const PersonasSection: React.FC = () => {
     try {
       await apiClient.deletePersona(deleteTarget.id);
       storage.clearPersonaConversationId(deleteTarget.id);
-      flash(`Persona "${deleteTarget.name}" deleted.`);
+      flash(`${deleteTarget.name} and all of its character files were deleted.`);
       setDeleteTarget(null);
       await loadPersonas();
     } catch (err: any) {
@@ -310,17 +371,29 @@ export const PersonasSection: React.FC = () => {
         onError={setError}
       />
 
-      <Dialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)}>
-        <DialogTitle>Delete persona</DialogTitle>
+      <Dialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Delete {deleteTarget?.name}?</DialogTitle>
         <DialogContent>
-          <Typography>
-            Delete "{deleteTarget?.name}"? This cannot be undone. Conversations it answered stay,
-            unbound — the next message in one falls back to your default persona.
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Past conversations keep their messages — the next message in one falls back to your
+            default persona. Everything below is deleted from the server. This cannot be undone.
           </Typography>
+          <Paper variant="outlined" sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {deleteTarget && deletedFiles(deleteTarget.character_config, vrmBytes[deleteTarget.id]).map((line) => (
+              <Box key={line.text} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {line.kind === 'model' && <ModelIcon fontSize="small" color="error" />}
+                {line.kind === 'clips' && <AnimationIcon fontSize="small" color="error" />}
+                {line.kind === 'graph' && <GraphIcon fontSize="small" color="error" />}
+                {line.kind === 'none' && <InfoIcon fontSize="small" color="disabled" />}
+                <Typography variant="body2" sx={{ flex: 1 }}>{line.text}</Typography>
+                <Typography variant="caption" color="text.secondary">{line.size}</Typography>
+              </Box>
+            ))}
+          </Paper>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
-          <Button variant="contained" color="error" onClick={handleDelete}>Delete</Button>
+          <Button variant="contained" color="error" onClick={handleDelete}>Delete persona</Button>
         </DialogActions>
       </Dialog>
     </Box>

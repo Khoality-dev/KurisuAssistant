@@ -327,4 +327,146 @@ describe('the VRM driver', () => {
     const chest = h.vrm().humanoid.getNormalizedBoneNode('chest')!;
     expect(Number.isFinite(chest.rotation.x)).toBe(true);
   });
+
+  it('plays a built-in wave: the right arm rises, then goes back to the lowered pose', async () => {
+    await clearModelCache();
+    const h = harness(settings({
+      reactions: [{ id: 'wave', name: 'wave back', when: [{ type: 'gesture', value: 'wave' }], play: { type: 'motion', motion: 'wave' }, cooldown_ms: 0 }],
+    }));
+    await h.driver.load(h.config, h.deps());
+    const upper = h.vrm().humanoid.getNormalizedBoneNode('rightUpperArm')!;
+    const hand = h.vrm().humanoid.getNormalizedBoneNode('rightHand')!;
+    h.tick();
+    expect(upper.rotation.z).toBeCloseTo(ARM_DROP_RAD, 5);
+    h.tick({ gestures: ['wave'] });
+    expect(h.driver.snapshot().motion).toBe('wave');
+    for (let i = 0; i < 60; i++) h.tick(); // ~1 s in: full weight
+    expect(worldY(hand)).toBeGreaterThan(worldY(upper));
+    for (let i = 0; i < 100; i++) h.tick();
+    expect(h.driver.snapshot().motion).toBeNull();
+    expect(upper.rotation.z).toBeCloseTo(ARM_DROP_RAD, 5);
+  });
+
+  it('leaves a bone a clip is animating to the clip, even mid-move', async () => {
+    await clearModelCache();
+    const vrm = settings({
+      clips: [WAVE_CLIP],
+      reactions: [{ id: 'r2', name: 'clip', when: [{ type: 'gesture', value: 'wave' }], play: { type: 'clip', clip_id: WAVE_CLIP.id }, cooldown_ms: 0 }],
+    });
+    const h = harness(vrm, { [WAVE_CLIP.url]: { bones: ['head'], durationS: 3 } });
+    await h.driver.load(h.config, h.deps());
+    const head = h.vrm().humanoid.getNormalizedBoneNode('head')!;
+    h.tick({ gestures: ['wave'] });
+    h.driver.trigger({ type: 'motion', motion: 'look_around' });
+    // ~2.24 s in, the look around turns the head the other way (y < 0), while
+    // the fake clip is still turning it toward +45° about y.
+    for (let i = 0; i < 140; i++) h.tick();
+    expect(h.driver.snapshot().ownedNodes).toContain(head.name);
+    expect(h.driver.snapshot().motion).toBe('look_around');
+    expect(head.rotation.y).toBeGreaterThan(0);
+  });
+
+  it('puts built-in moves in the idle rotation, never while she speaks', async () => {
+    await clearModelCache();
+    const vrm = settings();
+    vrm.idle = { ...vrm.idle, idle_motions: ['nod'], idle_clip_interval_ms: [100, 100] };
+    const h = harness(vrm);
+    await h.driver.load(h.config, h.deps());
+    for (let i = 0; i < 20; i++) h.tick({ isPlaying: true, amplitude: 0.5 });
+    expect(h.driver.snapshot().motion).toBeNull();
+    // The quiet wait only runs once she has stopped: 100 ms of it, then the nod.
+    for (let i = 0; i < 5; i++) h.tick();
+    expect(h.driver.snapshot().motion).toBeNull();
+    for (let i = 0; i < 3; i++) h.tick();
+    expect(h.driver.snapshot().motion).toBe('nod');
+  });
+
+  it('has no built-in moves in a config stored before the field existed', async () => {
+    await clearModelCache();
+    const vrm = settings();
+    vrm.idle = { ...vrm.idle, idle_clip_interval_ms: [0, 0] };
+    const h = harness(vrm);
+    await h.driver.load(h.config, h.deps());
+    for (let i = 0; i < 50; i++) h.tick();
+    expect(h.driver.snapshot().motion).toBeNull();
+  });
+
+  it('plays what a Try button asks for, and takes new settings without a reload', async () => {
+    await clearModelCache();
+    const h = harness(settings());
+    await h.driver.load(h.config, h.deps());
+    h.driver.trigger({ type: 'expression', expression: 'happy', weight: 1, hold_ms: 1000 });
+    for (let i = 0; i < 20; i++) h.tick();
+    expect(h.driver.snapshot().expressions.happy).toBeGreaterThan(0.9);
+    h.driver.trigger({ type: 'motion', motion: 'bow' });
+    h.tick();
+    expect(h.driver.snapshot().motion).toBe('bow');
+
+    const loads = h.models.calls.length;
+    const next = settings();
+    next.reactions = [{ id: 'nod', name: '', when: [{ type: 'gesture', value: 'thumbs_up' }], play: { type: 'motion', motion: 'nod' }, cooldown_ms: 0 }];
+    for (let i = 0; i < 200; i++) h.tick();
+    h.driver.configure(next);
+    h.tick({ gestures: ['thumbs_up'] });
+    expect(h.driver.snapshot().lastReactionId).toBe('nod');
+    expect(h.models.calls.length).toBe(loads);
+  });
+
+  it('hands a replaced move over without snapping the pose', async () => {
+    await clearModelCache();
+    const h = harness(settings());
+    await h.driver.load(h.config, h.deps());
+    const upper = h.vrm().humanoid.getNormalizedBoneNode('rightUpperArm')!;
+    h.driver.trigger({ type: 'motion', motion: 'wave' });
+    for (let i = 0; i < 60; i++) h.tick(); // the arm is up
+    const raised = upper.rotation.z;
+    expect(raised).toBeLessThan(0);
+    h.driver.trigger({ type: 'motion', motion: 'nod' }); // uses no arm
+    let prev = raised;
+    for (let i = 0; i < 30; i++) {
+      h.tick();
+      expect(Math.abs(upper.rotation.z - prev), `frame ${i}`).toBeLessThan(0.35);
+      prev = upper.rotation.z;
+    }
+    expect(h.driver.snapshot().motion).toBe('nod');
+    expect(upper.rotation.z).toBeCloseTo(ARM_DROP_RAD, 5); // handed back to the lowered pose
+  });
+
+  it('plays each idle pick once, a move or a clip, never two at a time', async () => {
+    await clearModelCache();
+    const vrm = settings({ clips: [WAVE_CLIP] });
+    vrm.idle = { ...vrm.idle, idle_motions: ['nod'], idle_clip_ids: [WAVE_CLIP.id], idle_clip_interval_ms: [100, 100] };
+    // A seeded generator, not an alternating stub: every idle cycle draws twice (the
+    // pick and the wait), so an alternating 0.1/0.9 lands every pick on one value and
+    // the pool never mixes. mulberry32 is deterministic and spreads both draws.
+    let seed = 0x2f6b1c3d;
+    const random = () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const h = harness(vrm, { [WAVE_CLIP.url]: { bones: ['leftUpperArm'], durationS: 0.5 } }, {}, { random });
+    await h.driver.load(h.config, h.deps());
+    let moves = 0;
+    let clips = 0;
+    let wasMove = false;
+    let wasClip = false;
+    for (let i = 0; i < 1000; i++) {
+      h.tick();
+      const snap = h.driver.snapshot();
+      const isMove = snap.motion !== null;
+      const isClip = snap.oneShotPlaying;
+      expect(isMove && isClip, `tick ${i}`).toBe(false);
+      if (isMove && !wasMove) moves++;
+      if (isClip && !wasClip) clips++;
+      wasMove = isMove;
+      wasClip = isClip;
+    }
+    // ~16 s: a nod is 1.2 s and the clip 0.75 s with its fade, each followed by 0.1 s of quiet.
+    expect(moves).toBeGreaterThan(2);
+    expect(clips).toBeGreaterThan(2);
+    // A clip pick is one play: its bone goes back to the procedural idle between picks.
+    expect(h.driver.snapshot().ownedNodes.length === 0 || h.driver.snapshot().oneShotPlaying).toBe(true);
+  });
 });
