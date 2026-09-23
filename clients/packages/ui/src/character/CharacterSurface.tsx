@@ -26,7 +26,7 @@ import {
   type CharacterDriver,
   type ParsedCharacterConfig,
 } from '@kurisu/models';
-import { config, fetchAuthedBytes } from '@kurisu/api';
+import { fetchAuthedBytes } from '@kurisu/api';
 import { characterFeed, takeGestures } from '@kurisu/state';
 import { supportsWebGL } from '@kurisu/vrm/probe';
 import { createPoseGraphDriver } from './PoseGraphDriver';
@@ -107,11 +107,6 @@ export function drawable(character: ParsedCharacterConfig | null): boolean {
   if (character?.kind === 'pose_graph') return character.poseTree !== null;
   if (character?.kind === 'vrm') return !!character.vrm?.model;
   return false;
-}
-
-/** `/character-assets/…` is the backend's; the page's own origin is `file://` in the packaged app. */
-function absoluteAssetUrl(url: string): string {
-  return /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `${config.apiBaseUrl}${url}`;
 }
 
 /** The model's file name as the user uploaded it, when the server recorded one. */
@@ -270,7 +265,7 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
     }
 
     const resolveAsset = (url: string) =>
-      fetchAuthedBytes(absoluteAssetUrl(url), { signal: controller.signal }, model && url === model.url ? onModelProgress : undefined);
+      fetchAuthedBytes(url, { signal: controller.signal }, model && url === model.url ? onModelProgress : undefined);
 
     driver.load(character, { resolveAsset, signal: controller.signal }).then(
       () => {

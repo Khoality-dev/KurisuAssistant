@@ -20,6 +20,12 @@
  * check a config pointing at a third-party host would hand that host the
  * session — and, on a 401, a freshly refreshed one. A foreign origin is
  * fetched plain, and a 401 from it is its own business.
+ *
+ * A root-relative path — what the server's own refs hold, such as a VRM
+ * model's `/character-assets/{id}/vrm/model` — means the backend, and is
+ * fetched there. Handed to `fetch` as-is it would resolve against the page,
+ * which in the packaged app is `file://`: "Failed to fetch", and the server
+ * never sees the request (#298).
  */
 
 import { config } from './config';
@@ -52,8 +58,14 @@ export function isBackendOrigin(url: string): boolean {
   }
 }
 
+/** `url` with a root-relative path placed on the backend; anything else unchanged. */
+export function onBackend(url: string): string {
+  return url.startsWith('/') && !url.startsWith('//') ? `${config.apiBaseUrl}${url}` : url;
+}
+
 /** The response, after at most one refresh-and-retry on a 401. */
-export async function fetchAuthedResponse(url: string, init?: RequestInit): Promise<Response> {
+export async function fetchAuthedResponse(path: string, init?: RequestInit): Promise<Response> {
+  const url = onBackend(path);
   if (!isBackendOrigin(url)) return fetch(url, withToken(init, null));
 
   const response = await fetch(url, withToken(init, storage.getToken()));
