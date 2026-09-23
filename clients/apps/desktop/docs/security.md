@@ -52,6 +52,18 @@ test.
 | `worker-src 'self' blob:` | onnxruntime-web and Monaco both start workers, Monaco's from a blob. |
 | `object-src 'none'`, `frame-src 'none'`, `form-action 'none'`, `base-uri 'self'` | Nothing here embeds plugins, frames anything, submits a form, or rewrites the document base. |
 
+**Checked for the VRM stage, and left alone** (#240). A 3D persona adds a
+lazily imported chunk (`import('@kurisu/vrm')`), a model fetched as bytes and
+parsed with `GLTFLoader.parse` — never loaded by URL — and textures the loader
+hands to the GPU through `blob:` object URLs. `script-src 'self'` covers the
+chunk, which the packaged `file:` handler serves as JavaScript;
+`connect-src … blob: http: https:` covers the model fetch and the loader's own
+object URLs; `img-src blob:` the textures; `worker-src 'self' blob:` anything
+three.js may start. No decoder is shipped (no Draco, KTX2 or Meshopt wasm), so
+nothing new needs `wasm-unsafe-eval`. The model's licence URLs, read from an
+untrusted file, are for the settings editor (#242) to show, not for this page
+to follow.
+
 **What the policy cannot do.** The backend address is the user's to choose, so
 `connect-src` and `img-src` cannot name a host and cannot insist on TLS. The
 policy therefore constrains *what kind of thing* the renderer may load, not

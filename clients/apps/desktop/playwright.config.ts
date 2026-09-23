@@ -3,6 +3,9 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests',
   testMatch: /.*\.spec\.ts$/,
+  // Specs tagged @gpu assert a rendered WebGL frame; CI has no GPU and passes
+  // no GPU flags, so they run only when a developer asks (docs/testing.md).
+  grepInvert: process.env.KURISU_E2E_GPU ? undefined : /@gpu/,
   fullyParallel: false,
   workers: 1,
   retries: 0,
