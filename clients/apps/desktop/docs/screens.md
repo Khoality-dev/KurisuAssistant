@@ -43,7 +43,8 @@ opens the graph editor or **Set up {name} in 3D**: a live preview with Speak / T
 six faces (a face the model lacks is struck through), and five steps — her model (upload, replace,
 remove), how she moves (Still, Calm, Natural, Lively), feelings, reactions (five on/off recipes,
 each with Try) and framing — plus an optional Fine-tune with every number and her own `.vrma`
-animations. Deleting a persona lists the character files that go with it, with their sizes.
+animations. When the steps do not fit, down to the window's 800×600 minimum, their column scrolls;
+a step is never shorter than what it holds (#299). Deleting a persona lists the character files that go with it, with their sizes.
 
 ## Sub-agents
 
