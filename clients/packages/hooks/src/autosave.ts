@@ -104,6 +104,7 @@ export function createAutosaver<T>(
       disarm();
       // What the last save left waiting (a failure, or a change made during it).
       const ok = await run();
+      void ok; // PROVE: unused while backed out
       return true;
     },
     cancel() {
