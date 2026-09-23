@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from .base import BaseLLMProvider
+from .base import BaseLLMProvider, ProviderNotConfigured
 from .ollama_provider import OllamaProvider
 from .gemini_provider import GeminiProvider
 from .nvidia_provider import NvidiaProvider
@@ -18,8 +18,11 @@ def create_llm_provider(
 
     Args:
         provider_type: Type of provider ("ollama", "gemini", "nvidia" or "poe")
-        api_url: Optional API URL (for Ollama)
-        api_key: Optional API key (for Gemini/NVIDIA/Poe)
+        api_url: The account's Ollama URL (Ollama only)
+        api_key: The account's API key (Gemini/NVIDIA/Poe only)
+
+    Raises:
+        ProviderNotConfigured: the account has not stored what the provider needs.
 
     Returns:
         BaseLLMProvider instance
@@ -42,6 +45,7 @@ from .adapter import chat, list_models, generate, pull_model, ensure_model_avail
 
 __all__ = [
     "BaseLLMProvider",
+    "ProviderNotConfigured",
     "OllamaProvider",
     "GeminiProvider",
     "NvidiaProvider",

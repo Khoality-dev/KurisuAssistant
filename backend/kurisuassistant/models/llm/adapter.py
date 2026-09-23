@@ -35,7 +35,7 @@ def chat(
         messages: Full conversation history (system + context + user message)
         tools: Available MCP tools
         images: Optional image attachments (added to last user message)
-        api_url: Optional custom Ollama API URL (None = use default from env)
+        api_url: The account's Ollama URL (required; there is no server default)
 
     Returns:
         Generator that yields sentence-chunked messages
@@ -139,7 +139,7 @@ def list_models(api_url: Optional[str] = None) -> List[str]:
     """Return a list of available model names.
 
     Args:
-        api_url: Optional custom Ollama API URL (None = use default from env)
+        api_url: The account's Ollama URL (required; there is no server default)
 
     Returns:
         List of available model names
@@ -161,7 +161,7 @@ def generate(payload: Dict, user_system_prompts: Optional[List[Dict]] = None, ap
     Args:
         payload: Payload with model, message, and options
         user_system_prompts: Optional user-specific system prompts
-        api_url: Optional custom Ollama API URL (None = use default from env)
+        api_url: The account's Ollama URL (required; there is no server default)
 
     Returns:
         Generated text
@@ -202,7 +202,7 @@ def pull_model(model_name: str, api_url: Optional[str] = None) -> None:
 
     Args:
         model_name: Name of the model to pull
-        api_url: Optional custom Ollama API URL (None = use default from env)
+        api_url: The account's Ollama URL (required; there is no server default)
     """
     llm_provider = create_llm_provider("ollama", api_url=api_url)
     try:
@@ -217,7 +217,7 @@ def ensure_model_available(model_name: str, api_url: Optional[str] = None) -> bo
 
     Args:
         model_name: Name of the model to ensure
-        api_url: Optional custom Ollama API URL (None = use default from env)
+        api_url: The account's Ollama URL (required; there is no server default)
 
     Returns:
         True if the model was pulled during this call, False if it was already available

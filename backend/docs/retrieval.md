@@ -163,7 +163,8 @@ anything. `utils/embeddings.py`:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `EMBEDDING_PROVIDER` | `ollama` | `ollama` (via `LLM_API_URL`), `gemini` or `nvidia` (via the server-wide keys). Poe has no embeddings endpoint and raises |
+| `EMBEDDING_PROVIDER` | `ollama` | `ollama` (via `EMBEDDING_API_URL`), `gemini` or `nvidia` (via `EMBEDDING_API_KEY`). Poe has no embeddings endpoint and raises |
+| `EMBEDDING_API_URL`, `EMBEDDING_API_KEY` | — | the index's own endpoint, never the chat settings, which are each account's (#293). Until the provider's one is set, semantic recall is **off**, exactly as with an empty `EMBEDDING_MODEL` |
 | `EMBEDDING_MODEL` | `bge-m3` | multilingual, so Vietnamese and English both work. Empty switches semantic recall **off**: `recall_semantic` says so and points at `recall_regex` |
 | `RETRIEVAL_MAX_FILE_BYTES` | 20 MB | files over it are stamped without being read |
 | `RETRIEVAL_MAX_PASSAGES_PER_FILE` | 2000 | a file stops chunking here |

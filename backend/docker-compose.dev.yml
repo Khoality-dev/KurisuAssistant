@@ -20,9 +20,9 @@
 # `central` and production's `kurisuassistant_default` — to borrow that machine's
 # Ollama and GPU services, which meant this file, the one the contributor docs
 # tell you to run, could not start on a machine that had never run the
-# production stack. Point LLM_API_URL wherever your model server is (the base
-# file's default reaches the host's), and add the speech profiles or an override
-# file if you want them.
+# production stack. Set your account's Ollama URL to wherever your model server
+# is (http://host.docker.internal:11434 reaches the host's), and add the speech
+# profiles or an override file if you want them.
 #
 # Publishes API_DEV_PORT (15598) on loopback only, so it cannot collide with a
 # deployment's 15597.

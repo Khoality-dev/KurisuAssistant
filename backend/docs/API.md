@@ -159,7 +159,14 @@ A provider that cannot be reached is listed in `unavailable` as
 rather than silently contributing nothing; an empty `models` with an empty
 `unavailable` means the providers answered and have no models. When **no**
 provider answered the response is `502` with those details joined — an empty
-picker used to be the only symptom of a wrong `LLM_API_URL` (#151).
+picker used to be the only symptom of a wrong Ollama URL (#151).
+
+Only what the account has stored is asked (#293): with no Ollama URL there are no
+Ollama models and no Ollama entry in `unavailable`, and with no key there are
+none of that provider's. An account with nothing set gets
+`{"models": [], "unavailable": []}`. The Ollama management routes below
+(`/models/details`, `/models/pull`, `DELETE /models/{name}`, `/models/ensure/{name}`)
+answer `400` with a sentence naming the missing Ollama URL when it is not set.
 
 ### GET /models/details
 

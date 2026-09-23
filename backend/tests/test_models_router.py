@@ -2,7 +2,7 @@
 
 Before: an unreachable Ollama answered 200 with an empty list, which reads as
 "no models installed" — the failure a first-run user with a wrong
-``LLM_API_URL`` is most likely to misdiagnose.
+Ollama URL is most likely to misdiagnose.
 """
 
 from unittest.mock import patch
@@ -18,7 +18,7 @@ from kurisuassistant.routers import models as models_router
 class _User:
     id = 1
     username = "test"
-    ollama_url = None
+    ollama_url = "http://ollama.test:11434"
     gemini_api_key = None
     nvidia_api_key = None
     poe_api_key = None
@@ -48,7 +48,7 @@ class TestUnreachableOllama:
         assert resp.status_code == 502
         detail = resp.json()["detail"]
         assert "Ollama server is unreachable" in detail
-        assert "LLM_API_URL" in detail
+        assert "Ollama URL" in detail and "Account settings" in detail
         assert "reference:" in detail
         assert "connection refused" not in detail
 

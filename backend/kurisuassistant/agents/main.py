@@ -20,6 +20,7 @@ from kurisuassistant.character.emotion_source import (
     utf16_length,
 )
 from kurisuassistant.character.emotion_tags import EmotionTagStripper, split_at_utf16
+from kurisuassistant.models.llm.base import ProviderNotConfigured
 from kurisuassistant.websocket.events import StreamChunkEvent
 
 from .base import BaseAgent, AgentContext, async_iterate
@@ -511,6 +512,9 @@ class MainAgent(BaseAgent):
                     provider_type=self.capabilities.provider_type,
                 )
 
+        except ProviderNotConfigured:
+            # A setting the account has not filled in, not a failure (#293).
+            raise
         except Exception:
             # Re-raise so the WebSocket handler emits an ErrorEvent (transient,
             # toast-only) instead of yielding an assistant chunk that

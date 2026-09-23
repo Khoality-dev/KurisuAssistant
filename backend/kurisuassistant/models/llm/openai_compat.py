@@ -12,21 +12,19 @@ lives here:
 - turning an error body into an exception message a user can act on, instead of
   the bare ``402 Client Error`` ``raise_for_status`` would produce.
 
-A concrete provider sets ``PROVIDER_NAME``, ``DEFAULT_BASE_URL`` and ``API_KEY_ENV``
-and overrides the hooks it needs: ``_extend_payload`` for provider-specific request
+A concrete provider sets ``PROVIDER_NAME`` and ``DEFAULT_BASE_URL`` and overrides the hooks it needs: ``_extend_payload`` for provider-specific request
 fields, ``_model_filter`` to drop catalogue entries that cannot chat, and
 ``validate_key`` when listing models does not actually require a valid key.
 """
 
 import json
 import logging
-import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterator, List, Optional
 
 import requests
 
-from .base import BaseLLMProvider
+from .base import BaseLLMProvider, ProviderNotConfigured
 
 logger = logging.getLogger(__name__)
 
@@ -66,17 +64,14 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     PROVIDER_NAME = "OpenAI-compatible"
     #: ``https://host/v1`` — with the version prefix.
     DEFAULT_BASE_URL = ""
-    #: Environment variable consulted when no key is passed explicitly.
-    API_KEY_ENV = ""
     #: (connect, read) seconds. The read timeout is between bytes, so a long
     #: generation is fine as long as the stream keeps moving.
     REQUEST_TIMEOUT = (10, 300)
 
     def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
-        if api_key is None:
-            api_key = os.getenv(self.API_KEY_ENV, "") if self.API_KEY_ENV else ""
+        # The account's key or nothing: there is no server-wide one (#293).
         if not api_key:
-            logger.warning("No %s API key provided", self.PROVIDER_NAME)
+            raise ProviderNotConfigured.missing_key(self.PROVIDER_NAME)
         self.api_key = api_key
         self.base_url = (base_url or self.DEFAULT_BASE_URL).rstrip("/")
         logger.info("Initialized %s provider (base_url=%s)", self.PROVIDER_NAME, self.base_url)

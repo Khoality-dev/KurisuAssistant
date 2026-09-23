@@ -7,7 +7,6 @@ streaming chunk format so agents work unchanged.
 import asyncio
 import json
 import logging
-import os
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
 
@@ -17,7 +16,7 @@ from google.genai import types
 # Models that require the Live API (no generateContent support)
 LIVE_API_MODELS = {'gemini-2.5-flash-native-audio-latest'}
 
-from .base import BaseLLMProvider
+from .base import BaseLLMProvider, ProviderNotConfigured
 
 logger = logging.getLogger(__name__)
 
@@ -160,11 +159,9 @@ class GeminiProvider(BaseLLMProvider):
     """Google Gemini implementation of BaseLLMProvider."""
 
     def __init__(self, api_key: Optional[str] = None):
-        if api_key is None:
-            api_key = os.getenv("GEMINI_API_KEY", "")
-
+        # The account's key or nothing: there is no server-wide one (#293).
         if not api_key:
-            logger.warning("No Gemini API key provided")
+            raise ProviderNotConfigured.missing_key("Gemini")
 
         self.client = genai.Client(api_key=api_key)
         logger.info("Initialized Gemini provider")

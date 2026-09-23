@@ -39,8 +39,8 @@ Unknown models are refused with Ollama's own 404 unless ``auto_pull`` is on, in
 which case ``/api/pull`` adds them — which is what ``OllamaProvider`` does before
 every chat, so the default flow needs no setup.
 
-Run standalone with ``python -m tests.mock_ollama --port 11435`` and point a
-backend at it with ``LLM_API_URL``; in tests use the ``mock_ollama`` fixture from
+Run standalone with ``python -m tests.mock_ollama --port 11435`` and set it as
+an account's Ollama URL; in tests use the ``mock_ollama`` fixture from
 ``conftest.py``.
 """
 

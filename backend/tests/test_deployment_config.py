@@ -261,6 +261,30 @@ def test_every_setting_the_server_reads_reaches_the_container():
     )
 
 
+def test_the_server_has_no_chat_provider_settings_of_its_own():
+    """The Ollama URL and the provider keys belong to each account (#293).
+
+    A server-wide value was a silent fallback: an account with nothing set still
+    chatted through the operator's Ollama or on the operator's key. The shared
+    embedding index keeps its own ``EMBEDDING_*`` settings instead.
+    """
+    per_account = ("LLM_API_URL", "GEMINI_API_KEY", "NVIDIA_API_KEY", "POE_API_KEY")
+    passed_in = {
+        entry.split("=", 1)[0]
+        for entry in load(BASE)["services"]["api"]["environment"]
+    }
+    assert sorted(passed_in.intersection(per_account)) == []
+    template = ENV_TEMPLATE.read_text()
+    assert [n for n in per_account if re.search(rf"^#?\s*{n}=", template, re.M)] == []
+    readers = sorted(
+        str(path.relative_to(BACKEND))
+        for path in (BACKEND / "kurisuassistant").rglob("*.py")
+        if "alembic/versions" not in str(path)
+        and any(name in path.read_text() for name in per_account)
+    )
+    assert readers == [], f"still named in the server: {readers}"
+
+
 def test_entrypoint_bounds_its_wait_and_reports_why():
     """An unbounded silent retry loop makes a wrong password look like a slow
     start, for ever."""
