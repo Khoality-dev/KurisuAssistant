@@ -69,8 +69,68 @@ export async function fetchAuthedResponse(url: string, init?: RequestInit): Prom
   return fetch(url, withToken(init, fresh));
 }
 
+/** An asset the backend refused or does not have; `status` says which. */
+export class AssetRequestError extends Error {
+  constructor(url: string, readonly status: number) {
+    super(`Failed to load asset: ${url} (${status})`);
+    this.name = 'AssetRequestError';
+  }
+}
+
+/** The connection ended before `Content-Length` bytes arrived. */
+export class DownloadInterruptedError extends Error {
+  constructor(url: string, readonly received: number, readonly expected: number) {
+    super(`The download of ${url} stopped at ${received} of ${expected} bytes.`);
+    this.name = 'DownloadInterruptedError';
+  }
+}
+
 function refused(url: string, response: Response): Error {
-  return new Error(`Failed to load asset: ${url} (${response.status})`);
+  return new AssetRequestError(url, response.status);
+}
+
+/**
+ * Bytes received so far, and the total when the response said
+ * (`Content-Length`); `null` when it did not.
+ */
+export type DownloadProgress = (received: number, total: number | null) => void;
+
+/**
+ * Read a body chunk by chunk, reporting as it goes. A 3D model is tens of
+ * megabytes, and the character window says how far the download has got
+ * rather than showing a spinner for half a minute. A body shorter than its
+ * `Content-Length` is an interrupted download, not a model: it is refused
+ * here with its own error rather than handed to a parser that would call it
+ * a corrupt file.
+ */
+async function readWithProgress(url: string, response: Response, onProgress: DownloadProgress): Promise<ArrayBuffer> {
+  const declared = Number(response.headers.get('Content-Length'));
+  const total = Number.isFinite(declared) && declared > 0 ? declared : null;
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const whole = await response.arrayBuffer();
+    onProgress(whole.byteLength, total ?? whole.byteLength);
+    return whole;
+  }
+  onProgress(0, total);
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    chunks.push(value);
+    received += value.byteLength;
+    onProgress(received, total);
+  }
+  if (total !== null && received < total) throw new DownloadInterruptedError(url, received, total);
+  const out = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out.buffer;
 }
 
 export async function fetchAuthedBlob(url: string, init?: RequestInit): Promise<Blob> {
@@ -79,9 +139,15 @@ export async function fetchAuthedBlob(url: string, init?: RequestInit): Promise<
   return response.blob();
 }
 
-/** The bytes, for a loader that parses a buffer rather than a URL — the VRM loader (#239) hands one to `GLTFLoader.parse`. */
-export async function fetchAuthedBytes(url: string, init?: RequestInit): Promise<ArrayBuffer> {
+/**
+ * The bytes, for a loader that parses a buffer rather than a URL — the VRM
+ * loader (#239) hands one to `GLTFLoader.parse`. With `onProgress`, the body
+ * is read in chunks and each one reported; the retry on a 401 is the same
+ * either way, because progress starts only once a response is accepted.
+ */
+export async function fetchAuthedBytes(url: string, init?: RequestInit, onProgress?: DownloadProgress): Promise<ArrayBuffer> {
   const response = await fetchAuthedResponse(url, init);
   if (!response.ok) throw refused(url, response);
-  return response.arrayBuffer();
+  if (!onProgress) return response.arrayBuffer();
+  return readWithProgress(url, response, onProgress);
 }

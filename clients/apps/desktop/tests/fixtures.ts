@@ -131,7 +131,15 @@ export const test = base.extend<Fixtures>({
       // dies with "Worker teardown timeout". Windows and the Playwright
       // container are unaffected, which is why this only ever showed on CI.
       // The shipped app is not launched this way.
-      args: process.platform === 'linux' ? [MAIN_ENTRY, '--no-sandbox'] : [MAIN_ENTRY],
+      //
+      // `KURISU_E2E_ELECTRON_ARGS` adds flags for the one manual spec that
+      // needs a GPU (`vrmRender.gpu.spec.ts`, #240) — e.g.
+      // `--use-angle=swiftshader --enable-unsafe-swiftshader`. Unset, which it
+      // is on CI, the app launches exactly as it did.
+      args: [
+        ...(process.platform === 'linux' ? [MAIN_ENTRY, '--no-sandbox'] : [MAIN_ENTRY]),
+        ...(process.env.KURISU_E2E_ELECTRON_ARGS ?? '').split(/\s+/).filter(Boolean),
+      ],
       cwd: PROJECT_ROOT,
       env: {
         ...process.env,

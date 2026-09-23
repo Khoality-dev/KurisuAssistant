@@ -10,7 +10,15 @@
 
 import { installBridge, resetBridge } from '@kurisu/platform/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { configureAuthedFetch, fetchAuthedBlob, fetchAuthedBytes, fetchAuthedResponse, isBackendOrigin } from './authedFetch';
+import {
+  AssetRequestError,
+  configureAuthedFetch,
+  DownloadInterruptedError,
+  fetchAuthedBlob,
+  fetchAuthedBytes,
+  fetchAuthedResponse,
+  isBackendOrigin,
+} from './authedFetch';
 import { storage } from './storage';
 
 const BACKEND = 'http://backend.test';
@@ -110,5 +118,67 @@ describe('authedFetch', () => {
     expect(isBackendOrigin(URL_UNDER_TEST)).toBe(true);
     expect(isBackendOrigin('http://backend.test.evil.example/x')).toBe(false);
     expect(isBackendOrigin('https://backend.test/x')).toBe(false); // the scheme is part of the origin
+  });
+});
+
+describe('fetchAuthedBytes with progress', () => {
+  /** A 200 whose body arrives in the given chunks, declaring `length` bytes. */
+  function chunked(parts: number[], length: number | null): Response {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const n of parts) controller.enqueue(new Uint8Array(n).fill(7));
+        controller.close();
+      },
+    });
+    const headers = new Headers();
+    if (length !== null) headers.set('Content-Length', String(length));
+    return new Response(stream, { status: 200, headers });
+  }
+
+  it('reports every chunk against the declared total and returns the whole body', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(chunked([3, 4, 5], 12));
+    const seen: Array<[number, number | null]> = [];
+
+    const bytes = await fetchAuthedBytes(URL_UNDER_TEST, undefined, (r, t) => seen.push([r, t]));
+
+    expect(bytes.byteLength).toBe(12);
+    expect(seen).toEqual([[0, 12], [3, 12], [7, 12], [12, 12]]);
+  });
+
+  it('reports a null total when the response declares none', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(chunked([2, 2], null));
+    const seen: Array<[number, number | null]> = [];
+
+    await fetchAuthedBytes(URL_UNDER_TEST, undefined, (r, t) => seen.push([r, t]));
+
+    expect(seen[seen.length - 1]).toEqual([4, null]);
+  });
+
+  it('refuses a body shorter than its Content-Length as an interrupted download', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(chunked([3], 10));
+
+    await expect(fetchAuthedBytes(URL_UNDER_TEST, undefined, () => {})).rejects.toBeInstanceOf(DownloadInterruptedError);
+  });
+
+  it('keeps the single 401 retry, and reports progress only for the accepted response', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(respond(401))
+      .mockResolvedValueOnce(chunked([5], 5));
+    configureAuthedFetch({ refreshAccessToken: async () => 'fresh' });
+    const seen: number[] = [];
+
+    await fetchAuthedBytes(URL_UNDER_TEST, undefined, (r) => seen.push(r));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(seen).toEqual([0, 5]);
+  });
+
+  it('says which status refused the asset', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(respond(404));
+
+    const error = await fetchAuthedBytes(URL_UNDER_TEST, undefined, () => {}).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(AssetRequestError);
+    expect((error as AssetRequestError).status).toBe(404);
   });
 });
