@@ -28,7 +28,7 @@ electron/preload.ts       — contextBridge: hostTools, appTools, explorer, driv
 @kurisu/vrm               — the 3D character driver (#239): `createVrmDriver(canvas)` implements `CharacterDriver` (`@kurisu/models` `characterDriver.ts`, the contract both character kinds share) over three.js + `@pixiv/three-vrm` — loads a model and its VRMA clips from bytes the host resolves, lip-syncs from the sentence's amplitude, blinks and idles procedurally (`driver/{lipSync,idle,expressions,reactionTable}.ts` are pure and unit-tested), plays clips with a per-frame authority order, applies emotion cues. `supportsWebGL()` from `@kurisu/vrm/probe` (engine-free) is asked before the chunk is imported. A parsed model is cached per `url@sha256` and handed to one driver at a time — a second live driver on the same persona (the editor's preview beside the window) parses its own copy rather than stealing the first's scene graph — and every procedural rotation is conjugated for a VRM 0.x rig, which faces the other way from a 1.0 one. `page/host.ts` is the message protocol the Android page decodes, with golden fixtures. `@kurisu/vrm/testing` exports the driver conformance cases and the fakes. `CharacterSurface` mounts it for a VRM persona, by dynamic import only (#240)
 @kurisu/ui  (clients/packages/ui/src/components/)
   layout/
-    MainLayout.tsx         — 3-panel layout: ActivityBar (52px) | MainContent (flex) | ResizeHandle | ChatPanel (resizable)
+    MainLayout.tsx         — 3-panel layout: ActivityBar (52px) | MainContent (flex) | ResizeHandle | ChatPanel (resizable). The main content (keyed on the page) and the chat panel each sit in a `ScreenErrorBoundary`
     ActivityBar.tsx        — Narrow icon column: Workspace/Conversations/Settings nav + transfers (badged) + connection status + logout. The character window's toggle is the Face icon on the chat header inside ChatWidget, not here (#237).
     ChatPanel.tsx          — Persistent right panel: a static "Chat" header bar + ChatWidget. The persona sheet lives on the chat header inside ChatWidget, not here. Owns the character window's open/closed state: `kurisu:toggle-character` (the Face icon, `/live-animate`) opens or closes it through the bridge, `onWindowClosed` clears it (#237).
     ResizeHandle.tsx       — DOM-based drag resize (no React re-renders during drag, sync on mouseup)
@@ -46,7 +46,7 @@ electron/preload.ts       — contextBridge: hostTools, appTools, explorer, driv
   conversations/
     ConversationsPage.tsx  — Persona list with search, last message preview, timestamps (no avatar, #192). Click loads conversation into ChatPanel.
   settings/
-    SettingsPage.tsx       — Left nav sidebar (13 sections) + lazy-loaded content area. `tests/settings.spec.ts` asserts the label list, so adding or renaming a section fails there until the spec agrees.
+    SettingsPage.tsx       — Left nav sidebar (13 sections) + lazy-loaded content area, in a `ScreenErrorBoundary` keyed on the section. `tests/settings.spec.ts` asserts the label list, so adding or renaming a section fails there until the spec agrees.
     AccountSection.tsx     — Ollama URL, summary model, context size, and the version rows
     VersionRows.tsx        — App / Backend / Protocol, from the bridge's `appVersion` and `GET /version`, with one sentence when the app and the backend are different releases (#257). The fetch is injectable so the rows are unit-tested under happy-dom
     TTSSection.tsx         — TTS backend, auto-play, voice, ASR language
@@ -91,6 +91,7 @@ electron/preload.ts       — contextBridge: hostTools, appTools, explorer, driv
   EdgeEditor.tsx           — Transition edge editor: video upload, condition config
   PoseGraphNode.tsx        — Custom React Flow node component
   UpdateDialog.tsx         — Auto-update notification
+  ScreenErrorBoundary.tsx  — Keeps a render error inside the screen that threw it (#296): the error's message and Try again in that pane, the error and component stack on the console, and the rest of the window still working. There was no boundary anywhere before, so one throwing section unmounted the whole tree and left a blank window. Give it a `key` that changes with what it wraps
   UpdateRequiredScreen.tsx — The wire-protocol gate: both numbers, which side is behind (`@kurisu/api`'s `wireProtocol.ts`), the update offer when this app is behind (#264) and "Change server" back to the login form (#150)
   useUpdateFlow.ts — One updater state machine (idle/checking/available/downloading/ready/none/unavailable/error) shared by `UpdateDialog` and the gate; `check()` asks the host now, the events report the download (#264)
 @kurisu/hooks  (clients/packages/hooks/src/)

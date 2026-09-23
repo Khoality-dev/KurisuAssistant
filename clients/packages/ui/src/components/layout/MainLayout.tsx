@@ -9,6 +9,7 @@ import { usePersonaStore } from '@kurisu/state';
 import { ConversationsPage } from '../conversations/ConversationsPage';
 import { SettingsPage } from '../settings/SettingsPage';
 import { FileExplorerPage } from '../explorer/FileExplorerPage';
+import { ScreenErrorBoundary } from '../ScreenErrorBoundary';
 
 const MIN_CHAT_WIDTH = 300;
 const MAX_CHAT_WIDTH = 700;
@@ -42,8 +43,12 @@ export const MainLayout: React.FC = () => {
       <ActivityBar />
 
       {/* Main content area */}
+      {/* A page or the chat that throws while rendering stays in its own
+          pane rather than blanking the window (#296). */}
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-        {renderMainContent()}
+        <ScreenErrorBoundary key={activePage} label={`the ${activePage} page`}>
+          {renderMainContent()}
+        </ScreenErrorBoundary>
       </Box>
 
       {/* Resize handle */}
@@ -57,7 +62,9 @@ export const MainLayout: React.FC = () => {
 
       {/* Chat panel */}
       <Box ref={chatPanelRef} sx={{ width: chatPanelWidth, flexShrink: 0, overflow: 'hidden' }}>
-        <ChatPanel />
+        <ScreenErrorBoundary label="the chat panel">
+          <ChatPanel />
+        </ScreenErrorBoundary>
       </Box>
 
       {/* Transfers, over everything: a drive transfer outlives the page that

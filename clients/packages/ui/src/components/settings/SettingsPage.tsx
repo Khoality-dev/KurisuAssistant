@@ -18,6 +18,7 @@ import {
 import { useLayoutStore } from '@kurisu/state';
 import { useCapabilities } from '@kurisu/hooks';
 import type { Capabilities } from '@kurisu/platform';
+import { ScreenErrorBoundary } from '../ScreenErrorBoundary';
 
 // Lazy imports for settings sections
 const AccountSection = React.lazy(() => import('./AccountSection').then(m => ({ default: m.AccountSection })));
@@ -146,9 +147,13 @@ export const SettingsPage: React.FC = () => {
 
       {/* Settings content */}
       <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
-        <React.Suspense fallback={<Box sx={{ p: 4, color: 'text.secondary' }}>Loading...</Box>}>
-          {renderSection(settingsSection)}
-        </React.Suspense>
+        {/* Keyed on the section: a section that threw stays in this pane, and
+            choosing another one starts clean (#296). */}
+        <ScreenErrorBoundary key={settingsSection} label={`the ${settingsSection} settings`}>
+          <React.Suspense fallback={<Box sx={{ p: 4, color: 'text.secondary' }}>Loading...</Box>}>
+            {renderSection(settingsSection)}
+          </React.Suspense>
+        </ScreenErrorBoundary>
       </Box>
     </Box>
   );
