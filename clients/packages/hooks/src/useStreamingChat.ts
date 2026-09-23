@@ -347,6 +347,22 @@ export function useStreamingChat({
       storage.clearPersonaConversationId('unbound');
     }
 
+    // The store's placeholder for a conversation this turn created carries no
+    // binding, and null there means the assistant itself (#302). The first
+    // assistant chunk says who actually answered; without this the header
+    // would call a persona's reply the assistant's, and picking the assistant
+    // in the sheet would look like no change and skip its PATCH.
+    if (messageRole === 'assistant' && state.conversationId) {
+      const bound = eventPersonaId ?? null;
+      useConversationStore.setState((s) => (
+        s.currentConversation?.id === state.conversationId
+          && s.currentConversation.message_count === 0
+          && s.currentConversation.persona_id !== bound
+          ? { currentConversation: { ...s.currentConversation, persona_id: bound } }
+          : {}
+      ));
+    }
+
     // Start a new bubble when the role changes (user → assistant → tool) or the
     // speaker changes. The speaker is the persona on assistant chunks — compare
     // persona_id, which is authoritative and survives two personas sharing a

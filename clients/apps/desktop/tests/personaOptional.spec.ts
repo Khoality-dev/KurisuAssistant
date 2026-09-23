@@ -72,6 +72,8 @@ test.describe('personas are optional', () => {
     await send(page, 'hello');
     const [conversation] = mock.getConversations();
     expect(conversation.persona_id).toBe(1);
+    // The default persona answered, and the header says so before any reload.
+    await expect(whoAnswers(page)).toContainText('Kurisu');
 
     await whoAnswers(page).click();
     await expect(page.getByText('Who should answer?')).toBeVisible();
