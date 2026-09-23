@@ -45,6 +45,15 @@ const patch = async (path: string, body: unknown) => {
   return { status: res.status, body: await res.json() };
 };
 
+const post = async (path: string, body: unknown) => {
+  const res = await fetch(`${mock.url}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, body: await res.json() };
+};
+
 const del = async (path: string) => {
   const res = await fetch(`${mock.url}${path}`, { method: 'DELETE' });
   return { status: res.status, body: await res.json() };
@@ -175,20 +184,47 @@ describe('mock backend: assistant / persona / sub-agent split', () => {
     expect(body[0]).not.toHaveProperty('memory');
   });
 
-  it('hands the default to the oldest remaining persona when the default is deleted', async () => {
-    // The backend allows deleting the default and repoints it rather than
-    // leaving a dangling id, so a client re-reading /assistant must see a live
-    // persona. Deleting the *last* one is what it refuses.
+  // A persona is optional (#302): the assistant answers as itself without one.
+  it('deletes any persona, the last included, and deleting the default leaves the assistant', async () => {
     const second = mock.addPersona({ name: 'Amadeus' });
     expect((await get('/assistant')).body.default_persona_id).toBe(1);
 
     const deleted = await del('/personas/1');
     expect(deleted.status).toBe(200);
     expect(deleted.body).toEqual({ message: 'Persona deleted successfully' });
-    expect((await get('/assistant')).body.default_persona_id).toBe(second.id);
+    // No hand-off to whichever persona is next: new chats go back to the assistant.
+    expect((await get('/assistant')).body.default_persona_id).toBeNull();
 
-    // Down to one, and it cannot go: a user with no persona cannot chat.
-    expect((await del(`/personas/${second.id}`)).status).toBe(400);
+    expect((await del(`/personas/${second.id}`)).status).toBe(200);
+    expect((await get('/personas')).body).toEqual([]);
+  });
+
+  it('does not make a new persona the default', async () => {
+    mock.setAssistantFields({ default_persona_id: null });
+    const created = await post('/personas', { name: 'Amadeus' });
+    expect(created.status).toBe(200);
+    expect((await get('/assistant')).body.default_persona_id).toBeNull();
+  });
+
+  it('clears the default when it is disabled, by either route', async () => {
+    expect((await patch('/personas/1/enabled', { enabled: false })).status).toBe(200);
+    expect((await get('/assistant')).body.default_persona_id).toBeNull();
+
+    const second = mock.addPersona({ name: 'Amadeus' });
+    mock.setAssistantFields({ default_persona_id: second.id });
+    expect((await patch(`/personas/${second.id}`, { enabled: false })).status).toBe(200);
+    expect((await get('/assistant')).body.default_persona_id).toBeNull();
+  });
+
+  it('can be seeded with no default while personas exist', async () => {
+    const seeded = new MockBackend({ assistant: { default_persona_id: null } });
+    await seeded.start();
+    try {
+      expect(seeded.getAssistant().default_persona_id).toBeNull();
+      expect(seeded.getPersonas()).toHaveLength(1);
+    } finally {
+      await seeded.stop();
+    }
   });
 
   it('no longer answers /agents', async () => {
@@ -248,6 +284,36 @@ describe('mock backend: conversations', () => {
     // The store reads persona_id from here; returning none left it undefined
     // and the chat header silently fell back.
     expect(body.persona_id).toBe(1);
+  });
+
+  it('answers as the assistant itself when no persona is pinned', async () => {
+    mock.setAssistantFields({ default_persona_id: null });
+    const chunk = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk');
+    expect(chunk.persona_id).toBeNull();
+    expect(chunk.persona_name).toBe('Assistant');
+    expect(chunk.name).toBe('Assistant');
+    expect(chunk.voice_reference).toBeNull();
+    expect((await get(`/conversations/${chunk.conversation_id}`)).body.persona_id).toBeNull();
+  });
+
+  it('applies the default to a conversation nothing has answered yet, and only to that', async () => {
+    mock.setAssistantFields({ default_persona_id: null });
+    const withAssistant = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk').conversation_id;
+
+    mock.setAssistantFields({ default_persona_id: 1 });
+    const again = (await chat({ conversation_id: withAssistant })).find((e) => e.type === 'stream_chunk');
+    expect(again.persona_id).toBeNull();
+
+    const fresh = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk');
+    expect(fresh.persona_id).toBe(1);
+  });
+
+  it('hands an unbound conversation to the assistant, not back to the default', async () => {
+    const id = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk').conversation_id;
+    expect((await patch(`/conversations/${id}`, { persona_id: null })).status).toBe(200);
+    const next = (await chat({ conversation_id: id })).find((e) => e.type === 'stream_chunk');
+    expect(next.persona_id).toBeNull();
+    expect(next.persona_name).toBe('Assistant');
   });
 
   it('honours an explicit per-turn persona_id and rebinds the conversation', async () => {

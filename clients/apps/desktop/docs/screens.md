@@ -33,7 +33,10 @@ is picked from there — and neither is the default persona, which is set on **P
 Presentation only — a name, a prompt, a voice, a face. The editor is also the only place
 `voice_reference` and `preferred_name` are reachable; neither had a UI before the split. The one
 thing decided here that belongs to the assistant is which persona a new conversation starts with:
-**Make default** on a card, and the **Default** badge on the one that has it (#197).
+**Make default** on a card, and the **Default** badge on the one that has it (#197). A persona is
+optional (#302): with no default — where every account starts — the assistant answers new
+conversations as itself, and **Clear default** on the default card goes back to that. Any persona can
+be deleted, the last one included, and disabling the default clears it.
 
 Each card says which character the persona has — "3D model · kurisu_v2.vrm", "3D model · none
 uploaded", "2D pose graph · 4 poses" or "No character". The edit dialog's **Character** block

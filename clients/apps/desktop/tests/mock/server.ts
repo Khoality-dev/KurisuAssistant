@@ -21,6 +21,7 @@ import { VRM_MODEL_BYTES, VRM_MODEL_SHA256, inspect as inspectVrm, sha256Hex } f
 // from `dist-mock/` too (a runtime file read would resolve relative to there).
 import desktopPackage from '../../package.json';
 import {
+  ASSISTANT_NAME,
   WIRE_PROTOCOL,
   WS_AUTH_SUBPROTOCOL,
   WS_WIRE_SUBPROTOCOL_PREFIX,
@@ -443,8 +444,12 @@ export class MockBackend {
       // Non-optional on the client's `Assistant` type. The old mock omitted it,
       // which is what forced a component to cast the response `as any`.
       trigger_word: assistant.trigger_word ?? 'kurisu',
-      default_persona_id:
-        assistant.default_persona_id ?? (this.personas.length > 0 ? this.personas[0].id : null),
+      // An explicit null is a state under test too: personas, but none pinned,
+      // so the assistant answers as itself (#302). Only an omitted field
+      // defaults to the first persona, which keeps the stock scenario's Kurisu.
+      default_persona_id: assistant.default_persona_id === undefined
+        ? (this.personas.length > 0 ? this.personas[0].id : null)
+        : assistant.default_persona_id,
     };
 
     this.subAgents = (opts.subAgents ?? []).map((s) => ({
@@ -751,10 +756,12 @@ export class MockBackend {
   }
 
   /**
-   * Which persona answers this turn. Mirrors `backend/.../agents/selection.py`:
-   * an explicit per-turn override, then the conversation's existing binding,
-   * then the assistant's default, then the first enabled persona by id. Never
-   * random, and never derived from the message.
+   * Which persona answers this turn, or `undefined` for the assistant itself.
+   * Mirrors `backend/.../agents/selection.py`: an explicit per-turn override,
+   * then the conversation's existing binding, then — only for a conversation
+   * nothing has answered yet — the assistant's default, then the assistant
+   * itself (#302). No first-persona fallback. Never random, and never derived
+   * from the message.
    *
    * At every step only *enabled* personas are eligible — an id naming a disabled
    * or deleted one is dropped and selection falls through, rather than failing.
@@ -765,15 +772,17 @@ export class MockBackend {
     override: number | null | undefined,
     conv: StoredConversation | undefined,
   ): ResolvedPersona | undefined {
-    const byId = [...this.personas]
-      .filter((p) => p.enabled !== false)
-      .sort((a, b) => a.id - b.id);
+    const unanswered = !conv || conv.messages.length === 0;
     return (
       this.findEnabledPersona(override) ??
       this.findEnabledPersona(conv?.persona_id) ??
-      this.findEnabledPersona(this.assistant.default_persona_id) ??
-      byId[0]
+      (unanswered ? this.findEnabledPersona(this.assistant.default_persona_id) : undefined)
     );
+  }
+
+  /** New conversations go back to the assistant when their default persona goes. */
+  private stopDefaultingTo(personaId: number) {
+    if (this.assistant.default_persona_id === personaId) this.assistant.default_persona_id = null;
   }
 
   private personaResponse(p: ResolvedPersona) {
@@ -1005,10 +1014,8 @@ export class MockBackend {
         enabled: body.enabled ?? true,
       };
       this.personas.push(persona);
-      // The user's first persona also becomes their default.
-      if (this.assistant.default_persona_id === null) {
-        this.assistant.default_persona_id = persona.id;
-      }
+      // Not adopted as the default: a persona is optional, and only the user
+      // points new conversations at one (#302).
       return this.json(res, this.personaResponse(persona));
     }
     const personaEnabledMatch = pathOnly.match(/^\/personas\/(\d+)\/enabled$/);
@@ -1017,6 +1024,7 @@ export class MockBackend {
       if (!persona) return this.error(res, 404, 'Persona not found');
       const body = await this.readJson(req);
       persona.enabled = !!body.enabled;
+      if (!persona.enabled) this.stopDefaultingTo(persona.id);
       return this.json(res, this.personaResponse(persona));
     }
     const personaMatch = pathOnly.match(/^\/personas\/(\d+)$/);
@@ -1032,24 +1040,18 @@ export class MockBackend {
       if (method === 'PATCH') {
         if (!persona) return this.error(res, 404, 'Persona not found');
         Object.assign(persona, await this.readJson(req));
+        if (persona.enabled === false) this.stopDefaultingTo(persona.id);
         return this.json(res, this.personaResponse(persona));
       }
       if (method === 'DELETE') {
         if (!persona) return this.error(res, 404, 'Persona not found');
-        // The backend refuses to remove the last one: a user with no persona
-        // cannot start a conversation.
-        if (this.personas.length === 1) {
-          return this.error(
-            res, 400,
-            'This is your only persona. Create another one before deleting it.',
-          );
-        }
+        // Any persona can go, the last one included: the assistant answers
+        // without one. The FK clears the default and conversation bindings, so
+        // those go back to the assistant rather than to another persona (#302).
         this.personas = this.personas.filter((p) => p.id !== id);
-        // Deleting the *default* is allowed. The backend hands the default to
-        // the oldest remaining persona rather than leaving it dangling, so a
-        // client that re-reads /assistant afterwards must see a live id here too.
-        if (this.assistant.default_persona_id === id) {
-          this.assistant.default_persona_id = this.personas[0]?.id ?? null;
+        this.stopDefaultingTo(id);
+        for (const conv of this.conversations.values()) {
+          if (conv.persona_id === id) conv.persona_id = null;
         }
         return this.json(res, { message: 'Persona deleted successfully' });
       }
@@ -1948,8 +1950,9 @@ export class MockBackend {
 
         // Binding precedence, as the backend resolves it: an explicit per-turn
         // `persona_id` → the conversation's existing binding → the assistant's
-        // default. `agent_id` is not accepted; a client still sending it gets
-        // the default, exactly as the real server would.
+        // default, for an unanswered conversation → the assistant itself.
+        // `agent_id` is not accepted; a client still sending it gets the
+        // default, exactly as the real server would.
         const persona = this.resolvePersona(event.persona_id, conv);
 
         if (!conv) {
@@ -1957,9 +1960,10 @@ export class MockBackend {
           // never seen keeps its number, so the client's own bookkeeping stays
           // consistent instead of silently moving to a different conversation.
           conv = this.createConversation(persona?.id ?? null, 'Mock Conversation', event.conversation_id ?? undefined);
-        } else if (persona && conv.persona_id !== persona.id) {
-          // A per-turn override rebinds the conversation server-side.
-          conv.persona_id = persona.id;
+        } else if (conv.persona_id !== (persona?.id ?? null)) {
+          // A per-turn override rebinds the conversation server-side, and a
+          // binding to a persona that is gone or disabled falls to the assistant.
+          conv.persona_id = persona?.id ?? null;
         }
         const conversationId = conv.id;
         this.lastTurn = { conversationId, personaId: persona?.id ?? null };
@@ -2001,7 +2005,8 @@ export class MockBackend {
             ? undefined
             : (this.findPersona(chunk.personaId) ?? persona);
           const personaId = isTool ? null : (chunk.personaId ?? speaker?.id ?? null);
-          const personaName = isTool ? null : (chunk.personaName ?? speaker?.name ?? null);
+          // With no persona the assistant speaks as itself, named "Assistant" (#302).
+          const personaName = isTool ? null : (chunk.personaName ?? speaker?.name ?? ASSISTANT_NAME);
           const label = isTool ? (chunk.name ?? 'mock_tool') : personaName;
 
           const last = segments[segments.length - 1];

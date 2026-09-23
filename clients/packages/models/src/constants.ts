@@ -27,6 +27,11 @@ export const WS_WIRE_PROTOCOL_MISMATCH = 4426;
 // backend's websocket/handlers.py.
 export const WS_ERROR_NO_MODEL_SELECTED = 'NO_MODEL_SELECTED';
 
+// Who answers when no persona does: a persona is optional, and without one the
+// assistant speaks as itself under this name, with `persona_id: null` (#302).
+// Must match `ASSISTANT_NAME` in the backend's agents/selection.py.
+export const ASSISTANT_NAME = 'Assistant';
+
 // The Playwright MCP server, pinned to an exact version.
 //
 // It is fetched from the npm registry at spawn time — the package is not

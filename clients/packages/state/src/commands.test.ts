@@ -128,11 +128,11 @@ describe('slash commands', () => {
       expect(evt.type).toBe('kurisu:open-resume-picker');
     });
 
-    it('refuses when no persona is selected', async () => {
+    it('opens the picker for the assistant itself when no persona is selected (#302)', async () => {
       const spy = vi.spyOn(window, 'dispatchEvent');
       const result = await handleCommand('/resume', { activeConversationId: 1, personaId: null });
-      expect(result).toBe('No persona selected');
-      expect(spy).not.toHaveBeenCalled();
+      expect(result).toBe('');
+      expect((spy.mock.calls[0][0] as Event).type).toBe('kurisu:open-resume-picker');
     });
   });
 

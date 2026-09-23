@@ -46,7 +46,7 @@ describe('parseArgs', () => {
 describe('scenarios', () => {
   it('has the ones the docs promise', () => {
     expect(scenarioNames()).toEqual(
-      expect.arrayContaining(['default', 'docs', 'tool-call', 'sub-agent', 'handoff', 'thinking', 'slow', 'character', 'no-model', 'emotion', 'vrm']),
+      expect.arrayContaining(['default', 'docs', 'tool-call', 'sub-agent', 'handoff', 'thinking', 'slow', 'character', 'no-model', 'emotion', 'vrm', 'no-persona']),
     );
     expect(DEFAULT_SCENARIO in SCENARIOS).toBe(true);
   });
@@ -66,7 +66,10 @@ describe('scenarios', () => {
       const version = await (await fetch(`http://127.0.0.1:${port}/version`)).json();
       expect(typeof version.wire_protocol).toBe('number');
       const personas = await (await fetch(`http://127.0.0.1:${port}/personas`)).json();
-      expect(personas.map((p: { name: string }) => p.name)).toContain('Kurisu');
+      const names = personas.map((p: { name: string }) => p.name);
+      // Every scenario has Kurisu, except the one about having nobody (#302).
+      if (name === 'no-persona') expect(names).toEqual([]);
+      else expect(names).toContain('Kurisu');
     } finally {
       await mock.stop();
     }
@@ -75,6 +78,12 @@ describe('scenarios', () => {
   it('"no-model" is the fresh-account state', () => {
     expect(createScenario('no-model').getAssistant().model_name).toBeNull();
     expect(createScenario('default').getAssistant().model_name).not.toBeNull();
+  });
+
+  it('"no-persona" is an account the assistant answers on its own', () => {
+    const mock = createScenario('no-persona');
+    expect(mock.getPersonas()).toEqual([]);
+    expect(mock.getAssistant().default_persona_id).toBeNull();
   });
 
   it('"handoff" speaks as a persona the scenario actually has', () => {

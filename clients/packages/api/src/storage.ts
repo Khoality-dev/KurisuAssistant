@@ -118,9 +118,10 @@ function persistTokens(): void {
 
 /**
  * A key in the persona → conversation map. A number is a persona id. `'unbound'`
- * is the bucket for a conversation started while no persona was selected — the
- * client does not learn who answered until the first `stream_chunk` carries a
- * `persona_id`, and this keeps that conversation reachable in the meantime.
+ * is the bucket for a conversation started while no persona was selected, which
+ * is also the assistant's own: a persona is optional (#302), and a conversation
+ * the assistant answers as itself stays here. One the server's default persona
+ * answers is re-keyed to that persona on the first `stream_chunk` that names it.
  * (It replaces the old `'group'` sentinel, which named a group-chat concept that
  * no longer exists.)
  */

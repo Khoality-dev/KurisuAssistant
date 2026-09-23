@@ -440,6 +440,12 @@ export const SCENARIOS: Record<string, Scenario> = {
     options: { personas: [KURISU, AMADEUS], stream: SHORT_REPLY },
     apply: (mock) => mock.setAssistantModel(null),
   },
+  'no-persona': {
+    // personaOptional.spec.ts: a new account has no persona, and the assistant
+    // answers as itself (#302).
+    description: 'An account with no persona at all: the assistant answers as itself, persona_id null.',
+    options: { personas: [], assistant: { default_persona_id: null }, stream: SHORT_REPLY },
+  },
 };
 
 export const DEFAULT_SCENARIO = 'default';

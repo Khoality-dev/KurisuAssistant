@@ -102,7 +102,8 @@ function getAppToolSchemas(): ToolSchema[] {
             },
             default_persona_id: {
               type: 'integer',
-              description: 'Persona a new conversation silently binds to.',
+              description:
+                'Persona a new conversation binds to. Send null to have the assistant answer new conversations as itself, with no persona.',
             },
           },
           required: [],
@@ -166,9 +167,9 @@ function getAppToolSchemas(): ToolSchema[] {
       function: {
         name: 'app_delete_persona',
         description:
-          "Delete a persona by ID. The user's last remaining persona cannot be deleted — a " +
-          'conversation needs one to bind to. Deleting the default one is allowed: the oldest ' +
-          'remaining persona becomes the new default.',
+          'Delete a persona by ID. Any persona can be deleted, the last one included: the ' +
+          'assistant answers as itself without one. Deleting the default one leaves no default, ' +
+          'so new conversations are answered by the assistant itself.',
         parameters: {
           type: 'object',
           properties: {
