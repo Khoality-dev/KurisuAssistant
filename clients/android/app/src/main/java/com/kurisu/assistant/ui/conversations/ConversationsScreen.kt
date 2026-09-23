@@ -62,8 +62,8 @@ import com.kurisu.assistant.ui.update.UpdateDialog
  *
  * There is no search field and no persona picker here. Search was cut rather
  * than half-wired, and a new chat silently takes the assistant's default
- * persona — the only persona choice in the app is the per-conversation override
- * on the chat header.
+ * persona, or the assistant itself when there is none — the only persona choice
+ * in the app is the per-conversation override on the chat header.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

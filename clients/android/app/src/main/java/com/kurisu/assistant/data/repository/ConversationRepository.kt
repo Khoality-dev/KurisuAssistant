@@ -37,8 +37,8 @@ class ConversationRepository @Inject constructor(
         api.patchConversation(id, buildJsonObject { put("title", title) })
 
     /**
-     * Bind this conversation to [personaId], or UNBIND it when [personaId] is
-     * null so the next message falls back to the assistant's default persona.
+     * Bind this conversation to [personaId], or hand it to the assistant itself
+     * when [personaId] is null (#302).
      *
      * The body is built by hand because the route distinguishes an absent key
      * ("leave it alone") from an explicit null ("clear it"), which no nullable

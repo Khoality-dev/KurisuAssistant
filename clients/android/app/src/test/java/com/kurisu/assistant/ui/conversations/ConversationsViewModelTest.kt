@@ -172,14 +172,14 @@ class ConversationsViewModelTest {
     }
 
     @Test
-    fun `a new chat falls back to the first enabled persona when the assistant names none`() =
+    fun `a new chat with no default is the assistant's, not the first persona's`() =
         runTest {
-            // The persona list is still read, for this and nothing else: the
-            // chat screen resolves who answers with the same rule, so if the two
-            // disagree New chat clears the wrong cached conversation and the old
-            // one is resumed instead.
+            // A persona is optional (#302): with no default, the assistant answers
+            // a new chat as itself. The chat screen resolves who answers with the
+            // same rule, so if the two disagree New chat clears the wrong cached
+            // conversation and the old one is resumed instead.
             coEvery { personaRepo.listPersonas() } returns listOf(
-                makePersona(1, "Kurisu", enabled = false), makePersona(3, "Coach"),
+                makePersona(1, "Kurisu"), makePersona(3, "Coach"),
             )
             coEvery { assistantRepo.getAssistant() } returns makeAssistant(defaultPersonaId = null)
 
@@ -189,8 +189,26 @@ class ConversationsViewModelTest {
             vm.startNewChat()
             advanceUntilIdle()
 
-            coVerify(exactly = 1) { personaRepo.clearConversationIdForPersona(3) }
+            coVerify(exactly = 1) { personaRepo.clearConversationIdForPersona(null) }
+            coVerify(exactly = 0) { personaRepo.clearConversationIdForPersona(1) }
+            coVerify(exactly = 0) { personaRepo.clearConversationIdForPersona(3) }
         }
+
+    @Test
+    fun `a default that is disabled leaves a new chat to the assistant`() = runTest {
+        coEvery { personaRepo.listPersonas() } returns listOf(
+            makePersona(1, "Kurisu", enabled = false), makePersona(3, "Coach"),
+        )
+        coEvery { assistantRepo.getAssistant() } returns makeAssistant(defaultPersonaId = 1)
+
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.startNewChat()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { personaRepo.clearConversationIdForPersona(null) }
+    }
 
     @Test
     fun `losing the assistant does not lose the list`() = runTest {

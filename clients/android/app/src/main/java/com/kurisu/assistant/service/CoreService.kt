@@ -313,10 +313,8 @@ class CoreService : Service() {
         streamProcessor.onConversationId = { convId ->
             serviceScope.launch {
                 coreState.setConversationId(convId)
-                val personaId = coreState.state.value.currentPersonaId
-                if (personaId != null) {
-                    personaRepository.setConversationIdForPersona(personaId, convId)
-                }
+                // Null is the assistant answering as itself (#302), cached apart.
+                personaRepository.setConversationIdForPersona(coreState.state.value.currentPersonaId, convId)
             }
         }
 
@@ -378,7 +376,9 @@ class CoreService : Service() {
                     text = text,
                     modelName = "",
                     conversationId = state.conversationId,
-                    personaId = state.currentPersonaId,
+                    // Only a chat that does not exist yet names who answers it;
+                    // an existing one is bound on the server (see ChatViewModel).
+                    personaId = if (state.conversationId == null) state.currentPersonaId else null,
                 )
             } catch (e: Exception) {
                 streamProcessor.setError(e.message ?: "Failed to send message")

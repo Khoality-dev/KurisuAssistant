@@ -86,8 +86,8 @@ data class Conversation(
     @SerialName("last_message") val lastMessage: ConversationLastMessage? = null,
     // The persona bound to this conversation. The backend has always sent it and
     // this client used to drop it on the floor, which is why a conversation row
-    // could not show who answers it. Null means unbound: the next message adopts
-    // the assistant's default persona.
+    // could not show who answers it. Null means the assistant answers as itself
+    // (#302); a conversation nothing has answered yet adopts the default persona.
     @SerialName("persona_id") val personaId: Int? = null,
 )
 
@@ -114,7 +114,7 @@ data class ConversationDetail(
     @SerialName("compacted_context") val compactedContext: String = "",
     @SerialName("system_prompt_token_count") val systemPromptTokenCount: Int = 0,
     // Who is answering in this conversation — the chat header's current persona.
-    // Null means unbound; the next message adopts the assistant's default.
+    // Null means the assistant answers as itself (#302).
     @SerialName("persona_id") val personaId: Int? = null,
 )
 

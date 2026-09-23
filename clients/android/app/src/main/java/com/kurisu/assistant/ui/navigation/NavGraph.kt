@@ -84,7 +84,8 @@ fun KurisuNavGraph(
                 ConversationsScreen(
                     // The view model has already put the id on CoreState, so the
                     // chat only has to be shown; null is a brand-new chat and the
-                    // backend binds the default persona on its first message.
+                    // backend binds the default persona on its first message, or
+                    // leaves it to the assistant itself when there is none.
                     onOpenChat = { navController.navigate(Routes.CHAT) },
                     onOpenMenu = openDrawer,
                 )

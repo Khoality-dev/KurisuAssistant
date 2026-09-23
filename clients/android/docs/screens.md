@@ -17,9 +17,9 @@ the memory.
 ![Chats](assets/01-chats.png)
 
 Conversations are what you navigate. A row is its title, when it last moved, and the last thing said
-in it. Neither the persona nor the model is on it: there is one assistant with one default persona,
-so a face and a name would be the same face and the same name on every row and would tell no two
-rows apart (#192). Who answers a conversation is on the conversation, in its header.
+in it. Neither the persona nor the model is on it: there is one assistant with at most one default
+persona, so a face and a name would be the same face and the same name on every row and would tell
+no two rows apart (#192). Who answers a conversation is on the conversation, in its header.
 
 The strip at the top is voice state. The wake word (`kurisu` here) belongs to the **assistant**, not
 to any persona: saying it starts a turn, and whichever persona the conversation is bound to answers.
@@ -43,7 +43,11 @@ sub-agent is tagged `sub-agent` and names the model that ran it.
 ![Persona sheet](assets/03-persona-sheet.png)
 
 Tapping the header swaps the persona **for this conversation only**. The account default is
-untouched, and the change persists without sending a message.
+untouched, and the change persists without sending a message. A persona is optional (#302): the
+sheet's first row is **Assistant** — no persona, the assistant answering as itself — and a chat with
+no persona says "Assistant" in its header. In a chat that has not started yet that row is available
+only when there is no default persona (a new chat cannot say "nobody" on the wire while a default is
+set; it can be switched after the first message).
 
 ## Changing the model
 
@@ -73,6 +77,12 @@ assistant calls rather than something you chat with.
 
 A persona carries presentation only — there is no model, no tool list and no wake word in the
 editor. "Calls you" is what the persona calls *you*, not a display name for the persona.
+
+Personas are optional (#302). A new account has none, and the list's first row, **The assistant
+itself**, is the default until a persona is tapped; tapping it again sends `default_persona_id: null`
+(`AssistantRepository.clearDefaultPersona`, a hand-built body because `AssistantUpdate` never sends a
+null). Any persona can be deleted, the last one included, and the default can be disabled — both hand
+new chats back to the assistant, and the badge follows.
 
 ## Everything else
 

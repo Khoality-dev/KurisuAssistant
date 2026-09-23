@@ -212,8 +212,9 @@ class WebSocketManager @Inject constructor(
      * Send a chat turn.
      *
      * [personaId] is an optional override: leave it null and a new conversation
-     * silently adopts the assistant's default persona while an existing one keeps
-     * its binding. Passing it REBINDS the conversation server-side.
+     * silently adopts the assistant's default persona (or the assistant answers
+     * as itself when there is none, #302) while an existing one keeps its
+     * binding. Passing it REBINDS the conversation server-side.
      */
     suspend fun sendChatRequest(
         text: String,

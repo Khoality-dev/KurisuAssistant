@@ -14,8 +14,9 @@ data class CoreServiceState(
     val isProcessingAsr: Boolean = false,
     val lastTranscript: String? = null,
     val conversationId: Int? = null,
-    // The persona answering in [conversationId]. There is nothing to "select":
-    // one assistant owns capability, and this only records who is speaking.
+    // The persona answering in [conversationId]; null is the assistant answering
+    // as itself (#302). There is nothing to "select": one assistant owns
+    // capability, and this only records who is speaking.
     val currentPersonaId: Int? = null,
 )
 

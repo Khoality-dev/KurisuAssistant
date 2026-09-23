@@ -89,6 +89,7 @@ fun ChatScreen(
                 modal = modal,
                 defaultPersonaName = state.defaultPersonaName,
                 currentPersonaId = state.persona?.id,
+                conversationStarted = state.conversationId != null,
                 baseUrl = state.baseUrl,
                 onDismiss = viewModel::dismissModal,
                 onPick = viewModel::switchPersona,
@@ -716,12 +717,62 @@ private fun ModelSheet(
     }
 }
 
+/** The assistant answering as itself, as the first choice in the persona sheet (#302). */
+@Composable
+private fun AssistantRow(
+    isCurrent: Boolean,
+    available: Boolean,
+    defaultPersonaName: String?,
+    onPick: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(13.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = available || isCurrent) { if (isCurrent) onDismiss() else onPick() }
+            .alpha(if (available || isCurrent) 1f else 0.6f)
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+    ) {
+        PersonaAvatar(name = ChatViewModel.ASSISTANT_NAME, avatarUrl = null, size = 40.dp, fontSize = 13.sp)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = ChatViewModel.ASSISTANT_NAME,
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = if (available || isCurrent) {
+                    "No persona — the assistant answers as itself"
+                } else {
+                    "New chats start with $defaultPersonaName — switch after the first message"
+                },
+                style = KurisuTheme.extraTypography.metadataSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (isCurrent) {
+            Icon(
+                Icons.Default.Check,
+                contentDescription = "Answering this conversation",
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
 /**
  * The per-conversation persona switch.
  *
  * The subtitle is the whole contract: this conversation moves, the assistant's
  * default does not. Without it the sheet reads like a global setting and every
  * future chat looks changed.
+ *
+ * The first row is the assistant itself — no persona (#302). A started chat is
+ * handed to it with `persona_id: null`; a chat that does not exist yet cannot
+ * say "nobody" on the wire while a default is set (an absent `persona_id` means
+ * "the default"), so there the row explains when it becomes available instead
+ * of pretending to work.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -729,9 +780,10 @@ private fun PersonaSheet(
     modal: ChatModal.PersonaPicker,
     defaultPersonaName: String?,
     currentPersonaId: Int?,
+    conversationStarted: Boolean,
     baseUrl: String,
     onDismiss: () -> Unit,
-    onPick: (Persona) -> Unit,
+    onPick: (Persona?) -> Unit,
     onManagePersonas: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -757,11 +809,25 @@ private fun PersonaSheet(
                 contentAlignment = Alignment.Center,
             ) { CircularProgressIndicator(modifier = Modifier.size(28.dp)) }
 
+            else -> AssistantRow(
+                isCurrent = currentPersonaId == null,
+                // With no default a new chat is the assistant's already; with one,
+                // only a started chat can be handed over (see above).
+                available = conversationStarted || defaultPersonaName == null,
+                defaultPersonaName = defaultPersonaName,
+                onPick = { onPick(null) },
+                onDismiss = onDismiss,
+            )
+        }
+
+        when {
+            modal.loading -> Unit
+
             modal.personas.isEmpty() -> Text(
-                text = "No personas yet. Create one to choose who answers.",
+                text = "No personas yet. Create one to give the assistant a name, voice and face.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
             )
 
             else -> modal.personas.forEach { persona ->

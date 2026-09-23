@@ -137,7 +137,7 @@ fun PersonasScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    "Tap one to make it the default for new chats. A single conversation can override it from the chat header.",
+                    "Personas are optional. Tap one to make it the default for new chats, or tap the assistant itself to use none. A single conversation can override it from the chat header.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -173,6 +173,11 @@ fun PersonasScreen(
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            Text(
+                                "New chats are answered by the assistant itself.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                             Spacer(Modifier.height(8.dp))
                             Button(onClick = viewModel::openNewPersona) {
                                 Text("Create your first persona")
@@ -185,6 +190,12 @@ fun PersonasScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    item(key = "assistant-itself") {
+                        AssistantItselfRow(
+                            isDefault = state.defaultPersonaId == null,
+                            onMakeDefault = viewModel::clearDefault,
+                        )
+                    }
                     items(state.personas, key = { it.id }) { persona ->
                         PersonaRow(
                             persona = persona,
@@ -247,6 +258,42 @@ fun PersonasScreen(
                 TextButton(onClick = viewModel::dismissDelete) { Text("Cancel") }
             },
         )
+    }
+}
+
+/**
+ * The assistant answering as itself — no persona (#302). The default when the
+ * assistant names no persona, which is where every account starts; tapping it
+ * makes it the default again.
+ */
+@Composable
+private fun AssistantItselfRow(isDefault: Boolean, onMakeDefault: () -> Unit) {
+    OutlinedCard(modifier = Modifier.fillMaxWidth(), onClick = onMakeDefault) {
+        Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
+            PersonaAvatar(name = "Assistant", avatarUrl = null, size = 44.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    Text("The assistant itself", style = MaterialTheme.typography.titleMedium)
+                    if (isDefault) {
+                        Pill(
+                            "Default",
+                            container = MaterialTheme.colorScheme.primary,
+                            content = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "No persona — answers with no name, voice or face of its own.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 

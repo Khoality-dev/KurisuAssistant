@@ -21,7 +21,7 @@ alive, and the pieces that must stay in step with the desktop client.
 - Modal state lives in `ChatUiState.modal: ChatModal?` (sealed: ResumePicker / PersonaPicker / ContextDialog). Transient feedback via `ChatUiState.commandFeedback` — auto-cleared after 2.2s by `LaunchedEffect`
 
 ## Character Button (live-animate equivalent)
-- Replaces desktop's `/live-animate` slash command. Chat header has a `Face` icon button that opens `CharacterSheet` (`ui/character/CharacterSheet.kt`) over the transcript. It is a sheet, not a route: the chat keeps streaming behind it, and the sheet is bound to the conversation's persona (falling back to the assistant's default)
+- Replaces desktop's `/live-animate` slash command. Chat header has a `Face` icon button that opens `CharacterSheet` (`ui/character/CharacterSheet.kt`) over the transcript. It is a sheet, not a route: the chat keeps streaming behind it, and the sheet is bound to the conversation's persona; with none — the assistant answering as itself (#302) — it says there is no character rather than borrowing the default persona's
 
 ## TTS Pipeline
 - Sentence boundary splitting (`.!?。！？\n`) → `queueText()` FIFO — only while "Generate TTS during responses" (`prefs.getTTSAutoPlay()`) is on; `CoreService` checks it per sentence. The persona preview ("Hello. This is …") calls `queueText` directly and is not gated
