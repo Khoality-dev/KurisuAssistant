@@ -94,12 +94,12 @@ retrying silently for ever. The image carries the application code — the Docke
 
 ## Releases and Deployment
 
-There is no long-lived `dev` branch. Work happens on short-lived branches merged into `main` through pull requests, and a release is a tag on `main`: `vX.Y.Z`, with X.Y.Z equal to `__version__` in `version.py` — one tag for the backend and both clients (#256). The root `release.yml` builds the desktop installers and the Android APK from that tag and publishes them under one GitHub release; it refuses a tag whose number is not `__version__`. For the backend the tag *is* the release — there is no backend artifact, and a deployment is a checkout of the tag with `docker compose up -d --build` run from its `backend/`. To release: bump `__version__`, merge, then `git tag vX.Y.Z && git push origin vX.Y.Z`. (`backend-vX.Y.Z` was the backend's own tag before #256; the last is `backend-v0.6.0`.)
+There is no long-lived `dev` branch. Work happens on short-lived branches merged into `main` through pull requests, and a release is a tag on `main`, `vX.Y.Z`, and nothing else — one tag for the backend and both clients (#256), and no file in the tree holds the number (#291). To release: `git tag vX.Y.Z <commit on main> && git push origin vX.Y.Z`. The root `release.yml` refuses a tag that is not `vX.Y.Z` with minor and patch under 100 (it asks `python3 backend/kurisuassistant/version.py <tag>`) or that is not on `main`, then builds the desktop installers and the Android APK at that version and publishes them under one GitHub release. For the backend the tag *is* the release — there is no backend artifact; a deployment is a checkout of the tag rebuilt from its `backend/`, and the build stamps the image with `KURISU_VERSION` from `git describe --tags`. A backend built from the tag reports its number on `/health` and `/version`; one built from anything else reports what it was built from (`0.8.0-3-gc3fa067`), or `dev` when nothing was passed, so it is never mistaken for a release. (`backend-vX.Y.Z` was the backend's own tag before #256; the last is `backend-v0.6.0`.)
 
 Keep a deployment's checkout separate from the one you develop in. The checkout is a build context, an env file and a `data/` directory — the running code comes from the image, so editing the tree changes nothing until the next `--build`, and the image keeps running if the tree moves. What still makes a shared tree a bad idea is `data/` and the fixed project name: a second stack started from the same directory writes into the same user data. Move a deployment with checkout and rebuild in one step:
 
 ```bash
-git fetch --tags && git checkout vX.Y.Z && docker compose up -d --build
+git fetch --tags && git checkout vX.Y.Z && KURISU_VERSION=$(git describe --tags) docker compose up -d --build
 ```
 
 **Moving an existing deployment onto the profile split needs two things written

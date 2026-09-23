@@ -251,7 +251,11 @@ def test_every_setting_the_server_reads_reaches_the_container():
         entry.split("=", 1)[0]
         for entry in load(BASE)["services"]["api"]["environment"]
     }
-    missing = sorted(read_by_server - passed_in)
+    # Baked into the image at build time (a build arg, then ENV in the Dockerfile),
+    # never passed at run time: an `environment:` entry would override the stamped
+    # value with whatever the shell had on the next plain `up` (#291).
+    built_in = {"KURISU_VERSION"}
+    missing = sorted(read_by_server - passed_in - built_in)
     assert missing == [], (
         f"the server reads {missing} but the api service never receives them"
     )

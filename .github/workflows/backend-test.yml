@@ -27,8 +27,8 @@ on:
       # suite too, or the drift check only fires for whoever edited last (#93).
       - 'protocol/**'
       - '.github/workflows/backend-test.yml'
-      # tests/test_version_tag.py pins the line release.yml greps out of
-      # version.py; an edit to that workflow alone must run it (#256).
+      # tests/test_version_tag.py pins the check release.yml asks of
+      # version.py; an edit to that workflow alone must run it (#256, #291).
       - '.github/workflows/release.yml'
   pull_request:
     paths:
@@ -37,8 +37,8 @@ on:
       # suite too, or the drift check only fires for whoever edited last (#93).
       - 'protocol/**'
       - '.github/workflows/backend-test.yml'
-      # tests/test_version_tag.py pins the line release.yml greps out of
-      # version.py; an edit to that workflow alone must run it (#256).
+      # tests/test_version_tag.py pins the check release.yml asks of
+      # version.py; an edit to that workflow alone must run it (#256, #291).
       - '.github/workflows/release.yml'
   workflow_dispatch:
 

@@ -1,9 +1,10 @@
 name: Release
 
-# One release per version (#256):
+# One release per version (#256), and a release is a tag alone (#291):
 #
-#   1. Bump `__version__` in backend/kurisuassistant/version.py, merge to main.
-#   2. git tag vX.Y.Z && git push origin vX.Y.Z
+#   git tag vX.Y.Z <commit on main> && git push origin vX.Y.Z
+#
+# No commit, no pull request: no file in the tree holds the number.
 #
 # The tag builds BOTH clients at that version and publishes them under ONE
 # GitHub release named `vX.Y.Z`: the Windows installer, the Linux AppImage and
@@ -11,10 +12,13 @@ name: Release
 # APK. There is no backend artifact: the backend is released by the same tag,
 # and a deployment checks it out and rebuilds (backend/docs/operations.md).
 #
-# One version number. The `check` job refuses a tag whose X.Y.Z is not the
-# backend's `__version__`; the desktop's package.json version and the Android
-# versionName / versionCode are set FROM the tag at build time, so nothing else
-# has to be bumped — the committed client values are what a local build gets.
+# One version number, the tag's. The `check` job refuses a tag that is not
+# vX.Y.Z with minor and patch under 100 (asked of backend/kurisuassistant/
+# version.py, which the backend's tests cover) or that is not on main. The
+# desktop's package.json version and the Android versionName / versionCode are
+# set FROM the tag at build time — the committed client values are what a local
+# build gets — and the backend reports it once a deployment builds from the tag
+# (KURISU_VERSION, backend/docs/development.md).
 #
 # How installed apps find it:
 #   - desktop: electron-updater reads this repository's `releases/latest`
@@ -67,11 +71,12 @@ permissions:
   contents: write   # the release is created here
 
 jobs:
-  # Resolves the tag being released and refuses one whose number is not the
-  # backend's. Everything downstream checks out this tag by name, so a manual
-  # re-run builds the tagged tree, never the branch the run was started from.
+  # Resolves the tag being released and refuses one that is not a release tag
+  # or not on main. Everything downstream checks out this tag by name, so a
+  # manual re-run builds the tagged tree, never the branch the run was started
+  # from.
   check:
-    name: Tag matches the version
+    name: The tag is a release
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
@@ -86,6 +91,8 @@ jobs:
           INPUT_TAG: ${{ inputs.tag }}
         run: |
           if [[ "$EVENT_NAME" == "push" ]]; then tag="$PUSHED_TAG"; else tag="$INPUT_TAG"; fi
+          # Shape only here, so nothing is checked out for a tag that cannot be one;
+          # version.py makes the full call once the tag is checked out.
           if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::'$tag' is not a release tag; releases are tagged vX.Y.Z." >&2
             exit 1
@@ -97,19 +104,25 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.resolve.outputs.tag }}
+          # Full history, so the tagged commit can be checked against main.
+          fetch-depth: 0
 
-      - name: The tag's number is the backend's __version__
+      - name: The tag is a release tag on main
         id: verify
         env:
-          VERSION: ${{ steps.resolve.outputs.version }}
+          TAG: ${{ steps.resolve.outputs.tag }}
         run: |
-          py_version="$(sed -nE 's/^__version__ = "([^"]+)".*/\1/p' backend/kurisuassistant/version.py | head -1)"
-          if [[ "$VERSION" != "$py_version" ]]; then
-            echo "::error::Tag v$VERSION does not match __version__ = \"$py_version\" in backend/kurisuassistant/version.py. Bump __version__ on main, then tag that commit." >&2
+          python3 backend/kurisuassistant/version.py "$TAG" || {
+            echo "::error::'$TAG' cannot be released (see above)." >&2
+            exit 1
+          }
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::$TAG points at $(git rev-parse --short HEAD), which is not on main. Tag a commit that has been merged to main." >&2
             exit 1
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "Releasing v$VERSION from $(git rev-parse --short HEAD)"
+          echo "Releasing $TAG from $(git rev-parse --short HEAD)"
 
   desktop:
     name: Desktop (${{ matrix.os }})
