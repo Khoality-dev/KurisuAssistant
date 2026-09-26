@@ -144,7 +144,9 @@ fun MessageBubble(
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             for (imageId in message.images.take(3)) {
                                 AsyncImage(
-                                    model = "$baseUrl/images/$imageId",
+                                    // A message still being sent shows the attachment's own
+                                    // URI; once saved, the server's uuid replaces it (#308).
+                                    model = if ("://" in imageId) imageId else "$baseUrl/images/$imageId",
                                     contentDescription = "Image",
                                     modifier = Modifier
                                         .size(80.dp)
