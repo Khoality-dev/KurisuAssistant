@@ -48,6 +48,8 @@ fetch there asks the main renderer for a fresh token over
 
 `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_selected_persona_id`, `kurisu_persona_conversations`, `kurisu_media_volume`
 
+Layout, in `layoutStore` rather than `storage`: `kurisu_chat_panel_width`, `kurisu_workspace_tree_width`, `kurisu_character_visible` and `kurisu_character_panel_height` (the inline character panel, #241).
+
 Pre-split keys `kurisu_selected_agent_id` and `kurisu_agent_conversations` are removed once at startup by `storage.clearLegacyAgentKeys()` — both were caches that re-derive from the backend, so nothing is migrated.
 
 `kurisu_auth_token` and `kurisu_refresh_token` are **gone from this list on purpose**. Tokens live in the OS keychain via `electron/credentials.ts`; `storage.loadPersistedTokens()` moves any pair an older build left here into it and deletes them. Do not add a token, password or key to localStorage — in Electron it is an unencrypted LevelDB under userData, readable by any process running as the user.

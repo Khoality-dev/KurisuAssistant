@@ -25,7 +25,7 @@ How a turn behaves on screen: streaming, speech, the voice call mode, and the co
 - Flushes buffer on speaker change or DoneEvent; `clearQueue()` on cancel/new send
 - Tool messages excluded; the voice comes from the speaking persona — `ttsVoiceRef` follows each assistant chunk's `voice_reference`, so a mid-stream handoff switches voice with the bubble
 - Action narration (`*walks over*`) stripped via `stripNarration()` before TTS — preserves `**bold**`
-- **Subtitles**: `useTTS` parses WAV header for duration, calls `onPlaybackStart(text, duration)` before each queue item plays. On TTS error, falls back to 4s duration. ChatWidget forwards to character window via IPC.
+- **Subtitles**: `useTTS` parses WAV header for duration, calls `onPlaybackStart(text, duration)` before each queue item plays. On TTS error, falls back to 4s duration. `useCharacterPanel` publishes them to the character feed, where the inline panel's `SubtitleQueue` shows them and `useCharacterBridgeSync` mirrors them to the window while it is open.
 
 ## Interactive Mode
 Two-level state managed by `useMicStore` (Zustand, `@kurisu/state`'s `micStore.ts`): `interactiveMode` (outer) + `interactionActive` (inner substate).
@@ -75,7 +75,7 @@ Two-level state managed by `useMicStore` (Zustand, `@kurisu/state`'s `micStore.t
 
 ## Slash Commands (`@kurisu/state`'s `commands.ts`)
 - `/clear`, `/delete`, `/resume`, `/context`, `/persona`, `/refresh`, `/live-animate`, `/vision`, `/compact` (lazy imports to avoid circular deps)
-- `/live-animate` — toggles the character window, like the Face icon on the chat header. Needs `capabilities.characterWindow`; without it (the browser build) it answers "This host has no character window." and dispatches nothing (#237)
+- `/live-animate` — shows or hides the character, like the Face icon on the chat header: the inline panel on every host, or the window if it is popped out (#241). Before the panel it needed `capabilities.characterWindow` and answered "This host has no character window." in a browser (#237)
 - `/persona` — opens the chat header's persona sheet (`kurisu:open-persona-picker`). A per-conversation override, persisted with `PATCH /conversations/{id}`
 - `/resume` — opens the conversation picker for the chosen persona, or with none chosen the assistant's own conversations (`persona_id: null`); it no longer refuses without a persona (#302)
 - `/compact` — compact conversation context (sends `compact_context` WebSocket event). The backend answers `context_info` twice, `compacting: true` then `compacting: false` carrying the summary and the new watermark, and compacts **in place**: same conversation, same id, same transcript on screen. `useStreamingChat` records the watermark and reloads the conversation. It used to fork into a new conversation announced by `conversation_switched`; that event is gone (#99)

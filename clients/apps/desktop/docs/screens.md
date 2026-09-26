@@ -66,6 +66,12 @@ when a new account's first message is refused for having none (#197). Each answe
 the persona that produced it. A tool call carries its own name, and a delegated step is tagged with
 the sub-agent and the model that ran it.
 
+The Face button on that header (or `/live-animate`) shows the character in a panel above the
+messages — every persona in the conversation, with the subtitle under them. Its lower edge drags
+between 160 px and three fifths of the column, and the app remembers the height and whether it was
+showing. On the desktop its top-right corner pops it out into its own window; the panel then only
+says "Showing in its own window" until it is popped back in or the window is closed (#241).
+
 ## Everything else
 
 | | |

@@ -47,7 +47,6 @@ import { storage } from '@kurisu/api';
 import { useTTS } from '@kurisu/hooks';
 import { useVisionStore, setThinking } from '@kurisu/state';
 import { useCharacterPanel } from '@kurisu/hooks';
-import { useCapabilities } from '@kurisu/hooks';
 import { useInteractiveASR } from '@kurisu/hooks';
 import { useMicStore } from '@kurisu/state';
 import { usePersonaStore } from '@kurisu/state';
@@ -70,14 +69,14 @@ interface SheetOption {
 }
 
 interface ChatWidgetProps {
-  characterWindowOpen?: boolean;
+  /** The character is showing, inline or in its own window. */
+  characterShown?: boolean;
   personaId?: number | null;
 }
 
-export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = false, personaId: personaIdProp = null }) => {
+export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, personaId: personaIdProp = null }) => {
   const storePersonaId = usePersonaStore((s) => s.selectedPersonaId);
   const personaId = personaIdProp ?? storePersonaId;
-  const { characterWindow: hasCharacterWindow } = useCapabilities();
   const {
     messages,
     currentConversation,
@@ -683,21 +682,19 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterWindowOpen = fa
             <ExpandMoreIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
           </ListItemButton>
         </Tooltip>
-        {/* The character window, where the host has one. Goes through the same
-            event as /live-animate, so ChatPanel stays the one owner of that
-            state (#237). */}
-        {hasCharacterWindow && (
-          <Tooltip title={characterWindowOpen ? 'Hide the character window' : 'Show the character window'}>
-            <IconButton
-              size="small"
-              aria-label={characterWindowOpen ? 'Hide character window' : 'Show character window'}
-              onClick={() => window.dispatchEvent(new Event('kurisu:toggle-character'))}
-              sx={{ p: 0.5 }}
-            >
-              <FaceIcon sx={{ fontSize: 18, color: characterWindowOpen ? 'primary.main' : 'text.secondary' }} />
-            </IconButton>
-          </Tooltip>
-        )}
+        {/* The character, on every host: the inline panel is a surface a
+            browser has too (#241). Goes through the same event as
+            /live-animate, so ChatPanel stays the one owner of that state. */}
+        <Tooltip title={characterShown ? 'Hide the character' : 'Show the character'}>
+          <IconButton
+            size="small"
+            aria-label={characterShown ? 'Hide character' : 'Show character'}
+            onClick={() => window.dispatchEvent(new Event('kurisu:toggle-character'))}
+            sx={{ p: 0.5 }}
+          >
+            <FaceIcon sx={{ fontSize: 18, color: characterShown ? 'primary.main' : 'text.secondary' }} />
+          </IconButton>
+        </Tooltip>
         </Box>
         {currentConversation && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>

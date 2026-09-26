@@ -60,9 +60,10 @@ test.describe('VRM in the character window @gpu', () => {
     mock.setCharacterFile('/character-assets/1/vrm/model', bytes);
     const composer = await login(page);
 
+    await page.getByRole('button', { name: 'Show character' }).click();
     const [characterPage] = await Promise.all([
       electronApp.waitForEvent('window'),
-      page.getByRole('button', { name: 'Show character window' }).click(),
+      page.getByRole('button', { name: 'Pop out character' }).click(),
     ]);
     characterPage.on('pageerror', (err) => console.log('[character pageerror]', err.message));
 

@@ -177,19 +177,14 @@ describe('slash commands', () => {
   describe('/live-animate', () => {
     afterEach(() => resetBridge());
 
-    it('dispatches the toggle-character event where the host has a window', async () => {
-      installBridge({ capabilities: { characterWindow: true } });
-      const spy = vi.spyOn(window, 'dispatchEvent');
-      await handleCommand('/live-animate', { activeConversationId: null, personaId: null });
-      expect(spy.mock.calls[0][0].type).toBe('kurisu:toggle-character');
-    });
-
-    it('says so, and dispatches nothing, where the host has none', async () => {
-      installBridge({ capabilities: { characterWindow: false } });
+    // The inline panel is a character surface on every host (#241), so the
+    // command toggles it everywhere; only the pop-out needs a window.
+    it.each([true, false])('dispatches the toggle-character event (host has a window: %s)', async (characterWindow) => {
+      installBridge({ capabilities: { characterWindow } });
       const spy = vi.spyOn(window, 'dispatchEvent');
       const result = await handleCommand('/live-animate', { activeConversationId: null, personaId: null });
-      expect(result).toBe('This host has no character window.');
-      expect(spy).not.toHaveBeenCalled();
+      expect(result).toBe('');
+      expect(spy.mock.calls[0][0].type).toBe('kurisu:toggle-character');
     });
   });
 

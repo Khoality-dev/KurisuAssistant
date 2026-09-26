@@ -25,11 +25,16 @@ async function login(page: Page) {
   return composer;
 }
 
-/** Open the window from the real button and give it ears: the fixtures listen to the first window only. */
+/**
+ * Open the window from the real buttons — the chat header shows the inline
+ * panel, the panel pops out (#241) — and give it ears: the fixtures listen to
+ * the first window only.
+ */
 async function openCharacterWindow(page: Page, electronApp: ElectronApplication) {
+  await page.getByRole('button', { name: 'Show character' }).click();
   const [characterPage] = await Promise.all([
     electronApp.waitForEvent('window'),
-    page.getByRole('button', { name: 'Show character window' }).click(),
+    page.getByRole('button', { name: 'Pop out character' }).click(),
   ]);
   characterPage.on('console', (msg) => {
     if (msg.type() === 'error' || msg.type() === 'warning' || process.env.RENDERER_DEBUG) {
@@ -37,7 +42,7 @@ async function openCharacterWindow(page: Page, electronApp: ElectronApplication)
     }
   });
   characterPage.on('pageerror', (err) => console.log('[character pageerror]', err.message));
-  await expect(page.getByRole('button', { name: 'Hide character window' })).toBeVisible();
+  await expect(page.getByText('Showing in its own window')).toBeVisible();
   return characterPage;
 }
 
