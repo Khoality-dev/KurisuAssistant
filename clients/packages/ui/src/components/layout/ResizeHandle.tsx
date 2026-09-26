@@ -6,15 +6,16 @@ interface ResizeHandleProps {
   targetRef: React.RefObject<HTMLElement | null>;
   /** Which CSS dimension to resize */
   property?: 'width' | 'height';
-  /** Min/max bounds */
+  /** Min/max bounds; a function is asked at each drag's start, for a bound that follows its container. */
   min?: number;
-  max?: number;
+  max?: number | (() => number);
   /** Called once on drag end with the final size */
   onResizeEnd?: (size: number) => void;
   /** Direction for cursor */
   direction?: 'horizontal' | 'vertical';
   /** -1 to invert (drag right = shrink, for right-side panels) */
   invert?: boolean;
+  'data-testid'?: string;
 }
 
 export const ResizeHandle: React.FC<ResizeHandleProps> = ({
@@ -25,6 +26,7 @@ export const ResizeHandle: React.FC<ResizeHandleProps> = ({
   onResizeEnd,
   direction = 'horizontal',
   invert = false,
+  ...rest
 }) => {
   const startPos = useRef(0);
   const startSize = useRef(0);
@@ -36,11 +38,12 @@ export const ResizeHandle: React.FC<ResizeHandleProps> = ({
 
     startPos.current = direction === 'horizontal' ? e.clientX : e.clientY;
     startSize.current = property === 'width' ? el.offsetWidth : el.offsetHeight;
+    const ceiling = typeof max === 'function' ? max() : max;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const current = direction === 'horizontal' ? moveEvent.clientX : moveEvent.clientY;
       const delta = (current - startPos.current) * (invert ? -1 : 1);
-      const newSize = Math.max(min, Math.min(max, startSize.current + delta));
+      const newSize = Math.max(min, Math.min(ceiling, startSize.current + delta));
       el.style[property] = `${newSize}px`;
     };
 
@@ -53,7 +56,7 @@ export const ResizeHandle: React.FC<ResizeHandleProps> = ({
       // Sync final size to state
       const current = direction === 'horizontal' ? upEvent.clientX : upEvent.clientY;
       const delta = (current - startPos.current) * (invert ? -1 : 1);
-      const finalSize = Math.max(min, Math.min(max, startSize.current + delta));
+      const finalSize = Math.max(min, Math.min(ceiling, startSize.current + delta));
       onResizeEnd?.(finalSize);
     };
 
@@ -65,6 +68,7 @@ export const ResizeHandle: React.FC<ResizeHandleProps> = ({
 
   return (
     <Box
+      {...rest}
       onMouseDown={handleMouseDown}
       sx={{
         ...(direction === 'horizontal'

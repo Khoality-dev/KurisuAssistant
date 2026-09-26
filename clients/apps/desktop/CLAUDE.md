@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`clients/apps/desktop/` in the KurisuAssistant monorepo — one member of the `clients/` npm workspace (see `../../CLAUDE.md`, and the root `CLAUDE.md`; the backend is in `../../../backend/`) — the Electron shell for the KurisuAssistant desktop client (Windows + Linux). The screens live in `@kurisu/ui` and everything under them in the other `@kurisu/*` packages; what is left here is the main process, a root that mounts `App`, the packaging config and the end-to-end suite. Chat interface with streaming responses, TTS, image attachments, conversation management, and animated 2D character video call window.
+`clients/apps/desktop/` in the KurisuAssistant monorepo — one member of the `clients/` npm workspace (see `../../CLAUDE.md`, and the root `CLAUDE.md`; the backend is in `../../../backend/`) — the Electron shell for the KurisuAssistant desktop client (Windows + Linux). The screens live in `@kurisu/ui` and everything under them in the other `@kurisu/*` packages; what is left here is the main process, a root that mounts `App`, the packaging config and the end-to-end suite. Chat interface with streaming responses, TTS, image attachments, conversation management, and an animated character (2D pose graph or VRM) inline in the chat column, which pops out into its own window.
 
 ## Tech Stack
 

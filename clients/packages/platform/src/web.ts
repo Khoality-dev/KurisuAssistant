@@ -4,9 +4,11 @@
  * Everything here is absent, and that is the finished answer for most of it: a
  * page cannot read the machine it is displayed on, run a shell on it, spawn a
  * child process, or replace itself. The members that a browser *can* eventually
- * answer — drive transfers over XHR, a character panel rendered inline — are
- * left `null` until the app that needs them exists (#128), because a half-built
- * implementation nothing calls is worse than an honest "no".
+ * answer, drive transfers over XHR, are left `null` until the app that needs
+ * them exists (#128), because a half-built implementation nothing calls is
+ * worse than an honest "no". The character needs nothing from the host: its
+ * panel renders inline in the chat column on every host (#241), and
+ * `characterWindow` only says whether it can pop out.
  */
 import type { PlatformBridge } from './index';
 

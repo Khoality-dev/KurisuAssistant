@@ -71,10 +71,12 @@ function redShare(page: Page, canvasSelector: string): Promise<number> {
   }), canvasSelector);
 }
 
+/** The chat header shows the inline panel; the panel pops out into the window (#241). */
 async function openCharacterWindow(page: Page, electronApp: ElectronApplication) {
+  await page.getByRole('button', { name: 'Show character' }).click();
   const [characterPage] = await Promise.all([
     electronApp.waitForEvent('window'),
-    page.getByRole('button', { name: 'Show character window' }).click(),
+    page.getByRole('button', { name: 'Pop out character' }).click(),
   ]);
   characterPage.on('console', (msg) => {
     if (msg.type() === 'error' || msg.type() === 'warning' || process.env.RENDERER_DEBUG) {

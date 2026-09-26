@@ -147,7 +147,7 @@ interface CharacterState {
   personas: Map<number, CharacterPersona>;
   /** Who is speaking (or just spoke); null once the queue has drained. */
   activePersonaId: number | null;
-  /** The inline panel is showing (#241). */
+  /** The inline panel is drawing (#241): shown, and not popped out into the window. */
   inlineVisible: boolean;
   /** The separate window is open, so the feed is mirrored over IPC. */
   windowOpen: boolean;
