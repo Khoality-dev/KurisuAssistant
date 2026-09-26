@@ -3,6 +3,7 @@ import { apiClient, describeSpeechFailure } from '@kurisu/api';
 import { storage } from '@kurisu/api';
 import { publishSpeech, publishSpeechSync } from '@kurisu/state';
 import type { SpeechSegment } from '@kurisu/models';
+import type { SegmentCue } from './emotionTiming';
 import { curveOfWav, useAudioAmplitude, type AmplitudeCurve, type PlaybackListeners } from './useAudioAmplitude';
 
 /** How long a sentence that could not be synthesized is held, so its subtitle and cues still show (#244). */
@@ -10,23 +11,27 @@ export const FAILED_SENTENCE_MS = 4000;
 
 /**
  * One sentence for the character feed: the curve and the moment its audio
- * began, pushed once. Every surface clocks the mouth from this (#238).
+ * began, pushed once. Every surface clocks the mouth from this (#238), and
+ * shows each of the sentence's feelings when the audio reaches its fraction
+ * of the way through (#244) — across the silent hold of a sentence that could
+ * not be synthesized too.
  */
-function segmentOf(text: string, curve: AmplitudeCurve | null, startedAt: number): SpeechSegment {
+export function segmentOf(text: string, curve: AmplitudeCurve | null, startedAt: number, cues: readonly SegmentCue[] = []): SpeechSegment {
+  const durationMs = curve?.durationMs ?? FAILED_SENTENCE_MS;
   return {
     text,
     startedAt,
-    durationMs: curve?.durationMs ?? FAILED_SENTENCE_MS,
+    durationMs,
     windowMs: curve?.windowMs ?? 1000 / 30,
     curve: curve?.values ?? null,
-    cues: [],
+    cues: cues.map((c) => ({ emotion: c.emotion, delayMs: c.atFraction * durationMs })),
   };
 }
 
 /** What playback tells the feed. */
-function feedListeners(text: string): PlaybackListeners {
+function feedListeners(text: string, cues: readonly SegmentCue[] = []): PlaybackListeners {
   return {
-    onPlaying: (curve, startedAt) => publishSpeech(segmentOf(text, curve, startedAt)),
+    onPlaying: (curve, startedAt) => publishSpeech(segmentOf(text, curve, startedAt, cues)),
     onProgress: (positionMs, at) => publishSpeechSync({ positionMs, at }),
   };
 }
@@ -60,7 +65,7 @@ export function useTTS(
   }, []);
 
   // Queue-based streaming TTS state
-  const ttsQueueRef = useRef<Array<{ audioPromise: Promise<Blob>; text: string }>>([]);
+  const ttsQueueRef = useRef<Array<{ audioPromise: Promise<Blob>; text: string; cues: SegmentCue[] }>>([]);
   const isPlayingQueueRef = useRef(false);
   const [isQueueActive, setIsQueueActive] = useState(false);
 
@@ -135,7 +140,7 @@ export function useTTS(
         // Notify subtitle system with text + audio duration before playback
         const psCb = playbackStartCallbackRef.current;
         if (psCb && curve) psCb(item.text, curve.durationMs / 1000);
-        await amplitudeController.playWithAmplitude(blob, feedListeners(item.text), curve);
+        await amplitudeController.playWithAmplitude(blob, feedListeners(item.text, item.cues), curve);
       } catch (e) {
         console.error('TTS queue playback error:', e);
         reportFailure('Speech', e);
@@ -143,7 +148,7 @@ export function useTTS(
         // a silent segment for as long, so a cue on it still lands (#244).
         const psCb = playbackStartCallbackRef.current;
         if (psCb) psCb(item.text, FAILED_SENTENCE_MS / 1000);
-        publishSpeech(segmentOf(item.text, null, Date.now()));
+        publishSpeech(segmentOf(item.text, null, Date.now(), item.cues));
       }
     }
 
@@ -154,9 +159,10 @@ export function useTTS(
   }, [amplitudeController, reportFailure]);
 
   /**
-   * Queue text for synthesis and sequential playback (used during streaming).
+   * Queue text for synthesis and sequential playback (used during streaming),
+   * with the feelings that ride it (#244).
    */
-  const queueText = useCallback((text: string, voice?: string) => {
+  const queueText = useCallback((text: string, voice?: string, cues: SegmentCue[] = []) => {
     if (!text.trim()) return;
 
     // No stored choice means no `provider` on the request, so the server's
@@ -165,7 +171,7 @@ export function useTTS(
 
     const trimmed = text.trim();
     const audioPromise = apiClient.synthesize(trimmed, voice, undefined, backend);
-    ttsQueueRef.current.push({ audioPromise, text: trimmed });
+    ttsQueueRef.current.push({ audioPromise, text: trimmed, cues });
     setIsQueueActive(true);
 
     if (!isPlayingQueueRef.current) {

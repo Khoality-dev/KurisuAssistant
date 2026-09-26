@@ -67,7 +67,8 @@ export interface StreamChunkEvent extends BaseEvent {
   // null otherwise. `emotion_at` is where it takes effect — an offset into
   // this LLM round's accumulated content (this chunk's `content` starts
   // there), in UTF-16 code units, i.e. `String.length`. Optional on the wire,
-  // so no protocol change; applying it to a face is #244.
+  // so no protocol change. `StreamSpeechPlanner` (`@kurisu/hooks`) applies it
+  // when the sentence is spoken (#244).
   emotion?: VrmEmotion | null;
   emotion_at?: number | null;
 }

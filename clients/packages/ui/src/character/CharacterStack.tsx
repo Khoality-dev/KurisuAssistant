@@ -97,6 +97,7 @@ export const CharacterStack: React.FC<CharacterStackProps> = ({
             ) : (
               <CharacterSurface
                 character={entry.character}
+                personaId={id}
                 personaName={entry.name}
                 active={isActive}
                 receivesStimuli={isActive || activePersonaId === null}

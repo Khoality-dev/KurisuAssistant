@@ -7,6 +7,7 @@ import { fakeCharacterWindow } from '@kurisu/platform/testing';
 import {
   publishSpeech,
   publishSpeechSync,
+  pushEmotion,
   pushGestures,
   publishSubtitle,
   resetCharacterFeed,
@@ -66,6 +67,30 @@ describe('mirrorCharacterFeed', () => {
       personas: [{ id: 1, name: 'K', avatarUuid: 'u', character: null }],
       activePersonaId: 1,
     });
+  });
+
+  it('mirrors a feeling shown on text arrival, with whose face it is for (#244)', () => {
+    useCharacterStore.getState().setWindowOpen(true);
+    setThinking(true);
+    api.calls.length = 0;
+    pushEmotion({ emotion: 'happy', hold_ms: 2000 }, 7, 1000);
+    expect(methods()).toEqual(['sendFeed']);
+    expect(api.calls[0].data).toEqual({
+      isThinking: true,
+      emotion: { cue: { emotion: 'happy', hold_ms: 2000 }, personaId: 7, at: 1000 },
+    });
+  });
+
+  it('a window that opens while a feeling still holds is handed it with the rest of the feed', () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1500);
+    pushEmotion({ emotion: 'sad', hold_ms: null }, 2, 1000);
+    api.fire('onCharacterReady');
+    const feed = api.calls.find((c) => c.method === 'sendFeed');
+    expect(feed?.data).toEqual({
+      isThinking: false,
+      emotion: { cue: { emotion: 'sad', hold_ms: null }, personaId: 2, at: 1000 },
+    });
+    clock.mockRestore();
   });
 
   it('answers ready with the session, then the personas, then the feed as it stands', () => {

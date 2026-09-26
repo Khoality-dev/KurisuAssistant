@@ -7,6 +7,7 @@ import { resolveBridge } from '@kurisu/platform';
 import {
   publishSpeech,
   publishSpeechSync,
+  pushEmotion,
   pushGestures,
   resetCharacterFeed,
   setFaces,
@@ -79,7 +80,11 @@ export const CharacterWindowApp: React.FC = () => {
     // The feed, into this renderer's store.
     const cleanupSpeech = api.onSpeech((segment) => publishSpeech(segment));
     const cleanupSync = api.onSpeechSync((sync) => publishSpeechSync(sync));
-    const cleanupFeed = api.onFeed(({ isThinking }) => setThinking(isThinking));
+    const cleanupFeed = api.onFeed(({ isThinking, emotion }) => {
+      setThinking(isThinking);
+      // Kept at the main renderer's `at`, so a hold is measured from when it was shown there.
+      if (emotion) pushEmotion(emotion.cue, emotion.personaId, emotion.at);
+    });
     const cleanupGestures = api.onGestureUpdate(({ gestures }) => pushGestures(gestures));
     const cleanupFaces = api.onFaceUpdate(({ faces }) => setFaces(faces));
 

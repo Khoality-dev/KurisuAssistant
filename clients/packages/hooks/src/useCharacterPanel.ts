@@ -1,7 +1,8 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { apiClient } from '@kurisu/api';
 import { parseCharacterConfig, type Message } from '@kurisu/models';
-import { characterSurfaceWanted, publishSubtitle, useCharacterStore } from '@kurisu/state';
+import { characterSurfaceWanted, clearEmotion, publishSubtitle, pushEmotion, useCharacterStore } from '@kurisu/state';
+import { restingCueOf } from './emotionTiming';
 
 interface UseCharacterPanelParams {
   messages: Message[];
@@ -72,11 +73,19 @@ export function useCharacterPanel({ messages, currentConversationId }: UseCharac
     useCharacterStore.getState().setActivePersonaId(id);
   }, []);
 
-  // Reset the personas when the conversation changes
+  // Reset the personas when the conversation changes. A reopened
+  // conversation's character rests on the feeling its last reply ended on
+  // (#244); scroll-back replays nothing. The store sets a loaded conversation
+  // and its messages together, so the messages here are that conversation's.
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   useEffect(() => {
     useCharacterStore.getState().clearPersonas();
     personaCacheRef.current.clear();
     useCharacterStore.getState().setActivePersonaId(null);
+    clearEmotion();
+    const resting = restingCueOf(messagesRef.current);
+    if (resting) pushEmotion({ emotion: resting.emotion, hold_ms: null }, resting.personaId);
   }, [currentConversationId]);
 
   // Scan messages for personas while a surface is showing. Tool messages carry

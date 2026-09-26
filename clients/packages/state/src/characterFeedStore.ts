@@ -26,7 +26,6 @@ import {
   type ParsedCharacterConfig,
   type SpeechSegment,
   type SpeechSync,
-  type VrmEmotion,
 } from '@kurisu/models';
 
 // ─── The refs ───
@@ -45,9 +44,27 @@ export const characterFeed = {
   thinking: { current: false },
   gestures: { current: { names: [], seq: 0 } as GestureBurst },
   faces: { current: [] as string[] },
-  /** The cue the no-speech path applies on text arrival (#244); nothing writes it yet. */
-  emotionText: { current: null as EmotionCue | null },
+  /**
+   * A feeling to show now, outside speech (#244): a cue on arriving text
+   * while speech is off, or the feeling a reopened conversation rests on.
+   * A spoken sentence's feelings ride its segment instead.
+   */
+  emotion: { current: { cue: null, personaId: null, seq: 0, at: 0 } as EmotionBurst },
 };
+
+/**
+ * One feeling, for one persona's face. `seq` rises with every push so a
+ * surface takes each once; `at` is when it was pushed, so a surface that
+ * comes late (a window opened, a model still loading) can tell a feeling
+ * that still holds from one that is over. `cue` is null once it is spent.
+ */
+export interface EmotionBurst {
+  cue: EmotionCue | null;
+  /** Whose face; null means whoever is taking stimuli. */
+  personaId: number | null;
+  seq: number;
+  at: number;
+}
 
 export interface SubtitleEvent {
   text: string;
@@ -62,6 +79,7 @@ export type CharacterFeedEvent =
   | { type: 'thinking'; isThinking: boolean }
   | { type: 'gestures'; names: string[]; seq: number }
   | { type: 'faces'; names: string[] }
+  | { type: 'emotion'; cue: EmotionCue; personaId: number | null; at: number }
   | { type: 'subtitle'; subtitle: SubtitleEvent };
 
 type FeedListener = (event: CharacterFeedEvent) => void;
@@ -79,6 +97,11 @@ function emit(event: CharacterFeedEvent): void {
 
 /** A sentence began (its curve and start time), or speech ended (`null`). */
 export function publishSpeech(segment: SpeechSegment | null): void {
+  // Speech ended: a feeling held "until speech ends" is over.
+  const burst = characterFeed.emotion.current;
+  if (!segment && characterFeed.speech.current && burst.cue && burst.cue.hold_ms == null) {
+    characterFeed.emotion.current = { ...burst, cue: null };
+  }
   characterFeed.speech.current = segment;
   characterFeed.speechSync.current = null;
   emit({ type: 'speech', segment });
@@ -121,6 +144,33 @@ export function setFaces(names: string[]): void {
   emit({ type: 'faces', names });
 }
 
+/** Show a feeling on a persona's face now (speech off, or a reopened conversation). */
+export function pushEmotion(cue: EmotionCue, personaId: number | null, at: number = Date.now()): void {
+  const seq = characterFeed.emotion.current.seq + 1;
+  characterFeed.emotion.current = { cue, personaId, seq, at };
+  emit({ type: 'emotion', cue, personaId, at });
+}
+
+/** Whatever feeling was waiting is over — the conversation it belonged to has gone. */
+export function clearEmotion(): void {
+  const burst = characterFeed.emotion.current;
+  if (burst.cue) characterFeed.emotion.current = { ...burst, cue: null };
+}
+
+/** The burst still holds at `now`: not spent, and inside its hold if it has one. */
+export function emotionHolds(burst: EmotionBurst, now: number): boolean {
+  if (!burst.cue) return false;
+  const hold = burst.cue.hold_ms;
+  return hold == null || burst.at + hold > now;
+}
+
+/** The feeling pushed since `lastSeq` if it still holds, with the seq to remember either way. */
+export function takeEmotion(lastSeq: number, now: number): EmotionBurst {
+  const burst = characterFeed.emotion.current;
+  if (burst.seq <= lastSeq) return { cue: null, personaId: null, seq: lastSeq, at: 0 };
+  return emotionHolds(burst, now) ? burst : { ...burst, cue: null };
+}
+
 export function publishSubtitle(subtitle: SubtitleEvent): void {
   emit({ type: 'subtitle', subtitle });
 }
@@ -131,7 +181,7 @@ export function resetCharacterFeed(): void {
   setThinking(false);
   characterFeed.gestures.current = { names: [], seq: characterFeed.gestures.current.seq };
   setFaces([]);
-  characterFeed.emotionText.current = null;
+  characterFeed.emotion.current = { ...characterFeed.emotion.current, cue: null, personaId: null };
 }
 
 // ─── The store ───
@@ -151,8 +201,6 @@ interface CharacterState {
   inlineVisible: boolean;
   /** The separate window is open, so the feed is mirrored over IPC. */
   windowOpen: boolean;
-  /** The face to rest on between cues (#244). */
-  restingEmotion: VrmEmotion | null;
 
   /**
    * Keeps the existing entry when nothing a driver would reload has changed:
@@ -164,7 +212,6 @@ interface CharacterState {
   setActivePersonaId: (id: number | null) => void;
   setInlineVisible: (visible: boolean) => void;
   setWindowOpen: (open: boolean) => void;
-  setRestingEmotion: (emotion: VrmEmotion | null) => void;
 }
 
 function samePersona(a: CharacterPersona, b: CharacterPersona): boolean {
@@ -178,7 +225,6 @@ export const useCharacterStore = create<CharacterState>((set) => ({
   activePersonaId: null,
   inlineVisible: false,
   windowOpen: false,
-  restingEmotion: null,
 
   setPersona: (id, entry) => set((state) => {
     const existing = state.personas.get(id);
@@ -197,7 +243,6 @@ export const useCharacterStore = create<CharacterState>((set) => ({
   setActivePersonaId: (activePersonaId) => set((state) => (state.activePersonaId === activePersonaId ? state : { activePersonaId })),
   setInlineVisible: (inlineVisible) => set({ inlineVisible }),
   setWindowOpen: (windowOpen) => set({ windowOpen }),
-  setRestingEmotion: (restingEmotion) => set({ restingEmotion }),
 }));
 
 /** A surface is showing somewhere, so the personas are worth fetching. */

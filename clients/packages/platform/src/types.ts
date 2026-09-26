@@ -5,7 +5,7 @@
  * one host. They live here now because a second host — a browser tab — has to
  * answer the same interface, and answer "no" to most of it.
  */
-import type { FileEntry, ParsedCharacterConfig, SpeechSegment, SpeechSync } from '@kurisu/models';
+import type { EmotionCue, FileEntry, ParsedCharacterConfig, SpeechSegment, SpeechSync } from '@kurisu/models';
 
 /**
  * One persona's character, as shipped to the character window: the parsed
@@ -21,6 +21,19 @@ export interface PersonaCharacterData {
 /** What the streaming turn is doing, beyond speech. */
 export interface CharacterFeedState {
   isThinking: boolean;
+  /**
+   * A feeling to show now, outside speech, and on whose face (#244): a cue on
+   * arriving text while speech is off, or the feeling a reopened conversation
+   * rests on. Absent when the message is only about thinking. `at` is when the
+   * main renderer pushed it, so the window can tell whether it still holds.
+   */
+  emotion?: CharacterEmotion;
+}
+
+export interface CharacterEmotion {
+  cue: EmotionCue;
+  personaId: number | null;
+  at: number;
 }
 
 /**
@@ -53,7 +66,7 @@ export interface CharacterWindowAPI {
   onSpeech: (cb: (segment: SpeechSegment | null) => void) => () => void;
   sendSpeechSync: (sync: SpeechSync) => void;
   onSpeechSync: (cb: (sync: SpeechSync) => void) => () => void;
-  /** Main renderer → character window: the turn's state, on change. */
+  /** Main renderer → character window: the turn's state, on change, and a feeling to show outside speech. */
   sendFeed: (data: CharacterFeedState) => void;
   onFeed: (cb: (data: CharacterFeedState) => void) => () => void;
   sendPersonasUpdate: (data: { personas: PersonaCharacterData[]; activePersonaId: number | null }) => void;
