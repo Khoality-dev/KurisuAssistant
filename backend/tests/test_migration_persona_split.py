@@ -6,11 +6,12 @@ only do something when there is data to move. So this seeds a database that
 exercises every branch, runs the real migration through alembic, and asserts on
 the result.
 
-Marked ``integration``: it needs a Postgres it is allowed to create and drop
-databases on. Point it at one with the usual POSTGRES_* variables — the same ones
-``db/session.py`` and the alembic ``env.py`` read:
+Marked ``db``: it needs a Postgres it is allowed to create and drop databases
+on, which CI provides (and without which it fails there rather than skipping,
+``tests/postgres.py``). Point it at one with the usual POSTGRES_* variables — the
+same ones ``db/session.py`` and the alembic ``env.py`` read:
 
-    POSTGRES_HOST=localhost POSTGRES_PORT=55432 pytest -m integration \
+    POSTGRES_HOST=localhost POSTGRES_PORT=55432 pytest -m db \
         tests/test_migration_persona_split.py
 
 It never touches the configured application database: every run creates a fresh

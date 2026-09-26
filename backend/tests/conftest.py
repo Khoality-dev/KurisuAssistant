@@ -175,3 +175,48 @@ def system_client(system_db, mock_ollama_server):
 
     with TestClient(app) as client:
         yield client
+
+
+# ---------------------------------------------------------------------------
+# A fresh account per test (#311)
+# ---------------------------------------------------------------------------
+
+class Account:
+    """One activated account, logged in, its Ollama at the mock."""
+
+    def __init__(self, client, username: str, password: str):
+        from kurisuassistant.version import WIRE_PROTOCOL
+
+        self.client = client
+        self.username = username
+        self.password = password
+        resp = client.post("/login", data={"username": username, "password": password})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        self.token = body["access_token"]
+        self.refresh_token = body["refresh_token"]
+        self.headers = {"Authorization": f"Bearer {self.token}", "X-Wire-Protocol": str(WIRE_PROTOCOL)}
+
+    @property
+    def id(self) -> int:
+        from kurisuassistant.db.models import User
+        from kurisuassistant.db.session import get_session
+
+        with get_session() as session:
+            return session.query(User).filter_by(username=self.username).one().id
+
+    def socket(self):
+        """``/ws/chat`` as this account; the caller reads ``connected`` first."""
+        return self.client.websocket_connect("/ws/chat", headers=self.headers)
+
+
+@pytest.fixture()
+def account(system_client, mock_ollama):
+    """An account of this test's own, so nothing one test changes — tool
+    policies, personas, settings, conversations — reaches the next. The shared
+    ``tester`` account is for the older modules that reset what they touch."""
+    username = f"acct-{uuid.uuid4().hex[:10]}"
+    password = "an-account-password"
+    _create_activated_user(username, password)
+    _set_ollama_url(username, mock_ollama.url)
+    return Account(system_client, username, password)
