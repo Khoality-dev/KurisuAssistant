@@ -9,8 +9,11 @@
  *   KURISU_E2E_ELECTRON_ARGS="--use-angle=swiftshader --enable-unsafe-swiftshader" \
  *   npx playwright test tests/vrmRender.gpu.spec.ts
  *
- * The model is served to the window by route interception, so the spec needs
- * nothing from the mock beyond a persona whose config names it.
+ * The model goes into the mock's store and the window has to fetch it from
+ * there. It used to be answered by route interception, which matched the path
+ * under any origin — a model asked of `file://` (#298) would have passed.
+ * That the fetch reaches the server is also covered on CI by vrm.spec.ts,
+ * with the fixture model and SwiftShader; this spec is for a real export.
  */
 
 import { test, expect } from './fixtures';
@@ -54,6 +57,7 @@ test.describe('VRM in the character window @gpu', () => {
         camera: { target: 'upper_body', fov: 24, offset_y: 0, background: '#ffffff' },
       },
     } as never);
+    mock.setCharacterFile('/character-assets/1/vrm/model', bytes);
     const composer = await login(page);
 
     const [characterPage] = await Promise.all([
@@ -61,9 +65,6 @@ test.describe('VRM in the character window @gpu', () => {
       page.getByRole('button', { name: 'Show character window' }).click(),
     ]);
     characterPage.on('pageerror', (err) => console.log('[character pageerror]', err.message));
-    await characterPage.route('**/character-assets/1/vrm/model', (route) =>
-      route.fulfill({ status: 200, contentType: 'model/gltf-binary', body: bytes }),
-    );
 
     await composer.fill('Hello');
     await page.getByRole('button', { name: 'Send', exact: true }).click();

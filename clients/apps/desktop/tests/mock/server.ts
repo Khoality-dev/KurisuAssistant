@@ -676,7 +676,17 @@ export class MockBackend {
   setCharacterConfig(personaId: number, config: CharacterConfigDTO | null): void {
     const persona = this.personas.find((p) => p.id === personaId);
     if (!persona) throw new Error(`no persona ${personaId}`);
-    persona.character_config = config;
+    // A copy, as in the constructor: the store routes edit it in place.
+    persona.character_config = config ? structuredClone(config) : null;
+  }
+
+  /**
+   * Serve `bytes` at a model or clip URL without an upload, for a file the
+   * fixture does not build — a real VRoid export in `vrmRender.gpu.spec.ts`.
+   * The persona's config still has to name the URL.
+   */
+  setCharacterFile(url: string, bytes: Buffer): void {
+    this.characterFiles.set(url, bytes);
   }
 
   addSubAgent(subAgent: Omit<MockSubAgent, 'id'> & { id?: number }): MockSubAgent {
