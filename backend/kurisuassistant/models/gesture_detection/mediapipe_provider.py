@@ -3,16 +3,18 @@
 import logging
 import os
 import urllib.request
-from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
+
+from kurisuassistant.core.paths import DATA_DIR
 
 from .base import BaseGestureDetector
 
 logger = logging.getLogger(__name__)
 
-MODEL_DIR = Path("data/gesture_detection/models")
+# Beside the rest of the server's data, not under the working directory (#307).
+MODEL_DIR = DATA_DIR / "gesture_detection" / "models"
 
 HAND_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
 HAND_MODEL_FILE = "hand_landmarker.task"

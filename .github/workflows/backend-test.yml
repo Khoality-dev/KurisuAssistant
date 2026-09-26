@@ -97,4 +97,6 @@ jobs:
       - name: Run tests
         # An explicit path: pytest's default discovery would otherwise pick up
         # vendored node-gyp files named *_test.py if any are present locally.
-        run: python -m pytest tests -m "not integration" -q
+        # `-rs` lists every skip with its reason, so a suite that stopped
+        # running shows in the log instead of as a smaller count (#307).
+        run: python -m pytest tests -m "not integration" -q -rs

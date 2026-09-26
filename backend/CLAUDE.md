@@ -80,8 +80,9 @@ cd kurisuassistant/db && alembic revision --autogenerate -m "description"
 # Tests: `pytest -m "not integration"` is what CI runs. Anything that talks to a
 # model talks to tests/mock_ollama (in-process; script with Reply(...)); the
 # db-marked migration + system tests need Postgres (POSTGRES_HOST/PORT, else
-# skipped; CI provides one). `integration` = a live model — by hand only, it
-# costs money. See docs/development.md "Tests".
+# skipped — failed on CI, tests/postgres.py). `integration` = a live model — by
+# hand only, it costs money. The suite runs on a temporary DATA_DIR and never
+# touches this checkout's data/ (conftest.py, #307). See docs/development.md "Tests".
 ```
 
 ## Alembic Migrations

@@ -22,6 +22,7 @@ import sqlalchemy as sa
 from kurisuassistant.workers import service as worker_module
 from kurisuassistant.workers.service import BackgroundService, MAX_ATTEMPTS, retry_delay
 from kurisuassistant.workers.tasks import ConsolidateMemoryTask
+from tests.postgres import require_postgres
 
 pytestmark = pytest.mark.db
 
@@ -285,9 +286,7 @@ def throwaway_db():
         with admin.connect() as conn:
             conn.execute(sa.text("SELECT 1"))
     except Exception as exc:  # pragma: no cover - environment dependent
-        if os.environ.get("CI"):
-            raise
-        pytest.skip(f"no Postgres available for migration tests: {exc}")
+        require_postgres(exc, "migration tests")
 
     db_name = f"kurisu_mig_{uuid.uuid4().hex[:12]}"
     previous_db = os.environ.get("POSTGRES_DB")
