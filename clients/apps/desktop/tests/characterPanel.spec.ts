@@ -84,19 +84,23 @@ test.describe('inline character panel', () => {
     const panel = page.getByTestId('character-panel');
     await expect(panel).toBeVisible();
     const before = (await panel.boundingBox())!.height;
+    // Shorter, not taller: the panel is capped at 60 % of the column, and on a
+    // small runner window (windows-latest) a taller drag stops at the cap.
+    // 160 px is the panel's floor (CHARACTER_PANEL_MIN_HEIGHT).
+    const target = Math.round(Math.max(160, before - 60));
 
     const handle = (await page.getByTestId('character-panel-resize').boundingBox())!;
     await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
     await page.mouse.down();
-    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2 + 80, { steps: 8 });
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2 - (before - target), { steps: 8 });
     await page.mouse.up();
-    await expect.poll(async () => Math.round((await panel.boundingBox())!.height)).toBe(Math.round(before + 80));
+    await expect.poll(async () => Math.round((await panel.boundingBox())!.height)).toBe(target);
 
     // A fresh renderer: no keychain in a CI container, so it signs in again.
     await page.reload();
     if (await page.getByLabel('Username').isVisible({ timeout: 5_000 }).catch(() => false)) await login(page);
     await expect(panel).toBeVisible({ timeout: 15_000 });
-    expect(Math.round((await panel.boundingBox())!.height)).toBe(Math.round(before + 80));
+    expect(Math.round((await panel.boundingBox())!.height)).toBe(target);
   });
 
   test('pops out into its own window and back, and is never live in both', async ({ page, electronApp, mock }) => {
