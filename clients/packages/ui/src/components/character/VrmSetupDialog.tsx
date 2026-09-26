@@ -805,7 +805,7 @@ export const VrmSetupDialog: React.FC<VrmSetupDialogProps> = ({ open, persona, c
                       <Box key={c.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Tooltip title="Play in the preview">
                           <span>
-                            <IconButton size="small" disabled={!settings.model} onClick={() => previewRef.current?.trigger({ type: 'clip', clip_id: c.id })}>
+                            <IconButton size="small" aria-label="Play in the preview" disabled={!settings.model} onClick={() => previewRef.current?.trigger({ type: 'clip', clip_id: c.id })}>
                               <PlayIcon fontSize="small" />
                             </IconButton>
                           </span>

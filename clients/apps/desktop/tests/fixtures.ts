@@ -22,6 +22,11 @@ export interface AppPaths {
 }
 
 type Fixtures = {
+  /**
+   * Extra Chromium flags for this file's app, set with `test.use`. Empty by
+   * default, so every other spec launches the app as it ships.
+   */
+  electronArgs: string[];
   mock: MockBackend;
   appPaths: AppPaths;
   electronApp: ElectronApplication;
@@ -92,6 +97,8 @@ async function shutDown(app: ElectronApplication): Promise<void> {
 }
 
 export const test = base.extend<Fixtures>({
+  electronArgs: [[], { option: true }],
+
   mock: async ({}, use) => {
     const server = new MockBackend();
     await server.start();
@@ -118,7 +125,7 @@ export const test = base.extend<Fixtures>({
     }
   },
 
-  electronApp: async ({ mock, appPaths }, use) => {
+  electronApp: async ({ mock, appPaths, electronArgs }, use) => {
     if (!fs.existsSync(MAIN_ENTRY)) {
       throw new Error(`Electron entry missing: ${MAIN_ENTRY}. Run "npm run build" first.`);
     }
@@ -132,12 +139,13 @@ export const test = base.extend<Fixtures>({
       // container are unaffected, which is why this only ever showed on CI.
       // The shipped app is not launched this way.
       //
-      // `KURISU_E2E_ELECTRON_ARGS` adds flags for the one manual spec that
-      // needs a GPU (`vrmRender.gpu.spec.ts`, #240) — e.g.
-      // `--use-angle=swiftshader --enable-unsafe-swiftshader`. Unset, which it
-      // is on CI, the app launches exactly as it did.
+      // `electronArgs` is a spec file's own flags (`vrm.spec.ts` asks for
+      // SwiftShader, #306); `KURISU_E2E_ELECTRON_ARGS` adds a developer's for
+      // the manual GPU spec (`vrmRender.gpu.spec.ts`, #240). Both empty, as
+      // for every other spec on CI, the app launches as it ships.
       args: [
         ...(process.platform === 'linux' ? [MAIN_ENTRY, '--no-sandbox'] : [MAIN_ENTRY]),
+        ...electronArgs,
         ...(process.env.KURISU_E2E_ELECTRON_ARGS ?? '').split(/\s+/).filter(Boolean),
       ],
       cwd: PROJECT_ROOT,

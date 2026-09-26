@@ -173,7 +173,7 @@ export const VrmPreview = forwardRef<VrmPreviewHandle, VrmPreviewProps>(({ setti
   }, []);
 
   return (
-    <Box ref={boxRef} sx={{ position: 'absolute', inset: 0, overflow: 'hidden' }} data-testid="vrm-preview">
+    <Box ref={boxRef} sx={{ position: 'absolute', inset: 0, overflow: 'hidden' }} data-testid="vrm-preview" data-status={state}>
       <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
       {state !== 'ready' && (
         <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1, p: 3, textAlign: 'center' }}>
