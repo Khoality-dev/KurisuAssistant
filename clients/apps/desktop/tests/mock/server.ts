@@ -17,6 +17,7 @@ import { AddressInfo } from 'net';
 import { WebSocketServer, WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
 import { VRM_MODEL_BYTES, VRM_MODEL_SHA256, inspect as inspectVrm, sha256Hex } from './vrmFixture';
+import { readZip, writeZip } from './zip';
 // Inlined by esbuild into the standalone CLI bundle, so the number is right
 // from `dist-mock/` too (a runtime file read would resolve relative to there).
 import desktopPackage from '../../package.json';
@@ -390,6 +391,10 @@ export class MockBackend {
   public lastChatRequest: any = null;
   /** The last `/character-assets` GET, with the Authorization header it carried (or null). */
   public lastCharacterAssetRequest: { path: string; authorization: string | null } | null = null;
+  /** The last `GET /personas/{id}/export`, and whether it asked for the character (#248). */
+  public lastExportRequest: { personaId: number; character: boolean } | null = null;
+  /** The last `POST /personas/import/bundle`: its size, and the persona it made (null when refused). */
+  public lastBundleImport: { bytes: number; personaId: number | null } | null = null;
   /** Every `/character-assets` GET so far, oldest first, with the status it got. */
   public characterAssetRequests: Array<{ path: string; authorization: string | null; status: number }> = [];
   /** Answer every request as a proxy that refuses this network; see `refuseLikeAProxy`. */
@@ -670,6 +675,11 @@ export class MockBackend {
    */
   refuseLikeAProxy(status: number | null = 403): void {
     this.proxyRefusal = status;
+  }
+
+  /** Lower (or raise) the 3D character quota after start, as `characterQuotaBytes` does at construction. */
+  setCharacterQuotaBytes(bytes: number) {
+    this.characterQuotaBytes = bytes;
   }
 
   /** Give a persona a character config, the way the desktop editor's PATCH does. */
@@ -1027,6 +1037,68 @@ export class MockBackend {
       // Not adopted as the default: a persona is optional, and only the user
       // points new conversations at one (#302).
       return this.json(res, this.personaResponse(persona));
+    }
+    // A persona's export (#248): the v3 JSON file, or with ?character=true the
+    // v4 bundle; its size first; and the streamed bundle import. The mock keeps
+    // no pose art (it serves one placeholder image), so its bundles carry what
+    // it does store — the VRM model and clips — through the backend's shapes.
+    const exportMatch = pathOnly.match(/^\/personas\/(\d+)\/export(\/size)?$/);
+    if (exportMatch && method === 'GET') {
+      const persona = this.findPersona(parseInt(exportMatch[1], 10));
+      if (!persona) return this.error(res, 404, 'Persona not found');
+      const files = this.bundleFiles(persona);
+      const config = persona.character_config ?? null;
+      if (exportMatch[2]) {
+        if (!config) return this.json(res, { character: null });
+        const bytes = files.reduce((sum, f) => sum + f.data.length, 0);
+        return this.json(res, { character: { kind: config.kind, files: files.length, bytes, vrm_bytes: bytes } });
+      }
+      const character = query.get('character') === 'true';
+      this.lastExportRequest = { personaId: persona.id, character };
+      const meta = {
+        version: 3,
+        kind: 'persona',
+        name: persona.name,
+        description: persona.description ?? '',
+        system_prompt: persona.system_prompt ?? '',
+        preferred_name: persona.preferred_name ?? null,
+      };
+      const safeName = persona.name.replace(/[^A-Za-z0-9 _-]/g, '').trim().replace(/ /g, '_') || 'export';
+      if (!character) {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="${safeName}.json"`);
+        return res.end(JSON.stringify(meta, null, 2));
+      }
+      const portable = config
+        ? JSON.parse(JSON.stringify(config).split(`/character-assets/${persona.id}/`).join('/character-assets/{persona_id}/'))
+        : null;
+      const manifest = {
+        ...meta,
+        version: 4,
+        character: portable
+          ? { config: portable, files: files.map((f) => ({ path: f.path, bytes: f.data.length, sha256: sha256Hex(f.data) })) }
+          : null,
+      };
+      const zip = writeZip([
+        ...files.map((f) => ({ name: `character/${f.path}`, data: f.data })),
+        { name: 'persona.json', data: Buffer.from(JSON.stringify(manifest, null, 2)) },
+      ]);
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeName}.zip"`);
+      res.setHeader('Content-Length', String(zip.length));
+      return res.end(zip);
+    }
+    if (pathOnly === '/personas/import/bundle' && method === 'POST') {
+      const body = await this.readRaw(req);
+      this.lastBundleImport = { bytes: body.length, personaId: null };
+      const imported = this.importBundle(body);
+      if ('status' in imported) {
+        res.setHeader('Content-Type', 'application/json');
+        res.statusCode = imported.status;
+        return res.end(JSON.stringify({ detail: imported.detail }));
+      }
+      this.lastBundleImport.personaId = imported.id;
+      return this.json(res, this.personaResponse(imported));
     }
     const personaEnabledMatch = pathOnly.match(/^\/personas\/(\d+)\/enabled$/);
     if (personaEnabledMatch && method === 'PATCH') {
@@ -1838,6 +1910,100 @@ export class MockBackend {
   // ── The 3D character store ──────────────────────────────────────────────
 
   /** VRM bytes one persona's stored refs account for — what the quota sums. */
+  /** The VRM files a persona's bundle carries: the model and each clip the mock holds bytes for. */
+  private bundleFiles(persona: ResolvedPersona): Array<{ path: string; data: Buffer }> {
+    const vrm = persona.character_config?.vrm;
+    if (!vrm) return [];
+    const files: Array<{ path: string; data: Buffer }> = [];
+    const model = vrm.model;
+    if (model) {
+      const data = this.characterFiles.get(model.url) ?? (model.sha256 === VRM_MODEL_SHA256 ? VRM_MODEL_BYTES : undefined);
+      if (data) files.push({ path: `vrm/${model.sha256}.vrm`, data });
+    }
+    for (const clip of vrm.clips) {
+      const data = this.characterFiles.get(clip.url);
+      if (data) files.push({ path: `vrma/${clip.id}.vrma`, data });
+    }
+    return files;
+  }
+
+  /**
+   * A bundle, checked the way the backend checks one: each listed file must be
+   * in the zip with its listed size and digest, the model and clip refs are
+   * rebuilt under the new id from the bytes, and their bytes are metered against
+   * the quota before anything is created.
+   */
+  private importBundle(body: Buffer): ResolvedPersona | { status: number; detail: unknown } {
+    const bad = (detail: string) => ({ status: 400, detail });
+    const files = readZip(body);
+    const raw = files?.get('persona.json');
+    if (!files || !raw) return bad('That file is not a persona bundle (.zip).');
+    let meta: any;
+    try { meta = JSON.parse(raw.toString('utf8')); } catch { return bad("The bundle's persona.json could not be read."); }
+    if (!meta || meta.kind !== 'persona' || ![3, 4].includes(meta.version)) return bad('That file is not a persona bundle.');
+    const character = meta.version === 4 ? meta.character : null;
+
+    const verified = new Map<string, Buffer>();
+    for (const entry of character?.files ?? []) {
+      const data = files.get(`character/${entry.path}`);
+      if (!data || data.length !== entry.bytes || sha256Hex(data) !== entry.sha256) {
+        return bad(`'${entry.path}' is not the file the bundle lists.`);
+      }
+      verified.set(entry.path, data);
+    }
+
+    const id = Math.max(0, ...this.personas.map((p) => p.id)) + 1;
+    let config: CharacterConfigDTO | null = null;
+    const toStore = new Map<string, Buffer>();
+    if (character?.config) {
+      config = JSON.parse(JSON.stringify(character.config).split('/character-assets/{persona_id}/').join(`/character-assets/${id}/`));
+      const vrm = config!.vrm;
+      if (vrm?.model) {
+        const data = verified.get(`vrm/${vrm.model.sha256}.vrm`);
+        if (!data) return bad("The bundle's config names a model the bundle does not hold.");
+        vrm.model = { ...vrm.model, url: `/character-assets/${id}/vrm/model`, sha256: sha256Hex(data), bytes: data.length };
+        toStore.set(vrm.model.url, data);
+      }
+      if (vrm) {
+        vrm.clips = [];
+        for (const clip of (character.config.vrm?.clips ?? []) as Array<{ id: string; name: string; loop: boolean }>) {
+          const data = verified.get(`vrma/${clip.id}.vrma`);
+          if (!data) return bad("The bundle's config names an animation the bundle does not hold.");
+          const url = `/character-assets/${id}/vrma/${clip.id}`;
+          vrm.clips.push({ id: clip.id, name: clip.name, url, sha256: sha256Hex(data), bytes: data.length, loop: !!clip.loop });
+          toStore.set(url, data);
+        }
+      }
+      const used = this.personas.reduce((sum, p) => sum + this.characterBytes(p.character_config), 0);
+      if (used + this.characterBytes(config) > this.characterQuotaBytes) {
+        return { status: 507, detail: {
+          code: 'quota',
+          message: 'Your 3D character storage is full. Remove a model or an animation first.',
+          used_bytes: used,
+          quota_bytes: this.characterQuotaBytes,
+        } };
+      }
+    }
+
+    const requested = typeof meta.name === 'string' && meta.name.trim() ? meta.name.trim() : 'Imported persona';
+    let name = requested;
+    for (let n = 2; this.personas.some((p) => p.name === name); n++) name = `${requested} (${n})`;
+    const persona: ResolvedPersona = {
+      id,
+      name,
+      description: typeof meta.description === 'string' ? meta.description : '',
+      system_prompt: typeof meta.system_prompt === 'string' ? meta.system_prompt : '',
+      preferred_name: typeof meta.preferred_name === 'string' ? meta.preferred_name : null,
+      voice_reference: null,
+      avatar_uuid: null,
+      character_config: config,
+      enabled: true,
+    };
+    this.personas.push(persona);
+    for (const [url, data] of toStore) this.characterFiles.set(url, data);
+    return persona;
+  }
+
   private characterBytes(config: CharacterConfigDTO | null | undefined): number {
     const vrm = config?.vrm;
     if (!vrm) return 0;

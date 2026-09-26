@@ -211,6 +211,9 @@ services:
       - CHARACTER_MODEL_JSON_MAX_BYTES=${CHARACTER_MODEL_JSON_MAX_BYTES:-16777216}
       - CHARACTER_IMAGE_MAX_BYTES=${CHARACTER_IMAGE_MAX_BYTES:-16777216}
       - CHARACTER_VIDEO_MAX_BYTES=${CHARACTER_VIDEO_MAX_BYTES:-33554432}
+      # A persona imported with its character is one body with no size ceiling
+      # of its own (#248); this bounds how many files its zip may list.
+      - PERSONA_BUNDLE_MAX_FILES=${PERSONA_BUNDLE_MAX_FILES:-4096}
       # Recall (#6). One embedding model for the whole index, so it is the
       # operator's choice, not the user's, with its own endpoint: ollama via
       # EMBEDDING_API_URL, gemini or nvidia via EMBEDDING_API_KEY. Chat has no

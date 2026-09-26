@@ -11,9 +11,11 @@ art the restored rows still point at.
     python -m scripts.sweep_character_assets --apply    # remove the orphans
 
 Only directories whose name is a plain decimal number — the only names the
-store ever creates — that is not a live ``personas.id`` are orphans. Anything
-else under the root is listed as unrecognised and never touched, whatever the
-flag. ``--apply`` refuses to run against a database with no personas at all
+store ever creates — that is not a live ``personas.id`` are orphans. The one
+other directory the store creates, ``.incoming`` (a persona bundle staged by an
+import before its persona exists, #248), is the import's own to clear and is
+not listed. Anything else under the root is listed as unrecognised and never
+touched, whatever the flag. ``--apply`` refuses to run against a database with no personas at all
 unless ``--allow-empty-database`` says that is intended: a fresh or
 not-yet-restored database would make every directory look orphaned, which is
 the failure this script exists to avoid. The exit status is non-zero when
@@ -66,6 +68,8 @@ def find_orphans(root: Path, live_ids: set[int]) -> Sweep:
     if not root.exists():
         return Sweep(orphans, unrecognised)
     for entry in sorted(root.iterdir()):
+        if entry.name == paths.INCOMING_DIR_NAME and entry.is_dir():
+            continue
         if not entry.is_dir():
             unrecognised.append(entry)
             continue

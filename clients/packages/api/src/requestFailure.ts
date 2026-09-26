@@ -39,6 +39,11 @@ export function apiDetail(data: unknown): string | null {
   if (body && typeof body === 'object' && 'detail' in body) {
     const detail = (body as { detail?: unknown }).detail;
     if (typeof detail === 'string' && detail.trim()) return detail.trim();
+    // A structured refusal, `{code, message}` (the character store's, #236).
+    if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+      const message = (detail as { message?: unknown }).message;
+      if (typeof message === 'string' && message.trim()) return message.trim();
+    }
   }
   return null;
 }

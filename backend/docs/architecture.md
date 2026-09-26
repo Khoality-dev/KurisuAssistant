@@ -77,7 +77,9 @@ routers/                 one module per surface, all mounted in main.py
   assistant              the user's one assistant: model, tools, memory
   personas               how the assistant looks and sounds
   sub_agents             task-only workers
-  portability            the shared export/import format for the two above
+  portability            the shared export/import format for the two above;
+                         a persona's character travels only in a v4 bundle,
+                         written and checked by character/bundle.py (#248)
   models, tools, skills, mcp
   asr, tts               the speech routes, over speech/
   images, character      serve stored media

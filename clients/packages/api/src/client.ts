@@ -25,6 +25,7 @@ import {
   type ModelsResponse,
   type Persona,
   type PersonaCreate,
+  type PersonaExportSize,
   type PersonaUpdate,
   type PullModelResponse,
   type ServerVersionInfo,
@@ -45,6 +46,19 @@ import {
 } from '@kurisu/models';
 import { sha256Hex, throwIfCancelled, toCharacterUploadError } from './characterUploads';
 import { wsManager } from './websocket';
+
+/** An axios error whose Blob body (a `responseType: 'blob'` request) is read back into JSON when it is JSON. */
+async function withJsonBody(error: unknown): Promise<unknown> {
+  const response = (error as { response?: { data?: unknown } } | null)?.response;
+  if (response && typeof Blob !== 'undefined' && response.data instanceof Blob) {
+    try {
+      response.data = JSON.parse(await response.data.text());
+    } catch {
+      // Not JSON (a proxy's page): leave it for the status to describe.
+    }
+  }
+  return error;
+}
 
 /**
  * What a live server says when it refuses our wire protocol: the body of its
@@ -622,13 +636,30 @@ class APIClient {
   }
 
   /**
-   * Export a persona as JSON. Media does not travel: avatar, voice reference and
-   * character config are handles to files on this server and are left out.
+   * Export a persona. By default the v3 JSON file, which carries no media:
+   * avatar, voice reference and character config are handles to files on this
+   * server. `character: true` asks for the v4 bundle (a zip) that carries the
+   * character's files too (#248) — tens of megabytes for a 3D model, so no
+   * timeout. A refusal's body arrives as a Blob and is read back into JSON, so
+   * `describeRequestFailure` can show what the server said.
    */
-  async exportPersona(id: number): Promise<Blob> {
-    const response = await this.client.get(`/personas/${id}/export`, {
+  async exportPersona(id: number, opts: { character?: boolean } = {}): Promise<Blob> {
+    try {
+      const response = await this.client.get(`/personas/${id}/export`, {
+        headers: this.getHeaders(),
+        responseType: 'blob',
+        ...(opts.character ? { params: { character: true }, timeout: 0 } : {}),
+      });
+      return response.data;
+    } catch (error) {
+      throw await withJsonBody(error);
+    }
+  }
+
+  /** How big a persona's character is, before exporting it with `character: true`. */
+  async exportPersonaSize(id: number): Promise<PersonaExportSize> {
+    const response = await this.client.get<PersonaExportSize>(`/personas/${id}/export/size`, {
       headers: this.getHeaders(),
-      responseType: 'blob',
     });
     return response.data;
   }
@@ -640,6 +671,30 @@ class APIClient {
       headers: this.getHeaders(),
     });
     return response.data;
+  }
+
+  /**
+   * Import a persona bundle (a `.zip` exported with its character, #248). The
+   * raw body, streamed — the route is not multipart, for the reason the model
+   * upload is not — with no timeout. Every failure is a `CharacterUploadError`:
+   * the refusals are the model upload's own (`quota`, `too_large`, `not_vrm`…)
+   * plus a plain message for a bundle that does not hold up.
+   */
+  async importPersonaBundle(
+    file: Blob,
+    opts: { onProgress?: (loaded: number, total: number) => void; signal?: AbortSignal } = {},
+  ): Promise<Persona> {
+    try {
+      const response = await this.client.post<Persona>('/personas/import/bundle', file, {
+        headers: { ...this.getHeaders(), 'Content-Type': 'application/zip' },
+        signal: opts.signal,
+        timeout: 0,
+        onUploadProgress: (event) => opts.onProgress?.(event.loaded, event.total ?? file.size),
+      });
+      return response.data;
+    } catch (error) {
+      throw toCharacterUploadError(error);
+    }
   }
 
   // Sub-Agent Methods

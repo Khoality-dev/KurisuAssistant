@@ -596,16 +596,58 @@ Downloads `application/json` with a `Content-Disposition` attachment filename.
 }
 ```
 
-**Media does not travel.** `avatar_uuid`, `voice_reference` and `character_config`
-all name files that exist only on the exporting server; every URL inside a
-character config is prefixed with that install's persona id. Shipping the
-references without the files gives the importing install broken art. Saving such
-a config is refused (`422`) because its URLs carry another persona's id (#233);
-only when the ids happen to coincide does the save go through, and then the
-cleanup removes whatever the config no longer references. That includes a 3D
-character: the `.vrm` model and its `.vrma` clips (tens of megabytes) stay on the
-exporting server, and a persona imported elsewhere has to have its model uploaded
-again (#236).
+**Media does not travel in this file.** `avatar_uuid`, `voice_reference` and
+`character_config` all name files that exist only on the exporting server; every
+URL inside a character config is prefixed with that install's persona id. Shipping
+the references without the files gives the importing install broken art. Saving
+such a config is refused (`422`) because its URLs carry another persona's id
+(#233). The character travels only in a bundle, below.
+
+**`?character=true`** makes the download a **version 4 bundle** (`application/zip`,
+`<name>.zip`, #248): the persona and its character — pose art, transition videos,
+the `.vrm` model and its `.vrma` clips. Avatar and voice still stay behind.
+
+```
+persona.json                 the v3 fields, "version": 4, and "character"
+character/p1/base.png        every file the character config references,
+character/p1/mouth_0.png     at the path the store keeps it at
+character/edges/e1.mp4
+character/vrm/<sha256>.vrm
+character/vrma/<clip_id>.vrma
+```
+
+```json
+{
+  "version": 4, "kind": "persona", "name": "Kurisu", "…": "…",
+  "character": {
+    "config": { "kind": "vrm", "pose_tree": { "…": "…" }, "vrm": { "model": { "url": "/character-assets/{persona_id}/vrm/model", "…": "…" }, "…": "…" } },
+    "files": [ { "path": "vrm/<sha256>.vrm", "bytes": 41234567, "sha256": "<sha256>" } ]
+  }
+}
+```
+
+`config` is the stored `character_config`, both members whichever one shows, with
+every `/character-assets/{id}/` written as the literal `/character-assets/{persona_id}/`
+— the persona it will belong to does not exist yet. Only files the config still
+references travel. `character` is `null` for a persona with none. The files are
+stored, not deflated (they are already compressed); the bundle is written under the
+persona's lock. `409` `unreadable_character` for a stored config the cleanup walker
+cannot classify; `500` `character_files_missing` (logged as an error naming the
+persona and the files) when the config names a file that is not on disk — the store
+contradicting itself, which is surfaced rather than exported without it. The same
+`500` answers `GET /personas/{id}/export/size`.
+
+### GET /personas/{persona_id}/export/size
+
+What `?character=true` would carry, before the download (#248):
+
+```json
+{ "character": { "kind": "vrm", "files": 3, "bytes": 42123456, "vrm_bytes": 41234567 } }
+```
+
+`bytes` is every file the bundle would hold; `vrm_bytes` is the part an import
+meters against the importing account's 3D character quota (the model and clips —
+pose art is not metered). `{"character": null}` for a persona with no character.
 
 ### POST /personas/import
 
@@ -616,8 +658,44 @@ Accepts version 3 persona files and legacy version 2 agent exports whose
 because capability belongs to the importing user's own assistant. A name collision
 gets a ` (2)` suffix. An imported persona does not become the default.
 
-**Errors:** `400` not `.json`, invalid JSON, unsupported version, or the file
-describes a sub-agent.
+**Errors:** `400` not `.json`, invalid JSON, unsupported version, the file
+describes a sub-agent, or it is a version 4 manifest (import the `.zip` it came in).
+
+### POST /personas/import/bundle
+
+**Request:** the bundle as the raw body (`Content-Type: application/zip`), streamed
+— not multipart (#248). A bundle has no size ceiling of its own: nginx sets none on
+this path (`client_max_body_size 0`, `nginx/nginx.conf`), and what it may hold is
+bounded file by file below and by the account's quota.
+
+Creates a persona as `POST /personas/import` does, with its character. The bundle
+is untrusted input from another install, so nothing in it is taken on its word:
+
+- every listed path must be one the store writes (`{pose}/{name}.png|jpg`,
+  `edges/{edge}.mp4|webm`, `vrm/{sha256}.vrm`, `vrma/{8 hex}.vrma`, each segment one
+  plain name), within the ceiling for its kind (`CHARACTER_IMAGE_MAX_BYTES`,
+  `…_VIDEO_…`, `…_MODEL_…`, `…_CLIP_…`), at most `PERSONA_BUNDLE_MAX_FILES` (4096 —
+a guard against a zip whose directory alone would exhaust memory, not a size limit);
+- each file is read out bounded by its listed size and must hash to its listed
+  sha256 — a model's must also be the sha in its name;
+- the model and clips are inspected as an upload is (the same `415` codes), and
+  their refs are rebuilt from the bytes — sha, size, spec version, faces; the
+  model's filename and a clip's name and loop are kept, cut as an upload cuts them;
+- the config goes through the write path a save does (`merge` over those refs,
+  schema, clip ids, classification), with the placeholder resolved to the new
+  persona's id, so a URL naming any other persona is a `422`;
+- the model and clips are metered against `CHARACTER_ASSETS_QUOTA_BYTES` in the
+  transaction that creates the persona (`507` `quota`); pose art is not metered.
+
+Only then, under the new persona's lock, are the referenced files moved into
+`data/character_assets/{new id}/`. The bundle is staged in the store's own
+`.incoming/` and removed on every outcome; a refusal creates no persona and leaves
+no file. A failure moving the files takes the new persona back out (`500`).
+
+**Errors:** `400` not a bundle, no `persona.json`, a manifest or file that does not
+hold up, a sub-agent file, an unsupported version; `413` over the bundle ceiling or
+a file over its kind's; `415` a model or clip that is not one; `422` a config the
+write path refuses; `507` over the 3D character quota.
 
 ---
 
@@ -704,10 +782,13 @@ refused here rather than quietly turned into a worker.
 
 One file format, two kinds, discriminated by `kind`. `EXPORT_VERSION` is **3**;
 version **2** (the old single `agents` export, discriminated by `agent_type`) is
-still read. Anything else is a `400`.
+still read, and version **4** is a persona's `persona.json` inside a bundle
+(`?character=true`, read only by `POST /personas/import/bundle`). Anything else is
+a `400`.
 
 | `version` | Discriminator | Maps to |
 |---|---|---|
+| 4 | `kind: "persona"`, in a `.zip` | a persona with its character |
 | 3 | `kind: "persona"` | a persona |
 | 3 | `kind: "sub_agent"` | a sub-agent |
 | 2 | `agent_type: "main"` | a persona (model/tools/memory dropped) |
