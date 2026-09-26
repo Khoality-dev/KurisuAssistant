@@ -22,6 +22,7 @@ import uuid
 
 import pytest
 import sqlalchemy as sa
+from tests.postgres import require_postgres
 
 pytestmark = pytest.mark.db
 
@@ -102,7 +103,7 @@ def migrated_db():
         with admin.connect() as conn:
             conn.execute(sa.text("SELECT 1"))
     except Exception as exc:  # pragma: no cover - environment dependent
-        pytest.skip(f"no Postgres available for migration tests: {exc}")
+        require_postgres(exc, "migration tests")
 
     db_name = f"kurisu_mig_{uuid.uuid4().hex[:12]}"
     previous_db = os.environ.get("POSTGRES_DB")

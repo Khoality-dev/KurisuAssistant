@@ -6,11 +6,14 @@ from typing import List
 
 import numpy as np
 
+from kurisuassistant.core.paths import DATA_DIR
+
 from .base import BaseFaceRecognitionProvider
 
 logger = logging.getLogger(__name__)
 
-MODEL_DIR = os.path.join("data", "face_recognition", "models")
+# Beside the rest of the server's data, not under the working directory (#307).
+MODEL_DIR = str(DATA_DIR / "face_recognition" / "models")
 
 
 class InsightFaceProvider(BaseFaceRecognitionProvider):

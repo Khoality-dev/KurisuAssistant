@@ -6,13 +6,29 @@ up bound to has to be fixed here, before anything from the package is imported. 
 fresh name per session keeps the suite off any real database; ``system_db``
 creates and drops it. ``JWT_SECRET_KEY`` stops ``core/security.py`` writing a key
 file under ``data/`` at import.
+
+Then the data directory. The server resolves ``data/`` from the package, so left
+alone the suite would write into — and, through ``DELETE /personas/{id}``, delete
+from — the ``data/`` of the checkout it runs from, which on a developer's machine
+holds real users' files (#307). ``core.paths.DATA_DIR`` is pointed at a directory
+of this run's own before any other module of the package is imported, so every
+store that derives its path from it at import (images, character assets, the
+drive, voices) lands there. ``test_suite_isolation.py`` checks that each one did.
 """
 
 import os
+import shutil
+import tempfile
 import uuid
+from pathlib import Path
 
 os.environ.setdefault("JWT_SECRET_KEY", "test-not-a-real-secret")
 os.environ["POSTGRES_DB"] = f"kurisu_test_{uuid.uuid4().hex[:8]}"
+
+from kurisuassistant.core import paths as _paths  # noqa: E402
+
+TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="kurisu-test-data-"))
+_paths.DATA_DIR = TEST_DATA_DIR
 
 import pytest  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
@@ -20,6 +36,11 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from kurisuassistant.core.deps import get_authenticated_user  # noqa: E402
 from kurisuassistant.routers import tts, asr  # noqa: E402
+from tests.postgres import require_postgres  # noqa: E402
+
+
+def pytest_sessionfinish(session, exitstatus):
+    shutil.rmtree(TEST_DATA_DIR, ignore_errors=True)
 
 
 def _fake_user():
@@ -112,7 +133,7 @@ def system_db():
     gate itself under test rather than assumed.
 
     Skips when no Postgres answers — except on CI, where the workflow provides one
-    and a skip would hide a broken suite.
+    and a skip would hide a broken suite (``tests/postgres.py``).
     """
     import sqlalchemy as sa
 
@@ -122,9 +143,7 @@ def system_db():
         with admin.connect() as conn:
             conn.execute(sa.text(f'CREATE DATABASE "{db_name}"'))
     except Exception as exc:  # pragma: no cover - environment dependent
-        if os.environ.get("CI"):
-            raise
-        pytest.skip(f"no Postgres for system tests (set POSTGRES_HOST/PORT): {exc}")
+        require_postgres(exc, "system tests (set POSTGRES_HOST/PORT)")
 
     from kurisuassistant.db.init import init_db
 

@@ -182,9 +182,14 @@ class TestSigningKeyLocation:
         assert "DATA_DIR" in source
 
     def test_it_resolves_under_the_package_data_directory(self):
-        from kurisuassistant.core.paths import DATA_DIR
+        """The server's default, read from the source: the suite itself runs
+        with ``DATA_DIR`` moved to a directory of its own (#307)."""
+        import inspect
 
-        assert DATA_DIR.is_absolute()
+        from kurisuassistant.core import paths
+
+        assert paths.PROJECT_ROOT.is_absolute()
+        assert 'DATA_DIR = PROJECT_ROOT / "data"' in inspect.getsource(paths)
 
 
 # ---------------------------------------------------------------------------
