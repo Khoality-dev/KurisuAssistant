@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { MOCK_BACKEND_VERSION, MockBackend, ONE_POSE_CHARACTER, VRM_CHARACTER_WITH_MODEL } from './server';
 import { VRMA_CLIP_BYTES, VRMA_CLIP_SHA256, VRM_MODEL_BYTES, VRM_MODEL_SHA256, buildGlb, sha256Hex } from './vrmFixture';
+import { readZip, writeZip } from './zip';
 import {
   WIRE_PROTOCOL,
   WS_AUTH_SUBPROTOCOL,
@@ -1168,5 +1169,124 @@ describe('the 3D character store (#236)', () => {
   it('answers a character-assets path it does not have with 404, not the {} catch-all', async () => {
     const res = await fetch(`${store.url}/character-assets/1/nothing-here`, { headers: BEARER });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('a persona exported with its character, and imported back (#248)', () => {
+  /**
+   * The mock keeps no pose art — it serves one placeholder image — so its
+   * bundles carry what it does store: the VRM model and clips. The shapes are
+   * the backend's: v3 JSON by default, a v4 zip with `?character=true`, the
+   * size before the download, and a streamed import that rebuilds the refs
+   * under the new persona's id and meters them against the quota.
+   */
+  let store: MockBackend;
+  const BEARER = { Authorization: 'Bearer test-access-token' };
+
+  beforeEach(async () => {
+    await mock.stop();
+    store = new MockBackend({
+      personas: [
+        { id: 1, name: 'Kurisu', description: 'lab member', character_config: VRM_CHARACTER_WITH_MODEL },
+        { id: 2, name: 'Amadeus' },
+      ],
+    });
+    await store.start();
+    mock = store;
+  });
+
+  const exportBundle = async (id = 1) => {
+    const res = await fetch(`${store.url}/personas/${id}/export?character=true`, { headers: BEARER });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/zip');
+    return Buffer.from(await res.arrayBuffer());
+  };
+  const importBundle = (bytes: Uint8Array) =>
+    fetch(`${store.url}/personas/import/bundle`, {
+      method: 'POST',
+      headers: { ...BEARER, 'Content-Type': 'application/zip' },
+      body: bytes,
+    });
+
+  it('still exports the v3 JSON file by default, with no character', async () => {
+    const res = await fetch(`${store.url}/personas/1/export`, { headers: BEARER });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    const meta = await res.json();
+    expect(meta).toEqual({
+      version: 3, kind: 'persona', name: 'Kurisu', description: 'lab member', system_prompt: '', preferred_name: null,
+    });
+    expect(store.lastExportRequest).toEqual({ personaId: 1, character: false });
+  });
+
+  it('says how big the character is before the download', async () => {
+    const size = await fetch(`${store.url}/personas/1/export/size`, { headers: BEARER }).then((r) => r.json());
+    expect(size).toEqual({ character: {
+      kind: 'vrm', files: 1, bytes: VRM_MODEL_BYTES.length, vrm_bytes: VRM_MODEL_BYTES.length,
+    } });
+    const none = await fetch(`${store.url}/personas/2/export/size`, { headers: BEARER }).then((r) => r.json());
+    expect(none).toEqual({ character: null });
+  });
+
+  it('bundles the model with a config written against the placeholder', async () => {
+    const files = readZip(await exportBundle())!;
+    const meta = JSON.parse(files.get('persona.json')!.toString('utf8'));
+    expect(meta.version).toBe(4);
+    expect(meta.character.config.vrm.model.url).toBe('/character-assets/{persona_id}/vrm/model');
+    expect(meta.character.files).toEqual([
+      { path: `vrm/${VRM_MODEL_SHA256}.vrm`, bytes: VRM_MODEL_BYTES.length, sha256: VRM_MODEL_SHA256 },
+    ]);
+    expect(files.get(`character/vrm/${VRM_MODEL_SHA256}.vrm`)!.equals(VRM_MODEL_BYTES)).toBe(true);
+    expect(store.lastExportRequest).toEqual({ personaId: 1, character: true });
+  });
+
+  it('imports a bundle as a new persona whose model is served under its own id', async () => {
+    const res = await importBundle(await exportBundle());
+    expect(res.status).toBe(200);
+    const persona = await res.json();
+    expect(persona.id).toBe(3);
+    expect(persona.name).toBe('Kurisu (2)');
+    expect(persona.character_config.vrm.model.url).toBe('/character-assets/3/vrm/model');
+    expect(persona.character_config.vrm.model.sha256).toBe(VRM_MODEL_SHA256);
+    const model = await fetch(`${store.url}/character-assets/3/vrm/model`, { headers: BEARER });
+    expect(model.status).toBe(200);
+    expect(Buffer.from(await model.arrayBuffer()).equals(VRM_MODEL_BYTES)).toBe(true);
+  });
+
+  it('refuses a bundle over the 3D quota with 507 and creates nothing', async () => {
+    await store.stop();
+    store = new MockBackend({
+      personas: [{ id: 1, name: 'Kurisu', character_config: VRM_CHARACTER_WITH_MODEL }],
+      characterQuotaBytes: VRM_MODEL_BYTES.length + 10,
+    });
+    await store.start();
+    mock = store;
+    const res = await importBundle(await exportBundle());
+    expect(res.status).toBe(507);
+    expect((await res.json()).detail.code).toBe('quota');
+    expect(store.getPersonas()).toHaveLength(1);
+  });
+
+  it('refuses a file that is not the one the bundle lists, and anything that is not a zip', async () => {
+    const files = readZip(await exportBundle())!;
+    const tampered = writeZip([...files].map(([name, data]) => ({
+      name, data: name.endsWith('.vrm') ? Buffer.concat([data.subarray(0, -1), Buffer.from('!')]) : data,
+    })));
+    expect((await importBundle(tampered)).status).toBe(400);
+    expect((await importBundle(Buffer.from('not a zip'))).status).toBe(400);
+    expect(store.getPersonas()).toHaveLength(2);
+  });
+});
+
+describe('the mock\'s zip', () => {
+  it('reads back what it wrote', () => {
+    const data = writeZip([{ name: 'a.txt', data: Buffer.from('hello') }, { name: 'b/c.bin', data: Buffer.from([0, 1, 2]) }]);
+    const files = readZip(data)!;
+    expect(files.get('a.txt')!.toString()).toBe('hello');
+    expect([...files.get('b/c.bin')!]).toEqual([0, 1, 2]);
+  });
+
+  it('is null for anything that is not a zip', () => {
+    expect(readZip(Buffer.from('nope'))).toBeNull();
   });
 });

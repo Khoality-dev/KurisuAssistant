@@ -15,10 +15,12 @@ Three defects from the v2 exporter are deliberately not carried forward:
   it. Every URL inside it points at ``/character-assets/{exporter persona id}/``,
   so an imported persona rendered another install's art or 404s — and the next
   config save ran the asset cleanup, which deletes every file the config does not
-  reference, taking the *original* persona's art with it. Media does not travel:
-  ``character_config``, ``avatar_uuid`` and ``voice_reference`` are all handles to
-  files that exist only on the machine that exported them, so none of the three is
-  exported and all three are dropped from a v2 file on the way in.
+  reference, taking the *original* persona's art with it. Media does not travel
+  in a JSON file: ``character_config``, ``avatar_uuid`` and ``voice_reference`` are
+  all handles to files that exist only on the machine that exported them, so none
+  of the three is exported and all three are dropped from a v2 file on the way in.
+  The character travels only in a v4 bundle, with its files and its URLs written
+  against a placeholder the import resolves (#248, ``character/bundle.py``).
 """
 
 from typing import Any, List, Optional
@@ -28,6 +30,11 @@ from kurisuassistant.core.accounts import RESERVED_AGENT_NAMES
 #: Current export format. v3 splits the old agent into two kinds.
 EXPORT_VERSION = 3
 
+#: A persona exported with its character (#248): a zip whose ``persona.json`` is
+#: a v3 file plus ``character``. Read only from a bundle; see
+#: ``character/bundle.py``.
+BUNDLE_VERSION = 4
+
 #: The one older format still accepted. v2 files carry ``agent_type``.
 LEGACY_EXPORT_VERSION = 2
 
@@ -36,7 +43,7 @@ KIND_SUB_AGENT = "sub_agent"
 KINDS = (KIND_PERSONA, KIND_SUB_AGENT)
 
 __all__ = [
-    "EXPORT_VERSION", "LEGACY_EXPORT_VERSION", "KIND_PERSONA", "KIND_SUB_AGENT",
+    "EXPORT_VERSION", "BUNDLE_VERSION", "LEGACY_EXPORT_VERSION", "KIND_PERSONA", "KIND_SUB_AGENT",
     "KINDS", "RESERVED_AGENT_NAMES", "kind_of", "parse_export", "imported_name",
     "deduplicate_name", "export_filename",
 ]
@@ -71,7 +78,7 @@ def kind_of(meta: dict) -> str:
         ValueError: If the version is unsupported or the kind is unrecognised.
     """
     version = meta.get("version")
-    if version == EXPORT_VERSION:
+    if version in (EXPORT_VERSION, BUNDLE_VERSION):
         kind = meta.get("kind")
         if kind not in KINDS:
             raise ValueError(
@@ -94,14 +101,16 @@ def kind_of(meta: dict) -> str:
 
     raise ValueError(
         f"Unsupported export version {version!r}. This server reads versions "
-        f"{LEGACY_EXPORT_VERSION} and {EXPORT_VERSION}."
+        f"{LEGACY_EXPORT_VERSION} to {BUNDLE_VERSION}."
     )
 
 
 def parse_export(meta: dict, expected_kind: str) -> dict:
     """Normalise an export file into keyword arguments for the matching repository.
 
-    Accepts v3 (``kind``) and v2 (``agent_type``) files. A v2 main agent's model,
+    Accepts v4 bundle manifests and v3 files (``kind``) and v2 (``agent_type``)
+    files. A v4 manifest's ``character`` is not read here: it is the bundle
+    import's (``character/bundle.py``). A v2 main agent's model,
     tools, reasoning flags and memory are dropped: those belong to the importing
     user's own assistant now, and silently overwriting it from a file someone else
     wrote would change what the assistant can do behind their back.
@@ -165,8 +174,8 @@ def deduplicate_name(name: str, taken: List[str]) -> str:
     return name
 
 
-def export_filename(name: str) -> str:
+def export_filename(name: str, extension: str = ".json") -> str:
     """A download filename that cannot escape its directory or break the header."""
     safe = "".join(c for c in name if c.isalnum() or c in " _-").strip()
     safe = safe.replace(" ", "_")
-    return f"{safe or 'export'}.json"
+    return f"{safe or 'export'}{extension}"

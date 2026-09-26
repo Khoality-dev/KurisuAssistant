@@ -4,11 +4,13 @@ import {
   Avatar,
   Box,
   Button,
+  Checkbox,
   Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
   Grid,
   IconButton,
   Paper,
@@ -25,7 +27,7 @@ import { AnimatePresence } from 'framer-motion';
 import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { usePersonaStore } from '@kurisu/state';
 import { storage } from '@kurisu/api';
-import { parseCharacterConfig, type Persona } from '@kurisu/models';
+import { parseCharacterConfig, type Persona, type PersonaExportSize } from '@kurisu/models';
 import {
   AccountTree as GraphIcon,
   Animation as AnimationIcon,
@@ -35,6 +37,7 @@ import {
 import { ResourceCard } from './ResourceCard';
 import { PersonaEditDialog } from './PersonaEditDialog';
 import { mb, modelFilename } from '../character/vrmSetupText';
+import { exportedFilename, importFailure, includeLine, isBundle, meteredLine } from './personaExport';
 
 /** The card's line for the character: which system the persona shows, and what it has. */
 export function characterLabel(config: Persona['character_config']): string {
@@ -124,6 +127,24 @@ export const PersonasSection: React.FC = () => {
       .catch(() => setVrmBytes({}));
   }, [deleteTarget]);
 
+  /** The persona whose export dialog is open, and what its character weighs (#248). */
+  const [exportTarget, setExportTarget] = useState<Persona | null>(null);
+  const [exportSize, setExportSize] = useState<PersonaExportSize | 'loading' | 'failed'>('loading');
+  const [includeCharacter, setIncludeCharacter] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+
+  useEffect(() => {
+    if (!exportTarget) return;
+    let cancelled = false;
+    setExportSize('loading');
+    setIncludeCharacter(true);
+    apiClient.exportPersonaSize(exportTarget.id)
+      .then((size) => { if (!cancelled) setExportSize(size); })
+      .catch(() => { if (!cancelled) setExportSize('failed'); });
+    return () => { cancelled = true; };
+  }, [exportTarget]);
+
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const flash = (message: string) => {
@@ -189,28 +210,44 @@ export const PersonasSection: React.FC = () => {
     }
   };
 
-  const handleExport = async (persona: Persona) => {
+  /** The export dialog's choice, carried out: a zip with the character, or the JSON file without. */
+  const handleExport = async () => {
+    const persona = exportTarget;
+    if (!persona) return;
+    const size = typeof exportSize === 'object' ? exportSize.character : null;
+    const withCharacter = includeCharacter && size !== null;
+    setExporting(true);
     try {
-      const blob = await apiClient.exportPersona(persona.id);
+      const blob = await apiClient.exportPersona(persona.id, { character: withCharacter });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${persona.name.replace(/\s+/g, '_')}.json`;
+      a.download = exportedFilename(persona.name, withCharacter);
       a.click();
       URL.revokeObjectURL(url);
-      flash(`Persona "${persona.name}" exported. Avatar, voice and character art stay behind.`);
+      flash(withCharacter
+        ? `Persona "${persona.name}" exported with its character. Avatar and voice stay behind.`
+        : `Persona "${persona.name}" exported. Avatar, voice and character stay behind.`);
+      setExportTarget(null);
     } catch (err: any) {
       setError(describeRequestFailure(err, 'Failed to export the persona'));
+      setExportTarget(null);
+    } finally {
+      setExporting(false);
     }
   };
 
   const handleImport = async (file: File) => {
+    const bundle = isBundle(file);
+    setImporting(true);
     try {
-      const persona = await apiClient.importPersona(file);
-      flash(`Persona "${persona.name}" imported.`);
+      const persona = bundle ? await apiClient.importPersonaBundle(file) : await apiClient.importPersona(file);
+      flash(bundle ? `Persona "${persona.name}" imported with its character.` : `Persona "${persona.name}" imported.`);
       await loadPersonas();
     } catch (err: any) {
-      setError(describeRequestFailure(err, 'Failed to import the persona'));
+      setError(bundle ? importFailure(err) : describeRequestFailure(err, 'Failed to import the persona'));
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -267,8 +304,8 @@ export const PersonasSection: React.FC = () => {
               <RefreshIcon sx={{ animation: loading ? 'spin 1s linear infinite' : 'none', '@keyframes spin': { '0%': { transform: 'rotate(0deg)' }, '100%': { transform: 'rotate(360deg)' } } }} />
             </IconButton>
           </Tooltip>
-          <Button variant="outlined" startIcon={<ImportIcon />} onClick={() => importInputRef.current?.click()}>
-            Import
+          <Button variant="outlined" startIcon={<ImportIcon />} onClick={() => importInputRef.current?.click()} disabled={importing}>
+            {importing ? 'Importing…' : 'Import'}
           </Button>
           <input
             ref={importInputRef}
@@ -369,7 +406,7 @@ export const PersonasSection: React.FC = () => {
                         : undefined}
                     enabled={persona.enabled}
                     onToggleEnabled={(enabled) => void handleToggleEnabled(persona, enabled)}
-                    onExport={() => void handleExport(persona)}
+                    onExport={() => setExportTarget(persona)}
                     onDelete={() => setDeleteTarget(persona)}
                     onClick={() => openEdit(persona)}
                   />
@@ -394,6 +431,46 @@ export const PersonasSection: React.FC = () => {
         onSaved={flash}
         onError={setError}
       />
+
+      <Dialog open={exportTarget !== null} onClose={() => !exporting && setExportTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Export {exportTarget?.name}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Its name, description and prompt always go. Its avatar and voice stay on this server.
+          </Typography>
+          {exportSize === 'loading' && (
+            <Typography variant="body2" color="text.secondary">Measuring the character…</Typography>
+          )}
+          {exportSize === 'failed' && (
+            <Alert severity="warning">
+              The server did not say how big the character is, so it cannot be included. The export will be the persona alone.
+            </Alert>
+          )}
+          {typeof exportSize === 'object' && (
+            exportSize.character ? (
+              <>
+                <FormControlLabel
+                  control={<Checkbox checked={includeCharacter} onChange={(e) => setIncludeCharacter(e.target.checked)} />}
+                  label={includeLine(exportSize.character)}
+                />
+                {includeCharacter && meteredLine(exportSize.character) && (
+                  <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 1 }}>
+                    {meteredLine(exportSize.character)}
+                  </Typography>
+                )}
+              </>
+            ) : (
+              <Typography variant="body2" color="text.secondary">{includeLine(null)}</Typography>
+            )
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setExportTarget(null)} disabled={exporting}>Cancel</Button>
+          <Button variant="contained" onClick={() => void handleExport()} disabled={exporting || exportSize === 'loading'}>
+            {exporting ? 'Exporting…' : 'Export'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)} maxWidth="xs" fullWidth>
         <DialogTitle>Delete {deleteTarget?.name}?</DialogTitle>

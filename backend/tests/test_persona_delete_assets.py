@@ -183,6 +183,15 @@ class TestSweep:
         assert (root / "1" / "p1" / "base.png").exists()
         assert (root / "notes").exists() and (root / "stray.txt").exists()
 
+    def test_the_import_staging_area_is_neither_an_orphan_nor_unrecognised(self, root):
+        # A bundle import (#248) stages its files under the store's own
+        # `.incoming` before the persona they belong to exists.
+        (root / ".incoming").mkdir()
+        found = sweep_character_assets.sweep(root, live_ids={1}, apply=True, out=io.StringIO())
+        assert ".incoming" not in [d.name for d, _ in found.orphans]
+        assert ".incoming" not in [e.name for e in found.unrecognised]
+        assert (root / ".incoming").exists()
+
     def test_a_missing_root_is_empty(self, tmp_path):
         found = sweep_character_assets.find_orphans(tmp_path / "nope", live_ids=set())
         assert found.orphans == [] and found.unrecognised == []

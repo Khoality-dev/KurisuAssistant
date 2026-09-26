@@ -229,6 +229,10 @@ typically 15–40 MB and may be up to `CHARACTER_MODEL_MAX_BYTES` (100 MiB), plu
 them across its personas (#236). Ten active accounts with models is gigabytes under
 `backend/data/character_assets/`, inside the backup surface above — size the backup
 for it, or raise the quota knowing it lands there. Pose-graph art is not metered.
+A persona exported with its character is a zip of all of it (#248); importing one
+is metered against the same quota. A bundle has no size ceiling of its own, and
+it streams through `backend/data/character_assets/.incoming/` on its way in, so an
+import needs free disk for the whole bundle for a moment.
 
 **Character assets follow their persona.** Deleting a persona removes its
 directory under `backend/data/character_assets/` (#234). Directories whose
@@ -242,8 +246,9 @@ docker compose exec api python -m scripts.sweep_character_assets --apply   # rem
 ```
 
 Only a directory named by a plain decimal number that is not a live persona id
-is an orphan; anything else under that root is reported as unrecognised and
-left alone. Both modes print how many live persona ids the database has, and
+is an orphan; `.incoming/`, where a persona bundle waits while it is imported
+(#248), is skipped; anything else under that root is reported as unrecognised
+and left alone. Both modes print how many live persona ids the database has, and
 `--apply` refuses to run when that number is zero — a fresh or not-yet-restored
 database would make every directory an orphan — unless
 `--allow-empty-database` says that is really the state of things. After

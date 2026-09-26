@@ -4,17 +4,26 @@ A persona is presentation: a name, a prompt, a voice, a face. It owns no model,
 no tools, no memory and no wake word — those are the user's single assistant's,
 so switching persona changes who answers without changing what the assistant can
 do or remember. See ``routers/assistant.py`` for the other half.
+
+An export is the v3 JSON file, or — with ``?character=true`` — a v4 bundle that
+carries the character's files as well (#248, ``character/bundle.py``).
 """
 
 import io
 import json
 import logging
+import sys
+import uuid
+from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+import anyio
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
+from kurisuassistant.character import assets, bundle
 from kurisuassistant.character.config_write import (
     cleanup_after_write,
     plan_character_config,
@@ -28,6 +37,7 @@ from kurisuassistant.db.models import User
 from kurisuassistant.db.repositories import AssistantRepository, PersonaRepository
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.routers.portability import (
+    BUNDLE_VERSION,
     EXPORT_VERSION,
     KIND_PERSONA,
     RESERVED_AGENT_NAMES,
@@ -36,6 +46,7 @@ from kurisuassistant.routers.portability import (
     imported_name,
     parse_export,
 )
+from kurisuassistant.utils.blob_stream import sweep_incoming, write_stream
 
 logger = logging.getLogger(__name__)
 
@@ -342,24 +353,13 @@ async def toggle_persona_enabled(
 # ─── Export / Import ───
 
 
-@router.get("/{persona_id}/export")
-async def export_persona(
-    persona_id: int,
-    user: User = Depends(get_authenticated_user),
-):
-    """Export a persona as JSON.
-
-    Media is not included. The avatar, the voice clip and every URL inside the
-    character config name files that exist only on this server, so shipping the
-    references without the files gives the importing install broken art at best
-    and, once its asset cleanup runs, deletes the art of whichever persona holds
-    the same id at worst.
-    """
+async def _export_source(user_id: int, persona_id: int) -> tuple[dict, Optional[dict]]:
+    """The v3 fields of a persona and its stored ``character_config``; 404 when not the caller's."""
     def _get(session):
-        persona = PersonaRepository(session).get_by_user_and_id(user.id, persona_id)
+        persona = PersonaRepository(session).get_by_user_and_id(user_id, persona_id)
         if not persona:
             return None
-        return {
+        meta = {
             "version": EXPORT_VERSION,
             "kind": KIND_PERSONA,
             "name": persona.name,
@@ -367,18 +367,76 @@ async def export_persona(
             "system_prompt": persona.system_prompt or "",
             "preferred_name": persona.preferred_name,
         }
+        return meta, persona.character_config
 
-    db = get_db_service()
-    meta = await db.execute(_get)
-    if meta is None:
+    found = await get_db_service().execute(_get)
+    if found is None:
         raise HTTPException(status_code=404, detail="Persona not found")
+    return found
 
-    return StreamingResponse(
-        io.BytesIO(json.dumps(meta, ensure_ascii=False, indent=2).encode()),
-        media_type="application/json",
-        headers={
-            "Content-Disposition": f'attachment; filename="{export_filename(meta["name"])}"'
-        },
+
+@router.get("/{persona_id}/export/size")
+async def export_persona_size(
+    persona_id: int,
+    user: User = Depends(get_authenticated_user),
+):
+    """How big the character is that ``?character=true`` would carry, before anyone downloads it.
+
+    ``{"character": null}`` for a persona with none. ``bytes`` is every file the
+    bundle would hold; ``vrm_bytes`` is the part an import meters against the
+    account's quota (the model and its clips — pose art is not metered).
+    """
+    _meta, config = await _export_source(user.id, persona_id)
+    character = await anyio.to_thread.run_sync(bundle.character_files, persona_id, config)
+    if character is None:
+        return {"character": None}
+    return {"character": {
+        "kind": character.kind,
+        "files": len(character.files),
+        "bytes": character.bytes,
+        "vrm_bytes": character.vrm_bytes,
+    }}
+
+
+@router.get("/{persona_id}/export")
+async def export_persona(
+    persona_id: int,
+    character: bool = Query(False),
+    user: User = Depends(get_authenticated_user),
+):
+    """Export a persona: the v3 JSON file, or with ``?character=true`` a v4 bundle.
+
+    The JSON file carries no media. The avatar, the voice clip and every URL
+    inside the character config name files that exist only on this server, so
+    shipping the references without the files gives the importing install
+    broken art at best.
+
+    The bundle (``application/zip``) carries the character too: ``persona.json``
+    with the config written against a ``{persona_id}`` placeholder and a list
+    of its files, and the files under ``character/`` (#248). Avatar and voice
+    still stay behind. It is written under the persona's lock, so an upload or
+    a sweep cannot change the files halfway through the copy.
+    """
+    meta, config = await _export_source(user.id, persona_id)
+    if not character:
+        return StreamingResponse(
+            io.BytesIO(json.dumps(meta, ensure_ascii=False, indent=2).encode()),
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="{export_filename(meta["name"])}"'
+            },
+        )
+
+    async with persona_lock(persona_id):
+        # Read again under the lock: the config is what decides which files go.
+        meta, config = await _export_source(user.id, persona_id)
+        files = await anyio.to_thread.run_sync(bundle.character_files, persona_id, config)
+        path = await anyio.to_thread.run_sync(bundle.write_bundle, meta, persona_id, config, files)
+    return FileResponse(
+        path,
+        media_type=bundle.MEDIA_TYPE,
+        filename=export_filename(meta["name"], ".zip"),
+        background=BackgroundTask(lambda: Path(path).unlink(missing_ok=True)),
     )
 
 
@@ -400,6 +458,12 @@ async def import_persona(
         meta = json.loads(await file.read())
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON file")
+
+    if isinstance(meta, dict) and meta.get("version") == BUNDLE_VERSION:
+        raise HTTPException(
+            status_code=400,
+            detail="This persona was exported with its character. Import the .zip it came in.",
+        )
 
     try:
         fields = parse_export(meta, KIND_PERSONA)
@@ -427,3 +491,113 @@ async def import_persona(
         raise
     except Exception as e:
         raise internal_error(e, f"Error importing a persona for user {user.username}")
+
+
+@router.post("/import/bundle")
+async def import_persona_bundle(
+    request: Request,
+    user: User = Depends(get_authenticated_user),
+) -> PersonaResponse:
+    """Import a persona from a v4 bundle (``application/zip``), streamed as the raw body.
+
+    Everything in the bundle is checked before a persona exists — each file
+    against its listed size and digest and the ceiling for its kind, the model
+    and clips as an upload would check them (their refs rebuilt from the bytes),
+    the config through the same write path as a save — and the model and clips
+    are metered against the account's quota in the transaction that creates the
+    persona. Only then are the files moved into its directory. A refusal creates
+    nothing and leaves nothing on disk. See ``character/bundle.py``.
+
+    Errors: ``400`` not a bundle, a manifest or file that does not hold up, or a
+    sub-agent file; ``413`` a file over its kind's ceiling (a bundle has no
+    ceiling of its own); ``415`` a model or clip that is not one; ``422`` a config the
+    write path refuses (including a URL naming another persona); ``507`` over
+    the 3D character quota.
+    """
+    incoming = bundle.incoming_dir()
+    token = uuid.uuid4().hex
+    archive_path = incoming / f"{token}.zip"
+
+    def _discard():
+        for leftover in incoming.glob(f"{token}*"):
+            leftover.unlink(missing_ok=True)
+
+    try:
+        await anyio.to_thread.run_sync(lambda: incoming.mkdir(parents=True, exist_ok=True))
+        await anyio.to_thread.run_sync(sweep_incoming, incoming)
+        # No ceiling on the bundle itself (#248): each file's own ceiling and
+        # the account's quota are checked once the manifest is read.
+        await write_stream(
+            archive_path,
+            request.stream(),
+            sys.maxsize,
+            sys.maxsize,
+            too_large=lambda: RuntimeError("unreachable: a bundle has no size ceiling"),
+            over_quota=lambda: RuntimeError("unreachable: a bundle has no size ceiling"),
+        )
+
+        def _check():
+            archive, meta = bundle.open_bundle(archive_path)
+            with archive:
+                try:
+                    fields = parse_export(meta, KIND_PERSONA)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                character = meta.get("character") if meta.get("version") == BUNDLE_VERSION else None
+                staged = bundle.stage_character(archive, character, incoming / token)
+            return meta, fields, staged
+
+        meta, fields, staged = await anyio.to_thread.run_sync(_check)
+        requested = imported_name(meta, "Imported persona")
+
+        def _create(session):
+            repo = PersonaRepository(session)
+            taken = [p.name for p in repo.list_by_user(user.id)]
+            persona = repo.create_persona(user_id=user.id, name=deduplicate_name(requested, taken), **fields)
+            referenced: set = set()
+            if staged is not None:
+                planned = plan_character_config(
+                    persona.id,
+                    bundle.for_persona(staged.config, persona.id),
+                    stored=bundle.for_persona(staged.stored, persona.id),
+                )
+                # The new persona is in the list with no config yet, so this is
+                # everyone else's usage; the same single-thread measure the
+                # upload routes make, so a concurrent upload cannot overshoot it.
+                used, _per = assets.account_usage(repo.list_by_user(user.id))
+                if used + assets.persona_bytes(planned.config) > assets.QUOTA_BYTES:
+                    raise assets.over_quota(used, assets.QUOTA_BYTES)
+                repo.update_persona(persona, character_config=planned.config)
+                referenced = planned.referenced
+            return _persona_to_response(persona), referenced
+
+        try:
+            response, referenced = await get_db_service().execute(_create)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        if staged is not None:
+            async with persona_lock(response.id):
+                try:
+                    await anyio.to_thread.run_sync(bundle.place, response.id, staged.staged, referenced)
+                except Exception as e:  # noqa: BLE001 — undo the persona rather than leave it without its files
+                    await _undo_import(user.id, response.id)
+                    raise internal_error(e, f"Error placing an imported persona's files for user {user.username}")
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise internal_error(e, f"Error importing a persona bundle for user {user.username}")
+    finally:
+        await anyio.to_thread.run_sync(_discard)
+
+
+async def _undo_import(user_id: int, persona_id: int) -> None:
+    """Remove a persona whose import failed after its row was committed. Holds its lock already."""
+    def _delete(session):
+        PersonaRepository(session).delete_by_user_and_id(user_id, persona_id)
+
+    try:
+        await get_db_service().execute(_delete)
+    finally:
+        await remove_after_delete(persona_id)

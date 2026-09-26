@@ -182,6 +182,15 @@ export interface Persona {
 }
 
 /**
+ * What exporting a persona with its character would carry (#248):
+ * `GET /personas/{id}/export/size`. `bytes` is every file; `vrm_bytes` is the
+ * part an import meters against the 3D character quota (pose art is not).
+ */
+export interface PersonaExportSize {
+  character: { kind: 'pose_graph' | 'vrm'; files: number; bytes: number; vrm_bytes: number } | null;
+}
+
+/**
  * A task-only worker the assistant delegates to mid-answer. Runs its own LLM loop,
  * so it carries its own model and tools — but it has no identity: no avatar, no
  * voice, no memory, never bound to a conversation, never shown as the speaker.
