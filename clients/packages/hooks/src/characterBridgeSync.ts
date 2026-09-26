@@ -12,6 +12,7 @@
 import type { CharacterWindowAPI, PersonaCharacterData } from '@kurisu/platform';
 import {
   characterFeed,
+  emotionHolds,
   onCharacterFeed,
   useCharacterStore,
   type CharacterFeedEvent,
@@ -45,13 +46,27 @@ function forward(api: CharacterWindowAPI, event: CharacterFeedEvent): void {
     case 'thinking': api.sendFeed({ isThinking: event.isThinking }); break;
     case 'gestures': api.sendGestureUpdate({ gestures: event.names, seq: event.seq }); break;
     case 'faces': api.sendFaceUpdate({ faces: event.names }); break;
+    case 'emotion':
+      api.sendFeed({
+        isThinking: characterFeed.thinking.current,
+        emotion: { cue: event.cue, personaId: event.personaId, at: event.at },
+      });
+      break;
     case 'subtitle': api.sendSubtitle(event.subtitle); break;
   }
 }
 
 /** Everything the feed holds now, for a window that just said `ready`. */
 function catchUp(api: CharacterWindowAPI): void {
-  api.sendFeed({ isThinking: characterFeed.thinking.current });
+  // A feeling that still holds goes with it — the one a reopened conversation
+  // rests on, typically; one that is over is not replayed.
+  const burst = characterFeed.emotion.current;
+  api.sendFeed({
+    isThinking: characterFeed.thinking.current,
+    ...(burst.cue && emotionHolds(burst, Date.now())
+      ? { emotion: { cue: burst.cue, personaId: burst.personaId, at: burst.at } }
+      : {}),
+  });
   api.sendFaceUpdate({ faces: characterFeed.faces.current });
   api.sendSpeech(characterFeed.speech.current);
   const sync = characterFeed.speechSync.current;

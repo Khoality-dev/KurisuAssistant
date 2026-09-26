@@ -14,6 +14,7 @@ export * from './events';
 export * from './files';
 export * from './id';
 export * from './speech';
+export * from './segmentCues';
 export * from './speechClock';
 export * from './types';
 export * from './versionParity';

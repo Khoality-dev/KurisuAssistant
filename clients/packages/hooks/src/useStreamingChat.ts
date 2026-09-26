@@ -3,11 +3,12 @@ import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, ConnectedEvent, Too
 import { useConversationStore } from '@kurisu/state';
 import { useToolPermissionsStore } from '@kurisu/state';
 import { storage } from '@kurisu/api';
-import { stripNarration, fileToBase64 } from '@kurisu/api';
+import { fileToBase64 } from '@kurisu/api';
 import { useExplorerStore } from '@kurisu/state';
 import { usePersonaStore } from '@kurisu/state';
 import { newId, WS_ERROR_NO_MODEL_SELECTED, type Message } from '@kurisu/models';
-import { handleCommand, publishSubtitle, setThinking } from '@kurisu/state';
+import { handleCommand, publishSubtitle, pushEmotion, setThinking } from '@kurisu/state';
+import { StreamSpeechPlanner, type SegmentCue } from './emotionTiming';
 
 /**
  * A streaming bubble, plus the two tool-call fields the wire sends but the stored
@@ -29,8 +30,8 @@ export interface UseStreamingChatParams {
   loadMoreMessages: () => void;
   loadConversation: (id: number) => Promise<void>;
   setCurrentConversationId: (id: number) => void;
-  // TTS
-  queueText: (text: string, voice?: string) => void;
+  // TTS, with the feelings that ride each sentence group (#244)
+  queueText: (text: string, voice?: string, cues?: SegmentCue[]) => void;
   clearQueue: () => void;
   // Character panel
   pushPersonaCharacterConfig: (personaId: number | undefined, personaName?: string) => void;
@@ -125,8 +126,19 @@ export function useStreamingChat({
     conversationId: null as number | null,
   });
 
-  const ttsBufferRef = useRef('');
-  const ttsVoiceRef = useRef<string | undefined>(undefined);
+  // The speech side of the stream: sentence groups for the TTS queue, and the
+  // feelings that ride them — or, with speech off, show as their text arrives (#244).
+  const queueTextRef = useRef(queueText);
+  queueTextRef.current = queueText;
+  const speechPlannerRef = useRef<StreamSpeechPlanner | null>(null);
+  if (!speechPlannerRef.current) {
+    speechPlannerRef.current = new StreamSpeechPlanner({
+      autoplay: () => storage.getTTSAutoPlay(),
+      speak: (text, voice, cues) => queueTextRef.current(text, voice, cues),
+      show: (cue, whose) => pushEmotion(cue, whose),
+    });
+  }
+  const speechPlanner = speechPlannerRef.current;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const previousScrollHeightRef = useRef<number>(0);
@@ -232,8 +244,7 @@ export function useStreamingChat({
     isStreamingRef.current = false;
     cancelStreamUpdate();
     clearQueue();
-    ttsBufferRef.current = '';
-    ttsVoiceRef.current = undefined;
+    speechPlanner.reset();
     streamingStateRef.current = {
       currentRole: null,
       currentPersonaId: undefined,
@@ -377,12 +388,11 @@ export function useStreamingChat({
     const needsNewBubble = roleChanged || speakerChanged;
 
     if (needsNewBubble) {
-      // Flush TTS buffer from the previous speaker before switching
-      if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
-        const cleaned = stripNarration(ttsBufferRef.current);
-        if (cleaned) queueText(cleaned, ttsVoiceRef.current);
-        ttsBufferRef.current = '';
-      }      // Capture ref values before mutating. React defers updater execution,
+      // Speak what the previous speaker left unsaid, then count the new
+      // bubble from zero: the backend restarts its cue offsets with every
+      // round, and a tool call starts one (#244).
+      speechPlanner.newRun(event.voice_reference);
+      // Capture ref values before mutating. React defers updater execution,
       // so reading the ref inside the updater would see the new (wrong) value.
       const previousContent = state.accumulatedContent;
       const previousThinking = state.accumulatedThinking;
@@ -421,9 +431,6 @@ export function useStreamingChat({
       state.accumulatedContent = event.content || '';
       state.accumulatedThinking = '';
 
-      // Update TTS voice for the new speaker
-      ttsVoiceRef.current = event.voice_reference || undefined;
-
       // Point the character panel at the persona now speaking (no-op on tool
       // chunks, which carry no persona id)
       pushPersonaCharacterConfig(eventPersonaId, chunkName);
@@ -431,6 +438,7 @@ export function useStreamingChat({
       scheduleStreamUpdate(state.accumulatedContent, state.accumulatedThinking);
     } else if (!state.hasStarted) {
       // First message chunk - update placeholder bubble
+      speechPlanner.newRun(event.voice_reference);
       state.hasStarted = true;
       state.currentRole = messageRole;
       state.currentPersonaId = eventPersonaId;
@@ -521,25 +529,20 @@ export function useStreamingChat({
       setContextTokens(event.token_count);
     }
 
-    // Streaming TTS auto-play: feed complete sentences to TTS queue
-    // Only queue when we have full sentences AND enough words (min 10)
-    if (storage.getTTSAutoPlay() && event.content && event.role !== 'tool') {
-      ttsVoiceRef.current = event.voice_reference || ttsVoiceRef.current;
-      ttsBufferRef.current += event.content;
-      // Split on sentence-ending punctuation; all but the last segment are complete
-      const parts = ttsBufferRef.current.split(/(?<=[.!?。！？\n])\s*/);
-      if (parts.length > 1) {
-        const completeSentences = parts.slice(0, -1).join(' ');
-        const wordCount = completeSentences.trim().split(/\s+/).length;
-        if (wordCount >= 10) {
-          ttsBufferRef.current = parts[parts.length - 1];
-          const cleaned = stripNarration(completeSentences);
-          if (cleaned) queueText(cleaned, ttsVoiceRef.current);
-        }
-        // If < 10 words, keep accumulating — don't update buffer
-      }
+    // Speech: complete sentences of at least ten words go to the TTS queue,
+    // each group with the feelings inside it; with speech off a feeling shows
+    // as its text arrives. Tool chunks are never spoken.
+    if (event.role !== 'tool' && (event.content || event.emotion)) {
+      speechPlanner.chunk({
+        content: event.content || '',
+        emotion: event.emotion,
+        emotionAt: event.emotion_at,
+        personaId: eventPersonaId ?? null,
+        voice: event.voice_reference,
+        runText: state.accumulatedContent,
+      });
     }
-  }, [setCurrentConversationId, scheduleStreamUpdate, queueText, pushPersonaCharacterConfig]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [setCurrentConversationId, scheduleStreamUpdate, pushPersonaCharacterConfig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDone = useCallback((event: DoneEvent) => {
     cancelledRef.current = false;
@@ -553,13 +556,9 @@ export function useStreamingChat({
     // Clear thinking state
     setThinking(false);
 
-    // Flush remaining TTS buffer
-    if (storage.getTTSAutoPlay() && ttsBufferRef.current.trim()) {
-      const cleaned = stripNarration(ttsBufferRef.current);
-      if (cleaned) queueText(cleaned, ttsVoiceRef.current);
-    }
-    ttsBufferRef.current = '';
-    ttsVoiceRef.current = undefined;    // Do not clear activePersonaId here; TTS may still be playing after streaming ends.
+    // Speak what is left of the turn
+    speechPlanner.done();
+    // Do not clear activePersonaId here; TTS may still be playing after streaming ends.
     // activePersonaId is cleared when isQueueActive becomes false (see effect below).
 
     // Build the finalized array directly from the ref + accumulator instead of
@@ -616,7 +615,7 @@ export function useStreamingChat({
       pendingRestoreRef.current = null;
       loadConversation(pendingRestore).catch(console.error);
     }
-  }, [queueText]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleError = useCallback((event: ErrorEvent) => {
     if (event.code === WS_ERROR_NO_MODEL_SELECTED) {
@@ -778,9 +777,7 @@ export function useStreamingChat({
         cancelAnimationFrame(scrollFrameRef.current);
         scrollFrameRef.current = null;
       } else if (!storage.getTTSAutoPlay()) {
-        ttsBufferRef.current = '';
-      } else if (!storage.getTTSAutoPlay()) {
-        ttsBufferRef.current = '';
+        speechPlanner.reset();
       }
     };
   }, []);
@@ -831,8 +828,7 @@ export function useStreamingChat({
 
     // Clear any previous TTS queue
     clearQueue();
-    ttsBufferRef.current = '';
-    ttsVoiceRef.current = undefined;
+    speechPlanner.reset();
 
     try {
       const imageBase64: string[] = [];
@@ -945,8 +941,7 @@ export function useStreamingChat({
 
     // Stop TTS auto-play
     clearQueue();
-    ttsBufferRef.current = '';
-    ttsVoiceRef.current = undefined;
+    speechPlanner.reset();
 
     // Clear subtitle
     publishSubtitle({ text: '', isUser: false });

@@ -235,9 +235,10 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on('character:speech-sync', handler);
       return () => { ipcRenderer.removeListener('character:speech-sync', handler); };
     },
-    sendFeed: (data: { isThinking: boolean }) => ipcRenderer.send('character:feed', data),
-    onFeed: (cb: (data: { isThinking: boolean }) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: { isThinking: boolean }) => cb(data);
+    // `emotion` is a feeling to show outside speech (#244); the relay carries it as-is.
+    sendFeed: (data: { isThinking: boolean; emotion?: any }) => ipcRenderer.send('character:feed', data),
+    onFeed: (cb: (data: { isThinking: boolean; emotion?: any }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { isThinking: boolean; emotion?: any }) => cb(data);
       ipcRenderer.on('character:feed', handler);
       return () => { ipcRenderer.removeListener('character:feed', handler); };
     },

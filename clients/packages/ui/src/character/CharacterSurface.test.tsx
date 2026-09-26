@@ -13,7 +13,7 @@ import { act, StrictMode } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CharacterDriver, DriverInput, ParsedCharacterConfig, PoseTree, VrmAssetRef, VrmSettings } from '@kurisu/models';
-import { publishSpeech, pushGestures, resetCharacterFeed, setFaces, setThinking } from '@kurisu/state';
+import { publishSpeech, pushEmotion, pushGestures, resetCharacterFeed, setFaces, setThinking } from '@kurisu/state';
 
 vi.mock('@kurisu/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@kurisu/api')>()),
@@ -146,6 +146,58 @@ describe('CharacterSurface', () => {
     pushGestures(['thumbs_up']);
     step();
     expect(lastInput()?.gestures).toEqual(['thumbs_up']);
+  });
+
+  it('shows a feeling when the audio reaches it, not when the sentence starts (#244)', async () => {
+    render({ personaId: 7 });
+    await settle();
+    publishSpeech({
+      text: 'Hello. Oh no.', startedAt: clock, durationMs: 1000, windowMs: 100, curve: null,
+      cues: [{ emotion: 'happy', delayMs: 0 }, { emotion: 'sad', delayMs: 300 }],
+    });
+    step(16);
+    expect(lastInput().cue).toEqual({ emotion: 'happy', hold_ms: null });
+    step(16);
+    expect(lastInput().cue).toBeNull();
+    step(200);
+    expect(lastInput().cue).toBeNull();
+    step(100);
+    expect(lastInput().cue).toEqual({ emotion: 'sad', hold_ms: null });
+    step(16);
+    expect(lastInput().cue).toBeNull();
+  });
+
+  it("a feeling shown on text arrival reaches that persona's face once, and no one else's", async () => {
+    render({ personaId: 7 });
+    await settle();
+    pushEmotion({ emotion: 'happy', hold_ms: 2000 }, 8, clock);
+    step();
+    expect(lastInput().cue).toBeNull();
+    pushEmotion({ emotion: 'surprised', hold_ms: 2000 }, 7, clock);
+    step();
+    expect(lastInput().cue).toEqual({ emotion: 'surprised', hold_ms: 2000 });
+    step();
+    expect(lastInput().cue).toBeNull();
+  });
+
+  it('a feeling that arrives while the character is still loading shows once it has loaded', async () => {
+    let finish!: () => void;
+    const slow = () => {
+      const d = fakeDriver();
+      d.load = (config) => { d.loads.push(config); return new Promise<void>((resolve) => { finish = resolve; }); };
+      drivers.push(d);
+      return d;
+    };
+    render({ personaId: 7, makeDriver: slow });
+    await settle();
+    pushEmotion({ emotion: 'relaxed', hold_ms: null }, 7, clock);
+    step();
+    expect(lastInput().cue).toBeNull();
+    await act(async () => { finish(); await Promise.resolve(); });
+    step();
+    expect(lastInput().cue).toEqual({ emotion: 'relaxed', hold_ms: null });
+    step();
+    expect(lastInput().cue).toBeNull();
   });
 
   it('reloads when the config content changes, not when only its identity does', async () => {

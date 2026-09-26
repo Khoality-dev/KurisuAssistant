@@ -146,7 +146,8 @@ export const VRM_EMOTIONS: readonly VrmEmotion[] = ['neutral', 'happy', 'angry',
  * is exact. A stream carries them one per `stream_chunk` (`emotion` /
  * `emotion_at`, the chunk's content starting at that offset); the history
  * carries the whole list on the message (`emotion_cues`). Applying a cue to a
- * face when the sentence is *spoken*, not when its text arrives, is #244.
+ * face when the sentence is *spoken*, not when its text arrives, is #244
+ * (`@kurisu/hooks` `emotionTiming.ts`).
  *
  * This is the cue as recorded — not the `EmotionCue` a driver is fed
  * (`characterDriver.ts`), which carries a hold and a weight instead of an

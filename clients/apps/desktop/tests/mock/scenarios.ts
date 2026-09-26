@@ -408,8 +408,8 @@ export const SCENARIOS: Record<string, Scenario> = {
   },
   emotion: {
     // A VRM persona with the emotion channel on (#243): the reply carries the
-    // persona's feeling on the chunks and the stored message keeps the cues.
-    // Nothing renders it yet — applying a cue to a face is #244.
+    // persona's feeling on the chunks and the stored message keeps the cues,
+    // which the character shows as their sentence is spoken (#244).
     description: 'A VRM persona whose reply carries emotion cues on the chunks and in the history.',
     options: {
       personas: [

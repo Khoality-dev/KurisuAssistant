@@ -3,13 +3,16 @@ import type { ParsedCharacterConfig, PoseTree, SpeechSegment } from '@kurisu/mod
 import {
   characterFeed,
   characterSurfaceWanted,
+  clearEmotion,
   onCharacterFeed,
   publishSpeech,
   publishSpeechSync,
+  pushEmotion,
   pushGestures,
   resetCharacterFeed,
   setFaces,
   setThinking,
+  takeEmotion,
   takeGestures,
   useCharacterStore,
   type CharacterFeedEvent,
@@ -79,6 +82,41 @@ describe('the character feed', () => {
     expect(characterFeed.faces.current).toEqual(['Khoa']);
     setFaces([]);
     expect(characterFeed.faces.current).toEqual([]);
+  });
+
+  it('a feeling is taken once per consumer, by seq, and says whose face it is for (#244)', () => {
+    const before = characterFeed.emotion.current.seq;
+    pushEmotion({ emotion: 'happy', hold_ms: 2000 }, 7, 1000);
+    const first = takeEmotion(before, 1100);
+    expect(first).toMatchObject({ cue: { emotion: 'happy', hold_ms: 2000 }, personaId: 7, seq: before + 1 });
+    expect(takeEmotion(first.seq, 1200).cue).toBeNull();
+    expect(heard.filter((e) => e.type === 'emotion')).toEqual([
+      { type: 'emotion', cue: { emotion: 'happy', hold_ms: 2000 }, personaId: 7, at: 1000 },
+    ]);
+  });
+
+  it('a feeling whose hold has run out is not handed to a consumer that comes late', () => {
+    const before = characterFeed.emotion.current.seq;
+    pushEmotion({ emotion: 'sad', hold_ms: 1500 }, 7, 1000);
+    const late = takeEmotion(before, 2600);
+    expect(late.cue).toBeNull();
+    expect(late.seq).toBe(before + 1);
+  });
+
+  it('a feeling held until speech ends is spent when speech ends, and a reset clears any', () => {
+    const before = characterFeed.emotion.current.seq;
+    pushEmotion({ emotion: 'relaxed', hold_ms: null }, 3, 1000);
+    expect(takeEmotion(before, 99_999).cue).toEqual({ emotion: 'relaxed', hold_ms: null });
+    publishSpeech(segment);
+    expect(takeEmotion(before, 99_999).cue).toEqual({ emotion: 'relaxed', hold_ms: null });
+    publishSpeech(null);
+    expect(takeEmotion(before, 99_999).cue).toBeNull();
+    pushEmotion({ emotion: 'angry', hold_ms: 5000 }, 3, 1000);
+    resetCharacterFeed();
+    expect(takeEmotion(before, 1001).cue).toBeNull();
+    pushEmotion({ emotion: 'happy', hold_ms: null }, 3, 1000);
+    clearEmotion();
+    expect(takeEmotion(before, 1001).cue).toBeNull();
   });
 
   it('a listener that unsubscribes hears nothing more', () => {

@@ -8,6 +8,7 @@ export * from './authedAsset';
 export * from './autosave';
 export * from './characterBridgeSync';
 export * from './characterSession';
+export * from './emotionTiming';
 export * from './useAudioAmplitude';
 export * from './useCapabilities';
 export * from './useCharacterBridgeSync';

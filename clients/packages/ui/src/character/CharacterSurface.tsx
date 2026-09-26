@@ -4,8 +4,9 @@
  * The surface owns the box, the clock and the live feed; the driver owns the
  * character. Every frame the surface samples the feed store — the mouth from
  * the spoken sentence's curve on its own clock, thinking, the gesture burst
- * it has not yet taken, the faces in view — and hands the driver one
- * `DriverInput`. It never asks which kind it holds after choosing the driver,
+ * it has not yet taken, the faces in view, and a feeling: the spoken
+ * sentence's when the audio reaches it, or one shown outside speech for this
+ * persona (#244) — and hands the driver one `DriverInput`. It never asks which kind it holds after choosing the driver,
  * which is how the character window, the inline panel (#241) and the page an
  * Android WebView hosts (#245) draw the same thing.
  *
@@ -21,13 +22,15 @@ import { Box, Button, LinearProgress, Typography } from '@mui/material';
 import { ErrorOutline as ErrorIcon, ViewInAr as ModelIcon } from '@mui/icons-material';
 import {
   characterFingerprint,
+  createSegmentCueState,
   createSpeechClockState,
   sampleSpeech,
+  takeSegmentCue,
   type CharacterDriver,
   type ParsedCharacterConfig,
 } from '@kurisu/models';
 import { fetchAuthedBytes } from '@kurisu/api';
-import { characterFeed, takeGestures } from '@kurisu/state';
+import { characterFeed, takeEmotion, takeGestures } from '@kurisu/state';
 import { supportsWebGL } from '@kurisu/vrm/probe';
 import { createPoseGraphDriver } from './PoseGraphDriver';
 
@@ -47,6 +50,8 @@ export type MakeDriver = (
 
 export interface CharacterSurfaceProps {
   character: ParsedCharacterConfig | null;
+  /** Whose character this is: a feeling shown outside speech names the face it is for (#244). */
+  personaId?: number | null;
   /** The persona's name, for the sentence that says where to upload a model. */
   personaName?: string;
   /** This persona is speaking: it hears the sentence and the thinking state. */
@@ -143,6 +148,7 @@ type NoDrag = React.CSSProperties & { WebkitAppRegion?: 'drag' | 'no-drag' };
 
 export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
   character,
+  personaId = null,
   personaName = 'this persona',
   active,
   receivesStimuli,
@@ -157,6 +163,9 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
   const driverRef = useRef<CharacterDriver | null>(null);
   const loadFailedRef = useRef(false);
   const loadedRef = useRef<string | null>(null);
+  // The driver has the character loaded: a feeling handed over before then
+  // would be dropped, so one that arrives early waits for this.
+  const drawnRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const [loadError, setLoadError] = useState<unknown>(null);
   const [status, setStatus] = useState<SurfaceStatus>('idle');
@@ -169,8 +178,8 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
   // driver itself failed to arrive (a stale chunk after a redeploy 404s), and
   // re-running the load would find nothing to load with.
   const [engineAttempt, setEngineAttempt] = useState(0);
-  const inputsRef = useRef({ active, receivesStimuli });
-  inputsRef.current = { active, receivesStimuli };
+  const inputsRef = useRef({ active, receivesStimuli, personaId });
+  inputsRef.current = { active, receivesStimuli, personaId };
   // Read when a driver is made, not a reason to remake one: a host passing an
   // inline function must not tear the stage down on every render.
   const engineRef = useRef({ importVrm, probe });
@@ -196,6 +205,7 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
       }
       driver = made;
       driverRef.current = made;
+      drawnRef.current = false;
       loadedRef.current = null;
       loadFailedRef.current = false;
       setDriverVersion((v) => v + 1);
@@ -227,6 +237,7 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
       abortRef.current = null;
       driver?.dispose();
       driverRef.current = null;
+      drawnRef.current = false;
       loadedRef.current = null;
       setStatus('idle');
     };
@@ -248,6 +259,7 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
     abortRef.current = controller;
     loadedRef.current = fingerprint;
     loadFailedRef.current = false;
+    drawnRef.current = false;
     setLoadError(null);
 
     const model = character.kind === 'vrm' ? character.vrm?.model ?? null : null;
@@ -270,6 +282,7 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
     driver.load(character, { resolveAsset, signal: controller.signal }).then(
       () => {
         if (controller.signal.aborted) return;
+        drawnRef.current = true;
         setStatus(character.kind === 'vrm' ? 'ready' : 'idle');
       },
       (error: unknown) => {
@@ -310,7 +323,11 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
   useEffect(() => {
     if (!canDraw) return;
     const clock = createSpeechClockState();
+    const segmentCues = createSegmentCueState();
     let lastSeq = characterFeed.gestures.current.seq;
+    // Not the current seq: a feeling pushed before this surface mounted (the
+    // one a reopened conversation rests on) is still taken if it holds.
+    let lastEmotionSeq = 0;
     let last = now();
     let frame = 0;
     const tick = () => {
@@ -319,13 +336,26 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
       last = t;
       const driver = driverRef.current;
       if (driver) {
-        const { active: isActive, receivesStimuli: stimuli } = inputsRef.current;
+        const { active: isActive, receivesStimuli: stimuli, personaId: whose } = inputsRef.current;
+        const segment = isActive ? characterFeed.speech.current : null;
         const speech = sampleSpeech(
-          isActive ? characterFeed.speech.current : null,
+          segment,
           isActive ? characterFeed.speechSync.current : null,
           t,
           clock,
         );
+        // The spoken sentence's feeling, when the audio reaches it.
+        let cue = takeSegmentCue(segment, speech.positionMs, segmentCues);
+        // A feeling shown outside speech, once, on the face it names — or on
+        // whoever takes stimuli when it names none. Left waiting while the
+        // character is still loading, or for the next frame when a spoken
+        // one landed on this one.
+        if (drawnRef.current && !cue) {
+          const burst = takeEmotion(lastEmotionSeq, t);
+          lastEmotionSeq = burst.seq;
+          const mine = burst.personaId === null ? stimuli : burst.personaId === whose;
+          if (burst.cue && mine) cue = burst.cue;
+        }
         let gestures: string[] = [];
         if (stimuli) {
           const burst = takeGestures(lastSeq);
@@ -341,7 +371,7 @@ export const CharacterSurface: React.FC<CharacterSurfaceProps> = ({
           isThinking: isActive && characterFeed.thinking.current,
           gestures,
           faces: stimuli ? characterFeed.faces.current : [],
-          cue: null,
+          cue,
         });
       }
       frame = requestAnimationFrame(tick);
