@@ -18,6 +18,16 @@ import type { ElectronApplication, Page } from '@playwright/test';
 
 test.use({ electronArgs: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 
+
+/**
+ * The mock's reply in the transcript. Not `getByText`: while the panel shows,
+ * its subtitle carries the same sentence, and a match on both is a strict-mode
+ * failure whenever the subtitle has not faded yet.
+ */
+function chatReply(page: Page) {
+  return page.getByRole('paragraph').filter({ hasText: 'Hello from mock backend.' }).first();
+}
+
 async function login(page: Page) {
   await page.getByLabel('Username').fill('tester');
   await page.getByLabel('Password').fill('password');
@@ -60,7 +70,7 @@ test.describe('inline character panel', () => {
     const composerBox = (await composer.boundingBox())!;
     expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(composerBox.y);
     await send(page, 'Hello world');
-    await expect(page.getByText('Hello from mock backend.')).toBeVisible({ timeout: 15_000 });
+    await expect(chatReply(page)).toBeVisible({ timeout: 15_000 });
     await expect(panel.getByText('Kurisu')).toBeVisible();
     await expect.poll(() => mock.characterAssetRequests).toContainEqual({
       path: '/character-assets/1/p1/base',
@@ -108,7 +118,7 @@ test.describe('inline character panel', () => {
     await login(page);
     await page.getByRole('button', { name: 'Show character' }).click();
     await send(page, 'Hello world');
-    await expect(page.getByText('Hello from mock backend.')).toBeVisible({ timeout: 15_000 });
+    await expect(chatReply(page)).toBeVisible({ timeout: 15_000 });
     const panel = page.getByTestId('character-panel');
     await expect(panel.getByTestId('character-surface')).toBeVisible();
 
@@ -144,7 +154,7 @@ test.describe('inline character panel', () => {
     await login(page);
     await page.getByRole('button', { name: 'Show character' }).click();
     await send(page, 'Hello world');
-    await expect(page.getByText('Hello from mock backend.')).toBeVisible({ timeout: 15_000 });
+    await expect(chatReply(page)).toBeVisible({ timeout: 15_000 });
 
     await expect.poll(() => mock.characterAssetRequests).toContainEqual({
       path: '/character-assets/1/vrm/model',
