@@ -27,8 +27,14 @@ import com.kurisu.assistant.domain.tts.TtsQueueManager
 import com.kurisu.assistant.service.CoreState
 import com.kurisu.assistant.service.VoiceInteractionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.util.Base64
 import javax.inject.Inject
 
 /** Modal overlay surfaced from a slash command. Only one can be active at a time. */
@@ -107,6 +113,9 @@ class ChatViewModel @Inject constructor(
 
         /** What the assistant is called when it answers as itself — the server's name for it. */
         const val ASSISTANT_NAME = "Assistant"
+
+        /** The backend's default `MAX_IMAGE_BYTES` (`utils/images.py`). */
+        const val MAX_IMAGE_BYTES = 16 * 1024 * 1024
     }
 
     private val _state = MutableStateFlow(ChatUiState())
@@ -304,7 +313,9 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        val images = emptyList<String>()
+        // The composer's content:// URIs, kept as strings until the send: the
+        // bubble shows them at once and they are read and encoded only then.
+        val images = s.selectedImages.map { it.toString() }
         _state.update { it.copy(inputText = "", selectedImages = emptyList()) }
 
         // If currently streaming, queue the message
@@ -314,6 +325,35 @@ class ChatViewModel @Inject constructor(
         }
 
         doSend(messageText, images)
+    }
+
+    /** Where attached images are read. Overridable so a test can run it on its own scheduler. */
+    internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+
+    private class ImageTooLarge : IOException()
+
+    /**
+     * One attached image as the backend takes it in `chat_request.images`:
+     * base64, as the desktop sends it (#308). Refused past the backend's own
+     * ceiling, which would otherwise drop it with only a log line.
+     */
+    private fun readImageBase64(uri: String): String {
+        val input = application.contentResolver.openInputStream(Uri.parse(uri))
+            ?: throw IOException("No stream for $uri")
+        val bytes = input.use { stream ->
+            val out = ByteArrayOutputStream()
+            val buffer = ByteArray(64 * 1024)
+            var total = 0
+            while (true) {
+                val n = stream.read(buffer)
+                if (n < 0) break
+                total += n
+                if (total > MAX_IMAGE_BYTES) throw ImageTooLarge()
+                out.write(buffer, 0, n)
+            }
+            out.toByteArray()
+        }
+        return Base64.getEncoder().encodeToString(bytes)
     }
 
     private fun executeCommand(cmd: SlashCommand, args: String) {
@@ -556,10 +596,37 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Send one turn. [images] are the attachments' URIs: the bubble shows them
+     * as they are, and the request carries their bytes. A turn without images
+     * starts streaming synchronously, as it always has.
+     */
     private fun doSend(text: String, images: List<String>) {
+        if (images.isEmpty()) {
+            startTurn(text, images, emptyList())
+            return
+        }
+        viewModelScope.launch {
+            val encoded = try {
+                withContext(ioDispatcher) { images.map(::readImageBase64) }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not read an attached image", e)
+                // Nothing was sent: give the draft back rather than lose it.
+                _state.update { it.copy(inputText = text, selectedImages = images.map(Uri::parse)) }
+                streamProcessor.setError(
+                    if (e is ImageTooLarge) "The attached image is larger than ${MAX_IMAGE_BYTES / (1024 * 1024)} MB."
+                    else "Couldn't read the attached image."
+                )
+                return@launch
+            }
+            startTurn(text, images, encoded)
+        }
+    }
+
+    private fun startTurn(text: String, previews: List<String>, images: List<String>) {
         val s = _state.value
         streamProcessor.startStreaming()
-        streamProcessor.addUserMessage(text, images)
+        streamProcessor.addUserMessage(text, previews)
 
         viewModelScope.launch {
             try {
