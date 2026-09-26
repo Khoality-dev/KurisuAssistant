@@ -168,9 +168,11 @@ android {
             val devUpdateUrl = env("KURISU_DEV_UPDATE_URL") ?: ""
             buildConfigField("String", "DEV_UPDATE_BASE_URL", "\"$devUpdateUrl\"")
             // Where the instrumented tests (androidTest/) expect the standalone
-            // mock backend — `npm run mock:backend -- --host 0.0.0.0` in
-            // clients/desktop. 10.0.2.2 is the emulator's route to the host;
-            // override per run with -PmockBackendUrl=http://... (#126).
+            // mock backend's `default` scenario — `npm run mock:backend -- --host
+            // 0.0.0.0` in clients/apps/desktop. The other scenarios listen on this
+            // port plus their offset in e2e/MockBackend.kt (#310). 10.0.2.2 is the
+            // emulator's route to the host; override per run with
+            // -PmockBackendUrl=http://... (#126).
             val mockBackendUrl = (project.findProperty("mockBackendUrl") as String?)
                 ?: "http://10.0.2.2:15597"
             buildConfigField("String", "MOCK_BACKEND_URL", "\"$mockBackendUrl\"")
