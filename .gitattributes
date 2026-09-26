@@ -1,0 +1,5 @@
+# The Android character page is built from clients/packages/vrm and committed
+# (#245). Its Content-Security-Policy names the inlined script by the sha256 of
+# its exact bytes, so git must never rewrite line endings in it, and a minified
+# megabyte is no diff to read: `build:page` regenerates it, CI checks it.
+clients/android/app/src/main/assets/character/index.html binary linguist-generated=true

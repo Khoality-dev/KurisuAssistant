@@ -13,6 +13,9 @@ on:
       # The protocol manifest is shared: a change to it has to run this
       # suite too, or the drift check only fires for whoever edited last (#93).
       - 'protocol/**'
+      # The Android character page is built from clients/packages/vrm; a hand
+      # edit of the committed file must fail the drift step too (#245).
+      - 'clients/android/app/src/main/assets/character/**'
       - '.github/workflows/desktop-test.yml'
   pull_request:
     branches: [main]
@@ -26,6 +29,9 @@ on:
       # The protocol manifest is shared: a change to it has to run this
       # suite too, or the drift check only fires for whoever edited last (#93).
       - 'protocol/**'
+      # The Android character page is built from clients/packages/vrm; a hand
+      # edit of the committed file must fail the drift step too (#245).
+      - 'clients/android/app/src/main/assets/character/**'
       - '.github/workflows/desktop-test.yml'
   workflow_dispatch:
 
@@ -79,6 +85,21 @@ jobs:
       - name: Unit tests
         working-directory: clients
         run: npm test
+
+      # Android ships the character page as a committed file, because its build
+      # and release have no JavaScript toolchain (#245). Rebuild it from source
+      # and fail if the committed file is not exactly what the source builds —
+      # a hand edit, or a renderer change nobody rebuilt.
+      - name: Character page matches its source
+        working-directory: clients
+        run: |
+          npm run build:page -w @kurisu/vrm
+          dir=android/app/src/main/assets/character
+          if ! git diff --quiet -- "$dir" || [ -n "$(git ls-files --others --exclude-standard -- "$dir")" ]; then
+            git status --short -- "$dir"
+            echo "::error::android/app/src/main/assets/character is not what 'npm run build:page -w @kurisu/vrm' builds. Rebuild it and commit the result."
+            exit 1
+          fi
 
   e2e:
     name: Playwright end-to-end
