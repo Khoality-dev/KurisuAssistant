@@ -25,6 +25,7 @@ Run these from **this directory**, not from an app:
 - `npm ci` — the only place dependencies install. The lockfile is here and every member's `node_modules` hoists here, so an app directory has no lockfile of its own and `npm ci` inside one will not work.
 - `npm test` — every member's suite, including `packages/platform/src/boundaries.test.ts`.
 - `npm run typecheck` — every member.
+- `npm run build:page -w @kurisu/vrm` — rebuild the Android character page (`android/app/src/main/assets/character/index.html`) after changing `packages/vrm`, and commit it; CI fails when the committed file is not what the source builds (#245).
 
 An app's own commands (`electron:dev`, `test:e2e`, the packaging build) still run from that app's directory.
 

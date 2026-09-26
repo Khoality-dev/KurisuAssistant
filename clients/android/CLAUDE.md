@@ -53,6 +53,10 @@
 - `ChatStreamProcessor` exposes an `internal var collectDispatcher` so tests can swap the default `Dispatchers.Default` for `UnconfinedTestDispatcher()` — keep this seam when touching that class
 - Robolectric **must** be 4.14+ to match `targetSdk = 35`
 
+## Generated assets (committed, never edited by hand)
+
+- `app/src/main/assets/character/index.html` — the 3D character page the VRM WebView will host (#245, #246): one self-contained file built from `clients/packages/vrm` with `npm run build:page -w @kurisu/vrm` from `clients/`, committed because this build has no JavaScript toolchain. The desktop CI rebuilds it and fails on any difference; `.gitattributes` keeps git from rewriting its line endings, which its CSP hash depends on. The messages it takes and the three callbacks it makes are in `clients/apps/desktop/docs/character.md` ("The Android page"); the golden messages are `clients/packages/vrm/src/page/fixtures/`.
+
 ## Required Assets (user must provide)
 
 - `app/src/main/assets/silero_vad.onnx` — Silero VAD ONNX model (~2MB)
