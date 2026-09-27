@@ -89,3 +89,15 @@ class TestPostgresSuitesFailOnCI:
         monkeypatch.delenv("CI")
         with pytest.raises(pytest.skip.Exception):
             require_postgres(ConnectionError("refused"), "migration tests")
+
+
+class TestTheAppsOwnScansStayOut:
+    def test_the_idle_and_index_scans_never_run_on_their_own(self, system_client):
+        """The system tests run the real app, workers and all. Its idle scan made
+        real model calls on conversations an earlier test had left idle, landing
+        in whatever test ran next (#330); the tests that cover the scans run them
+        by hand."""
+        from kurisuassistant.workers import service
+
+        assert service.SCAN_INTERVAL_SECONDS >= 10**6
+        assert service.INDEX_SCAN_INTERVAL_SECONDS >= 10**6

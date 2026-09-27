@@ -172,6 +172,15 @@ def system_client(system_db, mock_ollama_server):
     """
     _set_ollama_url(SYSTEM_TEST_USER, mock_ollama_server.url)
     from kurisuassistant.main import app
+    from kurisuassistant.workers import service
+
+    # The app's own idle and index scans wait out these intervals before every
+    # pass. Left at a minute, the idle scan found conversations an earlier test
+    # had made look idle and consolidated them for real, a model call landing in
+    # whatever test ran next (#330). The tests that cover the scans run them by
+    # hand, so parked they change nothing else.
+    service.SCAN_INTERVAL_SECONDS = 10**9
+    service.INDEX_SCAN_INTERVAL_SECONDS = 10**9
 
     with TestClient(app) as client:
         yield client
