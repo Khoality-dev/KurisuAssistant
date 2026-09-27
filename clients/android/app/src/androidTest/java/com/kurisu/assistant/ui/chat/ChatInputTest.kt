@@ -104,6 +104,36 @@ class ChatInputTest {
         assert(cancelCount == 1) { "Expected onCancel to fire once, got $cancelCount" }
     }
 
+    /**
+     * While a reply streams, the next message can still be sent: it waits its
+     * turn in the queue, as on the desktop (#326). Stop stays beside it.
+     */
+    @Test
+    fun streaming_keeps_send_beside_stop_so_the_next_message_can_queue() {
+        var sendCount = 0
+
+        composeRule.setContent {
+            KurisuTheme {
+                ChatInput(
+                    text = "and another thing",
+                    onTextChange = {},
+                    onSend = { sendCount++ },
+                    onCancel = {},
+                    onImageSelected = {},
+                    onRemoveImage = {},
+                    selectedImages = emptyList(),
+                    isStreaming = true,
+                    isInteractionMode = false,
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Stop").assertExists()
+        composeRule.onNodeWithContentDescription("Send").assertIsEnabled()
+        composeRule.onNodeWithContentDescription("Send").performClick()
+        assert(sendCount == 1) { "Expected onSend to fire once, got $sendCount" }
+    }
+
     @Test
     fun streaming_disables_attach_button() {
         composeRule.setContent {

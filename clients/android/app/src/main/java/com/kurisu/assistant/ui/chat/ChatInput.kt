@@ -170,7 +170,8 @@ fun ChatInput(
                     textStyle = MaterialTheme.typography.bodyMedium,
                 )
 
-                // Send / Stop
+                // Stop while a reply streams, and Send always: a message sent
+                // mid-reply waits its turn in the queue, as on the desktop (#326).
                 if (isStreaming) {
                     FilledIconButton(
                         onClick = onCancel,
@@ -186,25 +187,24 @@ fun ChatInput(
                             modifier = Modifier.size(18.dp),
                         )
                     }
-                } else {
-                    val hasContent = text.isNotBlank() || selectedImages.isNotEmpty()
-                    FilledIconButton(
-                        onClick = onSend,
-                        enabled = hasContent,
-                        modifier = Modifier.size(36.dp),
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (hasContent) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = if (hasContent) MaterialTheme.colorScheme.onPrimary
-                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                        ),
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
+                }
+                val hasContent = text.isNotBlank() || selectedImages.isNotEmpty()
+                FilledIconButton(
+                    onClick = onSend,
+                    enabled = hasContent,
+                    modifier = Modifier.size(36.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = if (hasContent) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (hasContent) MaterialTheme.colorScheme.onPrimary
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                    ),
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Send",
+                        modifier = Modifier.size(16.dp),
+                    )
                 }
             }
         }

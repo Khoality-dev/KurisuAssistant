@@ -1,34 +1,49 @@
 package com.kurisu.assistant.e2e
 
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
  * Stopping a reply partway, and a message sent while one streams, against the
  * `slow` scenario: twenty words, one every 400 ms (#310).
+ *
+ * Every reply reads alike and the mock keeps them all for the run, so each
+ * test starts on a cleared chat: what is on screen is then this test's alone.
  */
 @RunWith(AndroidJUnit4::class)
 class StopAndQueueTest : E2eTest() {
     override val scenario = "slow"
 
+    private fun clearChat() {
+        type("/clear")
+        composeRule.onNodeWithContentDescription("Send").performClick()
+        waitForText("Send a message to start")
+    }
+
     @Test
     fun stop_keeps_what_had_arrived_and_the_rest_never_comes() {
         login()
         openChat()
+        clearChat()
         val text = send("Tell me a long story")
 
         waitUntilViewShows("word2")
         composeRule.onNodeWithContentDescription("Stop").performClick()
-        waitForDescription("Send")
+        // Send stays beside Stop (#326), so the reply has stopped once Stop has gone.
+        assertTrue("Stop went away", waitUntilTrue {
+            runCatching {
+                composeRule.onAllNodesWithContentDescription("Stop").fetchSemanticsNodes().isEmpty()
+            }.getOrDefault(false)
+        })
 
-        // Well past when the rest would have arrived.
-        pause(3_000)
+        // Past when the rest would have arrived: twenty words at 400 ms is eight seconds.
+        pause(8_000)
         assertTrue("the partial reply is still on screen", viewShows("word2"))
         assertFalse("nothing arrives after Stop", viewShows("word20"))
 
@@ -39,11 +54,11 @@ class StopAndQueueTest : E2eTest() {
         assertFalse("the server stopped too: $stored", stored.contains("word20"))
     }
 
-    @Ignore("#326: the Android composer offers only Stop while a reply streams, so nothing can be sent to queue")
     @Test
     fun a_message_sent_while_a_reply_streams_waits_its_turn_and_is_then_sent() {
         login()
         openChat()
+        clearChat()
         send("First question")
         waitUntilViewShows("word1")
 
