@@ -59,8 +59,13 @@ class SettingsScreensTest : E2eTest() {
         waitForServer("/personas", name, present = true)
 
         composeRule.onNodeWithContentDescription("Edit $name").performClick()
-        // Below the fold of the edit sheet: a touch sent to an off-screen node lands nowhere.
-        composeRule.onNode(hasText("Delete persona") and hasClickAction()).performScrollTo().performClick()
+        // The edit sheet opens a moment after the tap, and the button is below its
+        // fold: wait for it, then scroll to it — a touch sent off screen lands nowhere.
+        val deleteButton = hasText("Delete persona") and hasClickAction()
+        // The merged tree, as the click uses: unmerged, the label carries no click action.
+        assertTrue("the Delete persona button appears",
+            waitUntilTrue { composeRule.onAllNodes(deleteButton).fetchSemanticsNodes().isNotEmpty() })
+        composeRule.onNode(deleteButton).performScrollTo().performClick()
         waitForText("Conversations it answered", substring = true)
         confirmDelete()
         waitUntilGone(name)

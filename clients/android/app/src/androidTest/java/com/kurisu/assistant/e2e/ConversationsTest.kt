@@ -59,6 +59,9 @@ class ConversationsTest : E2eTest() {
         val (_, before) = converse("Before clearing")
 
         slash("/clear")
+        // The cleared chat first, as a person would see it before typing again:
+        // typed straight after, the next message raced the clear on CI.
+        waitForText("Send a message to start")
         val (_, after) = converse("After clearing")
 
         assertNotEquals(before, after)
