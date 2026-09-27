@@ -193,7 +193,7 @@ jobs:
           # the dialog takes the focus and the screen from the app under test.
           script: |
             adb shell settings put global hide_error_dialogs 1
-            ./gradlew :app:connectedDevDebugAndroidTest --no-configuration-cache --stacktrace
+            ./gradlew :app:connectedDevDebugAndroidTest --no-configuration-cache --stacktrace || { adb pull /sdcard/Download "$RUNNER_TEMP/device" || true; exit 1; }
 
       - name: Upload reports and mock logs on failure
         if: failure()
@@ -204,4 +204,5 @@ jobs:
             clients/android/app/build/reports/androidTests/connected/
             clients/android/app/build/outputs/androidTest-results/
             ${{ runner.temp }}/mock-*.log
+            ${{ runner.temp }}/device/
           retention-days: 7

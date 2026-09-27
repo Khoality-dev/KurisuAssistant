@@ -48,9 +48,9 @@ abstract class E2eTest {
 
     open val scenario: String = "default"
 
-    /** Outermost, so a retry starts again from `@Before` with every other rule fresh. */
+    /** Outermost, so it sees the failure after the other rules have reported it. */
     @get:Rule(order = 0)
-    val retryOnce = RetryOnce()
+    val failureEvidence = FailureEvidence()
 
     @get:Rule(order = 1)
     val composeRule = createEmptyComposeRule()
