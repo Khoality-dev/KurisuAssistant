@@ -76,8 +76,7 @@ class ConversationsTest : E2eTest() {
         composeRule.onNode(hasText("Delete") and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
         waitUntilGone("Delete this conversation?")
 
-        val deadline = System.currentTimeMillis() + MockBackend.UI_TIMEOUT_MS
-        while (mock.conversation(id) != null && System.currentTimeMillis() < deadline) Thread.sleep(250)
+        waitUntilTrue { mock.conversation(id) == null }
         assertNull("conversation $id is gone from the server", mock.conversation(id))
     }
 }

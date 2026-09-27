@@ -45,16 +45,6 @@ import org.junit.Rule
  */
 abstract class E2eTest {
 
-    companion object {
-        /**
-         * How long a reply may take to reach the screen. The first Markwon view in
-         * a fresh process is where a cold debug build pays for its class
-         * verification and JIT; on a CPU-starved emulator that stalled the main
-         * thread for ~30 s (app_time_stats max=29722ms), so the UI wait alone was
-         * too short for the first reply of every test.
-         */
-        const val REPLY_TIMEOUT_MS = 60_000L
-    }
 
     open val scenario: String = "default"
 
@@ -237,15 +227,36 @@ abstract class E2eTest {
      * dialog takes the focus while the app underneath is fine.
      */
     protected fun waitUntilViewShows(fragment: String) {
-        val deadline = System.currentTimeMillis() + REPLY_TIMEOUT_MS
-        while (System.currentTimeMillis() < deadline) {
-            if (viewShows(fragment)) return
-            Thread.sleep(250)
+        try {
+            composeRule.waitUntil(MockBackend.UI_TIMEOUT_MS) { viewShows(fragment) }
+        } catch (e: ComposeTimeoutException) {
+            throw AssertionError(
+                "no view showing \"$fragment\" within ${MockBackend.UI_TIMEOUT_MS}ms; text views on screen: ${shownTexts()}; " +
+                    "diagnostics: ${viewDiagnostics()}\n${dumpScreen()}",
+                e,
+            )
         }
-        throw AssertionError(
-            "no view showing \"$fragment\" within ${REPLY_TIMEOUT_MS}ms; text views on screen: ${shownTexts()}; " +
-                "diagnostics: ${viewDiagnostics()}\n${dumpScreen()}",
-        )
+    }
+
+    /**
+     * Wait for a condition outside the UI — the mock's state, the app's storage —
+     * with the app still rendering. Never a bare `Thread.sleep` loop: the Compose
+     * rule owns the frame clock, and frames only advance while the test syncs
+     * through it; a sleeping test froze the app on the frame before the send, so
+     * no reply was ever composed and its Markwon view never existed (#310).
+     */
+    protected fun waitUntilTrue(timeoutMs: Long = MockBackend.UI_TIMEOUT_MS, condition: () -> Boolean): Boolean =
+        try {
+            composeRule.waitUntil(timeoutMs) { condition() }
+            true
+        } catch (e: ComposeTimeoutException) {
+            false
+        }
+
+    /** Let `ms` of real time pass with the app rendering (a sleep that keeps frames coming). */
+    protected fun pause(ms: Long) {
+        val end = System.currentTimeMillis() + ms
+        waitUntilTrue(ms + 10_000) { System.currentTimeMillis() >= end }
     }
 
     /** True when a TextView on screen shows `fragment` right now. */

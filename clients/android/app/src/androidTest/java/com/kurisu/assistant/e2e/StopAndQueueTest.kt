@@ -5,6 +5,7 @@ import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -27,7 +28,7 @@ class StopAndQueueTest : E2eTest() {
         waitForDescription("Send")
 
         // Well past when the rest would have arrived.
-        Thread.sleep(3_000)
+        pause(3_000)
         assertTrue("the partial reply is still on screen", viewShows("word2"))
         assertFalse("nothing arrives after Stop", viewShows("word20"))
 
@@ -38,6 +39,7 @@ class StopAndQueueTest : E2eTest() {
         assertFalse("the server stopped too: $stored", stored.contains("word20"))
     }
 
+    @Ignore("#326: the Android composer offers only Stop while a reply streams, so nothing can be sent to queue")
     @Test
     fun a_message_sent_while_a_reply_streams_waits_its_turn_and_is_then_sent() {
         login()

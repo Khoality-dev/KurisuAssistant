@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.serialization.json.JsonArray
@@ -35,8 +36,7 @@ class SettingsScreensTest : E2eTest() {
     }
 
     private fun waitForServer(path: String, name: String, present: Boolean) {
-        val deadline = System.currentTimeMillis() + MockBackend.UI_TIMEOUT_MS
-        while ((name in names(path)) != present && System.currentTimeMillis() < deadline) Thread.sleep(250)
+        waitUntilTrue { (name in names(path)) == present }
         if (present) assertTrue("$name is on the server at $path", name in names(path))
         else assertFalse("$name is gone from $path", name in names(path))
     }
@@ -59,7 +59,8 @@ class SettingsScreensTest : E2eTest() {
         waitForServer("/personas", name, present = true)
 
         composeRule.onNodeWithContentDescription("Edit $name").performClick()
-        composeRule.onNode(hasText("Delete persona") and hasClickAction()).performClick()
+        // Below the fold of the edit sheet: a touch sent to an off-screen node lands nowhere.
+        composeRule.onNode(hasText("Delete persona") and hasClickAction()).performScrollTo().performClick()
         waitForText("Conversations it answered", substring = true)
         confirmDelete()
         waitUntilGone(name)

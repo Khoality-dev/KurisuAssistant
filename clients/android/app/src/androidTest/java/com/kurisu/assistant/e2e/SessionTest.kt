@@ -36,8 +36,7 @@ class SessionTest : E2eTest() {
     private fun rememberMe() = runBlocking { PreferencesDataStore(context).getRememberMe() }
 
     private fun waitForStored(expectToken: Boolean) {
-        val deadline = System.currentTimeMillis() + MockBackend.UI_TIMEOUT_MS
-        while ((storedToken() != null) != expectToken && System.currentTimeMillis() < deadline) Thread.sleep(100)
+        waitUntilTrue { (storedToken() != null) == expectToken }
     }
 
     @Test
