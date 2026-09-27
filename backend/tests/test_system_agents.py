@@ -38,6 +38,22 @@ def turn(account, text, conversation_id=None, limit=400):
     raise AssertionError(f"no done after {limit} events")
 
 
+def chat_requests(mock_ollama, expected: int):
+    """This test's requests to /api/chat, exactly ``expected`` of them.
+
+    When the count is off, the failure lists what did arrive — each request's
+    model and its last user or tool message — rather than an unpacking error:
+    on CI two tests once saw a request more than their turn makes (#327).
+    """
+    requests = mock_ollama.state.requests_to("/api/chat")
+    def summary(r):
+        last = next((m.get("content", "")[:60] for m in reversed(r.get("messages", []))
+                     if m.get("role") in ("user", "tool")), None)
+        return r.get("model"), last
+    assert len(requests) == expected, [summary(r) for r in requests]
+    return requests
+
+
 def allow(account, tool):
     resp = account.client.patch("/users/me/tool-policies", json={"tool_name": tool, "policy": "allow"}, headers=account.headers)
     assert resp.status_code == 200, resp.text
@@ -74,7 +90,7 @@ class TestSubAgents:
 
         assert events[-1]["type"] == "done"
         assert text_of(events) == "My researcher says 42."
-        main_first, sub, main_second = mock_ollama.state.requests_to("/api/chat")
+        main_first, sub, main_second = chat_requests(mock_ollama, 3)
         assert "researcher_agent" in tool_names(main_first)
         assert "You are a meticulous researcher." in system_text(sub)
         assert sub["messages"][-1] == {"role": "user", "content": "What is the answer?"}
@@ -150,7 +166,7 @@ class TestSkills:
         events = turn(account, "write me a haiku")
 
         assert events[-1]["type"] == "done"
-        first, second = mock_ollama.state.requests_to("/api/chat")
+        first, second = chat_requests(mock_ollama, 2)
         assert "Haiku" in system_text(first)
         assert [m["content"] for m in second["messages"] if m["role"] == "tool"] == ["Write five, seven, five."]
 
@@ -165,7 +181,7 @@ class TestSkills:
 
         turn(account, "use the secret skill")
 
-        first, second = mock_ollama.state.requests_to("/api/chat")
+        first, second = chat_requests(mock_ollama, 2)
         assert "Secret" not in system_text(first)
         assert [m["content"] for m in second["messages"] if m["role"] == "tool"] == ["Skill 'Secret' not found."]
 
@@ -214,7 +230,7 @@ class TestServerSideMcp:
         events = turn(account, "what is 2 + 3?")
 
         assert events[-1]["type"] == "done"
-        first, second = mock_ollama.state.requests_to("/api/chat")
+        first, second = chat_requests(mock_ollama, 2)
         assert "add" in tool_names(first)
         assert [m["content"] for m in second["messages"] if m["role"] == "tool"] == ["5"]
 

@@ -119,9 +119,14 @@ test.describe('streaming', () => {
     await expect(page.getByText('Nothing new, then.').first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('sub-agent', { exact: true }).first()).toBeVisible();
 
-    // A fresh renderer reopens the conversation from the server's history.
+    // A fresh renderer, and the conversation opened again from the Conversations
+    // page as a person would: everything below comes from the server's history.
     await page.reload();
     if (await page.getByLabel('Username').isVisible({ timeout: 5_000 }).catch(() => false)) await login(page);
+    await page.locator('button').filter({
+      has: page.locator('[data-testid="ChatBubbleOutlineIcon"], [data-testid="ChatBubbleIcon"]'),
+    }).first().click();
+    await page.getByRole('button', { name: /^Kurisu/ }).click();
     await expect(page.getByText('Nothing new, then.').first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('sub-agent', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('1.8s').first()).toBeVisible();
