@@ -1,6 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { useMicStore } from '@kurisu/state';
 
+/**
+ * Whether a transcript carries the wake word: anywhere in it, in any case, as
+ * Android's `VoiceInteractionManager` hears it.
+ */
+export function heardWakeWord(transcript: string, word: string | null): boolean {
+  return !!word && transcript.toLowerCase().includes(word.toLowerCase());
+}
+
 interface UseInteractiveASRParams {
   personaId: number | null;
   currentConversationId: number | null;
@@ -84,8 +92,11 @@ export function useInteractiveASR({
     const asrTranscript = asrResult.text;
     const state = useMicStore.getState();
 
-    // Interactive mode: when active, auto-send ASR transcripts
-    if (state.interactionActive) {
+    // Interactive mode: when active, auto-send ASR transcripts. Outside one,
+    // the wake word starts it and is itself the first message (#337).
+    const woken = !state.interactionActive && heardWakeWord(asrTranscript, state.triggerWord);
+    if (woken) state.activateInteraction();
+    if (state.interactionActive || woken) {
 
       // During TTS playback: interrupt and send
       if (isQueueActiveRef.current) stopTTSPlayback();

@@ -34,12 +34,19 @@ interface MicState {
   interactiveMode: boolean;
   interactionActive: boolean;
   pttActive: boolean;
+  /**
+   * The assistant's wake word, or null when it has none. Heard in a transcript
+   * outside an exchange, it starts one (#337). Set wherever the assistant is
+   * read or saved, so a change in Settings applies without a restart.
+   */
+  triggerWord: string | null;
 
   // Actions
   startListening: () => Promise<void>;
   stopListening: () => Promise<void>;
   loadDevices: () => Promise<AudioDevice[]>;
   selectDevice: (deviceId: string) => void;
+  setTriggerWord: (word: string | null) => void;
   enableInteractiveMode: () => void;
   disableInteractiveMode: () => void;
   activateInteraction: () => void;
@@ -85,6 +92,7 @@ export const useMicStore = create<MicState>((set, get) => ({
   interactiveMode: false,
   interactionActive: false,
   pttActive: false,
+  triggerWord: null,
 
   startListening: async () => {
     // Guard: skip if already listening or initializing
@@ -230,6 +238,10 @@ export const useMicStore = create<MicState>((set, get) => ({
   selectDevice: (deviceId: string) => {
     set({ selectedDeviceId: deviceId });
     storage.setASRDeviceId(deviceId);
+  },
+
+  setTriggerWord: (word: string | null) => {
+    set({ triggerWord: word?.trim() || null });
   },
 
   enableInteractiveMode: () => {
