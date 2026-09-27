@@ -140,8 +140,27 @@ data class UserProfile(
     @SerialName("context_size") val contextSize: Int? = null,
 )
 
+/**
+ * A preset voice a synthesis engine offers (#214): the engine's own [id], which
+ * is what a persona stores and a synthesis names, its [name] for a person to
+ * pick by, and the [model] that offers it. The contract requires a name; one
+ * an engine left out reads as the id.
+ */
 @Serializable
-data class VoicesResponse(val voices: List<String>)
+data class VoiceInfo(val id: String, val name: String = "", val model: String = "") {
+    val label: String get() = name.ifBlank { id }
+}
+
+@Serializable
+data class VoicesResponse(val voices: List<VoiceInfo> = emptyList())
+
+/**
+ * How a stored voice reads: the name of the preset it names, or the stored
+ * value itself when no engine lists it — a clip in the server's voice storage,
+ * or a preset whose engine is down.
+ */
+fun List<VoiceInfo>.labelOf(voiceReference: String): String =
+    firstOrNull { it.id == voiceReference }?.label ?: voiceReference
 
 // `GET /tts/models`: what universal-voice actually serves. The API filters to
 // `type == "tts"` already; `loaded` is null for backends it has not probed.

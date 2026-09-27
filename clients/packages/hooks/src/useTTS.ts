@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { apiClient, describeSpeechFailure } from '@kurisu/api';
 import { storage } from '@kurisu/api';
 import { publishSpeech, publishSpeechSync } from '@kurisu/state';
-import type { SpeechSegment } from '@kurisu/models';
+import type { SpeechSegment, VoiceInfo } from '@kurisu/models';
 import type { SegmentCue } from './emotionTiming';
 import { curveOfWav, useAudioAmplitude, type AmplitudeCurve, type PlaybackListeners } from './useAudioAmplitude';
 
@@ -45,7 +45,7 @@ export function useTTS(
   onError?: (message: string) => void,
 ) {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [voices, setVoices] = useState<string[]>([]);
+  const [voices, setVoices] = useState<VoiceInfo[]>([]);
   // Only what the server actually lists: no invented models. `backendsError`
   // says why the list is empty when it is — the speech service being down
   // used to be papered over by a static list, so the picker offered models

@@ -27,7 +27,7 @@ import { AnimatePresence } from 'framer-motion';
 import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { usePersonaStore } from '@kurisu/state';
 import { storage } from '@kurisu/api';
-import { parseCharacterConfig, type Persona, type PersonaExportSize } from '@kurisu/models';
+import { parseCharacterConfig, type Persona, type PersonaExportSize, type VoiceInfo } from '@kurisu/models';
 import {
   AccountTree as GraphIcon,
   Animation as AnimationIcon,
@@ -35,7 +35,7 @@ import {
   ViewInAr as ModelIcon,
 } from '@mui/icons-material';
 import { ResourceCard } from './ResourceCard';
-import { PersonaEditDialog } from './PersonaEditDialog';
+import { PersonaEditDialog, voiceName } from './PersonaEditDialog';
 import { mb, modelFilename } from '../character/vrmSetupText';
 import { exportedFilename, importFailure, includeLine, isBundle, meteredLine } from './personaExport';
 
@@ -108,7 +108,7 @@ export const PersonasSection: React.FC = () => {
   const reloadPersonaStore = usePersonaStore((s) => s.loadPersonas);
 
   const [personas, setPersonas] = useState<Persona[]>([]);
-  const [voices, setVoices] = useState<string[]>([]);
+  const [voices, setVoices] = useState<VoiceInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -373,7 +373,7 @@ export const PersonasSection: React.FC = () => {
                     description={persona.description || undefined}
                     body={persona.system_prompt || 'No system prompt set'}
                     meta={[
-                      persona.voice_reference ? `voice: ${persona.voice_reference}` : null,
+                      persona.voice_reference ? `voice: ${voiceName(voices, persona.voice_reference)}` : null,
                       characterLabel(persona.character_config),
                     ]}
                     badge={persona.id === defaultPersonaId

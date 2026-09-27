@@ -7,6 +7,7 @@ import com.kurisu.assistant.data.model.AssistantUpdate
 import com.kurisu.assistant.data.model.Persona
 import com.kurisu.assistant.data.model.PersonaCreate
 import com.kurisu.assistant.data.model.PersonaUpdate
+import com.kurisu.assistant.data.model.VoiceInfo
 import com.kurisu.assistant.data.remote.api.KurisuApiService
 import com.kurisu.assistant.data.repository.AssistantRepository
 import com.kurisu.assistant.data.repository.PersonaRepository
@@ -60,7 +61,7 @@ data class PersonasUiState(
     /** Who is answering the conversation that is currently open, if any. */
     val openChatPersonaId: Int? = null,
 
-    val availableVoices: List<String> = emptyList(),
+    val availableVoices: List<VoiceInfo> = emptyList(),
     val isSaving: Boolean = false,
     val isUploadingAvatar: Boolean = false,
 
