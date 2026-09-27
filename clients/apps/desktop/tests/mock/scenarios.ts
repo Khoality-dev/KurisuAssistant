@@ -434,6 +434,31 @@ export const SCENARIOS: Record<string, Scenario> = {
       stream: SHORT_REPLY,
     },
   },
+  'long-conversation': {
+    // Android's ChatScrollTest: where the transcript rests once it no longer
+    // fits the screen (#332).
+    description: "Kurisu's conversation already runs to forty messages, and the reply is taller than the screen.",
+    options: {
+      personas: [KURISU, AMADEUS],
+      conversations: [{
+        title: 'A long conversation',
+        persona: KURISU.name,
+        agoMinutes: 5,
+        messages: Array.from({ length: 20 }, (_, i) => [
+          { role: 'user' as const, content: `Question ${i + 1}` },
+          { role: 'assistant' as const, content: i === 19 ? 'Answer 20, the latest.' : `Answer ${i + 1}.` },
+        ]).flat(),
+      }],
+      stream: {
+        chunks: [
+          ...Array.from({ length: 30 }, (_, i) => ({
+            content: `Line ${i + 1} of a reply longer than the screen.\n\n`, role: 'assistant' as const, delayMs: 200,
+          })),
+          { content: 'The end of the long reply.', role: 'assistant', delayMs: 200 },
+        ],
+      },
+    },
+  },
   'no-model': {
     // firstRun.spec.ts: a brand-new account whose model has never been chosen.
     description: 'A fresh account with no model chosen: the first message is refused with NO_MODEL_SELECTED.',

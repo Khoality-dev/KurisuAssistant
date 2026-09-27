@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -44,6 +45,9 @@ import com.kurisu.assistant.domain.character.metaLabel
 import com.kurisu.assistant.service.CoreService
 import com.kurisu.assistant.ui.character.CharacterSheet
 import com.kurisu.assistant.ui.theme.KurisuTheme
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -161,24 +165,51 @@ fun ChatScreen(
     // Combine persisted + streaming messages
     val allMessages: List<Message> = state.messages + streaming.streamingMessages
 
-    // Auto-scroll to bottom on new messages — only if user is already near the bottom.
-    // Matches desktop's <100px tolerance: respects manual scroll-up to read history.
-    val isNearBottom by remember {
-        derivedStateOf {
-            val info = listState.layoutInfo
-            val total = info.totalItemsCount
-            if (total == 0) return@derivedStateOf true
-            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-            lastVisible >= total - 2
+    // Where the transcript rests (#332). It follows its end: a conversation
+    // opens on its latest messages, and a reply is followed as it grows. A
+    // scroll the screen did not make — the user's drag or fling, TalkBack —
+    // that leaves the end stops the following, so reading back is not undone
+    // by the next token; coming back to the end, or sending, resumes it.
+    var followLatest by remember { mutableStateOf(true) }
+    // A fling still coasting from before is not the user leaving the end, and
+    // would read as one: it is stopped first.
+    suspend fun followFromHere() {
+        try {
+            listState.stopScroll()
+            followLatest = true
+        } catch (e: CancellationException) {
+            // A finger still on the list outranks this, and decides.
+            currentCoroutineContext().ensureActive()
         }
     }
-    LaunchedEffect(allMessages.size, streaming.streamingMessages.size) {
-        if (allMessages.isNotEmpty() && isNearBottom) {
-            val lastIndex = listState.layoutInfo.totalItemsCount - 1
-            if (lastIndex >= 0) {
-                listState.animateScrollToItem(lastIndex)
+    LaunchedEffect(state.conversationId) { followFromHere() }
+    val sentCount = streaming.streamingMessages.count { it.role == "user" }
+    LaunchedEffect(sentCount) { if (sentCount > 0) followFromHere() }
+    LaunchedEffect(listState) {
+        snapshotFlow { Triple(listState.canScrollForward, listState.isScrollInProgress, followLatest) }
+            .collect { (endHidden, scrolling, follow) ->
+                when {
+                    !endHidden -> followLatest = true
+                    // Never this screen's own scroll: that one is over before this reads.
+                    scrolling -> followLatest = false
+                    // Content grew, the list shrank under the keyboard, or a
+                    // conversation opened: back to the end — the last item
+                    // is the spacer below the last line, so a reply taller than
+                    // the screen shows its end rather than its top.
+                    follow -> {
+                        // At a frame, never from wherever the change was
+                        // delivered: that can be mid-layout, and a scroll from
+                        // there re-enters the layout pass and throws.
+                        withFrameNanos { }
+                        if (followLatest && listState.canScrollForward && !listState.isScrollInProgress) try {
+                            listState.scrollToItem(listState.layoutInfo.totalItemsCount - 1)
+                        } catch (e: CancellationException) {
+                            // The user's own scroll outranks this one, and decides.
+                            currentCoroutineContext().ensureActive()
+                        }
+                    }
+                }
             }
-        }
     }
 
     // Load more when scrolling to top
@@ -539,6 +570,10 @@ fun ChatScreen(
                             }
                         }
                     }
+
+                    // What following the end scrolls to: below the last line
+                    // of whatever is last, however tall that is.
+                    item(key = "end") { Spacer(Modifier.fillMaxWidth().height(1.dp)) }
                 }
             }
 
