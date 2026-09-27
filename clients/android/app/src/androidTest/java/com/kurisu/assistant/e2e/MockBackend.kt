@@ -133,6 +133,7 @@ class MockBackend(val scenario: String) {
             "slow" to 5,
             "no-model" to 6,
             "no-persona" to 7,
+            "long-conversation" to 8,
         )
 
         fun urlFor(scenario: String): String {

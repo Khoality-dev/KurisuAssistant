@@ -67,6 +67,7 @@ specs:
 | `vrm` | Kurisu is a VRM persona with the fixture model already uploaded, so the model GET answers bytes with an `ETag` and a `304`, and the upload routes have something to replace (#236) |
 | `no-model` | A fresh account with no model chosen: the first message is refused with `NO_MODEL_SELECTED` |
 | `no-persona` | An account with no persona at all: the assistant answers as itself, `persona_id: null` and the name `Assistant` (#302) |
+| `long-conversation` | Kurisu's conversation already runs to forty messages and the reply is taller than the screen — where Android's transcript rests once it no longer fits (#332) |
 | `emotion` | Kurisu is a VRM persona with the emotion channel on: the reply's chunks carry `emotion` / `emotion_at` and the stored message keeps `emotion_cues` (#243); the character shows them as their sentence is spoken, or as the text arrives with speech off, and a reopened conversation rests on the last one (#244) |
 
 The mock has no tool-approval flow: nothing in the client is driven by `tool_approval_request` from

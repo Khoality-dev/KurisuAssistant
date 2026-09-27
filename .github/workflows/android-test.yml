@@ -145,12 +145,12 @@ jobs:
         run: |
           npm run -s mock:backend:build
           port=15597
-          for scenario in default tool-call sub-agent handoff thinking slow no-model no-persona; do
+          for scenario in default tool-call sub-agent handoff thinking slow no-model no-persona long-conversation; do
             nohup node dist-mock/cli.js --host 0.0.0.0 --port "$port" --scenario "$scenario" \
               > "$RUNNER_TEMP/mock-$scenario.log" 2>&1 &
             port=$((port + 1))
           done
-          for port in $(seq 15597 15604); do
+          for port in $(seq 15597 15605); do
             for _ in $(seq 1 30); do
               curl -sf "http://127.0.0.1:$port/version" > /dev/null && break
               sleep 1
