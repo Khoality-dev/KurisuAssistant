@@ -86,6 +86,49 @@ class TestSubAgents:
         assert "drive_write" in tool_names(main_first), "the assistant itself is not narrowed"
         assert [m["content"] for m in main_second["messages"] if m["role"] == "tool"] == ["The answer is 42."]
 
+    def test_a_delegated_step_keeps_its_tag_model_and_duration_once_the_turn_is_reloaded(self, account, mock_ollama):
+        """The stream says a tool row was a sub-agent's, which model ran it and for
+        how long; the history used to drop all three, so the tag was gone as soon
+        as a client reloaded the finished turn or reopened the chat (#327)."""
+        account.client.post(
+            "/sub-agents",
+            json={"name": "Researcher", "model_name": DEFAULT_MODEL},
+            headers=account.headers,
+        )
+        allow(account, "researcher_agent")
+        mock_ollama.state.script(
+            Reply(tool_calls=[ToolCall("researcher_agent", {"task": "What is the answer?"})]),
+            Reply(content="The answer is 42."),
+            Reply(content="My researcher says 42."),
+        )
+
+        events = turn(account, "ask the researcher")
+        streamed = [e for e in events if e["type"] == "stream_chunk" and e.get("role") == "tool"]
+        assert [(e["tool_kind"], e.get("model_name")) for e in streamed] == [("sub_agent", DEFAULT_MODEL)]
+
+        conversation_id = next(e["conversation_id"] for e in events if e.get("conversation_id"))
+        history = account.client.get(f"/conversations/{conversation_id}", headers=account.headers).json()
+        tool_rows = [m for m in history["messages"] if m["role"] == "tool"]
+        assert len(tool_rows) == 1
+        row = tool_rows[0]
+        assert row["tool_kind"] == "sub_agent"
+        assert row["model_name"] == DEFAULT_MODEL
+        assert isinstance(row["duration_ms"], int) and row["duration_ms"] >= 0
+        assert row["duration_ms"] == streamed[0]["duration_ms"]
+
+    def test_an_ordinary_tool_row_is_kind_tool_once_reloaded(self, account, mock_ollama):
+        allow(account, "drive_list")
+        mock_ollama.state.script(
+            Reply(tool_calls=[ToolCall("drive_list", {"path": "/"})]),
+            Reply(content="Nothing there."),
+        )
+        events = turn(account, "list my drive")
+        conversation_id = next(e["conversation_id"] for e in events if e.get("conversation_id"))
+        history = account.client.get(f"/conversations/{conversation_id}", headers=account.headers).json()
+        row = next(m for m in history["messages"] if m["role"] == "tool")
+        assert row["tool_kind"] == "tool"
+        assert "model_name" not in row, "an ordinary tool runs no model of its own"
+
     def test_a_disabled_sub_agent_is_not_offered(self, account, mock_ollama):
         sub = account.client.post("/sub-agents", json={"name": "Researcher"}, headers=account.headers).json()
         account.client.patch(f"/sub-agents/{sub['id']}/enabled", json={"enabled": False}, headers=account.headers)

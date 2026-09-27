@@ -525,6 +525,9 @@ class ChatSessionHandler:
         current_tool_args_json: Optional[str] = None
         current_tool_args: Optional[Dict] = None
         current_tool_status: Optional[str] = None
+        current_tool_kind: Optional[str] = None
+        current_duration_ms: Optional[int] = None
+        current_tool_model: Optional[str] = None
         current_tool_calls: Optional[List[Dict]] = None
         current_tool_call_id: Optional[str] = None
         # Where the feeling changed inside the assistant message being
@@ -587,10 +590,12 @@ class ChatSessionHandler:
                         "raw_input": raw_in,
                         "raw_output": chunk_content if current_role == "assistant" else None,
                         "images": current_images if current_images else None,
-                        "model_name": last_model_name if current_role == "assistant" else None,
+                        "model_name": last_model_name if current_role == "assistant" else current_tool_model,
                         "provider_type": last_provider_type if current_role == "assistant" else None,
                         "tool_args": current_tool_args if current_role == "tool" else None,
                         "tool_status": current_tool_status if current_role == "tool" else None,
+                        "tool_kind": current_tool_kind if current_role == "tool" else None,
+                        "duration_ms": current_duration_ms if current_role == "tool" else None,
                         "tool_calls": current_tool_calls if current_role == "assistant" else None,
                         "tool_call_id": current_tool_call_id if current_role == "tool" else None,
                         "emotion_cues": current_emotion_cues or None,
@@ -612,6 +617,9 @@ class ChatSessionHandler:
                 current_tool_args_json = json.dumps(chunk.tool_args, ensure_ascii=False) if chunk.tool_args else None
                 current_tool_args = chunk.tool_args if chunk.tool_args else None
                 current_tool_status = chunk.tool_status if chunk.tool_status else None
+                current_tool_kind = chunk.tool_kind if chunk.role == "tool" else None
+                current_duration_ms = chunk.duration_ms if chunk.role == "tool" else None
+                current_tool_model = chunk.model_name if chunk.role == "tool" else None
                 current_tool_calls = chunk.tool_calls
                 current_tool_call_id = chunk.tool_call_id
                 current_emotion_cues = []
@@ -640,10 +648,12 @@ class ChatSessionHandler:
                 "raw_input": raw_in,
                 "raw_output": chunk_content if current_role == "assistant" else None,
                 "images": current_images if current_images else None,
-                "model_name": last_model_name if current_role == "assistant" else None,
+                "model_name": last_model_name if current_role == "assistant" else current_tool_model,
                 "provider_type": last_provider_type if current_role == "assistant" else None,
                 "tool_args": current_tool_args if current_role == "tool" else None,
                 "tool_status": current_tool_status if current_role == "tool" else None,
+                "tool_kind": current_tool_kind if current_role == "tool" else None,
+                "duration_ms": current_duration_ms if current_role == "tool" else None,
                 "emotion_cues": current_emotion_cues or None,
             }
             await self._save_message(completed_msg, conversation_id)
@@ -1260,6 +1270,8 @@ class ChatSessionHandler:
             provider_type=msg.get("provider_type"),
             tool_args=msg.get("tool_args"),
             tool_status=msg.get("tool_status"),
+            tool_kind=msg.get("tool_kind"),
+            duration_ms=msg.get("duration_ms"),
             tool_calls=msg.get("tool_calls"),
             tool_call_id=msg.get("tool_call_id"),
             context_files=msg.get("context_files"),

@@ -128,7 +128,9 @@ One per content chunk, thinking chunk and completed tool call.
   `"sub_agent"`; `duration_ms` is wall-clock time for the call. **These two are the
   only source for a sub-agent tag or a tool timing** — the chunk is emitted after
   the call returns, and a sub-agent is exposed to the model as a plain function, so
-  a client can derive neither.
+  a client can derive neither. A `sub_agent` chunk also names the sub-agent's model
+  in `model_name` (null when it has none of its own). All three are stored with the
+  message and served by the history too (#327), so a reload keeps the tag.
 - `tool_calls` is set on an assistant chunk that made calls; `tool_call_id` on each
   tool chunk that answers one. The pairing is stored and replayed, because
   OpenAI-compatible providers reject a tool message with no matching call.

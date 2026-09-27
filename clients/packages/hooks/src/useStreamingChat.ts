@@ -11,15 +11,11 @@ import { handleCommand, publishSubtitle, pushEmotion, setThinking } from '@kuris
 import { StreamSpeechPlanner, type SegmentCue } from './emotionTiming';
 
 /**
- * A streaming bubble, plus the two tool-call fields the wire sends but the stored
- * `Message` has no room for. `tool_kind` and `duration_ms` arrive only on tool
- * chunks and are never persisted, so they live on the streaming message alone —
- * a client cannot derive either.
+ * A streaming bubble. `tool_kind` and `duration_ms` used to live here alone,
+ * because only the live stream carried them; the history has served them too
+ * since #327, so they are on `Message` and this is the same shape.
  */
-export type StreamingMessage = Message & {
-  tool_kind?: 'tool' | 'sub_agent' | null;
-  duration_ms?: number | null;
-};
+export type StreamingMessage = Message;
 
 export interface UseStreamingChatParams {
   personaId: number | null;

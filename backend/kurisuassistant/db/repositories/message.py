@@ -29,6 +29,8 @@ class MessageRepository(BaseRepository[Message]):
         provider_type: Optional[str] = None,
         tool_args: Optional[dict] = None,
         tool_status: Optional[str] = None,
+        tool_kind: Optional[str] = None,
+        duration_ms: Optional[int] = None,
         tool_calls: Optional[list] = None,
         tool_call_id: Optional[str] = None,
         context_files: Optional[list] = None,
@@ -62,6 +64,10 @@ class MessageRepository(BaseRepository[Message]):
             data["tool_args"] = tool_args
         if tool_status is not None:
             data["tool_status"] = tool_status
+        if tool_kind is not None:
+            data["tool_kind"] = tool_kind
+        if duration_ms is not None:
+            data["duration_ms"] = duration_ms
         if tool_calls is not None:
             data["tool_calls"] = tool_calls
         if tool_call_id is not None:

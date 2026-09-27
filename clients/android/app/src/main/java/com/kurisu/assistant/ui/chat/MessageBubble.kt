@@ -386,8 +386,9 @@ private fun ThinkingSection(thinking: String) {
  *
  * The rail carries what a bubble never could: whether the step was an ordinary
  * tool or a delegation to a sub-agent, which model ran it, and how long it took.
- * `tool_kind` and `duration_ms` reach the client only on the live stream, so a
- * reloaded transcript quietly drops the tag and the timing rather than guessing.
+ * `tool_kind`, `duration_ms` and a delegation's model come from the server, on the
+ * live stream and in the history (#327); a row written before that has none of them,
+ * and the rail drops the tag and the timing rather than guessing.
  */
 @Composable
 fun ToolRail(
@@ -520,8 +521,9 @@ data class ToolRailModel(
                 "error", "denied" -> ToolRunStatus.FAILED
                 else -> ToolRunStatus.RUNNING
             }
-            // `tool_kind` is stream-only. A reloaded transcript has it null, so
-            // the tag is omitted rather than guessed from the tool's name.
+            // `tool_kind` comes from the server, on the live chunk and in the
+            // history (#327); a row written before that has it null, and the tag
+            // is omitted rather than guessed from the tool's name.
             val isSubAgent = message.toolKind == "sub_agent"
 
             // The model is worth naming only for a delegated step: an ordinary

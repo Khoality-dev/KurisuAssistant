@@ -70,8 +70,6 @@ const HighlightWrapper: React.FC<{ query?: string; children: React.ReactNode }> 
 };
 
 interface MessageBubbleProps {
-  // StreamingMessage, not Message: `tool_kind` and `duration_ms` reach the bubble
-  // on live tool chunks only and are absent from anything reloaded from the DB.
   message: StreamingMessage;
   index: number;
   consecutive?: boolean;
@@ -332,8 +330,8 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                 Queued
               </Typography>
             )}
-            {/* `tool_kind` and `duration_ms` ride on live tool chunks only — the
-                client cannot derive either, and neither survives a reload. */}
+            {/* `tool_kind` and `duration_ms` come from the server — the client
+                cannot derive either — on the live chunk and in the history (#327). */}
             {isTool && message.tool_kind === 'sub_agent' && (
               <Chip label="sub-agent" size="small" sx={{ height: 18, fontSize: '0.65rem', ml: 0.5 }} />
             )}

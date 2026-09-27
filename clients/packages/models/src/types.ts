@@ -49,6 +49,10 @@ export interface Message {
   provider_type?: string; // LLM provider (ollama, gemini, nvidia, poe)
   tool_args?: Record<string, unknown>; // Tool input arguments (for tool role messages)
   tool_status?: string; // "success" | "error" | "denied" (from backend)
+  // A tool message's kind and how long it ran — on the live chunk and, since
+  // #327, in the history too, so the sub-agent tag survives a reload.
+  tool_kind?: 'tool' | 'sub_agent' | null;
+  duration_ms?: number | null;
   context_files?: Array<{ path: string; fileName: string; startLine?: number; endLine?: number; startColumn?: number; endColumn?: number }>;
   emotion_cues?: EmotionCueRecord[]; // Where the persona's feeling changed (assistant messages of a VRM persona, #243)
   queued?: boolean; // Queued message waiting to be processed
