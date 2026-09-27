@@ -4,7 +4,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
-import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -42,7 +41,6 @@ class ToolCallTest : E2eTest() {
 class SubAgentTest : E2eTest() {
     override val scenario = "sub-agent"
 
-    @Ignore("#327: tool_kind is stream-only, so the tag is gone once the finished turn is reloaded")
     @Test
     fun a_step_delegated_to_a_sub_agent_is_tagged_with_its_name() {
         login()
