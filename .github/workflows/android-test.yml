@@ -1,8 +1,9 @@
-# Android – unit tests
+# Android – unit tests, and the instrumented end-to-end suite on an emulator
 #
 # The Android client had no test CI: nine JVM test sources existed and only ever
 # ran on a developer's machine, while the release workflow built a signed APK
-# without running any of them.
+# without running any of them. The instrumented suite (androidTest/) drives the
+# real app against the standalone mock backend and had never run in CI (#310).
 #
 # Notes that are easy to get wrong here:
 #
@@ -19,9 +20,15 @@
 #  * No configuration cache. The dev flavour shells out to git at configuration
 #    time to stamp the version name, which the configuration cache rejects.
 #
-#  * androidTest/ is deliberately excluded. ChatInputTest uses createComposeRule,
-#    which needs a device or emulator, and the instrumentation runner is not
-#    configured, so it cannot run on a plain runner today.
+#  * The instrumented job needs an emulator (KVM on the runner) and the mock
+#    backend beside it: one mock process per scenario the suite uses, on
+#    15597 + the offset in e2e/MockBackend.kt's SCENARIO_PORT_OFFSETS — keep the
+#    list below in step with it. The emulator reaches the runner at 10.0.2.2,
+#    which is the dev flavour's default MOCK_BACKEND_URL. API 34: the suite
+#    grants POST_NOTIFICATIONS, a runtime permission only from 33.
+#
+#  * The mock is the desktop package's, so a change to it (or to the models
+#    package it imports) runs this workflow too.
 
 name: Android – Unit Tests
 
@@ -33,6 +40,9 @@ on:
       # The protocol manifest is shared: a change to it has to run this
       # suite too, or the drift check only fires for whoever edited last (#93).
       - 'protocol/**'
+      # The instrumented suite runs against the desktop package's mock.
+      - 'clients/apps/desktop/tests/mock/**'
+      - 'clients/packages/models/**'
       - '.github/workflows/android-test.yml'
   pull_request:
     paths:
@@ -40,6 +50,9 @@ on:
       # The protocol manifest is shared: a change to it has to run this
       # suite too, or the drift check only fires for whoever edited last (#93).
       - 'protocol/**'
+      # The instrumented suite runs against the desktop package's mock.
+      - 'clients/apps/desktop/tests/mock/**'
+      - 'clients/packages/models/**'
       - '.github/workflows/android-test.yml'
   workflow_dispatch:
 
@@ -89,4 +102,113 @@ jobs:
           path: |
             clients/android/app/build/reports/tests/testDevDebugUnitTest/
             clients/android/app/build/test-results/testDevDebugUnitTest/
+          retention-days: 7
+
+  instrumented:
+    name: Instrumented end-to-end (emulator + mock backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: clients/package-lock.json
+
+      - name: Install the TypeScript workspace
+        # The mock lives in the desktop package; dependencies install at clients/.
+        working-directory: clients
+        run: npm ci
+
+      - name: Start one mock backend per scenario
+        working-directory: clients/apps/desktop
+        run: |
+          npm run -s mock:backend:build
+          port=15597
+          for scenario in default tool-call sub-agent handoff thinking slow no-model no-persona; do
+            nohup node dist-mock/cli.js --host 0.0.0.0 --port "$port" --scenario "$scenario" \
+              > "$RUNNER_TEMP/mock-$scenario.log" 2>&1 &
+            port=$((port + 1))
+          done
+          for port in $(seq 15597 15604); do
+            for _ in $(seq 1 30); do
+              curl -sf "http://127.0.0.1:$port/version" > /dev/null && break
+              sleep 1
+            done
+            curl -sf "http://127.0.0.1:$port/version" > /dev/null || { echo "mock on $port did not start"; exit 1; }
+          done
+
+      - name: Cache the emulator image
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-34-google_apis-x86_64-pixel_6
+
+      - name: Create the emulator snapshot
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          # A phone-sized screen, as the app ships to: the default profile is
+          # 320x640, where a transcript with the keyboard up shows almost nothing.
+          profile: pixel_6
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "snapshot created"
+
+      - name: Run the instrumented suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          # A phone-sized screen, as the app ships to: the default profile is
+          # 320x640, where a transcript with the keyboard up shows almost nothing.
+          profile: pixel_6
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          working-directory: clients/android
+          # A software-rendered emulator can report "System UI isn't responding";
+          # the dialog takes the focus and the screen from the app under test.
+          script: |
+            adb shell settings put global hide_error_dialogs 1
+            ./gradlew :app:connectedDevDebugAndroidTest --no-configuration-cache --stacktrace || { adb pull /sdcard/Download "$RUNNER_TEMP/device" || true; exit 1; }
+
+      - name: Upload reports and mock logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-instrumented-report
+          path: |
+            clients/android/app/build/reports/androidTests/connected/
+            clients/android/app/build/outputs/androidTest-results/
+            ${{ runner.temp }}/mock-*.log
+            ${{ runner.temp }}/device/
           retention-days: 7
