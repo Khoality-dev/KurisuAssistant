@@ -17,7 +17,12 @@ interface ConversationState {
   compactedContext: string;
   systemPromptTokenCount: number;
 
-  loadConversation: (id: number) => Promise<void>;
+  /**
+   * Fetch a conversation and make it the current one. With `unlessChanged`, the
+   * fetch is dropped if the current conversation changed while it was on its
+   * way — a lookup must not undo a conversation the user started meanwhile (#321).
+   */
+  loadConversation: (id: number, opts?: { unlessChanged?: boolean }) => Promise<void>;
   loadMoreMessages: () => Promise<void>;
   deleteConversation: (id: number) => Promise<void>;
   clearCurrentConversation: () => void;
@@ -50,8 +55,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   compactedContext: '',
   systemPromptTokenCount: 0,
 
-  loadConversation: async (id: number) => {
+  loadConversation: async (id: number, opts?: { unlessChanged?: boolean }) => {
+    const startedOn = get().currentConversation?.id ?? null;
     const data = await apiClient.getConversation(id, 20, 0);
+    if (opts?.unlessChanged && (get().currentConversation?.id ?? null) !== startedOn) return;
 
     // Carry over _clientKey from the previous in-store messages so that
     // recently-streamed bubbles keep their React identity across the reload.

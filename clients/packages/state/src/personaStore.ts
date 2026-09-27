@@ -34,15 +34,28 @@ const bucketOf = (id: number | null): PersonaConversationKey => id ?? 'unbound';
 /**
  * Open the conversation this selection was last on: the one remembered locally,
  * else the latest the server has for it, else none.
+ *
+ * Every answer here is a round trip, and the user can send before it returns:
+ * that send's first chunk starts a conversation. So nothing a lookup finds —
+ * "none yet", an older conversation, or a failure — is applied once the chat
+ * has moved on, or once another persona has been picked (#321). It used to
+ * clear the conversation just started: the first message vanished from the
+ * chat and the next one opened a new conversation.
  */
 async function openBucket(id: number | null): Promise<void> {
   const key = bucketOf(id);
   const convStore = useConversationStore.getState();
+  const startedOn = convStore.currentConversation?.id ?? null;
+  const stillOurs = () =>
+    (useConversationStore.getState().currentConversation?.id ?? null) === startedOn
+    && bucketOf(usePersonaStore.getState().selectedPersonaId) === key;
+
   const convId = storage.getPersonaConversationId(key);
   if (convId) {
     try {
-      await convStore.loadConversation(convId);
+      await convStore.loadConversation(convId, { unlessChanged: true });
     } catch {
+      if (!stillOurs()) return;
       storage.clearPersonaConversationId(key);
       convStore.clearCurrentConversation();
     }
@@ -52,14 +65,15 @@ async function openBucket(id: number | null): Promise<void> {
     const conv = id === null
       ? await apiClient.getLatestAssistantConversation()
       : await apiClient.getLatestConversationForPersona(id);
+    if (!stillOurs()) return;
     if (conv) {
       storage.setPersonaConversationId(key, conv.id);
-      await convStore.loadConversation(conv.id);
+      await convStore.loadConversation(conv.id, { unlessChanged: true });
     } else {
       convStore.clearCurrentConversation();
     }
   } catch {
-    convStore.clearCurrentConversation();
+    if (stillOurs()) convStore.clearCurrentConversation();
   }
 }
 
