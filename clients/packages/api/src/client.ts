@@ -42,6 +42,7 @@ import {
   type UploadBaseResponseDTO,
   type UploadVideoResponseDTO,
   type UserProfile,
+  type VoiceInfo,
   type VoicesResponse,
 } from '@kurisu/models';
 import { sha256Hex, throwIfCancelled, toCharacterUploadError } from './characterUploads';
@@ -489,9 +490,9 @@ class APIClient {
   }
 
   /**
-   * List available TTS voices (scans reference/ folder)
+   * The preset voices the synthesis engines offer, or one model's with `backend`.
    */
-  async listVoices(backend?: string): Promise<string[]> {
+  async listVoices(backend?: string): Promise<VoiceInfo[]> {
     const params = backend ? { provider: backend } : {};
     const response = await this.client.get<VoicesResponse>('/tts/voices', {
       headers: this.getHeaders(),

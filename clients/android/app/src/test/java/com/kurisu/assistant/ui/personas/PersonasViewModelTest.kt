@@ -7,6 +7,7 @@ import com.kurisu.assistant.data.model.AssistantUpdate
 import com.kurisu.assistant.data.model.Persona
 import com.kurisu.assistant.data.model.PersonaCreate
 import com.kurisu.assistant.data.model.PersonaUpdate
+import com.kurisu.assistant.data.model.VoiceInfo
 import com.kurisu.assistant.data.remote.api.KurisuApiService
 import com.kurisu.assistant.data.repository.AssistantRepository
 import com.kurisu.assistant.data.repository.PersonaRepository
@@ -92,7 +93,10 @@ class PersonasViewModelTest {
         coEvery { prefs.getBackendUrl() } returns "https://example.test"
         coEvery { personaRepo.listPersonas() } returns listOf(kurisu, coach)
         coEvery { assistantRepo.getAssistant() } returns assistant
-        coEvery { ttsRepo.listVoices(any()) } returns listOf("kurisu_neutral.wav", "coach_warm.wav")
+        coEvery { ttsRepo.listVoices(any()) } returns listOf(
+            VoiceInfo(id = "kurisu_neutral.wav", name = "Kurisu, neutral", model = "gpt-sovits"),
+            VoiceInfo(id = "coach_warm.wav", name = "Coach, warm", model = "gpt-sovits"),
+        )
         coEvery { personaRepo.getImageUrl(any(), any()) } answers {
             "${firstArg<String>()}/images/${secondArg<String>()}"
         }

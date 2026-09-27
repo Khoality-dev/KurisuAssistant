@@ -29,6 +29,7 @@ import {
   type Persona,
   type PersonaCreate,
   type PersonaUpdate,
+  type VoiceInfo,
 } from '@kurisu/models';
 import { CharacterConfigDialog } from '../character/CharacterConfigDialog';
 import { VrmSetupDialog } from '../character/VrmSetupDialog';
@@ -80,12 +81,25 @@ function toForm(persona: Persona): PersonaFormData {
   };
 }
 
+/** A preset's name; the contract requires one, and one an engine left out reads as the id. */
+const labelOf = (v: VoiceInfo): string => v.name || v.id;
+
+/**
+ * How a stored voice reads: the name of the preset it names, or the stored
+ * value itself when no engine lists it — a clip in the server's voice storage,
+ * or a preset whose engine is down.
+ */
+export function voiceName(voices: VoiceInfo[], id: string): string {
+  const voice = voices.find((v) => v.id === id);
+  return voice ? labelOf(voice) : id;
+}
+
 interface PersonaEditDialogProps {
   open: boolean;
   /** null creates a new persona. */
   persona: Persona | null;
-  /** Voice reference names from `GET /tts/voices`. */
-  voices: string[];
+  /** The preset voices from `GET /tts/voices` (#214). */
+  voices: VoiceInfo[];
   onClose: () => void;
   onSaved: (message: string) => void;
   onError: (message: string) => void;
@@ -219,10 +233,10 @@ export const PersonaEditDialog: React.FC<PersonaEditDialogProps> = ({
     kindNote = 'Switching saves right away. A 3D model, if one was uploaded, stays until you remove it in the 3D setup.';
   }
 
-  // A voice the backend no longer lists (renamed folder, TTS off) must still be
-  // visible rather than silently reset to none.
-  const voiceOptions = form.voice_reference && !voices.includes(form.voice_reference)
-    ? [form.voice_reference, ...voices]
+  // A voice no engine lists (a clip in voice storage, an engine that is down)
+  // must still be visible rather than silently reset to none.
+  const voiceOptions: VoiceInfo[] = form.voice_reference && !voices.some((v) => v.id === form.voice_reference)
+    ? [{ id: form.voice_reference, name: form.voice_reference, model: '' }, ...voices]
     : voices;
 
   return (
@@ -329,13 +343,21 @@ export const PersonaEditDialog: React.FC<PersonaEditDialogProps> = ({
               fullWidth
               helperText={
                 voices.length === 0
-                  ? 'No reference voices found on the server.'
-                  : 'Reference voice used when this persona is spoken aloud.'
+                  ? 'The speech engines offer no preset voices.'
+                  : 'The voice this persona is spoken in. Each preset belongs to the model named beside it.'
               }
             >
               <MenuItem value="">Default voice</MenuItem>
               {voiceOptions.map((v) => (
-                <MenuItem key={v} value={v}>{v}</MenuItem>
+                // Picked by name, stored by id: the id is what the engine knows.
+                <MenuItem key={`${v.model}/${v.id}`} value={v.id}>
+                  {labelOf(v)}
+                  {v.model && (
+                    <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                      {v.model}
+                    </Typography>
+                  )}
+                </MenuItem>
               ))}
             </TextField>
 

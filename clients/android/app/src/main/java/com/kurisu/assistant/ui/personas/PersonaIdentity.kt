@@ -80,11 +80,12 @@ private fun InitialsAvatar(
  * because a disabled one cannot answer and cannot be made the default.
  */
 fun personaMeta(
-    voiceReference: String?,
+    /** The voice as a person reads it: a preset's name, not its id (#214). */
+    voiceName: String?,
     character: CharacterConfigKind,
     enabled: Boolean = true,
 ): String = buildString {
-    append(voiceReference?.takeIf { it.isNotBlank() } ?: "no voice")
+    append(voiceName?.takeIf { it.isNotBlank() } ?: "no voice")
     character.metaLabel()?.let { append(" · $it") }
     if (!enabled) append(" · disabled")
 }

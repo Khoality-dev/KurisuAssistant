@@ -80,6 +80,27 @@ test.describe('settings', () => {
     await expect(page.getByText('Kurisu').first()).toBeVisible({ timeout: 10_000 });
   });
 
+  test('the voice picker names the preset voices and stores the id of the one picked (#214)', async ({ page, mock }) => {
+    // What the backend answers: one object per preset, tagged with the engine
+    // that offers it. The editor used to take each object for a name.
+    mock.setVoices([
+      { id: 'kurisu_ja_01', name: 'Kurisu (Japanese)', model: 'gpt-sovits' },
+      { id: 'coach', name: 'Coach', model: 'vixtts' },
+    ]);
+    await login(page);
+    await openSettings(page);
+    await page.getByText('Personas', { exact: true }).first().click();
+    await page.getByText('No character').click();
+
+    await page.getByLabel('Voice').click();
+    await page.getByRole('option', { name: 'Kurisu (Japanese)' }).click();
+    await page.getByRole('button', { name: 'Save' }).click();
+
+    await expect.poll(() => mock.getPersonas()[0].voice_reference).toBe('kurisu_ja_01');
+    // The card names the voice as the picker did.
+    await expect(page.getByText('voice: Kurisu (Japanese)')).toBeVisible();
+  });
+
   test('assistant section shows the wake word from the backend', async ({ page, mock }) => {
     await login(page);
     await openSettings(page);

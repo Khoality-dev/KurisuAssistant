@@ -1,6 +1,7 @@
 package com.kurisu.assistant.data.repository
 
 import com.kurisu.assistant.data.model.TTSRequest
+import com.kurisu.assistant.data.model.VoiceInfo
 import com.kurisu.assistant.data.remote.api.KurisuApiService
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -29,7 +30,7 @@ class TtsRepository @Inject constructor(
         return responseBody.bytes()
     }
 
-    suspend fun listVoices(backend: String? = null): List<String> =
+    suspend fun listVoices(backend: String? = null): List<VoiceInfo> =
         api.listVoices(backend?.ifBlank { null }).voices
 
     /** The TTS model ids the speech service serves, from `GET /tts/models`. */

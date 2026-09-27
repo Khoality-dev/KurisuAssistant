@@ -118,8 +118,19 @@ export interface UserProfile {
   context_size?: number; // Ollama num_ctx override (null = default 8192)
 }
 
+/**
+ * A preset voice a synthesis engine offers (#214): the engine's own id, which
+ * is what a persona stores and a synthesis names, its name for a person to
+ * pick by, and the model that offers it.
+ */
+export interface VoiceInfo {
+  id: string;
+  name: string;
+  model: string;
+}
+
 export interface VoicesResponse {
-  voices: string[];
+  voices: VoiceInfo[];
 }
 
 export interface TTSModelInfo {

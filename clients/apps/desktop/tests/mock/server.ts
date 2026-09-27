@@ -280,6 +280,17 @@ export interface MockConversationSeed {
   messages: MockSeedMessage[];
 }
 
+/**
+ * A preset voice, as `GET /tts/voices` lists it: the engine's own `{id, name}`
+ * with the model that offers it added by the backend (#214). A persona stores
+ * the `id`; a person picks by `name`.
+ */
+export interface MockVoice {
+  id: string;
+  name: string;
+  model: string;
+}
+
 /** A skill, appended to the assistant's system prompt. */
 export interface MockSkill {
   id?: number;
@@ -293,6 +304,8 @@ export interface MockBackendOptions {
   skills?: MockSkill[];
   /** What `GET /models` offers. Defaults to the one model the specs assert on. */
   models?: Array<{ name: string; provider?: string }>;
+  /** What `GET /tts/voices` offers; none by default. */
+  voices?: MockVoice[];
   drive?: MockDriveEntry[];
   driveQuotaBytes?: number;
   /** The 3D character store's per-account quota; defaults to the backend's 1 GiB. */
@@ -357,6 +370,7 @@ export class MockBackend {
   private skills: Array<{ id: number; name: string; instructions: string; created_at: string }> = [];
   private nextSkillId = 1;
   private models: Array<{ name: string; provider: string }> = [{ name: 'test-model', provider: 'mock' }];
+  private voices: MockVoice[] = [];
   private mcpServers: Array<{
     id: number; name: string; transport_type: 'sse' | 'stdio'; url: string | null;
     command: string | null; args: string[] | null; env: Record<string, string> | null;
@@ -513,6 +527,7 @@ export class MockBackend {
     if (opts.models) {
       this.models = opts.models.map((m) => ({ name: m.name, provider: m.provider ?? 'ollama' }));
     }
+    if (opts.voices) this.voices = opts.voices.map((v) => ({ ...v }));
 
     this.httpServer = http.createServer((req, res) => this.handleHttp(req, res));
     this.wss = new WebSocketServer({ noServer: true });
@@ -633,6 +648,11 @@ export class MockBackend {
    */
   setAssistantModel(model: string | null) {
     this.assistant.model_name = model;
+  }
+
+  /** The preset voices `GET /tts/voices` lists from now on. */
+  setVoices(voices: MockVoice[]) {
+    this.voices = voices.map((v) => ({ ...v }));
   }
 
   /** Overwrite assistant fields as they are stored — `null` included, which the constructor's defaults would replace. */
@@ -1757,7 +1777,11 @@ export class MockBackend {
     }
 
     if (pathOnly === '/faces') return this.json(res, []);
-    if (pathOnly === '/tts/voices' || pathOnly.startsWith('/tts/voices')) return this.json(res, { voices: [] });
+    if (pathOnly === '/tts/voices') {
+      // One model's presets with `?provider=`, every engine's without, as the backend lists them.
+      const provider = query.get('provider');
+      return this.json(res, { voices: this.voices.filter((v) => !provider || v.model === provider) });
+    }
     if (pathOnly === '/tts/models') {
       if (this.unreachable.has('/tts/models')) {
         return this.error(res, 502, 'The speech service is unavailable. (reference: mock)');

@@ -67,6 +67,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kurisu.assistant.data.model.Persona
+import com.kurisu.assistant.data.model.VoiceInfo
+import com.kurisu.assistant.data.model.labelOf
 import com.kurisu.assistant.domain.character.CharacterConfigKind
 import com.kurisu.assistant.domain.character.rowStatus
 import com.kurisu.assistant.ui.theme.KurisuTheme
@@ -199,6 +201,8 @@ fun PersonasScreen(
                     items(state.personas, key = { it.id }) { persona ->
                         PersonaRow(
                             persona = persona,
+                            voiceName = persona.voiceReference?.takeIf { it.isNotBlank() }
+                                ?.let { state.availableVoices.labelOf(it) },
                             avatarUrl = viewModel.avatarUrl(persona.avatarUuid),
                             isDefault = persona.id == state.defaultPersonaId,
                             // The design only flags this when it differs from the
@@ -300,6 +304,8 @@ private fun AssistantItselfRow(isDefault: Boolean, onMakeDefault: () -> Unit) {
 @Composable
 private fun PersonaRow(
     persona: Persona,
+    /** How its voice reads: the preset's name, or the stored value no engine lists. */
+    voiceName: String?,
     avatarUrl: String?,
     isDefault: Boolean,
     isAnsweringOpenChat: Boolean,
@@ -358,7 +364,7 @@ private fun PersonaRow(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     personaMeta(
-                        persona.voiceReference,
+                        voiceName,
                         CharacterConfigKind.of(persona.characterConfig),
                         persona.enabled,
                     ),
@@ -409,7 +415,7 @@ private fun Pill(
 private fun PersonaEditor(
     draft: PersonaDraft,
     avatarUrl: String?,
-    availableVoices: List<String>,
+    availableVoices: List<VoiceInfo>,
     isSaving: Boolean,
     isUploadingAvatar: Boolean,
     onPickAvatar: (File) -> Unit,
@@ -531,7 +537,9 @@ private fun PersonaEditor(
                             modifier = Modifier.weight(1f),
                         ) {
                             OutlinedTextField(
-                                value = draft.voiceReference,
+                                // Picked by name, stored by id: the id is what the engine knows.
+                                value = draft.voiceReference.takeIf { it.isNotBlank() }
+                                    ?.let { availableVoices.labelOf(it) }.orEmpty(),
                                 onValueChange = {},
                                 readOnly = true,
                                 singleLine = true,
@@ -568,10 +576,22 @@ private fun PersonaEditor(
                                 availableVoices.forEach { voice ->
                                     DropdownMenuItem(
                                         text = {
-                                            Text(voice, style = KurisuTheme.extraTypography.metadata)
+                                            Text(voice.label, style = KurisuTheme.extraTypography.metadata)
+                                        },
+                                        // Each preset belongs to one model; say which.
+                                        trailingIcon = if (voice.model.isNotBlank()) {
+                                            {
+                                                Text(
+                                                    voice.model,
+                                                    style = KurisuTheme.extraTypography.metadataSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                        } else {
+                                            null
                                         },
                                         onClick = {
-                                            onVoiceChange(voice)
+                                            onVoiceChange(voice.id)
                                             voiceMenuOpen = false
                                         },
                                     )

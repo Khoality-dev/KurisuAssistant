@@ -1086,9 +1086,11 @@ minutes for the whole text, after which it is the `502`.
 
 ### GET /tts/voices
 
-**Query:** `provider` (optional) → `{"voices": [...]}` as reported by the
-synthesis engine — one object per voice today, while both clients expect a list
-of ids (#214).
+**Query:** `provider` (optional) → `{"voices": [{"id": "...", "name": "...", "model": "gpt-sovits"}, ...]}`:
+each engine's presets as its `GET /voices` reports them (`docs/speech-engine-contract.md`),
+with the model that offers them added. A persona's `voice_reference` stores the
+`id`, and both clients list the voices by `name` (#214). An engine that cannot be
+asked contributes none.
 
 ### POST /tts/check
 

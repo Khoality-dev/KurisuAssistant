@@ -59,6 +59,12 @@ const VRM_EMOTION_CHARACTER: CharacterConfigDTO = {
 };
 const AMADEUS = { id: 2, name: 'Amadeus', description: 'A second persona, for handoffs.' };
 
+/** What `GET /tts/voices` lists, in the backend's shape: a persona stores the id (#214). */
+const PRESET_VOICES = [
+  { id: 'kurisu_ja_01', name: 'Kurisu (Japanese)', model: 'gpt-sovits' },
+  { id: 'coach', name: 'Coach', model: 'vixtts' },
+];
+
 const SHORT_REPLY: StreamScript = {
   chunks: [
     { content: 'Hello ', role: 'assistant', delayMs: 40 },
@@ -306,8 +312,8 @@ const DOCS_CONVERSATIONS: MockConversationSeed[] = [
 
 export const SCENARIOS: Record<string, Scenario> = {
   default: {
-    description: 'Two personas (Kurisu answers), a model chosen, a short streamed reply.',
-    options: { personas: [KURISU, AMADEUS], stream: SHORT_REPLY },
+    description: 'Two personas (Kurisu answers), a model chosen, two preset voices, a short streamed reply.',
+    options: { personas: [KURISU, AMADEUS], voices: PRESET_VOICES, stream: SHORT_REPLY },
   },
   docs: {
     description: 'The cast the documentation screenshots are taken from — every screen furnished.',
