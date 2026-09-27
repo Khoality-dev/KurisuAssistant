@@ -45,6 +45,17 @@ import org.junit.Rule
  */
 abstract class E2eTest {
 
+    companion object {
+        /**
+         * How long a reply may take to reach the screen. The first Markwon view in
+         * a fresh process is where a cold debug build pays for its class
+         * verification and JIT; on a CPU-starved emulator that stalled the main
+         * thread for ~30 s (app_time_stats max=29722ms), so the UI wait alone was
+         * too short for the first reply of every test.
+         */
+        const val REPLY_TIMEOUT_MS = 60_000L
+    }
+
     open val scenario: String = "default"
 
     @get:Rule
@@ -76,6 +87,10 @@ abstract class E2eTest {
                 // this on, it records straight away and animates the mic strip
                 // forever — and a never-idle screen is one the test cannot query.
                 setAsrAlwaysListen(false)
+                // The mock answers `POST /tts` with no audio, so with autoplay on every
+                // reply raises a "Speech failed" banner over the transcript. Speech is
+                // not what these tests are about (it is checked by hand, CLAUDE.md).
+                setTTSAutoPlay(false)
                 clearAllPersonaConversations()
             }
             EncryptedPreferences(context).apply {
@@ -222,18 +237,47 @@ abstract class E2eTest {
      * dialog takes the focus while the app underneath is fine.
      */
     protected fun waitUntilViewShows(fragment: String) {
-        val deadline = System.currentTimeMillis() + MockBackend.UI_TIMEOUT_MS
+        val deadline = System.currentTimeMillis() + REPLY_TIMEOUT_MS
         while (System.currentTimeMillis() < deadline) {
             if (viewShows(fragment)) return
             Thread.sleep(250)
         }
         throw AssertionError(
-            "no view showing \"$fragment\" within ${MockBackend.UI_TIMEOUT_MS}ms; text views on screen: ${shownTexts()}\n${dumpScreen()}",
+            "no view showing \"$fragment\" within ${REPLY_TIMEOUT_MS}ms; text views on screen: ${shownTexts()}; " +
+                "diagnostics: ${viewDiagnostics()}\n${dumpScreen()}",
         )
     }
 
     /** True when a TextView on screen shows `fragment` right now. */
     protected fun viewShows(fragment: String): Boolean = shownTexts().any { it.contains(fragment) }
+
+    /** Every TextView in the scenario's activity, shown or not, and what that activity is doing. */
+    private fun viewDiagnostics(): String {
+        val out = StringBuilder()
+        try {
+            activity?.onActivity { act ->
+                val all = mutableListOf<String>()
+                fun walk(view: View) {
+                    if (view is TextView) all += "${view.javaClass.simpleName}(shown=${view.isShown}, attached=${view.isAttachedToWindow}, text=${view.text.toString().take(40)})"
+                    if (view is ViewGroup) for (i in 0 until view.childCount) walk(view.getChildAt(i))
+                }
+                walk(act.window.decorView)
+                out.append("activity=${System.identityHashCode(act)} finishing=${act.isFinishing} hasFocus=${act.hasWindowFocus()} ")
+                out.append("textViews=$all")
+            } ?: out.append("no activity scenario")
+            out.append(" state=${activity?.state}")
+        } catch (e: Throwable) {
+            out.append("onActivity threw ${e.javaClass.simpleName}: ${e.message}")
+        }
+        val resumed = mutableListOf<String>()
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+                .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
+                .forEach { resumed += "${it.javaClass.simpleName}@${System.identityHashCode(it)}" }
+        }
+        out.append(" resumed=$resumed")
+        return out.toString()
+    }
 
     private fun shownTexts(): List<String> {
         val texts = mutableListOf<String>()
