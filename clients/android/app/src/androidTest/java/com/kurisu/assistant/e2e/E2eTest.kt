@@ -48,12 +48,16 @@ abstract class E2eTest {
 
     open val scenario: String = "default"
 
-    @get:Rule
+    /** Outermost, so a retry starts again from `@Before` with every other rule fresh. */
+    @get:Rule(order = 0)
+    val retryOnce = RetryOnce()
+
+    @get:Rule(order = 1)
     val composeRule = createEmptyComposeRule()
 
     // The chat screens ask for the microphone on entry; a system permission
     // dialog on top of the app would pause it mid-test.
-    @get:Rule
+    @get:Rule(order = 2)
     val permissions: GrantPermissionRule = GrantPermissionRule.grant(
         Manifest.permission.RECORD_AUDIO,
         Manifest.permission.CAMERA,
