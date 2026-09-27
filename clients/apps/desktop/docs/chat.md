@@ -32,7 +32,7 @@ Two-level state managed by `useMicStore` (Zustand, `@kurisu/state`'s `micStore.t
 
 **Typing (default, `interactiveMode: false`)**:
 - Mic on → ASR transcript placed into input field as dictation text → user presses Send manually
-- Trigger word detection: if transcript contains the assistant's `trigger_word` (case-insensitive), enables interactive mode + activates interaction + auto-sends that transcript. The wake word is assistant-level and selects no persona
+- Trigger word detection: a transcript containing the assistant's `trigger_word` (anywhere, any case — as Android's `VoiceInteractionManager` hears it) activates an interaction, which puts up the call bar, and is itself sent (`heardWakeWord` in `useInteractiveASR`). The wake word is assistant-level and selects no persona. It lives in `useMicStore().triggerWord`, set by `ChatWidget` from `GET /assistant` and by the Assistant settings on save, so a new wake word applies without a restart. Before #337 nothing on the desktop listened for it at all
 - Mic button: red icon when listening, default when idle. No pulse animation.
 
 **Interactive (`interactiveMode: true`)**:

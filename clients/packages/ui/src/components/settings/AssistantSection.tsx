@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 import { Save as SaveIcon } from '@mui/icons-material';
 import { apiClient, describeRequestFailure } from '@kurisu/api';
+import { useMicStore } from '@kurisu/state';
 import type { Assistant, AssistantUpdate } from '@kurisu/models';
 import { ToolGroupChecklist } from './ToolGroupChecklist';
 import { useAvailableTools } from './useAvailableTools';
@@ -115,6 +116,8 @@ export const AssistantSection: React.FC = () => {
       const next = await apiClient.updateAssistant(update);
       setAssistant(next);
       setForm(toForm(next));
+      // The mic hears the new wake word from now on, not after a restart (#337).
+      useMicStore.getState().setTriggerWord(next.trigger_word ?? null);
       flash('Assistant saved.');
     } catch (err: any) {
       setError(describeRequestFailure(err, 'Failed to save the assistant'));

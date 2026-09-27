@@ -286,6 +286,11 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
     apiClient.getAssistant().then(setAssistant).catch(() => { /* the header says "No model" */ });
   }, []);
 
+  // The wake word the mic listens for comes off the assistant (#337).
+  useEffect(() => {
+    useMicStore.getState().setTriggerWord(assistant?.trigger_word ?? null);
+  }, [assistant?.trigger_word]);
+
   const openModelMenu = useCallback(async () => {
     setModelsError('');
     setModelMenuAnchor(modelButtonRef.current);
