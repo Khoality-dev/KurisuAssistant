@@ -48,10 +48,6 @@ abstract class E2eTest {
 
     open val scenario: String = "default"
 
-    /** Outermost, so it sees the failure after the other rules have reported it. */
-    @get:Rule(order = 0)
-    val failureEvidence = FailureEvidence()
-
     @get:Rule(order = 1)
     val composeRule = createEmptyComposeRule()
 
@@ -156,6 +152,7 @@ abstract class E2eTest {
             }
         } catch (e: ComposeTimeoutException) {
             if (lastError != null) e.addSuppressed(lastError)
+            FailureEvidence.capture("$what never appeared")
             throw AssertionError(
                 "$what never appeared within ${MockBackend.UI_TIMEOUT_MS}ms" +
                     (lastError?.let { " (last query error: $it)" } ?: "") + ". On screen:\n${dumpScreen()}",
@@ -234,6 +231,7 @@ abstract class E2eTest {
         try {
             composeRule.waitUntil(MockBackend.UI_TIMEOUT_MS) { viewShows(fragment) }
         } catch (e: ComposeTimeoutException) {
+            FailureEvidence.capture("no view showing $fragment")
             throw AssertionError(
                 "no view showing \"$fragment\" within ${MockBackend.UI_TIMEOUT_MS}ms; text views on screen: ${shownTexts()}; " +
                     "diagnostics: ${viewDiagnostics()}\n${dumpScreen()}",

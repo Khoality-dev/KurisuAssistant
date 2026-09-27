@@ -1,18 +1,16 @@
 package com.kurisu.assistant.e2e
 
 import androidx.test.platform.app.InstrumentationRegistry
-import org.junit.rules.TestWatcher
-import org.junit.runner.Description
 
 /**
- * On a failure, keep what the device looked like: a screenshot and the log,
- * under /sdcard/Download/, where CI pulls them from (#310). A dump of the
- * Compose tree says nothing when the tree is empty, and the orchestrator
- * clears the app's own storage after every test.
+ * What the device looked like when a wait gave up: a screenshot and the log,
+ * under /sdcard/Download/, where CI pulls them from (#310). Taken by the wait
+ * helpers at the moment they fail — a JUnit rule runs only after `@After` has
+ * closed the app, and captured the launcher instead.
  */
-class FailureEvidence : TestWatcher() {
-    override fun failed(e: Throwable, description: Description) {
-        val name = "e2e-${description.testClass.simpleName}-${description.methodName}"
+object FailureEvidence {
+    fun capture(what: String) {
+        val name = "e2e-${System.currentTimeMillis()}-" + what.replace(Regex("[^A-Za-z0-9]+"), "_").take(60)
         shell("screencap -p /sdcard/Download/$name.png")
         shell("logcat -d -v time -f /sdcard/Download/$name.log")
     }
