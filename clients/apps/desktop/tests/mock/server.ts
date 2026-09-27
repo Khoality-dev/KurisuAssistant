@@ -377,6 +377,8 @@ export class MockBackend {
   private backendVersion: string = MOCK_BACKEND_VERSION;
   /** Endpoints answering 502 as if the service behind them were down (#151). */
   private unreachable: Set<'/tts/models' | '/models'> = new Set();
+  /** Requests held back before they are answered: `METHOD path` (query ignored) → ms. */
+  private routeDelays = new Map<string, number>();
   /** The mock's drive: flat rows with parent links, as the real table is. */
   private driveNodes: Array<{
     id: number; parent_id: number | null; name: string; is_dir: boolean;
@@ -601,6 +603,16 @@ export class MockBackend {
   }
 
   /** Make `/tts/models` or `/models` answer 502, as the backend does when the service behind it is down. */
+  /**
+   * Answer `method path` only after `ms` — a slow server, for the races a fast
+   * mock hides (#321). The query is ignored; `null` removes the delay.
+   */
+  delayRoute(method: string, path: string, ms: number | null): void {
+    const key = `${method.toUpperCase()} ${path}`;
+    if (ms === null) this.routeDelays.delete(key);
+    else this.routeDelays.set(key, ms);
+  }
+
   setUnreachable(path: '/tts/models' | '/models', down = true) {
     if (down) this.unreachable.add(path);
     else this.unreachable.delete(path);
@@ -933,6 +945,9 @@ export class MockBackend {
       res.end();
       return;
     }
+
+    const held = this.routeDelays.get(`${method} ${pathOnly}`);
+    if (held) await sleep(held);
 
     if (this.proxyRefusal !== null) {
       res.statusCode = this.proxyRefusal;

@@ -82,6 +82,29 @@ test.describe('streaming', () => {
     await expect(page.getByText('Q1', { exact: true })).toBeVisible();
   });
 
+  test('a message sent before the last conversation is looked up stays in the conversation it starts (#321)', async ({ page, mock }) => {
+    // A slow server: the lookup of the last conversation answers only after the
+    // first reply has started one. Its "none yet" used to clear that
+    // conversation — the first message vanished, and the next one opened a new one.
+    mock.delayRoute('GET', '/conversations', 1500);
+    const lookup = page.waitForResponse((r) => r.request().method() === 'GET' && new URL(r.url()).pathname === '/conversations');
+    mock.setStream({ chunks: [{ content: 'First reply.', role: 'assistant', delayMs: 10 }] });
+
+    await login(page);
+    await send(page, 'First question');
+    await expect(page.getByText('First reply.').first()).toBeVisible({ timeout: 10_000 });
+    await lookup;
+
+    await expect(page.getByText('First question', { exact: true }).first()).toBeVisible();
+    await expect(page.locator('button').filter({ has: page.locator('[data-testid="StopIcon"]') })).toHaveCount(0, { timeout: 10_000 });
+    mock.setStream({ chunks: [{ content: 'Second reply.', role: 'assistant', delayMs: 10 }] });
+    await send(page, 'Second question');
+    await expect(page.getByText('Second reply.').first()).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.getByText('First question', { exact: true }).first()).toBeVisible();
+    expect(mock.getConversations()).toHaveLength(1);
+  });
+
   test('two sequential messages both render with their responses', async ({ page, mock }) => {
     mock.setStream({
       chunks: [{ content: 'First reply.', role: 'assistant', delayMs: 10 }],
