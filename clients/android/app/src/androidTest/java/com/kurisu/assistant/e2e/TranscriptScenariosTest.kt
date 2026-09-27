@@ -1,5 +1,6 @@
 package com.kurisu.assistant.e2e
 
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -88,6 +89,14 @@ class ThinkingTest : E2eTest() {
         waitUntilViewShows("Final answer is X.")
         waitForText("Thinking")
         waitUntilGone("Let me consider this carefully.")
+        // For a moment the streamed reply and the one reloaded from the server
+        // are both on screen, each with its own label; tap once they are one.
+        val single = waitUntilTrue {
+            runCatching {
+                composeRule.onAllNodesWithText("Thinking", useUnmergedTree = true).fetchSemanticsNodes().size == 1
+            }.getOrDefault(false)
+        }
+        if (!single) throw AssertionError("two \"Thinking\" labels never became one. On screen:\n${dumpScreen()}")
 
         composeRule.onNodeWithText("Thinking", useUnmergedTree = true).performClick()
         waitForText("Let me consider this carefully.", substring = true)
