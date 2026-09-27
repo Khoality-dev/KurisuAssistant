@@ -318,6 +318,10 @@ interface StoredMessage {
   name: string | null;
   tool_args: Record<string, unknown> | null;
   tool_status: string | null;
+  /** Tool messages: a delegation or an ordinary tool, how long it took, and a delegation's model — stored as the backend stores them (#327). */
+  tool_kind?: string | null;
+  duration_ms?: number | null;
+  model_name?: string | null;
   /** Assistant messages of a VRM persona: where the feeling changed (#243). */
   emotion_cues?: EmotionCueRecord[] | null;
   created_at: string;
@@ -1901,6 +1905,10 @@ export class MockBackend {
       ...(m.name ? { name: m.name } : {}),
       ...(m.tool_args ? { tool_args: m.tool_args } : {}),
       ...(m.tool_status ? { tool_status: m.tool_status } : {}),
+      // As the backend serves them (#327): omitted when unset, duration kept at 0.
+      ...(m.tool_kind ? { tool_kind: m.tool_kind } : {}),
+      ...(m.duration_ms != null ? { duration_ms: m.duration_ms } : {}),
+      ...(m.model_name ? { model_name: m.model_name } : {}),
       ...(m.emotion_cues?.length ? { emotion_cues: m.emotion_cues } : {}),
       // Only an assistant message has a speaker. The embedded stamp is what the
       // bubble renders its name and avatar from on a reload.
@@ -2178,6 +2186,7 @@ export class MockBackend {
           role: string; content: string; thinking: string;
           personaId: number | null; name: string | null;
           toolArgs: Record<string, unknown> | null; toolStatus: string | null;
+          toolKind: string | null; durationMs: number | null; modelName: string | null;
           emotionCues: EmotionCueRecord[];
         };
         const segments: Segment[] = [];
@@ -2199,6 +2208,13 @@ export class MockBackend {
           // With no persona the assistant speaks as itself, named "Assistant" (#302).
           const personaName = isTool ? null : (chunk.personaName ?? speaker?.name ?? ASSISTANT_NAME);
           const label = isTool ? (chunk.name ?? 'mock_tool') : personaName;
+          // A tool chunk says what it was and how long it took; a delegation also
+          // names the sub-agent's model, as the backend does (#327).
+          const toolKind = isTool ? (chunk.toolKind ?? 'tool') : null;
+          const durationMs = isTool ? (chunk.durationMs ?? 12) : null;
+          const toolModel = toolKind === 'sub_agent'
+            ? (this.subAgents.find((s) => s.name === label)?.model_name ?? null)
+            : null;
 
           const last = segments[segments.length - 1];
           if (!last || last.role !== role || last.name !== label) {
@@ -2210,6 +2226,9 @@ export class MockBackend {
               name: label,
               toolArgs: chunk.toolArgs ?? null,
               toolStatus: chunk.toolStatus ?? (isTool ? 'success' : null),
+              toolKind,
+              durationMs,
+              modelName: toolModel,
               emotionCues: [],
             });
           } else {
@@ -2229,14 +2248,14 @@ export class MockBackend {
             persona_name: personaName,
             name: label,
             voice_reference: isTool ? null : (speaker?.voice_reference ?? null),
-            model_name: isTool ? null : this.assistant.model_name,
+            model_name: isTool ? toolModel : this.assistant.model_name,
             provider_type: isTool ? null : this.assistant.provider_type,
             tool_args: chunk.toolArgs ?? null,
             tool_status: chunk.toolStatus ?? (isTool ? 'success' : null),
             // Only meaningful on a tool chunk, and the client's only source for
             // the sub-agent tag and the call duration.
-            tool_kind: isTool ? (chunk.toolKind ?? 'tool') : null,
-            duration_ms: isTool ? (chunk.durationMs ?? 12) : null,
+            tool_kind: toolKind,
+            duration_ms: durationMs,
             conversation_id: conversationId,
             images: null,
             token_count: null,
@@ -2258,6 +2277,9 @@ export class MockBackend {
             name: seg.name,
             tool_args: seg.toolArgs,
             tool_status: seg.toolStatus,
+            tool_kind: seg.toolKind,
+            duration_ms: seg.durationMs,
+            model_name: seg.modelName,
             emotion_cues: seg.emotionCues.length ? seg.emotionCues : null,
             created_at: new Date().toISOString(),
           });

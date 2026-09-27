@@ -88,6 +88,11 @@ class Message(Base):
     provider_type = Column(String, nullable=True)
     tool_args = Column(JSON, nullable=True)
     tool_status = Column(String, nullable=True)
+    # What the stream says about a tool row, kept so the history says it too:
+    # a delegation to a sub-agent or an ordinary tool, and how long it took
+    # (#327). Null on rows written before, and on every non-tool row.
+    tool_kind = Column(String, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
     # An assistant message records the calls it made; a tool message records
     # which call it answers. Without these, replayed history is a tool message
     # with no matching request, which strict providers reject.

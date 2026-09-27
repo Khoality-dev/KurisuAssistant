@@ -105,6 +105,33 @@ test.describe('streaming', () => {
     expect(mock.getConversations()).toHaveLength(1);
   });
 
+  test('a sub-agent step keeps its tag and duration once the conversation is reloaded (#327)', async ({ page, mock }) => {
+    mock.addSubAgent({ name: 'Researcher', model_name: 'worker-model' } as never);
+    mock.setStream({
+      chunks: [
+        { content: 'Delegating. ', role: 'assistant', delayMs: 10 },
+        { content: 'Researcher: nothing new.', role: 'tool', delayMs: 10, name: 'Researcher', toolKind: 'sub_agent', durationMs: 1830 },
+        { content: 'Nothing new, then.', role: 'assistant', delayMs: 10 },
+      ],
+    });
+    await login(page);
+    await send(page, 'Anything new?');
+    await expect(page.getByText('Nothing new, then.').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('sub-agent', { exact: true }).first()).toBeVisible();
+
+    // A fresh renderer, and the conversation opened again from the Conversations
+    // page as a person would: everything below comes from the server's history.
+    await page.reload();
+    if (await page.getByLabel('Username').isVisible({ timeout: 5_000 }).catch(() => false)) await login(page);
+    await page.locator('button').filter({
+      has: page.locator('[data-testid="ChatBubbleOutlineIcon"], [data-testid="ChatBubbleIcon"]'),
+    }).first().click();
+    await page.getByRole('button', { name: /^Kurisu/ }).click();
+    await expect(page.getByText('Nothing new, then.').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('sub-agent', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('1.8s').first()).toBeVisible();
+  });
+
   test('two sequential messages both render with their responses', async ({ page, mock }) => {
     mock.setStream({
       chunks: [{ content: 'First reply.', role: 'assistant', delayMs: 10 }],

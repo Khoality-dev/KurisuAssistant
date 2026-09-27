@@ -59,6 +59,9 @@ messages
   thinking?, raw_input?, raw_output?
   name?, model_name?, provider_type?
   tool_args(JSON)?, tool_status?                    on a tool message
+  tool_kind?, duration_ms?                          on a tool message (#327): "tool" | "sub_agent",
+                                                    and how long the call took; model_name on a
+                                                    tool message is a delegation's sub-agent model
   tool_calls(JSON)?                                 on the assistant message that made them
   tool_call_id?                                     on the tool message answering one
   emotion_cues(JSON)?                               where the persona's feeling changed, see below

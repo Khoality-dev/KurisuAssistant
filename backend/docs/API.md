@@ -281,8 +281,12 @@ is what makes infinite scroll work.
 ```
 
 Optional per-message keys, present only when set: `name`, `images`, `thinking`,
-`model_name`, `provider_type`, `tool_args`, `tool_status`, `context_files`,
-`emotion_cues`, `persona_id` + `persona`.
+`model_name`, `provider_type`, `tool_args`, `tool_status`, `tool_kind`,
+`duration_ms`, `context_files`, `emotion_cues`, `persona_id` + `persona`.
+
+On a tool message, `tool_kind` (`"tool"` | `"sub_agent"`) and `duration_ms` are what
+the live chunk carried, and `model_name` is a delegation's sub-agent model (#327).
+Rows written before that have none of them.
 
 `emotion_cues` (#243) is where the persona's feeling changed inside an assistant
 message, in order: `[{"emotion": "happy", "at": 0}, {"emotion": "sad", "at": 13}]`.

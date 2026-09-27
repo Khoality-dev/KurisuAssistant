@@ -113,6 +113,10 @@ async def get_conversation(
                     message_dict["tool_args"] = msg.tool_args
                 if getattr(msg, 'tool_status', None):
                     message_dict["tool_status"] = msg.tool_status
+                if getattr(msg, 'tool_kind', None):
+                    message_dict["tool_kind"] = msg.tool_kind
+                if getattr(msg, 'duration_ms', None) is not None:
+                    message_dict["duration_ms"] = msg.duration_ms
                 if getattr(msg, 'context_files', None):
                     message_dict["context_files"] = msg.context_files
                 if getattr(msg, 'emotion_cues', None):

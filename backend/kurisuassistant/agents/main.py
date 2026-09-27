@@ -60,6 +60,14 @@ class MainAgent(BaseAgent):
         super().__init__(capabilities, tool_registry, identity=identity)
         self.turn_data: List[Dict] = []
 
+    def _sub_agent_tool(self, tool_name: str):
+        """The injected SubAgentTool adapter ``tool_name`` resolves to, or None."""
+        from .sub import SubAgentTool
+        for extra_tool in getattr(self, "extra_tools", None) or []:
+            if isinstance(extra_tool, SubAgentTool) and extra_tool.name == tool_name:
+                return extra_tool
+        return None
+
     def _is_sub_agent_tool(self, tool_name: str) -> bool:
         """Whether ``tool_name`` resolves to an injected SubAgentTool adapter.
 
@@ -469,6 +477,9 @@ class MainAgent(BaseAgent):
 
                     # A tool chunk is not the persona speaking, so it carries no
                     # persona_id/persona_name; ``name`` is the tool's own label.
+                    # A delegation names the model that ran it; an ordinary
+                    # tool runs none of its own (#327).
+                    delegate = self._sub_agent_tool(display_name)
                     yield StreamChunkEvent(
                         content=result.content,
                         role="tool",
@@ -476,8 +487,9 @@ class MainAgent(BaseAgent):
                         conversation_id=context.conversation_id,
                         tool_args=display_args,
                         tool_status=result.status,
-                        tool_kind="sub_agent" if self._is_sub_agent_tool(display_name) else "tool",
+                        tool_kind="sub_agent" if delegate else "tool",
                         duration_ms=duration_ms,
+                        model_name=(delegate.sub.config.model_name or None) if delegate else None,
                         images=result.images or None,
                         tool_call_id=call_ids[call_index],
                     )
