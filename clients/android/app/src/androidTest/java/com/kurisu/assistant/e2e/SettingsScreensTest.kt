@@ -6,6 +6,7 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -71,6 +72,32 @@ class SettingsScreensTest : E2eTest() {
         waitUntilGone(name)
         waitForServer("/personas", name, present = false)
     }
+
+    @Test
+    fun a_persona_voice_is_picked_by_name_and_stored_by_id() {
+        login()
+        openDrawerItem("Personas")
+        waitForText("Kurisu")
+
+        composeRule.onNodeWithContentDescription("Edit Kurisu").performClick()
+        // The voice field shows its placeholder while none is set; a tap opens the list
+        // of the engines' presets (#214), which used to fail to decode and read
+        // "No voices available".
+        waitForText("None")
+        composeRule.onAllNodesWithText("None", useUnmergedTree = true).onFirst().performClick()
+        waitForText("Kurisu (Japanese)")
+        composeRule.onNodeWithText("Kurisu (Japanese)", useUnmergedTree = true).performClick()
+        composeRule.onNode(hasText("Save") and hasClickAction()).performClick()
+
+        waitUntilTrue { kurisuVoice() == "kurisu_ja_01" }
+        assertTrue("the preset's id is stored, not its name: ${kurisuVoice()}", kurisuVoice() == "kurisu_ja_01")
+        // The row reads the voice by name, as the picker did.
+        waitForText("Kurisu (Japanese)", substring = true)
+    }
+
+    private fun kurisuVoice(): String? =
+        mock.getJson("/personas").jsonArray.map { it.jsonObject }
+            .single { it.string("name") == "Kurisu" }.string("voice_reference")
 
     @Test
     fun a_skill_is_created_and_deleted() {
