@@ -20,3 +20,4 @@ export * from './useInteractiveASR';
 export * from './useStreamingChat';
 export * from './useTTS';
 export * from './useWebcamCapture';
+export * from './voiceBarPhase';
