@@ -109,7 +109,9 @@ test.describe('personas are optional', () => {
 
     await page.getByRole('button', { name: 'Use the assistant' }).click();
     await expect.poll(() => mock.getAssistant().selected_persona_id).toBeNull();
-    await expect(page.getByText('In the chat', { exact: true })).toHaveCount(0);
+    // The chip moves to the Assistant row (#348).
+    await expect(page.getByRole('group', { name: 'Kurisu', exact: true }).getByText('In the chat', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('group', { name: 'Assistant', exact: true })).toHaveAttribute('aria-current', 'true');
 
     await page.getByRole('button', { name: 'Delete' }).first().click();
     await page.getByRole('button', { name: 'Delete persona' }).click();
