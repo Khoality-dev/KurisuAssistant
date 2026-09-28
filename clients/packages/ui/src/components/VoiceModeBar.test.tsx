@@ -187,3 +187,13 @@ describe('End voice mode', () => {
     expect(button('End voice mode')).toBeDefined();
   });
 });
+
+describe('whether the mic is on', () => {
+  it('is on the bar for anything that needs to know the recogniser is listening', () => {
+    renderBar('waiting', { micOn: true });
+    expect(container.querySelector('[aria-label="Voice mode"]')!.getAttribute('data-mic')).toBe('on');
+
+    renderBar('waiting', { micOn: false });
+    expect(container.querySelector('[aria-label="Voice mode"]')!.getAttribute('data-mic')).toBe('off');
+  });
+});
