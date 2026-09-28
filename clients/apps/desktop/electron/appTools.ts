@@ -428,7 +428,7 @@ function getAppToolSchemas(): ToolSchema[] {
       type: 'function',
       function: {
         name: 'app_end_interaction',
-        description: 'End the current voice interaction session. Call this when the user indicates they are done — e.g. "that\'s all", "nothing else", "bye", "I\'ll call you later", "talk to you later", or similar farewell/dismissal phrases.',
+        description: 'End the current voice interaction: voice mode stays on and waits for the wake word again, and the next interaction starts a new conversation. Call this when the user indicates they are done — e.g. "that\'s all", "nothing else", "bye", "I\'ll call you later", "talk to you later", or similar farewell/dismissal phrases.',
         parameters: {
           type: 'object',
           properties: {},

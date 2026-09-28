@@ -5,22 +5,27 @@ import CircularProgress from '@mui/material/CircularProgress';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ASRStatus } from '@kurisu/state';
 
-interface InteractiveCallBarProps {
+interface VoiceModeBarProps {
   asrStatus: ASRStatus;
   interactionActive: boolean;
   lastTranscript: string;
   isStreaming: boolean;
   isTTSPlaying: boolean;
-  onHangUp: () => void;
+  onEnd: () => void;
 }
 
-export const InteractiveCallBar: React.FC<InteractiveCallBarProps> = ({
+/**
+ * The voice bar: what stands in for the composer in voice mode (#253). It
+ * waits for the wake word until an interaction starts, then listens and
+ * answers until 30 s after the last reply, or until voice mode ends.
+ */
+export const VoiceModeBar: React.FC<VoiceModeBarProps> = ({
   asrStatus,
   interactionActive,
   lastTranscript,
   isStreaming,
   isTTSPlaying,
-  onHangUp,
+  onEnd,
 }) => {
   const statusText = isTTSPlaying
     ? 'Speaking...'
@@ -30,7 +35,7 @@ export const InteractiveCallBar: React.FC<InteractiveCallBarProps> = ({
         ? 'Processing...'
         : interactionActive
           ? 'Listening...'
-          : 'Waiting for trigger word...';
+          : 'Waiting for the wake word...';
 
   const isListening = asrStatus === 'listening';
   const isProcessing = asrStatus === 'processing';
@@ -123,9 +128,10 @@ export const InteractiveCallBar: React.FC<InteractiveCallBarProps> = ({
         {statusText}
       </Typography>
 
-      {/* Hang up button */}
+      {/* End voice mode */}
       <IconButton
-        onClick={onHangUp}
+        onClick={onEnd}
+        aria-label="End voice mode"
         sx={{
           width: 48,
           height: 48,

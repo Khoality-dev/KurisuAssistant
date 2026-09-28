@@ -92,7 +92,7 @@ test.describe('settings', () => {
     await page.getByText('Personas', { exact: true }).first().click();
     await page.getByText('No character').click();
 
-    await page.getByLabel('Voice').click();
+    await page.getByRole('combobox', { name: 'Voice' }).click();
     await page.getByRole('option', { name: 'Kurisu (Japanese)' }).click();
     await page.getByRole('button', { name: 'Save' }).click();
 

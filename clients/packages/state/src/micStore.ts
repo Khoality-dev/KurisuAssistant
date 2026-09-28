@@ -30,14 +30,21 @@ interface MicState {
   devices: AudioDevice[];
   selectedDeviceId: string | null;
 
-  // Interactive mode (call bar UI) + interaction active (auto-send without trigger word)
-  interactiveMode: boolean;
-  interactionActive: boolean;
-  pttActive: boolean;
   /**
-   * The assistant's wake word, or null when it has none. Heard in a transcript
-   * outside an exchange, it starts one (#337). Set wherever the assistant is
-   * read or saved, so a change in Settings applies without a restart.
+   * Voice mode (#253): on, the mic listens and waits for the wake word, and the
+   * voice bar stands in for the composer. Nothing is answered until the wake
+   * word starts an interaction.
+   */
+  voiceMode: boolean;
+  /**
+   * An interaction: everything said is sent and answered, no wake word needed,
+   * until 30 seconds pass with nothing said or voice mode ends.
+   */
+  interactionActive: boolean;
+  /**
+   * The assistant's wake word, or null when it has none. Heard in voice mode, it
+   * starts an interaction (#337, #253). Set wherever the assistant is read or
+   * saved, so a change in Settings applies without a restart.
    */
   triggerWord: string | null;
 
@@ -47,15 +54,20 @@ interface MicState {
   loadDevices: () => Promise<AudioDevice[]>;
   selectDevice: (deviceId: string) => void;
   setTriggerWord: (word: string | null) => void;
-  enableInteractiveMode: () => void;
-  disableInteractiveMode: () => void;
+  /**
+   * Voice mode on: the mic listens and waits for the wake word (#253). It is the
+   * only time the mic listens — it replaced the "Always listen" setting — and
+   * this device remembers it, so it comes back on with the app.
+   */
+  startVoiceMode: () => void;
+  /** Voice mode off: the mic stops listening and the composer comes back. */
+  endVoiceMode: () => void;
+  /** Turn voice mode back on at start-up if this device left it on. */
+  restoreVoiceMode: () => void;
   activateInteraction: () => void;
   deactivateInteraction: () => void;
-  activatePTT: () => void;
-  deactivatePTT: () => void;
   pauseListening: () => void;
   resumeListening: () => void;
-  initAlwaysListen: () => void;
 }
 
 // Module-level VAD state (not in Zustand to avoid re-renders)
@@ -89,9 +101,8 @@ export const useMicStore = create<MicState>((set, get) => ({
   error: null,
   devices: [],
   selectedDeviceId: storage.getASRDeviceId(),
-  interactiveMode: false,
+  voiceMode: false,
   interactionActive: false,
-  pttActive: false,
   triggerWord: null,
 
   startListening: async () => {
@@ -139,7 +150,7 @@ export const useMicStore = create<MicState>((set, get) => ({
           return stream;
         },
         onSpeechEnd: async (audio: Float32Array) => {
-          // Skip audio too short to contain a trigger word (< 0.5s at 16kHz)
+          // Skip audio too short to contain a wake word (< 0.5s at 16kHz)
           if (audio.length < 8000) return;
           // Prevent concurrent processing (React StrictMode can double-fire)
           if (_processing) return;
@@ -244,20 +255,23 @@ export const useMicStore = create<MicState>((set, get) => ({
     set({ triggerWord: word?.trim() || null });
   },
 
-  enableInteractiveMode: () => {
-    if (get().interactiveMode) return;
-    set({ interactiveMode: true });
-    if (get().status === 'idle') {
-      get().startListening();
-    }
+  startVoiceMode: () => {
+    if (get().voiceMode) return;
+    set({ voiceMode: true });
+    storage.setVoiceMode(true);
+    if (get().status === 'idle') get().startListening();
   },
 
-  disableInteractiveMode: () => {
-    if (!get().interactiveMode) return;
-    set({ interactiveMode: false, interactionActive: false });
-    if (get().status !== 'idle') {
-      get().stopListening();
-    }
+  endVoiceMode: () => {
+    if (!get().voiceMode) return;
+    set({ voiceMode: false });
+    storage.setVoiceMode(false);
+    get().deactivateInteraction();
+    if (get().status !== 'idle') get().stopListening();
+  },
+
+  restoreVoiceMode: () => {
+    if (storage.getVoiceMode()) get().startVoiceMode();
   },
 
   activateInteraction: () => {
@@ -268,19 +282,7 @@ export const useMicStore = create<MicState>((set, get) => ({
 
   deactivateInteraction: () => {
     if (!get().interactionActive) return;
-    set({ interactionActive: false, pttActive: false });
-    playStopSound();
-  },
-
-  activatePTT: () => {
-    if (get().pttActive) return;
-    set({ interactionActive: true, pttActive: true });
-    playStartSound();
-  },
-
-  deactivatePTT: () => {
-    if (!get().pttActive) return;
-    set({ interactionActive: false, pttActive: false });
+    set({ interactionActive: false });
     playStopSound();
   },
 
@@ -292,9 +294,4 @@ export const useMicStore = create<MicState>((set, get) => ({
     if (_vad) await _vad.start();
   },
 
-  initAlwaysListen: () => {
-    if (!storage.getASRAlwaysListen()) return;
-    if (get().status !== 'idle') return;
-    get().startListening();
-  },
 }));

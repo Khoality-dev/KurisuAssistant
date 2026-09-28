@@ -6,8 +6,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  FormControlLabel,
-  Switch,
   Divider,
   SelectChangeEvent,
 } from '@mui/material';
@@ -26,19 +24,6 @@ export const VoiceSection: React.FC = () => {
   const [selectedSpeakerId, setSelectedSpeakerIdState] = useState(
     localStorage.getItem('kurisu_speaker_device_id') || ''
   );
-  const [alwaysListen, setAlwaysListenState] = useState(storage.getASRAlwaysListen());
-
-  const setAlwaysListen = (v: boolean) => {
-    setAlwaysListenState(v);
-    storage.setASRAlwaysListen(v);
-    const mic = useMicStore.getState();
-    if (v && mic.status === 'idle') {
-      mic.startListening();
-    } else if (!v && mic.status !== 'idle') {
-      mic.stopListening();
-    }
-  };
-
   const setSelectedMicId = (deviceId: string) => {
     setSelectedMicIdState(deviceId);
     if (deviceId) {
@@ -58,8 +43,8 @@ export const VoiceSection: React.FC = () => {
     const wasListening = mic.status !== 'idle';
     if (wasListening) mic.stopListening();
     return () => {
-      // Restart if always-listen is enabled
-      if (storage.getASRAlwaysListen()) {
+      // Listen again only if voice mode is on: it is the only time the mic listens (#253).
+      if (useMicStore.getState().voiceMode) {
         useMicStore.getState().startListening();
       }
     };
@@ -118,21 +103,6 @@ export const VoiceSection: React.FC = () => {
             ))}
           </Select>
         </FormControl>
-      </Box>
-
-      <Box sx={{ mb: 3 }}>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={alwaysListen}
-              onChange={(e) => setAlwaysListen(e.target.checked)}
-            />
-          }
-          label="Always listen"
-        />
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-          Keep microphone active to detect trigger words or push-to-talk.
-        </Typography>
       </Box>
 
       <Divider sx={{ mb: 3 }} />

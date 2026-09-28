@@ -10,32 +10,26 @@ export function heardWakeWord(transcript: string, word: string | null): boolean 
 }
 
 interface UseInteractiveASRParams {
-  personaId: number | null;
-  currentConversationId: number | null;
   isStreaming: boolean;
   isQueueActive: boolean;
-  handleSendText: (text: string) => Promise<void>;
-  pushExternalDraft: (text: string) => void;
+  /** `newConversation`: this is an interaction's first message, and each interaction is a new conversation. */
+  handleSendText: (text: string, opts: { newConversation: boolean }) => Promise<void>;
   stopTTSPlayback: () => void;
 }
 
 export function useInteractiveASR({
-  personaId,
-  currentConversationId,
   isStreaming,
   isQueueActive,
   handleSendText,
-  pushExternalDraft,
   stopTTSPlayback,
 }: UseInteractiveASRParams) {
   const {
     status: asrStatus, result: asrResult,
     interactionActive, deactivateInteraction,
-    pttActive,
   } = useMicStore();
   const interactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const INTERACTION_IDLE_MS = 30_000;
+  const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const RESUME_DELAY_MS = 10000;
   const [lastTranscript, setLastTranscript] = useState('');
   const lastTranscriptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -91,9 +85,13 @@ export function useInteractiveASR({
     lastProcessedSeq.current = asrResult.seq;
     const asrTranscript = asrResult.text;
     const state = useMicStore.getState();
+    // The mic listens only in voice mode; a transcript still in flight when it
+    // was turned off is dropped (#253).
+    if (!state.voiceMode) return;
 
-    // Interactive mode: when active, auto-send ASR transcripts. Outside one,
-    // the wake word starts it and is itself the first message (#337).
+    // In an interaction everything said is sent. In voice mode the wake word
+    // starts one and is itself the first message (#337, #253); anything else
+    // said there is not for the assistant yet, and is dropped.
     const woken = !state.interactionActive && heardWakeWord(asrTranscript, state.triggerWord);
     if (woken) state.activateInteraction();
     if (state.interactionActive || woken) {
@@ -111,43 +109,27 @@ export function useInteractiveASR({
         clearTimeout(interactionTimerRef.current);
         interactionTimerRef.current = null;
       }
-      handleSendText(asrTranscript);
+      // Each interaction is a new conversation: the wake word's sentence opens it.
+      handleSendText(asrTranscript, { newConversation: woken });
       pauseVAD();
-    } else {
-      // Not in interaction and no trigger word: fill chat input as dictation
-      pushExternalDraft(asrTranscript);
     }
   }, [asrResult]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Deactivate interaction when the persona or the conversation changes
+  // An interaction ends 30 s after the assistant's last reply — once it has
+  // finished streaming and speaking — with nothing said since; voice mode then
+  // waits for the wake word again (#253). A persona or conversation change does
+  // not end it: a new chat's first message creates its conversation.
   useEffect(() => {
-    const state = useMicStore.getState();
-    if (state.interactionActive) {
+    if (interactionTimerRef.current) {
+      clearTimeout(interactionTimerRef.current);
+      interactionTimerRef.current = null;
+    }
+    if (!interactionActive || isStreaming || isQueueActive) return;
+    interactionTimerRef.current = setTimeout(() => {
+      interactionTimerRef.current = null;
       deactivateInteraction();
-      if (interactionTimerRef.current) {
-        clearTimeout(interactionTimerRef.current);
-        interactionTimerRef.current = null;
-      }
-    }
-  }, [personaId, currentConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // 30s idle timer — only for trigger word flow (not PTT)
-  useEffect(() => {
-    if (!interactionActive || pttActive) return;
-
-    if (!isStreaming && !isQueueActive) {
-      if (interactionTimerRef.current) clearTimeout(interactionTimerRef.current);
-      interactionTimerRef.current = setTimeout(() => {
-        deactivateInteraction();
-        interactionTimerRef.current = null;
-      }, INTERACTION_IDLE_MS);
-    } else {
-      if (interactionTimerRef.current) {
-        clearTimeout(interactionTimerRef.current);
-        interactionTimerRef.current = null;
-      }
-    }
-  }, [interactionActive, pttActive, isStreaming, isQueueActive, deactivateInteraction]);
+    }, INTERACTION_IDLE_MS);
+  }, [interactionActive, isStreaming, isQueueActive, deactivateInteraction]);
 
   // Resume VAD when interaction ends (in case it was paused)
   useEffect(() => {
@@ -173,7 +155,6 @@ export function useInteractiveASR({
   return {
     asrStatus,
     interactionActive,
-    pttActive,
     lastTranscript,
     isQueueActive,
   };

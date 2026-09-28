@@ -27,7 +27,7 @@ const STORAGE_KEYS = {
   ASR_DEVICE_ID: 'kurisu_asr_device_id',
   PERSONA_CONVERSATIONS: 'kurisu_persona_conversations',
   ASR_LANGUAGE: 'kurisu_asr_language',
-  ASR_ALWAYS_LISTEN: 'kurisu_asr_always_listen',
+  VOICE_MODE: 'kurisu_voice_mode',
   ASR_MODE: 'kurisu_asr_mode',
   ASR_FIXED_MODEL: 'kurisu_asr_fixed_model',
   ASR_MODEL_MAP: 'kurisu_asr_model_map',
@@ -41,6 +41,8 @@ const LEGACY_STORAGE_KEYS = [
   'kurisu_agent_conversations',
   // Who the chat was on, kept per machine until the server kept it (#334).
   'kurisu_selected_persona_id',
+  // "Always listen", which voice mode replaced: the mic listens only in voice mode (#253).
+  'kurisu_asr_always_listen',
 ] as const;
 
 // Where the tokens used to be kept. Read once during migration, then removed.
@@ -486,21 +488,20 @@ export const storage = {
     }
   },
 
-  /** Always-listen: keep mic active for trigger word detection. Default true. */
-  getASRAlwaysListen(): boolean {
+  /** Voice mode was on when this device last left it; it comes back on (#253). */
+  getVoiceMode(): boolean {
     try {
-      const v = localStorage.getItem(STORAGE_KEYS.ASR_ALWAYS_LISTEN);
-      return v === 'true';
+      return localStorage.getItem(STORAGE_KEYS.VOICE_MODE) === 'true';
     } catch {
-      return true;
+      return false;
     }
   },
 
-  setASRAlwaysListen(enabled: boolean): void {
+  setVoiceMode(on: boolean): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.ASR_ALWAYS_LISTEN, enabled.toString());
+      localStorage.setItem(STORAGE_KEYS.VOICE_MODE, on.toString());
     } catch (error) {
-      console.error('Failed to save ASR always-listen:', error);
+      console.error('Failed to save voice mode:', error);
     }
   },
 

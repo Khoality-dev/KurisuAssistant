@@ -35,6 +35,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FaceIcon from '@mui/icons-material/Face';
+import HeadsetMicIcon from '@mui/icons-material/HeadsetMic';
 
 import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '@kurisu/state';
@@ -47,12 +48,12 @@ import { storage } from '@kurisu/api';
 import { useTTS } from '@kurisu/hooks';
 import { useVisionStore, setThinking } from '@kurisu/state';
 import { useCharacterPanel } from '@kurisu/hooks';
-import { useInteractiveASR } from '@kurisu/hooks';
+import { useInteractiveASR, useCapabilities } from '@kurisu/hooks';
 import { useMicStore } from '@kurisu/state';
 import { usePersonaStore } from '@kurisu/state';
 import { useStreamingChat } from '@kurisu/hooks';
 import { useContextBreakdown } from '@kurisu/hooks';
-import { InteractiveCallBar } from '../InteractiveCallBar';
+import { VoiceModeBar } from '../VoiceModeBar';
 import { MessageBubble } from './MessageBubble';
 import { SelectionChips } from './SelectionChips';
 import { ChatComposer } from './ChatComposer';
@@ -192,6 +193,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
   // A transcription that failed is reported the same way. The mic store keeps
   // the last error; it used to be stored and shown nowhere.
   const micError = useMicStore((s) => s.error);
+  const voiceMode = useMicStore((s) => s.voiceMode);
+  const capabilities = useCapabilities();
   useEffect(() => {
     if (micError) streaming.setErrorToast(micError);
   }, [micError]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -407,46 +410,17 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
     return () => window.removeEventListener('keydown', handler);
   }, [personaSheetOpen, sheetOptions, personaActiveIdx, handlePersonaPick]);
 
-  // Interactive ASR hook
+  // What voice mode hears (#253)
   const asr = useInteractiveASR({
-    personaId,
-    currentConversationId: streaming.activeConversationId,
     isStreaming: streaming.isStreaming,
     isQueueActive,
     handleSendText: streaming.handleSendText,
-    pushExternalDraft: streaming.pushExternalDraft,
     stopTTSPlayback: () => { stopTTS(); clearQueue(); },
   });
 
-  // Always-listen: auto-start mic on mount
+  // Voice mode comes back on if this device left it on — it replaced "Always listen".
   useEffect(() => {
-    useMicStore.getState().initAlwaysListen();
-  }, []);
-
-  // Push-to-talk: Ctrl+Space or headset MediaPlayPause
-  useEffect(() => {
-    const { activatePTT, deactivatePTT } = useMicStore.getState();
-
-    // Ctrl+Space: hold-to-talk
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat) return;
-      if (e.ctrlKey && e.code === 'Space') {
-        e.preventDefault();
-        activatePTT();
-      }
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
-        deactivatePTT();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
+    useMicStore.getState().restoreVoiceMode();
   }, []);
 
   // Vision (camera toggle) — driven only by the /vision slash command
@@ -700,6 +674,20 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
             <FaceIcon sx={{ fontSize: 18, color: characterShown ? 'primary.main' : 'text.secondary' }} />
           </IconButton>
         </Tooltip>
+        {/* Voice mode (#253), where the host can capture the microphone: the
+            mic listens for the wake word, which starts an interaction. */}
+        {capabilities.microphone && (
+          <Tooltip title={voiceMode ? 'End voice mode' : 'Start voice mode'}>
+            <IconButton
+              size="small"
+              aria-label={voiceMode ? 'End voice mode' : 'Start voice mode'}
+              onClick={() => (voiceMode ? useMicStore.getState().endVoiceMode() : useMicStore.getState().startVoiceMode())}
+              sx={{ p: 0.5 }}
+            >
+              <HeadsetMicIcon sx={{ fontSize: 18, color: voiceMode ? 'primary.main' : 'text.secondary' }} />
+            </IconButton>
+          </Tooltip>
+        )}
         </Box>
         {currentConversation && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -822,7 +810,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
       {/* Selection context chips — above input */}
       <SelectionChips />
 
-      {/* Bottom area: approval bar, interactive call bar, or typing input */}
+      {/* Bottom area: approval bar, the voice bar, or typing input */}
       {(streaming.pendingApproval || hostApproval) ? (
         <ToolApprovalBar
           request={hostApproval ? hostApproval.request : {
@@ -839,14 +827,14 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
             : (value) => streaming.respondToApproval(value)
           }
         />
-      ) : asr.interactionActive ? (
-        <InteractiveCallBar
+      ) : voiceMode ? (
+        <VoiceModeBar
           asrStatus={asr.asrStatus}
           interactionActive={asr.interactionActive}
           lastTranscript={asr.lastTranscript}
           isStreaming={streaming.isStreaming}
           isTTSPlaying={isQueueActive}
-          onHangUp={() => useMicStore.getState().deactivateInteraction()}
+          onEnd={() => useMicStore.getState().endVoiceMode()}
         />
       ) : (
         <ChatComposer
