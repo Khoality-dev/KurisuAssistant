@@ -23,8 +23,11 @@ let seq = 0;
 const handleSendText = vi.fn(async (_text: string, _opts?: { newConversation?: boolean }) => {});
 const reply = { isStreaming: false, isQueueActive: false };
 
+/** What the hook last returned: what the voice bar is drawn from. */
+let bar: ReturnType<typeof useInteractiveASR>;
+
 function Chat() {
-  useInteractiveASR({
+  bar = useInteractiveASR({
     isStreaming: reply.isStreaming,
     isQueueActive: reply.isQueueActive,
     handleSendText,
@@ -55,6 +58,7 @@ beforeEach(async () => {
   reply.isQueueActive = false;
   useMicStore.setState({
     voiceMode: true, interactionActive: false, result: null, triggerWord: 'Kurisu',
+    userSpeaking: false, status: 'listening',
   } as any);
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -150,5 +154,73 @@ describe('with voice mode off', () => {
 
     expect(handleSendText).not.toHaveBeenCalled();
     expect(useMicStore.getState().interactionActive).toBe(false);
+  });
+});
+
+/** Someone starting or stopping talking, as the VAD reports it. */
+async function talking(on: boolean) {
+  await act(async () => { useMicStore.setState({ userSpeaking: on } as any); });
+}
+
+describe('what the voice bar is drawn from (#345)', () => {
+  it('what was said stays for the whole interaction, and goes when it ends', async () => {
+    await hear('Kurisu, how long do I boil an egg?');
+    await answer('streaming');
+    await answer('done');
+    await act(async () => { vi.advanceTimersByTime(10_000); });
+
+    expect(bar.lastTranscript).toBe('Kurisu, how long do I boil an egg?');
+
+    await act(async () => { vi.advanceTimersByTime(20_000); });
+    expect(bar.lastTranscript).toBe('');
+  });
+
+  it('knows when the wake word started the interaction', async () => {
+    const now = Date.now();
+    await hear('Kurisu, what time is it?');
+
+    expect(bar.wokeAt).toBe(now);
+  });
+
+  it('the 30-second window opens when the reply has finished, not while it streams or is spoken', async () => {
+    await hear('Kurisu, hello');
+    await answer('streaming');
+    expect(bar.windowStartedAt).toBeNull();
+    await answer('speaking');
+    expect(bar.windowStartedAt).toBeNull();
+
+    const finished = Date.now();
+    await answer('done');
+    expect(bar.windowStartedAt).toBe(finished);
+  });
+
+  it('talking holds the window open, and it starts again when the talking stops', async () => {
+    await hear('Kurisu, hello');
+    await answer('streaming');
+    await answer('done');
+    await act(async () => { vi.advanceTimersByTime(20_000); });
+
+    await talking(true);
+    expect(bar.windowStartedAt).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(20_000); });
+    expect(useMicStore.getState().interactionActive).toBe(true);
+
+    await talking(false);
+    expect(bar.windowStartedAt).toBe(Date.now());
+    await act(async () => { vi.advanceTimersByTime(29_000); });
+    expect(useMicStore.getState().interactionActive).toBe(true);
+    await act(async () => { vi.advanceTimersByTime(1_000); });
+    expect(useMicStore.getState().interactionActive).toBe(false);
+  });
+
+  it('the window is shut while what was said is being transcribed', async () => {
+    await hear('Kurisu, hello');
+    await answer('streaming');
+    await answer('done');
+    await act(async () => { useMicStore.setState({ status: 'processing' } as any); });
+
+    expect(bar.windowStartedAt).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(60_000); });
+    expect(useMicStore.getState().interactionActive).toBe(true);
   });
 });

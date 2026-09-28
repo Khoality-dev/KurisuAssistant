@@ -1,5 +1,6 @@
 /**
- * Voice mode, turned on and off from the chat header (#253).
+ * Voice mode, turned on and off from the chat header (#253), as the Claude
+ * Design mockup "Kurisu - Voice Mode v1" draws it (#345).
  *
  * It replaced the "Always listen" setting: the mic listens only in voice mode,
  * where it waits for the wake word. The voice bar stands in for the message
@@ -17,25 +18,31 @@ async function login(page: Page) {
   await expect(page.getByPlaceholder('Type your message...')).toBeVisible({ timeout: 15_000 });
 }
 
+const voiceBar = (page: Page) => page.getByRole('region', { name: 'Voice mode' });
+
 test.describe('voice mode', () => {
-  test('the chat header turns it on: the voice bar waits for the wake word in place of the message box', async ({ page }) => {
+  test('the chat header turns it on: a pill says so, and the voice bar stands in for the message box', async ({ page }) => {
     await login(page);
 
     await page.getByRole('button', { name: 'Start voice mode' }).click();
-    await expect(page.getByText('Waiting for the wake word...')).toBeVisible();
+    await expect(voiceBar(page)).toBeVisible();
     await expect(page.getByPlaceholder('Type your message...')).toHaveCount(0);
+    // The chat column is 400 px wide by default: the narrow pill.
+    const pill = page.getByRole('button', { name: 'End voice mode' }).first();
+    await expect(pill).toHaveText('On');
 
-    // The voice bar's own button turns it off.
-    await page.getByRole('button', { name: 'End voice mode' }).last().click();
+    // The voice bar's own labelled button turns it off, and a snackbar says the mic is off.
+    await voiceBar(page).getByRole('button', { name: 'End voice mode' }).click();
     await expect(page.getByPlaceholder('Type your message...')).toBeVisible();
+    await expect(page.getByText("Voice mode is off. The mic isn't listening.")).toBeVisible();
     await expect(page.getByRole('button', { name: 'Start voice mode' })).toBeVisible();
   });
 
-  test('the header button turns it off too, and the app remembers it was on', async ({ page }) => {
+  test('the header pill turns it off too, and the app remembers it was on', async ({ page }) => {
     await login(page);
 
     await page.getByRole('button', { name: 'Start voice mode' }).click();
-    await expect(page.getByText('Waiting for the wake word...')).toBeVisible();
+    await expect(voiceBar(page)).toBeVisible();
 
     await page.reload();
     // Not `login()`: it waits for the message box, which voice mode hides.
@@ -44,7 +51,7 @@ test.describe('voice mode', () => {
       await page.getByLabel('Password').fill('password');
       await page.getByRole('button', { name: 'Login' }).click();
     }
-    await expect(page.getByText('Waiting for the wake word...')).toBeVisible({ timeout: 15_000 });
+    await expect(voiceBar(page)).toBeVisible({ timeout: 15_000 });
 
     await page.getByRole('button', { name: 'End voice mode' }).first().click();
     await expect(page.getByPlaceholder('Type your message...')).toBeVisible();

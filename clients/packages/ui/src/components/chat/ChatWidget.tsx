@@ -35,7 +35,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FaceIcon from '@mui/icons-material/Face';
-import HeadsetMicIcon from '@mui/icons-material/HeadsetMic';
+import HeadsetOffIcon from '@mui/icons-material/HeadsetOff';
 
 import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '@kurisu/state';
@@ -48,12 +48,14 @@ import { storage } from '@kurisu/api';
 import { useTTS } from '@kurisu/hooks';
 import { useVisionStore, setThinking } from '@kurisu/state';
 import { useCharacterPanel } from '@kurisu/hooks';
-import { useInteractiveASR, useCapabilities } from '@kurisu/hooks';
-import { useMicStore } from '@kurisu/state';
+import { useInteractiveASR, useCapabilities, voiceBarPhase, isVoiceProblem } from '@kurisu/hooks';
+import { useMicStore, useLayoutStore } from '@kurisu/state';
 import { usePersonaStore } from '@kurisu/state';
 import { useStreamingChat } from '@kurisu/hooks';
 import { useContextBreakdown } from '@kurisu/hooks';
-import { VoiceModeBar } from '../VoiceModeBar';
+import { VoiceModeBar, voiceColors } from '../VoiceModeBar';
+import { VoiceModeToggle } from './VoiceModeToggle';
+import { NewInteractionMarker } from './NewInteractionMarker';
 import { ContextUsageBar } from './ContextUsageBar';
 import { MessageBubble } from './MessageBubble';
 import { SelectionChips } from './SelectionChips';
@@ -61,6 +63,19 @@ import { ChatComposer } from './ChatComposer';
 import { ToolApprovalBar, ApprovalRequest } from './ToolApprovalBar';
 import { NoModelPrompt } from './NoModelPrompt';
 import { resolveBridge } from '@kurisu/platform';
+import { useTheme } from '@mui/material/styles';
+
+/** Below this, the chat column is narrow: the voice pill says "On" and End voice mode gets its own row (#345). */
+const NARROW_COLUMN_PX = 480;
+
+/** The conversation a voice-mode interaction opened, for the marker at its top (#345). */
+interface InteractionMarker {
+  at: number;
+  /** The conversation open when the wake word was heard, now kept in Conversations. */
+  previousId: number | null;
+  /** The new conversation, once the server has created it. */
+  conversationId: number | null;
+}
 
 /** One row of the "who should answer?" sheet; `id: null` is the assistant itself. */
 interface SheetOption {
@@ -195,7 +210,38 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
   // the last error; it used to be stored and shown nowhere.
   const micError = useMicStore((s) => s.error);
   const voiceMode = useMicStore((s) => s.voiceMode);
+  const micProblem = useMicStore((s) => s.problem);
+  const triggerWord = useMicStore((s) => s.triggerWord);
+  const userSpeaking = useMicStore((s) => s.userSpeaking);
   const capabilities = useCapabilities();
+  const theme = useTheme();
+
+  // How wide the chat column is: the voice pill and bar fit themselves to it.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [narrow, setNarrow] = useState(true);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => setNarrow(entry.contentRect.width < NARROW_COLUMN_PX));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Ending voice mode says so: the mic is off (#345).
+  const [voiceOffNotice, setVoiceOffNotice] = useState(false);
+  const endVoiceMode = useCallback(() => {
+    useMicStore.getState().endVoiceMode();
+    setVoiceOffNotice(true);
+  }, []);
+  const startVoiceMode = useCallback(() => {
+    setVoiceOffNotice(false);
+    useMicStore.getState().startVoiceMode();
+  }, []);
+  const openSettings = useCallback((section: string) => {
+    const layout = useLayoutStore.getState();
+    layout.setSettingsSection(section);
+    layout.setActivePage('settings');
+  }, []);
   useEffect(() => {
     if (micError) streaming.setErrorToast(micError);
   }, [micError]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -424,6 +470,39 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
     useMicStore.getState().restoreVoiceMode();
   }, []);
 
+  // What the voice bar says voice mode is doing (#345).
+  const voicePhase = voiceBarPhase({
+    problem: micProblem,
+    triggerWord,
+    interactionActive: asr.interactionActive,
+    userSpeaking,
+    asrStatus: asr.asrStatus,
+    isStreaming: streaming.isStreaming,
+    isSpeaking: isQueueActive,
+  });
+
+  // The wake word opens a new conversation (#253); its transcript starts on a
+  // marker saying so, pointing to where the previous one is kept (#345). The
+  // new conversation's id arrives with the first reply, so the marker is bound
+  // to it once it does.
+  const [interactionMarker, setInteractionMarker] = useState<InteractionMarker | null>(null);
+  const lastConversationIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (asr.wokeAt === null) return;
+    setInteractionMarker({ at: asr.wokeAt, previousId: lastConversationIdRef.current, conversationId: null });
+  }, [asr.wokeAt]);
+  useEffect(() => {
+    const id = currentConversation?.id ?? null;
+    if (id === null) return;
+    setInteractionMarker((m) => (m && m.conversationId === null && id !== m.previousId ? { ...m, conversationId: id } : m));
+    lastConversationIdRef.current = id;
+  }, [currentConversation?.id]);
+  const showInteractionMarker = !!interactionMarker && (
+    interactionMarker.conversationId === null
+      ? !currentConversation
+      : currentConversation?.id === interactionMarker.conversationId
+  );
+
   // Vision (camera toggle) — driven only by the /vision slash command
   const {
     isActive: cameraActive,
@@ -601,6 +680,15 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
         </Paper>
       )}
 
+      {showInteractionMarker && interactionMarker && (
+        <NewInteractionMarker
+          wakeWord={triggerWord}
+          at={interactionMarker.at}
+          hasPrevious={interactionMarker.previousId !== null}
+          onOpenConversations={() => useLayoutStore.getState().setActivePage('conversations')}
+        />
+      )}
+
       <AnimatePresence>
         {messageElements}
       </AnimatePresence>
@@ -617,10 +705,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
       ))}
       <div ref={streaming.messagesEndRef} />
     </Box>
-  ), [isLoadingMessages, messageElements, streaming.queuedMessages, compactedContext]);
+  ), [isLoadingMessages, messageElements, streaming.queuedMessages, compactedContext, showInteractionMarker, interactionMarker, triggerWord]);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%', position: 'relative' }}>
+    <Box ref={rootRef} sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%', position: 'relative' }}>
 
       {/* Header: who is answering (click to override for this conversation), what it
           runs on (click to change the assistant's model, for every persona) + token usage */}
@@ -678,16 +766,13 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
         {/* Voice mode (#253), where the host can capture the microphone: the
             mic listens for the wake word, which starts an interaction. */}
         {capabilities.microphone && (
-          <Tooltip title={voiceMode ? 'End voice mode' : 'Start voice mode'}>
-            <IconButton
-              size="small"
-              aria-label={voiceMode ? 'End voice mode' : 'Start voice mode'}
-              onClick={() => (voiceMode ? useMicStore.getState().endVoiceMode() : useMicStore.getState().startVoiceMode())}
-              sx={{ p: 0.5 }}
-            >
-              <HeadsetMicIcon sx={{ fontSize: 18, color: voiceMode ? 'primary.main' : 'text.secondary' }} />
-            </IconButton>
-          </Tooltip>
+          <VoiceModeToggle
+            on={voiceMode}
+            narrow={narrow}
+            attention={voiceMode && isVoiceProblem(voicePhase)}
+            onStart={startVoiceMode}
+            onEnd={endVoiceMode}
+          />
         )}
         </Box>
         {currentConversation && (
@@ -820,12 +905,20 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
         />
       ) : voiceMode ? (
         <VoiceModeBar
-          asrStatus={asr.asrStatus}
-          interactionActive={asr.interactionActive}
+          phase={voicePhase}
+          wakeWord={triggerWord}
+          answerer={{
+            name: activePersona?.name || ASSISTANT_NAME,
+            avatarUrl: activePersona?.avatar_uuid ? apiClient.getImageUrl(activePersona.avatar_uuid) : null,
+            isAssistant: !activePersona,
+          }}
           lastTranscript={asr.lastTranscript}
-          isStreaming={streaming.isStreaming}
-          isTTSPlaying={isQueueActive}
-          onEnd={() => useMicStore.getState().endVoiceMode()}
+          windowStartedAt={asr.windowStartedAt}
+          narrow={narrow}
+          onEnd={endVoiceMode}
+          onRetry={() => { void useMicStore.getState().retryListening(); }}
+          onOpenAssistantSettings={() => openSettings('assistant')}
+          onOpenVoiceSettings={() => openSettings('voice')}
         />
       ) : (
         <ChatComposer
@@ -847,6 +940,25 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
         <Alert onClose={() => streaming.setErrorToast(null)} severity="error" variant="filled" sx={{ width: '100%' }}>
           {streaming.errorToast}
         </Alert>
+      </Snackbar>
+      {/* Voice mode ended: the mic is off (#345). In the chat column, above the message box. */}
+      <Snackbar
+        open={voiceOffNotice && !voiceMode}
+        autoHideDuration={4000}
+        onClose={(_, reason) => { if (reason !== 'clickaway') setVoiceOffNotice(false); }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        sx={{ position: 'absolute', bottom: '92px !important', left: '16px !important', right: '16px !important', transform: 'none !important', justifyContent: 'center' }}
+      >
+        <Box
+          role="status"
+          sx={{
+            display: 'flex', alignItems: 'center', gap: '10px', px: 2, py: '10px', borderRadius: '4px', fontSize: 13, lineHeight: 1.43,
+            bgcolor: voiceColors(theme).snack, color: voiceColors(theme).onSnack, boxShadow: 6,
+          }}
+        >
+          <HeadsetOffIcon aria-hidden sx={{ fontSize: 18 }} />
+          Voice mode is off. The mic isn't listening.
+        </Box>
       </Snackbar>
       <Snackbar
         open={!!streaming.infoToast}

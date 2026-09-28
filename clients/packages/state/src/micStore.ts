@@ -5,6 +5,37 @@ import { storage } from '@kurisu/api';
 
 export type ASRStatus = 'idle' | 'listening' | 'processing';
 
+/**
+ * Why the mic cannot listen (#345). Each has its own fix, so each is its own
+ * state on the voice bar rather than a one-off toast: a microphone to connect
+ * or choose, access to allow outside the app, or speech recognition to reload.
+ */
+export type MicProblem = 'no-microphone' | 'mic-blocked' | 'asr-unavailable';
+
+/**
+ * A failure to start listening, by its fix. `getUserMedia` names its failures:
+ * refused access is `NotAllowedError` (`SecurityError` where the page may not
+ * ask at all); no device, a chosen device that is gone, or one another app
+ * holds is `NotFoundError`, `OverconstrainedError` or `NotReadableError`.
+ * Anything else happened loading the recogniser itself.
+ */
+export function classifyMicFailure(err: unknown): MicProblem {
+  const name = (err as { name?: unknown } | null)?.name;
+  switch (name) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+    case 'PermissionDeniedError':
+      return 'mic-blocked';
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
+    case 'OverconstrainedError':
+    case 'NotReadableError':
+      return 'no-microphone';
+    default:
+      return 'asr-unavailable';
+  }
+}
+
 /** Read real-time mic amplitude (0-1) outside of React state to avoid re-renders. */
 export function getMicAmplitude(): number {
   return _amplitudeData.current;
@@ -24,7 +55,12 @@ interface MicState {
   // ASR state
   status: ASRStatus;
   result: ASRResult | null;
+  /** The last transcription that failed, as one sentence for a toast. */
   error: string | null;
+  /** Why the mic could not start, until it does (#345). */
+  problem: MicProblem | null;
+  /** Someone is talking right now: from the VAD's start of speech to its end or misfire. */
+  userSpeaking: boolean;
 
   // Device management
   devices: AudioDevice[];
@@ -51,6 +87,8 @@ interface MicState {
   // Actions
   startListening: () => Promise<void>;
   stopListening: () => Promise<void>;
+  /** Start the mic again after a problem: the voice bar's "Try again" and "Retry". */
+  retryListening: () => Promise<void>;
   loadDevices: () => Promise<AudioDevice[]>;
   selectDevice: (deviceId: string) => void;
   setTriggerWord: (word: string | null) => void;
@@ -99,6 +137,8 @@ export const useMicStore = create<MicState>((set, get) => ({
   status: 'idle',
   result: null,
   error: null,
+  problem: null,
+  userSpeaking: false,
   devices: [],
   selectedDeviceId: storage.getASRDeviceId(),
   voiceMode: false,
@@ -109,7 +149,7 @@ export const useMicStore = create<MicState>((set, get) => ({
     // Guard: skip if already listening or initializing
     if (_vad) return;
 
-    set({ error: null });
+    set({ error: null, problem: null });
     const deviceId = get().selectedDeviceId || undefined;
 
     try {
@@ -149,7 +189,10 @@ export const useMicStore = create<MicState>((set, get) => ({
           _amplitudeRaf = requestAnimationFrame(updateAmplitude);
           return stream;
         },
+        onSpeechStart: () => set({ userSpeaking: true }),
+        onVADMisfire: () => set({ userSpeaking: false }),
         onSpeechEnd: async (audio: Float32Array) => {
+          set({ userSpeaking: false });
           // Skip audio too short to contain a wake word (< 0.5s at 16kHz)
           if (audio.length < 8000) return;
           // Prevent concurrent processing (React StrictMode can double-fire)
@@ -208,7 +251,8 @@ export const useMicStore = create<MicState>((set, get) => ({
       set({ status: 'listening' });
     } catch (err: any) {
       console.error('Failed to start VAD:', err);
-      set({ error: err.message || 'Failed to access microphone', status: 'idle' });
+      // Not a toast: the voice bar shows it until it is fixed (#345).
+      set({ problem: classifyMicFailure(err), status: 'idle' });
     }
   },
 
@@ -220,7 +264,12 @@ export const useMicStore = create<MicState>((set, get) => ({
       await _vad.destroy();
       _vad = null;
     }
-    set({ status: 'idle' });
+    set({ status: 'idle', userSpeaking: false });
+  },
+
+  retryListening: async () => {
+    await get().stopListening();
+    await get().startListening();
   },
 
   loadDevices: async () => {
@@ -264,7 +313,7 @@ export const useMicStore = create<MicState>((set, get) => ({
 
   endVoiceMode: () => {
     if (!get().voiceMode) return;
-    set({ voiceMode: false });
+    set({ voiceMode: false, problem: null });
     storage.setVoiceMode(false);
     get().deactivateInteraction();
     if (get().status !== 'idle') get().stopListening();

@@ -25,14 +25,21 @@ export function useInteractiveASR({
 }: UseInteractiveASRParams) {
   const {
     status: asrStatus, result: asrResult,
-    interactionActive, deactivateInteraction,
+    interactionActive, deactivateInteraction, userSpeaking,
   } = useMicStore();
   const interactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const INTERACTION_IDLE_MS = 30_000;
   const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const RESUME_DELAY_MS = 10000;
+  // What was last said, for the voice bar's second line: it stays for the
+  // whole interaction (#345).
   const [lastTranscript, setLastTranscript] = useState('');
-  const lastTranscriptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // When the wake word started the current interaction, for the chat's
+  // new-conversation marker (#345).
+  const [wokeAt, setWokeAt] = useState<number | null>(null);
+  // When the 30-second window opened, or null while it is shut — the voice bar
+  // drains its top line from here (#345).
+  const [windowStartedAt, setWindowStartedAt] = useState<number | null>(null);
 
   // Track whether VAD is paused by us
   const vadPausedRef = useRef(false);
@@ -93,16 +100,16 @@ export function useInteractiveASR({
     // starts one and is itself the first message (#337, #253); anything else
     // said there is not for the assistant yet, and is dropped.
     const woken = !state.interactionActive && heardWakeWord(asrTranscript, state.triggerWord);
-    if (woken) state.activateInteraction();
+    if (woken) {
+      state.activateInteraction();
+      setWokeAt(Date.now());
+    }
     if (state.interactionActive || woken) {
 
       // During TTS playback: interrupt and send
       if (isQueueActiveRef.current) stopTTSPlayback();
 
-      // Show transcript
       setLastTranscript(asrTranscript);
-      if (lastTranscriptTimerRef.current) clearTimeout(lastTranscriptTimerRef.current);
-      lastTranscriptTimerRef.current = setTimeout(() => setLastTranscript(''), 3000);
 
       // Send, then pause VAD
       if (interactionTimerRef.current) {
@@ -117,19 +124,27 @@ export function useInteractiveASR({
 
   // An interaction ends 30 s after the assistant's last reply — once it has
   // finished streaming and speaking — with nothing said since; voice mode then
-  // waits for the wake word again (#253). A persona or conversation change does
-  // not end it: a new chat's first message creates its conversation.
+  // waits for the wake word again (#253). Talking, and the transcription that
+  // follows, hold the window shut; it opens again, full, when they are over
+  // (#345). A persona or conversation change does not end it: a new chat's
+  // first message creates its conversation.
+  const transcribing = asrStatus === 'processing';
   useEffect(() => {
     if (interactionTimerRef.current) {
       clearTimeout(interactionTimerRef.current);
       interactionTimerRef.current = null;
     }
-    if (!interactionActive || isStreaming || isQueueActive) return;
+    if (!interactionActive || isStreaming || isQueueActive || userSpeaking || transcribing) {
+      setWindowStartedAt(null);
+      return;
+    }
+    setWindowStartedAt(Date.now());
     interactionTimerRef.current = setTimeout(() => {
       interactionTimerRef.current = null;
+      setWindowStartedAt(null);
       deactivateInteraction();
     }, INTERACTION_IDLE_MS);
-  }, [interactionActive, isStreaming, isQueueActive, deactivateInteraction]);
+  }, [interactionActive, isStreaming, isQueueActive, userSpeaking, transcribing, deactivateInteraction]);
 
   // Resume VAD when interaction ends (in case it was paused)
   useEffect(() => {
@@ -140,6 +155,7 @@ export function useInteractiveASR({
         vadPausedRef.current = false;
       }
       setLastTranscript('');
+      setWokeAt(null);
     }
   }, [interactionActive]);
 
@@ -147,7 +163,6 @@ export function useInteractiveASR({
   useEffect(() => {
     return () => {
       if (interactionTimerRef.current) clearTimeout(interactionTimerRef.current);
-      if (lastTranscriptTimerRef.current) clearTimeout(lastTranscriptTimerRef.current);
       if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
     };
   }, []);
@@ -157,5 +172,7 @@ export function useInteractiveASR({
     interactionActive,
     lastTranscript,
     isQueueActive,
+    wokeAt,
+    windowStartedAt,
   };
 }
