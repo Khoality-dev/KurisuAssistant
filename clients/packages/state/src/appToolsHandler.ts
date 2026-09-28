@@ -318,6 +318,7 @@ async function handleVisionStop(): Promise<ToolResult> {
 async function handleEndInteraction(): Promise<ToolResult> {
   const mic = useMicStore.getState();
   if (!mic.interactionActive) return ok('No active voice interaction.');
+  // Only the interaction: voice mode stays on, waiting for the wake word (#253).
   mic.deactivateInteraction();
   return ok('Voice interaction ended.');
 }

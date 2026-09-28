@@ -63,6 +63,11 @@ export interface Capabilities {
    * call cross-origin — so for it this is false and the field is not shown.
    */
   configurableServer: boolean;
+  /**
+   * The microphone can be captured here — what voice mode needs (#253). A
+   * browser offers it only in a secure context; Electron always does.
+   */
+  microphone: boolean;
 }
 
 /**

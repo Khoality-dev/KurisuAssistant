@@ -38,6 +38,7 @@ export function electronBridge(): PlatformBridge | null {
       characterWindow: true,
       transferProgress: true,
       configurableServer: true,
+      microphone: true,
     },
     files: api.explorer,
     transfers: api.drive,

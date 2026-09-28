@@ -778,12 +778,23 @@ export function useStreamingChat({
     };
   }, []);
 
-  const handleSendText = async (overrideText: string) => {
+  /**
+   * Send what voice mode heard. `newConversation` starts a fresh conversation
+   * first, as `/clear` does: each voice-mode interaction is one (#253).
+   */
+  const handleSendText = async (overrideText: string, opts?: { newConversation?: boolean }) => {
     if (!overrideText.trim() || isStreamingRef.current) return;
-    await _doSend(overrideText.trim(), []);
+    if (opts?.newConversation) {
+      useConversationStore.getState().clearCurrentConversation();
+      storage.clearPersonaConversationId(personaId ?? 'unbound');
+      setActiveConversationId(null);
+    }
+    await _doSend(overrideText.trim(), [], opts?.newConversation ? { conversationId: null } : undefined);
   };
 
-  const _doSend = useCallback(async (text: string, imageFiles: File[]) => {
+  const _doSend = useCallback(async (text: string, imageFiles: File[], opts?: { conversationId: null }) => {
+    // A new conversation was just asked for; the state it set lands next render.
+    const conversationId = opts ? opts.conversationId : activeConversationId;
     cancelledRef.current = false;
     turnSeqRef.current++;
     lastSentTextRef.current = text;
@@ -856,7 +867,7 @@ export function useStreamingChat({
         accumulatedThinking: '',
         hasPlaceholder: true,
         hasStarted: false,
-        conversationId: activeConversationId,
+        conversationId: conversationId,
       };
 
       setStreamingContent('');
@@ -866,7 +877,7 @@ export function useStreamingChat({
       // Who the chat is on comes back from the server after sign-in; a send
       // that beats it would name nobody and the assistant would answer (#334).
       let namedPersona = personaId;
-      if (activeConversationId === null && namedPersona === null && !usePersonaStore.getState().selectionLoaded) {
+      if (conversationId === null && namedPersona === null && !usePersonaStore.getState().selectionLoaded) {
         await whenSelectionLoaded();
         namedPersona = usePersonaStore.getState().selectedPersonaId;
       }
@@ -879,10 +890,10 @@ export function useStreamingChat({
       await wsManager.sendChatRequest(
         text,
         '', // Model determined by backend
-        activeConversationId,
+        conversationId,
         imageBase64,
         contextFiles,
-        activeConversationId === null ? namedPersona : null,
+        conversationId === null ? namedPersona : null,
       );
     } catch (err: any) {
       console.error('Chat error:', err);

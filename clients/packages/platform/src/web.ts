@@ -30,6 +30,7 @@ export function webBridge(): PlatformBridge {
       characterWindow: false,
       transferProgress: false,
       configurableServer: false,
+      microphone: typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia,
     },
     files: null,
     transfers: null,
