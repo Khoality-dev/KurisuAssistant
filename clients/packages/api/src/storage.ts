@@ -25,7 +25,6 @@ const STORAGE_KEYS = {
   BACKEND_URL: 'kurisu_backend_url',
 
   ASR_DEVICE_ID: 'kurisu_asr_device_id',
-  SELECTED_PERSONA_ID: 'kurisu_selected_persona_id',
   PERSONA_CONVERSATIONS: 'kurisu_persona_conversations',
   ASR_LANGUAGE: 'kurisu_asr_language',
   ASR_ALWAYS_LISTEN: 'kurisu_asr_always_listen',
@@ -40,6 +39,8 @@ const STORAGE_KEYS = {
 const LEGACY_STORAGE_KEYS = [
   'kurisu_selected_agent_id',
   'kurisu_agent_conversations',
+  // Who the chat was on, kept per machine until the server kept it (#334).
+  'kurisu_selected_persona_id',
 ] as const;
 
 // Where the tokens used to be kept. Read once during migration, then removed.
@@ -120,8 +121,9 @@ function persistTokens(): void {
  * A key in the persona → conversation map. A number is a persona id. `'unbound'`
  * is the bucket for a conversation started while no persona was selected, which
  * is also the assistant's own: a persona is optional (#302), and a conversation
- * the assistant answers as itself stays here. One the server's default persona
- * answers is re-keyed to that persona on the first `stream_chunk` that names it.
+ * the assistant answers as itself stays here. It is re-keyed to a persona only
+ * if the first `stream_chunk` names one, which the server no longer does for a
+ * chat that named nobody (#334).
  * (It replaces the old `'group'` sentinel, which named a group-chat concept that
  * no longer exists.)
  */
@@ -414,32 +416,6 @@ export const storage = {
     } catch (error) {
       console.error('Failed to get ASR device ID:', error);
       return null;
-    }
-  },
-
-  setSelectedPersonaId(id: number): void {
-    try {
-      localStorage.setItem(STORAGE_KEYS.SELECTED_PERSONA_ID, id.toString());
-    } catch (error) {
-      console.error('Failed to save selected persona ID:', error);
-    }
-  },
-
-  getSelectedPersonaId(): number | null {
-    try {
-      const value = localStorage.getItem(STORAGE_KEYS.SELECTED_PERSONA_ID);
-      return value ? parseInt(value, 10) : null;
-    } catch (error) {
-      console.error('Failed to get selected persona ID:', error);
-      return null;
-    }
-  },
-
-  clearSelectedPersonaId(): void {
-    try {
-      localStorage.removeItem(STORAGE_KEYS.SELECTED_PERSONA_ID);
-    } catch (error) {
-      console.error('Failed to clear selected persona ID:', error);
     }
   },
 

@@ -87,8 +87,8 @@ class ConversationsViewModelTest {
      * One assistant per user owns the wake word and the default persona. A
      * persona owns neither — that is the whole point of the split.
      */
-    private fun makeAssistant(triggerWord: String? = null, defaultPersonaId: Int? = null) =
-        Assistant(id = 1, triggerWord = triggerWord, defaultPersonaId = defaultPersonaId)
+    private fun makeAssistant(triggerWord: String? = null, selectedPersonaId: Int? = null) =
+        Assistant(id = 1, triggerWord = triggerWord, selectedPersonaId = selectedPersonaId)
 
     private fun conversation(
         id: Int,
@@ -150,7 +150,7 @@ class ConversationsViewModelTest {
         coEvery { personaRepo.listPersonas() } returns listOf(
             makePersona(1, "Kurisu"), makePersona(3, "Coach", avatarUuid = "abc"),
         )
-        coEvery { assistantRepo.getAssistant() } returns makeAssistant(defaultPersonaId = 1)
+        coEvery { assistantRepo.getAssistant() } returns makeAssistant(selectedPersonaId = 1)
         coEvery { convRepo.getConversations() } returns listOf(
             conversation(
                 id = 414,
@@ -181,7 +181,7 @@ class ConversationsViewModelTest {
             coEvery { personaRepo.listPersonas() } returns listOf(
                 makePersona(1, "Kurisu"), makePersona(3, "Coach"),
             )
-            coEvery { assistantRepo.getAssistant() } returns makeAssistant(defaultPersonaId = null)
+            coEvery { assistantRepo.getAssistant() } returns makeAssistant(selectedPersonaId = null)
 
             val vm = newViewModel()
             advanceUntilIdle()
@@ -199,7 +199,7 @@ class ConversationsViewModelTest {
         coEvery { personaRepo.listPersonas() } returns listOf(
             makePersona(1, "Kurisu", enabled = false), makePersona(3, "Coach"),
         )
-        coEvery { assistantRepo.getAssistant() } returns makeAssistant(defaultPersonaId = 1)
+        coEvery { assistantRepo.getAssistant() } returns makeAssistant(selectedPersonaId = 1)
 
         val vm = newViewModel()
         advanceUntilIdle()
@@ -268,13 +268,13 @@ class ConversationsViewModelTest {
 
     @Test
     fun `new chat drops the resumable conversation and picks nobody`() = runTest {
-        // Decision: a new chat SILENTLY takes assistants.default_persona_id.
+        // Decision: a new chat SILENTLY takes assistants.selected_persona_id.
         // There is no picker, so nothing here selects a persona — it only makes
         // sure a stale conversation is not resumed instead.
         coEvery { personaRepo.listPersonas() } returns listOf(
             makePersona(1, "Kurisu"), makePersona(3, "Coach"),
         )
-        coEvery { assistantRepo.getAssistant() } returns makeAssistant(defaultPersonaId = 3)
+        coEvery { assistantRepo.getAssistant() } returns makeAssistant(selectedPersonaId = 3)
 
         val vm = newViewModel()
         advanceUntilIdle()
@@ -292,7 +292,7 @@ class ConversationsViewModelTest {
         // The chat screen reads the cached conversation id as it loads. If the
         // FAB navigated first, the new chat could resume the old conversation.
         coEvery { personaRepo.listPersonas() } returns listOf(makePersona(3, "Coach"))
-        coEvery { assistantRepo.getAssistant() } returns makeAssistant(defaultPersonaId = 3)
+        coEvery { assistantRepo.getAssistant() } returns makeAssistant(selectedPersonaId = 3)
 
         val vm = newViewModel()
         advanceUntilIdle()
@@ -320,7 +320,7 @@ class ConversationsViewModelTest {
             makePersona(42, "Kurisu"), makePersona(7, "Amadeus"),
         )
         coEvery { assistantRepo.getAssistant() } returns
-            makeAssistant(triggerWord = "kurisu", defaultPersonaId = 7)
+            makeAssistant(triggerWord = "kurisu", selectedPersonaId = 7)
 
         val vm = newViewModel()
         advanceUntilIdle()
@@ -339,7 +339,7 @@ class ConversationsViewModelTest {
             makePersona(42, "Kurisu"), makePersona(7, "Amadeus"),
         )
         coEvery { assistantRepo.getAssistant() } returns
-            makeAssistant(triggerWord = "kurisu", defaultPersonaId = 7)
+            makeAssistant(triggerWord = "kurisu", selectedPersonaId = 7)
 
         val vm = newViewModel()
         advanceUntilIdle()
@@ -354,7 +354,7 @@ class ConversationsViewModelTest {
     fun `an assistant with no wake word never matches`() = runTest {
         coEvery { personaRepo.listPersonas() } returns listOf(makePersona(1, "Neutral"))
         coEvery { assistantRepo.getAssistant() } returns
-            makeAssistant(triggerWord = null, defaultPersonaId = 1)
+            makeAssistant(triggerWord = null, selectedPersonaId = 1)
 
         val vm = newViewModel()
         advanceUntilIdle()

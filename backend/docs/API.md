@@ -318,7 +318,7 @@ Update the title, the bound persona, or both. Replaces the old
 | Field | Type | Description |
 |---|---|---|
 | `title` | string | New title. Empty or whitespace is rejected. |
-| `persona_id` | integer or null | Rebind the conversation. **`null` hands it to the assistant itself** (#302); the default persona applies only to a conversation nothing has answered yet. |
+| `persona_id` | integer or null | Rebind the conversation. **`null` hands it to the assistant itself** (#302). |
 
 **Response:** `200 OK`
 ```json
@@ -390,8 +390,12 @@ summary asserting something with no source.
 
 Exactly one assistant per user, so it is addressed **with no id** and has no `POST`
 and no `DELETE`: it is created at registration and dies with the account. It owns
-capability — model, tools, reasoning, memory — plus the voice wake word and the
-default persona.
+capability — model, tools, reasoning, memory — plus the voice wake word and
+`selected_persona_id`: who the account's chat is on. A client reads it when it
+opens and writes it when the user picks someone, so every device and every sign-in
+open on the same persona. The server never applies it; a chat request that names
+no persona is the assistant's (#334). It replaced `default_persona_id` in wire
+protocol 8.
 
 ### GET /assistant
 
@@ -409,7 +413,7 @@ Created on demand for an account that predates the split and never got a row.
   "memory": "The user prefers concise answers…",
   "memory_enabled": true,
   "trigger_word": "hey kurisu",
-  "default_persona_id": 3
+  "selected_persona_id": 3
 }
 ```
 
@@ -435,12 +439,12 @@ tool".
 | `memory` | string | yes |
 | `memory_enabled` | boolean | **no** |
 | `trigger_word` | string | yes |
-| `default_persona_id` | integer | yes |
+| `selected_persona_id` | integer | yes (null = the assistant itself) |
 
 **Response:** `200 OK` — the updated assistant.
 
 **Errors:** `400` a non-nullable field was sent as `null`, or
-`default_persona_id` names a disabled persona; `404` that persona does not exist.
+`selected_persona_id` names a disabled persona; `404` that persona does not exist.
 
 **`trigger_word` is a voice wake word.** Saying it wakes the assistant and the
 conversation's bound persona answers. It selects nothing, and personas do not have
@@ -535,9 +539,8 @@ face.
 | `character_config` | object | no | null |
 | `enabled` | boolean | no | `true` |
 
-Creating a persona does not make it the default: `default_persona_id` changes only
-through `PATCH /assistant`, and while it is null new conversations are answered by
-the assistant itself (#302).
+Creating a persona does not select it: `selected_persona_id` changes only through
+`PATCH /assistant`, and while it is null the chat is the assistant's own (#302).
 
 **Errors:** `400` reserved name (`Administrator`, `User`, `App Guide`) or a
 duplicate name; `422` a `character_config` without a `kind`, one that is not the
@@ -581,9 +584,9 @@ assistant; conversations bound to it are answered by the assistant from then on.
 
 **Request:** `{"enabled": false}` → the updated persona.
 
-Disabling the default persona clears `default_persona_id`, here and through
-`PATCH /personas/{id}` with `enabled: false`: new conversations go back to the
-assistant (#302).
+Disabling the selected persona clears `selected_persona_id`, here and through
+`PATCH /personas/{id}` with `enabled: false`: the chat goes back to the assistant
+(#302). Deleting it clears it through the foreign key.
 
 ### GET /personas/{persona_id}/export
 
@@ -1578,8 +1581,8 @@ reference — raw exception text carries failing SQL, internal URLs and server p
    the request's own `model_name`. With neither it answers `error` /
    `NO_MODEL_SELECTED` and stops here, having created nothing.
 3. It creates the conversation, titled from the first 80 characters of the
-   message, and binds a persona — the explicit `persona_id` if the client sent
-   one, otherwise `assistants.default_persona_id`.
+   message, and binds the persona the client named in `persona_id`, or none —
+   the assistant answers as itself (#334).
 4. Every `stream_chunk` carries the new `conversation_id`; assistant chunks carry
    the `persona_id` and `persona_name`.
 

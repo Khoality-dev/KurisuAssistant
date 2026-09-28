@@ -77,10 +77,10 @@ import java.io.File
 /**
  * The personas: who the one assistant sounds like.
  *
- * Tapping a row makes it the default for new chats — the design's whole
- * interaction model for this screen — and the pencil opens the editor. There is
- * no picker on new-chat: a new conversation silently adopts the default, and a
- * single conversation overrides it from the chat header.
+ * Tapping a row puts the chat on it — who new chats start with, on every
+ * device, kept on the server as the assistant's `selected_persona_id` (#334) —
+ * and the pencil opens the editor. A single conversation overrides it from the
+ * chat header.
  *
  * @param onPreviewCharacter opens the character canvas for a persona, when the
  *   nav graph has somewhere to send it. Left null, the editor's character row is
@@ -139,7 +139,7 @@ fun PersonasScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    "Personas are optional. Tap one to make it the default for new chats, or tap the assistant itself to use none. A single conversation can override it from the chat header.",
+                    "Personas are optional. Tap one to talk to it in new chats, on every device, or tap the assistant itself to use none. A single conversation can override it from the chat header.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -194,8 +194,8 @@ fun PersonasScreen(
                 ) {
                     item(key = "assistant-itself") {
                         AssistantItselfRow(
-                            isDefault = state.defaultPersonaId == null,
-                            onMakeDefault = viewModel::clearDefault,
+                            isSelected = state.selectedPersonaId == null,
+                            onSelect = viewModel::selectAssistant,
                         )
                     }
                     items(state.personas, key = { it.id }) { persona ->
@@ -204,13 +204,13 @@ fun PersonasScreen(
                             voiceName = persona.voiceReference?.takeIf { it.isNotBlank() }
                                 ?.let { state.availableVoices.labelOf(it) },
                             avatarUrl = viewModel.avatarUrl(persona.avatarUuid),
-                            isDefault = persona.id == state.defaultPersonaId,
+                            isSelected = persona.id == state.selectedPersonaId,
                             // The design only flags this when it differs from the
-                            // default; saying "answering the open chat" on the
-                            // default row would be noise on every row.
+                            // selection; saying "answering the open chat" on the
+                            // selected row would be noise on every row.
                             isAnsweringOpenChat = persona.id == state.openChatPersonaId &&
-                                persona.id != state.defaultPersonaId,
-                            onMakeDefault = { viewModel.makeDefault(persona) },
+                                persona.id != state.selectedPersonaId,
+                            onSelect = { viewModel.selectPersona(persona) },
                             onEdit = { viewModel.openPersona(persona) },
                         )
                     }
@@ -266,13 +266,12 @@ fun PersonasScreen(
 }
 
 /**
- * The assistant answering as itself — no persona (#302). The default when the
- * assistant names no persona, which is where every account starts; tapping it
- * makes it the default again.
+ * The assistant answering as itself — no persona (#302). Selected when no
+ * persona is, which is where every account starts; tapping it selects it again.
  */
 @Composable
-private fun AssistantItselfRow(isDefault: Boolean, onMakeDefault: () -> Unit) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth(), onClick = onMakeDefault) {
+private fun AssistantItselfRow(isSelected: Boolean, onSelect: () -> Unit) {
+    OutlinedCard(modifier = Modifier.fillMaxWidth(), onClick = onSelect) {
         Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
             PersonaAvatar(name = "Assistant", avatarUrl = null, size = 44.dp)
             Spacer(Modifier.width(12.dp))
@@ -282,9 +281,9 @@ private fun AssistantItselfRow(isDefault: Boolean, onMakeDefault: () -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
                     Text("The assistant itself", style = MaterialTheme.typography.titleMedium)
-                    if (isDefault) {
+                    if (isSelected) {
                         Pill(
-                            "Default",
+                            "In the chat",
                             container = MaterialTheme.colorScheme.primary,
                             content = MaterialTheme.colorScheme.onPrimary,
                         )
@@ -307,14 +306,14 @@ private fun PersonaRow(
     /** How its voice reads: the preset's name, or the stored value no engine lists. */
     voiceName: String?,
     avatarUrl: String?,
-    isDefault: Boolean,
+    isSelected: Boolean,
     isAnsweringOpenChat: Boolean,
-    onMakeDefault: () -> Unit,
+    onSelect: () -> Unit,
     onEdit: () -> Unit,
 ) {
     OutlinedCard(
         modifier = Modifier.fillMaxWidth(),
-        onClick = onMakeDefault,
+        onClick = onSelect,
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
@@ -334,9 +333,9 @@ private fun PersonaRow(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    if (isDefault) {
+                    if (isSelected) {
                         Pill(
-                            "Default",
+                            "In the chat",
                             container = MaterialTheme.colorScheme.primary,
                             content = MaterialTheme.colorScheme.onPrimary,
                         )
@@ -633,7 +632,7 @@ private fun PersonaEditor(
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Enabled", style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                "A disabled persona cannot answer or be the default",
+                                "A disabled persona cannot answer or be talked to",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

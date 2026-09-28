@@ -175,9 +175,10 @@ export interface Assistant {
   // Voice wake word. Saying it wakes the assistant; the conversation's bound
   // persona answers. It selects nothing.
   trigger_word: string | null;
-  // Persona a new conversation silently adopts. There is no picker on new-chat
-  // and no random fallback.
-  default_persona_id: number | null;
+  // Who the chat is on (#334): read when a client opens, written when the user
+  // picks someone, so every device opens on the same one. Null is the assistant
+  // itself. The server never applies it — a chat request names its persona.
+  selected_persona_id: number | null;
 }
 
 /**
@@ -290,7 +291,7 @@ export interface AssistantUpdate {
   memory?: string | null;
   memory_enabled?: boolean;
   trigger_word?: string | null;
-  default_persona_id?: number | null;
+  selected_persona_id?: number | null;
 }
 
 export interface SubAgentCreate {
@@ -323,8 +324,7 @@ export interface SubAgentUpdate {
 
 /**
  * PATCH /conversations/{id}. Replaces the old POST, which only ever renamed.
- * `persona_id: null` unbinds the conversation, so the next message falls back to
- * the assistant's default persona.
+ * `persona_id: null` hands the conversation to the assistant itself (#302).
  */
 export interface ConversationUpdate {
   title?: string;

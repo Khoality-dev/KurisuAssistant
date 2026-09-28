@@ -102,7 +102,7 @@ describe('mock backend: assistant / persona / sub-agent split', () => {
       memory: null,
       memory_enabled: true,
       trigger_word: 'kurisu',
-      default_persona_id: 1,
+      selected_persona_id: 1,
     });
   });
 
@@ -186,42 +186,49 @@ describe('mock backend: assistant / persona / sub-agent split', () => {
   });
 
   // A persona is optional (#302): the assistant answers as itself without one.
-  it('deletes any persona, the last included, and deleting the default leaves the assistant', async () => {
+  it('deletes any persona, the last included, and deleting the selected one leaves the assistant', async () => {
     const second = mock.addPersona({ name: 'Amadeus' });
-    expect((await get('/assistant')).body.default_persona_id).toBe(1);
+    expect((await get('/assistant')).body.selected_persona_id).toBe(1);
 
     const deleted = await del('/personas/1');
     expect(deleted.status).toBe(200);
     expect(deleted.body).toEqual({ message: 'Persona deleted successfully' });
     // No hand-off to whichever persona is next: new chats go back to the assistant.
-    expect((await get('/assistant')).body.default_persona_id).toBeNull();
+    expect((await get('/assistant')).body.selected_persona_id).toBeNull();
 
     expect((await del(`/personas/${second.id}`)).status).toBe(200);
     expect((await get('/personas')).body).toEqual([]);
   });
 
-  it('does not make a new persona the default', async () => {
-    mock.setAssistantFields({ default_persona_id: null });
-    const created = await post('/personas', { name: 'Amadeus' });
-    expect(created.status).toBe(200);
-    expect((await get('/assistant')).body.default_persona_id).toBeNull();
+  it('refuses to select a persona that is missing or disabled, as the backend does', async () => {
+    const off = mock.addPersona({ name: 'Off', enabled: false });
+    expect((await patch('/assistant', { selected_persona_id: off.id })).status).toBe(400);
+    expect((await patch('/assistant', { selected_persona_id: 999 })).status).toBe(404);
+    expect((await patch('/assistant', { selected_persona_id: null })).status).toBe(200);
   });
 
-  it('clears the default when it is disabled, by either route', async () => {
+  it('does not select a new persona for the user', async () => {
+    mock.setAssistantFields({ selected_persona_id: null });
+    const created = await post('/personas', { name: 'Amadeus' });
+    expect(created.status).toBe(200);
+    expect((await get('/assistant')).body.selected_persona_id).toBeNull();
+  });
+
+  it('clears the selection when its persona is disabled, by either route', async () => {
     expect((await patch('/personas/1/enabled', { enabled: false })).status).toBe(200);
-    expect((await get('/assistant')).body.default_persona_id).toBeNull();
+    expect((await get('/assistant')).body.selected_persona_id).toBeNull();
 
     const second = mock.addPersona({ name: 'Amadeus' });
-    mock.setAssistantFields({ default_persona_id: second.id });
+    mock.setAssistantFields({ selected_persona_id: second.id });
     expect((await patch(`/personas/${second.id}`, { enabled: false })).status).toBe(200);
-    expect((await get('/assistant')).body.default_persona_id).toBeNull();
+    expect((await get('/assistant')).body.selected_persona_id).toBeNull();
   });
 
   it('can be seeded with no default while personas exist', async () => {
-    const seeded = new MockBackend({ assistant: { default_persona_id: null } });
+    const seeded = new MockBackend({ assistant: { selected_persona_id: null } });
     await seeded.start();
     try {
-      expect(seeded.getAssistant().default_persona_id).toBeNull();
+      expect(seeded.getAssistant().selected_persona_id).toBeNull();
       expect(seeded.getPersonas()).toHaveLength(1);
     } finally {
       await seeded.stop();
@@ -274,8 +281,8 @@ describe('mock backend: a proxy in front', () => {
 });
 
 describe('mock backend: conversations', () => {
-  it('binds a new conversation to the assistant default persona', async () => {
-    const events = await chat({ conversation_id: null });
+  it('binds a new conversation to the persona the request names', async () => {
+    const events = await chat({ conversation_id: null, persona_id: 1 });
     const chunk = events.find((e) => e.type === 'stream_chunk');
     expect(chunk.persona_id).toBe(1);
     expect(chunk.persona_name).toBe('Kurisu');
@@ -288,7 +295,7 @@ describe('mock backend: conversations', () => {
   });
 
   it('answers as the assistant itself when no persona is pinned', async () => {
-    mock.setAssistantFields({ default_persona_id: null });
+    mock.setAssistantFields({ selected_persona_id: null });
     const chunk = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk');
     expect(chunk.persona_id).toBeNull();
     expect(chunk.persona_name).toBe('Assistant');
@@ -297,16 +304,13 @@ describe('mock backend: conversations', () => {
     expect((await get(`/conversations/${chunk.conversation_id}`)).body.persona_id).toBeNull();
   });
 
-  it('applies the default to a conversation nothing has answered yet, and only to that', async () => {
-    mock.setAssistantFields({ default_persona_id: null });
-    const withAssistant = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk').conversation_id;
-
-    mock.setAssistantFields({ default_persona_id: 1 });
-    const again = (await chat({ conversation_id: withAssistant })).find((e) => e.type === 'stream_chunk');
-    expect(again.persona_id).toBeNull();
-
+  it('never slips the selected persona into a chat that names none (#334)', async () => {
+    // Kurisu is the stock selection; a client that means her names her.
+    expect(mock.getAssistant().selected_persona_id).toBe(1);
     const fresh = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk');
-    expect(fresh.persona_id).toBe(1);
+    expect(fresh.persona_id).toBeNull();
+    expect(fresh.persona_name).toBe('Assistant');
+    expect((await get(`/conversations/${fresh.conversation_id}`)).body.persona_id).toBeNull();
   });
 
   it('hands an unbound conversation to the assistant, not back to the default', async () => {
@@ -331,12 +335,12 @@ describe('mock backend: conversations', () => {
   it('ignores a legacy agent_id instead of aliasing it to persona_id', async () => {
     const other = mock.addPersona({ name: 'Amadeus' });
     const events = await chat({ conversation_id: null, agent_id: other.id });
-    // Falls back to the default persona, exactly as the real server would.
-    expect(events.find((e) => e.type === 'stream_chunk').persona_id).toBe(1);
+    // Answered by the assistant, exactly as the real server would.
+    expect(events.find((e) => e.type === 'stream_chunk').persona_id).toBeNull();
   });
 
   it('lists conversations with persona_id, message_count and last_message', async () => {
-    await chat({ conversation_id: null });
+    await chat({ conversation_id: null, persona_id: 1 });
     const { body } = await get('/conversations');
     expect(body).toHaveLength(1);
     expect(body[0]).toMatchObject({ persona_id: 1, message_count: 2 });
@@ -365,7 +369,7 @@ describe('mock backend: conversations', () => {
 
   it('PATCHes a conversation title and persona, and unbinds on null', async () => {
     const other = mock.addPersona({ name: 'Amadeus' });
-    const id = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk').conversation_id;
+    const id = (await chat({ conversation_id: null, persona_id: 1 })).find((e) => e.type === 'stream_chunk').conversation_id;
 
     expect((await patch(`/conversations/${id}`, { title: 'Renamed' })).body)
       .toMatchObject({ id, title: 'Renamed', persona_id: 1 });
@@ -388,12 +392,12 @@ describe('mock backend: conversations', () => {
   it('drops a disabled per-turn override instead of honouring it', async () => {
     // The two paths differ on purpose, and the mock has to keep them apart:
     // PATCH rejects a disabled persona outright (above), while `pick_persona`
-    // on the chat path logs, ignores the id and falls through to the default.
+    // on the chat path logs, ignores the id and falls through to the assistant.
     const other = mock.addPersona({ name: 'Amadeus', enabled: false });
     const chunk = (await chat({ conversation_id: null, persona_id: other.id }))
       .find((e) => e.type === 'stream_chunk');
-    expect(chunk.persona_id).toBe(1);
-    expect(chunk.persona_name).toBe('Kurisu');
+    expect(chunk.persona_id).toBeNull();
+    expect(chunk.persona_name).toBe('Assistant');
   });
 
   it('stamps stored assistant messages with the persona and leaves tool messages unstamped', async () => {
@@ -403,7 +407,7 @@ describe('mock backend: conversations', () => {
         { content: '{"ok":true}', role: 'tool', name: 'lookup' },
       ],
     });
-    const id = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk').conversation_id;
+    const id = (await chat({ conversation_id: null, persona_id: 1 })).find((e) => e.type === 'stream_chunk').conversation_id;
     const { body } = await get(`/conversations/${id}`);
 
     const assistant = body.messages.find((m: any) => m.role === 'assistant');
@@ -625,7 +629,7 @@ describe('mock backend: streaming', () => {
         { content: 'It is 42.', role: 'assistant' },
       ],
     });
-    const chunks = (await chat({ conversation_id: null })).filter((e) => e.type === 'stream_chunk');
+    const chunks = (await chat({ conversation_id: null, persona_id: 1 })).filter((e) => e.type === 'stream_chunk');
 
     expect(chunks[0]).toMatchObject({
       persona_id: 1, persona_name: 'Kurisu', name: 'Kurisu', tool_kind: null, duration_ms: null,
@@ -648,7 +652,7 @@ describe('mock backend: streaming', () => {
         { content: 'Amadeus here.', role: 'assistant', personaId: other.id },
       ],
     });
-    const chunks = (await chat({ conversation_id: null })).filter((e) => e.type === 'stream_chunk');
+    const chunks = (await chat({ conversation_id: null, persona_id: 1 })).filter((e) => e.type === 'stream_chunk');
     expect(chunks.map((c) => c.persona_id)).toEqual([1, other.id]);
     expect(chunks.map((c) => c.persona_name)).toEqual(['Kurisu', 'Amadeus']);
 
@@ -684,7 +688,7 @@ describe('mock backend: streaming', () => {
   });
 
   it('reports the last turn on a later connect, so a reconnect knows who spoke', async () => {
-    const events = await chat({ conversation_id: null });
+    const events = await chat({ conversation_id: null, persona_id: 1 });
     const conversationId = events.find((e) => e.type === 'stream_chunk').conversation_id;
 
     const ws = connect();

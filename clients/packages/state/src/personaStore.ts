@@ -16,7 +16,9 @@ interface PersonaState {
    * Who the user has chosen to talk to, or null for the assistant itself. A
    * persona is optional (#302): null is a choice, not a gap to fill, so it is
    * never replaced by "the first persona" — a new chat then sends no persona
-   * and the server's default (or the assistant) answers.
+   * and the assistant answers. Kept on the server as the assistant's
+   * `selected_persona_id` (#334): read by `loadPersonas`, written by
+   * `selectPersona`, so every device and every sign-in opens on the same one.
    */
   selectedPersonaId: number | null;
   isLoading: boolean;
@@ -79,7 +81,7 @@ async function openBucket(id: number | null): Promise<void> {
 
 export const usePersonaStore = create<PersonaState>((set, get) => ({
   personas: [],
-  selectedPersonaId: storage.getSelectedPersonaId(),
+  selectedPersonaId: null,
   isLoading: false,
   personaPreviews: {},
   assistantPreview: null,
@@ -89,18 +91,13 @@ export const usePersonaStore = create<PersonaState>((set, get) => ({
       set({ isLoading: true });
       // Every persona the user owns is selectable. There is no agent_type to
       // filter on any more: sub-agents are a separate resource that never speaks.
-      const personas = await apiClient.listPersonas();
-      set({ personas });
-
-      // A remembered persona that is gone falls back to the assistant, never to
+      const [personas, assistant] = await Promise.all([apiClient.listPersonas(), apiClient.getAssistant()]);
+      // The server clears a selection whose persona is disabled or deleted; one
+      // missing from the list anyway still falls back to the assistant, never to
       // another persona the user did not pick.
-      const { selectedPersonaId } = get();
-      const stillValid = selectedPersonaId !== null && personas.some((p) => p.id === selectedPersonaId);
-      const finalId = stillValid ? selectedPersonaId : null;
-      if (!stillValid && selectedPersonaId !== null) {
-        set({ selectedPersonaId: null });
-        storage.clearSelectedPersonaId();
-      }
+      const selected = assistant.selected_persona_id;
+      const finalId = selected !== null && personas.some((p) => p.id === selected) ? selected : null;
+      set({ personas, selectedPersonaId: finalId });
 
       await openBucket(finalId);
       // Load preview data for sidebar
@@ -136,11 +133,9 @@ export const usePersonaStore = create<PersonaState>((set, get) => ({
 
   selectPersona: (id: number | null) => {
     set({ selectedPersonaId: id });
-    if (id !== null) {
-      storage.setSelectedPersonaId(id);
-    } else {
-      storage.clearSelectedPersonaId();
-    }
+    // Kept on the server, so the next sign-in, here or elsewhere, opens on it.
+    apiClient.updateAssistant({ selected_persona_id: id })
+      .catch((err) => console.error('Failed to save who the chat is on:', err));
     // Load the conversation for this persona, or the assistant's own.
     void openBucket(id);
   },

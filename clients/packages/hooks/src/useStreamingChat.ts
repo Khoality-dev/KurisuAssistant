@@ -863,11 +863,11 @@ export function useStreamingChat({
       setStreamingThinking('');
       setJustFinishedStreaming(false);
 
-      // Send via WebSocket. The persona override is sent only when starting a
-      // new conversation: it tells the backend to bind the conversation it is
-      // about to create to the persona the user has selected instead of the
-      // assistant's default. An existing conversation already carries its
-      // binding server-side, so nothing is overridden per turn.
+      // Send via WebSocket. The persona is named only when starting a new
+      // conversation: it binds the conversation about to be created to the
+      // persona the chat is on, and with none named the assistant answers — the
+      // server adopts nobody on its own (#334). An existing conversation already
+      // carries its binding server-side, so nothing is overridden per turn.
       await wsManager.sendChatRequest(
         text,
         '', // Model determined by backend

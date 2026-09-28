@@ -44,6 +44,29 @@ class MockBackendChatTest : E2eTest() {
     }
 
     @Test
+    fun a_new_chat_can_be_the_assistants_own_while_a_default_persona_is_set() {
+        login()
+        openChat()
+        // A chat that does not exist yet: the default scenario selects Kurisu.
+        type("/clear")
+        composeRule.onNodeWithContentDescription("Send").performClick()
+        waitForText("Send a message to start")
+
+        composeRule.onNodeWithContentDescription("Switch persona").performClick()
+        waitForText("No persona — the assistant answers as itself")
+        composeRule.onNodeWithText("No persona — the assistant answers as itself").performClick()
+        waitForText("Assistant answers this chat")
+        val text = send("Just you, please")
+
+        // The server no longer slips the default in when nobody is named (#334).
+        val conversation = mock.waitForConversation(text, onTimeout = ::dumpScreen) { conv ->
+            conv.messagesAfter(text).any { it.role == "assistant" }
+        }
+        assertEquals(null, conversation.string("persona_id"))
+        assertEquals(listOf<String?>(null), conversation.messagesAfter(text).map { it.personaId })
+    }
+
+    @Test
     fun the_chat_header_switches_persona_for_this_conversation_only() {
         login()
         openChat()
@@ -75,6 +98,6 @@ class MockBackendChatTest : E2eTest() {
         assertEquals(conversationId, rebound.string("id"))
         waitForText(targetName)
         val assistant = mock.getJson("/assistant").jsonObject
-        assertEquals("1", assistant.string("default_persona_id"))
+        assertEquals("1", assistant.string("selected_persona_id"))
     }
 }

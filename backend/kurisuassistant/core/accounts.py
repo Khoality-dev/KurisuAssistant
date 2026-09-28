@@ -3,7 +3,7 @@
 An account is not usable on its own. Chatting needs one row that no user action
 creates: the ``assistants`` row that holds the model, the tools and the memory.
 A persona is optional (#302) — with none, the assistant answers as itself — so a
-new account is given none, and ``assistants.default_persona_id`` starts NULL.
+new account is given none, and ``assistants.selected_persona_id`` starts NULL.
 
 Provisioning creates that row but cannot fill the **model**: which one to use is
 a choice about the operator's own providers, and at registration there is no

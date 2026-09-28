@@ -78,8 +78,11 @@ def collect_context_info(ws, limit: int = 30):
     )
 
 
-def chat_request(text, conversation_id=None, model=DEFAULT_MODEL):
-    return {"type": "chat_request", "text": text, "model_name": model, "conversation_id": conversation_id}
+def chat_request(text, conversation_id=None, model=DEFAULT_MODEL, persona_id=None):
+    request = {"type": "chat_request", "text": text, "model_name": model, "conversation_id": conversation_id}
+    if persona_id is not None:
+        request["persona_id"] = persona_id
+    return request
 
 
 class TestChatTurn:
@@ -311,19 +314,21 @@ class TestPersonasAreOptional:
         return {"Authorization": f"Bearer {resp.json()['access_token']}", "X-Wire-Protocol": str(WIRE_PROTOCOL)}
 
     @staticmethod
-    def turn(client, headers, text, conversation_id=None):
+    def turn(client, headers, text, conversation_id=None, persona_id=None):
         with client.websocket_connect("/ws/chat", headers=headers) as ws:
             ws.receive_json()
-            ws.send_json(chat_request(text, conversation_id=conversation_id))
+            ws.send_json(chat_request(text, conversation_id=conversation_id, persona_id=persona_id))
             events = events_until_done(ws)
         assert events[-1]["type"] == "done", events[-1]
         chunks = [e for e in events if e["type"] == "stream_chunk" and e["role"] == "assistant"]
         return events[-1]["conversation_id"], chunks
 
-    def test_a_new_account_has_no_persona_and_no_default(self, system_client, mock_ollama):
+    def test_a_new_account_has_no_persona_and_none_selected(self, system_client, mock_ollama):
         headers = self.account(system_client, mock_ollama, "fresh-account")
         assert system_client.get("/personas", headers=headers).json() == []
-        assert system_client.get("/assistant", headers=headers).json()["default_persona_id"] is None
+        assistant = system_client.get("/assistant", headers=headers).json()
+        assert assistant["selected_persona_id"] is None
+        assert "default_persona_id" not in assistant, "the column went with #334"
 
     def test_the_assistant_answers_as_itself(self, system_client, mock_ollama):
         headers = self.account(system_client, mock_ollama, "no-persona-chat")
@@ -338,49 +343,53 @@ class TestPersonasAreOptional:
         conversation = system_client.get(f"/conversations/{conversation_id}", headers=headers).json()
         assert conversation["persona_id"] is None
 
-    def test_a_first_persona_does_not_become_the_default(self, system_client, mock_ollama):
+    def test_a_first_persona_is_not_selected_for_the_user(self, system_client, mock_ollama):
         headers = self.account(system_client, mock_ollama, "first-persona")
         created = system_client.post("/personas", json={"name": "Kurisu"}, headers=headers)
         assert created.status_code == 200, created.text
-        assert system_client.get("/assistant", headers=headers).json()["default_persona_id"] is None
+        assert system_client.get("/assistant", headers=headers).json()["selected_persona_id"] is None
         _, chunks = self.turn(system_client, headers, "who are you")
         assert {c["persona_id"] for c in chunks} == {None}
 
-    def test_a_default_answers_new_conversations_only(self, system_client, mock_ollama):
-        headers = self.account(system_client, mock_ollama, "default-later")
-        with_assistant, _ = self.turn(system_client, headers, "first")
-
+    def test_the_selected_persona_is_not_slipped_into_a_chat_that_names_none(self, system_client, mock_ollama):
+        # #334: a chat that names no persona is the assistant's own, whoever is
+        # selected. The selection is the clients' to name when they mean it; the
+        # server silently adopting the old default put Kurisu behind a header
+        # saying "Assistant" on the desktop.
+        headers = self.account(system_client, mock_ollama, "selection-set")
         persona = system_client.post("/personas", json={"name": "Kurisu"}, headers=headers).json()
-        resp = system_client.patch("/assistant", json={"default_persona_id": persona["id"]}, headers=headers)
+        resp = system_client.patch("/assistant", json={"selected_persona_id": persona["id"]}, headers=headers)
         assert resp.status_code == 200, resp.text
 
-        _, chunks = self.turn(system_client, headers, "still you?", conversation_id=with_assistant)
-        assert {c["persona_id"] for c in chunks} == {None}, "a conversation with the assistant stays with it"
+        conversation_id, chunks = self.turn(system_client, headers, "new chat")
+        assert {c["persona_id"] for c in chunks} == {None}
+        assert {c["name"] for c in chunks} == {"Assistant"}
+        stored = system_client.get(f"/conversations/{conversation_id}", headers=headers).json()
+        assert stored["persona_id"] is None, "left with the assistant, where its client will look for it"
 
-        _, chunks = self.turn(system_client, headers, "new chat")
+        _, chunks = self.turn(system_client, headers, "as Kurisu", persona_id=persona["id"])
         assert {c["persona_id"] for c in chunks} == {persona["id"]}
         assert {c["name"] for c in chunks} == {"Kurisu"}
 
     def test_unbinding_a_conversation_hands_it_to_the_assistant(self, system_client, mock_ollama):
         headers = self.account(system_client, mock_ollama, "unbind")
         persona = system_client.post("/personas", json={"name": "Kurisu"}, headers=headers).json()
-        system_client.patch("/assistant", json={"default_persona_id": persona["id"]}, headers=headers)
-        conversation_id, chunks = self.turn(system_client, headers, "hi")
+        conversation_id, chunks = self.turn(system_client, headers, "hi", persona_id=persona["id"])
         assert {c["persona_id"] for c in chunks} == {persona["id"]}
 
         resp = system_client.patch(f"/conversations/{conversation_id}", json={"persona_id": None}, headers=headers)
         assert resp.status_code == 200, resp.text
         _, chunks = self.turn(system_client, headers, "and now?", conversation_id=conversation_id)
-        assert {c["persona_id"] for c in chunks} == {None}, "not the default again"
+        assert {c["persona_id"] for c in chunks} == {None}, "not the selection again"
 
     def test_disabling_and_deleting_every_persona_leaves_the_assistant(self, system_client, mock_ollama):
         headers = self.account(system_client, mock_ollama, "remove-all")
         persona = system_client.post("/personas", json={"name": "Kurisu"}, headers=headers).json()
-        system_client.patch("/assistant", json={"default_persona_id": persona["id"]}, headers=headers)
+        system_client.patch("/assistant", json={"selected_persona_id": persona["id"]}, headers=headers)
 
         disabled = system_client.patch(f"/personas/{persona['id']}/enabled", json={"enabled": False}, headers=headers)
         assert disabled.status_code == 200, disabled.text
-        assert system_client.get("/assistant", headers=headers).json()["default_persona_id"] is None
+        assert system_client.get("/assistant", headers=headers).json()["selected_persona_id"] is None
         _, chunks = self.turn(system_client, headers, "anyone?")
         assert {c["persona_id"] for c in chunks} == {None}
 
@@ -389,6 +398,56 @@ class TestPersonasAreOptional:
         assert system_client.get("/personas", headers=headers).json() == []
         _, chunks = self.turn(system_client, headers, "still here?")
         assert {c["persona_id"] for c in chunks} == {None}
+
+
+class TestTheChatSelection:
+    """Who the desktop chat is on, kept on the server (#334).
+
+    It lived in the desktop's local storage, so a sign-in elsewhere — or the same
+    machine after a sign-out — opened on the assistant whatever was last picked.
+    It replaces the assistant's default persona, and it is a record only: the
+    chat path never applies it.
+    """
+
+    account = staticmethod(TestPersonasAreOptional.account)
+
+    def test_the_selection_is_saved_and_read_back(self, system_client, mock_ollama):
+        headers = self.account(system_client, mock_ollama, "selection-saved")
+        persona = system_client.post("/personas", json={"name": "Kurisu"}, headers=headers).json()
+
+        resp = system_client.patch("/assistant", json={"selected_persona_id": persona["id"]}, headers=headers)
+        assert resp.status_code == 200, resp.text
+        assert system_client.get("/assistant", headers=headers).json()["selected_persona_id"] == persona["id"]
+
+        resp = system_client.patch("/assistant", json={"selected_persona_id": None}, headers=headers)
+        assert resp.status_code == 200, resp.text
+        assert system_client.get("/assistant", headers=headers).json()["selected_persona_id"] is None
+
+    def test_only_an_enabled_persona_of_ones_own_can_be_selected(self, system_client, mock_ollama):
+        headers = self.account(system_client, mock_ollama, "selection-checked")
+        persona = system_client.post("/personas", json={"name": "Kurisu"}, headers=headers).json()
+        system_client.patch(f"/personas/{persona['id']}/enabled", json={"enabled": False}, headers=headers)
+
+        assert system_client.patch(
+            "/assistant", json={"selected_persona_id": persona["id"]}, headers=headers,
+        ).status_code == 400
+        assert system_client.patch(
+            "/assistant", json={"selected_persona_id": 999_999}, headers=headers,
+        ).status_code == 404
+
+    def test_disabling_or_deleting_the_selected_persona_returns_the_chat_to_the_assistant(self, system_client, mock_ollama):
+        headers = self.account(system_client, mock_ollama, "selection-gone")
+        first = system_client.post("/personas", json={"name": "Kurisu"}, headers=headers).json()
+        second = system_client.post("/personas", json={"name": "Amadeus"}, headers=headers).json()
+
+        system_client.patch("/assistant", json={"selected_persona_id": first["id"]}, headers=headers)
+        system_client.patch(f"/personas/{first['id']}/enabled", json={"enabled": False}, headers=headers)
+        assert system_client.get("/assistant", headers=headers).json()["selected_persona_id"] is None
+
+        system_client.patch("/assistant", json={"selected_persona_id": second["id"]}, headers=headers)
+        system_client.delete(f"/personas/{second['id']}", headers=headers)
+        assert system_client.get("/assistant", headers=headers).json()["selected_persona_id"] is None
+
 
 
 class TestToolLoop:

@@ -152,7 +152,7 @@ const FIXTURE = {
       + 'Works in a monorepo: backend (FastAPI), desktop (Electron), android (Compose).',
     memory_enabled: true,
     trigger_word: 'kurisu',
-    default_persona_id: 1,
+    selected_persona_id: 1,
   },
   subAgents: [
     {

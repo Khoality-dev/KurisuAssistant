@@ -15,6 +15,8 @@ vi.mock('@kurisu/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@kurisu/api')>()),
   apiClient: {
     listPersonas: vi.fn(async () => [{ id: 1, name: 'Kurisu' }]),
+    // The chat is on Kurisu, as the server keeps it (#334).
+    getAssistant: vi.fn(async () => ({ selected_persona_id: 1 })),
     getLatestConversationForPersona: vi.fn(() => new Promise((resolve) => { answerLatest = resolve; })),
     getLatestAssistantConversation: vi.fn(() => new Promise((resolve) => { answerLatest = resolve; })),
     getConversation: vi.fn(async (id: number) => ({
@@ -25,7 +27,6 @@ vi.mock('@kurisu/api', async (importOriginal) => ({
   },
 }));
 
-import { storage } from '@kurisu/api';
 import { useConversationStore } from './conversationStore';
 import { usePersonaStore } from './personaStore';
 
@@ -34,7 +35,6 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 describe('personaStore: opening the last conversation (#321)', () => {
   beforeEach(() => {
     localStorage.clear();
-    storage.setSelectedPersonaId(1);
     usePersonaStore.setState({ selectedPersonaId: 1 });
     useConversationStore.getState().clearCurrentConversation();
   });

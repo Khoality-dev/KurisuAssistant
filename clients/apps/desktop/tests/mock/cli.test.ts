@@ -83,7 +83,7 @@ describe('scenarios', () => {
   it('"no-persona" is an account the assistant answers on its own', () => {
     const mock = createScenario('no-persona');
     expect(mock.getPersonas()).toEqual([]);
-    expect(mock.getAssistant().default_persona_id).toBeNull();
+    expect(mock.getAssistant().selected_persona_id).toBeNull();
   });
 
   it('"handoff" speaks as a persona the scenario actually has', () => {

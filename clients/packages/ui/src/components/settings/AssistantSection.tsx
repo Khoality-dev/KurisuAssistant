@@ -44,8 +44,8 @@ function toForm(assistant: Assistant): AssistantFormData {
  * Two things that look like they belong here do not (#197). The model is picked
  * from the chat header, beside the persona, because that is where the question
  * comes up — and it is one model for every persona, so it is no more a
- * persona's than the tools are. The default persona is chosen on Personas, by
- * making one the default.
+ * persona's than the tools are. Who the chat is on is chosen in the chat, or on
+ * Personas with "Talk to" (#334).
  */
 export const AssistantSection: React.FC = () => {
   const [assistant, setAssistant] = useState<Assistant | null>(null);

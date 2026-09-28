@@ -97,15 +97,17 @@ export function deletedFiles(config: Persona['character_config'], vrmBytes?: num
  * nothing else. Capability (model, tools, memory, wake word) lives on the single
  * assistant, one section over.
  *
- * The one thing about the assistant that IS decided here is which persona a new
- * conversation starts with (#197). That is `assistants.default_persona_id`, so
- * "Make default" is a PATCH of the assistant, not of the persona — the card
- * only wears the badge. A persona is optional (#302): with no default, new
- * conversations are answered by the assistant itself, which is where every
- * account starts, and "Clear default" goes back there.
+ * The one thing about the assistant that IS decided here is who the chat is on
+ * (#334): the assistant's `selected_persona_id`, the same selection the chat
+ * header and the Conversations page make, kept on the server so every device
+ * opens on it. "Talk to" puts the chat on a persona and the card wears the
+ * badge; a persona is optional (#302), and "Use the assistant" takes it off
+ * again, which is where every account starts.
  */
 export const PersonasSection: React.FC = () => {
   const reloadPersonaStore = usePersonaStore((s) => s.loadPersonas);
+  const selectedPersonaId = usePersonaStore((s) => s.selectedPersonaId);
+  const selectPersona = usePersonaStore((s) => s.selectPersona);
 
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
@@ -116,7 +118,6 @@ export const PersonasSection: React.FC = () => {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Persona | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Persona | null>(null);
-  const [defaultPersonaId, setDefaultPersonaId] = useState<number | null>(null);
   /** The server's per-persona 3D bytes, for the delete confirm; absent if it did not answer. */
   const [vrmBytes, setVrmBytes] = useState<Record<number, number>>({});
 
@@ -156,14 +157,7 @@ export const PersonasSection: React.FC = () => {
     try {
       setLoading(true);
       setPersonas(await apiClient.listPersonas());
-      // The default lives on the assistant, not on a persona. Losing it costs
-      // a badge, not the list.
-      try {
-        setDefaultPersonaId((await apiClient.getAssistant()).default_persona_id);
-      } catch {
-        setDefaultPersonaId(null);
-      }
-      // Keep the sidebar/chat selector in step with what was just edited.
+      // Keep the chat, and who it is on, in step with what was just edited.
       void reloadPersonaStore();
     } catch (err: any) {
       setError(describeRequestFailure(err, 'Failed to load personas'));
@@ -178,31 +172,21 @@ export const PersonasSection: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleMakeDefault = async (persona: Persona) => {
-    if (persona.id === defaultPersonaId) return;
-    try {
-      const assistant = await apiClient.updateAssistant({ default_persona_id: persona.id });
-      setDefaultPersonaId(assistant.default_persona_id);
-      flash(`New conversations start with ${persona.name}.`);
-    } catch (err: any) {
-      setError(describeRequestFailure(err, 'Failed to set the default persona'));
-    }
+  const handleTalkTo = (persona: Persona) => {
+    if (persona.id === selectedPersonaId) return;
+    selectPersona(persona.id);
+    flash(`The chat is on ${persona.name}.`);
   };
 
-  const handleClearDefault = async () => {
-    try {
-      const assistant = await apiClient.updateAssistant({ default_persona_id: null });
-      setDefaultPersonaId(assistant.default_persona_id);
-      flash('New conversations are answered by the assistant itself.');
-    } catch (err: any) {
-      setError(describeRequestFailure(err, 'Failed to clear the default persona'));
-    }
+  const handleUseAssistant = () => {
+    selectPersona(null);
+    flash('The chat is on the assistant itself.');
   };
 
   const handleToggleEnabled = async (persona: Persona, enabled: boolean) => {
     try {
-      // Disabling the default is allowed: the server clears the default, and
-      // new conversations go back to the assistant (#302).
+      // Disabling the one the chat is on is allowed: the server clears the
+      // selection and the reload puts the chat back on the assistant (#302, #334).
       await apiClient.togglePersonaEnabled(persona.id, enabled);
       await loadPersonas();
     } catch (err: any) {
@@ -338,7 +322,7 @@ export const PersonasSection: React.FC = () => {
           <Typography variant="h6" gutterBottom>No personas yet</Typography>
           <Typography color="text.secondary" sx={{ mb: 3 }}>
             Without one, the assistant answers as itself. Create a persona to give it a name, a
-            voice and a face, and make it the default if new conversations should start with it.
+            voice and a face, then talk to it here or from the chat header.
           </Typography>
           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
             <Button variant="outlined" startIcon={<ImportIcon />} onClick={() => importInputRef.current?.click()}>
@@ -376,19 +360,19 @@ export const PersonasSection: React.FC = () => {
                       persona.voice_reference ? `voice: ${voiceName(voices, persona.voice_reference)}` : null,
                       characterLabel(persona.character_config),
                     ]}
-                    badge={persona.id === defaultPersonaId
-                      ? <Chip label="Default" size="small" color="primary" />
+                    badge={persona.id === selectedPersonaId
+                      ? <Chip label="In the chat" size="small" color="primary" />
                       : undefined}
-                    action={persona.id === defaultPersonaId
+                    action={persona.id === selectedPersonaId
                       ? (
                         <Button
                           size="small"
                           onClick={(e) => {
                             e.stopPropagation();
-                            void handleClearDefault();
+                            handleUseAssistant();
                           }}
                         >
-                          Clear default
+                          Use the assistant
                         </Button>
                       )
                       : persona.enabled
@@ -397,10 +381,10 @@ export const PersonasSection: React.FC = () => {
                             size="small"
                             onClick={(e) => {
                               e.stopPropagation();
-                              void handleMakeDefault(persona);
+                              handleTalkTo(persona);
                             }}
                           >
-                            Make default
+                            Talk to
                           </Button>
                         )
                         : undefined}
@@ -477,7 +461,7 @@ export const PersonasSection: React.FC = () => {
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2 }}>
             Past conversations keep their messages, and the assistant answers in them from now on.
-            {deleteTarget?.id === defaultPersonaId ? ' New conversations go back to the assistant too.' : ''}
+            {deleteTarget?.id === selectedPersonaId ? ' The chat goes back to the assistant too.' : ''}
             {' '}Everything below is deleted from the server. This cannot be undone.
           </Typography>
           <Paper variant="outlined" sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>

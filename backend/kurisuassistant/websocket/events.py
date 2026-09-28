@@ -104,8 +104,9 @@ class ChatRequestEvent(BaseEvent):
     model_name: str = ""
     conversation_id: Optional[int] = None
     # Explicit persona override for this turn. Omitted on an ordinary message:
-    # a new conversation silently adopts assistants.default_persona_id and an
-    # existing one keeps its binding. Sending it rebinds the conversation.
+    # an existing conversation keeps its binding and a new one is the
+    # assistant's own — the default persona is never adopted silently (#334),
+    # so a client that wants it names it. Sending it rebinds the conversation.
     persona_id: Optional[int] = None
     images: List[str] = field(default_factory=list)  # base64 encoded
     context_files: List[Dict[str, Any]] = field(default_factory=list)  # [{path, fileName, startLine, endLine, ...}]

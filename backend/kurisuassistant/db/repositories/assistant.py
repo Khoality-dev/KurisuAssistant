@@ -36,7 +36,7 @@ class AssistantRepository(BaseRepository[Assistant]):
 
         Accepts any assistant column as a keyword — ``model_name``,
         ``provider_type``, ``available_tools``, ``think``, ``use_deferred_tools``,
-        ``memory``, ``memory_enabled``, ``trigger_word``, ``default_persona_id``
+        ``memory``, ``memory_enabled``, ``trigger_word``, ``selected_persona_id``
         — so a caller never has to create then immediately update.
 
         Args:
@@ -79,7 +79,7 @@ class AssistantRepository(BaseRepository[Assistant]):
         memory: Any = UNSET,
         memory_enabled: Any = UNSET,
         trigger_word: Any = UNSET,
-        default_persona_id: Any = UNSET,
+        selected_persona_id: Any = UNSET,
     ) -> Assistant:
         """Update the assistant.
 
@@ -104,7 +104,7 @@ class AssistantRepository(BaseRepository[Assistant]):
             memory=memory,
             memory_enabled=memory_enabled,
             trigger_word=trigger_word,
-            default_persona_id=default_persona_id,
+            selected_persona_id=selected_persona_id,
         )
 
     def update_memory(self, assistant: Assistant, memory: Optional[str]) -> Assistant:

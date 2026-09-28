@@ -76,7 +76,7 @@ class ChatViewModelModelTest {
         modelName = model.name,
         providerType = model.provider,
         triggerWord = "kurisu",
-        defaultPersonaId = kurisu.id,
+        selectedPersonaId = kurisu.id,
     )
 
     @Before

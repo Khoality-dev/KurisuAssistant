@@ -23,7 +23,7 @@ assistants                                          exactly one row per user
   memory(text)?             ONE document per user, shared by every persona
   memory_enabled(bool)
   trigger_word?             voice wake word; selects nothing
-  default_persona_id→personas (SET NULL)            who answers a new conversation; null = the assistant
+  selected_persona_id→personas (SET NULL)           who the chat is on; clients read and write it, the server never applies it (#334)
   created_at
 
 personas                                            presentation only

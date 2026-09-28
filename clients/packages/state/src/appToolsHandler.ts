@@ -15,6 +15,7 @@ import { useVisionStore } from './visionStore';
 import { useMicStore } from './micStore';
 import { useExplorerStore } from './explorerStore';
 import { useLayoutStore } from './layoutStore';
+import { usePersonaStore } from './personaStore';
 import { refreshClientMCPServers } from './mcpService';
 import { resolveBridge } from '@kurisu/platform';
 
@@ -47,7 +48,7 @@ async function handleGetAssistant(): Promise<ToolResult> {
     `- Deferred tools: ${a.use_deferred_tools ? 'on' : 'off'}`,
     `- Memory: ${a.memory_enabled ? 'on' : 'off'}`,
     `- Wake word: ${a.trigger_word || 'none'}`,
-    `- Default persona: ${a.default_persona_id ?? 'none (the assistant answers as itself)'}`,
+    `- The chat is on: persona ${a.selected_persona_id ?? 'none (the assistant as itself)'}`,
   ];
   return ok(lines.join('\n'));
 }
@@ -62,11 +63,14 @@ async function handleUpdateAssistant(args: Record<string, unknown>): Promise<Too
   for (const key of [
     'model_name', 'provider_type', 'available_tools', 'think',
     'use_deferred_tools', 'memory', 'memory_enabled', 'trigger_word',
-    'default_persona_id',
   ]) {
     if (args[key] !== undefined) update[key] = args[key];
   }
-  if (Object.keys(update).length === 0) return err('No fields to update.');
+  // Who the chat is on goes through the store, so this window moves with it (#334).
+  const selects = args.selected_persona_id !== undefined;
+  if (Object.keys(update).length === 0 && !selects) return err('No fields to update.');
+  if (selects) usePersonaStore.getState().selectPersona((args.selected_persona_id as number | null) ?? null);
+  if (Object.keys(update).length === 0) return ok('The chat has moved.');
 
   const a = await apiClient.updateAssistant(update);
   return ok(`Assistant updated — model ${a.model_name || 'not set'} (${a.provider_type}).`);

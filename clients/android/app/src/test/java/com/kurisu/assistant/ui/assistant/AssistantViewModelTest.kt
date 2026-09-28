@@ -62,7 +62,7 @@ class AssistantViewModelTest {
         memory = "Kho works in Europe/Berlin.",
         memoryEnabled = true,
         triggerWord = "kurisu",
-        defaultPersonaId = 7,
+        selectedPersonaId = 7,
     )
 
     // Same configuration as NetworkModule.provideJson(), so "which keys go on the
@@ -278,7 +278,7 @@ class AssistantViewModelTest {
     }
 
     @Test
-    fun `the screen never sets the model or the default persona`() = runTest {
+    fun `the screen never sets the model or the selected persona`() = runTest {
         // Both moved off this page (#197): the model to the chat header, the
         // default persona to the Personas screen. Nothing here can send either
         // field, so a regression that brings a picker back has to add it to the
@@ -291,7 +291,7 @@ class AssistantViewModelTest {
         advanceUntilIdle()
 
         val keys = patches.flatMap { keysOf(it) }.toSet()
-        assertThat(keys).containsNoneOf("model_name", "provider_type", "default_persona_id")
+        assertThat(keys).containsNoneOf("model_name", "provider_type", "selected_persona_id")
     }
 
     // ─── Sub-agents ───────────────────────────────────────────────────

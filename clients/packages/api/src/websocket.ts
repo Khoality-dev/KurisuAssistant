@@ -19,9 +19,9 @@ export interface ChatRequestEvent extends BaseEvent {
   text: string;
   model_name: string;
   conversation_id: number | null;
-  // Optional per-turn persona override. Omit it on an ordinary message: a new
-  // conversation silently adopts the assistant's default persona and an existing
-  // one keeps its binding. Sending it rebinds the conversation server-side.
+  // Optional per-turn persona override. Omit it on an ordinary message: an
+  // existing conversation keeps its binding and a new one is the assistant's own
+  // (#334). Sending it rebinds the conversation server-side.
   persona_id?: number | null;
   images: string[]; // base64 encoded
 }
@@ -396,8 +396,8 @@ class WebSocketManager {
       conversation_id: conversationId,
       images,
       context_files: contextFiles.length > 0 ? contextFiles : undefined,
-      // Omitted unless the caller is overriding: the server binds a new
-      // conversation to the assistant's default persona on its own.
+      // Omitted unless the caller names one: a new conversation that names nobody
+      // is the assistant's own (#334).
       persona_id: personaId ?? undefined,
     });
   }

@@ -100,10 +100,10 @@ function getAppToolSchemas(): ToolSchema[] {
               description:
                 'Voice wake word. Saying it wakes the assistant; the conversation\'s bound persona answers. It selects no persona.',
             },
-            default_persona_id: {
+            selected_persona_id: {
               type: 'integer',
               description:
-                'Persona a new conversation binds to. Send null to have the assistant answer new conversations as itself, with no persona.',
+                'Persona the chat is on — who answers new chats, on every device. Send null for the assistant itself, with no persona.',
             },
           },
           required: [],

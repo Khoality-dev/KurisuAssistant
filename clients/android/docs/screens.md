@@ -45,9 +45,9 @@ sub-agent is tagged `sub-agent` and names the model that ran it.
 Tapping the header swaps the persona **for this conversation only**. The account default is
 untouched, and the change persists without sending a message. A persona is optional (#302): the
 sheet's first row is **Assistant** — no persona, the assistant answering as itself — and a chat with
-no persona says "Assistant" in its header. In a chat that has not started yet that row is available
-only when there is no default persona (a new chat cannot say "nobody" on the wire while a default is
-set; it can be switched after the first message).
+no persona says "Assistant" in its header. The row works in a chat that has not started yet too: the
+first message then names no persona, and the server leaves it with the assistant (#334) — it used to
+adopt the default there, so the row was held back until the first message.
 
 ## Changing the model
 
@@ -79,10 +79,11 @@ A persona carries presentation only — there is no model, no tool list and no w
 editor. "Calls you" is what the persona calls *you*, not a display name for the persona.
 
 Personas are optional (#302). A new account has none, and the list's first row, **The assistant
-itself**, is the default until a persona is tapped; tapping it again sends `default_persona_id: null`
-(`AssistantRepository.clearDefaultPersona`, a hand-built body because `AssistantUpdate` never sends a
-null). Any persona can be deleted, the last one included, and the default can be disabled — both hand
-new chats back to the assistant, and the badge follows.
+itself**, is selected until a persona is tapped; tapping a row puts the chat on it, on every device
+(`selected_persona_id`, #334), and tapping the assistant again sends `selected_persona_id: null`
+(`AssistantRepository.clearSelectedPersona`, a hand-built body because `AssistantUpdate` never sends a
+null). Any persona can be deleted, the last one included, and the selected one can be disabled — both
+hand new chats back to the assistant, and the **In the chat** badge follows.
 
 ## Everything else
 

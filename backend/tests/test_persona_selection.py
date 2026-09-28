@@ -27,17 +27,12 @@ class TestPickPersona:
     def test_no_default_is_the_assistant_not_the_first_persona(self):
         assert pick_persona([KURISU, MAYURI]).id is None
 
-    def test_the_default_answers(self):
-        assert pick_persona([KURISU, MAYURI], default_persona_id=2) is MAYURI
+    def test_the_persona_named_answers(self):
+        assert pick_persona([KURISU, MAYURI], override_id=2) is MAYURI
 
-    def test_an_override_beats_the_default(self):
-        assert pick_persona([KURISU, MAYURI], override_id=1, default_persona_id=2) is KURISU
-
-    def test_a_default_that_is_not_enabled_falls_back_to_the_assistant(self):
-        assert pick_persona([KURISU], default_persona_id=9).id is None
-
-    def test_an_override_that_is_not_enabled_falls_back_to_the_default(self):
-        assert pick_persona([KURISU, MAYURI], override_id=9, default_persona_id=2) is MAYURI
+    def test_a_persona_named_that_is_not_enabled_falls_back_to_the_assistant(self):
+        # Not to a default: the server never picks a persona nobody named (#334).
+        assert pick_persona([KURISU, MAYURI], override_id=9).id is None
 
     def test_each_turn_gets_its_own_assistant_identity(self):
         """A dataclass is mutable; one shared instance would carry a turn's edits into the next."""

@@ -154,9 +154,10 @@ utils/                   prompt assembly, image storage, memory consolidation,
 2. `ChatSessionHandler._setup_conversation` resolves or creates the conversation
    and reads the user's preferences, including their tool policies.
 3. A persona is resolved and persisted to `conversations.persona_id`: an explicit
-   override (`chat_request.persona_id`, or the binding already stored) → for a
-   conversation nothing has answered yet, the assistant's `default_persona_id` →
-   the assistant itself, with no persona (#302). Nothing
+   override (`chat_request.persona_id`, or the binding already stored) → the
+   assistant itself, with no persona (#302). Who the chat is on
+   (`assistants.selected_persona_id`) is the clients' to name; the server never
+   adopts it (#334). Nothing
    scans for a trigger word and nothing is picked at random; the trigger word is a
    voice wake word on the assistant and selects nothing. The write happens on a
    rebind too, so a per-turn override survives to the next message.
@@ -251,8 +252,8 @@ Ten tables: `users`, `assistants`, `personas`, `sub_agents`, `conversations`,
 `database.md`.
 
 The old merged `agents` table was split in migration `0dacee9f63b8`: one
-`assistants` row per user holds capability (model, tools, memory, wake word,
-default persona), `personas` holds presentation, and `sub_agents` holds task-only
+`assistants` row per user holds capability (model, tools, memory, wake word, and
+since #334 who the chat is on), `personas` holds presentation, and `sub_agents` holds task-only
 workers. `agents` was **renamed** to `personas` with its ids intact, because
 `data/character_assets/{id}/` and the URLs inside `character_config` are keyed on
 them.
