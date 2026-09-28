@@ -73,6 +73,8 @@ interface VoiceModeBarProps {
   windowStartedAt: number | null;
   /** A narrow chat column: End voice mode goes on its own row. */
   narrow: boolean;
+  /** The recogniser has loaded and the mic is listening (`data-mic`, for tests). */
+  micOn?: boolean;
   onEnd: () => void;
   onRetry: () => void;
   onOpenAssistantSettings: () => void;
@@ -214,7 +216,7 @@ const Disc: React.FC<{ bg: string; children: React.ReactNode; shadow?: string }>
  * the same place in every state.
  */
 export const VoiceModeBar: React.FC<VoiceModeBarProps> = (props) => {
-  const { phase, wakeWord, answerer, lastTranscript, windowStartedAt, narrow, onEnd } = props;
+  const { phase, wakeWord, answerer, lastTranscript, windowStartedAt, narrow, micOn = false, onEnd } = props;
   const theme = useTheme();
   const c = voiceColors(theme);
   const problem = PROBLEMS[phase];
@@ -274,6 +276,7 @@ export const VoiceModeBar: React.FC<VoiceModeBarProps> = (props) => {
     <Box
       role="region"
       aria-label="Voice mode"
+      data-mic={micOn ? 'on' : 'off'}
       sx={{
         ...KEYFRAMES,
         flex: 'none',
