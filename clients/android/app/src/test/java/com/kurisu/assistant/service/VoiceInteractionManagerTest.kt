@@ -11,25 +11,34 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
+/**
+ * Voice mode, the wake word and an interaction (#341), the same model as the
+ * desktop (#253):
+ *
+ * - voice mode is on or off, chosen by the user, and the only time the mic
+ *   listens — off, nothing said is used, and nothing becomes dictation;
+ * - in voice mode, the wake word starts an interaction and anything else is
+ *   ignored;
+ * - an interaction sends everything said, and each one is a new conversation;
+ * - it ends 30 s after the assistant's last reply, finished answering and
+ *   speaking, with nothing said since; talking holds that window open.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
 class VoiceInteractionManagerTest {
 
     private lateinit var manager: VoiceInteractionManager
-    private val sent = mutableListOf<String>()
-    private var enterCount = 0
-    private var exitCount = 0
+    private val sent = mutableListOf<Pair<String, Boolean>>()
+    private var now = 1_000_000L
 
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         manager = VoiceInteractionManager(context)
-        manager.onTranscriptSend = { sent.add(it) }
-        manager.onEnterMode = { enterCount++ }
-        manager.onExitMode = { exitCount++ }
+        manager.clock = { now }
+        manager.onTranscriptSend = { text, newConversation -> sent.add(text to newConversation) }
+        manager.setTriggerWord("kurisu")
         sent.clear()
-        enterCount = 0
-        exitCount = 0
     }
 
     @After
@@ -37,170 +46,195 @@ class VoiceInteractionManagerTest {
         manager.release()
     }
 
+    // ── Voice mode ────────────────────────────────────────────────────────
+
     @Test
-    fun `transcript without trigger word returns false and does not send`() {
-        manager.setTriggerWord("kurisu")
-        val consumed = manager.handleTranscript("hello there")
-        assertThat(consumed).isFalse()
+    fun `voice mode starts off, and off nothing said is used`() {
+        assertThat(manager.state.value.voiceMode).isFalse()
+
+        manager.handleTranscript("hey Kurisu, what time is it")
+
         assertThat(sent).isEmpty()
-        assertThat(enterCount).isEqualTo(0)
+        assertThat(manager.state.value.interactionActive).isFalse()
     }
 
     @Test
-    fun `transcript with trigger word enters mode and sends`() {
-        manager.setTriggerWord("kurisu")
-        val consumed = manager.handleTranscript("hey Kurisu, what time is it")
-        assertThat(consumed).isTrue()
-        assertThat(enterCount).isEqualTo(1)
-        assertThat(sent).containsExactly("hey Kurisu, what time is it")
-        assertThat(manager.state.value.isInteractionMode).isTrue()
+    fun `turned on, it waits for the wake word with no interaction yet`() {
+        manager.setVoiceMode(true)
+
+        assertThat(manager.state.value.voiceMode).isTrue()
+        assertThat(manager.state.value.interactionActive).isFalse()
     }
 
     @Test
-    fun `in interaction mode all transcripts are auto-sent`() {
-        manager.setTriggerWord("kurisu")
-        manager.enterMode()
+    fun `turned off, it ends the interaction`() {
+        manager.setVoiceMode(true)
+        manager.handleTranscript("Kurisu, hello")
+
+        manager.setVoiceMode(false)
+
+        assertThat(manager.state.value.voiceMode).isFalse()
+        assertThat(manager.state.value.interactionActive).isFalse()
+        assertThat(manager.state.value.idleDeadlineMs).isNull()
+    }
+
+    // ── The wake word ─────────────────────────────────────────────────────
+
+    @Test
+    fun `the wake word starts an interaction in a new conversation, and is its first message`() {
+        manager.setVoiceMode(true)
+
+        manager.handleTranscript("hey Kurisu, what time is it")
+
+        assertThat(manager.state.value.interactionActive).isTrue()
+        assertThat(sent).containsExactly("hey Kurisu, what time is it" to true)
+        assertThat(manager.state.value.wokeAtMs).isEqualTo(now)
+    }
+
+    @Test
+    fun `speech without the wake word is ignored, not turned into dictation`() {
+        manager.setVoiceMode(true)
+
+        manager.handleTranscript("buy milk on the way home")
+
+        assertThat(sent).isEmpty()
+        assertThat(manager.state.value.interactionActive).isFalse()
+    }
+
+    @Test
+    fun `with no wake word set, nothing starts an interaction`() {
+        manager.setTriggerWord(null)
+        manager.setVoiceMode(true)
+
+        manager.handleTranscript("kurisu")
+
+        assertThat(sent).isEmpty()
+    }
+
+    @Test
+    fun `the wake word is heard in any case, anywhere in what was said`() {
+        manager.setTriggerWord("Kurisu")
+        manager.setVoiceMode(true)
+
+        manager.handleTranscript("ok so kurisu listen")
+
+        assertThat(manager.state.value.interactionActive).isTrue()
+    }
+
+    // ── An interaction ────────────────────────────────────────────────────
+
+    @Test
+    fun `in an interaction everything said is sent to that conversation, with no wake word`() {
+        manager.setVoiceMode(true)
+        manager.handleTranscript("Kurisu, are you there?")
         sent.clear()
 
-        manager.handleTranscript("follow up question")
-        assertThat(sent).containsExactly("follow up question")
+        manager.handleTranscript("and tomorrow?")
+
+        assertThat(sent).containsExactly("and tomorrow?" to false)
     }
 
     @Test
-    fun `in interaction mode transcripts are buffered while streaming`() {
-        manager.setTriggerWord("kurisu")
-        manager.enterMode()
+    fun `what is said while the reply streams is sent when it finishes`() {
+        manager.setVoiceMode(true)
+        manager.handleTranscript("Kurisu, hello")
         sent.clear()
         manager.isStreaming = true
 
         manager.handleTranscript("while streaming")
-        assertThat(sent).isEmpty() // buffered
-
-        manager.isStreaming = false
-        manager.onStreamingComplete()
-        assertThat(sent).containsExactly("while streaming")
-    }
-
-    @Test
-    fun `onStreamingComplete is noop when no pending`() {
-        manager.enterMode()
-        sent.clear()
-        manager.onStreamingComplete()
         assertThat(sent).isEmpty()
-    }
 
-    @Test
-    fun `null trigger word keeps transcripts as dictation`() {
-        manager.setTriggerWord(null)
-        assertThat(manager.handleTranscript("kurisu")).isFalse()
-    }
-
-    @Test
-    fun `trigger word match is case insensitive`() {
-        manager.setTriggerWord("Kurisu")
-        assertThat(manager.handleTranscript("hey kurisu")).isTrue()
-        assertThat(enterCount).isEqualTo(1)
-    }
-
-    @Test
-    fun `exitMode resets state and invokes callback`() = runTest {
-        manager.enterMode()
-        assertThat(manager.state.value.isInteractionMode).isTrue()
-
-        manager.exitMode()
-        assertThat(manager.state.value.isInteractionMode).isFalse()
-        assertThat(exitCount).isEqualTo(1)
-    }
-
-    @Test
-    fun `enterMode is idempotent`() {
-        manager.enterMode()
-        manager.enterMode()
-        assertThat(enterCount).isEqualTo(1)
-    }
-
-    @Test
-    fun `state flow emits mode transitions`() = runTest {
-        manager.state.test {
-            assertThat(awaitItem().isInteractionMode).isFalse()
-            manager.enterMode()
-            assertThat(awaitItem().isInteractionMode).isTrue()
-            manager.exitMode()
-            assertThat(awaitItem().isInteractionMode).isFalse()
-        }
-    }
-
-    @Test
-    fun `onTTSAndStreamingIdle starts timer only when idle and in mode`() {
-        // When not in mode, should be a noop (no crash)
         manager.isStreaming = false
-        manager.isTTSActive = false
-        manager.onTTSAndStreamingIdle()
-        assertThat(manager.state.value.isInteractionMode).isFalse()
+        manager.onStreamingComplete()
+        assertThat(sent).containsExactly("while streaming" to false)
     }
 
-    // ── Idle countdown ────────────────────────────────────────────────────
-    // The composer shows "idle timeout in {n}s". It needs the instant the timer
-    // fires, not the constant: seconds counted in the UI drift the moment the
-    // screen sleeps or a recomposition is skipped.
+    @Test
+    fun `the next interaction is another new conversation`() {
+        manager.setVoiceMode(true)
+        manager.handleTranscript("Kurisu, first question")
+        manager.endInteraction()
+
+        manager.handleTranscript("Kurisu, second question")
+
+        assertThat(sent.last()).isEqualTo("Kurisu, second question" to true)
+    }
 
     @Test
-    fun `no idle deadline is armed until streaming and speech both stop`() {
-        manager.enterMode()
-        assertThat(manager.state.value.idleDeadlineMs).isNull()
+    fun `what was last said stays for the whole interaction, and goes when it ends`() {
+        manager.setVoiceMode(true)
+        manager.handleTranscript("Kurisu, how long do I boil an egg?")
+        manager.onTTSAndStreamingIdle()
+
+        assertThat(manager.state.value.lastTranscript).isEqualTo("Kurisu, how long do I boil an egg?")
+
+        manager.endInteraction()
+        assertThat(manager.state.value.lastTranscript).isNull()
+        assertThat(manager.state.value.wokeAtMs).isNull()
+        assertThat(manager.state.value.voiceMode).isTrue()
+    }
+
+    // ── The 30-second window ──────────────────────────────────────────────
+
+    @Test
+    fun `no window opens while the reply streams or is spoken`() {
+        manager.setVoiceMode(true)
+        manager.handleTranscript("Kurisu, hello")
 
         manager.isStreaming = true
         manager.onTTSAndStreamingIdle()
         assertThat(manager.state.value.idleDeadlineMs).isNull()
+
+        manager.isStreaming = false
+        manager.isTTSActive = true
+        manager.onTTSAndStreamingIdle()
+        assertThat(manager.state.value.idleDeadlineMs).isNull()
     }
 
     @Test
-    fun `going idle arms a deadline one timeout away`() {
-        manager.enterMode()
-        val before = System.currentTimeMillis()
-        manager.onTTSAndStreamingIdle()
-        val after = System.currentTimeMillis()
+    fun `the window opens 30 s long once the reply is done`() {
+        manager.setVoiceMode(true)
+        manager.handleTranscript("Kurisu, hello")
 
-        val deadline = manager.state.value.idleDeadlineMs
-        assertThat(deadline).isNotNull()
-        assertThat(deadline!!).isAtLeast(before + VoiceInteractionManager.IDLE_TIMEOUT_MS)
-        assertThat(deadline).isAtMost(after + VoiceInteractionManager.IDLE_TIMEOUT_MS)
+        manager.onTTSAndStreamingIdle()
+
+        assertThat(manager.state.value.idleDeadlineMs).isEqualTo(now + VoiceInteractionManager.IDLE_TIMEOUT_MS)
     }
 
     @Test
-    fun `a new transcript restarts the wait, so the deadline moves forward`() {
-        manager.enterMode()
+    fun `talking holds the window shut, and it reopens full when the talking is over`() {
+        manager.setVoiceMode(true)
+        manager.handleTranscript("Kurisu, hello")
         manager.onTTSAndStreamingIdle()
-        val first = manager.state.value.idleDeadlineMs!!
 
-        // Answering resets the clock: the countdown must not keep running down
-        // while the user is still talking.
-        manager.handleTranscript("still here")
+        now += 20_000
+        manager.setUserTalking(true)
         assertThat(manager.state.value.idleDeadlineMs).isNull()
 
-        manager.onTTSAndStreamingIdle()
-        assertThat(manager.state.value.idleDeadlineMs!!).isAtLeast(first)
+        now += 5_000
+        manager.setUserTalking(false)
+        assertThat(manager.state.value.idleDeadlineMs).isEqualTo(now + VoiceInteractionManager.IDLE_TIMEOUT_MS)
     }
 
     @Test
-    fun `leaving voice mode clears the deadline`() {
-        manager.enterMode()
-        manager.onTTSAndStreamingIdle()
-        assertThat(manager.state.value.idleDeadlineMs).isNotNull()
+    fun `talking outside an interaction opens no window`() {
+        manager.setVoiceMode(true)
 
-        manager.exitMode()
+        manager.setUserTalking(true)
+        manager.setUserTalking(false)
+
         assertThat(manager.state.value.idleDeadlineMs).isNull()
-        assertThat(manager.state.value.isInteractionMode).isFalse()
     }
 
     @Test
-    fun `the wake word API is unchanged — it is assistant-level, not per persona`() {
-        // setTriggerWord(String?) keeps its shape: one word wakes the assistant
-        // and the conversation's bound persona answers. It selects no one.
-        manager.setTriggerWord("kurisu")
-        assertThat(manager.handleTranscript("kurisu are you there")).isTrue()
-        manager.exitMode()
-        manager.setTriggerWord(null)
-        assertThat(manager.handleTranscript("kurisu are you there")).isFalse()
+    fun `the state flow reports an interaction starting and ending`() = runTest {
+        manager.setVoiceMode(true)
+        manager.state.test {
+            assertThat(awaitItem().interactionActive).isFalse()
+            manager.handleTranscript("Kurisu, hi")
+            assertThat(expectMostRecentItem().interactionActive).isTrue()
+            manager.endInteraction()
+            assertThat(expectMostRecentItem().interactionActive).isFalse()
+        }
     }
 }

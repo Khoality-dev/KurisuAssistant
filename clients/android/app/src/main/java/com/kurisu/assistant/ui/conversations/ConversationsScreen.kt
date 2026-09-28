@@ -74,6 +74,7 @@ fun ConversationsScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val coreServiceState by viewModel.coreServiceState.collectAsState()
+    val voiceState by viewModel.voiceState.collectAsState()
 
     // Ask for the mic once and start the service, exactly as the dead Home
     // screen did — without it the strip below is a control that cannot work.
@@ -88,8 +89,8 @@ fun ConversationsScreen(
         }
     }
 
-    // The wake word opens the chat. It names no persona: whoever the
-    // conversation is bound to answers.
+    // The wake word, in voice mode, starts an interaction in a new conversation
+    // (#341): open the chat, where it is. It names no persona.
     LaunchedEffect(Unit) {
         viewModel.wakeWord.collect { onOpenChat(coreServiceState.conversationId) }
     }
@@ -132,11 +133,12 @@ fun ConversationsScreen(
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             MicStatusBar(
-                isListening = coreServiceState.isRecording,
+                voiceMode = voiceState.voiceMode,
+                interactionActive = voiceState.interactionActive,
                 isProcessing = coreServiceState.isProcessingAsr,
-                lastTranscript = coreServiceState.lastTranscript,
+                lastTranscript = voiceState.lastTranscript,
                 triggerWord = state.triggerWord,
-                onClick = viewModel::toggleRecording,
+                onClick = viewModel::toggleVoiceMode,
             )
 
             // A failure with rows already on screen is a banner, not a wipe: the
@@ -191,13 +193,17 @@ fun ConversationsScreen(
  */
 @Composable
 private fun MicStatusBar(
-    isListening: Boolean,
+    voiceMode: Boolean,
+    interactionActive: Boolean,
     isProcessing: Boolean,
     lastTranscript: String?,
     triggerWord: String?,
     onClick: () -> Unit,
 ) {
-    val active = isListening || isProcessing
+    // Voice mode is the only time the mic listens (#341); the strip turns it on
+    // and off, as the chat's top-bar button does.
+    val isListening = voiceMode
+    val active = voiceMode
     val containerColor by animateColorAsState(
         targetValue = if (active) {
             MaterialTheme.colorScheme.primaryContainer
@@ -213,16 +219,18 @@ private fun MicStatusBar(
     }
 
     val title = when {
+        !voiceMode -> "Voice mode off"
         isProcessing -> "Transcribing…"
-        isListening -> lastTranscript?.takeIf { it.isNotBlank() }?.let { "“$it”" } ?: "Listening"
-        else -> "Microphone off"
+        interactionActive -> lastTranscript?.takeIf { it.isNotBlank() }?.let { "“$it”" } ?: "Listening"
+        else -> "Voice mode on"
     }
     // Transcribing keeps the listening subtitle: the mic is still on, only the
     // title changes, so the strip does not rewrite both lines mid-utterance.
     val subtitle = when {
-        !active -> "tap to listen for trigger words"
-        triggerWord != null -> "listening · say “$triggerWord” to send"
-        else -> "listening"
+        !voiceMode -> "tap to turn on voice mode"
+        interactionActive -> "listening · no wake word needed"
+        !triggerWord.isNullOrBlank() -> "say “$triggerWord” to start"
+        else -> "no wake word set"
     }
 
     Surface(

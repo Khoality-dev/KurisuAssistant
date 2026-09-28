@@ -7,7 +7,10 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.Manifest
+import androidx.core.content.ContextCompat
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -29,6 +32,7 @@ import kotlinx.coroutines.*
 import javax.inject.Inject
 import com.kurisu.assistant.domain.audio.AsrModelSelection
 import com.kurisu.assistant.domain.tts.describeSpeechFailure
+import com.kurisu.assistant.domain.voice.MicProblem
 
 @AndroidEntryPoint
 class CoreService : Service() {
@@ -39,7 +43,9 @@ class CoreService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val SILENCE_TIMEOUT_MS = 600L
         const val ACTION_STOP = "com.kurisu.assistant.ACTION_STOP_SERVICE"
-        const val ACTION_TOGGLE_RECORDING = "com.kurisu.assistant.ACTION_TOGGLE_RECORDING"
+        const val ACTION_SET_VOICE_MODE = "com.kurisu.assistant.ACTION_SET_VOICE_MODE"
+        const val ACTION_RETRY_MIC = "com.kurisu.assistant.ACTION_RETRY_MIC"
+        const val EXTRA_ON = "on"
 
         fun start(context: Context) {
             val intent = Intent(context, CoreService::class.java)
@@ -54,11 +60,49 @@ class CoreService : Service() {
             context.stopService(Intent(context, CoreService::class.java))
         }
 
-        fun toggleRecording(context: Context) {
+        /**
+         * Voice mode on or off (#341): on, the mic listens for the wake word; off,
+         * it does not listen at all. The caller remembers the choice.
+         */
+        fun setVoiceMode(context: Context, on: Boolean) {
             val intent = Intent(context, CoreService::class.java).apply {
-                action = ACTION_TOGGLE_RECORDING
+                action = ACTION_SET_VOICE_MODE
+                putExtra(EXTRA_ON, on)
             }
             context.startService(intent)
+        }
+
+        /** Start the mic again after a problem: the voice bar's "Try again" and "Retry". */
+        fun retryMic(context: Context) {
+            context.startService(Intent(context, CoreService::class.java).apply { action = ACTION_RETRY_MIC })
+        }
+
+        fun hasMicPermission(context: Context): Boolean =
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+        /**
+         * Voice mode as the UI asks for it. Without mic access the service is not
+         * touched — a microphone foreground service may not start without it, and
+         * on Android 14+ trying throws — and the voice bar says access is off.
+         */
+        fun requestVoiceMode(context: Context, coreState: CoreState, on: Boolean) {
+            if (!on) coreState.setMicProblem(null)
+            if (on && !hasMicPermission(context)) {
+                coreState.setMicProblem(MicProblem.BLOCKED)
+                return
+            }
+            setVoiceMode(context, on)
+        }
+
+        /** "Try again" / "Retry", and the chat coming back from Android settings. */
+        fun requestMicRetry(context: Context, coreState: CoreState) {
+            if (!hasMicPermission(context)) {
+                coreState.setMicProblem(MicProblem.BLOCKED)
+                return
+            }
+            // The service never started while access was off; turning voice mode
+            // on starts it and the mic together.
+            if (coreState.state.value.isServiceRunning) retryMic(context) else setVoiceMode(context, true)
         }
     }
 
@@ -80,6 +124,7 @@ class CoreService : Service() {
     private var silenceTimerJob: Job? = null
     private var ttsObserverJob: Job? = null
     private var isSpeaking = false
+    private var started = false
 
     inner class LocalBinder : Binder() {
         val service: CoreService get() = this@CoreService
@@ -100,17 +145,22 @@ class CoreService : Service() {
             return START_NOT_STICKY
         }
 
-        if (intent?.action == ACTION_TOGGLE_RECORDING) {
-            if (coreState.state.value.isRecording) {
+        ensureStarted()
+
+        when (intent?.action) {
+            ACTION_SET_VOICE_MODE -> applyVoiceMode(intent.getBooleanExtra(EXTRA_ON, false))
+            ACTION_RETRY_MIC -> if (voiceInteractionManager.state.value.voiceMode) {
                 stopRecordingAndVad()
-            } else {
-                serviceScope.launch {
-                    audioRecorder.preferredDeviceType = prefs.getAudioInputDeviceType()
-                    startRecordingAndVad()
-                }
+                serviceScope.launch { startRecordingAndVad() }
             }
-            return START_STICKY
         }
+        return START_STICKY
+    }
+
+    /** Foreground, callbacks, the socket and, if it was left on, voice mode — once. */
+    private fun ensureStarted() {
+        if (started) return
+        started = true
 
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -130,18 +180,23 @@ class CoreService : Service() {
             }
         }
 
-        // Initialize VAD and start recording + VAD loop (gated by "Always Listen" pref)
+        // Voice mode is the only time the mic listens (#341): it comes back on
+        // with the app if this device left it on, and otherwise the mic stays off.
         serviceScope.launch {
-            audioRecorder.preferredDeviceType = prefs.getAudioInputDeviceType()
-            if (prefs.getAsrAlwaysListen()) {
-                startRecordingAndVad()
-            } else {
-                Log.d(TAG, "Always Listen is off — not starting recording automatically")
-            }
+            if (prefs.getVoiceMode()) applyVoiceMode(true)
         }
 
         Log.d(TAG, "Service started")
-        return START_STICKY
+    }
+
+    private fun applyVoiceMode(on: Boolean) {
+        voiceInteractionManager.setVoiceMode(on)
+        if (on) {
+            if (!coreState.state.value.isRecording) serviceScope.launch { startRecordingAndVad() }
+        } else {
+            stopRecordingAndVad()
+            coreState.setMicProblem(null)
+        }
     }
 
     override fun onDestroy() {
@@ -157,18 +212,33 @@ class CoreService : Service() {
 
     // ── Recording & VAD ──────────────────────────────────────────────
 
-    private fun startRecordingAndVad() {
+    /**
+     * Start the mic for voice mode. A failure is a state the voice bar shows
+     * until it is fixed, by its fix (#341): access that is off, speech
+     * recognition that did not load, or a mic another app is holding.
+     */
+    private suspend fun startRecordingAndVad() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            Log.e(TAG, "Microphone permission not granted")
+            coreState.setMicProblem(MicProblem.BLOCKED)
+            return
+        }
         if (!vad.initialize()) {
             Log.e(TAG, "Failed to initialize VAD")
+            coreState.setMicProblem(MicProblem.ASR_UNAVAILABLE)
             return
         }
 
+        audioRecorder.preferredDeviceType = prefs.getAudioInputDeviceType()
         val started = audioRecorder.start()
         if (!started) {
             Log.e(TAG, "AudioRecorder failed to start")
+            coreState.setMicProblem(MicProblem.UNAVAILABLE)
             return
         }
 
+        coreState.setMicProblem(null)
         coreState.setRecording(true)
         Log.d(TAG, "Recording started, collecting audio chunks for VAD")
 
@@ -193,6 +263,8 @@ class CoreService : Service() {
                 if (isSpeechDetected) {
                     if (!isSpeaking) {
                         Log.d(TAG, "Speech started at chunk #$chunkCount")
+                        coreState.setUserTalking(true)
+                        voiceInteractionManager.setUserTalking(true)
                     }
                     isSpeaking = true
                     silenceTimerJob?.cancel()
@@ -213,6 +285,7 @@ class CoreService : Service() {
         vadJob?.cancel()
         silenceTimerJob?.cancel()
         isSpeaking = false
+        coreState.setUserTalking(false)
 
         if (audioRecorder.isRecording) {
             audioRecorder.stop()
@@ -223,6 +296,7 @@ class CoreService : Service() {
 
     private suspend fun processCurrentRecording() {
         coreState.setProcessingAsr(true)
+        coreState.setUserTalking(false)
         isSpeaking = false
 
         try {
@@ -254,11 +328,9 @@ class CoreService : Service() {
                 } else if (result.text.isNotBlank()) {
                     val trimmed = result.text.trim()
                     coreState.emitTranscript(trimmed)
-                    val consumed = voiceInteractionManager.handleTranscript(trimmed)
-                    if (!consumed) {
-                        // Dictation: populate chat composer so user can edit/send manually
-                        coreState.emitDictationDraft(trimmed)
-                    }
+                    // Sent in an interaction, or started one with the wake word;
+                    // anything else is ignored — there is no dictation (#341).
+                    voiceInteractionManager.handleTranscript(trimmed)
                 }
             }
         } catch (e: CancellationException) {
@@ -269,6 +341,8 @@ class CoreService : Service() {
         }
 
         coreState.setProcessingAsr(false)
+        // What was said is transcribed: the 30-second window may open again.
+        withContext(Dispatchers.Main) { voiceInteractionManager.setUserTalking(false) }
         vad.resetState()
     }
 
@@ -334,8 +408,8 @@ class CoreService : Service() {
             }
         }
 
-        voiceInteractionManager.onTranscriptSend = { text ->
-            sendMessage(text)
+        voiceInteractionManager.onTranscriptSend = { text, newConversation ->
+            sendMessage(text, newConversation)
         }
 
         // Observe TTS state to notify VoiceInteractionManager when TTS finishes
@@ -360,9 +434,14 @@ class CoreService : Service() {
 
     // ── Send message ─────────────────────────────────────────────────
 
-    private fun sendMessage(text: String) {
+    private fun sendMessage(text: String, newConversation: Boolean = false) {
         if (text.isBlank()) return
         if (streamProcessor.state.value.isStreaming) return
+        // Each interaction is a new conversation (#341): its first message leaves
+        // the one on screen, which stays in Chats.
+        if (newConversation) {
+            coreState.startNewInteraction(voiceInteractionManager.state.value.wokeAtMs ?: System.currentTimeMillis())
+        }
         val state = coreState.state.value
 
         voiceInteractionManager.isStreaming = true
@@ -370,6 +449,9 @@ class CoreService : Service() {
         streamProcessor.addUserMessage(text)
 
         serviceScope.launch {
+            // The conversation left behind stays in Chats; the cache that reopens
+            // it for this persona forgets it, as `/clear` does.
+            if (newConversation) personaRepository.clearConversationIdForPersona(state.currentPersonaId)
             try {
                 // Backend uses the assistant's configured model_name when modelName is empty.
                 wsManager.sendChatRequest(
@@ -421,7 +503,7 @@ class CoreService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Kurisu Assistant")
-            .setContentText("Voice interaction active")
+            .setContentText("Voice mode")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(openPending)
             .setOngoing(true)

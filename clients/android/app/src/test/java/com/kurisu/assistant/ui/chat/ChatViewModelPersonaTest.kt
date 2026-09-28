@@ -103,7 +103,7 @@ class ChatViewModelPersonaTest {
 
         every { wsManager.events } returns MutableSharedFlow<ServerEvent>()
         coEvery { prefs.getBackendUrl() } returns "https://example.test"
-        coEvery { prefs.getAsrAlwaysListen() } returns true
+        coEvery { prefs.getVoiceMode() } returns false
         coEvery { authRepo.loadUserProfile() } returns UserProfile(username = "kho")
         coEvery { assistantRepo.getAssistant() } returns assistant()
         coEvery { personaRepo.listPersonas() } returns listOf(kurisu, coach)
@@ -221,14 +221,17 @@ class ChatViewModelPersonaTest {
         val vm = newViewModel()
         advanceUntilIdle()
 
-        assertThat(voiceInteractionManager.handleTranscript("hey kurisu")).isTrue()
-        voiceInteractionManager.exitMode()
+        voiceInteractionManager.setVoiceMode(true)
+        voiceInteractionManager.handleTranscript("hey kurisu")
+        assertThat(voiceInteractionManager.state.value.interactionActive).isTrue()
+        voiceInteractionManager.endInteraction()
 
         // Switching persona must not re-arm or clear it: it wakes the assistant
         // and selects no one.
         vm.switchPersona(coach)
         advanceUntilIdle()
-        assertThat(voiceInteractionManager.handleTranscript("hey kurisu")).isTrue()
+        voiceInteractionManager.handleTranscript("hey kurisu")
+        assertThat(voiceInteractionManager.state.value.interactionActive).isTrue()
     }
 
     @Test

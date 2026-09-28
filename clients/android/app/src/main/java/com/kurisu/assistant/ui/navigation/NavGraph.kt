@@ -103,6 +103,8 @@ fun KurisuNavGraph(
                     // Plain navigate, not openTopLevel: that one pops back to
                     // Conversations, and this has to come back to the chat.
                     onNavigateToPersonas = { navController.navigate(Routes.PERSONAS) },
+                    onNavigateToAssistant = { navController.navigate(Routes.ASSISTANT) },
+                    onNavigateToChats = { openTopLevel(Routes.CONVERSATIONS) },
                 )
             }
         }

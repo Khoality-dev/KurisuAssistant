@@ -39,7 +39,6 @@ class ChatInputTest {
                     onRemoveImage = {},
                     selectedImages = emptyList(),
                     isStreaming = false,
-                    isInteractionMode = false,
                 )
             }
         }
@@ -63,7 +62,6 @@ class ChatInputTest {
                     onRemoveImage = {},
                     selectedImages = emptyList(),
                     isStreaming = false,
-                    isInteractionMode = false,
                 )
             }
         }
@@ -94,7 +92,6 @@ class ChatInputTest {
                     onRemoveImage = {},
                     selectedImages = emptyList(),
                     isStreaming = true,
-                    isInteractionMode = false,
                 )
             }
         }
@@ -123,7 +120,6 @@ class ChatInputTest {
                     onRemoveImage = {},
                     selectedImages = emptyList(),
                     isStreaming = true,
-                    isInteractionMode = false,
                 )
             }
         }
@@ -147,7 +143,6 @@ class ChatInputTest {
                     onRemoveImage = {},
                     selectedImages = emptyList(),
                     isStreaming = true,
-                    isInteractionMode = false,
                 )
             }
         }
@@ -155,52 +150,4 @@ class ChatInputTest {
         composeRule.onNodeWithContentDescription("Attach").assertIsNotEnabled()
     }
 
-    @Test
-    fun voice_bar_shows_copy_countdown_and_stop_control() {
-        var stopCount = 0
-        composeRule.setContent {
-            KurisuTheme {
-                ChatInput(
-                    text = "",
-                    onTextChange = {},
-                    onSend = {},
-                    onCancel = {},
-                    onImageSelected = {},
-                    onRemoveImage = {},
-                    selectedImages = emptyList(),
-                    isStreaming = false,
-                    isInteractionMode = true,
-                    voiceIdleDeadlineMs = System.currentTimeMillis() + 27_000L,
-                    onStopVoice = { stopCount++ },
-                )
-            }
-        }
-
-        composeRule.onNodeWithText("Voice active — sends when you stop").assertExists()
-        // 27s remaining, rounded up — the bar counts down from the deadline.
-        composeRule.onNodeWithText("idle timeout in 27s").assertExists()
-        composeRule.onNodeWithContentDescription("Stop voice mode").performClick()
-        assert(stopCount == 1) { "Expected onStopVoice to fire once, got $stopCount" }
-    }
-
-    @Test
-    fun voice_bar_is_absent_outside_interaction_mode() {
-        composeRule.setContent {
-            KurisuTheme {
-                ChatInput(
-                    text = "",
-                    onTextChange = {},
-                    onSend = {},
-                    onCancel = {},
-                    onImageSelected = {},
-                    onRemoveImage = {},
-                    selectedImages = emptyList(),
-                    isStreaming = false,
-                    isInteractionMode = false,
-                )
-            }
-        }
-        composeRule.onNodeWithText("Voice active — sends when you stop").assertDoesNotExist()
-        composeRule.onNodeWithContentDescription("Stop voice mode").assertDoesNotExist()
-    }
 }

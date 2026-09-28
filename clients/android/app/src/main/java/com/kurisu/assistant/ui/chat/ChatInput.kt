@@ -11,8 +11,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.GraphicEq
-import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,7 +21,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.kurisu.assistant.ui.theme.KurisuTheme
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,14 +33,6 @@ fun ChatInput(
     onRemoveImage: (Int) -> Unit,
     selectedImages: List<Uri>,
     isStreaming: Boolean,
-    isInteractionMode: Boolean,
-    /**
-     * Instant at which voice mode gives up, or null when no idle timer is armed
-     * (still streaming, still speaking). Drives the countdown; see
-     * [com.kurisu.assistant.service.VoiceInteractionState.idleDeadlineMs].
-     */
-    voiceIdleDeadlineMs: Long? = null,
-    onStopVoice: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val imagePickerLauncher = rememberLauncherForActivityResult(
@@ -58,15 +47,6 @@ fun ChatInput(
             .background(MaterialTheme.colorScheme.surface)
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        // Voice bar — replaces the composer while voice mode is on.
-        if (isInteractionMode) {
-            VoiceBar(
-                idleDeadlineMs = voiceIdleDeadlineMs,
-                onStop = onStopVoice,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-        }
-
         // Slash commands. A leading "/" opens the palette.
         //
         // Two rules keep a MODAL sheet from getting in the way, which the old
@@ -209,91 +189,6 @@ fun ChatInput(
             }
         }
     }
-}
-
-/**
- * "Voice active" bar. Replaces the chip that only ever said the mode was on.
- *
- * The countdown is derived from a deadline instant rather than a ticking
- * counter, so it stays honest across recomposition and a screen that was off:
- * the bar shows the seconds actually left, not the seconds it managed to count.
- */
-@Composable
-private fun VoiceBar(
-    idleDeadlineMs: Long?,
-    onStop: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var remainingSeconds by remember(idleDeadlineMs) {
-        mutableStateOf(secondsUntil(idleDeadlineMs))
-    }
-    LaunchedEffect(idleDeadlineMs) {
-        if (idleDeadlineMs == null) {
-            remainingSeconds = null
-            return@LaunchedEffect
-        }
-        while (true) {
-            remainingSeconds = secondsUntil(idleDeadlineMs)
-            if ((remainingSeconds ?: 0) <= 0) break
-            delay(250)
-        }
-    }
-
-    Surface(
-        color = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary,
-        shape = RoundedCornerShape(22.dp),
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(13.dp),
-        ) {
-            Icon(
-                Icons.Outlined.GraphicEq,
-                contentDescription = null,
-                modifier = Modifier.size(22.dp),
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Voice active — sends when you stop",
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                remainingSeconds?.let { seconds ->
-                    Text(
-                        text = "idle timeout in ${seconds}s",
-                        style = KurisuTheme.extraTypography.metadataSmall,
-                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
-                    )
-                }
-            }
-            FilledIconButton(
-                onClick = onStop,
-                modifier = Modifier.size(36.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f),
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-            ) {
-                Icon(
-                    Icons.Outlined.Stop,
-                    contentDescription = "Stop voice mode",
-                    modifier = Modifier.size(19.dp),
-                )
-            }
-        }
-    }
-}
-
-/** Whole seconds left until [deadlineMs], floored at zero. Null when unarmed. */
-internal fun secondsUntil(deadlineMs: Long?, nowMs: Long = System.currentTimeMillis()): Int? {
-    if (deadlineMs == null) return null
-    val remaining = deadlineMs - nowMs
-    if (remaining <= 0L) return 0
-    return ((remaining + 999L) / 1000L).toInt()
 }
 
 /** The slash-command palette. */

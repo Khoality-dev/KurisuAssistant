@@ -27,7 +27,7 @@ com.kurisu.assistant/
 │   ├── navigation/              -- NavGraph + AppDrawerHost (routes: LOGIN, CONVERSATIONS, CHAT, ASSISTANT, PERSONAS, TOOLS_MCP, SKILLS, SETTINGS, ACCOUNT, TTS_ASR, APPEARANCE, FACES, ABOUT)
 │   ├── theme/                   -- Material 3 theme (primary #2563EB)
 │   ├── auth/                    -- Login screen + ViewModel
-│   ├── conversations/           -- Chats list (start destination) + mic strip + in-app update check
+│   ├── conversations/           -- Chats list (start destination) + voice mode strip + in-app update check
 │   ├── chat/                    -- Chat screen, message bubble, tool rail, input, markdown (no nav args)
 │   ├── assistant/               -- The one assistant (model, tools, memory, wake word) + sub-agent CRUD
 │   ├── personas/                -- Persona CRUD (name, prompt, voice, avatar) + ViewModel
@@ -52,7 +52,7 @@ Launch → GET /version against the stored URL (MainActivity)
 Mid-session: HTTP 426 (WireProtocolInterceptor) or WebSocket close 4426 → the same gate
 Login → Conversations ("Chats", the start destination; hamburger → app drawer)
   ├── Tap a row / New chat FAB → Chat
-  ├── Say the wake word (mic strip) → Chat + auto voice interaction
+  ├── In voice mode, say the wake word → Chat, in a new conversation (#341)
   ├── Drawer → Chats | Assistant | Personas | Tools & MCP | Skills
   ├── Drawer → Settings → Account | Appearance | TTS & ASR | Face Identities | About
   └── Drawer → Logout

@@ -18,7 +18,10 @@ import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "kurisu_prefs")
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "kurisu_prefs",
+    produceMigrations = { listOf(AlwaysListenRemoval) },
+)
 
 @Singleton
 class PreferencesDataStore @Inject constructor(
@@ -35,7 +38,7 @@ class PreferencesDataStore @Inject constructor(
     private val KEY_PERSONA_CONVERSATIONS = stringPreferencesKey(StorageKeys.PERSONA_CONVERSATIONS)
     private val KEY_AUDIO_INPUT_DEVICE_TYPE = intPreferencesKey(StorageKeys.AUDIO_INPUT_DEVICE_TYPE)
     private val KEY_ASR_LANGUAGE = stringPreferencesKey(StorageKeys.ASR_LANGUAGE)
-    private val KEY_ASR_ALWAYS_LISTEN = booleanPreferencesKey(StorageKeys.ASR_ALWAYS_LISTEN)
+    private val KEY_VOICE_MODE = booleanPreferencesKey(StorageKeys.VOICE_MODE)
 
     companion object {
         const val DEFAULT_BACKEND_URL = "http://localhost:15597"
@@ -104,9 +107,9 @@ class PreferencesDataStore @Inject constructor(
     suspend fun getAsrLanguage(): String = ds.data.first()[KEY_ASR_LANGUAGE] ?: ""
     suspend fun setAsrLanguage(language: String) { ds.edit { it[KEY_ASR_LANGUAGE] = language } }
 
-    // ASR Always Listen (true = auto-start recording/VAD on service start)
-    suspend fun getAsrAlwaysListen(): Boolean = ds.data.first()[KEY_ASR_ALWAYS_LISTEN] ?: true
-    suspend fun setAsrAlwaysListen(value: Boolean) { ds.edit { it[KEY_ASR_ALWAYS_LISTEN] = value } }
+    // Voice mode (#341): the only time the mic listens. Off until turned on.
+    suspend fun getVoiceMode(): Boolean = ds.data.first()[KEY_VOICE_MODE] ?: false
+    suspend fun setVoiceMode(value: Boolean) { ds.edit { it[KEY_VOICE_MODE] = value } }
 
     // Theme Mode ("light", "dark", "system")
     private val KEY_THEME_MODE = stringPreferencesKey(StorageKeys.THEME_MODE)

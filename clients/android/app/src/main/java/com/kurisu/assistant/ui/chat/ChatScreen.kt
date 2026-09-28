@@ -21,8 +21,6 @@ import androidx.compose.material.icons.outlined.Compress
 import androidx.compose.material.icons.outlined.DataObject
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Face
-import androidx.compose.material.icons.outlined.Hearing
-import androidx.compose.material.icons.outlined.HearingDisabled
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Tune
@@ -32,6 +30,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -56,6 +57,10 @@ fun ChatScreen(
     onOpenMenu: () -> Unit,
     /** "Manage personas" in the persona sheet. */
     onNavigateToPersonas: () -> Unit,
+    /** The voice bar's "Open Assistant": where the wake word is set (#341). */
+    onNavigateToAssistant: () -> Unit = {},
+    /** The new-conversation marker's "Chats": where the previous conversation is kept (#341). */
+    onNavigateToChats: () -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -65,6 +70,34 @@ fun ChatScreen(
     val coreServiceState by viewModel.coreServiceState.collectAsState()
 
     val listState = rememberLazyListState()
+
+    // What the voice bar shows (#341), from voice mode, the mic and the reply.
+    val voicePhase = com.kurisu.assistant.domain.voice.voiceBarPhase(
+        com.kurisu.assistant.domain.voice.VoiceBarInput(
+            problem = coreServiceState.micProblem,
+            triggerWord = state.assistant?.triggerWord,
+            interactionActive = voiceState.interactionActive,
+            userTalking = coreServiceState.userTalking,
+            transcribing = coreServiceState.isProcessingAsr,
+            isStreaming = streaming.isStreaming,
+            isSpeaking = ttsState.isQueueActive,
+        ),
+    )
+    // Back from Android settings with mic access allowed: voice mode tries again.
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        viewModel.onResume()
+    }
+    // Voice mode hides the keyboard: the voice bar stands in for the composer.
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    LaunchedEffect(voiceState.voiceMode) { if (voiceState.voiceMode) keyboard?.hide() }
+    // Turning voice mode off says the mic is off (#341).
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(state.voiceOffNotice) {
+        if (state.voiceOffNotice) {
+            snackbarHostState.showSnackbar("Voice mode is off. The mic isn't listening.")
+            viewModel.dismissVoiceOffNotice()
+        }
+    }
 
     // Request mic permission and auto-start CoreService
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -220,6 +253,7 @@ fun ChatScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 navigationIcon = {
@@ -254,11 +288,6 @@ fun ChatScreen(
                             )
                         }
                         val isTyping = streaming.typingAgentName != null || streaming.isStreaming
-                        val micLabel = when {
-                            voiceState.isInteractionMode -> "voice"
-                            coreServiceState.isRecording -> "listening"
-                            else -> "off"
-                        }
                         if (isTyping) {
                             Text(
                                 text = "${state.persona?.name ?: "Assistant"} is typing…",
@@ -289,17 +318,27 @@ fun ChatScreen(
                                     modifier = Modifier.size(14.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                Text(
-                                    text = " · mic $micLabel",
-                                    style = KurisuTheme.extraTypography.metadataSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                )
+                                if (voiceState.voiceMode) {
+                                    Text(
+                                        text = " · voice mode on",
+                                        style = KurisuTheme.extraTypography.metadataSmall,
+                                        color = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFF60A5FA) else Color(0xFF0070DB),
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                    )
+                                }
                             }
                         }
                     }
                 },
                 actions = {
+                    // Voice mode (#341): the one control for the mic, in place of
+                    // "Always listen" in the menu.
+                    VoiceModeButton(
+                        on = voiceState.voiceMode,
+                        attention = voiceState.voiceMode && voicePhase.isProblem,
+                        onToggle = { viewModel.setVoiceMode(!voiceState.voiceMode) },
+                    )
                     IconButton(onClick = { showCharacter = true }) {
                         Icon(Icons.Outlined.Face, contentDescription = "Live character")
                     }
@@ -318,24 +357,6 @@ fun ChatScreen(
                             onClick = {
                                 overflowOpen = false
                                 viewModel.clearCurrentConversation()
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Text(if (state.alwaysListen) "Always listen on" else "Always listen off")
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    if (state.alwaysListen) Icons.Outlined.Hearing else Icons.Outlined.HearingDisabled,
-                                    contentDescription = null,
-                                )
-                            },
-                            onClick = {
-                                overflowOpen = false
-                                val nowOn = viewModel.toggleAlwaysListen()
-                                if (nowOn != coreServiceState.isRecording) {
-                                    CoreService.toggleRecording(context)
-                                }
                             },
                         )
                         if (state.conversationId != null) {
@@ -462,7 +483,8 @@ fun ChatScreen(
                         listOfNotNull(
                             a?.modelName?.takeIf { it.isNotBlank() },
                             a?.availableTools?.let { tools -> "${tools.size} tools" },
-                            a?.triggerWord?.takeIf { it.isNotBlank() }?.let { "or say \u201C$it\u201D" },
+                            // The wake word is heard only in voice mode (#341).
+                            a?.triggerWord?.takeIf { it.isNotBlank() && voiceState.voiceMode }?.let { "or say \u201C$it\u201D" },
                         ).joinToString(" · ")
                     }
                     if (hint.isNotEmpty()) {
@@ -490,6 +512,19 @@ fun ChatScreen(
                             ) {
                                 CircularProgressIndicator(modifier = Modifier.size(24.dp))
                             }
+                        }
+                    }
+
+                    // An interaction's new conversation opens on a marker (#341).
+                    val marker = state.interactionMarker
+                    if (marker != null && state.showInteractionMarker) {
+                        item(key = "interaction_marker") {
+                            NewInteractionMarker(
+                                wakeWord = state.assistant?.triggerWord,
+                                atMs = marker.atMs,
+                                hasPrevious = marker.previousConversationId != null,
+                                onOpenChats = onNavigateToChats,
+                            )
                         }
                     }
 
@@ -595,20 +630,38 @@ fun ChatScreen(
             // Divider
             HorizontalDivider()
 
-            // Chat input
-            ChatInput(
-                text = state.inputText,
-                onTextChange = viewModel::setInputText,
-                onSend = { viewModel.sendMessage() },
-                onCancel = viewModel::cancelStream,
-                onImageSelected = viewModel::addImage,
-                onRemoveImage = viewModel::removeImage,
-                selectedImages = state.selectedImages,
-                isStreaming = streaming.isStreaming,
-                isInteractionMode = voiceState.isInteractionMode,
-                voiceIdleDeadlineMs = voiceState.idleDeadlineMs,
-                onStopVoice = viewModel::stopVoiceMode,
-            )
+            // The voice bar stands in for the composer while voice mode is on (#341).
+            if (voiceState.voiceMode) {
+                VoiceBar(
+                    phase = voicePhase,
+                    wakeWord = state.assistant?.triggerWord,
+                    answererName = state.persona?.name ?: ChatViewModel.ASSISTANT_NAME,
+                    lastTranscript = voiceState.lastTranscript,
+                    idleDeadlineMs = voiceState.idleDeadlineMs,
+                    onEnd = { viewModel.setVoiceMode(false) },
+                    onRetry = viewModel::retryMic,
+                    onOpenAssistant = onNavigateToAssistant,
+                    onOpenAppSettings = {
+                        context.startActivity(
+                            android.content.Intent(
+                                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                android.net.Uri.fromParts("package", context.packageName, null),
+                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    },
+                )
+            } else {
+                ChatInput(
+                    text = state.inputText,
+                    onTextChange = viewModel::setInputText,
+                    onSend = { viewModel.sendMessage() },
+                    onCancel = viewModel::cancelStream,
+                    onImageSelected = viewModel::addImage,
+                    onRemoveImage = viewModel::removeImage,
+                    selectedImages = state.selectedImages,
+                    isStreaming = streaming.isStreaming,
+                )
+            }
         }
     }
 }

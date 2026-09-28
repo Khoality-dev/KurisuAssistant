@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import com.kurisu.assistant.domain.voice.MicProblem
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -12,6 +13,10 @@ data class CoreServiceState(
     val isServiceRunning: Boolean = false,
     val isRecording: Boolean = false,
     val isProcessingAsr: Boolean = false,
+    /** Why the mic could not start in voice mode, until it does (#341). */
+    val micProblem: MicProblem? = null,
+    /** Someone is talking right now: from the VAD's start of speech to its end. */
+    val userTalking: Boolean = false,
     val lastTranscript: String? = null,
     val conversationId: Int? = null,
     // The persona answering in [conversationId]; null is the assistant answering
@@ -31,8 +36,11 @@ class CoreState @Inject constructor() {
     private val _streamDone = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val streamDone: SharedFlow<Unit> = _streamDone
 
-    private val _dictationDrafts = MutableSharedFlow<String>(extraBufferCapacity = 1)
-    val dictationDrafts: SharedFlow<String> = _dictationDrafts
+    // The wake word started an interaction, and each interaction is a new
+    // conversation (#341): the instant it was heard, for the chat to clear to a
+    // new conversation and mark it.
+    private val _newInteractions = MutableSharedFlow<Long>(extraBufferCapacity = 1)
+    val newInteractions: SharedFlow<Long> = _newInteractions
 
     // A speech request (transcription or synthesis) that failed, as one sentence
     // for whoever is looking at the chat. Speech failures used to be logged and
@@ -69,8 +77,18 @@ class CoreState @Inject constructor() {
         _streamDone.tryEmit(Unit)
     }
 
-    fun emitDictationDraft(text: String) {
-        _dictationDrafts.tryEmit(text)
+    fun setMicProblem(problem: MicProblem?) {
+        _state.update { it.copy(micProblem = problem) }
+    }
+
+    fun setUserTalking(talking: Boolean) {
+        _state.update { it.copy(userTalking = talking) }
+    }
+
+    /** A new interaction: the chat leaves its conversation for a new one. */
+    fun startNewInteraction(atMs: Long) {
+        _state.update { it.copy(conversationId = null) }
+        _newInteractions.tryEmit(atMs)
     }
 
     fun emitSpeechError(message: String) {

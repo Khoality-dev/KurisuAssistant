@@ -11,18 +11,25 @@ import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Voice mode, the wake word and an interaction (#341) — the desktop's model
+ * (#253), in the same words.
+ */
 data class VoiceInteractionState(
-    val isInteractionMode: Boolean = false,
+    /** Voice mode: chosen by the user, and the only time the mic listens. */
+    val voiceMode: Boolean = false,
+    /** An interaction: started by the wake word, it sends everything said. */
+    val interactionActive: Boolean = false,
     /**
-     * Wall-clock instant ([System.currentTimeMillis]) at which the idle timer
-     * will drop out of voice mode, or null while no timer is armed (mode is off,
-     * or the assistant is still streaming/speaking so the clock has not started).
-     *
-     * The composer needs the deadline rather than the remaining seconds: a
-     * countdown recomputed from a fixed instant stays correct across
-     * recomposition, process pauses and a screen that was off for ten seconds.
+     * When the 30-second window ends the interaction ([System.currentTimeMillis]),
+     * or null while it is shut: no interaction, a reply still streaming or being
+     * spoken, or someone talking. The voice bar drains its top line towards it.
      */
     val idleDeadlineMs: Long? = null,
+    /** When the wake word started this interaction. */
+    val wokeAtMs: Long? = null,
+    /** What was last said in this interaction, for the voice bar's second line. */
+    val lastTranscript: String? = null,
 )
 
 @Singleton
@@ -32,7 +39,7 @@ class VoiceInteractionManager @Inject constructor(
     companion object {
         private const val TAG = "VoiceInteraction"
 
-        /** How long voice mode waits for another utterance before dropping out. */
+        /** How long an interaction waits after the last reply before it ends. */
         const val IDLE_TIMEOUT_MS = 30000L
     }
 
@@ -44,11 +51,16 @@ class VoiceInteractionManager @Inject constructor(
 
     private var triggerWord: String? = null
     private var pendingAutoSend: String? = null
+    private var userTalking = false
 
-    // Callback set by CoreService
-    var onTranscriptSend: ((text: String) -> Unit)? = null
-    var onEnterMode: (() -> Unit)? = null
-    var onExitMode: (() -> Unit)? = null
+    /** The clock the window is measured on; a test sets its own. */
+    var clock: () -> Long = System::currentTimeMillis
+
+    /**
+     * Send what was said. `newConversation` is an interaction's first message:
+     * each interaction is a new conversation.
+     */
+    var onTranscriptSend: ((text: String, newConversation: Boolean) -> Unit)? = null
 
     // External state (set by CoreService via streamProcessor observation)
     var isStreaming = false
@@ -58,72 +70,94 @@ class VoiceInteractionManager @Inject constructor(
         triggerWord = word
     }
 
+    /** Voice mode on or off. Off ends the interaction too. */
+    fun setVoiceMode(on: Boolean) {
+        if (!on) endInteraction()
+        _state.update { it.copy(voiceMode = on) }
+    }
+
     /**
-     * Called by CoreService when an ASR transcript arrives.
-     * Returns true if the transcript was consumed (auto-sent or triggered interaction mode).
-     * Returns false when the transcript should be treated as dictation (populate composer).
+     * What the mic heard. With voice mode off it is dropped (the mic is off; a
+     * transcript still in flight is late). In an interaction it is sent. Waiting,
+     * the wake word starts an interaction and is its first message, and anything
+     * else is ignored — there is no dictation.
      */
-    fun handleTranscript(text: String): Boolean {
-        if (_state.value.isInteractionMode) {
-            // In interaction mode -- auto-send
+    fun handleTranscript(text: String) {
+        val s = _state.value
+        if (!s.voiceMode) return
+
+        if (s.interactionActive) {
+            _state.update { it.copy(lastTranscript = text) }
+            cancelIdleTimer()
             if (isStreaming) {
                 pendingAutoSend = text
             } else {
-                cancelIdleTimer()
-                onTranscriptSend?.invoke(text)
+                onTranscriptSend?.invoke(text, false)
             }
-            return true
+            return
         }
 
         val trigger = triggerWord
-        if (trigger != null && text.lowercase().contains(trigger.lowercase())) {
-            enterMode()
-            onTranscriptSend?.invoke(text)
-            return true
+        if (!trigger.isNullOrBlank() && text.lowercase().contains(trigger.lowercase())) {
+            startInteraction()
+            _state.update { it.copy(lastTranscript = text) }
+            onTranscriptSend?.invoke(text, true)
         }
-
-        return false
     }
 
     /** Called externally when streaming completes -- sends pending message if any */
     fun onStreamingComplete() {
-        if (_state.value.isInteractionMode && pendingAutoSend != null) {
+        if (_state.value.interactionActive && pendingAutoSend != null) {
             val pending = pendingAutoSend
             pendingAutoSend = null
             if (pending != null) {
-                onTranscriptSend?.invoke(pending)
+                onTranscriptSend?.invoke(pending, false)
             }
         }
     }
 
-    /** Called externally when TTS + streaming both finish -- start idle timer */
+    /** Called externally when TTS + streaming both finish: the window opens. */
     fun onTTSAndStreamingIdle() {
-        if (_state.value.isInteractionMode && !isStreaming && !isTTSActive) {
+        if (_state.value.interactionActive && !isStreaming && !isTTSActive && !userTalking) {
             startIdleTimer()
         }
     }
 
-    fun enterMode() {
-        if (_state.value.isInteractionMode) return
-        _state.update { it.copy(isInteractionMode = true) }
-        playSound("start_effect")
-        onEnterMode?.invoke()
+    /**
+     * Someone started or stopped talking — until what they said is transcribed.
+     * Talking holds the window shut; it opens again, full, when it is over, so
+     * saying anything refills it.
+     */
+    fun setUserTalking(talking: Boolean) {
+        userTalking = talking
+        if (talking) {
+            cancelIdleTimer()
+        } else {
+            onTTSAndStreamingIdle()
+        }
     }
 
-    fun exitMode() {
+    private fun startInteraction() {
+        if (_state.value.interactionActive) return
+        _state.update { it.copy(interactionActive = true, wokeAtMs = clock()) }
+        playSound("start_effect")
+    }
+
+    /** The interaction ends; voice mode, if on, waits for the wake word again. */
+    fun endInteraction() {
         cancelIdleTimer()
         pendingAutoSend = null
-        _state.update { it.copy(isInteractionMode = false, idleDeadlineMs = null) }
-        playSound("stop_effect")
-        onExitMode?.invoke()
+        val wasActive = _state.value.interactionActive
+        _state.update { it.copy(interactionActive = false, idleDeadlineMs = null, wokeAtMs = null, lastTranscript = null) }
+        if (wasActive) playSound("stop_effect")
     }
 
     private fun startIdleTimer() {
         cancelIdleTimer()
-        _state.update { it.copy(idleDeadlineMs = System.currentTimeMillis() + IDLE_TIMEOUT_MS) }
+        _state.update { it.copy(idleDeadlineMs = clock() + IDLE_TIMEOUT_MS) }
         idleTimerJob = scope.launch {
             delay(IDLE_TIMEOUT_MS)
-            exitMode()
+            endInteraction()
         }
     }
 

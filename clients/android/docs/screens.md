@@ -21,8 +21,10 @@ in it. Neither the persona nor the model is on it: there is one assistant with a
 persona, so a face and a name would be the same face and the same name on every row and would tell
 no two rows apart (#192). Who answers a conversation is on the conversation, in its header.
 
-The strip at the top is voice state. The wake word (`kurisu` here) belongs to the **assistant**, not
-to any persona: saying it starts a turn, and whichever persona the conversation is bound to answers.
+The strip at the top is voice mode: tap it to turn voice mode on or off, as the chat's top-bar
+button does (#341). The wake word (`kurisu` here) belongs to the **assistant**, not to any persona:
+in voice mode, saying it starts an interaction in a new conversation, and whichever persona the chat
+is on answers. The screenshots predate voice mode's redesign and still show the old strip.
 
 ## A conversation
 

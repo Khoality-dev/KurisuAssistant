@@ -109,6 +109,7 @@ class ConversationsViewModelTest {
 
     private fun newViewModel() = ConversationsViewModel(
         application, personaRepo, assistantRepo, convRepo, prefs, coreState, updateRepo,
+        com.kurisu.assistant.service.VoiceInteractionManager(application),
     )
 
     @Test
@@ -315,10 +316,26 @@ class ConversationsViewModelTest {
     }
 
     @Test
-    fun `the wake word opens the chat and names no persona`() = runTest {
-        coEvery { personaRepo.listPersonas() } returns listOf(
-            makePersona(42, "Kurisu"), makePersona(7, "Amadeus"),
-        )
+    fun `an interaction starting opens the chat, and names no persona`() = runTest {
+        // The wake word is heard in voice mode, where it starts an interaction in
+        // a new conversation (#341); the chat is where that conversation is.
+        coEvery { assistantRepo.getAssistant() } returns
+            makeAssistant(triggerWord = "kurisu", selectedPersonaId = 7)
+
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.wakeWord.test {
+            coreState.startNewInteraction(atMs = 1_234L)
+            assertThat(awaitItem()).isEqualTo(1_234L)
+        }
+    }
+
+    @Test
+    fun `a transcript by itself opens nothing`() = runTest {
+        // Only voice mode decides what the wake word does (#341): outside it the
+        // mic does not listen, and inside it the interaction is the signal. The
+        // strip used to match transcripts itself, so a stray one woke the chat.
         coEvery { assistantRepo.getAssistant() } returns
             makeAssistant(triggerWord = "kurisu", selectedPersonaId = 7)
 
@@ -327,40 +344,6 @@ class ConversationsViewModelTest {
 
         vm.wakeWord.test {
             coreState.emitTranscript("hey Kurisu, what's up")
-            assertThat(awaitItem()).isEqualTo("hey Kurisu, what's up")
-        }
-    }
-
-    @Test
-    fun `a persona name is not a wake word`() = runTest {
-        // The trigger word is assistant-level and selects nobody. Saying another
-        // persona's name must not wake anything.
-        coEvery { personaRepo.listPersonas() } returns listOf(
-            makePersona(42, "Kurisu"), makePersona(7, "Amadeus"),
-        )
-        coEvery { assistantRepo.getAssistant() } returns
-            makeAssistant(triggerWord = "kurisu", selectedPersonaId = 7)
-
-        val vm = newViewModel()
-        advanceUntilIdle()
-
-        vm.wakeWord.test {
-            coreState.emitTranscript("Amadeus, help me")
-            expectNoEvents()
-        }
-    }
-
-    @Test
-    fun `an assistant with no wake word never matches`() = runTest {
-        coEvery { personaRepo.listPersonas() } returns listOf(makePersona(1, "Neutral"))
-        coEvery { assistantRepo.getAssistant() } returns
-            makeAssistant(triggerWord = null, selectedPersonaId = 1)
-
-        val vm = newViewModel()
-        advanceUntilIdle()
-
-        vm.wakeWord.test {
-            coreState.emitTranscript("Neutral, help me")
             expectNoEvents()
         }
     }

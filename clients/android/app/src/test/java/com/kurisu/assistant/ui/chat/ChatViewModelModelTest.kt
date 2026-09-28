@@ -96,7 +96,7 @@ class ChatViewModelModelTest {
 
         every { wsManager.events } returns MutableSharedFlow<ServerEvent>()
         coEvery { prefs.getBackendUrl() } returns "https://example.test"
-        coEvery { prefs.getAsrAlwaysListen() } returns true
+        coEvery { prefs.getVoiceMode() } returns false
         coEvery { authRepo.loadUserProfile() } returns UserProfile(username = "kho")
         coEvery { assistantRepo.getAssistant() } returns assistant()
         coEvery { assistantRepo.listModels() } returns listOf(qwen, gemini)
