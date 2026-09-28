@@ -14,6 +14,8 @@ import {
   FileDownload as ExportIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
+import { useTheme } from '@mui/material/styles';
+import { selectionColors } from '../InTheChatChip';
 
 const MotionCard = motion(Card);
 
@@ -28,8 +30,10 @@ interface ResourceCardProps {
   meta?: Array<string | null | undefined>;
   /** A small label beside the name — "Default" on the persona new chats start with. */
   badge?: React.ReactNode;
-  /** An extra footer action, left of export and delete — "Make default". */
+  /** An extra footer action, left of export and delete — "Talk to". */
   action?: React.ReactNode;
+  /** The one the chat is on: outlined in blue and marked current (#348). */
+  selected?: boolean;
   enabled: boolean;
   onToggleEnabled: (enabled: boolean) => void;
   onExport: () => void;
@@ -50,6 +54,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
   meta,
   badge,
   action,
+  selected = false,
   enabled,
   onToggleEnabled,
   onExport,
@@ -57,6 +62,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
   onClick,
 }) => {
   const metaLine = (meta ?? []).filter(Boolean).join(' · ');
+  const sel = selectionColors(useTheme());
 
   return (
     <MotionCard
@@ -65,14 +71,20 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
       exit={{ opacity: 0, y: -20 }}
       transition={{ duration: 0.3 }}
       onClick={onClick}
+      role="group"
+      aria-label={title}
+      aria-current={selected ? 'true' : undefined}
       sx={{
         position: 'relative',
         border: '1px solid',
         borderColor: 'divider',
+        // The selection's outline is drawn inside the card, so choosing one
+        // never shifts the grid.
+        boxShadow: selected ? `inset 0 0 0 2px ${sel.line}` : undefined,
         opacity: enabled ? 1 : 0.5,
         cursor: 'pointer',
         '&:hover': {
-          boxShadow: 3,
+          boxShadow: selected ? `inset 0 0 0 2px ${sel.line}, 0 3px 8px rgba(0,0,0,0.12)` : 3,
           transform: 'translateY(-2px)',
         },
         transition: 'box-shadow 0.2s, transform 0.2s, opacity 0.2s',

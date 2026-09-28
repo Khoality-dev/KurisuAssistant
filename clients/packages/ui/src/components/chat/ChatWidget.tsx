@@ -33,6 +33,9 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import TuneIcon from '@mui/icons-material/Tune';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FaceIcon from '@mui/icons-material/Face';
 import HeadsetOffIcon from '@mui/icons-material/HeadsetOff';
@@ -55,6 +58,7 @@ import { useStreamingChat } from '@kurisu/hooks';
 import { useContextBreakdown } from '@kurisu/hooks';
 import { VoiceModeBar, voiceColors } from '../VoiceModeBar';
 import { VoiceModeToggle } from './VoiceModeToggle';
+import { InTheChatChip, selectionColors } from '../InTheChatChip';
 import { NewInteractionMarker } from './NewInteractionMarker';
 import { ContextUsageBar } from './ContextUsageBar';
 import { MessageBubble } from './MessageBubble';
@@ -728,9 +732,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
                 flexShrink: 0,
               }}
             >
-              {!activePersona?.avatar_uuid && (
-                <SmartToyIcon sx={{ fontSize: 13, color: 'text.secondary' }} />
-              )}
+              {/* A persona without a picture is a person; the assistant keeps its own icon (#348). */}
+              {!activePersona?.avatar_uuid && (activePersona
+                ? <AccountCircleIcon sx={{ fontSize: 15, color: 'text.secondary' }} />
+                : <SmartToyIcon sx={{ fontSize: 13, color: 'text.secondary' }} />)}
             </Avatar>
             <Typography variant="caption" sx={{ fontWeight: 600, minWidth: 0 }} noWrap>
               {activePersona?.name || ASSISTANT_NAME}
@@ -1231,9 +1236,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
             <Box>
               <Typography variant="h6">Who should answer?</Typography>
               <Typography variant="caption" color="text.secondary">
-                {currentConversation
-                  ? 'Switches the persona for this conversation. Press Esc to cancel.'
-                  : 'Press Esc to cancel'}
+                {/* Who the chat is on is the account's, kept on the server (#334). */}
+                Saved to your account, so every device opens on it. Press Esc to cancel.
               </Typography>
             </Box>
             <IconButton size="small" onClick={() => setPersonaSheetOpen(false)}>
@@ -1256,7 +1260,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
                     <ListItemButton
                       onClick={() => { void handlePersonaPick(option.id); }}
                       onMouseEnter={() => setPersonaActiveIdx(idx)}
-                      selected={isCurrent}
+                      aria-current={isCurrent ? 'true' : undefined}
                       ref={(el) => {
                         if (isActive && el) el.scrollIntoView({ block: 'nearest' });
                       }}
@@ -1264,6 +1268,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
                         py: 1.25,
                         px: 3,
                         gap: 1.5,
+                        ...(isCurrent && { bgcolor: selectionColors(theme).background }),
                         ...(isActive && { bgcolor: 'action.hover' }),
                       }}
                     >
@@ -1274,11 +1279,12 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
                           height: 40,
                           bgcolor: (t) => (t.palette.mode === 'light' ? '#F3F4F6' : '#262626'),
                           flexShrink: 0,
+                          ...(isCurrent && { boxShadow: `0 0 0 2px ${selectionColors(theme).line}` }),
                         }}
                       >
-                        {!option.avatar_uuid && (
-                          <SmartToyIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
-                        )}
+                        {!option.avatar_uuid && (option.id === null
+                          ? <SmartToyIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
+                          : <AccountCircleIcon sx={{ fontSize: 22, color: 'text.secondary' }} />)}
                       </Avatar>
                       <ListItemText
                         primary={
@@ -1292,12 +1298,21 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
                           </Typography>
                         ) : null}
                       />
+                      {isCurrent && <InTheChatChip />}
                     </ListItemButton>
                   </React.Fragment>
                 );
               })}
             </List>
           </Box>
+          <ListItemButton
+            onClick={() => { setPersonaSheetOpen(false); openSettings('personas'); }}
+            sx={{ flex: 'none', gap: 1.5, py: 1.75, px: 3, borderTop: 1, borderColor: 'divider' }}
+          >
+            <TuneIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
+            <Typography variant="body2" sx={{ flex: 1, fontWeight: 500 }}>Manage personas</Typography>
+            <ChevronRightIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
+          </ListItemButton>
         </Box>
       )}
     </Box>

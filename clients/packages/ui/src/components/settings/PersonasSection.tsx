@@ -4,14 +4,13 @@ import {
   Avatar,
   Box,
   Button,
+  ButtonBase,
   Checkbox,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   FormControlLabel,
-  Grid,
   IconButton,
   Paper,
   Tooltip,
@@ -20,6 +19,8 @@ import {
 import {
   AccountCircle as PersonaIcon,
   Add as AddIcon,
+  ChatBubbleOutline as TalkIcon,
+  SmartToy as AssistantIcon,
   FileUpload as ImportIcon,
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
@@ -34,7 +35,9 @@ import {
   InfoOutlined as InfoIcon,
   ViewInAr as ModelIcon,
 } from '@mui/icons-material';
+import { useTheme } from '@mui/material/styles';
 import { ResourceCard } from './ResourceCard';
+import { InTheChatChip, selectionColors } from '../InTheChatChip';
 import { PersonaEditDialog, voiceName } from './PersonaEditDialog';
 import { mb, modelFilename } from '../character/vrmSetupText';
 import { exportedFilename, importFailure, includeLine, isBundle, meteredLine } from './personaExport';
@@ -109,6 +112,7 @@ export const PersonasSection: React.FC = () => {
   const selectedPersonaId = usePersonaStore((s) => s.selectedPersonaId);
   const selectPersona = usePersonaStore((s) => s.selectPersona);
 
+  const sel = selectionColors(useTheme());
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -335,11 +339,54 @@ export const PersonasSection: React.FC = () => {
         </Paper>
       ) : (
         <Box sx={{ maxWidth: 1200, mx: 'auto' }}>
-          <Grid container spacing={3}>
+          {/* The assistant itself, above the personas (#348): who the chat is on
+              when no persona is chosen, so the choice is marked here too. */}
+          <ButtonBase
+            role="group"
+            aria-label="Assistant"
+            aria-current={selectedPersonaId === null ? 'true' : undefined}
+            // Already on the assistant: a plain row, not a control.
+            component={selectedPersonaId === null ? 'div' : 'button'}
+            tabIndex={selectedPersonaId === null ? -1 : 0}
+            disableRipple={selectedPersonaId === null}
+            onClick={selectedPersonaId === null ? undefined : handleUseAssistant}
+            sx={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-start',
+              gap: '14px',
+              px: 2,
+              py: 1.5,
+              mb: 2,
+              borderRadius: 1,
+              textAlign: 'left',
+              fontFamily: 'inherit',
+              color: 'text.primary',
+              ...(selectedPersonaId === null
+                ? { bgcolor: 'background.paper', boxShadow: `inset 0 0 0 2px ${sel.line}` }
+                : { border: '1px dashed', borderColor: (t) => (t.palette.mode === 'light' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.13)'), '&:hover': { bgcolor: 'action.hover' } }),
+              cursor: selectedPersonaId === null ? 'default' : 'pointer',
+            }}
+          >
+            <Avatar sx={{ width: 40, height: 40, bgcolor: (t) => (t.palette.mode === 'light' ? '#F3F4F6' : '#262626'), flexShrink: 0 }}>
+              <AssistantIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
+            </Avatar>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography sx={{ fontSize: 15, fontWeight: 600, color: selectedPersonaId === null ? 'text.primary' : 'text.secondary' }}>
+                Assistant
+              </Typography>
+              <Typography variant="body2" color="text.secondary">No persona. The assistant answers as itself.</Typography>
+            </Box>
+            {selectedPersonaId === null && <InTheChatChip />}
+          </ButtonBase>
+
+          {/* Columns sized to the pane, not the window, so the card actions do not wrap (#348). */}
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 2 }}>
             <AnimatePresence>
               {personas.map((persona) => (
-                <Grid item xs={12} sm={6} md={4} key={persona.id}>
                   <ResourceCard
+                    key={persona.id}
                     avatar={
                       <Avatar
                         src={persona.avatar_uuid ? apiClient.getImageUrl(persona.avatar_uuid) : undefined}
@@ -360,13 +407,15 @@ export const PersonasSection: React.FC = () => {
                       persona.voice_reference ? `voice: ${voiceName(voices, persona.voice_reference)}` : null,
                       characterLabel(persona.character_config),
                     ]}
-                    badge={persona.id === selectedPersonaId
-                      ? <Chip label="In the chat" size="small" color="primary" />
-                      : undefined}
+                    selected={persona.id === selectedPersonaId}
+                    badge={persona.id === selectedPersonaId ? <InTheChatChip /> : undefined}
                     action={persona.id === selectedPersonaId
                       ? (
                         <Button
                           size="small"
+                          color="inherit"
+                          startIcon={<AssistantIcon sx={{ color: 'text.secondary' }} />}
+                          sx={{ whiteSpace: 'nowrap' }}
                           onClick={(e) => {
                             e.stopPropagation();
                             handleUseAssistant();
@@ -379,6 +428,10 @@ export const PersonasSection: React.FC = () => {
                         ? (
                           <Button
                             size="small"
+                            variant="outlined"
+                            color="inherit"
+                            startIcon={<TalkIcon />}
+                            sx={{ whiteSpace: 'nowrap', borderColor: 'divider' }}
                             onClick={(e) => {
                               e.stopPropagation();
                               handleTalkTo(persona);
@@ -394,10 +447,9 @@ export const PersonasSection: React.FC = () => {
                     onDelete={() => setDeleteTarget(persona)}
                     onClick={() => openEdit(persona)}
                   />
-                </Grid>
               ))}
             </AnimatePresence>
-          </Grid>
+          </Box>
         </Box>
       )}
 
