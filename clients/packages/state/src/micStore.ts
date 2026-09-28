@@ -108,6 +108,17 @@ interface MicState {
   resumeListening: () => void;
 }
 
+/**
+ * Where speech recognition's files are, as an absolute URL: the page's own
+ * `vad/` folder. It must be absolute (#346). onnxruntime imports its `.mjs`
+ * relative to its own bundle rather than the page, so a relative `./vad/`
+ * became `assets/vad/` in a built app and the recogniser never loaded; the dev
+ * server hid it by answering those files at any path.
+ */
+function vadAssetBase(): string {
+  return new URL('./vad/', document.baseURI).href;
+}
+
 // Module-level VAD state (not in Zustand to avoid re-renders)
 let _vad: MicVAD | null = null;
 let _seq = 0;
@@ -154,8 +165,8 @@ export const useMicStore = create<MicState>((set, get) => ({
 
     try {
       const vad = await MicVAD.new({
-        baseAssetPath: './vad/',
-        onnxWASMBasePath: './vad/',
+        baseAssetPath: vadAssetBase(),
+        onnxWASMBasePath: vadAssetBase(),
         model: 'legacy',
         startOnLoad: true,
         getStream: async () => {

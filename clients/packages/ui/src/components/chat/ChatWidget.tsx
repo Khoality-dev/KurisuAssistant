@@ -915,6 +915,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
           lastTranscript={asr.lastTranscript}
           windowStartedAt={asr.windowStartedAt}
           narrow={narrow}
+          micOn={asr.asrStatus !== 'idle'}
           onEnd={endVoiceMode}
           onRetry={() => { void useMicStore.getState().retryListening(); }}
           onOpenAssistantSettings={() => openSettings('assistant')}

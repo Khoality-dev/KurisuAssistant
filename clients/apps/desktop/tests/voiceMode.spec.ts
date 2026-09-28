@@ -38,6 +38,19 @@ test.describe('voice mode', () => {
     await expect(page.getByRole('button', { name: 'Start voice mode' })).toBeVisible();
   });
 
+  test('speech recognition loads in the built app: voice mode waits for the wake word (#346)', async ({ page }) => {
+    await login(page);
+
+    await page.getByRole('button', { name: 'Start voice mode' }).click();
+    // The mic is on once the recogniser has loaded and is listening; it used
+    // to fail to load in every built app.
+    await expect(voiceBar(page)).toHaveAttribute('data-mic', 'on', { timeout: 30_000 });
+    await expect(page.getByText("Speech recognition didn't load")).toHaveCount(0);
+    // The mock assistant's wake word is "kurisu".
+    await expect(voiceBar(page).getByText('Say “Kurisu” to start')).toBeVisible();
+    await expect(voiceBar(page).getByText('Nothing is sent until you say it.')).toBeVisible();
+  });
+
   test('the header pill turns it off too, and the app remembers it was on', async ({ page }) => {
     await login(page);
 
