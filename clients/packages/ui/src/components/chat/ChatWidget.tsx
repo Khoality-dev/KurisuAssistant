@@ -54,6 +54,7 @@ import { usePersonaStore } from '@kurisu/state';
 import { useStreamingChat } from '@kurisu/hooks';
 import { useContextBreakdown } from '@kurisu/hooks';
 import { VoiceModeBar } from '../VoiceModeBar';
+import { ContextUsageBar } from './ContextUsageBar';
 import { MessageBubble } from './MessageBubble';
 import { SelectionChips } from './SelectionChips';
 import { ChatComposer } from './ChatComposer';
@@ -691,17 +692,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
         </Box>
         {currentConversation && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <Typography
-              variant="caption"
-              sx={{
-                color: tokenCount > contextSize * 0.9 ? 'error.main'
-                  : tokenCount > contextSize * 0.8 ? 'warning.main'
-                  : 'text.secondary',
-                fontWeight: tokenCount > contextSize * 0.8 ? 600 : 400,
-              }}
-            >
-              {tokenCount.toLocaleString()} / {contextSize.toLocaleString()} tokens
-            </Typography>
+            <ContextUsageBar tokenCount={tokenCount} contextSize={contextSize} />
             {currentConversation && (
               <Tooltip title="View context breakdown">
                 <IconButton

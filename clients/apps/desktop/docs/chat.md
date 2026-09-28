@@ -59,7 +59,7 @@ State lives in `useMicStore` (`@kurisu/state`'s `micStore.ts`): `voiceMode` (on/
 - **All Messages** (default): Full conversation history across all frames, paginated on scroll-up
 - **Context Window**: Only messages after compaction watermark (`id > compactedUpToId`) + collapsible compacted context summary banner
 - Toggle via `ToggleButtonGroup` above messages pane; scrolls to bottom on switch
-- **Token count**: Always visible as "used / cap". Frontend-calculated: `(compacted_context + context_window_messages) * 1.3` word estimate. During streaming, backend `StreamChunkEvent.token_count` overrides
+- **Context use**: always visible in the chat header as a small bar (`ContextUsageBar`) — the share of the context used, orange past 80% and red past 90%, with the percentage on hover; the exact counts are in the context breakdown it sits beside (#343). Frontend-calculated: `(compacted_context + context_window_messages) * 1.3` word estimate. During streaming, backend `StreamChunkEvent.token_count` overrides
 - Store tracks `compactedUpToId`, `compactedContext`, `systemPromptTokenCount` from `GET /conversations/{id}` response. `ContextInfoEvent` updates watermark live after compaction
 - Compacted messages: resend disabled (backend blocks deletion too)
 
