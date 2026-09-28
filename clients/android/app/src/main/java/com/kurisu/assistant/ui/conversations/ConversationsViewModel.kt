@@ -12,6 +12,7 @@ import com.kurisu.assistant.data.repository.PersonaRepository
 import com.kurisu.assistant.data.repository.UpdateRepository
 import com.kurisu.assistant.service.CoreService
 import com.kurisu.assistant.service.CoreState
+import com.kurisu.assistant.service.VoiceInteractionManager
 import com.kurisu.assistant.ui.update.installApk
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -80,6 +81,7 @@ class ConversationsViewModel @Inject constructor(
     private val prefs: PreferencesDataStore,
     private val coreState: CoreState,
     private val updateRepository: UpdateRepository,
+    private val voiceInteractionManager: VoiceInteractionManager,
 ) : ViewModel() {
 
     companion object {
@@ -92,13 +94,15 @@ class ConversationsViewModel @Inject constructor(
     val coreServiceState = coreState.state
 
     /**
-     * The wake word was heard: open the chat. It carries no persona because it
-     * selects none — whoever the conversation is bound to answers.
+     * The wake word started an interaction, in voice mode: open the chat, where
+     * its new conversation is (#341). It carries no persona because it selects
+     * none.
      */
-    private val _wakeWord = MutableSharedFlow<String>(extraBufferCapacity = 1)
-    val wakeWord: SharedFlow<String> = _wakeWord
+    private val _wakeWord = MutableSharedFlow<Long>(extraBufferCapacity = 1)
+    val wakeWord: SharedFlow<Long> = _wakeWord
 
-    @Volatile private var triggerWord: String? = null
+    val voiceState = voiceInteractionManager.state
+
     @Volatile private var selectedPersonaId: Int? = null
 
     init {
@@ -106,12 +110,7 @@ class ConversationsViewModel @Inject constructor(
         checkForUpdate()
 
         viewModelScope.launch {
-            coreState.asrTranscripts.collect { text ->
-                val word = triggerWord ?: return@collect
-                if (text.contains(word, ignoreCase = true)) {
-                    _wakeWord.tryEmit(text)
-                }
-            }
+            coreState.newInteractions.collect { atMs -> _wakeWord.tryEmit(atMs) }
         }
     }
 
@@ -129,7 +128,6 @@ class ConversationsViewModel @Inject constructor(
                 // The assistant is a bonus here — it supplies the wake word and
                 // the selected persona — so losing it must not lose the list.
                 val assistant = runCatching { assistantRepository.getAssistant() }.getOrNull()
-                triggerWord = assistant?.triggerWord
                 selectedPersonaId = assistant?.selectedPersonaId
                     ?.takeIf { id -> personas.any { it.id == id && it.enabled } }
 
@@ -164,12 +162,12 @@ class ConversationsViewModel @Inject constructor(
         }
     }
 
-    fun toggleRecording() {
-        if (coreState.state.value.isServiceRunning) {
-            CoreService.toggleRecording(application)
-        } else {
-            CoreService.start(application)
-        }
+    /** Voice mode on or off from the strip (#341); this device remembers it. */
+    fun toggleVoiceMode() {
+        val on = !voiceInteractionManager.state.value.voiceMode
+        voiceInteractionManager.setVoiceMode(on)
+        CoreService.requestVoiceMode(application, coreState, on)
+        viewModelScope.launch { prefs.setVoiceMode(on) }
     }
 
     fun startService() {

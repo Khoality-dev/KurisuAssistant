@@ -19,7 +19,10 @@ object StorageKeys {
     const val PERSONA_CONVERSATIONS = "kurisu_persona_conversations"
     const val AUDIO_INPUT_DEVICE_TYPE = "kurisu_audio_input_device_type"
     const val ASR_LANGUAGE = "kurisu_asr_language"
-    const val ASR_ALWAYS_LISTEN = "kurisu_asr_always_listen"
+    // Voice mode on or off, remembered on this device: the desktop's key (#341).
+    // It replaced "Always listen" (`kurisu_asr_always_listen`), which
+    // `AlwaysListenRemoval` deletes from the store.
+    const val VOICE_MODE = "kurisu_voice_mode"
     const val REFRESH_TOKEN = "kurisu_refresh_token"
     const val THEME_MODE = "kurisu_theme_mode"
     const val TTS_AUTO_PLAY_SETTING = "kurisu_tts_auto_play_setting"

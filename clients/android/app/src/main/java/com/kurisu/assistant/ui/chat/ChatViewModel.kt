@@ -52,6 +52,17 @@ sealed class ChatModal {
     ) : ChatModal()
 }
 
+/**
+ * A voice-mode interaction's conversation (#341): when the wake word was heard,
+ * the conversation that was open then (kept in Chats), and the new one once the
+ * server has created it — null until then.
+ */
+data class InteractionMarker(
+    val atMs: Long,
+    val previousConversationId: Int?,
+    val conversationId: Int? = null,
+)
+
 data class ChatUiState(
     /**
      * The persona bound to THIS conversation — the one the header names. Null is
@@ -73,9 +84,17 @@ data class ChatUiState(
     val commandFeedback: String? = null,
     val modal: ChatModal? = null,
     val lastContextInfo: ContextInfoEvent? = null,
-    val alwaysListen: Boolean = true,
     val deleteConfirmOpen: Boolean = false,
+    /** Voice mode was just turned off: a snackbar says the mic is off (#341). */
+    val voiceOffNotice: Boolean = false,
+    /** The conversation a voice-mode interaction opened, for the marker at its top (#341). */
+    val interactionMarker: InteractionMarker? = null,
 ) {
+    /** The marker belongs to the conversation on screen, or to the one about to be created. */
+    val showInteractionMarker: Boolean
+        get() = interactionMarker != null && interactionMarker.conversationId == conversationId
+
+
     /**
      * The persona a NEW conversation would get. Named in the persona sheet so the
      * switch reads as temporary: this conversation moves, the selection does not.
@@ -146,8 +165,10 @@ class ChatViewModel @Inject constructor(
         // Load who the chat is on, and their conversation
         viewModelScope.launch {
             val baseUrl = prefs.getBackendUrl()
-            val alwaysListen = prefs.getAsrAlwaysListen()
-            _state.update { it.copy(baseUrl = baseUrl, alwaysListen = alwaysListen) }
+            _state.update { it.copy(baseUrl = baseUrl) }
+            // Voice mode comes back on if this device left it on (#341); the
+            // service starts the mic from the same setting.
+            if (prefs.getVoiceMode()) voiceInteractionManager.setVoiceMode(true)
 
             try {
                 val profile = authRepository.loadUserProfile()
@@ -163,7 +184,17 @@ class ChatViewModel @Inject constructor(
                 val currentConvId = _state.value.conversationId
                 val serviceConvId = svcState.conversationId
                 if (serviceConvId != null && serviceConvId != currentConvId) {
-                    _state.update { it.copy(conversationId = serviceConvId) }
+                    // An interaction's new conversation, now that the server has
+                    // made it: the marker stays with it.
+                    _state.update { s ->
+                        val marker = s.interactionMarker
+                        s.copy(
+                            conversationId = serviceConvId,
+                            interactionMarker = if (marker != null && marker.conversationId == null && currentConvId == null) {
+                                marker.copy(conversationId = serviceConvId)
+                            } else marker,
+                        )
+                    }
                     loadConversation(serviceConvId)
                 }
             }
@@ -191,10 +222,16 @@ class ChatViewModel @Inject constructor(
             }
         }
 
-        // Observe dictation drafts from ASR (transcripts not matched as trigger word)
+        // The wake word started an interaction, and each is a new conversation
+        // (#341): leave this one — it stays in Chats — and mark the new one.
         viewModelScope.launch {
-            coreState.dictationDrafts.collect { text ->
-                _state.update { it.copy(inputText = text) }
+            coreState.newInteractions.collect { atMs ->
+                _state.update { it.copy(
+                    interactionMarker = InteractionMarker(atMs = atMs, previousConversationId = it.conversationId),
+                    conversationId = null,
+                    messages = emptyList(),
+                    hasMore = false,
+                ) }
             }
         }
 
@@ -517,22 +554,47 @@ class ChatViewModel @Inject constructor(
     fun clearCommandFeedback() = _state.update { it.copy(commandFeedback = null) }
 
     /**
-     * Toggle the "Always Listen" preference and immediately apply by flipping the recording
-     * state. Returns the new value so the caller can decide whether to invoke
-     * [com.kurisu.assistant.service.CoreService.toggleRecording] (which needs a Context).
+     * Voice mode on or off, from the top bar or the voice bar (#341). It is the
+     * only time the mic listens, and it replaced "Always listen": this device
+     * remembers it. Turning it off ends any interaction, stops the mic, and says so.
      */
-    fun toggleAlwaysListen(): Boolean {
-        val newValue = !_state.value.alwaysListen
-        _state.update { it.copy(
-            alwaysListen = newValue,
-            commandFeedback = if (newValue) "Always Listen on" else "Always Listen off",
-        ) }
+    fun setVoiceMode(on: Boolean) {
+        voiceInteractionManager.setVoiceMode(on)
+        _state.update { it.copy(voiceOffNotice = !on) }
+        try {
+            com.kurisu.assistant.service.CoreService.requestVoiceMode(application, coreState, on)
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not reach the voice service", e)
+        }
         viewModelScope.launch {
-            try { prefs.setAsrAlwaysListen(newValue) } catch (e: Exception) {
-                Log.e(TAG, "Failed to persist always-listen", e)
+            try { prefs.setVoiceMode(on) } catch (e: Exception) {
+                Log.e(TAG, "Failed to persist voice mode", e)
             }
         }
-        return newValue
+    }
+
+    fun dismissVoiceOffNotice() = _state.update { it.copy(voiceOffNotice = false) }
+
+    /** The voice bar's "Try again" / "Retry": start the mic again. */
+    fun retryMic() {
+        try {
+            com.kurisu.assistant.service.CoreService.requestMicRetry(application, coreState)
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not reach the voice service", e)
+        }
+    }
+
+    /**
+     * The chat is back in front — perhaps from Android settings, where mic access
+     * was just allowed. If that was what stopped voice mode, try again.
+     */
+    fun onResume() {
+        val blocked = coreState.state.value.micProblem == com.kurisu.assistant.domain.voice.MicProblem.BLOCKED
+        if (voiceInteractionManager.state.value.voiceMode && blocked &&
+            com.kurisu.assistant.service.CoreService.hasMicPermission(application)
+        ) {
+            retryMic()
+        }
     }
 
     fun resumeConversation(conversationId: Int) {
@@ -739,12 +801,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    /** Drop out of voice mode from the composer's stop control. */
-    fun stopVoiceMode() {
-        if (voiceInteractionManager.state.value.isInteractionMode) {
-            voiceInteractionManager.exitMode()
-        }
-    }
 
     fun deleteMessage(messageId: Int) {
         val convId = _state.value.conversationId ?: return
@@ -769,9 +825,6 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        if (voiceInteractionManager.state.value.isInteractionMode) {
-            voiceInteractionManager.exitMode()
-        }
         voiceInteractionManager.setTriggerWord(null)
         coreState.setCurrentPersonaId(null)
     }
