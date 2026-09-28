@@ -73,10 +73,10 @@ abstract class E2eTest {
             PreferencesDataStore(context).apply {
                 setBackendUrl(mock.url)
                 setRememberMe(false)
-                // The Chats screen starts the voice service on entry and, with
-                // this on, it records straight away and animates the mic strip
-                // forever — and a never-idle screen is one the test cannot query.
-                setAsrAlwaysListen(false)
+                // Voice mode off, as a fresh install has it (#341): on, the mic
+                // records straight away and the voice bar animates forever — and
+                // a never-idle screen is one the test cannot query.
+                setVoiceMode(false)
                 // The mock answers `POST /tts` with no audio, so with autoplay on every
                 // reply raises a "Speech failed" banner over the transcript. Speech is
                 // not what these tests are about (it is checked by hand, CLAUDE.md).

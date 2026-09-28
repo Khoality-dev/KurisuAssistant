@@ -3,6 +3,7 @@ package com.kurisu.assistant.ui.chat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -181,10 +182,14 @@ class VoiceBarTest {
 
         composeRule.onNodeWithContentDescription("Start voice mode").performClick()
         composeRule.onNodeWithContentDescription("End voice mode").assertIsDisplayed()
-        composeRule.onNodeWithTag("voice-mode-attention").assertDoesNotExist()
+        composeRule.onNodeWithTag("voice-mode-attention", useUnmergedTree = true).assertDoesNotExist()
 
         attention = true
-        composeRule.onNodeWithTag("voice-mode-attention").assertExists()
+        composeRule.onNodeWithTag("voice-mode-attention", useUnmergedTree = true).assertExists()
+        // The dot is said too, not only drawn.
+        composeRule.onNodeWithContentDescription("End voice mode")
+            .assert(androidx.compose.ui.test.SemanticsMatcher.expectValue(
+                androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "Needs attention"))
     }
 
     // ── The new-conversation marker ──────────────────────────────────────

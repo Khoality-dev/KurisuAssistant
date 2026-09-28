@@ -135,6 +135,27 @@ class ChatViewModelVoiceModeTest {
     }
 
     @Test
+    fun `without mic access, voice mode on says access is off and starts nothing`() = runTest(testDispatcher) {
+        // A microphone foreground service may not start without RECORD_AUDIO: on
+        // Android 14+ that throws. The bar says what is wrong instead.
+        org.robolectric.Shadows.shadowOf(application).denyPermissions(android.Manifest.permission.RECORD_AUDIO)
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.setVoiceMode(true)
+        advanceUntilIdle()
+
+        assertThat(voice.state.value.voiceMode).isTrue()
+        assertThat(coreState.state.value.micProblem).isEqualTo(com.kurisu.assistant.domain.voice.MicProblem.BLOCKED)
+        assertThat(org.robolectric.Shadows.shadowOf(application).nextStartedService).isNull()
+
+        // Allowed in Android settings, the chat coming back tries again.
+        org.robolectric.Shadows.shadowOf(application).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
+        vm.onResume()
+        assertThat(org.robolectric.Shadows.shadowOf(application).nextStartedService).isNotNull()
+    }
+
+    @Test
     fun `voice mode comes back on with the app if it was left on`() = runTest(testDispatcher) {
         coEvery { prefs.getVoiceMode() } returns true
 

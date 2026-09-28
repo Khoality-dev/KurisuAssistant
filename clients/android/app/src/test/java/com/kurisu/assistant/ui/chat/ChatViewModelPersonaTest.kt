@@ -221,14 +221,17 @@ class ChatViewModelPersonaTest {
         val vm = newViewModel()
         advanceUntilIdle()
 
-        assertThat(voiceInteractionManager.handleTranscript("hey kurisu")).isTrue()
-        voiceInteractionManager.exitMode()
+        voiceInteractionManager.setVoiceMode(true)
+        voiceInteractionManager.handleTranscript("hey kurisu")
+        assertThat(voiceInteractionManager.state.value.interactionActive).isTrue()
+        voiceInteractionManager.endInteraction()
 
         // Switching persona must not re-arm or clear it: it wakes the assistant
         // and selects no one.
         vm.switchPersona(coach)
         advanceUntilIdle()
-        assertThat(voiceInteractionManager.handleTranscript("hey kurisu")).isTrue()
+        voiceInteractionManager.handleTranscript("hey kurisu")
+        assertThat(voiceInteractionManager.state.value.interactionActive).isTrue()
     }
 
     @Test
