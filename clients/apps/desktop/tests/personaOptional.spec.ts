@@ -137,4 +137,15 @@ test.describe('personas are optional', () => {
     if (await page.getByLabel('Username').isVisible({ timeout: 5_000 }).catch(() => false)) await login(page);
     await expect(whoAnswers(page)).toContainText('Kurisu', { timeout: 10_000 });
   });
+  test('a message sent before the selection has loaded still goes to the persona the chat is on (#334)', async ({ page, mock }) => {
+    // The selection comes from the server now, a round trip after login, where
+    // local storage had it at once. Windows CI sent inside that window and the
+    // assistant answered instead of Kurisu.
+    mock.delayRoute('GET', '/assistant', 1500);
+    await login(page);
+    await send(page, 'hello');
+
+    expect(mock.lastChatRequest.persona_id).toBe(1);
+    expect(mock.getConversations()[0].persona_id).toBe(1);
+  });
 });

@@ -28,12 +28,12 @@ vi.mock('@kurisu/api', async (importOriginal) => ({
 }));
 
 import { apiClient } from '@kurisu/api';
-import { usePersonaStore } from './personaStore';
+import { usePersonaStore, whenSelectionLoaded } from './personaStore';
 
 beforeEach(() => {
   localStorage.clear();
   assistant.selected_persona_id = 2;
-  usePersonaStore.setState({ selectedPersonaId: null });
+  usePersonaStore.setState({ selectedPersonaId: null, selectionLoaded: false });
   vi.mocked(apiClient.updateAssistant).mockClear();
 });
 
@@ -55,5 +55,27 @@ describe('the chat selection (#334)', () => {
 
     usePersonaStore.getState().selectPersona(null);
     expect(apiClient.updateAssistant).toHaveBeenLastCalledWith({ selected_persona_id: null });
+  });
+
+  it('a send waiting on the selection goes ahead once it has loaded', async () => {
+    let settled = false;
+    const waiting = whenSelectionLoaded().then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    await usePersonaStore.getState().loadPersonas();
+    await waiting;
+    expect(settled).toBe(true);
+  });
+
+  it('and never waits forever', async () => {
+    vi.useFakeTimers();
+    try {
+      const waiting = whenSelectionLoaded(50);
+      vi.advanceTimersByTime(50);
+      await waiting;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

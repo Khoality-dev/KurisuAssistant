@@ -21,6 +21,11 @@ interface PersonaState {
    * `selectPersona`, so every device and every sign-in opens on the same one.
    */
   selectedPersonaId: number | null;
+  /**
+   * `selectedPersonaId` has come back from the server since sign-in. Until it
+   * has, a null there means "not known yet", not "the assistant" (#334).
+   */
+  selectionLoaded: boolean;
   isLoading: boolean;
   personaPreviews: Record<number, PersonaPreview>;
   /** The preview for the assistant's own conversation (the `'unbound'` bucket). */
@@ -82,6 +87,7 @@ async function openBucket(id: number | null): Promise<void> {
 export const usePersonaStore = create<PersonaState>((set, get) => ({
   personas: [],
   selectedPersonaId: null,
+  selectionLoaded: false,
   isLoading: false,
   personaPreviews: {},
   assistantPreview: null,
@@ -97,7 +103,7 @@ export const usePersonaStore = create<PersonaState>((set, get) => ({
       // another persona the user did not pick.
       const selected = assistant.selected_persona_id;
       const finalId = selected !== null && personas.some((p) => p.id === selected) ? selected : null;
-      set({ personas, selectedPersonaId: finalId });
+      set({ personas, selectedPersonaId: finalId, selectionLoaded: true });
 
       await openBucket(finalId);
       // Load preview data for sidebar
@@ -105,7 +111,9 @@ export const usePersonaStore = create<PersonaState>((set, get) => ({
     } catch (err) {
       console.error('Failed to load personas:', err);
     } finally {
-      set({ isLoading: false });
+      // A failed load still settles it, so a send waiting on it goes ahead —
+      // to the assistant, as the header says — rather than hanging.
+      set({ isLoading: false, selectionLoaded: true });
     }
   },
 
@@ -140,3 +148,18 @@ export const usePersonaStore = create<PersonaState>((set, get) => ({
     void openBucket(id);
   },
 }));
+
+/**
+ * Resolves once the selection has come back from the server, or after
+ * `timeoutMs` whatever happens: a new chat's first message names the persona
+ * the chat is on, and a quick send can beat the `GET /assistant` that says who
+ * that is (#334). Windows CI did, and the assistant answered instead.
+ */
+export function whenSelectionLoaded(timeoutMs = 10_000): Promise<void> {
+  if (usePersonaStore.getState().selectionLoaded) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); unsubscribe(); resolve(); };
+    const timer = setTimeout(done, timeoutMs);
+    const unsubscribe = usePersonaStore.subscribe((s) => { if (s.selectionLoaded) done(); });
+  });
+}

@@ -5,7 +5,7 @@ import { useToolPermissionsStore } from '@kurisu/state';
 import { storage } from '@kurisu/api';
 import { fileToBase64 } from '@kurisu/api';
 import { useExplorerStore } from '@kurisu/state';
-import { usePersonaStore } from '@kurisu/state';
+import { usePersonaStore, whenSelectionLoaded } from '@kurisu/state';
 import { newId, WS_ERROR_NO_MODEL_SELECTED, type Message } from '@kurisu/models';
 import { handleCommand, publishSubtitle, pushEmotion, setThinking } from '@kurisu/state';
 import { StreamSpeechPlanner, type SegmentCue } from './emotionTiming';
@@ -863,6 +863,14 @@ export function useStreamingChat({
       setStreamingThinking('');
       setJustFinishedStreaming(false);
 
+      // Who the chat is on comes back from the server after sign-in; a send
+      // that beats it would name nobody and the assistant would answer (#334).
+      let namedPersona = personaId;
+      if (activeConversationId === null && namedPersona === null && !usePersonaStore.getState().selectionLoaded) {
+        await whenSelectionLoaded();
+        namedPersona = usePersonaStore.getState().selectedPersonaId;
+      }
+
       // Send via WebSocket. The persona is named only when starting a new
       // conversation: it binds the conversation about to be created to the
       // persona the chat is on, and with none named the assistant answers — the
@@ -874,7 +882,7 @@ export function useStreamingChat({
         activeConversationId,
         imageBase64,
         contextFiles,
-        activeConversationId === null ? personaId : null,
+        activeConversationId === null ? namedPersona : null,
       );
     } catch (err: any) {
       console.error('Chat error:', err);
