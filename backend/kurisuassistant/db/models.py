@@ -189,16 +189,17 @@ class Assistant(Base):
     # persona answers. It does not select a persona.
     trigger_word = Column(String, nullable=True)
 
-    # Persona used for new conversations. Null = the assistant answers as itself
-    # (#302), which is what a new account starts with and what deleting or
-    # disabling the default returns to.
-    default_persona_id = Column(
+    # Who the account's chat is on (#334): a client reads it when it opens and
+    # writes it when the user picks someone. Null = the assistant itself (#302),
+    # where a new account starts and where deleting or disabling the persona
+    # returns it. The chat path never applies it — a request names its persona.
+    selected_persona_id = Column(
         Integer, ForeignKey('personas.id', ondelete='SET NULL'), nullable=True
     )
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="assistant")
-    default_persona = relationship("Persona", foreign_keys=[default_persona_id])
+    selected_persona = relationship("Persona", foreign_keys=[selected_persona_id])
 
 
 class SubAgent(Base):

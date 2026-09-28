@@ -5,7 +5,7 @@ import { useToolPermissionsStore } from '@kurisu/state';
 import { storage } from '@kurisu/api';
 import { fileToBase64 } from '@kurisu/api';
 import { useExplorerStore } from '@kurisu/state';
-import { usePersonaStore } from '@kurisu/state';
+import { usePersonaStore, whenSelectionLoaded } from '@kurisu/state';
 import { newId, WS_ERROR_NO_MODEL_SELECTED, type Message } from '@kurisu/models';
 import { handleCommand, publishSubtitle, pushEmotion, setThinking } from '@kurisu/state';
 import { StreamSpeechPlanner, type SegmentCue } from './emotionTiming';
@@ -863,18 +863,26 @@ export function useStreamingChat({
       setStreamingThinking('');
       setJustFinishedStreaming(false);
 
-      // Send via WebSocket. The persona override is sent only when starting a
-      // new conversation: it tells the backend to bind the conversation it is
-      // about to create to the persona the user has selected instead of the
-      // assistant's default. An existing conversation already carries its
-      // binding server-side, so nothing is overridden per turn.
+      // Who the chat is on comes back from the server after sign-in; a send
+      // that beats it would name nobody and the assistant would answer (#334).
+      let namedPersona = personaId;
+      if (activeConversationId === null && namedPersona === null && !usePersonaStore.getState().selectionLoaded) {
+        await whenSelectionLoaded();
+        namedPersona = usePersonaStore.getState().selectedPersonaId;
+      }
+
+      // Send via WebSocket. The persona is named only when starting a new
+      // conversation: it binds the conversation about to be created to the
+      // persona the chat is on, and with none named the assistant answers — the
+      // server adopts nobody on its own (#334). An existing conversation already
+      // carries its binding server-side, so nothing is overridden per turn.
       await wsManager.sendChatRequest(
         text,
         '', // Model determined by backend
         activeConversationId,
         imageBase64,
         contextFiles,
-        activeConversationId === null ? personaId : null,
+        activeConversationId === null ? namedPersona : null,
       );
     } catch (err: any) {
       console.error('Chat error:', err);

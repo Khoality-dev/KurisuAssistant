@@ -209,17 +209,18 @@ async def create_persona(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-def _stop_defaulting_to(session, user_id: int, persona_id: int) -> None:
-    """Hand new conversations back to the assistant when their default persona is disabled.
+def _stop_selecting(session, user_id: int, persona_id: int) -> None:
+    """Put the chat back on the assistant when its selected persona is disabled.
 
-    A disabled persona answers nobody, so leaving it as the default would only
-    mean the default silently does nothing; clearing it says what happens (#302).
+    A disabled persona answers nobody, so a client opening on it would open on a
+    persona it cannot use; clearing it says what happens (#302, #334). Deleting
+    one clears it through the foreign key.
     """
     assistant_repo = AssistantRepository(session)
     assistant = assistant_repo.get_by_user(user_id)
-    if assistant is not None and assistant.default_persona_id == persona_id:
-        assistant_repo.update_assistant(assistant, default_persona_id=None)
-        logger.info("user %d disabled their default persona; the assistant answers new chats", user_id)
+    if assistant is not None and assistant.selected_persona_id == persona_id:
+        assistant_repo.update_assistant(assistant, selected_persona_id=None)
+        logger.info("user %d disabled their selected persona; the chat is on the assistant", user_id)
 
 
 @router.get("/{persona_id}")
@@ -281,7 +282,7 @@ async def update_persona(
                 )
 
         if fields.get("enabled") is False:
-            _stop_defaulting_to(session, user.id, persona_id)
+            _stop_selecting(session, user.id, persona_id)
 
         return _persona_to_response(persona_repo.update_persona(persona, **fields))
 
@@ -343,7 +344,7 @@ async def toggle_persona_enabled(
         if not persona:
             raise HTTPException(status_code=404, detail="Persona not found")
         if not body.enabled:
-            _stop_defaulting_to(session, user.id, persona_id)
+            _stop_selecting(session, user.id, persona_id)
         return _persona_to_response(persona)
 
     db = get_db_service()

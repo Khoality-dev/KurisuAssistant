@@ -23,15 +23,15 @@ class PersonaOptionalRepositoryTest {
     private val prefs: PreferencesDataStore = mockk(relaxed = true)
 
     @Test
-    fun `clearing the default sends an explicit null, and nothing else`() = runTest {
-        coEvery { api.patchAssistant(any()) } returns Assistant(id = 1, defaultPersonaId = null)
+    fun `selecting the assistant sends an explicit null, and nothing else`() = runTest {
+        coEvery { api.patchAssistant(any()) } returns Assistant(id = 1, selectedPersonaId = null)
 
-        val updated = AssistantRepository(api).clearDefaultPersona()
+        val updated = AssistantRepository(api).clearSelectedPersona()
 
         // An absent key means "leave it alone" on this route; only an explicit
         // null clears the column, which no AssistantUpdate field can express.
-        coVerify(exactly = 1) { api.patchAssistant(JsonObject(mapOf("default_persona_id" to JsonNull))) }
-        assertThat(updated.defaultPersonaId).isNull()
+        coVerify(exactly = 1) { api.patchAssistant(JsonObject(mapOf("selected_persona_id" to JsonNull))) }
+        assertThat(updated.selectedPersonaId).isNull()
     }
 
     @Test

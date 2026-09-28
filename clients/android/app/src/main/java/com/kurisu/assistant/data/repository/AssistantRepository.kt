@@ -10,11 +10,11 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * The user's single assistant: what it can do, and who answers by default.
+ * The user's single assistant: what it can do, and who the chat is on.
  *
  * There is exactly one per user and it is created at registration, so there is
  * no create and no delete — only read and patch. It owns model, provider, tools,
- * reasoning, memory, `default_persona_id`, and `trigger_word`, which is a voice
+ * reasoning, memory, `selected_persona_id`, and `trigger_word`, which is a voice
  * WAKE word: it wakes the assistant and selects no persona.
  */
 @Singleton
@@ -31,14 +31,14 @@ class AssistantRepository @Inject constructor(
     suspend fun updateAssistant(data: AssistantUpdate): Assistant = api.updateAssistant(data)
 
     /**
-     * New chats go to the assistant itself: `default_persona_id` set to null (#302).
+     * The chat goes to the assistant itself: `selected_persona_id` set to null (#302, #334).
      *
      * [AssistantUpdate] omits every null so a one-field patch cannot blank the
      * rest of the row; this is the one patch that needs a null on the wire, so
      * its body is built by hand.
      */
-    suspend fun clearDefaultPersona(): Assistant =
-        api.patchAssistant(JsonObject(mapOf("default_persona_id" to JsonNull)))
+    suspend fun clearSelectedPersona(): Assistant =
+        api.patchAssistant(JsonObject(mapOf("selected_persona_id" to JsonNull)))
 
     /** Models available to the assistant (and to sub-agents). */
     suspend fun listModels(): List<ModelInfo> = api.getModels().models

@@ -26,7 +26,7 @@ import javax.inject.Inject
 /**
  * One row of the Chats list: a CONVERSATION, and nothing about who answers it.
  *
- * There is one assistant with one default persona, so a face and a name on the
+ * There is one assistant with one selected persona, so a face and a name on the
  * row were the same face and the same name on every row — they distinguished
  * nothing and cost the title its width. A conversation says who answers it in
  * the chat header, where the per-conversation override lives.
@@ -99,7 +99,7 @@ class ConversationsViewModel @Inject constructor(
     val wakeWord: SharedFlow<String> = _wakeWord
 
     @Volatile private var triggerWord: String? = null
-    @Volatile private var defaultPersonaId: Int? = null
+    @Volatile private var selectedPersonaId: Int? = null
 
     init {
         load()
@@ -120,17 +120,17 @@ class ConversationsViewModel @Inject constructor(
             _state.update { it.copy(isLoading = true, error = null) }
             try {
                 // No row names a persona any more, so the persona list is read
-                // for one thing: who a new chat will get — the default persona
+                // for one thing: who a new chat will get — the selected persona
                 // while it is enabled, else the assistant itself (#302). The chat
                 // screen resolves it with this same rule, and the two must agree
                 // or `startNewChat` clears the wrong cached conversation.
                 val personas = personaRepository.listPersonas()
 
                 // The assistant is a bonus here — it supplies the wake word and
-                // the default persona — so losing it must not lose the list.
+                // the selected persona — so losing it must not lose the list.
                 val assistant = runCatching { assistantRepository.getAssistant() }.getOrNull()
                 triggerWord = assistant?.triggerWord
-                defaultPersonaId = assistant?.defaultPersonaId
+                selectedPersonaId = assistant?.selectedPersonaId
                     ?.takeIf { id -> personas.any { it.id == id && it.enabled } }
 
                 val rows = conversationRepository.getConversations().map { conv ->
@@ -188,13 +188,13 @@ class ConversationsViewModel @Inject constructor(
     /**
      * Start a new chat. There is no picker and no create call: the backend makes
      * the conversation when the first message arrives with a null
-     * `conversation_id`, and binds it to `assistants.default_persona_id` — or
-     * leaves it to the assistant itself when there is none (#302). All this does
+     * `conversation_id`, bound to the persona the chat names — the selected one —
+     * or to the assistant itself when there is none (#302, #334). All this does
      * is make sure nothing stale is resumed instead.
      */
     fun startNewChat(onReady: () -> Unit = {}) {
         viewModelScope.launch {
-            personaRepository.clearConversationIdForPersona(defaultPersonaId)
+            personaRepository.clearConversationIdForPersona(selectedPersonaId)
             coreState.setConversationId(null)
             // Navigating before the clear lands would let the chat's own load
             // read the stale cached id and resume the previous conversation, so

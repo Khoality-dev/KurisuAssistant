@@ -43,7 +43,7 @@ import org.junit.runner.RunWith
  * persona is optional: with none, the assistant answers as itself (#302).
  *
  * The one thing that must never happen is the switch leaking into
- * `assistants.default_persona_id`: pick a different voice for one thread and
+ * `assistants.selected_persona_id`: pick a different voice for one thread and
  * every future chat would silently change hands. These tests pin that down,
  * plus the reload path that makes the override survive a reconnect.
  */
@@ -71,7 +71,7 @@ class ChatViewModelPersonaTest {
         id = 1,
         modelName = "gpt-4o-mini",
         triggerWord = "kurisu",
-        defaultPersonaId = kurisu.id,
+        selectedPersonaId = kurisu.id,
     )
 
     private fun detail(id: Int, personaId: Int?) = ConversationDetail(
@@ -150,8 +150,8 @@ class ChatViewModelPersonaTest {
         // …and nothing touched the assistant. This is the whole point of
         // "this conversation only".
         coVerify(exactly = 0) { assistantRepo.updateAssistant(any<AssistantUpdate>()) }
-        assertThat(vm.state.value.assistant?.defaultPersonaId).isEqualTo(kurisu.id)
-        assertThat(vm.state.value.defaultPersonaName).isEqualTo("Kurisu")
+        assertThat(vm.state.value.assistant?.selectedPersonaId).isEqualTo(kurisu.id)
+        assertThat(vm.state.value.selectedPersonaName).isEqualTo("Kurisu")
     }
 
     @Test
@@ -192,7 +192,7 @@ class ChatViewModelPersonaTest {
 
         assertThat(vm.state.value.persona?.id).isEqualTo(coach.id)
         // The default is untouched — it is still what a NEW chat would open with.
-        assertThat(vm.state.value.assistant?.defaultPersonaId).isEqualTo(kurisu.id)
+        assertThat(vm.state.value.assistant?.selectedPersonaId).isEqualTo(kurisu.id)
     }
 
     @Test
@@ -253,7 +253,7 @@ class ChatViewModelPersonaTest {
 
     @Test
     fun `with no default the assistant answers, not the first persona`() = runTest(testDispatcher) {
-        coEvery { assistantRepo.getAssistant() } returns assistant().copy(defaultPersonaId = null)
+        coEvery { assistantRepo.getAssistant() } returns assistant().copy(selectedPersonaId = null)
         coEvery { personaRepo.getConversationIdForPersona(null) } returns null
 
         val vm = newViewModel()
@@ -334,7 +334,7 @@ class ChatViewModelPersonaTest {
 
     @Test
     fun `a new chat with no default is the assistant's`() = runTest(testDispatcher) {
-        coEvery { assistantRepo.getAssistant() } returns assistant().copy(defaultPersonaId = null)
+        coEvery { assistantRepo.getAssistant() } returns assistant().copy(selectedPersonaId = null)
         coEvery { personaRepo.getConversationIdForPersona(null) } returns 500
         coEvery { convRepo.getConversation(500, 20, 0) } returns detail(500, null)
 

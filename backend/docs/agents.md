@@ -42,7 +42,7 @@ and were removed.
 `selection.assistant_identity()` is a `PersonaConfig` with no id, the name
 `Assistant`, and no prompt, voice or character, so the rest of the turn runs
 unchanged and its chunks carry `persona_id: null`. A new account has no persona
-and `assistants.default_persona_id` starts null.
+and `assistants.selected_persona_id` starts null.
 
 A conversation binds to at most one persona, stored as `conversations.persona_id`;
 null means the assistant itself. `agents/selection.py::pick_persona` resolves who
@@ -51,20 +51,23 @@ answers from the user's **enabled** personas, in this fixed order:
 1. an explicit override — the `persona_id` on this `chat_request`, or the binding
    the conversation already has (also settable with `PATCH /conversations/{id}`,
    where `null` hands the conversation to the assistant);
-2. the user's `assistants.default_persona_id` — **only for a conversation nothing
-   has answered yet**, so a conversation with the assistant stays with it when a
-   default is chosen later;
-3. otherwise the assistant itself. There is no "first persona" fallback and no
+2. otherwise the assistant itself. There is no "first persona" fallback and no
    `NO_PERSONAS` refusal any more.
+
+`assistants.selected_persona_id` is **not** a step (#334). It is who the account's
+chat is on — every client opens on it and names it on a new chat's first message
+— and the server keeps it only so that every device and every sign-in agree. A
+chat that names nobody is the assistant's own: the server used to adopt the
+account's default persona there (the column this one replaced), which put a
+persona behind a desktop header that said "Assistant".
 
 An id that names a persona which is not enabled (disabled, deleted, or another
 user's) is logged and skipped rather than honoured.
 
 **Nothing scans the message for a trigger word and nothing is picked at random.**
 `assistants.trigger_word` is a *voice wake word*: saying it wakes the assistant,
-and whichever persona the conversation is bound to answers. It selects nothing. A
-new conversation silently adopts the default persona — there is no picker on
-new-chat.
+and whichever persona the conversation is bound to answers. It selects nothing, and
+neither does the server: nothing is adopted that the request did not name.
 
 The choice is written back to `conversations.persona_id` on the first bind **and on
 every later override**, so a per-turn switch survives to the next message and

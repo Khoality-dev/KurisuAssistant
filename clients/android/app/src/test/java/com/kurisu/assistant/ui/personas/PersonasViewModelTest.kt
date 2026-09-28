@@ -67,7 +67,7 @@ class PersonasViewModelTest {
     )
     private val coach = Persona(id = 3, name = "Coach", systemPrompt = "Encouraging in tone.")
 
-    private val assistant = Assistant(id = 1, defaultPersonaId = 1)
+    private val assistant = Assistant(id = 1, selectedPersonaId = 1)
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -123,14 +123,14 @@ class PersonasViewModelTest {
     )
 
     @Test
-    fun `loads the personas, the default and the voice list`() = runTest {
+    fun `loads the personas, the selection and the voice list`() = runTest {
         val vm = viewModel()
         advanceUntilIdle()
 
         val s = vm.state.value
         assertThat(s.isLoading).isFalse()
         assertThat(s.personas.map { it.name }).containsExactly("Kurisu", "Coach").inOrder()
-        assertThat(s.defaultPersonaId).isEqualTo(1)
+        assertThat(s.selectedPersonaId).isEqualTo(1)
         assertThat(s.availableVoices).hasSize(2)
     }
 
@@ -155,50 +155,50 @@ class PersonasViewModelTest {
         assertThat(vm.state.value.openChatPersonaId).isEqualTo(3)
     }
 
-    // ─── The default for new chats ────────────────────────────────────
+    // ─── Who the chat is on (#334) ────────────────────────────────────
 
     @Test
     fun `tapping a row moves the assistant's default, and nothing else`() = runTest {
-        coEvery { assistantRepo.updateAssistant(any()) } returns assistant.copy(defaultPersonaId = 3)
+        coEvery { assistantRepo.updateAssistant(any()) } returns assistant.copy(selectedPersonaId = 3)
         val vm = viewModel()
         advanceUntilIdle()
 
-        vm.makeDefault(coach)
+        vm.selectPersona(coach)
         advanceUntilIdle()
 
         coVerify(exactly = 1) {
-            assistantRepo.updateAssistant(AssistantUpdate(defaultPersonaId = 3))
+            assistantRepo.updateAssistant(AssistantUpdate(selectedPersonaId = 3))
         }
-        assertThat(vm.state.value.defaultPersonaId).isEqualTo(3)
+        assertThat(vm.state.value.selectedPersonaId).isEqualTo(3)
         // The default is a server-side pointer, not a local preference: two
         // devices must not be able to disagree about who answers.
         coVerify(exactly = 0) { personaRepo.updatePersona(any(), any()) }
     }
 
     @Test
-    fun `tapping the row that is already the default does nothing`() = runTest {
+    fun `tapping the row that is already selected does nothing`() = runTest {
         val vm = viewModel()
         advanceUntilIdle()
 
-        vm.makeDefault(kurisu)
+        vm.selectPersona(kurisu)
         advanceUntilIdle()
 
         coVerify(exactly = 0) { assistantRepo.updateAssistant(any()) }
     }
 
     @Test
-    fun `a disabled persona cannot become the default, and says why`() = runTest {
+    fun `a disabled persona cannot be selected, and says why`() = runTest {
         coEvery { assistantRepo.updateAssistant(any()) } throws
-            httpError(400, "A disabled persona cannot be the default. Enable it first.")
+            httpError(400, "A disabled persona cannot be selected. Enable it first.")
         val vm = viewModel()
         advanceUntilIdle()
 
-        vm.makeDefault(coach)
+        vm.selectPersona(coach)
         advanceUntilIdle()
 
         assertThat(vm.state.value.message)
-            .isEqualTo("A disabled persona cannot be the default. Enable it first.")
-        assertThat(vm.state.value.defaultPersonaId).isEqualTo(1)
+            .isEqualTo("A disabled persona cannot be selected. Enable it first.")
+        assertThat(vm.state.value.selectedPersonaId).isEqualTo(1)
     }
 
     // ─── Editor ───────────────────────────────────────────────────────
@@ -299,7 +299,7 @@ class PersonasViewModelTest {
         }
 
     @Test
-    fun `disabling the default hands new chats back to the assistant`() = runTest {
+    fun `disabling the selected persona hands new chats back to the assistant`() = runTest {
         // The server clears the default when it is disabled (#302); the screen
         // must stop showing the badge rather than name a persona that answers no one.
         coEvery { personaRepo.setPersonaEnabled(1, false) } returns kurisu.copy(enabled = false)
@@ -311,20 +311,20 @@ class PersonasViewModelTest {
         advanceUntilIdle()
 
         assertThat(vm.state.value.draft?.enabled).isFalse()
-        assertThat(vm.state.value.defaultPersonaId).isNull()
+        assertThat(vm.state.value.selectedPersonaId).isNull()
     }
 
     @Test
-    fun `the default can be cleared, so new chats go to the assistant itself`() = runTest {
-        coEvery { assistantRepo.clearDefaultPersona() } returns assistant.copy(defaultPersonaId = null)
+    fun `the assistant itself can be selected, so new chats go to it`() = runTest {
+        coEvery { assistantRepo.clearSelectedPersona() } returns assistant.copy(selectedPersonaId = null)
         val vm = viewModel()
         advanceUntilIdle()
 
-        vm.clearDefault()
+        vm.selectAssistant()
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { assistantRepo.clearDefaultPersona() }
-        assertThat(vm.state.value.defaultPersonaId).isNull()
+        coVerify(exactly = 1) { assistantRepo.clearSelectedPersona() }
+        assertThat(vm.state.value.selectedPersonaId).isNull()
         assertThat(vm.state.value.message).isEqualTo("New chats will use the assistant itself")
     }
 
@@ -375,10 +375,10 @@ class PersonasViewModelTest {
     // ─── Delete ───────────────────────────────────────────────────────
 
     @Test
-    fun `the last persona can be deleted, and the default goes with it`() = runTest {
+    fun `the last persona can be deleted, and the selection goes with it`() = runTest {
         // A persona is optional (#302): the assistant answers without one.
         coEvery { personaRepo.listPersonas() } returnsMany listOf(listOf(kurisu), emptyList())
-        coEvery { assistantRepo.getAssistant() } returnsMany listOf(assistant, assistant.copy(defaultPersonaId = null))
+        coEvery { assistantRepo.getAssistant() } returnsMany listOf(assistant, assistant.copy(selectedPersonaId = null))
         val vm = viewModel()
         advanceUntilIdle()
 
@@ -389,7 +389,7 @@ class PersonasViewModelTest {
         coVerify(exactly = 1) { personaRepo.deletePersona(1) }
         assertThat(vm.state.value.message).isEqualTo("Kurisu deleted")
         assertThat(vm.state.value.personas).isEmpty()
-        assertThat(vm.state.value.defaultPersonaId).isNull()
+        assertThat(vm.state.value.selectedPersonaId).isNull()
     }
 
     @Test

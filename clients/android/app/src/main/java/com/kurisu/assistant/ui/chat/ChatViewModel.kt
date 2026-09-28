@@ -58,7 +58,7 @@ data class ChatUiState(
      * the assistant answering as itself: a persona is optional (#302).
      */
     val persona: Persona? = null,
-    /** The one assistant: model, tools, memory, wake word, default persona. */
+    /** The one assistant: model, tools, memory, wake word, and who the chat is on. */
     val assistant: Assistant? = null,
     val personas: List<Persona> = emptyList(),
     val messages: List<Message> = emptyList(),
@@ -78,19 +78,20 @@ data class ChatUiState(
 ) {
     /**
      * The persona a NEW conversation would get. Named in the persona sheet so the
-     * switch reads as temporary: this conversation moves, the default does not.
+     * switch reads as temporary: this conversation moves, the selection does not.
      */
-    val defaultPersonaName: String?
-        get() = defaultPersona?.name
+    val selectedPersonaName: String?
+        get() = selectedPersona?.name
 
     /**
-     * Who a NEW conversation gets: the assistant's default persona while it is
-     * enabled, else nobody — the assistant itself. The server applies the same
-     * rule, and the conversations list must agree with it too, or New chat
-     * clears the wrong cached conversation.
+     * Who a NEW conversation gets: the assistant's selected persona while it is
+     * enabled, else nobody — the assistant itself. This client names it on the
+     * first message; the server adopts nobody on its own (#334). The
+     * conversations list must agree with it, or New chat clears the wrong cached
+     * conversation.
      */
-    val defaultPersona: Persona?
-        get() = assistant?.defaultPersonaId?.let { id -> personas.find { it.id == id && it.enabled } }
+    val selectedPersona: Persona?
+        get() = assistant?.selectedPersonaId?.let { id -> personas.find { it.id == id && it.enabled } }
 }
 
 @HiltViewModel
@@ -142,7 +143,7 @@ class ChatViewModel @Inject constructor(
             ) }
         }
 
-        // Load the assistant's default persona and its conversation
+        // Load who the chat is on, and their conversation
         viewModelScope.launch {
             val baseUrl = prefs.getBackendUrl()
             val alwaysListen = prefs.getAsrAlwaysListen()
@@ -221,11 +222,11 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Load who answers by default, and their conversation.
+     * Load who the chat is on, and their conversation.
      *
-     * There is no local "selected persona": the assistant's `default_persona_id`
+     * There is no local "selected persona": the assistant's `selected_persona_id`
      * is the single source of truth, or two devices disagree about who answers.
-     * With no default — where every account starts — the assistant answers as
+     * With none selected — where every account starts — the assistant answers as
      * itself, and there is no falling back to "the first persona" (#302). The
      * wake word comes off the assistant too — it is a voice trigger, not a
      * persona picker.
@@ -237,7 +238,7 @@ class ChatViewModel @Inject constructor(
 
             val personas = personaRepository.listPersonas()
             _state.update { it.copy(assistant = assistant, personas = personas) }
-            val persona = _state.value.defaultPersona
+            val persona = _state.value.selectedPersona
             _state.update { it.copy(persona = persona) }
             coreState.setCurrentPersonaId(persona?.id)
 
@@ -377,15 +378,15 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             personaRepository.clearConversationIdForPersona(personaId)
             _state.update { s ->
-                // A new chat opens with the assistant's default persona, silently,
-                // or with the assistant itself when there is none (#302). A
+                // A new chat opens with the selected persona, or with the
+                // assistant itself when there is none (#302, #334). A
                 // per-conversation override belonged to the conversation that
                 // just closed and must not follow the user into the next one.
                 s.copy(
                     messages = emptyList(),
                     conversationId = null,
                     hasMore = false,
-                    persona = s.defaultPersona,
+                    persona = s.selectedPersona,
                     commandFeedback = "Started a new conversation",
                 )
             }
@@ -556,8 +557,8 @@ class ChatViewModel @Inject constructor(
      *
      * The switch writes `persona_id` on the conversation, so it persists with no
      * message sent and survives a reconnect. It deliberately does not touch the
-     * assistant's `default_persona_id`: the next new chat still opens with the
-     * default, which is the entire meaning of "this conversation only". Nor does
+     * assistant's `selected_persona_id`: the next new chat still opens with the
+     * selection, which is the entire meaning of "this conversation only". Nor does
      * it move the wake word — that is assistant-level and selects no one.
      *
      * The transcript does not change: past messages keep the persona that
@@ -721,12 +722,12 @@ class ChatViewModel @Inject constructor(
                 conversationRepository.deleteConversation(convId)
                 personaRepository.clearConversationIdForPersona(_state.value.persona?.id)
                 // What follows is a new chat, so it opens as one does: with the
-                // default persona, or the assistant itself when there is none.
+                // selected persona, or the assistant itself when there is none.
                 _state.update { it.copy(
                     messages = emptyList(),
                     conversationId = null,
                     hasMore = false,
-                    persona = it.defaultPersona,
+                    persona = it.selectedPersona,
                     commandFeedback = "Conversation deleted",
                 ) }
                 coreState.setConversationId(null)

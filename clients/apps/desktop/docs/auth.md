@@ -46,7 +46,7 @@ fetch there asks the main renderer for a fresh token over
 
 ## Storage keys (localStorage)
 
-`kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_selected_persona_id`, `kurisu_persona_conversations`, `kurisu_media_volume`
+`kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_persona_conversations`, `kurisu_media_volume`
 
 Layout, in `layoutStore` rather than `storage`: `kurisu_chat_panel_width`, `kurisu_workspace_tree_width`, `kurisu_character_visible` and `kurisu_character_panel_height` (the inline character panel, #241).
 

@@ -119,7 +119,7 @@ const DOCS_ASSISTANT = {
     + 'Works in a monorepo: backend (FastAPI), desktop (Electron), android (Compose).',
   memory_enabled: true,
   trigger_word: 'kurisu',
-  default_persona_id: 1,
+  selected_persona_id: 1,
 };
 
 const DOCS_SUB_AGENTS = [
@@ -475,7 +475,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     // personaOptional.spec.ts: a new account has no persona, and the assistant
     // answers as itself (#302).
     description: 'An account with no persona at all: the assistant answers as itself, persona_id null.',
-    options: { personas: [], assistant: { default_persona_id: null }, stream: SHORT_REPLY },
+    options: { personas: [], assistant: { selected_persona_id: null }, stream: SHORT_REPLY },
   },
 };
 

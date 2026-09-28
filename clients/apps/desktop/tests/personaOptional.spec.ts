@@ -55,8 +55,8 @@ test.describe('personas are optional', () => {
     expect(conversation.persona_id).toBeNull();
   });
 
-  test('with personas but no default, nothing is pinned for the user', async ({ page, mock }) => {
-    mock.setAssistantFields({ default_persona_id: null });
+  test('with personas but none selected, nothing is pinned for the user', async ({ page, mock }) => {
+    mock.setAssistantFields({ selected_persona_id: null });
 
     await login(page);
     await expect(whoAnswers(page)).toContainText('Assistant');
@@ -72,7 +72,9 @@ test.describe('personas are optional', () => {
     await send(page, 'hello');
     const [conversation] = mock.getConversations();
     expect(conversation.persona_id).toBe(1);
-    // The default persona answered, and the header says so before any reload.
+    // The chat is on Kurisu, as the server keeps it (#334): the request named
+    // her, and the header says so before any reload.
+    expect(mock.lastChatRequest.persona_id).toBe(1);
     await expect(whoAnswers(page)).toContainText('Kurisu');
 
     await whoAnswers(page).click();
@@ -84,7 +86,7 @@ test.describe('personas are optional', () => {
   });
 
   test('the conversations page lists the assistant alongside the personas', async ({ page, mock }) => {
-    mock.setAssistantFields({ default_persona_id: null });
+    mock.setAssistantFields({ selected_persona_id: null });
     await login(page);
     await send(page, 'hello');
 
@@ -99,20 +101,51 @@ test.describe('personas are optional', () => {
     await expect(page.getByRole('button', { name: /^Kurisu/ })).toBeVisible();
   });
 
-  test('settings can clear the default and delete the last persona', async ({ page, mock }) => {
+  test('settings can take the chat off a persona and delete the last one', async ({ page, mock }) => {
     await login(page);
     await openSettings(page);
     await page.getByText('Personas', { exact: true }).first().click();
-    await expect(page.getByText('Default', { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('In the chat', { exact: true })).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Clear default' }).click();
-    await expect.poll(() => mock.getAssistant().default_persona_id).toBeNull();
-    await expect(page.getByText('Default', { exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Use the assistant' }).click();
+    await expect.poll(() => mock.getAssistant().selected_persona_id).toBeNull();
+    await expect(page.getByText('In the chat', { exact: true })).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Delete' }).first().click();
     await page.getByRole('button', { name: 'Delete persona' }).click();
     await expect.poll(() => mock.getPersonas().length).toBe(0);
     await expect(page.getByText('No personas yet')).toBeVisible();
     await expect(page.getByText(/the assistant answers as itself/i)).toBeVisible();
+  });
+  test('who the chat is on is kept on the server, so signing in again opens on it (#334)', async ({ page, mock }) => {
+    mock.setAssistantFields({ selected_persona_id: null });
+    await login(page);
+    await expect(whoAnswers(page)).toContainText('Assistant');
+
+    await whoAnswers(page).click();
+    await expect(page.getByText('Who should answer?')).toBeVisible();
+    await page.getByRole('button', { name: /^Kurisu/ }).click();
+    await expect.poll(() => mock.getAssistant().selected_persona_id).toBe(1);
+
+    // This machine forgets everything but where the server is; the server does not.
+    await page.evaluate(() => {
+      for (const key of Object.keys(localStorage)) {
+        if (key !== 'kurisu_backend_url') localStorage.removeItem(key);
+      }
+    });
+    await page.reload();
+    if (await page.getByLabel('Username').isVisible({ timeout: 5_000 }).catch(() => false)) await login(page);
+    await expect(whoAnswers(page)).toContainText('Kurisu', { timeout: 10_000 });
+  });
+  test('a message sent before the selection has loaded still goes to the persona the chat is on (#334)', async ({ page, mock }) => {
+    // The selection comes from the server now, a round trip after login, where
+    // local storage had it at once. Windows CI sent inside that window and the
+    // assistant answered instead of Kurisu.
+    mock.delayRoute('GET', '/assistant', 1500);
+    await login(page);
+    await send(page, 'hello');
+
+    expect(mock.lastChatRequest.persona_id).toBe(1);
+    expect(mock.getConversations()[0].persona_id).toBe(1);
   });
 });

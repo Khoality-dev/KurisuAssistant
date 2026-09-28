@@ -92,11 +92,6 @@ class _TurnSetup:
     # itself, or when nothing has answered yet.
     persona_id: Optional[int]
     assistant: AssistantConfig
-    default_persona_id: Optional[int]
-    # Nothing in the conversation has been answered yet. Only then does the
-    # assistant's default persona apply (#302): an existing conversation with
-    # the assistant stays with it when a default is set later.
-    unanswered: bool = True
     system_messages: List[Dict] = field(default_factory=list)
     user_system_prompt: str = ""
     preferred_name: str = ""
@@ -280,17 +275,13 @@ class ChatSessionHandler:
             # Binding precedence: an explicit choice for this turn (``persona_id``
             # on this chat_request, or a PATCH that already wrote
             # ``conversations.persona_id``) → the conversation's existing
-            # binding → for a conversation nothing has answered yet, the
-            # assistant's default persona → the assistant itself. A persona is
-            # optional (#302): an account with none is answered by the assistant.
+            # binding → the assistant itself. The assistant's default persona is
+            # not in it: that is the clients' to name when they mean it, and a
+            # chat that names nobody is the assistant's own (#302, #334).
             override_id = (
                 event.persona_id if event.persona_id is not None else setup.persona_id
             )
-            persona = pick_persona(
-                personas,
-                override_id=override_id,
-                default_persona_id=setup.default_persona_id if setup.unanswered else None,
-            )
+            persona = pick_persona(personas, override_id=override_id)
             self._task_persona_id = persona.id
             if persona.id != setup.persona_id:
                 # Runs on a rebind too, not only on the first bind: an override
@@ -704,7 +695,6 @@ class ChatSessionHandler:
             # predates the split, or was made without one, can still chat.
             assistant_row = AssistantRepository(session).get_or_create_for_user(self.user_id)
             assistant = self._to_assistant_config(assistant_row)
-            default_persona_id = assistant_row.default_persona_id
 
             # The model the turn would actually run on, resolved exactly as
             # AgentContext resolves it below. Checked here, above the
@@ -718,14 +708,10 @@ class ChatSessionHandler:
                 conversation = conv_repo.create_conversation(self.user_id, title=title)
                 conversation_id = conversation.id
                 persona_id = None
-                unanswered = True
             else:
                 conversation_id = event.conversation_id
                 conv = conv_repo.get_by_user_and_id(self.user_id, conversation_id)
                 persona_id = conv.persona_id if conv else None
-                unanswered = session.query(Message.id).filter(
-                    Message.conversation_id == conversation_id,
-                ).first() is None
 
             system_prompt, preferred_name = user_repo.get_preferences(user)
 
@@ -733,8 +719,6 @@ class ChatSessionHandler:
                 conversation_id=conversation_id,
                 persona_id=persona_id,
                 assistant=assistant,
-                default_persona_id=default_persona_id,
-                unanswered=unanswered,
                 system_messages=build_system_messages(system_prompt, preferred_name),
                 user_system_prompt=system_prompt,
                 preferred_name=preferred_name or "",

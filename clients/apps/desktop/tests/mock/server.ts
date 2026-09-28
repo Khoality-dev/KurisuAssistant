@@ -148,7 +148,7 @@ export interface MockAssistant {
   /** Voice wake word. It wakes the assistant and selects no persona. */
   trigger_word?: string | null;
   /** Persona a new conversation silently binds to. */
-  default_persona_id?: number | null;
+  selected_persona_id?: number | null;
 }
 
 /** A task-only worker: its own model and tools, no identity of any kind. */
@@ -469,12 +469,13 @@ export class MockBackend {
       // Non-optional on the client's `Assistant` type. The old mock omitted it,
       // which is what forced a component to cast the response `as any`.
       trigger_word: assistant.trigger_word ?? 'kurisu',
-      // An explicit null is a state under test too: personas, but none pinned,
-      // so the assistant answers as itself (#302). Only an omitted field
-      // defaults to the first persona, which keeps the stock scenario's Kurisu.
-      default_persona_id: assistant.default_persona_id === undefined
+      // Who the chat is on (#334). An explicit null is a state under test too:
+      // personas, but none picked, so the chat is the assistant's (#302). Only
+      // an omitted field defaults to the first persona, which keeps the stock
+      // scenario's Kurisu in the chat — a real new account starts on null.
+      selected_persona_id: assistant.selected_persona_id === undefined
         ? (this.personas.length > 0 ? this.personas[0].id : null)
-        : assistant.default_persona_id,
+        : assistant.selected_persona_id,
     };
 
     this.subAgents = (opts.subAgents ?? []).map((s) => ({
@@ -814,10 +815,10 @@ export class MockBackend {
   /**
    * Which persona answers this turn, or `undefined` for the assistant itself.
    * Mirrors `backend/.../agents/selection.py`: an explicit per-turn override,
-   * then the conversation's existing binding, then — only for a conversation
-   * nothing has answered yet — the assistant's default, then the assistant
-   * itself (#302). No first-persona fallback. Never random, and never derived
-   * from the message.
+   * then the conversation's existing binding, then the assistant itself (#302).
+   * The assistant's default persona is not a step: a client that means it
+   * names it, and a chat that names nobody is the assistant's own (#334). No
+   * first-persona fallback. Never random, and never derived from the message.
    *
    * At every step only *enabled* personas are eligible — an id naming a disabled
    * or deleted one is dropped and selection falls through, rather than failing.
@@ -828,17 +829,12 @@ export class MockBackend {
     override: number | null | undefined,
     conv: StoredConversation | undefined,
   ): ResolvedPersona | undefined {
-    const unanswered = !conv || conv.messages.length === 0;
-    return (
-      this.findEnabledPersona(override) ??
-      this.findEnabledPersona(conv?.persona_id) ??
-      (unanswered ? this.findEnabledPersona(this.assistant.default_persona_id) : undefined)
-    );
+    return this.findEnabledPersona(override) ?? this.findEnabledPersona(conv?.persona_id);
   }
 
-  /** New conversations go back to the assistant when their default persona goes. */
-  private stopDefaultingTo(personaId: number) {
-    if (this.assistant.default_persona_id === personaId) this.assistant.default_persona_id = null;
+  /** The chat goes back to the assistant when its selected persona goes (#334). */
+  private stopSelecting(personaId: number) {
+    if (this.assistant.selected_persona_id === personaId) this.assistant.selected_persona_id = null;
   }
 
   private personaResponse(p: ResolvedPersona) {
@@ -1051,6 +1047,12 @@ export class MockBackend {
     }
     if (pathOnly === '/assistant' && method === 'PATCH') {
       const body = await this.readJson(req);
+      // As `routers/assistant.py`: only an enabled persona of one's own.
+      if (body.selected_persona_id != null) {
+        const persona = this.findPersona(body.selected_persona_id);
+        if (!persona) return this.error(res, 404, 'Persona not found');
+        if (!persona.enabled) return this.error(res, 400, 'A disabled persona cannot be selected. Enable it first.');
+      }
       this.assistant = { ...this.assistant, ...body };
       return this.json(res, this.assistant);
     }
@@ -1073,8 +1075,8 @@ export class MockBackend {
         enabled: body.enabled ?? true,
       };
       this.personas.push(persona);
-      // Not adopted as the default: a persona is optional, and only the user
-      // points new conversations at one (#302).
+      // Not selected for the user: a persona is optional, and only the user
+      // puts the chat on one (#302).
       return this.json(res, this.personaResponse(persona));
     }
     // A persona's export (#248): the v3 JSON file, or with ?character=true the
@@ -1145,7 +1147,7 @@ export class MockBackend {
       if (!persona) return this.error(res, 404, 'Persona not found');
       const body = await this.readJson(req);
       persona.enabled = !!body.enabled;
-      if (!persona.enabled) this.stopDefaultingTo(persona.id);
+      if (!persona.enabled) this.stopSelecting(persona.id);
       return this.json(res, this.personaResponse(persona));
     }
     const personaMatch = pathOnly.match(/^\/personas\/(\d+)$/);
@@ -1161,16 +1163,16 @@ export class MockBackend {
       if (method === 'PATCH') {
         if (!persona) return this.error(res, 404, 'Persona not found');
         Object.assign(persona, await this.readJson(req));
-        if (persona.enabled === false) this.stopDefaultingTo(persona.id);
+        if (persona.enabled === false) this.stopSelecting(persona.id);
         return this.json(res, this.personaResponse(persona));
       }
       if (method === 'DELETE') {
         if (!persona) return this.error(res, 404, 'Persona not found');
         // Any persona can go, the last one included: the assistant answers
-        // without one. The FK clears the default and conversation bindings, so
+        // without one. The FK clears the selection and conversation bindings, so
         // those go back to the assistant rather than to another persona (#302).
         this.personas = this.personas.filter((p) => p.id !== id);
-        this.stopDefaultingTo(id);
+        this.stopSelecting(id);
         for (const conv of this.conversations.values()) {
           if (conv.persona_id === id) conv.persona_id = null;
         }

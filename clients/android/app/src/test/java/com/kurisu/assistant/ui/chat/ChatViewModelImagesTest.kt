@@ -94,7 +94,7 @@ class ChatViewModelImagesTest {
         every { wsManager.events } returns MutableSharedFlow<ServerEvent>()
         coEvery { prefs.getBackendUrl() } returns "https://example.test"
         coEvery { authRepo.loadUserProfile() } returns UserProfile(username = "kho")
-        coEvery { assistantRepo.getAssistant() } returns Assistant(id = 1, modelName = "m", defaultPersonaId = kurisu.id)
+        coEvery { assistantRepo.getAssistant() } returns Assistant(id = 1, modelName = "m", selectedPersonaId = kurisu.id)
         coEvery { personaRepo.listPersonas() } returns listOf(kurisu)
         coEvery { personaRepo.getConversationIdForPersona(kurisu.id) } returns 421
         coEvery { convRepo.getConversation(421, 20, 0) } returns ConversationDetail(

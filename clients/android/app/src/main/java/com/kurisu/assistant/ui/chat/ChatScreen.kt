@@ -91,9 +91,8 @@ fun ChatScreen(
             )
             is ChatModal.PersonaPicker -> PersonaSheet(
                 modal = modal,
-                defaultPersonaName = state.defaultPersonaName,
+                selectedPersonaName = state.selectedPersonaName,
                 currentPersonaId = state.persona?.id,
-                conversationStarted = state.conversationId != null,
                 baseUrl = state.baseUrl,
                 onDismiss = viewModel::dismissModal,
                 onPick = viewModel::switchPersona,
@@ -756,8 +755,6 @@ private fun ModelSheet(
 @Composable
 private fun AssistantRow(
     isCurrent: Boolean,
-    available: Boolean,
-    defaultPersonaName: String?,
     onPick: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -766,8 +763,7 @@ private fun AssistantRow(
         horizontalArrangement = Arrangement.spacedBy(13.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = available || isCurrent) { if (isCurrent) onDismiss() else onPick() }
-            .alpha(if (available || isCurrent) 1f else 0.6f)
+            .clickable { if (isCurrent) onDismiss() else onPick() }
             .padding(horizontal = 20.dp, vertical = 12.dp),
     ) {
         PersonaAvatar(name = ChatViewModel.ASSISTANT_NAME, avatarUrl = null, size = 40.dp, fontSize = 13.sp)
@@ -777,11 +773,7 @@ private fun AssistantRow(
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
-                text = if (available || isCurrent) {
-                    "No persona — the assistant answers as itself"
-                } else {
-                    "New chats start with $defaultPersonaName — switch after the first message"
-                },
+                text = "No persona — the assistant answers as itself",
                 style = KurisuTheme.extraTypography.metadataSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -800,22 +792,19 @@ private fun AssistantRow(
  * The per-conversation persona switch.
  *
  * The subtitle is the whole contract: this conversation moves, the assistant's
- * default does not. Without it the sheet reads like a global setting and every
+ * selection does not. Without it the sheet reads like a global setting and every
  * future chat looks changed.
  *
  * The first row is the assistant itself — no persona (#302). A started chat is
- * handed to it with `persona_id: null`; a chat that does not exist yet cannot
- * say "nobody" on the wire while a default is set (an absent `persona_id` means
- * "the default"), so there the row explains when it becomes available instead
- * of pretending to work.
+ * handed to it with `persona_id: null`, and a chat that does not exist yet
+ * starts with the assistant when its first message names nobody (#334).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PersonaSheet(
     modal: ChatModal.PersonaPicker,
-    defaultPersonaName: String?,
+    selectedPersonaName: String?,
     currentPersonaId: Int?,
-    conversationStarted: Boolean,
     baseUrl: String,
     onDismiss: () -> Unit,
     onPick: (Persona?) -> Unit,
@@ -828,10 +817,10 @@ private fun PersonaSheet(
         ) {
             Text("Persona", style = MaterialTheme.typography.titleLarge)
             Text(
-                text = if (defaultPersonaName != null) {
-                    "This conversation only — the default stays $defaultPersonaName"
+                text = if (selectedPersonaName != null) {
+                    "This conversation only — new chats stay with $selectedPersonaName"
                 } else {
-                    "This conversation only — the assistant's default is unchanged"
+                    "This conversation only — new chats stay with the assistant"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -846,10 +835,6 @@ private fun PersonaSheet(
 
             else -> AssistantRow(
                 isCurrent = currentPersonaId == null,
-                // With no default a new chat is the assistant's already; with one,
-                // only a started chat can be handed over (see above).
-                available = conversationStarted || defaultPersonaName == null,
-                defaultPersonaName = defaultPersonaName,
                 onPick = { onPick(null) },
                 onDismiss = onDismiss,
             )

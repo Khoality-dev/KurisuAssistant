@@ -4,6 +4,7 @@ import { forgetDriveCache } from '@kurisu/api';
 import { storage } from '@kurisu/api';
 import { resolveBridge } from '@kurisu/platform';
 import { useToolPermissionsStore } from './toolPermissionsStore';
+import { usePersonaStore } from './personaStore';
 import type { UserProfile } from '@kurisu/models';
 
 interface AuthState {
@@ -68,6 +69,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     forgetDriveCache();
     storage.setRememberMe(false);
     storage.clearAllPersonaConversations();
+    // The next account's selection is its own, and unknown until it loads (#334).
+    usePersonaStore.setState({ selectedPersonaId: null, selectionLoaded: false });
     set({ isAuthenticated: false, user: null, rememberMe: false });
   },
 

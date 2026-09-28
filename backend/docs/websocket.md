@@ -278,9 +278,10 @@ checked first precisely so that a message nobody can answer leaves no conversati
 behind.
 
 `persona_id` is an **optional per-turn override**. Omit it on an ordinary message:
-a conversation nothing has answered yet adopts `assistants.default_persona_id`, and
-one already answered keeps its binding — with none, the assistant answers as itself
-and its chunks carry `persona_id: null` and the name `Assistant` (#302).
+a conversation keeps its binding, and a new one — or one bound to nobody — is the
+assistant's own: its chunks carry `persona_id: null` and the name `Assistant`
+(#302). Nobody is adopted for a request that names none — not the account's
+selected persona either (#334); a client that means it for a new chat sends its id.
 `NO_PERSONAS` is no longer sent: a persona is optional. Sending `persona_id`
 rebinds the conversation, and the binding is persisted. The old, ignored `agent_id` field is **not** accepted — a client that
 still sends it is simply ignored, as before.

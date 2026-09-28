@@ -79,7 +79,7 @@ set: a webcam frame is a binary message with its own envelope (#111).
 
 Same as desktop/mobile clients: `kurisu_auth_token`, `kurisu_remember_me`, `kurisu_selected_model`, `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_persona_conversations`, etc.
 
-`kurisu_selected_agent_id` was **deleted** in wire protocol 4: there is one assistant, so there is nothing to select locally, and the default persona lives on the assistant row server-side. `kurisu_agent_conversations` became `kurisu_persona_conversations` with no client-side migration — it is a cache that re-derives from the backend on a miss. Since #302 it also caches the assistant's own last conversation — a persona is optional — under key `0` (`PersonaRepository.ASSISTANT_KEY`; persona ids start at 1), re-derived on a miss from the newest conversation bound to nobody.
+`kurisu_selected_agent_id` was **deleted** in wire protocol 4: there is one assistant, so there is nothing to select locally, and who the chat is on lives on the assistant row server-side (`selected_persona_id` since wire protocol 8, #334; it was `default_persona_id`, which the server also adopted for a new chat that named nobody). `kurisu_agent_conversations` became `kurisu_persona_conversations` with no client-side migration — it is a cache that re-derives from the backend on a miss. Since #302 it also caches the assistant's own last conversation — a persona is optional — under key `0` (`PersonaRepository.ASSISTANT_KEY`; persona ids start at 1), re-derived on a miss from the newest conversation bound to nobody.
 
 ## Images are authenticated
 

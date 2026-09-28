@@ -87,7 +87,7 @@ data class Conversation(
     // The persona bound to this conversation. The backend has always sent it and
     // this client used to drop it on the floor, which is why a conversation row
     // could not show who answers it. Null means the assistant answers as itself
-    // (#302); a conversation nothing has answered yet adopts the default persona.
+    // (#302). The server adopts nobody on its own (#334).
     @SerialName("persona_id") val personaId: Int? = null,
 )
 
@@ -188,7 +188,7 @@ data class TTSRequest(
 //
 //   Assistant — ONE per user, addressed with no id (`GET|PATCH /assistant`).
 //               Owns capability: model, provider, tools, reasoning, memory, the
-//               voice wake word, and which persona answers by default.
+//               voice wake word, and which persona the chat is on (#334).
 //   Persona   — MANY per user. Owns presentation only: name, prompt, voice, face.
 //               No model, no tools, no memory, no trigger word.
 //   SubAgent  — MANY per user. A task-only worker the assistant delegates to.
@@ -214,7 +214,10 @@ data class Assistant(
     // A voice WAKE word, not a router: saying it wakes the assistant, and the
     // conversation's bound persona answers. It selects no one.
     @SerialName("trigger_word") val triggerWord: String? = null,
-    @SerialName("default_persona_id") val defaultPersonaId: Int? = null,
+    // Who the chat is on (#334): every client opens on it and names it on a new
+    // chat's first message. Null is the assistant itself. The server never
+    // applies it on its own.
+    @SerialName("selected_persona_id") val selectedPersonaId: Int? = null,
 )
 
 @OptIn(ExperimentalSerializationApi::class)
@@ -237,7 +240,7 @@ data class AssistantUpdate(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("trigger_word") val triggerWord: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    @SerialName("default_persona_id") val defaultPersonaId: Int? = null,
+    @SerialName("selected_persona_id") val selectedPersonaId: Int? = null,
 )
 
 @Serializable

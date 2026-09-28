@@ -6,10 +6,12 @@ pinned. The order is fixed and deterministic:
 
 1. an explicit override — the conversation's existing binding, or the
    ``persona_id`` on this ``chat_request``;
-2. the user's ``assistants.default_persona_id`` — which the caller passes only
-   for a conversation that has not been answered yet, so an existing
-   conversation with the assistant stays with it;
-3. otherwise the assistant itself: :func:`assistant_identity`.
+2. otherwise the assistant itself: :func:`assistant_identity`.
+
+``assistants.selected_persona_id`` is not a step: it is who the account's chat
+is on, and a client that means it names it. The server used to adopt the
+account's default persona for a chat that named nobody, which put a persona
+behind a header that said "Assistant" (#334).
 
 There is no fallback to "the first persona" any more, and nothing raises: an
 account with no persona, or none enabled, is answered by the assistant. There is
@@ -41,7 +43,6 @@ def assistant_identity() -> PersonaConfig:
 def pick_persona(
     personas: List[PersonaConfig],
     override_id: Optional[int] = None,
-    default_persona_id: Optional[int] = None,
 ) -> PersonaConfig:
     """Pick who answers in a conversation.
 
@@ -51,8 +52,6 @@ def pick_persona(
         override_id: An explicit choice — the conversation's stored binding or
             the id on this request. Ignored with a warning if it names a
             persona that is not enabled (deleted, disabled, or another user's).
-        default_persona_id: ``assistants.default_persona_id``, or None when the
-            default does not apply. Same treatment if it dangles.
 
     Returns:
         The chosen persona, or :func:`assistant_identity` when nothing is pinned.
@@ -66,15 +65,6 @@ def pick_persona(
         logger.warning(
             "Requested persona %s is not enabled for this user — falling back",
             override_id,
-        )
-
-    if default_persona_id is not None:
-        chosen = by_id.get(default_persona_id)
-        if chosen is not None:
-            return chosen
-        logger.warning(
-            "Default persona %s is not enabled for this user — the assistant answers",
-            default_persona_id,
         )
 
     return assistant_identity()

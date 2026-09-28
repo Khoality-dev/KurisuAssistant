@@ -26,6 +26,16 @@ Bumping rules:
 - Bump rarely; treat each bump as a coordinated release across all clients.
 
 Update log (most recent first):
+- 8: The assistant's `default_persona_id` is gone; `selected_persona_id` takes
+     its place on `GET`/`PATCH /assistant` — who the account's chat is on, which
+     a client reads when it opens and writes when the user picks someone (#334).
+     The chat path no longer adopts anyone: a `chat_request` that names no
+     `persona_id` for a new conversation is the assistant's own, where it used to
+     silently take the default persona. Removed field, hence the bump: an
+     installed client would read no default and save one to a field that no
+     longer exists, and its new chats would lose their persona without a word.
+     The column is renamed by migration, so each account opens on the persona it
+     had as its default.
 - 7: A persona's `character_config` says which character system it uses. Every
      config now carries a required `kind` — `"pose_graph"` (today's 2D rig) or
      `"vrm"` (a 3D model, #224) — beside its members `pose_tree` and `vrm`, and a
@@ -153,7 +163,7 @@ def release_tag_problem(tag: str) -> str | None:
 
 
 __version__ = resolve_version(os.environ.get("KURISU_VERSION"))
-WIRE_PROTOCOL = 7
+WIRE_PROTOCOL = 8
 
 
 if __name__ == "__main__":

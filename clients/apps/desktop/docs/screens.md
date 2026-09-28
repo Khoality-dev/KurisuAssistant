@@ -24,7 +24,8 @@ and task-only workers are three different resources.
 
 This screen is the capability half: one tool set, one memory, one wake word that selects no persona.
 The model is not here — it sits on the chat header beside the persona, applies to every persona, and
-is picked from there — and neither is the default persona, which is set on **Personas** (#197).
+is picked from there — and neither is who the chat is on, which is picked in the chat or on
+**Personas** (#197, #334).
 
 ## Personas
 
@@ -32,11 +33,14 @@ is picked from there — and neither is the default persona, which is set on **P
 
 Presentation only — a name, a prompt, a voice, a face. The editor is also the only place
 `voice_reference` and `preferred_name` are reachable; neither had a UI before the split. The one
-thing decided here that belongs to the assistant is which persona a new conversation starts with:
-**Make default** on a card, and the **Default** badge on the one that has it (#197). A persona is
-optional (#302): with no default — where every account starts — the assistant answers new
-conversations as itself, and **Clear default** on the default card goes back to that. Any persona can
-be deleted, the last one included, and disabling the default clears it.
+thing decided here that belongs to the assistant is who the chat is on: **Talk to** on a card, and
+the **In the chat** badge on the one it is on — the same selection the chat header and the
+Conversations page make, kept on the server as `selected_persona_id` so every device opens on it
+(#334). A persona is optional (#302): with none selected — where every account starts — the chat is
+the assistant's own, and **Use the assistant** on the selected card goes back to that. Any persona
+can be deleted, the last one included, and disabling the selected one clears it.
+
+The screenshot above predates #334 and still shows **Default** and **Make default**.
 
 Each card says which character the persona has — "3D model · kurisu_v2.vrm", "3D model · none
 uploaded", "2D pose graph · 4 poses" or "No character". The edit dialog's **Character** block

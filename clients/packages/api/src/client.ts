@@ -318,7 +318,7 @@ class APIClient {
   /**
    * Rename a conversation, rebind it to a persona, or both. Replaces the old
    * POST /conversations/{id}. Omitted fields are untouched; `persona_id: null`
-   * unbinds, so the next message falls back to the assistant's default persona.
+   * hands it to the assistant itself (#302).
    */
   async patchConversation(
     id: number,
@@ -570,7 +570,7 @@ class APIClient {
   // One assistant per user, created at registration: no id in the path, no POST,
   // no DELETE.
 
-  /** Get the user's assistant (capability + default persona). */
+  /** Get the user's assistant (capability + who the chat is on). */
   async getAssistant(): Promise<Assistant> {
     const response = await this.client.get<Assistant>('/assistant', {
       headers: this.getHeaders(),

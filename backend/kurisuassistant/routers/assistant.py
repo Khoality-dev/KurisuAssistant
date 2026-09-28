@@ -1,4 +1,4 @@
-"""The user's single assistant: what it can do, and who answers by default.
+"""The user's single assistant: what it can do, and who its chat is on.
 
 There is exactly one assistant per user, so it is addressed with no id and has no
 POST and no DELETE — it is created at registration and dies with the account. It
@@ -7,9 +7,11 @@ memory) plus two things that are deliberately not per-persona:
 
 * ``trigger_word`` is a voice wake word. Saying it wakes the assistant; the
   conversation's bound persona answers. It never selects a persona.
-* ``default_persona_id`` is who answers in a new conversation. Null — where every
-  account starts — means the assistant answers as itself; a persona is optional
-  (#302).
+* ``selected_persona_id`` is who the account's chat is on (#334): a client
+  reads it when it opens and writes it when the user picks someone, so a sign-in
+  elsewhere opens on the same one. Null — where every account starts — is the
+  assistant itself; a persona is optional (#302). The chat path never applies
+  it: a request that names no persona is the assistant's own.
 """
 
 import logging
@@ -28,7 +30,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 
 # Columns a PATCH may not set to null. ``available_tools``, ``model_name``,
-# ``memory``, ``trigger_word`` and ``default_persona_id`` are all clearable, and
+# ``memory``, ``trigger_word`` and ``selected_persona_id`` are all clearable, and
 # clearing available_tools is the only way to say "every tool".
 _NON_NULLABLE = {"provider_type", "think", "use_deferred_tools", "memory_enabled"}
 
@@ -44,7 +46,7 @@ class AssistantResponse(BaseModel):
     memory: Optional[str] = None
     memory_enabled: bool = True
     trigger_word: Optional[str] = None
-    default_persona_id: Optional[int] = None
+    selected_persona_id: Optional[int] = None
 
 
 class AssistantUpdate(BaseModel):
@@ -62,7 +64,7 @@ class AssistantUpdate(BaseModel):
     memory: Optional[str] = None
     memory_enabled: Optional[bool] = None
     trigger_word: Optional[str] = None
-    default_persona_id: Optional[int] = None
+    selected_persona_id: Optional[int] = None
 
 
 def _assistant_to_response(assistant) -> AssistantResponse:
@@ -77,7 +79,7 @@ def _assistant_to_response(assistant) -> AssistantResponse:
         memory=assistant.memory,
         memory_enabled=assistant.memory_enabled,
         trigger_word=assistant.trigger_word,
-        default_persona_id=assistant.default_persona_id,
+        selected_persona_id=assistant.selected_persona_id,
     )
 
 
@@ -114,17 +116,17 @@ async def update_assistant(
         assistant_repo = AssistantRepository(session)
         assistant = assistant_repo.get_or_create_for_user(user.id)
 
-        default_persona_id = fields.get("default_persona_id")
-        if default_persona_id is not None:
+        selected_persona_id = fields.get("selected_persona_id")
+        if selected_persona_id is not None:
             persona = PersonaRepository(session).get_by_user_and_id(
-                user.id, default_persona_id
+                user.id, selected_persona_id
             )
             if not persona:
                 raise HTTPException(status_code=404, detail="Persona not found")
             if not persona.enabled:
                 raise HTTPException(
                     status_code=400,
-                    detail="A disabled persona cannot be the default. Enable it first.",
+                    detail="A disabled persona cannot be selected. Enable it first.",
                 )
 
         return _assistant_to_response(assistant_repo.update_assistant(assistant, **fields))
