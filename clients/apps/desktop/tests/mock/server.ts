@@ -1739,8 +1739,9 @@ export class MockBackend {
         const body = await this.readJson(req);
         this.lastTaskPatch = { id, body };
         if (Object.keys(body).length === 0) return this.error(res, 400, 'Nothing to update');
-        if ('title' in body) task.title = body.title;
-        if ('instructions' in body) task.instructions = body.instructions;
+        // `tasks/operations.update_task`: a field sent as null is left as it is.
+        if (body.title != null) task.title = body.title;
+        if (body.instructions != null) task.instructions = body.instructions;
         if (body.schedule) {
           const sch = body.schedule;
           if ((sch.repeat === 'daily' || sch.repeat === 'weekdays' || sch.repeat === 'weekly') && !/^([01]\d|2[0-3]):[0-5]\d$/.test(sch.time ?? '')) {
