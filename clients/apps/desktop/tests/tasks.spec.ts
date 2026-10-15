@@ -121,6 +121,12 @@ test.describe('tasks', () => {
 
   test('a task the assistant schedules in the chat is a card that leads to it', async ({ page, mock }) => {
     await login(page);
+    // Sign-in opens the newest conversation, here a run waiting for approval
+    // (#354): start a new one from the Conversations page.
+    await page.locator('button').filter({
+      has: page.locator('[data-testid="ChatBubbleOutlineIcon"], [data-testid="ChatBubbleIcon"]'),
+    }).first().click();
+    await page.getByRole('button', { name: 'New chat' }).click();
     const input = page.getByPlaceholder('Type your message...');
     await input.fill('Check flight prices to Hanoi every morning.');
     await input.press('Enter');
