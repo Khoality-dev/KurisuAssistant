@@ -63,11 +63,12 @@ class ToolRegistry:
         return schemas
 
     def get_native_tool_info(self) -> List[Dict]:
-        """Get schemas for all native tools, each tagged with built_in flag."""
+        """Get schemas for all native tools, each tagged with built_in and allowed_by_default."""
         results = []
         for tool in self._tools.values():
             schema = tool.get_schema()
             schema["built_in"] = tool.built_in
+            schema["allowed_by_default"] = tool.allowed_by_default
             results.append(schema)
         return results
 

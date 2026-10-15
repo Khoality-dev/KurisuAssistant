@@ -258,4 +258,37 @@ interface KurisuApiService {
 
     @DELETE("/skills/{id}")
     suspend fun deleteSkill(@Path("id") id: Int)
+
+    // Tool policies: the server applies them (#353 adds a switch for the
+    // tools that run without asking until denied).
+    @GET("/users/me/tool-policies")
+    suspend fun getToolPolicies(): ToolPolicies
+
+    @PATCH("/users/me/tool-policies")
+    suspend fun patchToolPolicy(@Body body: ToolPolicyPatch): ToolPolicies
+
+    // Notifications (#353): the server keeps them and their read state; a read
+    // here is announced to every device, which takes it down.
+    @GET("/notifications")
+    suspend fun listNotifications(
+        @Query("unread") unread: Boolean? = null,
+        @Query("limit") limit: Int? = null,
+        @Query("offset") offset: Int? = null,
+    ): NotificationList
+
+    @POST("/notifications/{id}/read")
+    suspend fun markNotificationRead(@Path("id") id: Int): NotificationEvent
+
+    @POST("/notifications/read-all")
+    suspend fun markAllNotificationsRead(): NotificationReadResult
+
+    // Push to this phone through Firebase Cloud Messaging (#353).
+    @POST("/notifications/devices")
+    suspend fun registerNotificationDevice(@Body body: DeviceRegistration): DeviceRegistrationResult
+
+    @DELETE("/notifications/devices/{token}")
+    suspend fun deleteNotificationDevice(@Path("token") token: String)
+
+    @POST("/notifications/read-for")
+    suspend fun markNotificationsReadFor(@Body body: NotificationReadFor): NotificationReadResult
 }

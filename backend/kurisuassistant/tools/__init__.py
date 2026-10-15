@@ -6,6 +6,7 @@ from .history import HistoryListTool, HistoryReadTool
 from .recall import RecallRegexTool, RecallSemanticTool
 from .skills import GetSkillInstructionsTool
 from .drive import DriveDeleteTool, DriveListTool, DriveReadTool, DriveWriteTool
+from .notify import NotifyUserTool
 
 # Register built-in tools
 tool_registry.register(HistoryListTool())
@@ -16,6 +17,8 @@ tool_registry.register(HistoryReadTool())
 tool_registry.register(RecallRegexTool())
 tool_registry.register(RecallSemanticTool())
 tool_registry.register(GetSkillInstructionsTool())
+# Reaching the user outside the chat (#353): built-in, still behind the policy.
+tool_registry.register(NotifyUserTool())
 # Drive tools are deliberately NOT built_in: an account with a narrowed
 # `available_tools` should not silently gain file access, and the write and
 # delete ones only ever run past `users.tool_policies` (see docs/tools.md).

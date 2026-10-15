@@ -1,5 +1,6 @@
 package com.kurisu.assistant.data.repository
 
+import com.kurisu.assistant.data.push.PushRegistration
 import com.kurisu.assistant.data.local.EncryptedPreferences
 import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.model.UserProfile
@@ -18,6 +19,7 @@ class AuthRepository @Inject constructor(
     private val prefs: PreferencesDataStore,
     private val authInterceptor: AuthInterceptor,
     private val wsManager: WebSocketManager,
+    private val pushRegistration: PushRegistration,
 ) {
     suspend fun login(username: String, password: String, rememberMe: Boolean): UserProfile {
         val response = api.login(
@@ -39,6 +41,9 @@ class AuthRepository @Inject constructor(
     }
 
     suspend fun logout() {
+        // While the session can still authenticate it (#353): otherwise the
+        // server keeps pushing this account's notifications to this phone.
+        pushRegistration.unregister()
         authInterceptor.clearToken()
         encryptedPrefs.clearToken()
         encryptedPrefs.clearRefreshToken()

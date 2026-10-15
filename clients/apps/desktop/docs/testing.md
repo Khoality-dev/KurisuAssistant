@@ -70,6 +70,14 @@ specs:
 | `long-conversation` | Kurisu's conversation already runs to forty messages and the reply is taller than the screen — where Android's transcript rests once it no longer fits (#332) |
 | `emotion` | Kurisu is a VRM persona with the emotion channel on: the reply's chunks carry `emotion` / `emotion_at` and the stored message keeps `emotion_cues` (#243); the character shows them as their sentence is spoken, or as the text arrives with speech off, and a reopened conversation rests on the last one (#244) |
 
+Notifications (#353): the mock serves `/ws/notifications` and the `/notifications` routes as the
+backend does — it keeps each notification's `read_at`, sends the unread on connect, and announces
+every read. A spec sends one with `mock.sendNotification({...})`, reads some as another device would
+with `mock.readNotifications(match)`, inspects them with `mock.getNotifications()`, counts listening
+devices with `mock.notificationListeners()` and drops them with `mock.dropNotificationSockets()`;
+`notifications.spec.ts` reads what the main process showed and took down from
+`globalThis.__kurisuNotifications` (recorded only under `KURISU_E2E`) and clicks one with its `click(i)`.
+
 The mock has no tool-approval flow: nothing in the client is driven by `tool_approval_request` from
 here yet, and adding it means adding it to the mock first.
 

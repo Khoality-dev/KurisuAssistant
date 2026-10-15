@@ -378,6 +378,19 @@ data class Tool(
     val type: String,
     val function: ToolFunction,
     @SerialName("built_in") val builtIn: Boolean? = null,
+    /** Runs without asking until the user denies it (#353) — `notify_user`. */
+    @SerialName("allowed_by_default") val allowedByDefault: Boolean = false,
+)
+
+/** `GET /users/me/tool-policies`: tool name → "allow" | "deny". */
+@Serializable
+data class ToolPolicies(val tools: Map<String, String> = emptyMap())
+
+/** `PATCH /users/me/tool-policies`: a null policy removes the tool's. */
+@Serializable
+data class ToolPolicyPatch(
+    @SerialName("tool_name") val toolName: String,
+    val policy: String?,
 )
 
 @Serializable

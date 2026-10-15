@@ -1,5 +1,6 @@
 package com.kurisu.assistant.ui.conversations
 
+import com.kurisu.assistant.ui.notifications.NotificationBell
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -70,6 +71,7 @@ import com.kurisu.assistant.ui.update.UpdateDialog
 fun ConversationsScreen(
     onOpenChat: (conversationId: Int?) -> Unit,
     onOpenMenu: (() -> Unit)? = null,
+    onOpenNotifications: () -> Unit = {},
     viewModel: ConversationsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -117,6 +119,8 @@ fun ConversationsScreen(
                     }
                 },
                 actions = {
+                    // What is unread on the server (#353): the first screen after sign-in.
+                    NotificationBell(onClick = onOpenNotifications)
                     IconButton(onClick = viewModel::load) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "Refresh")
                     }

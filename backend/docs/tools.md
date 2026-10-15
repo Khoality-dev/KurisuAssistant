@@ -14,6 +14,12 @@ into the arguments by `BaseAgent.execute_tool`. Registered in `tools/__init__.py
 - `recall_semantic` — the same index by meaning: an embedded query against the
   stored embeddings, closest first
 - `get_skill_instructions` — on-demand skill lookup by name
+- `notify_user` — a notification on every device of the account, with the app
+  closed (#353): `title` and `body`, linked to the current conversation so
+  tapping it opens it. Calls `notifications.notify()`, the same path as calendar
+  reminders. Built-in and **allowed by default** (below): it runs without a
+  prompt — a task with nobody attached has to be able to say it is done — until
+  the user stores a `deny`
 
 The two recall tools replaced `history_search` (#6): an unindexed `ILIKE` that
 truncated hits to 200 characters and cited nothing. Both are built-in, but
@@ -104,6 +110,15 @@ assistant can do. Built-in tools ignore the list.
 
 Policies are managed through `GET`/`PUT`/`PATCH /users/me/tool-policies`. Per-tool
 `requires_approval` and `risk_level` flags do not exist.
+
+**One exception: a tool can be allowed by default** (#353). `BaseTool.allowed_by_default`
+(off unless a tool sets it) makes "no stored policy" mean `allow` instead of "ask", in
+`BaseAgent.execute_tool`, after a stored `deny` has already been applied — so the user's
+`deny` still wins, and the property is the tool's, not a seeded policy row. `GET /tools`
+reports it on each built-in tool (`allowed_by_default`), and both clients' tool settings
+offer a switch for those tools that stores or removes the `deny`. Only `notify_user` sets
+it: its whole effect is a notification to the account's own devices, and a task with
+nobody attached (#352) must be able to send one.
 
 ## MCP Tools
 

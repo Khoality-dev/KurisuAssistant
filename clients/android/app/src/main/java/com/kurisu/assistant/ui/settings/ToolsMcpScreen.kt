@@ -95,6 +95,8 @@ fun ToolsMcpScreen(
                     builtinTools = state.builtinTools,
                     mcpTools = state.mcpTools,
                     onToolClick = viewModel::showToolDetail,
+                    deniedTools = state.deniedTools,
+                    onToolAllowed = viewModel::setToolAllowed,
                 )
             }
         }
@@ -367,7 +369,13 @@ private fun ExposedDropdown(
 }
 
 @Composable
-private fun ToolsList(builtinTools: List<Tool>, mcpTools: List<Tool>, onToolClick: (Tool) -> Unit) {
+private fun ToolsList(
+    builtinTools: List<Tool>,
+    mcpTools: List<Tool>,
+    onToolClick: (Tool) -> Unit,
+    deniedTools: Set<String> = emptySet(),
+    onToolAllowed: (String, Boolean) -> Unit = { _, _ -> },
+) {
     val allTools = builtinTools + mcpTools
     if (allTools.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -378,7 +386,13 @@ private fun ToolsList(builtinTools: List<Tool>, mcpTools: List<Tool>, onToolClic
             if (builtinTools.isNotEmpty()) {
                 item { Text("Built-in", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(bottom = 4.dp)) }
                 items(builtinTools) { tool ->
-                    ToolCard(tool = tool, onClick = { onToolClick(tool) })
+                    ToolCard(
+                        tool = tool,
+                        onClick = { onToolClick(tool) },
+                        // Runs without asking until denied (#353): the switch is the deny.
+                        allowed = if (tool.allowedByDefault) tool.function.name !in deniedTools else null,
+                        onAllowed = { onToolAllowed(tool.function.name, it) },
+                    )
                 }
             }
             if (mcpTools.isNotEmpty()) {
@@ -392,17 +406,34 @@ private fun ToolsList(builtinTools: List<Tool>, mcpTools: List<Tool>, onToolClic
 }
 
 @Composable
-private fun ToolCard(tool: Tool, onClick: () -> Unit) {
+private fun ToolCard(
+    tool: Tool,
+    onClick: () -> Unit,
+    allowed: Boolean? = null,
+    onAllowed: (Boolean) -> Unit = {},
+) {
     Card(modifier = Modifier.fillMaxWidth(), onClick = onClick) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(tool.function.name, style = MaterialTheme.typography.titleSmall)
-            Text(
-                tool.function.description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(tool.function.name, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    tool.function.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (allowed != null) {
+                    Text(
+                        if (allowed) "Runs without asking" else "Denied",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            if (allowed != null) {
+                Switch(checked = allowed, onCheckedChange = onAllowed)
+            }
         }
     }
 }

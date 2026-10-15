@@ -269,6 +269,11 @@ class BaseAgent(ABC):
         else:
             description = f"Execute {tool_name} with args: {tool_args}"
 
+        # A tool allowed by default (#353) runs with no stored policy as if one
+        # said "allow"; a stored "deny" was already applied above.
+        if policy is None and tool is not None and tool.allowed_by_default:
+            policy = "allow"
+
         if policy != "allow":
             if not context.handler:
                 # Nothing is attached that could approve this. Historically the

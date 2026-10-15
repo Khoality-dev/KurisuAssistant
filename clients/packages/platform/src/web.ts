@@ -31,6 +31,9 @@ export function webBridge(): PlatformBridge {
       transferProgress: false,
       configurableServer: false,
       microphone: typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia,
+      // A tab cannot be told to keep listening once it is closed, which is the
+      // whole point (#353); left off until a web app wants the in-tab half.
+      systemNotifications: false,
     },
     files: null,
     transfers: null,
@@ -42,6 +45,7 @@ export function webBridge(): PlatformBridge {
     appTools: null,
     extensions: null,
     updater: null,
+    notifications: null,
     // There is no machine here to reveal a file on.
     openPath: async () => '',
     openExternal: async (url) => {

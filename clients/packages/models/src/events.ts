@@ -28,6 +28,10 @@ export const SERVER_TO_CLIENT_EVENTS = [
   'error',
   'vision_result',
   'context_info',
+  // On /ws/notifications, never on the chat socket (#353).
+  'notification',
+  'notifications_ready',
+  'notifications_read',
 ] as const;
 
 export const EVENT_TYPES = [...CLIENT_TO_SERVER_EVENTS, ...SERVER_TO_CLIENT_EVENTS] as const;

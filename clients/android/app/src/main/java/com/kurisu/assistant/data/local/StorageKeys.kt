@@ -28,4 +28,10 @@ object StorageKeys {
     const val ASR_MODEL_MAP = "kurisu_asr_model_map"
     const val SPEAKER_DEVICE_ID = "kurisu_speaker_device_id"
     const val AUTO_UPDATE = "kurisu_auto_update"
+    /** Notifications on this phone (#353); on unless `false`. */
+    const val NOTIFICATIONS_ENABLED = "kurisu_notifications_enabled"
+    /** Which notifications this phone has posted, per server, as a JSON `{server URL: [id, …]}`. */
+    const val NOTIFICATIONS_SHOWN = "kurisu_notifications_shown"
+    /** The FCM token this phone registered with the server for push (#353), until it unregisters. */
+    const val PUSH_TOKEN = "kurisu_push_token"
 }

@@ -27,6 +27,7 @@ import {
   type PersonaCreate,
   type PersonaExportSize,
   type PersonaUpdate,
+  type NotificationEvent,
   type PullModelResponse,
   type ServerVersionInfo,
   type Skill,
@@ -44,6 +45,7 @@ import {
 } from '@kurisu/models';
 import { sha256Hex, throwIfCancelled, toCharacterUploadError } from './characterUploads';
 import { wsManager } from './websocket';
+import { notificationSocket } from './notificationSocket';
 
 /** An axios error whose Blob body (a `responseType: 'blob'` request) is read back into JSON when it is JSON. */
 async function withJsonBody(error: unknown): Promise<unknown> {
@@ -155,6 +157,7 @@ class APIClient {
   setToken(token: string) {
     this.token = token;
     wsManager.setToken(token);
+    notificationSocket.setToken(token);
   }
 
   setRefreshToken(token: string) {
@@ -167,6 +170,7 @@ class APIClient {
     this.refreshPromise = null;
     wsManager.clearToken();
     wsManager.disconnect();
+    notificationSocket.clearToken();
   }
 
   getToken(): string | null {
@@ -192,6 +196,7 @@ class APIClient {
       const newToken = response.data.access_token;
       this.token = newToken;
       wsManager.setToken(newToken);
+      notificationSocket.setToken(newToken);
 
       // Into memory always, and on to the keychain if remember-me is on —
       // `storage.setToken` makes that call, so the refreshed token no longer
@@ -1026,6 +1031,42 @@ class APIClient {
     await this.client.delete(`/skills/${id}`, {
       headers: this.getHeaders(),
     });
+  }
+
+  // Notifications (#353): the server keeps them and their read state; a read
+  // here is announced to every device, which takes it down.
+  async listNotifications(
+    opts: { unread?: boolean; limit?: number; offset?: number } = {},
+  ): Promise<{ notifications: NotificationEvent[]; unread_count: number }> {
+    const response = await this.client.get<{ notifications: NotificationEvent[]; unread_count: number }>(
+      '/notifications',
+      { headers: this.getHeaders(), params: opts },
+    );
+    return response.data;
+  }
+
+  async markNotificationRead(id: number): Promise<NotificationEvent> {
+    const response = await this.client.post<NotificationEvent>(`/notifications/${id}/read`, null, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async markAllNotificationsRead(): Promise<{ ids: number[]; read_at: string | null }> {
+    const response = await this.client.post<{ ids: number[]; read_at: string | null }>('/notifications/read-all', null, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /** Read every unread notification pointing at what the user just opened. */
+  async markNotificationsReadFor(
+    opened: { conversation_id: number } | { reminder_id: number },
+  ): Promise<{ ids: number[]; read_at: string | null }> {
+    const response = await this.client.post<{ ids: number[]; read_at: string | null }>('/notifications/read-for', opened, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
   }
 
   // Kurisu Drive (#17)

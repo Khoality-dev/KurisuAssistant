@@ -25,6 +25,7 @@ routers disagree, the routers are right and this file is a bug.
 - [Skills](#skills)
 - [Face Recognition](#face-recognition)
 - [Character Assets](#character-assets)
+- [Notifications](#notifications)
 - [WebSocket](#websocket)
 - [Error Responses](#error-responses)
 
@@ -1086,7 +1087,7 @@ briefly unreachable. `502` when no recognition engine is configured.
 ```json
 {
   "mcp_tools": [ /* flat list of the user's server-side MCP tool schemas */ ],
-  "builtin_tools": [ /* native tool schemas, each tagged "built_in": true|false */ ],
+  "builtin_tools": [ /* native tool schemas, each tagged "built_in" and "allowed_by_default" (#353): true|false */ ],
   "mcp_servers": { "server-name": [ /* that server's tools */ ] }
 }
 ```
@@ -1448,6 +1449,51 @@ extension is resolved server-side (`.png`, then `.jpg`).
 
 ---
 
+## Notifications
+
+The server keeps every notification and its read state; the clients only display
+them (#353). Every read below is announced on `/ws/notifications` as
+`notifications_read`, so every other device takes it down. A notification of
+another account is `404`, never `403`.
+
+### POST /notifications/devices
+
+`{"platform": "android", "fcm_token": "..."}` — register or refresh this phone for push through Firebase Cloud Messaging (#353). A token is one installed app: registering one another account had moves it here. Answers `{"registered": true, "push": <whether the server pushes at all>}`. The app calls it after sign-in and whenever FCM gives it a new token, while its notifications are on.
+
+### DELETE /notifications/devices/{fcm_token}
+
+Stop pushing to this phone — notifications turned off, or signing out. Another account's token is `404`.
+
+What is pushed is a *data* message, high priority, with no `notification` block — the app builds the system notification itself: `{"type": "notification", "id", "source", "sender", "title", "body", "conversation_id", "reminder_id", "created_at", "read_at"}` (every value a string; null is `""`), or `{"type": "notifications_read", "ids": "1,2"}`.
+
+### GET /notifications
+
+`?unread=true` (only unread), `?limit=` (1–100, default 50), `?offset=`. Unread
+first, then newest first.
+
+```json
+{"notifications": [{"type": "notification", "id": 12, "source": "assistant", "sender": "Kurisu",
+  "title": "Laundry", "body": "The machine is done.", "conversation_id": 7, "reminder_id": null,
+  "created_at": "2026-10-16T08:02:00Z", "read_at": null}], "unread_count": 1}
+```
+
+### POST /notifications/{notification_id}/read
+
+Reads one and returns it. Reading it again changes nothing and announces nothing.
+
+### POST /notifications/read-all
+
+`{"ids": [...], "read_at": "..."}` — what this call read.
+
+### POST /notifications/read-for
+
+`{"conversation_id": 7}` or `{"reminder_id": 5}` — exactly one (`422` otherwise).
+Reads every unread notification pointing at what the user just opened; the
+clients call it when a conversation is opened, and the calendar when a reminder
+is (#282). Answers like `read-all`.
+
+---
+
 ## WebSocket
 
 ### /ws/chat
@@ -1477,6 +1523,14 @@ client is ignored. On `stream_chunk`, `persona_id`/`persona_name` are set on
 assistant chunks only, and tool chunks carry `tool_kind` and `duration_ms`.
 
 The `agent_switch` event no longer exists.
+
+### /ws/notifications
+
+Notifications on every device of the account (#353): the same handshake and close
+codes as `/ws/chat`, but any number per account and none displaces another or the
+chat. Server → client only: `notifications_ready` (what is unread, on connect),
+`notification` and `notifications_read`. Shapes in
+[websocket.md](websocket.md#notifications-wsnotifications).
 
 ---
 

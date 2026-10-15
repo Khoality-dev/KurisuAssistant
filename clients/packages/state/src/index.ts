@@ -14,6 +14,7 @@ export * from './explorerStore';
 export * from './layoutStore';
 export * from './mcpService';
 export * from './micStore';
+export * from './notificationStore';
 export * from './personaStore';
 export * from './toolPermissionsStore';
 export * from './transferStore';

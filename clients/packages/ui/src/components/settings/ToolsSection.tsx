@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ToolPermissionSwitch } from './ToolPermissionSwitch';
 import {
   Box,
   Paper,
@@ -781,6 +782,14 @@ export const ToolsSection: React.FC = () => {
                   size="small"
                 />
               </Box>
+              {selectedTool.allowed_by_default && (
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Permission
+                  </Typography>
+                  <ToolPermissionSwitch toolName={selectedTool.function.name} />
+                </Box>
+              )}
               <Box>
                 <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                   Description

@@ -397,6 +397,11 @@ internal fun parseServerEvent(text: String): ServerEvent? {
         ProtocolEvents.VISION_RESULT -> parserJson.decodeFromString<VisionResultEvent>(text)
         ProtocolEvents.CONNECTED -> parserJson.decodeFromString<ConnectedEvent>(text)
         ProtocolEvents.CONTEXT_INFO -> parserJson.decodeFromString<ContextInfoEvent>(text)
+        // Carried by /ws/notifications, not this socket; parsed here so the
+        // registry of server events has one parser (#353).
+        ProtocolEvents.NOTIFICATION -> parserJson.decodeFromString<NotificationEvent>(text)
+        ProtocolEvents.NOTIFICATIONS_READY -> parserJson.decodeFromString<NotificationsReadyEvent>(text)
+        ProtocolEvents.NOTIFICATIONS_READ -> parserJson.decodeFromString<NotificationsReadEvent>(text)
         else -> null
     }
 }

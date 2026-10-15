@@ -240,6 +240,11 @@ services:
       # use a GPU when torch can see one (#152). The base stack reserves no GPU;
       # docs/development.md shows the override that does.
       - VISION_DEVICE=${VISION_DEVICE:-}
+      # Push to phones through Firebase Cloud Messaging (#353): the path, inside
+      # the container, of a Firebase service account JSON — put it under ./data
+      # and name it as /app/data/<file>. Empty means no push to phones; the app
+      # build must use the same Firebase project (docs/operations.md).
+      - FCM_SERVICE_ACCOUNT_FILE=${FCM_SERVICE_ACCOUNT_FILE:-}
       # No silent defaults on the credentials: an empty environment file used to
       # start Postgres with a blank password and an API that could not log into
       # it, which reads as a hang rather than as a configuration error.

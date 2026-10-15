@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Face
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.RecordVoiceOver
 import androidx.compose.material.icons.outlined.SystemUpdate
@@ -68,6 +69,7 @@ fun SettingsScreen(
     onNavigateToTtsAsr: () -> Unit,
     onNavigateToFaces: () -> Unit,
     onNavigateToAbout: () -> Unit,
+    onNavigateToNotifications: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -121,6 +123,13 @@ fun SettingsScreen(
                 label = "Appearance",
                 sub = "Theme mode",
                 onClick = onNavigateToAppearance,
+            )
+
+            SettingsRow(
+                icon = Icons.Outlined.Notifications,
+                label = "Notifications",
+                sub = "Reminders and messages from the assistant",
+                onClick = onNavigateToNotifications,
             )
 
             GroupLabel("Voice")

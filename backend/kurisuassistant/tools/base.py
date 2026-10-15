@@ -10,6 +10,12 @@ class BaseTool(ABC):
     name: str
     description: str
     built_in: bool = False  # Built-in tools are always available to all agents
+    # Runs without asking when the user has stored no policy for it (#353). A
+    # stored "deny" still refuses it, and it is listed in Settings → Tools so it
+    # can be denied. For tools whose whole effect is on the user's own account
+    # and that a task with nobody attached must be able to use — notify_user.
+    # Off for everything else: no policy means ask.
+    allowed_by_default: bool = False
 
     @abstractmethod
     def get_schema(self) -> Dict[str, Any]:

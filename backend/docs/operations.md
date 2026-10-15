@@ -209,6 +209,15 @@ Ollama server is unreachable" in the model picker.
 
 **Logs are capped** at 10 MB × 5 per service. They were unbounded.
 
+## Push to phones (#353)
+
+Android gets notifications with the app closed through Firebase Cloud Messaging; the desktop needs none of this (it keeps a socket from the tray). Push is off until the server has a service account:
+
+- **One Firebase project for both ends.** The Android app is built with that project's `google-services.json` (the release workflow writes it from the `KURISU_GOOGLE_SERVICES_JSON` secret), and the server holds a service account of the **same** project. A token minted by one project's app is refused by another project's server; the server then drops it as invalid and that phone gets no push.
+- **The server's half:** in the Firebase console, Project settings → Service accounts → Generate new private key. Put the JSON under `data/` and set `FCM_SERVICE_ACCOUNT_FILE=/app/data/<file>`, then restart the API. The log says `Push to phones is on (Firebase project …)`. It holds a credential: keep it out of backups you share, and rotate it in the console if it leaks.
+- **Without it** the log says `Push to phones is off` once at startup, phones still get notifications while the app is open, and catch up on what is unread when it opens.
+- `notification_devices` holds each phone's token; one FCM reports as unregistered or invalid is deleted on the next push. A phone that turns notifications off or signs out removes its own.
+
 ## What persists
 
 | | Where | Loss means |

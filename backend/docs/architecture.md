@@ -84,7 +84,10 @@ routers/                 one module per surface, all mounted in main.py
   asr, tts               the speech routes, over speech/
   images, character      serve stored media
   vision                 face identities and photos
-  ws                     the WebSocket route and its handshake auth
+  notifications          the stored notifications: list, read one, read all, read
+                         what points at something just opened (#353)
+  ws                     the two WebSocket routes — /ws/chat and /ws/notifications —
+                         and the handshake auth they share
 
 speech/                  the API's side of speech (#212): the engines
                          synthesize and transcribe; this decides the rest.
@@ -103,6 +106,15 @@ speech/                  the API's side of speech (#212): the engines
                          — and, on an engine's 503 (it cannot load), the
                          release of the least recently used other engine
                          and one retry: the backend's whole residency (#227)
+
+notifications/           notify(): store a notification, push it to every device;
+                         mark_read(): read it everywhere
+  service.py             notify, mark_read, the unread snapshot a connecting device
+                         is sent, and the list the REST routes serve
+  hub.py                 one queue per open /ws/notifications socket
+  push.py                Firebase Cloud Messaging data messages to registered phones
+                         (HTTP v1 over httpx, google-auth for the token); off
+                         without FCM_SERVICE_ACCOUNT_FILE
 
 websocket/
   events.py              the event dataclasses and parse_event()
@@ -126,6 +138,7 @@ tools/
   recall.py              recall_regex / recall_semantic over the passage index (built-in)
   drive.py               the assistant's view of Kurisu Drive (not built-in)
   skills.py              on-demand skill lookup (built-in)
+  notify.py              notify_user: a notification on every device (built-in)
   deferred.py            list/search/get_schema/call_tool meta-tools
 
 models/                  inference providers; no DB access, no business logic
@@ -135,11 +148,11 @@ models/                  inference providers; no DB access, no business logic
   gesture_detection/     pose and hand detection, rule-based classification
 
 db/
-  models.py              13 tables
+  models.py              14 tables
   session.py             engine and sessionmaker
   service.py             DBService: the single thread all DB access goes through
   repositories/          one per table, over a generic BaseRepository
-  alembic/               58 revisions, single head (4281377948c4)
+  alembic/               62 revisions, single head (ad851b65d3ae)
 
 vision/processor.py      per-frame face and gesture pipeline
 workers/                 background threads: idle scan, memory consolidation,
@@ -201,6 +214,12 @@ turn, and it is evicted when the user's last connection closes.
 Sessions are last-one-wins: a second connection displaces the earlier one with
 close code 4003. Reconnecting clears the tools the previous client registered,
 because they belonged to that client.
+
+Notifications have their own socket, `/ws/notifications`, which is not
+last-one-wins: every device of the account holds one at once, beside the chat.
+`notifications/hub.py` keeps one queue per open socket; `notify()` and
+`mark_read()` publish to all of them, so a notification read on one device is
+taken down on the others (#353, `websocket.md`).
 
 There is no application-level heartbeat. uvicorn pings at the protocol level,
 configured in `docker-entrypoint.sh`.

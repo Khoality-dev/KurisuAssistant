@@ -37,6 +37,16 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <!-- Notifications with the app closed (#353): Firebase Cloud Messaging data
+             messages, built into system notifications here. -->
+        <service
+            android:name=".service.KurisuMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

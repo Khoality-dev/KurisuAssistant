@@ -39,6 +39,8 @@ data class ToolsMcpUiState(
     val mcpServers: List<MCPServer> = emptyList(),
     val mcpTools: List<Tool> = emptyList(),
     val builtinTools: List<Tool> = emptyList(),
+    /** Tools allowed by default that the user has denied (#353). */
+    val deniedTools: Set<String> = emptySet(),
     val isLoading: Boolean = false,
     val message: String? = null,
     val detailTool: Tool? = null,
@@ -58,6 +60,23 @@ class ToolsMcpViewModel @Inject constructor(
     init { loadAll() }
 
     fun setSelectedTab(index: Int) = _state.update { it.copy(selectedTab = index) }
+
+    /** For a tool allowed by default (#353): off stores a deny, on removes it. */
+    fun setToolAllowed(toolName: String, allowed: Boolean) {
+        _state.update { s -> s.copy(deniedTools = if (allowed) s.deniedTools - toolName else s.deniedTools + toolName) }
+        viewModelScope.launch {
+            try {
+                repository.setToolDenied(toolName, denied = !allowed)
+            } catch (e: Exception) {
+                _state.update { s ->
+                    s.copy(
+                        deniedTools = if (allowed) s.deniedTools + toolName else s.deniedTools - toolName,
+                        message = "Couldn't change the tool's permission",
+                    )
+                }
+            }
+        }
+    }
     fun clearMessage() = _state.update { it.copy(message = null) }
 
     fun loadAll() {
@@ -66,6 +85,8 @@ class ToolsMcpViewModel @Inject constructor(
             try {
                 val tools = repository.listTools()
                 val servers = repository.listMCPServers()
+                val denied = try { repository.deniedTools() } catch (_: Exception) { emptySet() }
+                _state.update { it.copy(deniedTools = denied) }
                 _state.update { it.copy(
                     mcpTools = tools.mcpTools,
                     builtinTools = tools.builtinTools,

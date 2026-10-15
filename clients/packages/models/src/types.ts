@@ -340,6 +340,8 @@ export interface Tool {
   type: string;
   function: ToolFunction;
   built_in?: boolean;
+  /** Runs without asking until the user denies it (#353) — `notify_user`. */
+  allowed_by_default?: boolean;
 }
 
 export interface ToolsResponse {

@@ -13,6 +13,7 @@ export * from './constants';
 export * from './events';
 export * from './files';
 export * from './id';
+export * from './notifications';
 export * from './speech';
 export * from './segmentCues';
 export * from './speechClock';

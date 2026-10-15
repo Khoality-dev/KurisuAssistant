@@ -23,4 +23,16 @@ object AppModule {
     @Singleton
     fun provideEncryptedPreferences(@ApplicationContext context: Context): EncryptedPreferences =
         EncryptedPreferences(context)
+
+    @Provides
+    @Singleton
+    fun provideNotificationDelivery(
+        delivery: com.kurisu.assistant.service.AndroidNotificationDelivery,
+    ): com.kurisu.assistant.service.NotificationDelivery = delivery
+
+    @Provides
+    @Singleton
+    fun provideFcmTokenSource(
+        source: com.kurisu.assistant.data.push.FirebaseTokenSource,
+    ): com.kurisu.assistant.data.push.FcmTokenSource = source
 }
