@@ -113,12 +113,6 @@ class NotificationRepository(
         call("mark them read") { api.markAllNotificationsRead() }
     }
 
-    suspend fun markReadForReminder(reminderId: Int) {
-        call("read what points at a reminder") {
-            api.markNotificationsReadFor(NotificationReadFor(reminderId = reminderId))
-        }
-    }
-
     private suspend fun syncFor(baseUrl: String): NotificationSync {
         val existing = sync
         if (existing != null && server == baseUrl) return existing

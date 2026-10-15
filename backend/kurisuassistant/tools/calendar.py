@@ -6,8 +6,7 @@ These tools are how: they go through ``CalendarEntryRepository`` and
 assistant can put nothing on a calendar that the Calendar screen could not.
 
 Time is the user's. The model writes wall-clock time ("2026-10-16T19:00") and
-the tools read it in the account's zone (``calendar/zone.zone_for``, UTC until
-#352 brings the account setting);
+the tools read it in the account's zone (``calendar/zone.zone_for``, #352);
 what they answer is in that zone too, with the zone named. Create and move
 answer in JSON carrying the entry, which is what both clients draw the chat's
 calendar card from; the ``summary`` is the sentence for the model.
@@ -309,7 +308,7 @@ class CalendarMoveTool(BaseTool):
         return f"Move calendar entry #{_text(args.get('id'))} to {_text(args.get('start')).replace('T', ' ')}"
 
     async def execute(self, args: Dict[str, Any]) -> str:
-        from kurisuassistant.calendar import entries, times
+        from kurisuassistant.calendar import delivery, entries, times
         from kurisuassistant.db.repositories import CalendarEntryRepository
         from kurisuassistant.db.service import get_db_service
 
@@ -350,9 +349,14 @@ class CalendarMoveTool(BaseTool):
             except entries.EntryError as e:
                 return _error(str(e))
             session.flush()
+            moved.append(row.kind)
             return _card(row, tz, f"Moved {describe_entry(row, tz)} ({tz.key}).")
 
-        return await get_db_service().execute(_move)
+        moved: list = []
+        result = await get_db_service().execute(_move)
+        if moved == ["reminder"]:
+            await delivery.withdraw(user_id, entry_id)
+        return result
 
 
 class CalendarDeleteTool(BaseTool):
@@ -380,7 +384,7 @@ class CalendarDeleteTool(BaseTool):
         return f"Delete calendar entry #{_text(args.get('id'))}"
 
     async def execute(self, args: Dict[str, Any]) -> str:
-        from kurisuassistant.calendar import times
+        from kurisuassistant.calendar import delivery, times
         from kurisuassistant.db.repositories import CalendarEntryRepository
         from kurisuassistant.db.service import get_db_service
 
@@ -400,6 +404,11 @@ class CalendarDeleteTool(BaseTool):
             sentence = f"Deleted {describe_entry(row, tz)}."
             gone = {"id": row.id, "kind": row.kind, "title": row.title}
             repo.delete(row)
+            deleted.append(row.id)
             return json.dumps({"summary": sentence, "deleted": gone})
 
-        return await get_db_service().execute(_delete)
+        deleted: list = []
+        result = await get_db_service().execute(_delete)
+        if deleted:
+            await delivery.withdraw(user_id, entry_id)
+        return result

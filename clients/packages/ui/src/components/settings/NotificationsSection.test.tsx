@@ -22,7 +22,7 @@ beforeEach(() => {
   vi.spyOn(notificationSocket, 'setEnabled').mockImplementation(() => {});
   openNotification.mockClear();
   markAllRead.mockClear();
-  useNotificationStore.setState({ enabled: true, unread: [], calendarRequest: null, openNotification, markAllRead });
+  useNotificationStore.setState({ enabled: true, unread: [], openNotification, markAllRead });
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);

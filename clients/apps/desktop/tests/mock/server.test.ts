@@ -1318,6 +1318,26 @@ describe('the calendar (#282)', () => {
     expect((await get('/calendar/upcoming')).body.map((e: { title: string }) => e.title)).toEqual(['Soon', 'Later']);
   });
 
+  it('done, moved or deleted, a reminder takes its notification down, as the backend does', async () => {
+    const at = new Date(Date.now() - 60_000).toISOString();
+    const shown = async (title: string) => {
+      const made = await post('/calendar/entries', { kind: 'reminder', title, starts_at: at });
+      const sent = mock.sendNotification({ source: 'calendar', title, reminder_id: made.body.id });
+      return { id: made.body.id as number, unread: () => mock.getNotifications().find((n) => n.id === sent.id)!.read_at === null };
+    };
+    const done = await shown('Done');
+    const moved = await shown('Moved');
+    const deleted = await shown('Deleted');
+    const renamed = await shown('Renamed');
+
+    await patch(`/calendar/entries/${done.id}`, { done: true });
+    await patch(`/calendar/entries/${moved.id}`, { starts_at: new Date(Date.now() + 3_600_000).toISOString() });
+    await remove(`/calendar/entries/${deleted.id}`);
+    await patch(`/calendar/entries/${renamed.id}`, { title: 'Renamed again' });
+
+    expect([done.unread(), moved.unread(), deleted.unread(), renamed.unread()]).toEqual([false, false, false, true]);
+  });
+
   it('a spec can seed entries and read them back', async () => {
     const seeded = new MockBackend({ calendar: [{ kind: 'reminder', title: 'Seeded', starts_at: '2026-10-16T19:00:00Z' }] });
     await seeded.start();

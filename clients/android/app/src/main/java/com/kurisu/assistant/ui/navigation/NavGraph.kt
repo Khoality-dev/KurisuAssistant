@@ -10,9 +10,7 @@ import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
-import androidx.navigation.NavType
 import androidx.navigation.compose.composable
-import androidx.navigation.navArgument
 import com.kurisu.assistant.ui.about.AboutScreen
 import com.kurisu.assistant.ui.assistant.AssistantScreen
 import com.kurisu.assistant.ui.auth.LoginScreen
@@ -52,6 +50,13 @@ object Routes {
     fun calendar(reminderId: Int? = null): String =
         if (reminderId == null) CALENDAR else "calendar?reminderId=$reminderId"
 
+    /** Where a tapped notification lands (#353); null leaves the app where it is. */
+    fun forNotification(target: NotificationTarget): String? = when (target) {
+        is NotificationTarget.Conversation -> CHAT
+        is NotificationTarget.Calendar -> calendar(target.reminderId)
+        NotificationTarget.App -> null
+    }
+
     /** The one assistant: model, provider, tools, memory, wake word. */
     const val ASSISTANT = "assistant"
 
@@ -84,17 +89,13 @@ fun KurisuNavGraph(
     onNotificationTargetHandled: () -> Unit = {},
     onOpenNotificationTarget: (NotificationTarget) -> Unit = {},
 ) {
-    // A tapped notification (#353): a conversation opens in the chat; a
-    // reminder waits in NotificationNavigation for the calendar (#282).
+    // A tapped notification (#353): a conversation opens in the chat, a
+    // reminder on the calendar at that entry (#282).
     LaunchedEffect(notificationTarget) {
-        when (val target = notificationTarget) {
-            is NotificationTarget.Conversation -> {
-                onOpenConversation(target.conversationId)
-                navController.navigate(Routes.CHAT) { launchSingleTop = true }
-            }
-            else -> Unit
-        }
-        if (notificationTarget != null) onNotificationTargetHandled()
+        val target = notificationTarget ?: return@LaunchedEffect
+        if (target is NotificationTarget.Conversation) onOpenConversation(target.conversationId)
+        Routes.forNotification(target)?.let { route -> navController.navigate(route) { launchSingleTop = true } }
+        onNotificationTargetHandled()
     }
 
     // Drawer destinations sit directly above Chats rather than stacking: picking

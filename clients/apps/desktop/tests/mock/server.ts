@@ -1548,6 +1548,8 @@ export class MockBackend {
       if (method === 'GET') return this.json(res, entry);
       if (method === 'DELETE') {
         this.calendarEntries = this.calendarEntries.filter((e) => e.id !== id);
+        // `calendar/delivery.withdraw`: a reminder dealt with takes its notification down.
+        this.readNotifications((n) => n.reminder_id === id);
         res.statusCode = 204;
         return res.end();
       }
@@ -1578,6 +1580,9 @@ export class MockBackend {
           entry.done_at = entry.done ? entry.done_at ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') : null;
         }
         entry.updated_at = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+        if (entry.kind === 'reminder' && (body.done || 'starts_at' in body)) {
+          this.readNotifications((n) => n.reminder_id === id);
+        }
         return this.json(res, entry);
       }
     }

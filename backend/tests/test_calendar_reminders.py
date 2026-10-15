@@ -33,7 +33,7 @@ def user_id(system_client, monkeypatch):
         user.is_active = True
         session.flush()
         made = user.id
-    # The account's zone, as calendar/zone.zone_for will read it after #352.
+    # The account's zone, as calendar/zone.zone_for reads it.
     from zoneinfo import ZoneInfo
 
     from kurisuassistant.calendar import zone

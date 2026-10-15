@@ -1,14 +1,16 @@
-"""One due reminder, handed to the notifications module (#353).
+"""A reminder's notification: sent when it is due, read when it is handled (#353).
 
 This is the calendar's only way out to the user's devices, and it is the seam
 the tests patch: ``workers/reminders.py`` calls ``delivery.deliver`` through
 the module, never a name it imported. ``kurisuassistant.notifications`` is
-imported here, at call time, so the calendar does not depend on it at import —
-it is built and shipped by #353.
+imported at call time, so importing the calendar does not import it.
 """
 
+import logging
 from datetime import datetime
 from typing import Any, Dict
+
+logger = logging.getLogger(__name__)
 
 
 async def deliver(entry: Dict[str, Any]) -> None:
@@ -27,6 +29,23 @@ async def deliver(entry: Dict[str, Any]) -> None:
         body=due_text(entry["starts_at"], entry.get("time_zone")),
         reminder_id=entry["id"],
     )
+
+
+async def withdraw(user_id: int, entry_id: int) -> None:
+    """Read the notification of a reminder the user has dealt with, on every device.
+
+    Called when a reminder is done, moved or deleted, from the REST routes and
+    from the assistant's tools alike, so a phone is not left asking about
+    something already handled; a moved reminder notifies again at its new time.
+    Nothing to read is not an error. Never raises: the change it follows is
+    already committed.
+    """
+    from kurisuassistant.notifications import mark_read
+
+    try:
+        await mark_read(user_id, reminder_id=entry_id)
+    except Exception:
+        logger.error("Could not read the notification of reminder %s for user %s", entry_id, user_id, exc_info=True)
 
 
 def due_text(starts_at: datetime, time_zone, now: datetime = None) -> str:

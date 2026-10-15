@@ -80,11 +80,20 @@ class TestFormat:
 
 
 class TestZoneFor:
-    """The calendar's one zone lookup. UTC until the account setting arrives
-    with #352, when it becomes ``core.timezone.user_timezone``."""
+    """The calendar's one zone lookup: the account's zone (#352)."""
 
-    def test_everyone_is_utc_for_now(self):
+    def test_it_is_the_accounts_zone(self):
+        from types import SimpleNamespace
+
+        from kurisuassistant.calendar import zone
+
+        assert zone.zone_for(SimpleNamespace(timezone="America/Los_Angeles")).key == "America/Los_Angeles"
+
+    def test_an_account_without_one_is_utc(self):
+        from types import SimpleNamespace
+
         from kurisuassistant.calendar import zone
 
         assert zone.zone_for(None).key == "UTC"
-        assert zone.zone_for(object()).key == "UTC"
+        assert zone.zone_for(SimpleNamespace(timezone=None)).key == "UTC"
+        assert zone.zone_for(SimpleNamespace(timezone="Not/AZone")).key == "UTC"

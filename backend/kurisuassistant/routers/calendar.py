@@ -17,7 +17,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 
-from kurisuassistant.calendar import entries, times, zone
+from kurisuassistant.calendar import delivery, entries, times, zone
 from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.core.errors import internal_error
 from kurisuassistant.db.models import User
@@ -163,13 +163,16 @@ async def update_entry(
         return entries.to_response(row)
 
     try:
-        return await get_db_service().execute(_update)
+        entry = await get_db_service().execute(_update)
     except _NotFound:
         raise HTTPException(status_code=404, detail="Not found")
     except entries.EntryError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise internal_error(e, "Error changing the calendar")
+    if entry["kind"] == "reminder" and (changes.get("done") or "starts_at" in changes):
+        await delivery.withdraw(user.id, entry_id)
+    return entry
 
 
 @router.delete("/entries/{entry_id}", status_code=204)
@@ -188,4 +191,5 @@ async def delete_entry(entry_id: int, user: User = Depends(get_authenticated_use
         raise internal_error(e, "Error changing the calendar")
     if not deleted:
         raise HTTPException(status_code=404, detail="Not found")
+    await delivery.withdraw(user.id, entry_id)
     return Response(status_code=204)

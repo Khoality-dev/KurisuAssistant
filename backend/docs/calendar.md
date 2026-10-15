@@ -53,11 +53,10 @@ wanted.
 ## Time zones
 
 Every zone lookup in the calendar goes through one function,
-`calendar/zone.py::zone_for(user)`. The account's zone is an account setting
-that arrives with #352 (`users.timezone`, filled once from the device by the
-clients, read by `core/timezone.py::user_timezone`); until that lands
-`zone_for` answers UTC, and afterwards it becomes that one call. Tests pin the
-calendar's behaviour in a zone by patching `zone_for`.
+`calendar/zone.py::zone_for(user)`, which is the account's zone setting
+(`users.timezone`, filled once from the device by the clients, #352) through
+`core/timezone.py::user_timezone`, and UTC for an account without one. Tests
+pin the calendar's behaviour in a zone by patching `zone_for`.
 
 It is read in three places:
 
@@ -70,9 +69,8 @@ It is read in three places:
   or "Was due Fri 16 Oct 2026, 19:00" when it went out late (the server was
   down at the time).
 
-The system prompt's "Current time" line is still UTC. For "Friday at 7" to land
-on the right day near midnight the model needs the user's local date too; that
-belongs with the account setting (#352), not here.
+The system prompt's "Current time" line is the user's local time in the same
+zone (#352), so "Friday at 7" lands on the user's Friday.
 
 The clients show everything in the device's own zone.
 
@@ -111,8 +109,15 @@ A delivery that raises is released for the next scan and `delivery_attempts`
 bumped; after `MAX_DELIVERY_ATTEMPTS` (5) the stamp stays and the failure is
 logged as an error. The reminder is still on the calendar; it never notified.
 
-`delivery.deliver` imports `kurisuassistant.notifications` at call time and
-calls `notify(user_id, source="calendar", title=…, body=…, reminder_id=…)`. The
-notifications module is #353's; a client's notification tap opens the Calendar
-on that reminder (the desktop's `useCalendarStore.openEntry`, Android's
-`Routes.calendar(reminderId)`).
+`delivery.deliver` calls `notifications.notify(user_id, source="calendar",
+title=…, body=…, reminder_id=…)` (#353): the notification is stored, sent to
+every device and read once for all. A client's notification tap opens the
+Calendar on that reminder (the desktop's `useCalendarStore.openEntry`,
+Android's `Routes.calendar(reminderId)`).
+
+The notification follows the reminder. When a reminder is marked done, moved
+or deleted — over REST or by the assistant's `calendar_move` /
+`calendar_delete` — `delivery.withdraw` reads its notification
+(`notifications.mark_read(reminder_id=…)`), so it comes down on every device
+instead of asking about something already handled; a moved reminder notifies
+again at its new time. Renaming one leaves its notification alone.
