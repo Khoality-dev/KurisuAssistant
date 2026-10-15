@@ -1264,6 +1264,8 @@ describe('tasks (#352)', () => {
     expect(resp.body.title).toBe('Morning briefing');
     expect(resp.body.instructions).toBe('Weather, three lines.');
     expect(resp.body.status).toBe('paused');
+  });
+});
 
 describe('the calendar (#282)', () => {
   const remove = async (path: string) => (await fetch(`${mock.url}${path}`, { method: 'DELETE' })).status;
