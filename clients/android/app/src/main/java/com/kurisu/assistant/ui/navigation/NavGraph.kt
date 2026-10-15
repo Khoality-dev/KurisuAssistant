@@ -176,6 +176,7 @@ fun KurisuNavGraph(
                     onNavigateToChats = { openTopLevel(Routes.CONVERSATIONS) },
                     onNavigateToTask = { id -> navController.navigate(Routes.task(id)) },
                 )
+                }
             }
         }
 
@@ -194,7 +195,6 @@ fun KurisuNavGraph(
                     // A run's conversation is already on CoreState; show the chat.
                     onOpenChat = { navController.navigate(Routes.CHAT) },
                 )
-                }
             }
         }
 
