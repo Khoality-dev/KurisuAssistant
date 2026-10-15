@@ -329,6 +329,21 @@ interface StoredMessage {
   created_at: string;
 }
 
+/** A notification as `/ws/notifications` carries it (#353). */
+export interface MockNotification {
+  type: 'notification';
+  id: number;
+  source: 'assistant' | 'calendar';
+  sender: string;
+  title: string;
+  body: string;
+  conversation_id: number | null;
+  reminder_id: number | null;
+  created_at: string;
+  /** Null until a device reads it; every device then takes it down. */
+  read_at: string | null;
+}
+
 /** A conversation carries no persona (#354); who spoke is on each message. */
 interface StoredConversation {
   id: number;
@@ -389,6 +404,15 @@ export class MockBackend {
     created_at: string; updated_at: string; content: Buffer;
   }> = [];
   private nextDriveId = 1;
+  /**
+   * What `notify()` sent (#353), and who is listening for it now. The real
+   * server keeps the same rows and replays the ones after `?after=` on connect.
+   */
+  private notifications: MockNotification[] = [];
+  private nextNotificationId = 1;
+  private notificationSockets: Set<WebSocket> = new Set();
+  /** Phones registered for push (#353): FCM token → platform. Nothing is pushed from here. */
+  public notificationDevices: Map<string, string> = new Map();
   private driveQuotaBytes = 15 * 1024 * 1024 * 1024;
   /** The most recent upload, so a spec can assert what was sent. */
   public lastDriveUpload: { name: string; parent_id: number | null; bytes: number } | null = null;
@@ -508,7 +532,8 @@ export class MockBackend {
 
     this.httpServer.on('upgrade', (req, socket, head) => {
       const url = req.url ?? '';
-      if (!url.startsWith('/ws/chat')) {
+      const isNotifications = url.startsWith('/ws/notifications');
+      if (!url.startsWith('/ws/chat') && !isNotifications) {
         socket.destroy();
         return;
       }
@@ -536,6 +561,10 @@ export class MockBackend {
         // protocol is closed with 4426 and must not be served.
         if (clientProtocol !== null && !Number.isNaN(clientProtocol) && clientProtocol !== this.wireProtocol) {
           ws.close(WS_WIRE_PROTOCOL_MISMATCH, `wire_protocol_mismatch (server ${this.wireProtocol})`);
+          return;
+        }
+        if (isNotifications) {
+          this.handleNotificationsWs(ws);
           return;
         }
         this.handleWs(ws);
@@ -713,6 +742,62 @@ export class MockBackend {
   getConversation(id: number) {
     const conv = this.conversations.get(id);
     return conv ? { ...conv, messages: [...conv.messages] } : undefined;
+  }
+
+  /**
+   * Send a notification to every device listening (#353), as the server's
+   * `notify()` does: stored, then pushed. Returns what it sent.
+   */
+  sendNotification(n: Partial<Omit<MockNotification, 'type' | 'id' | 'created_at'>> & { title: string }): MockNotification {
+    const notification: MockNotification = {
+      type: 'notification',
+      id: this.nextNotificationId++,
+      source: n.source ?? 'assistant',
+      sender: n.sender ?? (n.source === 'calendar' ? 'Calendar' : 'Assistant'),
+      title: n.title,
+      body: n.body ?? '',
+      conversation_id: n.conversation_id ?? null,
+      reminder_id: n.reminder_id ?? null,
+      created_at: new Date().toISOString(),
+      read_at: null,
+    };
+    this.notifications.push(notification);
+    this.broadcastNotifications(notification);
+    return notification;
+  }
+
+  /** Every notification the mock holds, oldest first, with its read state. */
+  getNotifications(): MockNotification[] {
+    return this.notifications.map((n) => ({ ...n }));
+  }
+
+  /**
+   * Read notifications as `notifications.mark_read` does — as another device
+   * would — and tell every listening device. Returns the ids this call read.
+   */
+  readNotifications(match: (n: MockNotification) => boolean): number[] {
+    const now = new Date().toISOString();
+    const read = this.notifications.filter((n) => n.read_at === null && match(n));
+    for (const n of read) n.read_at = now;
+    if (read.length) this.broadcastNotifications({ type: 'notifications_read', ids: read.map((n) => n.id), read_at: now });
+    return read.map((n) => n.id);
+  }
+
+  private broadcastNotifications(event: unknown) {
+    for (const ws of this.notificationSockets) {
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event));
+    }
+  }
+
+  /** How many `/ws/notifications` sockets are open — one per listening device. */
+  notificationListeners(): number {
+    return [...this.notificationSockets].filter((ws) => ws.readyState === WebSocket.OPEN).length;
+  }
+
+  /** Drop every notifications socket, as a network loss would. */
+  dropNotificationSockets(): void {
+    for (const ws of this.notificationSockets) ws.terminate();
+    this.notificationSockets.clear();
   }
 
   getConversations() {
@@ -1396,6 +1481,57 @@ export class MockBackend {
       return this.json(res, this.driveResponse(this.makeDriveNode(parentId, name, false, content)));
     }
 
+    // Notifications — `routers/notifications.py` (#353): the server keeps them
+    // and their read state; every read is announced to every device.
+    if (pathOnly === '/notifications' && method === 'GET') {
+      const params = new URL(req.url ?? '/', 'http://mock').searchParams;
+      const limit = Math.min(Number(params.get('limit') ?? 50), 100);
+      const offset = Number(params.get('offset') ?? 0);
+      const listed = this.notifications
+        .filter((n) => params.get('unread') !== 'true' || n.read_at === null)
+        .sort((a, b) => Number(a.read_at !== null) - Number(b.read_at !== null) || b.id - a.id);
+      return this.json(res, {
+        notifications: listed.slice(offset, offset + limit),
+        unread_count: this.notifications.filter((n) => n.read_at === null).length,
+      });
+    }
+    if (pathOnly === '/notifications/devices' && method === 'POST') {
+      const body = await this.readJson(req);
+      if (!body.platform || !body.fcm_token) return this.error(res, 422, 'platform and fcm_token are required');
+      this.notificationDevices.set(body.fcm_token, body.platform);
+      return this.json(res, { registered: true, push: false });
+    }
+    const deviceMatch = pathOnly.match(/^\/notifications\/devices\/(.+)$/);
+    if (deviceMatch && method === 'DELETE') {
+      const token = decodeURIComponent(deviceMatch[1]);
+      if (!this.notificationDevices.delete(token)) return this.error(res, 404, 'Device not found');
+      return this.json(res, { unregistered: true });
+    }
+    if (pathOnly === '/notifications/read-all' && method === 'POST') {
+      const ids = this.readNotifications(() => true);
+      return this.json(res, { ids, read_at: ids.length ? new Date().toISOString() : null });
+    }
+    if (pathOnly === '/notifications/read-for' && method === 'POST') {
+      const body = await this.readJson(req);
+      const conversationId = body.conversation_id ?? null;
+      const reminderId = body.reminder_id ?? null;
+      if ((conversationId === null) === (reminderId === null)) {
+        return this.error(res, 422, 'name exactly one of conversation_id or reminder_id');
+      }
+      const ids = this.readNotifications((n) =>
+        conversationId !== null ? n.conversation_id === conversationId : n.reminder_id === reminderId,
+      );
+      return this.json(res, { ids, read_at: ids.length ? new Date().toISOString() : null });
+    }
+    const notificationRead = pathOnly.match(/^\/notifications\/(\d+)\/read$/);
+    if (notificationRead && method === 'POST') {
+      const id = parseInt(notificationRead[1], 10);
+      const found = this.notifications.find((n) => n.id === id);
+      if (!found) return this.error(res, 404, 'Notification not found');
+      this.readNotifications((n) => n.id === id);
+      return this.json(res, found);
+    }
+
     // Skills — `routers/skills.py`. Appended to the assistant's system prompt in
     // list order, which is why the screen numbers them.
     if (pathOnly === '/skills' && method === 'GET') return this.json(res, this.skills);
@@ -1982,6 +2118,21 @@ export class MockBackend {
     if (chunks.length === 0) return {};
     try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
     catch { return {}; }
+  }
+
+  /**
+   * `/ws/notifications`, as `routers/ws.py` serves it: any number per account,
+   * none displacing another; first `notifications_ready` with the recent unread
+   * (oldest first), then each new notification and each read.
+   */
+  private handleNotificationsWs(ws: WebSocket) {
+    const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+    const unread = this.notifications
+      .filter((n) => n.read_at === null && Date.parse(n.created_at) >= weekAgo)
+      .slice(-50);
+    ws.send(JSON.stringify({ type: 'notifications_ready', unread }));
+    this.notificationSockets.add(ws);
+    ws.on('close', () => this.notificationSockets.delete(ws));
   }
 
   private handleWs(ws: WebSocket) {

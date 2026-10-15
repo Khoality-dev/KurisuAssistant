@@ -146,3 +146,56 @@ class TestPolicyScope:
         result = await agent.execute_tool("echo", {}, context(handler, {"other": "deny"}))
         assert handler.asked is True
         assert result.content == "EXECUTED"
+
+
+class QuietTool(EchoTool):
+    """A tool that is allowed by default: it runs unless a policy denies it (#353)."""
+
+    name = "quiet"
+    allowed_by_default = True
+
+    def get_schema(self):
+        return {"type": "function", "function": {"name": "quiet", "description": "quiet", "parameters": {}}}
+
+
+@pytest.fixture
+def quiet_agent():
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    registry.register(QuietTool())
+    return MainAgent(AssistantConfig(id=1), registry, identity=PersonaConfig(id=1, name="Tester"))
+
+
+class TestAllowedByDefault:
+    """A tool can be allowed by default — a property of the tool, not a stored
+    policy row: with no policy it runs without asking, a stored deny still
+    refuses it, and every other tool is unchanged."""
+
+    async def test_runs_without_asking(self, quiet_agent):
+        handler = RecordingHandler(approve=False)
+        result = await quiet_agent.execute_tool("quiet", {}, context(handler))
+        assert handler.asked is False
+        assert result.content == "EXECUTED"
+
+    async def test_runs_with_no_client_attached(self, quiet_agent):
+        result = await quiet_agent.execute_tool("quiet", {}, context(handler=None))
+        assert result.content == "EXECUTED"
+
+    async def test_a_stored_deny_still_refuses_it(self, quiet_agent):
+        handler = RecordingHandler(approve=True)
+        result = await quiet_agent.execute_tool("quiet", {}, context(handler, {"quiet": "deny"}))
+        assert handler.asked is False
+        assert result.status == "denied"
+
+    async def test_other_tools_still_ask(self, quiet_agent):
+        handler = RecordingHandler(approve=True)
+        await quiet_agent.execute_tool("echo", {}, context(handler))
+        assert handler.asked is True
+
+    def test_tools_are_asked_for_by_default(self):
+        assert BaseTool.allowed_by_default is False
+
+    def test_notify_user_is_allowed_by_default(self):
+        from kurisuassistant.tools import tool_registry
+
+        assert tool_registry.get("notify_user").allowed_by_default is True
