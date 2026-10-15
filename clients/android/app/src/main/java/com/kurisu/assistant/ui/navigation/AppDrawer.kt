@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.TaskAlt
@@ -38,7 +39,7 @@ import kotlinx.coroutines.launch
 
 /**
  * The app's destinations, in the order the design lists them: Chats, Tasks
- * (#352), then the assistant's own settings.
+ * (#352), Calendar (#282), then the assistant's own settings.
  *
  * The drawer is hosted here rather than inside a screen because two screens
  * (Chats and Chat) open it and both must show the same list with the same
@@ -53,6 +54,8 @@ private data class DrawerEntry(
 private val DrawerEntries = listOf(
     DrawerEntry(Routes.CONVERSATIONS, "Chats", Icons.Outlined.Forum),
     DrawerEntry(Routes.TASKS, "Tasks", Icons.Outlined.TaskAlt),
+    // Built in, not a plugin (#282): the user's events and reminders.
+    DrawerEntry(Routes.CALENDAR, "Calendar", Icons.Outlined.CalendarMonth),
     DrawerEntry(Routes.ASSISTANT, "Assistant", Icons.Outlined.SmartToy),
     DrawerEntry(Routes.PERSONAS, "Personas", Icons.Outlined.TheaterComedy),
     DrawerEntry(Routes.TOOLS_MCP, "Tools & MCP", Icons.Outlined.Build),

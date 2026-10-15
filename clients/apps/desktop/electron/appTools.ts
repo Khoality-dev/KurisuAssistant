@@ -438,7 +438,7 @@ function getAppToolSchemas(): ToolSchema[] {
           properties: {
             page: {
               type: 'string',
-              enum: ['workspace', 'conversations', 'settings'],
+              enum: ['workspace', 'conversations', 'calendar', 'settings'],
               description: 'The page to navigate to.',
             },
           },

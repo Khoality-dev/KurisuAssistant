@@ -5,6 +5,9 @@ import androidx.compose.runtime.LaunchedEffect
 import com.kurisu.assistant.domain.notifications.NotificationTarget
 import com.kurisu.assistant.ui.settings.NotificationsScreen
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.NavType
@@ -13,6 +16,8 @@ import androidx.navigation.navArgument
 import com.kurisu.assistant.ui.about.AboutScreen
 import com.kurisu.assistant.ui.assistant.AssistantScreen
 import com.kurisu.assistant.ui.auth.LoginScreen
+import com.kurisu.assistant.ui.calendar.CalendarScreen
+import com.kurisu.assistant.ui.calendar.LocalOpenCalendar
 import com.kurisu.assistant.ui.chat.ChatScreen
 import com.kurisu.assistant.ui.conversations.ConversationsScreen
 import com.kurisu.assistant.ui.faces.FaceIdentitiesScreen
@@ -37,6 +42,15 @@ object Routes {
 
     /** Tasks with one open, from a task card in the chat. */
     fun task(id: Int) = "$TASKS?open=$id"
+
+    /** The user's events and reminders (#282). Built in, not a plugin. */
+    const val CALENDAR = "calendar"
+
+    /** With an optional `reminderId`: open on that entry (a notification's tap, #353). */
+    const val CALENDAR_PATTERN = "calendar?reminderId={reminderId}"
+
+    fun calendar(reminderId: Int? = null): String =
+        if (reminderId == null) CALENDAR else "calendar?reminderId=$reminderId"
 
     /** The one assistant: model, provider, tools, memory, wake word. */
     const val ASSISTANT = "assistant"
@@ -130,12 +144,28 @@ fun KurisuNavGraph(
             }
         }
 
+        composable(
+            Routes.CALENDAR_PATTERN,
+            arguments = listOf(navArgument("reminderId") { type = NavType.IntType; defaultValue = -1 }),
+        ) { entry ->
+            val reminderId = entry.arguments?.getInt("reminderId")?.takeIf { it > 0 }
+            AppDrawerHost(
+                currentRoute = Routes.CALENDAR,
+                onNavigate = ::openTopLevel,
+                onLoggedOut = ::logout,
+            ) { openDrawer ->
+                CalendarScreen(onOpenMenu = openDrawer, openReminderId = reminderId)
+            }
+        }
+
         composable(Routes.CHAT) {
             AppDrawerHost(
                 currentRoute = Routes.CONVERSATIONS,
                 onNavigate = ::openTopLevel,
                 onLoggedOut = ::logout,
             ) { openDrawer ->
+                // A calendar card in the chat opens the entry it is about (#282).
+                CompositionLocalProvider(LocalOpenCalendar provides { id -> navController.navigate(Routes.calendar(id)) }) {
                 ChatScreen(
                     onOpenMenu = openDrawer,
                     // Plain navigate, not openTopLevel: that one pops back to
@@ -163,6 +193,7 @@ fun KurisuNavGraph(
                     // A run's conversation is already on CoreState; show the chat.
                     onOpenChat = { navController.navigate(Routes.CHAT) },
                 )
+                }
             }
         }
 

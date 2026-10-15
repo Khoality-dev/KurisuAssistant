@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, Index, Integer, String, Text, DateTime, ForeignKey, JSON, UniqueConstraint, false, text
+from sqlalchemy import BigInteger, Boolean, Column, Date, Index, Integer, String, Text, DateTime, ForeignKey, JSON, UniqueConstraint, false, text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from pgvector.sqlalchemy import Vector
@@ -563,3 +563,56 @@ class NotificationDevice(Base):
     fcm_token = Column(String, nullable=False, unique=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     last_seen_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class CalendarEntry(Base):
+    """One thing on the user's calendar: an event, or a reminder (#282).
+
+    The calendar is the user's own record and nothing on it starts the
+    assistant: work the assistant does by itself is a task (#352). A reminder is
+    an instant that notifies the user once when it is due; an event is a span —
+    ``starts_at``/``ends_at`` when timed, or ``start_date``/``end_date``
+    (inclusive) when it lasts all day, because a birthday is a date wherever
+    the user happens to be, not an instant.
+
+    Instants are naive UTC like every other column here. Nothing records who
+    created an entry: whether the user typed it or the assistant added it for
+    them, it is theirs.
+    """
+
+    __tablename__ = 'calendar_entries'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    kind = Column(String, nullable=False)  # 'event' | 'reminder'
+    title = Column(Text, nullable=False)
+    notes = Column(Text, nullable=True)
+    all_day = Column(Boolean, nullable=False, default=False, server_default=false())
+    starts_at = Column(DateTime, nullable=True)
+    ends_at = Column(DateTime, nullable=True)
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
+    # Reminders only. ``done_at`` is the user's "Done"; ``delivered_at`` is when
+    # the notification went out (or when delivery was given up on), which is
+    # what keeps one reminder from notifying twice. Moving a reminder clears
+    # both bookkeeping columns, so it is due again at its new time.
+    done_at = Column(DateTime, nullable=True)
+    delivered_at = Column(DateTime, nullable=True)
+    delivery_attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        # The week view and "Coming up" both range one account's entries by time.
+        Index('ix_calendar_entries_user_id_starts_at', 'user_id', 'starts_at'),
+        # What the reminder scanner reads every half minute. Partial, so it
+        # covers only what may still be due rather than every entry ever made.
+        Index(
+            'ix_calendar_entries_due', 'starts_at',
+            postgresql_where=text(
+                "kind = 'reminder' AND delivered_at IS NULL AND done_at IS NULL"
+            ),
+        ),
+    )
+
+    user = relationship("User")

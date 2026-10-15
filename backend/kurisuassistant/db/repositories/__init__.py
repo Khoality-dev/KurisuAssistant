@@ -10,6 +10,7 @@ from .mcp_server import MCPServerRepository
 from .drive import DriveNodeRepository, split_path
 from .passages import Filters, Hit, PassageRepository
 from .task import TaskApprovalRepository, TaskRepository, TaskRunRepository
+from .calendar import CalendarEntryRepository
 
 __all__ = [
     "BaseRepository",
@@ -31,4 +32,5 @@ __all__ = [
     "TaskApprovalRepository",
     "TaskRepository",
     "TaskRunRepository",
+    "CalendarEntryRepository",
 ]

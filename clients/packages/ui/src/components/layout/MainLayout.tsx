@@ -12,6 +12,7 @@ import { ConversationsPage } from '../conversations/ConversationsPage';
 import { SettingsPage } from '../settings/SettingsPage';
 import { TasksPage } from '../tasks/TasksPage';
 import { FileExplorerPage } from '../explorer/FileExplorerPage';
+import { CalendarPage } from '../calendar/CalendarPage';
 import { ScreenErrorBoundary } from '../ScreenErrorBoundary';
 
 const MIN_CHAT_WIDTH = 300;
@@ -53,6 +54,7 @@ export const MainLayout: React.FC = () => {
       case 'workspace': return <FileExplorerPage />;
       case 'conversations': return <ConversationsPage />;
       case 'tasks': return <TasksPage />;
+      case 'calendar': return <CalendarPage />;
       case 'settings': return <SettingsPage />;
     }
   };

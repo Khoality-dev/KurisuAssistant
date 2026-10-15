@@ -1,5 +1,8 @@
 package com.kurisu.assistant.ui.chat
 
+import com.kurisu.assistant.domain.calendar.CalendarMath
+import com.kurisu.assistant.ui.calendar.CalendarToolCardView
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -496,7 +499,18 @@ fun ToolRail(
                 )
             }
 
-            if (message.content.isNotBlank()) {
+            // A calendar tool's answer is a card — what went on the calendar,
+            // with Open and Undo (#282) — rather than its JSON.
+            val calendarCard = remember(message) {
+                if (rail.status == ToolRunStatus.SUCCEEDED) {
+                    CalendarMath.toolCard(message.name, message.content, toolResultJson)
+                } else {
+                    null
+                }
+            }
+            if (calendarCard != null) {
+                CalendarToolCardView(calendarCard)
+            } else if (message.content.isNotBlank()) {
                 Text(
                     text = message.content,
                     style = MaterialTheme.typography.bodySmall,
@@ -510,6 +524,9 @@ fun ToolRail(
 }
 
 enum class ToolRunStatus { RUNNING, SUCCEEDED, FAILED }
+
+/** Reads a tool's JSON answer; the same settings as the network layer. */
+private val toolResultJson = com.kurisu.assistant.di.NetworkModule.provideJson()
 
 /**
  * Everything the rail draws about one tool call, derived once and without a

@@ -8,6 +8,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import java.time.Clock
 import javax.inject.Singleton
 
 @Module
@@ -35,4 +36,11 @@ object AppModule {
     fun provideFcmTokenSource(
         source: com.kurisu.assistant.data.push.FirebaseTokenSource,
     ): com.kurisu.assistant.data.push.FcmTokenSource = source
+
+    /**
+     * The device's clock and zone (#282). Not a singleton: the zone is read
+     * when a screen asks, so a phone that crossed a time zone shows the new one.
+     */
+    @Provides
+    fun provideClock(): Clock = Clock.systemDefaultZone()
 }

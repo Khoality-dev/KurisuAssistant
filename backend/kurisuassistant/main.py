@@ -39,6 +39,7 @@ from kurisuassistant.routers import (
     version_router,
     drive_router,
     tasks_router,
+    calendar_router,
 )
 from kurisuassistant.version import WIRE_PROTOCOL, __version__
 
@@ -189,6 +190,7 @@ app.include_router(skills_router)
 app.include_router(notifications_router)
 app.include_router(drive_router)
 app.include_router(tasks_router)
+app.include_router(calendar_router)
 app.include_router(ws_router)
 
 

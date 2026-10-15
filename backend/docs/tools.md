@@ -21,6 +21,11 @@ into the arguments by `BaseAgent.execute_tool`. Registered in `tools/__init__.py
   prompt — a task with nobody attached has to be able to say it is done — until
   the user stores a `deny`
 - the six task tools — below
+- `calendar_create`, `calendar_list`, `calendar_move`, `calendar_delete` — the
+  user's events and reminders (#282). Wall-clock times in the account's zone;
+  create and move answer JSON with the entry, which the clients draw as the
+  chat's calendar card. Nothing on the calendar makes the assistant act. See
+  `calendar.md`
 
 The two recall tools replaced `history_search` (#6): an unindexed `ILIKE` that
 truncated hits to 200 characters and cited nothing. Both are built-in, but

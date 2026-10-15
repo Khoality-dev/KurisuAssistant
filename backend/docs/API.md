@@ -19,6 +19,7 @@ routers disagree, the routers are right and this file is a bug.
 - [Tool Policies](#tool-policies)
 - [Images](#images)
 - [Drive](#drive)
+- [Calendar](#calendar)
 - [Text-to-Speech](#text-to-speech)
 - [Speech Recognition](#speech-recognition)
 - [Tools & MCP Servers](#tools--mcp-servers)
@@ -1001,6 +1002,73 @@ trash.
 
 `{"used_bytes": …, "quota_bytes": …, "file_count": …, "max_file_bytes": …}` —
 what the explorer's quota bar and Settings → Kurisu Drive read.
+
+---
+
+## Calendar
+
+The user's events and reminders (#282; `routers/calendar.py`, `calendar.md`).
+Instants are ISO 8601 UTC with a `Z`; an all-day event is a pair of dates. An
+entry of another account is `404`, never `403`. Refusals are `400` with the
+sentence in `detail` — the same sentences the assistant's calendar tools give.
+
+An entry:
+
+```json
+{
+  "id": 42,
+  "kind": "reminder",
+  "title": "Call Mom",
+  "notes": null,
+  "all_day": false,
+  "starts_at": "2026-10-17T02:00:00Z",
+  "ends_at": null,
+  "start_date": null,
+  "end_date": null,
+  "done": false,
+  "done_at": null,
+  "created_at": "2026-10-13T22:20:00Z",
+  "updated_at": "2026-10-13T22:20:00Z"
+}
+```
+
+A timed event has `starts_at` and `ends_at`; an all-day event has `all_day:
+true` and `start_date`/`end_date` (inclusive) instead. Nothing says who put an
+entry there.
+
+### GET /calendar/entries?start=…&end=…
+
+Every entry overlapping `[start, end)` — what a day or week view shows. Both
+are required (`422` without), the window must end after it starts and be at
+most a year (`400`). All-day entries are matched a day wider on each side; the
+client places them by their own dates.
+
+### GET /calendar/upcoming?limit=20
+
+What is still ahead, soonest first: events not yet over (all-day ones until the
+end of their last day in the account's zone — `calendar/zone.zone_for`) and reminders not done and not
+past. `limit` 1–100.
+
+### POST /calendar/entries
+
+`{"kind": "event" | "reminder", "title", "notes"?, "all_day"?, "starts_at"?,
+"ends_at"?, "start_date"?, "end_date"?}` → `201` with the entry. A reminder
+needs `starts_at`; a timed event with no `ends_at` lasts an hour; an all-day
+event with no `end_date` is one day.
+
+### GET /calendar/entries/{id}
+
+### PATCH /calendar/entries/{id}
+
+Any of `title`, `notes`, `all_day`, `starts_at`, `ends_at`, `start_date`,
+`end_date`, `done`. Only the fields sent change, and the result is validated as
+a whole before anything is written. Moving a timed event's start without an end
+keeps its length; moving a reminder makes it due again. `done` is a reminder's
+alone (`400` for an event).
+
+### DELETE /calendar/entries/{id}
+
+`204`.
 
 ---
 

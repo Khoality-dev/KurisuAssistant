@@ -18,21 +18,23 @@ com.kurisu.assistant/
 │   ├── remote/websocket/        -- OkHttp WebSocket, event payloads, NotificationSocket (/ws/notifications, #353)
 │   ├── model/                   -- Data classes (API, WS, Animation, UpdateModels)
 │   ├── push/                    -- PushRegistration + FcmTokenSource: this phone's FCM token on the server (#353)
-│   └── repository/              -- Auth, Assistant, Persona, Conversation, TTS, ASR, Vision, Tools, Face, Update,
+│   └── repository/              -- Auth, Assistant, Persona, Conversation, Calendar, TTS, ASR, Vision, Tools, Face, Update,
 │                                   Notification (the server's notifications and their read state, #353) repos
 ├── domain/
 │   ├── chat/                    -- Stream processor, sentence splitter, narration stripper
 │   ├── tts/                     -- TTS queue, WAV parser, amplitude computer
 │   ├── audio/                   -- AudioRecorder, VoiceActivityDetector
 │   ├── character/               -- Compositor, image cache, animation migration
+│   ├── calendar/                -- CalendarMath: windows, which day an entry is on, the tool card (#282)
 │   └── notifications/           -- What a notification says and opens; NotificationSync (what to post and cancel)
 ├── ui/
-│   ├── navigation/              -- NavGraph + AppDrawerHost (routes: LOGIN, CONVERSATIONS, CHAT, TASKS, ASSISTANT, PERSONAS, TOOLS_MCP, SKILLS, SETTINGS, ACCOUNT, TTS_ASR, APPEARANCE, FACES, ABOUT, NOTIFICATIONS, UNREAD)
+│   ├── navigation/              -- NavGraph + AppDrawerHost (routes: LOGIN, CONVERSATIONS, CHAT, TASKS, CALENDAR, ASSISTANT, PERSONAS, TOOLS_MCP, SKILLS, SETTINGS, ACCOUNT, TTS_ASR, APPEARANCE, FACES, ABOUT, NOTIFICATIONS, UNREAD)
 │   ├── theme/                   -- Material 3 theme (primary #2563EB)
 │   ├── auth/                    -- Login screen + ViewModel
 │   ├── conversations/           -- Chats list (start destination) + voice mode strip + in-app update check; a task run's conversation has a clock (#352)
 │   ├── tasks/                   -- Tasks (#352): grouped list (waiting for approval first; finished one-offs not listed) with filter chips, a task opened in place with its runs, approve/deny, pause/resume/stop/edit/delete; refetches on `tasks_changed`. `TaskApprovalsViewModel` feeds the chat's approval sheet for a run's conversation
 │   ├── chat/                    -- Chat screen, message bubble, tool rail, task card (#352), input, markdown (no nav args)
+│   ├── calendar/                -- Calendar screen + ViewModel, the chat's calendar card (#282)
 │   ├── assistant/               -- The one assistant (wake word, thinking, memory, tools)
 │   ├── personas/                -- Persona CRUD (name, prompt, voice, avatar) + ViewModel
 │   ├── common/                  -- Shared UI bits (personaInitials, ModelDropdown)
@@ -59,15 +61,16 @@ Mid-session: HTTP 426 (WireProtocolInterceptor) or WebSocket close 4426 → the 
 Login → Conversations ("Chats", the start destination; hamburger → app drawer)
   ├── Tap a row / New chat FAB → Chat
   ├── In voice mode, say the wake word → Chat, in a new conversation (#341)
-  ├── Drawer → Chats | Tasks | Assistant | Personas | Tools & MCP | Skills
+  ├── Drawer → Chats | Tasks | Calendar | Assistant | Personas | Tools & MCP | Skills
   ├── Drawer → Settings → Account | Appearance | Notifications | TTS & ASR | Face Identities | About
   ├── Bell (top bar) → Unread → an item → its conversation in Chat (#353)
-  ├── Tap a notification → its conversation in Chat (a reminder waits for the calendar, #282)
+  ├── Tap a notification → its conversation in Chat (a reminder: Calendar on that entry, #282)
   └── Drawer → Logout
 Chat header (persona name) → persona sheet → "Manage personas" → Personas
 Chat header (face icon) → character overlay (a sheet, not a destination)
 Chat task card → "Open in Tasks" → Tasks with that task open (`tasks?open={id}`)
 Tasks → a task's run → Chat, on that run's conversation
+A calendar card in the chat → Calendar on that entry (`Routes.calendar(id)`)
 Back everywhere → navController.popBackStack()
 ```
 
@@ -99,3 +102,10 @@ Back everywhere → navController.popBackStack()
   model sheet (`ChatModal.ModelPicker`), which is the only model picker in the app (#197).
 - `ConversationsViewModel` observes `CoreState.asrTranscripts` for the assistant's wake word. The
   trigger is assistant-level and selects no persona.
+
+- `Routes.CALENDAR` (#282) is a drawer destination like Chats. Its pattern is
+  `calendar?reminderId={reminderId}`: `Routes.calendar(id)` opens it on one entry
+  — that entry's day, with its sheet open — which is what the chat's calendar card
+  uses, through the `LocalOpenCalendar` the nav graph provides around `ChatScreen`,
+  and what a reminder notification's tap is for (#353). The screen opens on today's
+  day; Week is one tap away. Everything is shown in the phone's zone.

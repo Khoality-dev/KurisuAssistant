@@ -5,6 +5,7 @@
  * written by hand and `protocol.test.ts` is what keeps it honest.
  */
 export * from './binaryFrame';
+export * from './calendar';
 export * from './character';
 export * from './characterAssets';
 export * from './characterDriver';
