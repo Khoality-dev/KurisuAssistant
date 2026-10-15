@@ -70,7 +70,6 @@ class ChatViewModelVoiceModeTest {
         offset = 0,
         limit = 20,
         hasMore = false,
-        personaId = kurisu.id,
     )
 
     @Before
@@ -93,7 +92,8 @@ class ChatViewModelVoiceModeTest {
         coEvery { authRepo.loadUserProfile() } returns UserProfile(username = "kho")
         coEvery { assistantRepo.getAssistant() } returns Assistant(id = 1, modelName = "m", triggerWord = "kurisu", selectedPersonaId = kurisu.id)
         coEvery { personaRepo.listPersonas() } returns listOf(kurisu)
-        coEvery { personaRepo.getConversationIdForPersona(kurisu.id) } returns 421
+        // The Chats list chose this conversation: the chat opens on it.
+        coreState.setConversationId(421)
         coEvery { convRepo.getConversation(421, 20, 0) } returns detail(421)
         coEvery { convRepo.getConversation(500, 20, 0) } returns detail(500)
     }

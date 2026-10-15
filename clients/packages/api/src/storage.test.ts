@@ -216,3 +216,13 @@ describe('the character window session', () => {
     expect(storage.getToken()).toBe(ACCESS);
   });
 });
+
+describe('the per-persona conversation map (#354)', () => {
+  it('is gone, and a copy left by an older build is dropped at startup', () => {
+    localStorage.setItem('kurisu_persona_conversations', JSON.stringify({ unbound: 7, 2: 9 }));
+    storage.clearLegacyAgentKeys();
+    expect(localStorage.getItem('kurisu_persona_conversations')).toBeNull();
+    expect('getPersonaConversationId' in storage).toBe(false);
+    expect('setPersonaConversationId' in storage).toBe(false);
+  });
+});

@@ -154,26 +154,6 @@ const FIXTURE = {
     trigger_word: 'kurisu',
     selected_persona_id: 1,
   },
-  subAgents: [
-    {
-      id: 10,
-      name: 'code-reader',
-      description: 'Reads a file and reports what it actually does.',
-      model_name: 'qwen3:4b',
-      provider_type: 'ollama',
-      available_tools: ['history_read', 'recall_regex'],
-      enabled: true,
-    },
-    {
-      id: 11,
-      name: 'summariser',
-      description: 'Collapses a long transcript into the decisions taken.',
-      model_name: 'qwen3:1.7b',
-      provider_type: 'ollama',
-      available_tools: ['history_list'],
-      enabled: true,
-    },
-  ],
   tools: {
     builtin: [
       { name: 'history_list', description: 'List past conversations.', builtin: true },
@@ -278,7 +258,6 @@ test('capture desktop screenshots', async ({ browser }) => {
     const sections: Array<[string, string]> = [
       ['Assistant', '03-settings-assistant.png'],
       ['Personas', '04-settings-personas.png'],
-      ['Sub-Agents', '05-settings-sub-agents.png'],
       ['Tools & MCP', '06-settings-tools-mcp.png'],
       ['Skills', '07-settings-skills.png'],
     ];

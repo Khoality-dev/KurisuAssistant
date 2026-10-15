@@ -66,7 +66,7 @@ class WebSocketManagerTest {
         ),
         Row(
             "connected",
-            """{"type":"connected","event_id":"e8","timestamp":"t","chat_active":false,"conversation_id":7,"persona_id":4}""",
+            """{"type":"connected","event_id":"e8","timestamp":"t","chat_active":false,"conversation_id":7}""",
             ConnectedEvent::class,
         ),
         Row(
@@ -120,11 +120,13 @@ class WebSocketManagerTest {
     }
 
     @Test
-    fun `connected announces the persona bound to the conversation`() {
+    fun `connected reports the conversation in flight and no persona`() {
+        // A conversation is not tied to a persona (#354): who answers is the
+        // account's `selected_persona_id`, which the client already holds.
         val event = parseServerEvent(table.first { it.type == "connected" }.payload)
                 as ConnectedEvent
         assertThat(event.conversationId).isEqualTo(7)
-        assertThat(event.personaId).isEqualTo(4)
+        assertThat(ConnectedEvent::class.java.declaredFields.map { it.name }).doesNotContain("personaId")
     }
 
     @Test
@@ -175,22 +177,21 @@ class WebSocketManagerTest {
     // ── Client → server payload shapes the backend parses by name ───────
 
     @Test
-    fun `chat_request carries persona_id, never the removed agent_id`() {
-        // The backend renamed this field rather than aliasing it: a payload still
-        // saying `agent_id` is parsed as "no override" and silently ignored.
+    fun `chat_request names no persona and no agent`() {
+        // Who answers is the persona in use for the whole account (#354); a
+        // request cannot name one, and `agent_id` went in wire protocol 4.
         val payload = ChatRequestPayload(
             eventId = "e",
             timestamp = "t",
             text = "hi",
             modelName = "",
             conversationId = 7,
-            personaId = 3,
         )
         val obj = json.parseToJsonElement(
             json.encodeToString(ChatRequestPayload.serializer(), payload)
         ) as kotlinx.serialization.json.JsonObject
 
-        assertThat(obj["persona_id"]!!.jsonPrimitive.content).isEqualTo("3")
+        assertThat(obj.keys).doesNotContain("persona_id")
         assertThat(obj.keys).doesNotContain("agent_id")
     }
 

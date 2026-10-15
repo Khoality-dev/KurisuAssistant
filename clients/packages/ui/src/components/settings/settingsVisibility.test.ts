@@ -33,8 +33,13 @@ describe('which settings sections a host shows', () => {
   it('still shows everything the server owns', () => {
     const { capabilities } = fakeBridge();
 
-    for (const label of ['Account', 'Assistant', 'Personas', 'Sub-Agents', 'Skills', 'Kurisu Drive']) {
+    for (const label of ['Account', 'Assistant', 'Personas', 'Skills', 'Kurisu Drive']) {
       expect(labels(capabilities)).toContain(label);
     }
+  });
+
+  it('has no Sub-Agents section: the assistant spawns its own (#354)', () => {
+    const { capabilities } = fakeBridge();
+    expect(labels(capabilities)).not.toContain('Sub-Agents');
   });
 });

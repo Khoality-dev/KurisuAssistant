@@ -69,14 +69,4 @@ class PatchBodyTest {
 
         assertThat(obj.keys).containsExactly("name")
     }
-
-    @Test
-    fun `a sub-agent patch ships only the fields it set`() {
-        val body = SubAgentUpdate(think = true)
-        val obj = json.parseToJsonElement(
-            json.encodeToString(SubAgentUpdate.serializer(), body)
-        ) as JsonObject
-
-        assertThat(obj.keys).containsExactly("think")
-    }
 }

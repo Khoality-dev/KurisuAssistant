@@ -81,7 +81,6 @@ abstract class E2eTest {
                 // reply raises a "Speech failed" banner over the transcript. Speech is
                 // not what these tests are about (it is checked by hand, CLAUDE.md).
                 setTTSAutoPlay(false)
-                clearAllPersonaConversations()
             }
             EncryptedPreferences(context).apply {
                 clearToken()

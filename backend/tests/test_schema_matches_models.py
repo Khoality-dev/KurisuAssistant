@@ -146,7 +146,6 @@ class TestTheIndexesTheHotReadsNeed:
         [
             ("conversations", "ix_conversations_user_id"),
             ("personas", "ix_personas_user_id"),
-            ("sub_agents", "ix_sub_agents_user_id"),
             ("skills", "ix_skills_user_id"),
             ("mcp_servers", "ix_mcp_servers_user_id"),
             ("face_identities", "ix_face_identities_user_id"),
@@ -191,7 +190,7 @@ class TestTheIndexesTheHotReadsNeed:
 
 class TestCascadesReachTheDatabase:
     @pytest.mark.parametrize(
-        "table", ["conversations", "personas", "sub_agents", "skills", "mcp_servers",
+        "table", ["conversations", "personas", "skills", "mcp_servers",
                   "face_identities", "drive_nodes", "passages"],
     )
     def test_user_owned_rows_go_with_their_user(self, freshly_migrated, table):

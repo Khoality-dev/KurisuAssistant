@@ -55,6 +55,7 @@ class ChatViewModelImagesTest {
 
     private val testDispatcher = StandardTestDispatcher()
 
+    private lateinit var coreState: CoreState
     private lateinit var personaRepo: PersonaRepository
     private lateinit var assistantRepo: AssistantRepository
     private lateinit var authRepo: AuthRepository
@@ -90,17 +91,19 @@ class ChatViewModelImagesTest {
         wsManager = mockk(relaxed = true)
         ttsQueueManager = mockk(relaxed = true)
         voiceInteractionManager = VoiceInteractionManager(application)
+        coreState = CoreState()
 
         every { wsManager.events } returns MutableSharedFlow<ServerEvent>()
         coEvery { prefs.getBackendUrl() } returns "https://example.test"
         coEvery { authRepo.loadUserProfile() } returns UserProfile(username = "kho")
         coEvery { assistantRepo.getAssistant() } returns Assistant(id = 1, modelName = "m", selectedPersonaId = kurisu.id)
         coEvery { personaRepo.listPersonas() } returns listOf(kurisu)
-        coEvery { personaRepo.getConversationIdForPersona(kurisu.id) } returns 421
+        // The Chats list chose this conversation: the chat opens on it.
+        coreState.setConversationId(421)
         coEvery { convRepo.getConversation(421, 20, 0) } returns ConversationDetail(
             id = 421, title = "t", createdAt = "2026-09-01T00:00:00Z",
             messages = listOf(Message(id = 1, role = "user", content = "hi")),
-            totalMessages = 1, offset = 0, limit = 20, hasMore = false, personaId = kurisu.id,
+            totalMessages = 1, offset = 0, limit = 20, hasMore = false,
         )
     }
 
@@ -123,7 +126,7 @@ class ChatViewModelImagesTest {
             streamProcessor = processor,
             ttsQueueManager = ttsQueueManager,
             voiceInteractionManager = voiceInteractionManager,
-            coreState = CoreState(),
+            coreState = coreState,
         ).also { it.ioDispatcher = testDispatcher }
     }
 
@@ -140,7 +143,7 @@ class ChatViewModelImagesTest {
 
         coVerify(exactly = 1) {
             wsManager.sendChatRequest(
-                text = "what is this?", modelName = "", conversationId = 421, personaId = null,
+                text = "what is this?", modelName = "", conversationId = 421,
                 images = listOf(pngBase64),
             )
         }
@@ -157,7 +160,7 @@ class ChatViewModelImagesTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) {
-            wsManager.sendChatRequest(text = "", modelName = "", conversationId = 421, personaId = null, images = listOf(pngBase64))
+            wsManager.sendChatRequest(text = "", modelName = "", conversationId = 421, images = listOf(pngBase64))
         }
     }
 
@@ -174,7 +177,7 @@ class ChatViewModelImagesTest {
 
         coVerify(exactly = 1) {
             wsManager.sendChatRequest(
-                text = "two", modelName = "", conversationId = 421, personaId = null,
+                text = "two", modelName = "", conversationId = 421,
                 images = listOf(pngBase64, Base64.getEncoder().encodeToString(second)),
             )
         }
@@ -203,7 +206,7 @@ class ChatViewModelImagesTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) {
-            wsManager.sendChatRequest(text = "plain", modelName = "", conversationId = 421, personaId = null, images = emptyList())
+            wsManager.sendChatRequest(text = "plain", modelName = "", conversationId = 421, images = emptyList())
         }
     }
 
@@ -216,7 +219,7 @@ class ChatViewModelImagesTest {
         vm.sendMessage("missing")
         advanceUntilIdle()
 
-        coVerify(exactly = 0) { wsManager.sendChatRequest(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { wsManager.sendChatRequest(any(), any(), any(), any()) }
         assertThat(processor.state.value.streamError).contains("image")
     }
 }

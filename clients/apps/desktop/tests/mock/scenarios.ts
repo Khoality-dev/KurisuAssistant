@@ -14,7 +14,7 @@ import type { MockBackend, MockBackendOptions, MockConversationSeed, StreamScrip
 export interface Scenario {
   /** One line for `--list`. */
   description: string;
-  /** Constructor options — personas, assistant, sub-agents, the stream script. */
+  /** Constructor options — personas, assistant, the stream script. */
   options: MockBackendOptions;
   /** Post-construction tweaks that only the setters can express. */
   apply?: (mock: MockBackend) => void;
@@ -121,26 +121,6 @@ const DOCS_ASSISTANT = {
   trigger_word: 'kurisu',
   selected_persona_id: 1,
 };
-
-const DOCS_SUB_AGENTS = [
-  {
-    id: 10,
-    name: 'code-reader',
-    description: 'Reads a file and reports what it actually does.',
-    model_name: 'qwen3:4b',
-    provider_type: 'ollama',
-    available_tools: ['history_read', 'recall_regex'],
-    think: true,
-  },
-  {
-    id: 11,
-    name: 'summariser',
-    description: 'Collapses a long transcript into the decisions taken.',
-    model_name: 'qwen3:1.7b',
-    provider_type: 'ollama',
-    available_tools: ['history_list'],
-  },
-];
 
 const DOCS_MCP_SERVERS = [
   {
@@ -320,7 +300,6 @@ export const SCENARIOS: Record<string, Scenario> = {
     options: {
       personas: DOCS_PERSONAS,
       assistant: DOCS_ASSISTANT,
-      subAgents: DOCS_SUB_AGENTS,
       mcpServers: DOCS_MCP_SERVERS,
       tools: DOCS_TOOLS,
       skills: DOCS_SKILLS,
@@ -349,16 +328,15 @@ export const SCENARIOS: Record<string, Scenario> = {
     },
   },
   'sub-agent': {
-    description: 'A step delegated to a sub-agent mid-answer (the sub-agent tag and duration).',
+    description: 'A step the assistant hands to a sub-agent it spawns, mid-answer (the sub-agent tag and duration, #354).',
     options: {
       personas: [KURISU, AMADEUS],
-      subAgents: [{ id: 1, name: 'Researcher', description: 'Reads things.', model_name: 'worker-model' }],
       stream: {
         chunks: [
           { content: 'Delegating. ', role: 'assistant', delayMs: 150 },
           {
-            content: 'Researcher: nothing new since yesterday.', role: 'tool', delayMs: 400,
-            name: 'Researcher', toolKind: 'sub_agent', durationMs: 1830,
+            content: 'Nothing new since yesterday.', role: 'tool', delayMs: 400,
+            name: 'delegate_task', toolKind: 'sub_agent', durationMs: 1830,
             toolArgs: { task: 'check the news' }, toolStatus: 'success',
           },
           { content: 'Nothing new, then.', role: 'assistant', delayMs: 150 },

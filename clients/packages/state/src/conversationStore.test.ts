@@ -16,7 +16,7 @@ describe('conversationStore.deleteConversation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useConversationStore.setState({
-      currentConversation: { id: 7, title: 'doomed', persona_id: 1, message_count: 0, created_at: '', updated_at: '' },
+      currentConversation: { id: 7, title: 'doomed', message_count: 0, created_at: '', updated_at: '' },
       messages: [{ id: 1, role: 'user', content: 'hi' } as any],
       totalMessages: 5,
       hasMoreMessages: true,
@@ -53,7 +53,6 @@ describe('conversationStore.deleteConversation', () => {
 const baseDetail = (messages: Message[]): ConversationDetail => ({
   id: 1,
   title: 't',
-  persona_id: null,
   created_at: '',
   messages,
   total_messages: messages.length,

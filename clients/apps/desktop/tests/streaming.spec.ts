@@ -106,11 +106,12 @@ test.describe('streaming', () => {
   });
 
   test('a sub-agent step keeps its tag and duration once the conversation is reloaded (#327)', async ({ page, mock }) => {
-    mock.addSubAgent({ name: 'Researcher', model_name: 'worker-model' } as never);
+    // The assistant spawns its own sub-agent through delegate_task (#354);
+    // there is nothing saved to set up first.
     mock.setStream({
       chunks: [
         { content: 'Delegating. ', role: 'assistant', delayMs: 10 },
-        { content: 'Researcher: nothing new.', role: 'tool', delayMs: 10, name: 'Researcher', toolKind: 'sub_agent', durationMs: 1830 },
+        { content: 'Nothing new turned up.', role: 'tool', delayMs: 10, name: 'delegate_task', toolKind: 'sub_agent', durationMs: 1830 },
         { content: 'Nothing new, then.', role: 'assistant', delayMs: 10 },
       ],
     });
@@ -126,7 +127,7 @@ test.describe('streaming', () => {
     await page.locator('button').filter({
       has: page.locator('[data-testid="ChatBubbleOutlineIcon"], [data-testid="ChatBubbleIcon"]'),
     }).first().click();
-    await page.getByRole('button', { name: /^Kurisu/ }).click();
+    await page.getByRole('listitem').filter({ hasText: 'Anything new?' }).getByRole('button').first().click();
     await expect(page.getByText('Nothing new, then.').first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('sub-agent', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('1.8s').first()).toBeVisible();

@@ -87,7 +87,7 @@ async function chat(payload: Record<string, unknown>): Promise<any[]> {
   return events;
 }
 
-describe('mock backend: assistant / persona / sub-agent split', () => {
+describe('mock backend: the assistant and its personas', () => {
   it('serves the assistant with every field the client type declares', async () => {
     const { body } = await get('/assistant');
     // trigger_word is non-optional on the client's Assistant type. Omitting it
@@ -173,16 +173,9 @@ describe('mock backend: assistant / persona / sub-agent split', () => {
     expect((await get('/personas/999')).status).toBe(404);
   });
 
-  it('serves sub-agents as a separate, initially empty resource', async () => {
-    expect((await get('/sub-agents')).body).toEqual([]);
-    const sub = mock.addSubAgent({ name: 'Researcher', model_name: 'sub-model' });
-    const { body } = await get('/sub-agents');
-    expect(body).toHaveLength(1);
-    expect(body[0]).toMatchObject({ id: sub.id, name: 'Researcher', model_name: 'sub-model' });
-    // A sub-agent has no identity: no avatar, no voice, no memory.
-    expect(body[0]).not.toHaveProperty('avatar_uuid');
-    expect(body[0]).not.toHaveProperty('voice_reference');
-    expect(body[0]).not.toHaveProperty('memory');
+  it('has no saved sub-agents: the assistant spawns its own (#354)', async () => {
+    expect((await get('/sub-agents')).status).toBe(404);
+    expect((await post('/sub-agents', { name: 'Researcher' })).status).toBe(404);
   });
 
   // A persona is optional (#302): the assistant answers as itself without one.
@@ -281,133 +274,98 @@ describe('mock backend: a proxy in front', () => {
 });
 
 describe('mock backend: conversations', () => {
-  it('binds a new conversation to the persona the request names', async () => {
-    const events = await chat({ conversation_id: null, persona_id: 1 });
-    const chunk = events.find((e) => e.type === 'stream_chunk');
+  // One persona, or none, is in use for the whole account (#354): every turn,
+  // in any conversation, answers as `selected_persona_id`. A conversation is
+  // not tied to a persona, and a request cannot name one.
+
+  it('answers every turn as the persona in use', async () => {
+    expect(mock.getAssistant().selected_persona_id).toBe(1);
+    const chunk = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk');
     expect(chunk.persona_id).toBe(1);
     expect(chunk.persona_name).toBe('Kurisu');
-
-    const conversationId = chunk.conversation_id;
-    const { body } = await get(`/conversations/${conversationId}`);
-    // The store reads persona_id from here; returning none left it undefined
-    // and the chat header silently fell back.
-    expect(body.persona_id).toBe(1);
+    expect(chunk.name).toBe('Kurisu');
   });
 
-  it('answers as the assistant itself when no persona is pinned', async () => {
+  it('answers as the assistant itself when no persona is in use', async () => {
     mock.setAssistantFields({ selected_persona_id: null });
     const chunk = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk');
     expect(chunk.persona_id).toBeNull();
     expect(chunk.persona_name).toBe('Assistant');
     expect(chunk.name).toBe('Assistant');
     expect(chunk.voice_reference).toBeNull();
-    expect((await get(`/conversations/${chunk.conversation_id}`)).body.persona_id).toBeNull();
   });
 
-  it('never slips the selected persona into a chat that names none (#334)', async () => {
-    // Kurisu is the stock selection; a client that means her names her.
-    expect(mock.getAssistant().selected_persona_id).toBe(1);
-    const fresh = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk');
-    expect(fresh.persona_id).toBeNull();
-    expect(fresh.persona_name).toBe('Assistant');
-    expect((await get(`/conversations/${fresh.conversation_id}`)).body.persona_id).toBeNull();
-  });
-
-  it('hands an unbound conversation to the assistant, not back to the default', async () => {
+  it('applies a switch to a conversation already under way', async () => {
+    const other = mock.addPersona({ name: 'Amadeus' });
     const id = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk').conversation_id;
-    expect((await patch(`/conversations/${id}`, { persona_id: null })).status).toBe(200);
+
+    expect((await patch('/assistant', { selected_persona_id: other.id })).status).toBe(200);
     const next = (await chat({ conversation_id: id })).find((e) => e.type === 'stream_chunk');
-    expect(next.persona_id).toBeNull();
-    expect(next.persona_name).toBe('Assistant');
+    expect(next.persona_id).toBe(other.id);
+    expect(next.persona_name).toBe('Amadeus');
+
+    expect((await patch('/assistant', { selected_persona_id: null })).status).toBe(200);
+    const last = (await chat({ conversation_id: id })).find((e) => e.type === 'stream_chunk');
+    expect(last.persona_name).toBe('Assistant');
   });
 
-  it('honours an explicit per-turn persona_id and rebinds the conversation', async () => {
+  it('ignores a persona named on the request, and a legacy agent_id', async () => {
     const other = mock.addPersona({ name: 'Amadeus' });
-    const events = await chat({ conversation_id: null, persona_id: other.id });
-
-    expect(mock.lastChatRequest.persona_id).toBe(other.id);
-    const chunk = events.find((e) => e.type === 'stream_chunk');
-    expect(chunk.persona_id).toBe(other.id);
-    expect(chunk.persona_name).toBe('Amadeus');
-    expect(mock.getConversation(chunk.conversation_id)!.persona_id).toBe(other.id);
+    const named = (await chat({ conversation_id: null, persona_id: other.id })).find((e) => e.type === 'stream_chunk');
+    expect(named.persona_id).toBe(1);
+    const legacy = (await chat({ conversation_id: null, agent_id: other.id })).find((e) => e.type === 'stream_chunk');
+    expect(legacy.persona_id).toBe(1);
+    expect(mock.getAssistant().selected_persona_id).toBe(1);
   });
 
-  it('ignores a legacy agent_id instead of aliasing it to persona_id', async () => {
-    const other = mock.addPersona({ name: 'Amadeus' });
-    const events = await chat({ conversation_id: null, agent_id: other.id });
-    // Answered by the assistant, exactly as the real server would.
-    expect(events.find((e) => e.type === 'stream_chunk').persona_id).toBeNull();
-  });
-
-  it('lists conversations with persona_id, message_count and last_message', async () => {
-    await chat({ conversation_id: null, persona_id: 1 });
-    const { body } = await get('/conversations');
-    expect(body).toHaveLength(1);
-    expect(body[0]).toMatchObject({ persona_id: 1, message_count: 2 });
-    // The persona list's previews come from here; without last_message they
-    // never populate.
-    expect(body[0].last_message).toMatchObject({ content: 'Hello from mock backend.', role: 'assistant' });
-  });
-
-  it('honours ?persona_id= and answers with the stingy one-element shape', async () => {
-    const other = mock.addPersona({ name: 'Amadeus' });
-    const first = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk');
-    const second = (await chat({ conversation_id: null, persona_id: other.id }))
-      .find((e) => e.type === 'stream_chunk');
-
-    const mine = await get(`/conversations?persona_id=${other.id}`);
-    expect(mine.body).toHaveLength(1);
-    expect(mine.body[0].id).toBe(second.conversation_id);
-    expect(mine.body[0].id).not.toBe(first.conversation_id);
-    // The real endpoint omits these on the filtered path, so the client's
-    // fallback must not learn to depend on them.
-    expect(mine.body[0]).not.toHaveProperty('message_count');
-    expect(mine.body[0]).not.toHaveProperty('last_message');
-
-    expect((await get('/conversations?persona_id=999')).body).toEqual([]);
-  });
-
-  it('PATCHes a conversation title and persona, and unbinds on null', async () => {
-    const other = mock.addPersona({ name: 'Amadeus' });
-    const id = (await chat({ conversation_id: null, persona_id: 1 })).find((e) => e.type === 'stream_chunk').conversation_id;
-
-    expect((await patch(`/conversations/${id}`, { title: 'Renamed' })).body)
-      .toMatchObject({ id, title: 'Renamed', persona_id: 1 });
-    expect((await patch(`/conversations/${id}`, { persona_id: other.id })).body.persona_id).toBe(other.id);
-    expect((await patch(`/conversations/${id}`, { persona_id: null })).body.persona_id).toBeNull();
-    expect(mock.lastConversationPatch).toEqual({ id, body: { persona_id: null } });
-
-    expect((await patch(`/conversations/${id}`, {})).status).toBe(400);
-    expect((await patch(`/conversations/${id}`, { title: '  ' })).status).toBe(400);
-    expect((await patch(`/conversations/${id}`, { persona_id: 999 })).status).toBe(404);
-    expect((await patch('/conversations/999', { title: 'x' })).status).toBe(404);
-  });
-
-  it('refuses to bind a disabled persona', async () => {
+  it('answers as the assistant when the persona in use is not enabled', async () => {
+    // The routes clear the selection on disable; a selection that slipped past
+    // that is the backend's race, and it answers as the assistant.
     const other = mock.addPersona({ name: 'Amadeus', enabled: false });
-    const id = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk').conversation_id;
-    expect((await patch(`/conversations/${id}`, { persona_id: other.id })).status).toBe(400);
-  });
-
-  it('drops a disabled per-turn override instead of honouring it', async () => {
-    // The two paths differ on purpose, and the mock has to keep them apart:
-    // PATCH rejects a disabled persona outright (above), while `pick_persona`
-    // on the chat path logs, ignores the id and falls through to the assistant.
-    const other = mock.addPersona({ name: 'Amadeus', enabled: false });
-    const chunk = (await chat({ conversation_id: null, persona_id: other.id }))
-      .find((e) => e.type === 'stream_chunk');
+    mock.setAssistantFields({ selected_persona_id: other.id });
+    const chunk = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk');
     expect(chunk.persona_id).toBeNull();
     expect(chunk.persona_name).toBe('Assistant');
   });
 
-  it('stamps stored assistant messages with the persona and leaves tool messages unstamped', async () => {
+  it('carries no persona on a conversation, listed or opened', async () => {
+    const id = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk').conversation_id;
+    const listed = (await get('/conversations')).body;
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({ id, message_count: 2 });
+    expect(listed[0]).not.toHaveProperty('persona_id');
+    expect(listed[0].last_message).toMatchObject({ content: 'Hello from mock backend.', role: 'assistant' });
+    expect((await get(`/conversations/${id}`)).body).not.toHaveProperty('persona_id');
+  });
+
+  it('lists every conversation whatever ?persona_id= says: the filter is gone', async () => {
+    await chat({ conversation_id: null });
+    await chat({ conversation_id: null });
+    expect((await get('/conversations?persona_id=999')).body).toHaveLength(2);
+  });
+
+  it('PATCHes a conversation title only', async () => {
+    const id = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk').conversation_id;
+
+    const renamed = await patch(`/conversations/${id}`, { title: 'Renamed' });
+    expect(renamed.body).toMatchObject({ id, title: 'Renamed' });
+    expect(renamed.body).not.toHaveProperty('persona_id');
+    expect(mock.lastConversationPatch).toEqual({ id, body: { title: 'Renamed' } });
+
+    expect((await patch(`/conversations/${id}`, { persona_id: null })).status).toBe(422);
+    expect((await patch(`/conversations/${id}`, {})).status).toBe(400);
+    expect((await patch(`/conversations/${id}`, { title: '  ' })).status).toBe(400);
+    expect((await patch('/conversations/999', { title: 'x' })).status).toBe(404);
+  });
+
+  it('stamps stored assistant messages with the persona that spoke and leaves tool messages unstamped', async () => {
     mock.setStream({
       chunks: [
         { content: 'Checking. ', role: 'assistant' },
         { content: '{"ok":true}', role: 'tool', name: 'lookup' },
       ],
     });
-    const id = (await chat({ conversation_id: null, persona_id: 1 })).find((e) => e.type === 'stream_chunk').conversation_id;
+    const id = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk').conversation_id;
     const { body } = await get(`/conversations/${id}`);
 
     const assistant = body.messages.find((m: any) => m.role === 'assistant');
@@ -472,9 +430,9 @@ describe('mock backend: seeded conversations', () => {
     expect(body).toHaveLength(2);
     expect(body[0]).toMatchObject({
       title: 'Newest',
-      persona_id: 1,
       message_count: 2,
     });
+    expect(body[0]).not.toHaveProperty('persona_id');
     expect(body[0].last_message).toMatchObject({
       content: 'Recent answer',
       role: 'assistant',
@@ -625,11 +583,11 @@ describe('mock backend: streaming', () => {
     mock.setStream({
       chunks: [
         { content: 'Let me check. ', role: 'assistant' },
-        { content: '{"result":"42"}', role: 'tool', name: 'lookup', toolKind: 'sub_agent', durationMs: 250 },
+        { content: '{"result":"42"}', role: 'tool', name: 'delegate_task', toolKind: 'sub_agent', durationMs: 250 },
         { content: 'It is 42.', role: 'assistant' },
       ],
     });
-    const chunks = (await chat({ conversation_id: null, persona_id: 1 })).filter((e) => e.type === 'stream_chunk');
+    const chunks = (await chat({ conversation_id: null })).filter((e) => e.type === 'stream_chunk');
 
     expect(chunks[0]).toMatchObject({
       persona_id: 1, persona_name: 'Kurisu', name: 'Kurisu', tool_kind: null, duration_ms: null,
@@ -638,8 +596,10 @@ describe('mock backend: streaming', () => {
     // and tool_kind/duration_ms are the client's only source for the sub-agent
     // tag and the call timing.
     expect(chunks[1]).toMatchObject({
-      persona_id: null, persona_name: null, name: 'lookup',
+      persona_id: null, persona_name: null, name: 'delegate_task',
       tool_kind: 'sub_agent', duration_ms: 250, tool_status: 'success',
+      // A spawned sub-agent runs on the assistant's own model (#354).
+      model_name: 'test-model',
     });
     expect(chunks[2].persona_id).toBe(1);
   });
@@ -652,7 +612,7 @@ describe('mock backend: streaming', () => {
         { content: 'Amadeus here.', role: 'assistant', personaId: other.id },
       ],
     });
-    const chunks = (await chat({ conversation_id: null, persona_id: 1 })).filter((e) => e.type === 'stream_chunk');
+    const chunks = (await chat({ conversation_id: null })).filter((e) => e.type === 'stream_chunk');
     expect(chunks.map((c) => c.persona_id)).toEqual([1, other.id]);
     expect(chunks.map((c) => c.persona_name)).toEqual(['Kurisu', 'Amadeus']);
 
@@ -687,8 +647,8 @@ describe('mock backend: streaming', () => {
     ]);
   });
 
-  it('reports the last turn on a later connect, so a reconnect knows who spoke', async () => {
-    const events = await chat({ conversation_id: null, persona_id: 1 });
+  it('reports the last turn on a later connect, and no persona: who answers is the account\'s', async () => {
+    const events = await chat({ conversation_id: null });
     const conversationId = events.find((e) => e.type === 'stream_chunk').conversation_id;
 
     const ws = connect();
@@ -696,9 +656,8 @@ describe('mock backend: streaming', () => {
       ws.on('message', (raw) => resolve(JSON.parse(raw.toString())));
     });
     ws.close();
-    expect(connected).toMatchObject({
-      type: 'connected', chat_active: false, conversation_id: conversationId, persona_id: 1,
-    });
+    expect(connected).toMatchObject({ type: 'connected', chat_active: false, conversation_id: conversationId });
+    expect(connected).not.toHaveProperty('persona_id');
   });
 });
 

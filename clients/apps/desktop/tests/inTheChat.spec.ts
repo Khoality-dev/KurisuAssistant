@@ -1,8 +1,9 @@
 /**
- * Who the chat is on, marked the same way everywhere (#348), as section 2 of
- * the Claude Design mockup "Kurisu - Voice Mode v1" draws it: one "In the chat"
- * chip on the persona's card, on its row in the chat header's picker, and on
- * an Assistant row when no persona is chosen.
+ * The persona in use, marked the same way everywhere (#348), as section 2 of
+ * the Claude Design mockup "Kurisu - Voice Mode v1" draws it: one "In use" chip
+ * on the persona's card, on its row in the chat header's picker, and on an
+ * Assistant row when no persona is chosen. It is the account's, so it applies
+ * to every conversation at once (#354).
  */
 import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
@@ -25,19 +26,19 @@ async function openPersonasSettings(page: Page) {
 /** Settings → Personas, by the line that opens it. */
 const personasPage = (page: Page) => page.getByText('How your assistant sounds', { exact: false });
 
-const whoAnswers = (page: Page) => page.getByRole('button', { name: /who answers/ });
+const whoAnswers = (page: Page) => page.getByRole('button', { name: /Persona in use/ });
 /** A persona's card, or the Assistant row, by name. */
 const entry = (page: Page, name: string) => page.getByRole('group', { name, exact: true });
 
-test.describe('who the chat is on', () => {
-  test('Settings → Personas: the persona in the chat wears the chip; the assistant has its own row', async ({ page, mock }) => {
+test.describe('the persona in use', () => {
+  test('Settings → Personas: the persona in use wears the chip; the assistant has its own row', async ({ page, mock }) => {
     mock.addPersona({ name: 'Coach', description: 'Warm, direct, keeps you moving.' });
     await login(page);
     await openPersonasSettings(page);
 
     const kurisu = entry(page, 'Kurisu');
     await expect(kurisu).toHaveAttribute('aria-current', 'true');
-    await expect(kurisu.getByText('In the chat', { exact: true })).toBeVisible();
+    await expect(kurisu.getByText('In use', { exact: true })).toBeVisible();
     await expect(kurisu.getByRole('button', { name: 'Use the assistant' })).toBeVisible();
     await expect(entry(page, 'Coach').getByRole('button', { name: 'Talk to' })).toBeVisible();
 
@@ -49,21 +50,21 @@ test.describe('who the chat is on', () => {
     await assistant.click();
     await expect.poll(() => mock.getAssistant().selected_persona_id).toBeNull();
     await expect(assistant).toHaveAttribute('aria-current', 'true');
-    await expect(assistant.getByText('In the chat', { exact: true })).toBeVisible();
-    await expect(kurisu.getByText('In the chat', { exact: true })).toHaveCount(0);
+    await expect(assistant.getByText('In use', { exact: true })).toBeVisible();
+    await expect(kurisu.getByText('In use', { exact: true })).toHaveCount(0);
     await expect(kurisu.getByRole('button', { name: 'Talk to' })).toBeVisible();
   });
 
-  test('the header picker marks the same row, says the choice is saved to the account, and leads to Personas', async ({ page }) => {
+  test('the header picker marks the same row, says the choice is the account\'s, and leads to Personas', async ({ page }) => {
     await login(page);
     await whoAnswers(page).click();
 
-    await expect(page.getByText('Who should answer?')).toBeVisible();
-    await expect(page.getByText('Saved to your account, so every device opens on it. Press Esc to cancel.')).toBeVisible();
+    await expect(page.getByText('Persona in use', { exact: true }).last()).toBeVisible();
+    await expect(page.getByText('Saved to your account: every conversation, on every device, answers as it. Press Esc to cancel.')).toBeVisible();
     const current = page.locator('[aria-current="true"]');
     await expect(current).toHaveCount(1);
     await expect(current).toContainText('Kurisu');
-    await expect(current).toContainText('In the chat');
+    await expect(current).toContainText('In use');
 
     await page.getByRole('button', { name: 'Manage personas' }).click();
     await expect(personasPage(page)).toBeVisible({ timeout: 10_000 });

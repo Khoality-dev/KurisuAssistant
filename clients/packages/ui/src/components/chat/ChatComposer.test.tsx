@@ -1,11 +1,14 @@
 /**
  * The composer must not drop a draft when its scope merely resolves.
  *
- * After login the persona id and the latest conversation id both arrive
- * asynchronously. A draft typed before they land used to be wiped by the
- * scope-reset effect, which is how the Windows e2e runner ended up with an
- * empty composer and a disabled Send right after `fill()` (#145). Leaving a
- * concrete conversation for another one still clears it.
+ * After login the latest conversation id arrives asynchronously. A draft typed
+ * before it lands used to be wiped by the scope-reset effect, which is how the
+ * Windows e2e runner ended up with an empty composer and a disabled Send right
+ * after `fill()` (#145). Leaving a concrete conversation for another one still
+ * clears it. The persona in use is the account's and does not change the
+ * conversation (#354), so switching it is not a change of scope: the draft is
+ * keyed on the conversation alone. `personaId` is still passed below, as the
+ * chat used to pass it, to show it no longer matters.
  */
 
 import { act } from 'react';
@@ -16,7 +19,6 @@ import { ChatComposer, ChatComposerProps } from './ChatComposer';
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 const baseProps: ChatComposerProps = {
-  personaId: null,
   conversationId: null,
   externalDraft: '',
   externalDraftVersion: 0,
@@ -28,7 +30,8 @@ const baseProps: ChatComposerProps = {
 let container: HTMLDivElement;
 let root: Root;
 
-function render(props: Partial<ChatComposerProps>) {
+/** `personaId` is not a prop any more; passing it shows switching persona is not a scope change. */
+function render(props: Partial<ChatComposerProps> & { personaId?: number | null }) {
   act(() => {
     root.render(<ChatComposer {...baseProps} {...props} />);
   });
@@ -98,5 +101,26 @@ describe('ChatComposer scope reset', () => {
 
     expect(textarea().value).toBe('');
     expect(sendButton().disabled).toBe(true);
+  });
+
+  it('clears it when leaving a conversation with no persona in use too', () => {
+    render({ personaId: null, conversationId: 12 });
+    type('a draft the assistant was going to answer');
+
+    render({ personaId: null, conversationId: 13 });
+
+    expect(textarea().value).toBe('');
+  });
+
+  it('keeps the draft when the persona in use is switched: the conversation is the same (#354)', () => {
+    render({ personaId: 1, conversationId: 12 });
+    type('half a sentence');
+
+    render({ personaId: 2, conversationId: 12 });
+    expect(textarea().value).toBe('half a sentence');
+
+    render({ personaId: null, conversationId: 12 });
+    expect(textarea().value).toBe('half a sentence');
+    expect(sendButton().disabled).toBe(false);
   });
 });

@@ -5,10 +5,14 @@
  * and during a chat round-trip. All responses are deterministic so tests can
  * assert on concrete values.
  *
- * Shapes here mirror wire protocol 4: ONE assistant per user owns capability
+ * Shapes here mirror the backend: ONE assistant per user owns capability
  * (model, provider, tools, think, deferred tools, memory, wake word) and MANY
  * personas own presentation (name, prompt, voice, avatar, character config).
- * Sub-agents are task-only workers with no identity. If a field here disagrees
+ * One persona, or none, is in use for the whole account — `selected_persona_id`
+ * — and every turn in every conversation answers as it; a conversation carries
+ * no persona and a request cannot name one (#354). There are no saved
+ * sub-agents: the assistant spawns its own through `delegate_task`, scripted
+ * here as a tool chunk with `toolKind: 'sub_agent'`. If a field here disagrees
  * with `backend/kurisuassistant/`, the backend wins — fix the mock.
  */
 
@@ -147,29 +151,15 @@ export interface MockAssistant {
   memory_enabled?: boolean;
   /** Voice wake word. It wakes the assistant and selects no persona. */
   trigger_word?: string | null;
-  /** Persona a new conversation silently binds to. */
+  /** The persona in use for the whole account: every turn answers as it (#354). */
   selected_persona_id?: number | null;
-}
-
-/** A task-only worker: its own model and tools, no identity of any kind. */
-export interface MockSubAgent {
-  id: number;
-  name: string;
-  description?: string;
-  system_prompt?: string;
-  model_name?: string | null;
-  provider_type?: string;
-  available_tools?: string[] | null;
-  think?: boolean;
-  use_deferred_tools?: boolean;
-  enabled?: boolean;
 }
 
 /**
  * One scripted `stream_chunk`.
  *
  * An assistant chunk speaks as a persona: leave `personaId`/`personaName` unset
- * and it speaks as the conversation's bound persona. Setting them mid-script is
+ * and it speaks as the persona in use. Setting them mid-script is
  * how a handoff is scripted — the client splits bubbles on the speaker label, so
  * varying only `role` never exercises that path.
  *
@@ -181,7 +171,7 @@ export interface StreamChunk {
   thinking?: string;
   role?: 'assistant' | 'tool' | string;
   delayMs?: number;
-  /** Assistant chunks: speak as this persona instead of the bound one. */
+  /** Assistant chunks: speak as this persona instead of the one in use. */
   personaId?: number;
   personaName?: string;
   /** Tool chunks: the tool's own label. */
@@ -311,7 +301,6 @@ export interface MockBackendOptions {
   /** The 3D character store's per-account quota; defaults to the backend's 1 GiB. */
   characterQuotaBytes?: number;
   assistant?: MockAssistant;
-  subAgents?: MockSubAgent[];
   stream?: StreamScript;
   tools?: { mcp?: MockTool[]; builtin?: MockTool[] };
   mcpServers?: Array<Partial<{
@@ -340,11 +329,10 @@ interface StoredMessage {
   created_at: string;
 }
 
+/** A conversation carries no persona (#354); who spoke is on each message. */
 interface StoredConversation {
   id: number;
   title: string;
-  /** null until the first message binds a persona. */
-  persona_id: number | null;
   created_at: string;
   updated_at: string;
   compacted_context: string;
@@ -361,7 +349,6 @@ export class MockBackend {
   private _port: number = 0;
   private personas: ResolvedPersona[];
   private assistant: Required<MockAssistant>;
-  private subAgents: MockSubAgent[];
   private stream: StreamScript;
   private nextConversationId = 1;
   private nextMessageId = 1;
@@ -380,12 +367,10 @@ export class MockBackend {
   /**
    * Last turn this backend ran, reported back on `connected` the way the real
    * server does — its session outlives a single socket, so a client that drops
-   * and reconnects learns which conversation ran and who was speaking.
+   * and reconnects learns which conversation ran. Who answers is the account's
+   * (#354), so it is not part of it.
    */
-  private lastTurn: { conversationId: number | null; personaId: number | null } = {
-    conversationId: null,
-    personaId: null,
-  };
+  private lastTurn: { conversationId: number | null } = { conversationId: null };
   /**
    * The wire protocol this backend speaks. Defaults to the client's own so the
    * suite boots; a spec sets another to drive the update-required gate — over
@@ -469,26 +454,14 @@ export class MockBackend {
       // Non-optional on the client's `Assistant` type. The old mock omitted it,
       // which is what forced a component to cast the response `as any`.
       trigger_word: assistant.trigger_word ?? 'kurisu',
-      // Who the chat is on (#334). An explicit null is a state under test too:
-      // personas, but none picked, so the chat is the assistant's (#302). Only
-      // an omitted field defaults to the first persona, which keeps the stock
-      // scenario's Kurisu in the chat — a real new account starts on null.
+      // The persona in use (#334, #354). An explicit null is a state under test
+      // too: personas, but none in use, so the assistant answers (#302). Only an
+      // omitted field defaults to the first persona, which keeps the stock
+      // scenario's Kurisu in use — a real new account starts on null.
       selected_persona_id: assistant.selected_persona_id === undefined
         ? (this.personas.length > 0 ? this.personas[0].id : null)
         : assistant.selected_persona_id,
     };
-
-    this.subAgents = (opts.subAgents ?? []).map((s) => ({
-      description: '',
-      system_prompt: '',
-      model_name: null,
-      provider_type: 'mock',
-      available_tools: null,
-      think: false,
-      use_deferred_tools: false,
-      enabled: true,
-      ...s,
-    }));
 
     this.stream = opts.stream ?? DEFAULT_STREAM;
     this.tools = {
@@ -736,23 +709,6 @@ export class MockBackend {
     this.characterFiles.set(url, bytes);
   }
 
-  addSubAgent(subAgent: Omit<MockSubAgent, 'id'> & { id?: number }): MockSubAgent {
-    const resolved: MockSubAgent = {
-      id: subAgent.id ?? Math.max(0, ...this.subAgents.map((s) => s.id)) + 1,
-      description: '',
-      system_prompt: '',
-      model_name: null,
-      provider_type: 'mock',
-      available_tools: null,
-      think: false,
-      use_deferred_tools: false,
-      enabled: true,
-      ...subAgent,
-    };
-    this.subAgents.push(resolved);
-    return resolved;
-  }
-
   /** Read a stored conversation, to assert on its persona binding or messages. */
   getConversation(id: number) {
     const conv = this.conversations.get(id);
@@ -806,7 +762,7 @@ export class MockBackend {
     return this.personas.find((p) => p.id === id);
   }
 
-  /** Only enabled personas are eligible to speak, as in `pick_persona`. */
+  /** Only enabled personas are eligible to speak, as in `persona_in_use`. */
   private findEnabledPersona(id: number | null | undefined): ResolvedPersona | undefined {
     const persona = this.findPersona(id);
     return persona && persona.enabled !== false ? persona : undefined;
@@ -814,25 +770,17 @@ export class MockBackend {
 
   /**
    * Which persona answers this turn, or `undefined` for the assistant itself.
-   * Mirrors `backend/.../agents/selection.py`: an explicit per-turn override,
-   * then the conversation's existing binding, then the assistant itself (#302).
-   * The assistant's default persona is not a step: a client that means it
-   * names it, and a chat that names nobody is the assistant's own (#334). No
-   * first-persona fallback. Never random, and never derived from the message.
-   *
-   * At every step only *enabled* personas are eligible — an id naming a disabled
-   * or deleted one is dropped and selection falls through, rather than failing.
-   * That is the WebSocket path; `PATCH /conversations/{id}` is stricter and
-   * rejects a disabled persona with 400 instead of silently substituting one.
+   * Mirrors `backend/.../agents/selection.py::persona_in_use`: the persona in
+   * use for the whole account, `selected_persona_id` (#354), whatever the
+   * conversation and whatever the request says. Only an *enabled* persona is
+   * eligible — the routes clear a selection on disable and delete, and one that
+   * slipped past that is answered by the assistant, never by another persona.
    */
-  private resolvePersona(
-    override: number | null | undefined,
-    conv: StoredConversation | undefined,
-  ): ResolvedPersona | undefined {
-    return this.findEnabledPersona(override) ?? this.findEnabledPersona(conv?.persona_id);
+  private personaInUse(): ResolvedPersona | undefined {
+    return this.findEnabledPersona(this.assistant.selected_persona_id);
   }
 
-  /** The chat goes back to the assistant when its selected persona goes (#334). */
+  /** The assistant answers again when the persona in use goes (#334). */
   private stopSelecting(personaId: number) {
     if (this.assistant.selected_persona_id === personaId) this.assistant.selected_persona_id = null;
   }
@@ -851,21 +799,6 @@ export class MockBackend {
     };
   }
 
-  private subAgentResponse(s: MockSubAgent) {
-    return {
-      id: s.id,
-      name: s.name,
-      description: s.description ?? '',
-      system_prompt: s.system_prompt ?? '',
-      model_name: s.model_name ?? null,
-      provider_type: s.provider_type ?? 'mock',
-      available_tools: s.available_tools ?? null,
-      think: s.think ?? false,
-      use_deferred_tools: s.use_deferred_tools ?? false,
-      enabled: s.enabled ?? true,
-    };
-  }
-
   // --- Conversation helpers ---
 
   private conversationSummary(c: StoredConversation) {
@@ -873,7 +806,6 @@ export class MockBackend {
     return {
       id: c.id,
       title: c.title,
-      persona_id: c.persona_id,
       created_at: c.created_at,
       updated_at: c.updated_at,
       message_count: c.messages.length,
@@ -892,7 +824,6 @@ export class MockBackend {
   }
 
   private createConversation(
-    personaId: number | null,
     title = 'Mock Conversation',
     id?: number,
   ): StoredConversation {
@@ -901,7 +832,6 @@ export class MockBackend {
     const conv: StoredConversation = {
       id: id ?? this.nextConversationId++,
       title,
-      persona_id: personaId,
       created_at: now,
       updated_at: now,
       compacted_context: '',
@@ -914,8 +844,8 @@ export class MockBackend {
 
   /**
    * Put a finished conversation in the store, shaped exactly the way the chat
-   * path shapes one — same message fields, same `persona_id` on the assistant
-   * turns only — so nothing reading `GET /conversations` can tell a seeded
+   * path shapes one — same message fields, the speaker's `persona_id` on the
+   * assistant turns only — so nothing reading `GET /conversations` can tell a seeded
    * conversation from one that was chatted into.
    */
   private seedConversation(seed: MockConversationSeed) {
@@ -925,7 +855,7 @@ export class MockBackend {
     if (seed.persona !== undefined && !persona) {
       throw new Error(`seeded conversation "${seed.title}": no persona named "${seed.persona}"`);
     }
-    const conv = this.createConversation(persona?.id ?? null, seed.title);
+    const conv = this.createConversation(seed.title);
     const step = 60_000;
     const last = Date.now() - seed.agoMinutes * step;
     const first = last - Math.max(0, seed.messages.length - 1) * step;
@@ -1169,65 +1099,22 @@ export class MockBackend {
       if (method === 'DELETE') {
         if (!persona) return this.error(res, 404, 'Persona not found');
         // Any persona can go, the last one included: the assistant answers
-        // without one. The FK clears the selection and conversation bindings, so
-        // those go back to the assistant rather than to another persona (#302).
+        // without one. The FK clears the selection, so every conversation goes
+        // back to the assistant rather than to another persona (#302), and the
+        // messages it spoke keep no speaker.
         this.personas = this.personas.filter((p) => p.id !== id);
         this.stopSelecting(id);
         for (const conv of this.conversations.values()) {
-          if (conv.persona_id === id) conv.persona_id = null;
+          for (const m of conv.messages) if (m.persona_id === id) m.persona_id = null;
         }
         return this.json(res, { message: 'Persona deleted successfully' });
       }
     }
 
-    // Sub-agents — task-only workers, no identity, no memory.
-    if (pathOnly === '/sub-agents' && method === 'GET') {
-      return this.json(res, this.subAgents.map((s) => this.subAgentResponse(s)));
-    }
-    if (pathOnly === '/sub-agents' && method === 'POST') {
-      const body = await this.readJson(req);
-      const subAgent: MockSubAgent = {
-        id: Math.max(0, ...this.subAgents.map((s) => s.id)) + 1,
-        name: body.name ?? 'Sub-agent',
-        description: body.description ?? '',
-        system_prompt: body.system_prompt ?? '',
-        model_name: body.model_name ?? null,
-        provider_type: body.provider_type ?? 'mock',
-        available_tools: body.available_tools ?? null,
-        think: body.think ?? false,
-        use_deferred_tools: body.use_deferred_tools ?? false,
-        enabled: body.enabled ?? true,
-      };
-      this.subAgents.push(subAgent);
-      return this.json(res, this.subAgentResponse(subAgent));
-    }
-    const subAgentEnabledMatch = pathOnly.match(/^\/sub-agents\/(\d+)\/enabled$/);
-    if (subAgentEnabledMatch && method === 'PATCH') {
-      const sub = this.subAgents.find((s) => s.id === parseInt(subAgentEnabledMatch[1], 10));
-      if (!sub) return this.error(res, 404, 'Sub-agent not found');
-      const body = await this.readJson(req);
-      sub.enabled = !!body.enabled;
-      return this.json(res, this.subAgentResponse(sub));
-    }
-    const subAgentMatch = pathOnly.match(/^\/sub-agents\/(\d+)$/);
-    if (subAgentMatch) {
-      const id = parseInt(subAgentMatch[1], 10);
-      const sub = this.subAgents.find((s) => s.id === id);
-      if (method === 'GET') {
-        if (!sub) return this.error(res, 404, 'Sub-agent not found');
-        return this.json(res, this.subAgentResponse(sub));
-      }
-      if (method === 'PATCH') {
-        if (!sub) return this.error(res, 404, 'Sub-agent not found');
-        Object.assign(sub, await this.readJson(req));
-        return this.json(res, this.subAgentResponse(sub));
-      }
-      if (method === 'DELETE') {
-        if (!sub) return this.error(res, 404, 'Sub-agent not found');
-        // Nothing references a sub-agent, so there is nothing to repair.
-        this.subAgents = this.subAgents.filter((s) => s.id !== id);
-        return this.json(res, { message: 'Sub-agent deleted successfully' });
-      }
+    // Saved sub-agents are gone (#354): the assistant spawns its own. The route
+    // is not there, so it is the backend's 404, not the `{}` catch-all.
+    if (pathOnly === '/sub-agents' || pathOnly.startsWith('/sub-agents/')) {
+      return this.error(res, 404, 'Not Found');
     }
 
     // Conversations
@@ -1240,25 +1127,8 @@ export class MockBackend {
           ? b.id - a.id
           : (a.updated_at < b.updated_at ? 1 : -1)));
 
-      // `?persona_id=` is the store's fallback when the localStorage mapping is
-      // gone. The backend answers with the latest conversation bound to that
-      // persona and nothing else — no message_count, no last_message — so only
-      // the id is dependable, and the mock has to be equally stingy or the
-      // fallback path is tested against data the real server never sends.
-      const personaFilter = query.get('persona_id');
-      if (personaFilter !== null) {
-        const personaId = parseInt(personaFilter, 10);
-        const match = all.find((c) => c.persona_id === personaId);
-        if (!match) return this.json(res, []);
-        return this.json(res, [{
-          id: match.id,
-          title: match.title,
-          persona_id: match.persona_id,
-          created_at: match.created_at,
-          updated_at: match.updated_at,
-        }]);
-      }
-
+      // A conversation carries no persona (#354): there is no `?persona_id=`
+      // filter, and an unknown query parameter is ignored, as FastAPI does.
       return this.json(res, all.map((c) => this.conversationSummary(c)));
     }
     const convMatch = pathOnly.match(/^\/conversations\/(\d+)$/);
@@ -1269,9 +1139,6 @@ export class MockBackend {
       return this.json(res, {
         id,
         title: conv.title,
-        // Whoever this conversation is bound to. The store holds this and the
-        // chat header renders from it; returning nothing leaves it undefined.
-        persona_id: conv.persona_id,
         created_at: conv.created_at,
         messages: conv.messages.map((m) => this.messageResponse(m)),
         total_messages: conv.messages.length,
@@ -1288,24 +1155,18 @@ export class MockBackend {
       const conv = this.conversations.get(id);
       const body = await this.readJson(req);
       this.lastConversationPatch = { id, body };
+      // A rename and nothing else (#354): the body model forbids any other
+      // field, so pydantic refuses it with 422 before the route runs.
+      const unknown = Object.keys(body).filter((k) => k !== 'title');
+      if (unknown.length > 0) {
+        return this.json(res, { detail: unknown.map((k) => ({ type: 'extra_forbidden', loc: ['body', k], msg: 'Extra inputs are not permitted' })) }, 422);
+      }
       if (!conv) return this.error(res, 404, 'Conversation not found');
       if (Object.keys(body).length === 0) return this.error(res, 400, 'Nothing to update');
-      if ('title' in body && !(body.title ?? '').trim()) {
-        return this.error(res, 400, 'Title cannot be empty');
-      }
-      if ('persona_id' in body && body.persona_id !== null) {
-        const persona = this.findPersona(body.persona_id);
-        if (!persona) return this.error(res, 404, 'Persona not found');
-        if (persona.enabled === false) {
-          return this.error(res, 400, 'That persona is disabled. Enable it before using it here.');
-        }
-      }
-      if ('title' in body) conv.title = body.title;
-      // An explicit null unbinds, so the next message falls back to the
-      // assistant's default persona.
-      if ('persona_id' in body) conv.persona_id = body.persona_id;
+      if (!(body.title ?? '').trim()) return this.error(res, 400, 'Title cannot be empty');
+      conv.title = body.title;
       this.touch(conv);
-      return this.json(res, { id: conv.id, title: conv.title, persona_id: conv.persona_id });
+      return this.json(res, { id: conv.id, title: conv.title });
     }
     if (convMatch && method === 'DELETE') {
       const id = parseInt(convMatch[1], 10);
@@ -2097,9 +1958,9 @@ export class MockBackend {
     return merged;
   }
 
-  private json(res: http.ServerResponse, body: unknown) {
+  private json(res: http.ServerResponse, body: unknown, status = 200) {
     res.setHeader('Content-Type', 'application/json');
-    res.statusCode = 200;
+    res.statusCode = status;
     res.end(JSON.stringify(body));
   }
 
@@ -2139,12 +2000,12 @@ export class MockBackend {
     let cancelRequested = false;
 
     // Announce connection. The real session outlives one socket, so a reconnect
-    // reports the last turn's conversation and the persona that spoke it.
+    // reports the last turn's conversation. No persona: who answers is the
+    // account's (#354).
     send({
       type: 'connected',
       chat_active: false,
       conversation_id: this.lastTurn.conversationId,
-      persona_id: this.lastTurn.personaId,
       vision_active: false,
       vision_config: null,
     });
@@ -2173,25 +2034,22 @@ export class MockBackend {
 
         let conv = event.conversation_id ? this.conversations.get(event.conversation_id) : undefined;
 
-        // Binding precedence, as the backend resolves it: an explicit per-turn
-        // `persona_id` → the conversation's existing binding → the assistant's
-        // default, for an unanswered conversation → the assistant itself.
-        // `agent_id` is not accepted; a client still sending it gets the
-        // default, exactly as the real server would.
-        const persona = this.resolvePersona(event.persona_id, conv);
+        // Who answers is the persona in use for the whole account, in any
+        // conversation (#354). A `persona_id` or a legacy `agent_id` on the
+        // request is ignored, exactly as the real server ignores it.
+        const persona = this.personaInUse();
 
         if (!conv) {
-          // A null conversation_id means "start one". A stale id the mock has
-          // never seen keeps its number, so the client's own bookkeeping stays
+          // A null conversation_id means "start one", titled after the first
+          // message as the backend titles it. A stale id the mock has never
+          // seen keeps its number, so the client's own bookkeeping stays
           // consistent instead of silently moving to a different conversation.
-          conv = this.createConversation(persona?.id ?? null, 'Mock Conversation', event.conversation_id ?? undefined);
-        } else if (conv.persona_id !== (persona?.id ?? null)) {
-          // A per-turn override rebinds the conversation server-side, and a
-          // binding to a persona that is gone or disabled falls to the assistant.
-          conv.persona_id = persona?.id ?? null;
+          const text: string = event.text ?? '';
+          const title = text.length > 80 ? `${text.slice(0, 80)}...` : text;
+          conv = this.createConversation(title, event.conversation_id ?? undefined);
         }
         const conversationId = conv.id;
-        this.lastTurn = { conversationId, personaId: persona?.id ?? null };
+        this.lastTurn = { conversationId };
 
         conv.messages.push({
           id: this.nextMessageId++,
@@ -2235,11 +2093,12 @@ export class MockBackend {
           const personaName = isTool ? null : (chunk.personaName ?? speaker?.name ?? ASSISTANT_NAME);
           const label = isTool ? (chunk.name ?? 'mock_tool') : personaName;
           // A tool chunk says what it was and how long it took; a delegation also
-          // names the sub-agent's model, as the backend does (#327).
+          // names the model it ran on, as the backend does (#327) — the
+          // assistant's own, since it spawns the sub-agent on it (#354).
           const toolKind = isTool ? (chunk.toolKind ?? 'tool') : null;
           const durationMs = isTool ? (chunk.durationMs ?? 12) : null;
           const toolModel = toolKind === 'sub_agent'
-            ? (this.subAgents.find((s) => s.name === label)?.model_name ?? null)
+            ? (this.assistant.model_name ?? event.model_name ?? null)
             : null;
 
           const last = segments[segments.length - 1];
@@ -2349,7 +2208,7 @@ export class MockBackend {
           : 0;
         old.compacted_context = summary;
         old.compacted_up_to_id = lastMessageId;
-        this.lastTurn = { conversationId: oldId, personaId: old.persona_id };
+        this.lastTurn = { conversationId: oldId };
 
         send({
           type: 'context_info',

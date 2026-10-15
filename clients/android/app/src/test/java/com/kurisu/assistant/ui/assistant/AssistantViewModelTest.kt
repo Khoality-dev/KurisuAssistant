@@ -4,12 +4,10 @@ import com.google.common.truth.Truth.assertThat
 import com.kurisu.assistant.data.model.Assistant
 import com.kurisu.assistant.data.model.AssistantUpdate
 import com.kurisu.assistant.data.model.ModelInfo
-import com.kurisu.assistant.data.model.SubAgent
 import com.kurisu.assistant.data.model.Tool
 import com.kurisu.assistant.data.model.ToolFunction
 import com.kurisu.assistant.data.model.ToolsResponse
 import com.kurisu.assistant.data.repository.AssistantRepository
-import com.kurisu.assistant.data.repository.SubAgentRepository
 import com.kurisu.assistant.data.repository.ToolsRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -47,7 +45,6 @@ class AssistantViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
 
     private lateinit var assistantRepo: AssistantRepository
-    private lateinit var subAgentRepo: SubAgentRepository
     private lateinit var toolsRepo: ToolsRepository
 
     /** Every body the view model sent to `PATCH /assistant`, in order. */
@@ -81,7 +78,6 @@ class AssistantViewModelTest {
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         assistantRepo = mockk(relaxed = true)
-        subAgentRepo = mockk(relaxed = true)
         toolsRepo = mockk(relaxed = true)
         patches.clear()
 
@@ -90,7 +86,6 @@ class AssistantViewModelTest {
             ModelInfo("qwen3:8b", "ollama"),
             ModelInfo("gemini-2.0-flash", "gemini"),
         )
-        coEvery { subAgentRepo.listSubAgents() } returns emptyList()
         coEvery { toolsRepo.listTools() } returns ToolsResponse(
             mcpTools = listOf(tool("mail.search")),
             builtinTools = listOf(tool("web_search"), tool("read_file")),
@@ -116,22 +111,17 @@ class AssistantViewModelTest {
 
     private fun viewModel() = AssistantViewModel(
         assistantRepository = assistantRepo,
-        subAgentRepository = subAgentRepo,
         toolsRepository = toolsRepo,
     )
 
     @Test
-    fun `loads the assistant and its sub-agents`() = runTest {
-        coEvery { subAgentRepo.listSubAgents() } returns listOf(
-            SubAgent(id = 4, name = "code-reader", modelName = "qwen2.5-coder:7b")
-        )
+    fun `loads the assistant`() = runTest {
         val vm = viewModel()
         advanceUntilIdle()
 
         val s = vm.state.value
         assertThat(s.isLoading).isFalse()
         assertThat(s.assistant?.modelName).isEqualTo("qwen3:8b")
-        assertThat(s.subAgents.map { it.name }).containsExactly("code-reader")
         // Built-in and MCP tools land in one list, sorted, for the picker.
         assertThat(s.allToolNames).containsExactly("mail.search", "read_file", "web_search").inOrder()
     }
@@ -294,69 +284,12 @@ class AssistantViewModelTest {
         assertThat(keys).containsNoneOf("model_name", "provider_type", "selected_persona_id")
     }
 
-    // ─── Sub-agents ───────────────────────────────────────────────────
-
     @Test
-    fun `a sub-agent needs a name and a model`() = runTest {
-        val vm = viewModel()
-        advanceUntilIdle()
-
-        vm.openNewSubAgent()
-        vm.saveSubAgent()
-        advanceUntilIdle()
-        assertThat(vm.state.value.message).isEqualTo("Name is required")
-
-        vm.setSubDraftName("summarizer")
-        vm.setSubDraftModelName("  ")
-        vm.saveSubAgent()
-        advanceUntilIdle()
-        assertThat(vm.state.value.message).isEqualTo("Model is required")
-
-        coVerify(exactly = 0) { subAgentRepo.createSubAgent(any()) }
-    }
-
-    @Test
-    fun `a new sub-agent defaults to the assistant's model`() = runTest {
-        val vm = viewModel()
-        advanceUntilIdle()
-
-        vm.openNewSubAgent()
-
-        assertThat(vm.state.value.subDraftModelName).isEqualTo("qwen3:8b")
-        assertThat(vm.state.value.editingSubAgent).isNull()
-    }
-
-    @Test
-    fun `creating a sub-agent never touches the assistant`() = runTest {
-        val vm = viewModel()
-        advanceUntilIdle()
-
-        vm.openNewSubAgent()
-        vm.setSubDraftName("  summarizer  ")
-        vm.saveSubAgent()
-        advanceUntilIdle()
-
-        coVerify(exactly = 1) {
-            subAgentRepo.createSubAgent(match { it.name == "summarizer" })
-        }
-        // A worker gaining a model must not repoint the assistant at it.
-        assertThat(patches).isEmpty()
-        assertThat(vm.state.value.subEditorOpen).isFalse()
-    }
-
-    @Test
-    fun `deleting a sub-agent surfaces the reason when the server refuses`() = runTest {
-        val subAgent = SubAgent(id = 4, name = "code-reader", modelName = "m")
-        coEvery { subAgentRepo.deleteSubAgent(4) } throws httpError(400, "Still referenced.")
-        val vm = viewModel()
-        advanceUntilIdle()
-
-        vm.confirmDeleteSubAgent(subAgent)
-        vm.deleteSubAgent()
-        advanceUntilIdle()
-
-        assertThat(vm.state.value.message).isEqualTo("Still referenced.")
-        assertThat(vm.state.value.deletingSubAgent).isNull()
+    fun `there are no sub-agents to set up`() {
+        // The assistant spawns a helper itself when it needs one (#354); the
+        // screen has nothing to list, edit or delete.
+        val names = AssistantUiState::class.java.declaredFields.map { it.name }
+        assertThat(names.filter { it.contains("sub", ignoreCase = true) }).isEmpty()
     }
 
     @Test

@@ -11,7 +11,7 @@ the client's approval answer can only ever narrow it, never widen it.
 
 import pytest
 
-from kurisuassistant.agents.base import AssistantConfig, PersonaConfig, SubAgentConfig, AgentContext
+from kurisuassistant.agents.base import AssistantConfig, PersonaConfig, AgentContext
 from kurisuassistant.agents.main import MainAgent
 from kurisuassistant.tools import ToolRegistry
 from kurisuassistant.tools.base import BaseTool

@@ -43,14 +43,16 @@ class SubAgentTest : E2eTest() {
     override val scenario = "sub-agent"
 
     @Test
-    fun a_step_delegated_to_a_sub_agent_is_tagged_with_its_name() {
+    fun a_step_handed_to_a_spawned_sub_agent_is_tagged() {
+        // There are no saved sub-agents (#354): the assistant spawns one through
+        // its built-in `delegate_task`, and the step is still tagged as one.
         login()
         openChat()
         send("Ask the researcher")
 
         waitUntilViewShows("Nothing new, then.")
         waitForText("sub-agent")
-        waitForText("Researcher")
+        waitForText("delegate_task")
     }
 }
 
