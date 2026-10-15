@@ -9,6 +9,8 @@ How a turn behaves on screen: streaming, speech, the voice call mode, and the co
 - **`streamingMessages`** = ephemeral local state (user msg + assistant/tool responses during stream)
 - Render: `[...displayedMessages, ...streamingMessages]` where `displayedMessages` is filtered by display mode
 - Uses WebSocket via `wsManager` (StreamChunkEvent, DoneEvent, ErrorEvent, ContextInfoEvent)
+- A task tool's result (`task_start`, `task_schedule`, `task_update`, `task_stop`, `task_delete`) is JSON the chat renders as a card instead of a collapsed tool bubble (`TaskResultCard`, `parseTaskToolResult` in `@kurisu/models`, #352): what was started or scheduled, its schedule and next run, "Open in Tasks", and Stop while a started task runs. Anything else, an error included, stays an ordinary tool bubble.
+- A task run's conversation may be waiting on the user to approve a call (#352). No live turn is attached, so `ChatWidget` takes it from `tasksStore.approvalForConversation` and shows the usual `ToolApprovalBar`; the answer goes over REST (`POST /tasks/approvals/{id}`), "Always allow/deny" also stores the tool policy.
 - Same-role chunks accumulated into single bubble; role/persona change → new bubble. `StreamChunkEvent.persona_id`/`persona_name` are set on assistant chunks only and are null on tool chunks, where `name` is the tool label and `tool_kind` ("tool"|"sub_agent") + `duration_ms` are the only source for the sub-agent tag and the call timing
 - Display via `requestAnimationFrame` batching
 - On DoneEvent: streaming messages merged into store instantly (no flash), background `loadConversation()` after 500ms for DB IDs/metadata

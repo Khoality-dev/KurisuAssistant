@@ -35,8 +35,8 @@ class ConversationRepository(BaseRepository[Conversation]):
     def list_by_user(self, user_id: int, limit: int = 50) -> List[dict]:
         """List conversations with metadata for a user.
 
-        Each entry: id, title, created_at, updated_at,
-        message_count, last_message.
+        Each entry: id, title, task_run, task_id, created_at,
+        updated_at, message_count, last_message.
         """
         latest_msg_subq = (
             self.session.query(
@@ -62,6 +62,8 @@ class ConversationRepository(BaseRepository[Conversation]):
             self.session.query(
                 Conversation.id,
                 Conversation.title,
+                Conversation.task_run,
+                Conversation.task_id,
                 Conversation.created_at,
                 Conversation.updated_at,
                 func.coalesce(msg_count_subq.c.msg_count, 0).label("message_count"),
@@ -96,6 +98,9 @@ class ConversationRepository(BaseRepository[Conversation]):
             result.append({
                 "id": conv.id,
                 "title": conv.title or "New conversation",
+                # Written by a task run (#352), not by the user in a chat.
+                "task_run": bool(conv.task_run),
+                "task_id": conv.task_id,
                 "created_at": conv.created_at.isoformat() + "Z",
                 "updated_at": (
                     conv.updated_at.isoformat() + "Z"

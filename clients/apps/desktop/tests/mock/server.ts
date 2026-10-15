@@ -31,8 +31,10 @@ import {
   WS_AUTH_SUBPROTOCOL,
   WS_WIRE_SUBPROTOCOL_PREFIX,
   WS_WIRE_PROTOCOL_MISMATCH,
+  type AssistantTask,
   type CharacterConfigDTO,
   type EmotionCueRecord,
+  type TaskRun,
   type VrmClipRef,
   type VrmEmotion,
   type VrmSettings,
@@ -263,6 +265,9 @@ export type MockSeedMessage =
  */
 export interface MockConversationSeed {
   title: string;
+  /** Written by a task run (#352); `taskId` names the task, when it still exists. */
+  taskRun?: boolean;
+  taskId?: number | null;
   /** Who answers it, by persona name. Omitted leaves the conversation unbound. */
   persona?: string;
   agoMinutes: number;
@@ -281,6 +286,47 @@ export interface MockVoice {
   model: string;
 }
 
+/**
+ * A task (#352), as `GET /tasks` serves it. Only `id`, `title` and `status` are
+ * needed; the rest defaults to a daily 08:00 task in UTC. `runs` are what
+ * `GET /tasks/{id}` adds, newest first.
+ */
+export type MockTaskSeed = Partial<AssistantTask> & Pick<AssistantTask, 'id' | 'title' | 'status'>;
+
+/** Whether the runtime knows `zone` as an IANA time zone, as `core/timezone.py` asks. */
+export function isIanaZone(zone: string): boolean {
+  if (!zone.includes('/') && zone !== 'UTC') return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: zone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The backend's `tasks/schedule.py::describe`, for the schedules the mock edits. */
+export function describeMockSchedule(task: Pick<AssistantTask, 'repeat' | 'time' | 'days' | 'every_hours' | 'timezone' | 'run_at'>): string {
+  const plurals: Record<string, string> = {
+    mon: 'Mondays', tue: 'Tuesdays', wed: 'Wednesdays', thu: 'Thursdays', fri: 'Fridays', sat: 'Saturdays', sun: 'Sundays',
+  };
+  const order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  let label: string;
+  switch (task.repeat) {
+    case 'now': return 'Right away';
+    case 'hourly': return task.every_hours === 1 ? 'Every hour' : `Every ${task.every_hours} hours`;
+    case 'daily': label = `Every day at ${task.time}`; break;
+    case 'weekdays': label = `Weekdays at ${task.time}`; break;
+    case 'weekly': {
+      const names = [...task.days].sort((a, b) => order.indexOf(a) - order.indexOf(b)).map((d) => plurals[d]);
+      const joined = names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+      label = `${joined} at ${task.time}`;
+      break;
+    }
+    default: label = `Once · ${task.run_at ?? ''}`;
+  }
+  return task.timezone && task.timezone !== 'UTC' ? `${label} (${task.timezone})` : label;
+}
+
 /** A skill, appended to the assistant's system prompt. */
 export interface MockSkill {
   id?: number;
@@ -291,6 +337,7 @@ export interface MockSkill {
 export interface MockBackendOptions {
   personas?: MockPersona[];
   conversations?: MockConversationSeed[];
+  tasks?: MockTaskSeed[];
   skills?: MockSkill[];
   /** What `GET /models` offers. Defaults to the one model the specs assert on. */
   models?: Array<{ name: string; provider?: string }>;
@@ -348,6 +395,8 @@ export interface MockNotification {
 interface StoredConversation {
   id: number;
   title: string;
+  task_run?: boolean;
+  task_id?: number | null;
   created_at: string;
   updated_at: string;
   compacted_context: string;
@@ -370,6 +419,15 @@ export class MockBackend {
   private nextMcpServerId = 1;
   private conversations: Map<number, StoredConversation> = new Map();
   private skills: Array<{ id: number; name: string; instructions: string; created_at: string }> = [];
+  /** Tasks (#352), with their runs. */
+  private tasks: AssistantTask[] = [];
+  /** The body of the most recent `PATCH /tasks/{id}`, with the id it hit. */
+  public lastTaskPatch: { id: number; body: any } | null = null;
+  /** The account's time zone (#352), and every value a client PATCHed into it. */
+  private accountTimezone: string | null = null;
+  public timezonePatches: Array<string | null> = [];
+  /** Every `POST /tasks/approvals/{id}` answer, oldest first. */
+  public approvalAnswers: Array<{ id: number; approved: boolean }> = [];
   private nextSkillId = 1;
   private models: Array<{ name: string; provider: string }> = [{ name: 'test-model', provider: 'mock' }];
   private voices: MockVoice[] = [];
@@ -512,6 +570,7 @@ export class MockBackend {
     if (opts.characterQuotaBytes !== undefined) this.characterQuotaBytes = opts.characterQuotaBytes;
     for (const entry of opts.drive ?? []) this.seedDriveEntry(entry);
     for (const seed of opts.conversations ?? []) this.seedConversation(seed);
+    for (const seed of opts.tasks ?? []) this.tasks.push(this.resolveTask(seed));
     for (const skill of opts.skills ?? []) {
       const id = skill.id ?? this.nextSkillId;
       this.nextSkillId = Math.max(this.nextSkillId, id + 1);
@@ -829,6 +888,80 @@ export class MockBackend {
     return [...this.mcpServers];
   }
 
+  // --- Tasks (#352) ---
+
+  private resolveTask(seed: MockTaskSeed): AssistantTask {
+    const base: AssistantTask = {
+      instructions: 'Do the thing.',
+      repeat: 'daily',
+      timezone: 'UTC',
+      run_at: null,
+      time: '08:00',
+      days: [],
+      every_hours: null,
+      schedule_label: '',
+      next_run_at: seed.status === 'scheduled' ? new Date(Date.now() + 3_600_000).toISOString() : null,
+      last_run_at: null,
+      planned_in_conversation_id: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      runs: [],
+      pending_approval: null,
+      ...seed,
+    };
+    if (!base.schedule_label) base.schedule_label = describeMockSchedule(base);
+    return base;
+  }
+
+  /** What `GET /tasks` lists: a task without its runs. */
+  private taskSummary(t: AssistantTask): AssistantTask {
+    const { runs: _runs, ...rest } = t;
+    return rest as AssistantTask;
+  }
+
+  /** The account's time zone, as a spec's starting state; `getTimezone` reads it back. */
+  setTimezone(zone: string | null) {
+    this.accountTimezone = zone;
+  }
+
+  getTimezone(): string | null {
+    return this.accountTimezone;
+  }
+
+  /** Replace the tasks, as a spec's starting state. */
+  setTasks(seeds: MockTaskSeed[]) {
+    this.tasks = seeds.map((seed) => this.resolveTask(seed));
+  }
+
+  /** Add a conversation after construction; answers its id. */
+  addConversation(seed: MockConversationSeed): number {
+    this.seedConversation(seed);
+    return this.nextConversationId - 1;
+  }
+
+  getTasks(): AssistantTask[] {
+    return this.tasks.map((t) => structuredClone(t));
+  }
+
+  /** Change a task as a run would, and tell every client, as the server does. */
+  updateTaskState(id: number, patch: Partial<AssistantTask>, run?: TaskRun) {
+    const task = this.tasks.find((t) => t.id === id);
+    if (!task) throw new Error(`no task ${id}`);
+    Object.assign(task, patch);
+    if (run) task.runs = [run, ...(task.runs ?? []).filter((r) => r.id !== run.id)];
+    this.emitTasksChanged(id);
+  }
+
+  /** `tasks_changed` to every open socket. */
+  emitTasksChanged(taskId: number | null) {
+    const payload = JSON.stringify({
+      type: 'tasks_changed', task_id: taskId, event_id: randomUUID(), timestamp: new Date().toISOString(),
+    });
+    for (const client of this.wss.clients) {
+      if (client.readyState === WebSocket.OPEN) client.send(payload);
+    }
+  }
+
   /**
    * Force-close every active WebSocket client connection. Simulates a backend
    * that drops the socket (flaky network, server restart, etc.) while the HTTP
@@ -891,6 +1024,8 @@ export class MockBackend {
     return {
       id: c.id,
       title: c.title,
+      task_run: c.task_run ?? false,
+      task_id: c.task_id ?? null,
       created_at: c.created_at,
       updated_at: c.updated_at,
       message_count: c.messages.length,
@@ -941,6 +1076,8 @@ export class MockBackend {
       throw new Error(`seeded conversation "${seed.title}": no persona named "${seed.persona}"`);
     }
     const conv = this.createConversation(seed.title);
+    conv.task_run = seed.taskRun ?? false;
+    conv.task_id = seed.taskId ?? null;
     const step = 60_000;
     const last = Date.now() - seed.agoMinutes * step;
     const first = last - Math.max(0, seed.messages.length - 1) * step;
@@ -1047,10 +1184,21 @@ export class MockBackend {
         has_gemini_key: false,
         has_nvidia_key: false,
         has_poe_key: false,
+        // The account's IANA zone (#352); null until a client fills it.
+        timezone: this.accountTimezone,
       });
     }
     if (pathOnly === '/users/me' && method === 'PATCH') {
-      return this.json(res, { ok: true });
+      const body = await this.readJson(req);
+      if ('timezone' in body) {
+        const zone = (body.timezone ?? '').trim();
+        if (zone && !isIanaZone(zone)) {
+          return this.error(res, 422, `'${zone}' is not a time zone. Use an IANA name such as Europe/Paris.`);
+        }
+        this.accountTimezone = zone || null;
+        this.timezonePatches.push(this.accountTimezone);
+      }
+      return this.json(res, { status: 'ok', message: 'Profile updated successfully' });
     }
     if (pathOnly === '/users/me/tool-policies') {
       return this.json(res, { tools: {} });
@@ -1224,6 +1372,8 @@ export class MockBackend {
       return this.json(res, {
         id,
         title: conv.title,
+        task_run: conv.task_run ?? false,
+        task_id: conv.task_id ?? null,
         created_at: conv.created_at,
         messages: conv.messages.map((m) => this.messageResponse(m)),
         total_messages: conv.messages.length,
@@ -1530,6 +1680,99 @@ export class MockBackend {
       if (!found) return this.error(res, 404, 'Notification not found');
       this.readNotifications((n) => n.id === id);
       return this.json(res, found);
+    }
+    // Tasks — `routers/tasks.py` (#352). No create: the assistant plans tasks.
+    // A finished one-off is left out unless asked for, as `routers/tasks.py` does.
+    if (pathOnly === '/tasks' && method === 'GET') {
+      const all = query.get('include_finished') === 'true';
+      return this.json(res, this.tasks.filter((t) => all || t.status !== 'finished').map((t) => this.taskSummary(t)));
+    }
+    // Calls task runs wait on the user to approve (#352).
+    if (pathOnly === '/tasks/approvals' && method === 'GET') {
+      return this.json(res, this.tasks.flatMap((t) => (t.pending_approval ? [t.pending_approval] : [])));
+    }
+    const approvalMatch = pathOnly.match(/^\/tasks\/approvals\/(\d+)$/);
+    if (approvalMatch && method === 'POST') {
+      const id = parseInt(approvalMatch[1], 10);
+      const task = this.tasks.find((t) => t.pending_approval?.id === id);
+      if (!task) return this.error(res, 404, 'Approval not found');
+      const body = await this.readJson(req);
+      const approval = task.pending_approval!;
+      this.approvalAnswers.push({ id, approved: !!body.approved });
+      task.pending_approval = null;
+      const [latest] = task.runs ?? [];
+      if (body.approved) {
+        task.status = 'running';
+        if (latest) latest.status = 'running';
+      } else {
+        task.status = task.repeat === 'now' || task.repeat === 'once' ? 'finished' : 'scheduled';
+        if (latest) {
+          latest.status = 'failed';
+          latest.error = `You denied ${approval.tool_name}, so the run stopped there.`;
+          latest.finished_at = new Date().toISOString();
+        }
+      }
+      this.emitTasksChanged(task.id);
+      return this.json(res, { ...approval, status: body.approved ? 'approved' : 'denied' });
+    }
+    const taskMatch = pathOnly.match(/^\/tasks\/(\d+)(\/stop)?$/);
+    if (taskMatch) {
+      const id = parseInt(taskMatch[1], 10);
+      const task = this.tasks.find((t) => t.id === id);
+      if (!task) return this.error(res, 404, 'Task not found');
+      if (taskMatch[2] && method === 'POST') {
+        if (task.status !== 'running' && task.status !== 'waiting_for_approval') {
+          return this.error(res, 409, 'This task is not running.');
+        }
+        task.pending_approval = null;
+        const [latest] = task.runs ?? [];
+        if (latest && latest.status === 'running') {
+          latest.status = 'stopped';
+          latest.finished_at = new Date().toISOString();
+        }
+        task.status = task.repeat === 'now' || task.repeat === 'once' ? 'finished' : 'scheduled';
+        this.emitTasksChanged(id);
+        return this.json(res, { stopped: true });
+      }
+      if (method === 'GET') return this.json(res, task);
+      if (method === 'PATCH') {
+        const body = await this.readJson(req);
+        this.lastTaskPatch = { id, body };
+        if (Object.keys(body).length === 0) return this.error(res, 400, 'Nothing to update');
+        // `tasks/operations.update_task`: a field sent as null is left as it is.
+        if (body.title != null) task.title = body.title;
+        if (body.instructions != null) task.instructions = body.instructions;
+        if (body.schedule) {
+          const sch = body.schedule;
+          if ((sch.repeat === 'daily' || sch.repeat === 'weekdays' || sch.repeat === 'weekly') && !/^([01]\d|2[0-3]):[0-5]\d$/.test(sch.time ?? '')) {
+            return this.error(res, 400, `'${sch.time ?? ''}' is not a time of day as HH:MM (24-hour), for example 07:30.`);
+          }
+          task.repeat = sch.repeat;
+          task.timezone = sch.timezone ?? 'UTC';
+          task.time = sch.time ?? null;
+          task.days = sch.days ?? [];
+          task.every_hours = sch.every_hours ?? null;
+          task.run_at = sch.at ?? null;
+          task.schedule_label = describeMockSchedule(task);
+          if (task.status === 'finished') task.status = 'scheduled';
+        }
+        if (body.paused === true && task.status !== 'running') {
+          task.status = 'paused';
+          task.next_run_at = null;
+        } else if (body.paused === false && task.status === 'paused') {
+          task.status = 'scheduled';
+          task.next_run_at = new Date(Date.now() + 3_600_000).toISOString();
+        }
+        task.updated_at = new Date().toISOString();
+        this.emitTasksChanged(id);
+        return this.json(res, task);
+      }
+      if (method === 'DELETE') {
+        this.tasks = this.tasks.filter((t) => t.id !== id);
+        for (const c of this.conversations.values()) if (c.task_id === id) c.task_id = null;
+        this.emitTasksChanged(id);
+        return this.json(res, { message: 'Task deleted' });
+      }
     }
 
     // Skills — `routers/skills.py`. Appended to the assistant's system prompt in

@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.MicOff
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -305,6 +306,16 @@ private fun ConversationRow(
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            if (row.taskRun) {
+                // Written by a task run, not by the user in a chat (#352).
+                Icon(
+                    Icons.Outlined.Schedule,
+                    contentDescription = "Task run",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+            }
             Text(
                 text = row.title,
                 style = MaterialTheme.typography.bodyLarge,

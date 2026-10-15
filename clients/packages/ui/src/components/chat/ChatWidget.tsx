@@ -42,6 +42,7 @@ import HeadsetOffIcon from '@mui/icons-material/HeadsetOff';
 
 import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '@kurisu/state';
+import { useTasksStore, useToolPermissionsStore } from '@kurisu/state';
 import { useAuthStore } from '@kurisu/state';
 import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { ASSISTANT_NAME } from '@kurisu/models';
@@ -534,6 +535,18 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
     return cleanup;
   }, []);
 
+  // A task run's conversation can be waiting on the user to approve a call
+  // (#352). No live turn is attached, so the answer goes over REST; the bar is
+  // the same one a chat turn's approval uses.
+  const taskApproval = useTasksStore((s) => s.approvalForConversation(currentConversation?.id));
+  const handleTaskApprovalRespond = useCallback((value: string) => {
+    if (!taskApproval) return;
+    const approved = value === 'approve' || value === 'session_allow' || value === 'always_allow';
+    if (value === 'always_allow') void useToolPermissionsStore.getState().setToolPolicy(taskApproval.tool_name, 'allow');
+    if (value === 'always_deny') void useToolPermissionsStore.getState().setToolPolicy(taskApproval.tool_name, 'deny');
+    void useTasksStore.getState().answerApproval(taskApproval.id, approved);
+  }, [taskApproval]);
+
   const handleHostApprovalRespond = useCallback((value: string) => {
     if (!hostApproval) return;
     resolveBridge().hostTools?.sendApprovalResponse(hostApproval.approvalId, value);
@@ -888,6 +901,19 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
             ? handleHostApprovalRespond
             : (value) => streaming.respondToApproval(value)
           }
+        />
+      ) : taskApproval ? (
+        <ToolApprovalBar
+          request={{
+            toolName: taskApproval.tool_name,
+            description: taskApproval.description || `${taskApproval.task_title} wants to use ${taskApproval.tool_name}`,
+            detail: Object.entries(taskApproval.tool_args ?? {})
+              .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+              .join('\n'),
+            executionLocation: 'backend',
+            requesterName: taskApproval.task_title,
+          }}
+          onRespond={handleTaskApprovalRespond}
         />
       ) : voiceMode ? (
         <VoiceModeBar

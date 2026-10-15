@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { deviceTimezone, fillTimezoneIfUnset } from './timezone';
 import { apiClient } from '@kurisu/api';
 import { forgetDriveCache } from '@kurisu/api';
 import { storage } from '@kurisu/api';
@@ -19,6 +20,11 @@ interface AuthState {
   setRememberMe: (remember: boolean) => void;
 }
 
+/** Fill an empty account time zone from this device (#352), once, silently. */
+function withAccountTimezone(user: UserProfile): Promise<UserProfile> {
+  return fillTimezoneIfUnset(user, deviceTimezone(), (fields) => apiClient.updateUserProfile(fields));
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: false,
   user: null,
@@ -35,7 +41,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     storage.setToken(response.access_token);
     storage.setRefreshToken(response.refresh_token);
 
-    const user = await apiClient.getUserProfile();
+    const user = await withAccountTimezone(await apiClient.getUserProfile());
     set({ isAuthenticated: true, user, rememberMe });
     // Load tool permission policies
     useToolPermissionsStore.getState().loadPolicies();
@@ -52,7 +58,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     storage.setToken(response.access_token);
     storage.setRefreshToken(response.refresh_token);
 
-    const user = await apiClient.getUserProfile();
+    const user = await withAccountTimezone(await apiClient.getUserProfile());
     set({ isAuthenticated: true, user, rememberMe });
     // Load tool permission policies
     useToolPermissionsStore.getState().loadPolicies();
@@ -74,7 +80,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   loadUserProfile: async () => {
-    const user = await apiClient.getUserProfile();
+    const user = await withAccountTimezone(await apiClient.getUserProfile());
     set({ user });
   },
 
@@ -110,7 +116,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     try {
       // getUserProfile will auto-refresh via the 401 interceptor if token expired
-      const user = await apiClient.getUserProfile();
+      const user = await withAccountTimezone(await apiClient.getUserProfile());
       set({ isAuthenticated: true, user, rememberMe });
       // Load tool permission policies
       useToolPermissionsStore.getState().loadPolicies();

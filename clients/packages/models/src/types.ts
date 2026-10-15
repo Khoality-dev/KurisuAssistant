@@ -83,6 +83,10 @@ export interface ConversationLastMessage {
 export interface Conversation {
   id: number;
   title: string;
+  // Written by a task run (#352) rather than by the user in a chat. `task_id`
+  // is null once the task is deleted; the conversation stays a task run.
+  task_run?: boolean;
+  task_id?: number | null;
   message_count: number;
   created_at: string;
   updated_at: string;
@@ -92,6 +96,8 @@ export interface Conversation {
 export interface ConversationDetail {
   id: number;
   title: string;
+  task_run?: boolean;
+  task_id?: number | null;
   created_at: string;
   messages: Message[];
   total_messages: number;
@@ -120,6 +126,11 @@ export interface UserProfile {
   poe_api_key?: string; // PATCH only
   summary_model?: string; // Model for frame summarization (null = use chat model)
   context_size?: number; // Ollama num_ctx override (null = default 8192)
+  /**
+   * The account's IANA time zone (#352). Null until a client fills it from its
+   * device; task schedules are read in it. PATCH "" clears it.
+   */
+  timezone?: string | null;
 }
 
 /**
@@ -441,4 +452,92 @@ export interface DriveUsage {
   quota_bytes: number;
   file_count: number;
   max_file_bytes: number;
+}
+
+// ---------------------------------------------------------------------------
+// Tasks (#352): work the assistant does on its own, now or on a schedule.
+// ---------------------------------------------------------------------------
+
+/**
+ * How the Tasks screen groups a task. A run waiting on the user's approval wins
+ * over the rest. `GET /tasks` leaves `finished` one-offs out unless asked for.
+ */
+export type TaskStatus = 'waiting_for_approval' | 'running' | 'scheduled' | 'paused' | 'finished';
+export type TaskRepeat = 'now' | 'once' | 'daily' | 'weekdays' | 'weekly' | 'hourly';
+export type TaskDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+export type TaskRunStatus = 'running' | 'waiting_for_approval' | 'done' | 'failed' | 'stopped';
+
+/** A tool call a task run waits on the user to approve (#352). */
+export interface TaskApproval {
+  id: number;
+  run_id: number;
+  task_id: number | null;
+  task_title: string;
+  /** The run's conversation, where the approval is answered too. */
+  conversation_id: number | null;
+  tool_name: string;
+  tool_args: Record<string, unknown>;
+  description: string;
+  status: 'pending' | 'approved' | 'denied' | 'expired' | 'cancelled';
+  requested_at: string | null;
+  /** Nobody answering by then denies the call. */
+  expires_at: string | null;
+}
+
+export interface TaskRun {
+  id: number;
+  status: TaskRunStatus;
+  /** Why a run failed, in words to show as they are. */
+  error: string | null;
+  /** The conversation the run wrote; open it to see what the assistant did. */
+  conversation_id: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface AssistantTask {
+  id: number;
+  title: string;
+  /** What the assistant does each run: the opening message of every run. */
+  instructions: string;
+  status: TaskStatus;
+  repeat: TaskRepeat;
+  timezone: string;
+  run_at: string | null;
+  time: string | null;
+  days: TaskDay[];
+  every_hours: number | null;
+  /** The schedule in a few words, made by the server ("Weekdays at 07:30"). */
+  schedule_label: string;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  planned_in_conversation_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+  /** The call the running task waits on the user to approve, when it waits. */
+  pending_approval?: TaskApproval | null;
+  /** Present on `GET /tasks/{id}` and `PATCH`: the ten newest runs, newest first. */
+  runs?: TaskRun[];
+}
+
+export interface TaskScheduleUpdate {
+  repeat: Exclude<TaskRepeat, 'now'>;
+  timezone?: string;
+  at?: string;
+  time?: string;
+  days?: TaskDay[];
+  every_hours?: number;
+}
+
+export interface TaskUpdate {
+  title?: string;
+  instructions?: string;
+  paused?: boolean;
+  schedule?: TaskScheduleUpdate;
+}
+
+/** What a task tool returns, as the chat shows it in a card. */
+export interface TaskToolResult {
+  action: 'started' | 'scheduled' | 'updated' | 'stopped' | 'not_running' | 'deleted';
+  task: AssistantTask;
 }

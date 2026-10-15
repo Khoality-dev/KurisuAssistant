@@ -23,6 +23,7 @@ routers disagree, the routers are right and this file is a bug.
 - [Speech Recognition](#speech-recognition)
 - [Tools & MCP Servers](#tools--mcp-servers)
 - [Skills](#skills)
+- [Tasks](#tasks)
 - [Face Recognition](#face-recognition)
 - [Character Assets](#character-assets)
 - [Notifications](#notifications)
@@ -219,6 +220,8 @@ filter is gone with the binding it filtered on.
   {
     "id": 12,
     "title": "Conversation title",
+    "task_run": false,
+    "task_id": null,
     "created_at": "2026-09-04T10:30:00Z",
     "updated_at": "2026-09-04T11:45:00Z",
     "message_count": 24,
@@ -227,6 +230,10 @@ filter is gone with the binding it filtered on.
   }
 ]
 ```
+
+`task_run` is true for a conversation a task run wrote (#352); `task_id` names
+the task, and is null once the task is deleted. `GET /conversations/{id}` carries
+both too.
 
 ---
 
@@ -756,9 +763,14 @@ than misread as a persona.
   "has_poe_key": false,
   "summary_model": "llama3.2:latest",
   "summary_provider": "ollama",
-  "context_size": 8192
+  "context_size": 8192,
+  "timezone": "Europe/Paris"
 }
 ```
+
+`timezone` is the account's IANA time zone, or null until a client fills it from
+its device (both do, once, the first time they find it empty). Task schedules are
+read in it (#352); unset is UTC.
 
 **Provider API keys are write-only** (wire protocol 2). The response reports only
 whether one is configured. A client must omit the key from a PATCH unless the user
@@ -783,6 +795,7 @@ client shows when the answering persona has no avatar of its own.
 | `summary_model` | string | Used for compaction **and** memory consolidation |
 | `summary_provider` | string | `ollama` \| `gemini` \| `nvidia` \| `poe` |
 | `context_size` | integer | Context window used for the 90% compaction trigger |
+| `timezone` | string | An IANA time zone such as `Europe/Paris`; `""` or null clears it. Anything else is a `422` naming it |
 
 **Response:** `{"status": "ok", "message": "Profile updated successfully"}`
 
@@ -1176,6 +1189,113 @@ orchestrator.
 → `{"deleted": true}`. **Error:** `404` not found.
 
 There is no skill export/import endpoint on the server.
+
+---
+
+## Tasks
+
+Work the assistant does on its own, now or on a schedule (#352). There is no
+create route: the assistant plans tasks with its own tools (`task_start`,
+`task_schedule`, …; see `tasks.md`). A task that is not the caller's is a `404`.
+
+### GET /tasks
+
+**Query:** `include_finished` (default `false`): a one-off task that has run is
+`finished` and left out unless asked for — the Tasks screen shows what the
+assistant will still do, and the run it made is a conversation.
+
+**Response:** `200 OK` — every task, oldest first:
+```json
+[
+  {
+    "id": 2,
+    "title": "Morning briefing",
+    "instructions": "Weather and today's calendar, three lines at most.",
+    "status": "scheduled",
+    "repeat": "weekdays",
+    "timezone": "Europe/Paris",
+    "run_at": null,
+    "time": "07:30",
+    "days": [],
+    "every_hours": null,
+    "schedule_label": "Weekdays at 07:30 (Europe/Paris)",
+    "next_run_at": "2026-10-14T05:30:00Z",
+    "last_run_at": "2026-10-13T05:30:00Z",
+    "planned_in_conversation_id": 9,
+    "created_at": "2026-10-02T08:12:00Z",
+    "updated_at": "2026-10-13T05:30:00Z"
+  }
+]
+```
+
+`status` is `waiting_for_approval` (a run waits on the user; `pending_approval`
+then holds the call, shaped as below), `running`, `scheduled`, `paused` or
+`finished` (a one-off that has run). `pending_approval` is null otherwise. `repeat` is `now`, `once` (with `run_at`, UTC), `daily`,
+`weekdays`, `weekly` (with `days`, `mon`…`sun`) or `hourly` (with
+`every_hours`); `time` is `HH:MM` in `timezone`. `schedule_label` is the schedule
+in a few words, for display.
+
+### GET /tasks/{task_id}
+
+The task as above, plus `runs`: the ten newest, newest first.
+```json
+"runs": [
+  {"id": 21, "status": "failed", "error": "history_list needed approval, and nobody was there to give it. A task can only use tools set to Allow in Settings › Tools.",
+   "conversation_id": 40, "started_at": "2026-10-13T05:30:00Z", "finished_at": "2026-10-13T05:30:03Z"}
+]
+```
+`status` is `running`, `waiting_for_approval`, `done`, `failed` (with `error`, a
+sentence to show as it is) or `stopped`. `conversation_id` is the conversation
+the run wrote.
+
+### GET /tasks/approvals
+
+Tool calls the user's task runs are waiting on them to approve, oldest first. A
+schedule's stored Allow/Deny policy is applied before a call ever waits.
+```json
+[
+  {"id": 3, "run_id": 21, "task_id": 2, "task_title": "Morning briefing", "conversation_id": 40,
+   "tool_name": "drive_write", "tool_args": {"path": "/notes/today.md"},
+   "description": "Write /notes/today.md", "status": "pending",
+   "requested_at": "2026-10-14T05:30:02Z", "expires_at": "2026-10-15T05:30:02Z"}
+]
+```
+
+### POST /tasks/approvals/{approval_id}
+
+**Request:** `{"approved": true, "modified_args": {…}?}`. Approved, the run carries
+on with the call (and the changed arguments, when given); denied, the call ends
+as denied and the run fails saying so. **Response:** the approval as above.
+**Errors:** `404` when it is not the caller's; `409` "This run is no longer
+waiting for an answer." — answered already, expired (24 h,
+`TASK_APPROVAL_TIMEOUT_SECONDS`), stopped, or cut off by a restart.
+
+### PATCH /tasks/{task_id}
+
+**Request:** any of
+```json
+{"title": "…", "instructions": "…", "paused": true,
+ "schedule": {"repeat": "weekly", "time": "19:00", "days": ["mon", "thu"], "timezone": "Europe/Paris"}}
+```
+`paused: true` pauses (no next run); `false` resumes. A new `schedule` replaces
+the old one (`at` for `once`, `every_hours` for `hourly`) and reschedules; with
+no `timezone` it is read in the account's (`users/me` `timezone`, else UTC).
+**Response:** the task with its runs. **Errors:** `400` naming the problem — a
+time that is not `HH:MM`, an unknown timezone, a `once` time already past — or
+"Nothing to update".
+
+### POST /tasks/{task_id}/stop
+
+Stops the run going now. **Response:** `{"stopped": true}`. **Errors:** `409`
+"This task is not running."
+
+### DELETE /tasks/{task_id}
+
+Stops the task's run if one is going, then deletes the task and its runs. The
+conversations its runs wrote stay. **Response:** `{"message": "Task deleted"}`.
+
+Every change here, and every run starting or ending, sends `tasks_changed` to
+the account's open sockets (`websocket.md`).
 
 ---
 

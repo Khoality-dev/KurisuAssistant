@@ -3,6 +3,7 @@ import { config } from './config';
 import {
   WIRE_PROTOCOL,
   type Assistant,
+  type AssistantTask,
   type AssistantUpdate,
   type CharacterClipUpload,
   type CharacterConfigDTO,
@@ -33,6 +34,8 @@ import {
   type Skill,
   type SkillCreate,
   type SkillUpdate,
+  type TaskApproval,
+  type TaskUpdate,
   type ToolsResponse,
   type TTSModelsResponse,
   type TTSRequest,
@@ -1067,6 +1070,66 @@ class APIClient {
       headers: this.getHeaders(),
     });
     return response.data;
+  }
+
+  // Tasks (#352)
+  //
+  // The assistant plans tasks with its own tools, so there is no create: the
+  // Tasks screen lists them, opens one with its runs, and changes, pauses,
+  // stops or deletes it.
+
+  async listTasks(): Promise<AssistantTask[]> {
+    const response = await this.client.get<AssistantTask[]>('/tasks', {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /** One task with its ten newest runs. */
+  async getTask(id: number): Promise<AssistantTask> {
+    const response = await this.client.get<AssistantTask>(`/tasks/${id}`, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /** Change, pause or resume a task; answers with the task and its runs. */
+  async updateTask(id: number, data: TaskUpdate): Promise<AssistantTask> {
+    const response = await this.client.patch<AssistantTask>(`/tasks/${id}`, data, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /** Tool calls the account's task runs wait on it to approve. */
+  async listTaskApprovals(): Promise<TaskApproval[]> {
+    const response = await this.client.get<TaskApproval[]>('/tasks/approvals', {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  /** Approve or deny a waiting call; the run carries on. 409: it no longer waits. */
+  async answerTaskApproval(id: number, approved: boolean, modifiedArgs?: Record<string, unknown>): Promise<TaskApproval> {
+    const response = await this.client.post<TaskApproval>(
+      `/tasks/approvals/${id}`,
+      { approved, ...(modifiedArgs ? { modified_args: modifiedArgs } : {}) },
+      { headers: this.getHeaders() },
+    );
+    return response.data;
+  }
+
+  /** Stop the run that is going now. A 409 means nothing was running. */
+  async stopTask(id: number): Promise<void> {
+    await this.client.post(`/tasks/${id}/stop`, undefined, {
+      headers: this.getHeaders(),
+    });
+  }
+
+  async deleteTask(id: number): Promise<void> {
+    await this.client.delete(`/tasks/${id}`, {
+      headers: this.getHeaders(),
+    });
   }
 
   // Kurisu Drive (#17)

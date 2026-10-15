@@ -27,11 +27,12 @@ com.kurisu.assistant/
 │   ├── character/               -- Compositor, image cache, animation migration
 │   └── notifications/           -- What a notification says and opens; NotificationSync (what to post and cancel)
 ├── ui/
-│   ├── navigation/              -- NavGraph + AppDrawerHost (routes: LOGIN, CONVERSATIONS, CHAT, ASSISTANT, PERSONAS, TOOLS_MCP, SKILLS, SETTINGS, ACCOUNT, TTS_ASR, APPEARANCE, FACES, ABOUT, NOTIFICATIONS, UNREAD)
+│   ├── navigation/              -- NavGraph + AppDrawerHost (routes: LOGIN, CONVERSATIONS, CHAT, TASKS, ASSISTANT, PERSONAS, TOOLS_MCP, SKILLS, SETTINGS, ACCOUNT, TTS_ASR, APPEARANCE, FACES, ABOUT, NOTIFICATIONS, UNREAD)
 │   ├── theme/                   -- Material 3 theme (primary #2563EB)
 │   ├── auth/                    -- Login screen + ViewModel
-│   ├── conversations/           -- Chats list (start destination) + voice mode strip + in-app update check
-│   ├── chat/                    -- Chat screen, message bubble, tool rail, input, markdown (no nav args)
+│   ├── conversations/           -- Chats list (start destination) + voice mode strip + in-app update check; a task run's conversation has a clock (#352)
+│   ├── tasks/                   -- Tasks (#352): grouped list (waiting for approval first; finished one-offs not listed) with filter chips, a task opened in place with its runs, approve/deny, pause/resume/stop/edit/delete; refetches on `tasks_changed`. `TaskApprovalsViewModel` feeds the chat's approval sheet for a run's conversation
+│   ├── chat/                    -- Chat screen, message bubble, tool rail, task card (#352), input, markdown (no nav args)
 │   ├── assistant/               -- The one assistant (wake word, thinking, memory, tools)
 │   ├── personas/                -- Persona CRUD (name, prompt, voice, avatar) + ViewModel
 │   ├── common/                  -- Shared UI bits (personaInitials, ModelDropdown)
@@ -58,13 +59,15 @@ Mid-session: HTTP 426 (WireProtocolInterceptor) or WebSocket close 4426 → the 
 Login → Conversations ("Chats", the start destination; hamburger → app drawer)
   ├── Tap a row / New chat FAB → Chat
   ├── In voice mode, say the wake word → Chat, in a new conversation (#341)
-  ├── Drawer → Chats | Assistant | Personas | Tools & MCP | Skills
+  ├── Drawer → Chats | Tasks | Assistant | Personas | Tools & MCP | Skills
   ├── Drawer → Settings → Account | Appearance | Notifications | TTS & ASR | Face Identities | About
   ├── Bell (top bar) → Unread → an item → its conversation in Chat (#353)
   ├── Tap a notification → its conversation in Chat (a reminder waits for the calendar, #282)
   └── Drawer → Logout
 Chat header (persona name) → persona sheet → "Manage personas" → Personas
 Chat header (face icon) → character overlay (a sheet, not a destination)
+Chat task card → "Open in Tasks" → Tasks with that task open (`tasks?open={id}`)
+Tasks → a task's run → Chat, on that run's conversation
 Back everywhere → navController.popBackStack()
 ```
 
@@ -82,6 +85,10 @@ Back everywhere → navController.popBackStack()
 - `Routes.CONVERSATIONS` = landing page after login: one row per conversation — title, age, last
   message, and nothing about who answers it (#192). `Routes.CHAT` carries **no** nav arguments — the conversation to show is passed through
   `CoreState.setConversationId(...)` before navigating, and `ChatViewModel` picks it up from there.
+- `Routes.TASKS` (#352) is a drawer destination; its optional `open` argument opens one task, which
+  is how a chat task card's "Open in Tasks" lands on it. A task opens in place (system back closes
+  it); opening one of its runs sets the run's conversation on `CoreState` and navigates to the chat,
+  as the Chats list does.
 - The drawer lives in `ui/navigation/AppDrawer.kt` (`AppDrawerHost`), not inside a screen: Chats and
   Chat both open the same one, so the nav graph wraps both destinations in it. Drawer destinations
   `popUpTo(CONVERSATIONS)` rather than stacking. Logout is `AppDrawerViewModel`.

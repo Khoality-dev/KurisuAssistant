@@ -17,6 +17,7 @@ export * from './notifications';
 export * from './speech';
 export * from './segmentCues';
 export * from './speechClock';
+export * from './taskResult';
 export * from './types';
 export * from './versionParity';
 export * from './vrmSetup';

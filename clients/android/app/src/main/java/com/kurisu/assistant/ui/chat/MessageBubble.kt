@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.kurisu.assistant.data.model.Message
 import com.kurisu.assistant.data.model.MessageRawData
+import com.kurisu.assistant.data.model.parseTaskToolResult
 import com.kurisu.assistant.ui.theme.JetBrainsMono
 import com.kurisu.assistant.ui.theme.KurisuTheme
 import kotlinx.coroutines.launch
@@ -44,6 +45,8 @@ fun MessageBubble(
     onDelete: ((messageId: Int) -> Unit)? = null,
     onResend: ((messageId: Int, text: String) -> Unit)? = null,
     onGetRawData: (suspend (messageId: Int) -> MessageRawData?)? = null,
+    /** A task card's "Open in Tasks" (#352). */
+    onOpenTask: ((taskId: Int) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val isUser = message.role == "user"
@@ -55,7 +58,13 @@ fun MessageBubble(
     // It is a rail hanging off the reply it belongs to: what ran, how it went,
     // how long it took, and what came back.
     if (isTool) {
-        ToolRail(message = message, modifier = modifier)
+        // A task tool's answer is a card that leads to Tasks, not a rail (#352).
+        val taskResult = remember(message) { parseTaskToolResult(message.name, message.content) }
+        if (taskResult != null) {
+            TaskCard(result = taskResult, onOpenTask = onOpenTask, modifier = modifier)
+        } else {
+            ToolRail(message = message, modifier = modifier)
+        }
         return
     }
 

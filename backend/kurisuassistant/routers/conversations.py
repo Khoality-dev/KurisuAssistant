@@ -115,6 +115,8 @@ async def get_conversation(
             return {
                 "id": conversation.id,
                 "messages": messages_array,
+                "task_run": bool(conversation.task_run),
+                "task_id": conversation.task_id,
                 "created_at": conversation.created_at.isoformat() + "Z",
                 "title": conversation.title or "",
                 "total_messages": total_messages,

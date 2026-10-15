@@ -1253,3 +1253,16 @@ describe('the mock\'s zip', () => {
     expect(readZip(Buffer.from('nope'))).toBeNull();
   });
 });
+
+describe('tasks (#352)', () => {
+  it('a PATCH leaves the fields it sends as null alone, as the backend does', async () => {
+    mock.setTasks([{ id: 2, title: 'Morning briefing', status: 'scheduled', instructions: 'Weather, three lines.' }]);
+
+    const resp = await patch('/tasks/2', { title: null, instructions: null, paused: true });
+
+    expect(resp.status).toBe(200);
+    expect(resp.body.title).toBe('Morning briefing');
+    expect(resp.body.instructions).toBe('Weather, three lines.');
+    expect(resp.body.status).toBe('paused');
+  });
+});

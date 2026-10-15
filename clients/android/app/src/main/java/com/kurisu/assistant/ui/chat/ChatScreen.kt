@@ -1,5 +1,6 @@
 package com.kurisu.assistant.ui.chat
 
+import com.kurisu.assistant.ui.tasks.TaskApprovalsViewModel
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -61,7 +62,10 @@ fun ChatScreen(
     onNavigateToAssistant: () -> Unit = {},
     /** The new-conversation marker's "Chats": where the previous conversation is kept (#341). */
     onNavigateToChats: () -> Unit = {},
+    /** A task card's "Open in Tasks" (#352), with the task to open. */
+    onNavigateToTask: (taskId: Int) -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
+    taskApprovals: TaskApprovalsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
     val streaming by viewModel.streamingState.collectAsState()
@@ -162,6 +166,27 @@ fun ChatScreen(
             approval = approval,
             onApprove = viewModel::approveToolCall,
             onDeny = viewModel::denyToolCall,
+        )
+    }
+
+    // A task run's conversation waiting on the user to approve a call (#352).
+    // No live turn is behind it, so the answer goes over REST; swiping the sheet
+    // away leaves the run waiting (the Tasks screen answers it too).
+    val runApprovals by taskApprovals.approvals.collectAsState()
+    var dismissedRunApproval by remember { mutableStateOf<Int?>(null) }
+    val runApproval = runApprovals.firstOrNull { it.conversationId != null && it.conversationId == state.conversationId }
+    if (state.pendingApproval == null && runApproval != null && runApproval.id != dismissedRunApproval) {
+        ToolApprovalSheet(
+            approval = ToolApprovalRequestEvent(
+                approvalId = "task-${runApproval.id}",
+                toolName = runApproval.toolName,
+                toolArgs = runApproval.toolArgs,
+                name = runApproval.taskTitle,
+                description = runApproval.description.ifBlank { "${runApproval.taskTitle} wants to use ${runApproval.toolName}" },
+            ),
+            onApprove = { taskApprovals.answer(runApproval.id, approved = true) },
+            onDeny = { taskApprovals.answer(runApproval.id, approved = false) },
+            onDismiss = { dismissedRunApproval = runApproval.id },
         )
     }
 
@@ -535,6 +560,7 @@ fun ChatScreen(
                             MessageBubble(
                                 message = message,
                                 baseUrl = state.baseUrl,
+                                onOpenTask = onNavigateToTask,
                                 onDelete = if (message.id != null) {
                                     { msgId -> viewModel.deleteMessage(msgId) }
                                 } else {
@@ -981,8 +1007,10 @@ private fun ToolApprovalSheet(
     approval: ToolApprovalRequestEvent,
     onApprove: () -> Unit,
     onDeny: () -> Unit,
+    /** Swiping it away: a live turn's call is denied; a task run's waits on (#352). */
+    onDismiss: () -> Unit = onDeny,
 ) {
-    ModalBottomSheet(onDismissRequest = onDeny) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),

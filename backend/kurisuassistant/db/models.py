@@ -26,6 +26,10 @@ class User(Base):
     nvidia_api_key = Column(String, nullable=True)
     poe_api_key = Column(String, nullable=True)
     tool_policies = Column(JSON, nullable=True)  # {"tools": {"tool_name": "allow"|"deny"}}
+    # The account's IANA time zone, filled by a client from its device the first
+    # time it is empty. Wall times — a task's 07:30 — are read in it; null is UTC.
+    # Read through core/timezone.py::user_timezone, never directly.
+    timezone = Column(String, nullable=True)
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     personas = relationship("Persona", back_populates="user", cascade="all, delete-orphan")
@@ -63,6 +67,17 @@ class Conversation(Base):
     # passages of a deleted message cascade away with it.
     indexed_up_to_id = Column(Integer, nullable=False, default=0, server_default="0")
     indexed_at = Column(DateTime, nullable=True)
+    # A conversation a task run left behind (#352): the assistant working on its
+    # own, nobody in the chat. ``task_run`` stays true after the task is deleted,
+    # which only clears ``task_id`` — the run still happened.
+    task_run = Column(Boolean, nullable=False, default=False, server_default=false())
+    # ``use_alter``: tasks also points back at conversations (where a task was
+    # planned), and a cycle needs one side added after both tables exist.
+    task_id = Column(
+        Integer,
+        ForeignKey('tasks.id', ondelete='SET NULL', use_alter=True, name='conversations_task_id_fkey'),
+        nullable=True, index=True,
+    )
 
     user = relationship("User", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
@@ -197,6 +212,106 @@ class Assistant(Base):
 
     user = relationship("User", back_populates="assistant")
     selected_persona = relationship("Persona", foreign_keys=[selected_persona_id])
+
+
+class AssistantTask(Base):
+    """Work the assistant does on its own, now or on a schedule (#352).
+
+    Planned by the assistant with its task tools, listed and changed on the Tasks
+    screen. The schedule is stored as its parts (see ``tasks/schedule.py``):
+    ``repeat`` and whichever of ``run_at`` / ``time_of_day`` / ``days`` /
+    ``every_hours`` it uses, with wall times in ``timezone``.
+
+    ``state`` is ``active`` (it will run at ``next_run_at``), ``paused`` (it will
+    not, and ``next_run_at`` is null) or ``finished`` (a one-off that has run).
+    Whether it is *running* is not a state: it is a ``task_runs`` row that is.
+    Named ``AssistantTask`` because ``Task`` is asyncio's, and the scheduler uses both.
+    """
+    __tablename__ = 'tasks'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    title = Column(String, nullable=False)
+    # What the assistant does each run: the opening message of every run.
+    instructions = Column(Text, nullable=False)
+
+    repeat = Column(String, nullable=False)
+    timezone = Column(String, nullable=False, default='UTC', server_default='UTC')
+    run_at = Column(DateTime, nullable=True)        # once: UTC
+    time_of_day = Column(String, nullable=True)     # "HH:MM" in timezone
+    days = Column(JSON, nullable=True)              # weekly: [0..6], Monday first
+    every_hours = Column(Integer, nullable=True)    # hourly
+
+    state = Column(String, nullable=False, default='active', server_default='active')
+    # Indexed: the scheduler ranges on it every scan.
+    next_run_at = Column(DateTime, nullable=True, index=True)
+    last_run_at = Column(DateTime, nullable=True)
+    # The chat the assistant planned it in, for the Tasks screen's link back.
+    planned_in_conversation_id = Column(
+        Integer, ForeignKey('conversations.id', ondelete='SET NULL'), nullable=True
+    )
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+    runs = relationship(
+        "TaskRun", back_populates="task", cascade="all, delete-orphan", passive_deletes=True,
+        order_by="desc(TaskRun.id)",
+    )
+
+
+class TaskRun(Base):
+    """One run of a task (#352): ``running``, then ``done``, ``failed`` or ``stopped``.
+
+    ``conversation_id`` is the conversation the run wrote, so a run can be opened
+    afterwards. ``error`` says why a run failed, in words the Tasks screen shows.
+    """
+    __tablename__ = 'task_runs'
+
+    id = Column(Integer, primary_key=True)
+    task_id = Column(Integer, ForeignKey('tasks.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    conversation_id = Column(
+        Integer, ForeignKey('conversations.id', ondelete='SET NULL'), nullable=True
+    )
+    status = Column(String, nullable=False, default='running', server_default='running')
+    error = Column(Text, nullable=True)
+    started_at = Column(DateTime, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+    task = relationship("AssistantTask", back_populates="runs")
+    approvals = relationship(
+        "TaskApproval", back_populates="run", cascade="all, delete-orphan", passive_deletes=True,
+    )
+
+
+class TaskApproval(Base):
+    """A tool call a task run is waiting on the user to approve (#352).
+
+    A run has nobody attached to ask, so it writes one of these, puts its run in
+    ``waiting_for_approval``, notifies the user and waits. The answer comes over
+    REST — from the run's conversation or the Tasks screen — and ``status`` moves
+    from ``pending`` to ``approved`` or ``denied``; ``expired`` when nobody
+    answered by ``expires_at`` (or the server restarted while it waited), and
+    ``cancelled`` when the run was stopped first.
+    """
+    __tablename__ = 'task_approvals'
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(Integer, ForeignKey('task_runs.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    tool_name = Column(String, nullable=False)
+    tool_args = Column(JSON, nullable=True)
+    # What the call will do, as the tool describes itself.
+    description = Column(Text, nullable=False, default='', server_default='')
+    status = Column(String, nullable=False, default='pending', server_default='pending')
+    # The arguments the user approved, when they changed them.
+    modified_args = Column(JSON, nullable=True)
+    requested_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    decided_at = Column(DateTime, nullable=True)
+
+    run = relationship("TaskRun", back_populates="approvals")
 
 
 class Skill(Base):

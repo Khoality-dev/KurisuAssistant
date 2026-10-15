@@ -20,6 +20,7 @@ into the arguments by `BaseAgent.execute_tool`. Registered in `tools/__init__.py
   reminders. Built-in and **allowed by default** (below): it runs without a
   prompt — a task with nobody attached has to be able to say it is done — until
   the user stores a `deny`
+- the six task tools — below
 
 The two recall tools replaced `history_search` (#6): an unindexed `ILIKE` that
 truncated hits to 200 characters and cited nothing. Both are built-in, but
@@ -30,6 +31,14 @@ holds. See `retrieval.md`.
 There are no music or routing tools in the registry. `play_music`,
 `music_control`, `get_music_queue`, `route_to_agent` and `route_to_user` were
 removed; anything like them now arrives as an MCP tool.
+
+## Task tools
+
+`task_start`, `task_schedule`, `task_list`, `task_update`, `task_stop` and
+`task_delete` (`tools/tasks.py`) are built in: the assistant plans its own work
+with them (#352). They pass the tool policy like any other tool. In a task run —
+no client attached — the five that change something refuse, so a task cannot
+plan tasks. Their results are JSON the clients render as cards. See `tasks.md`.
 
 ## Drive tools
 

@@ -290,6 +290,84 @@ const DOCS_CONVERSATIONS: MockConversationSeed[] = [
   },
 ];
 
+/**
+ * Tasks (#352): one of each status, a run history to open, and a reply that
+ * schedules a task so the chat shows its card. `tasks.spec.ts` and Android's
+ * TasksScreenTest assert on these names.
+ */
+const TASK_RUN_CONVERSATION: MockConversationSeed = {
+  title: 'Morning briefing',
+  taskRun: true,
+  taskId: 2,
+  agoMinutes: 60,
+  messages: [
+    { role: 'user', content: "Weather and today's calendar." },
+    { role: 'assistant', content: 'Sunny, 14° to 19°. Lunch with Anna at 12:00.' },
+  ],
+};
+
+/** The conversation a waiting run is writing: its approval bar is answered here too. */
+const TASK_WAITING_CONVERSATION: MockConversationSeed = {
+  title: 'Tidy the downloads folder',
+  taskRun: true,
+  taskId: 5,
+  agoMinutes: 2,
+  messages: [
+    { role: 'user', content: 'Move last month\'s downloads into the archive folder.' },
+    { role: 'assistant', content: 'I will move them now.' },
+  ],
+};
+
+const TASKS = [
+  {
+    id: 1, title: 'Gather everything about the apartment move', status: 'running' as const, repeat: 'now' as const,
+    schedule_label: 'Right away', instructions: 'Go through my notes and gather everything about the apartment move.',
+    runs: [{ id: 11, status: 'running' as const, error: null, conversation_id: null, started_at: new Date().toISOString(), finished_at: null }],
+  },
+  {
+    id: 2, title: 'Morning briefing', status: 'scheduled' as const, repeat: 'weekdays' as const, time: '07:30',
+    instructions: "Weather and today's calendar, three lines at most.",
+    runs: [
+      { id: 21, status: 'done' as const, error: null, conversation_id: 1, started_at: new Date(Date.now() - 3_600_000).toISOString(), finished_at: new Date(Date.now() - 3_590_000).toISOString() },
+      { id: 20, status: 'failed' as const, error: 'history_list needed approval, and nobody was there to give it. A task can only use tools set to Allow in Settings › Tools.', conversation_id: null, started_at: new Date(Date.now() - 86_400_000).toISOString(), finished_at: new Date(Date.now() - 86_390_000).toISOString() },
+    ],
+  },
+  {
+    id: 3, title: 'Weekly French recap', status: 'paused' as const, repeat: 'weekly' as const, time: '20:00', days: ['sun' as const],
+    instructions: 'Summarise what I learned in French class this week.',
+  },
+  {
+    id: 5, title: 'Tidy the downloads folder', status: 'waiting_for_approval' as const, repeat: 'now' as const,
+    schedule_label: 'Right away', instructions: "Move last month's downloads into the archive folder.",
+    runs: [{ id: 51, status: 'waiting_for_approval' as const, error: null, conversation_id: 2, started_at: new Date().toISOString(), finished_at: null }],
+    pending_approval: {
+      id: 9, run_id: 51, task_id: 5, task_title: 'Tidy the downloads folder', conversation_id: 2,
+      tool_name: 'drive_write', tool_args: { path: '/archive/2026-09' }, description: 'Move files into /archive/2026-09',
+      status: 'pending' as const, requested_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+    },
+  },
+];
+
+const TASK_SCHEDULED_REPLY: StreamScript = {
+  chunks: [
+    {
+      content: JSON.stringify({
+        action: 'scheduled',
+        task: {
+          id: 4, title: 'Check flight prices to Hanoi', instructions: 'Check round-trip prices to Hanoi for December.',
+          status: 'scheduled', repeat: 'daily', timezone: 'UTC', run_at: null, time: '08:00', days: [], every_hours: null,
+          schedule_label: 'Every day at 08:00', next_run_at: new Date(Date.now() + 86_400_000).toISOString(),
+          last_run_at: null, planned_in_conversation_id: null, created_at: null, updated_at: null,
+        },
+      }),
+      role: 'tool', delayMs: 100, name: 'task_schedule', toolKind: 'tool', durationMs: 12,
+      toolArgs: { title: 'Check flight prices to Hanoi', repeat: 'daily', time: '08:00' }, toolStatus: 'success',
+    },
+    { content: "I'll check every morning at 8.", role: 'assistant', delayMs: 100 },
+  ],
+};
+
 export const SCENARIOS: Record<string, Scenario> = {
   default: {
     description: 'Two personas (Kurisu answers), a model chosen, two preset voices, a short streamed reply.',
@@ -448,6 +526,16 @@ export const SCENARIOS: Record<string, Scenario> = {
     description: 'A fresh account with no model chosen: the first message is refused with NO_MODEL_SELECTED.',
     options: { personas: [KURISU, AMADEUS], stream: SHORT_REPLY },
     apply: (mock) => mock.setAssistantModel(null),
+  },
+  tasks: {
+    // tasks.spec.ts and Android's TasksScreenTest (#352).
+    description: 'A running, a waiting-for-approval, a scheduled and a paused task with runs to open; a reply that schedules another.',
+    options: {
+      personas: [KURISU, AMADEUS],
+      tasks: TASKS,
+      conversations: [TASK_RUN_CONVERSATION, TASK_WAITING_CONVERSATION],
+      stream: TASK_SCHEDULED_REPLY,
+    },
   },
   'no-persona': {
     // personaOptional.spec.ts: a new account has no persona, and the assistant

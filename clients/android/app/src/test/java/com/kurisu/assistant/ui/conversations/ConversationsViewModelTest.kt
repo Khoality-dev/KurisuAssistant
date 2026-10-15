@@ -142,6 +142,19 @@ class ConversationsViewModelTest {
     }
 
     @Test
+    fun `a conversation a task run wrote is marked as one`() = runTest {
+        coEvery { convRepo.getConversations() } returns listOf(
+            conversation(id = 100, lastMessageAt = "2024-01-01T00:00:00Z"),
+            conversation(id = 200, lastMessageAt = "2024-06-01T00:00:00Z").copy(taskRun = true, taskId = 7),
+        )
+
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        assertThat(vm.state.value.rows.associate { it.id to it.taskRun }).containsExactly(200, true, 100, false)
+    }
+
+    @Test
     fun `a row says nothing about the persona answering it`() = runTest {
         // One assistant, one default persona: the face and the name were the
         // same on every row, so the row is a conversation and nothing else

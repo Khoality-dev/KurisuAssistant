@@ -24,6 +24,9 @@ data class AccountUiState(
     val hasNvidiaKey: Boolean = false,
     val hasPoeKey: Boolean = false,
     val summaryModel: String = "",
+    /** The account's time zone (#352): task schedules run on this clock. */
+    val timezone: String = "",
+    val savedTimezone: String = "",
     val contextSize: String = "8192",
     val availableModels: List<ModelInfo> = emptyList(),
     val isRefreshingModels: Boolean = false,
@@ -65,6 +68,8 @@ class AccountViewModel @Inject constructor(
                     hasPoeKey = user.hasPoeKey,
                     summaryModel = user.summaryModel ?: "",
                     contextSize = (user.contextSize ?: 8192).toString(),
+                    timezone = user.timezone ?: "",
+                    savedTimezone = user.timezone ?: "",
                 ) }
             } catch (_: Exception) {}
             refreshModels()
@@ -91,6 +96,7 @@ class AccountViewModel @Inject constructor(
     fun setNvidiaApiKey(v: String) = _state.update { it.copy(nvidiaApiKey = v) }
     fun setSummaryModel(v: String) = _state.update { it.copy(summaryModel = v) }
     fun setContextSize(v: String) = _state.update { it.copy(contextSize = v) }
+    fun setTimezone(v: String) = _state.update { it.copy(timezone = v) }
     fun clearMessage() = _state.update { it.copy(message = null) }
 
     fun saveServerUrl() {
@@ -106,6 +112,12 @@ class AccountViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isSaving = true) }
             try {
+                // Its own PATCH: the server checks it is an IANA zone (a 422 otherwise).
+                val zone = _state.value.timezone.trim()
+                if (zone != _state.value.savedTimezone) {
+                    authRepository.setTimezone(zone)
+                    _state.update { it.copy(savedTimezone = zone) }
+                }
                 val current = authRepository.loadUserProfile()
                 val ctxSize = _state.value.contextSize.toIntOrNull()
                 authRepository.updateUserProfile(current.copy(

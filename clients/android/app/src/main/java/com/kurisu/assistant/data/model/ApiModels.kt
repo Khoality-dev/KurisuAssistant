@@ -86,6 +86,10 @@ data class Conversation(
     @SerialName("last_message") val lastMessage: ConversationLastMessage? = null,
     // No persona: a conversation is not tied to one (#354). Who answers is the
     // persona in use for the whole account, `Assistant.selectedPersonaId`.
+    // Written by a task run (#352) rather than by the user in a chat: the Chats
+    // list marks it with a clock. `taskId` is null once the task is deleted.
+    @SerialName("task_run") val taskRun: Boolean = false,
+    @SerialName("task_id") val taskId: Int? = null,
 )
 
 @Serializable
@@ -132,6 +136,11 @@ data class UserProfile(
     @SerialName("nvidia_api_key") val nvidiaApiKey: String? = null,
     @SerialName("poe_api_key") val poeApiKey: String? = null,
     @SerialName("context_size") val contextSize: Int? = null,
+    /**
+     * The account's IANA time zone (#352); task schedules are read in it. Null
+     * until a client fills it from its device (`domain/time/AccountTimezone`).
+     */
+    val timezone: String? = null,
 )
 
 /**

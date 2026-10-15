@@ -38,6 +38,7 @@ from kurisuassistant.routers import (
     notifications_router,
     version_router,
     drive_router,
+    tasks_router,
 )
 from kurisuassistant.version import WIRE_PROTOCOL, __version__
 
@@ -66,11 +67,16 @@ async def lifespan(app: FastAPI):
     # account, otherwise off — said once, and nothing else changes.
     from kurisuassistant.notifications import push
     push.init_from_environment()
+    # Tasks (#352) run the assistant itself, so their scheduler lives on this
+    # event loop rather than on the worker threads.
+    from kurisuassistant.tasks import service as task_service
+    await task_service.start()
 
     yield
 
     # Shutdown — reverse order: stop producers, drain workers, close DB
     logger.info("Shutting down application...")
+    await task_service.stop()
     workers.stop()
     from kurisuassistant.core.http import close_client
     await close_client()
@@ -102,6 +108,7 @@ app = FastAPI(
         {"name": "character", "description": "Character animation assets for video call"},
         {"name": "vision", "description": "Face recognition and gesture detection"},
         {"name": "drive", "description": "Kurisu Drive: account-scoped file storage"},
+        {"name": "tasks", "description": "Work the assistant does on its own, now or on a schedule"},
     ]
 )
 
@@ -181,6 +188,7 @@ app.include_router(mcp_router)
 app.include_router(skills_router)
 app.include_router(notifications_router)
 app.include_router(drive_router)
+app.include_router(tasks_router)
 app.include_router(ws_router)
 
 

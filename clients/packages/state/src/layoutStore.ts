@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ActivePage = 'workspace' | 'conversations' | 'settings';
+export type ActivePage = 'workspace' | 'conversations' | 'tasks' | 'settings';
 
 interface LayoutState {
   activePage: ActivePage;

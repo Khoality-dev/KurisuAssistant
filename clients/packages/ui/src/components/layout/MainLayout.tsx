@@ -7,8 +7,10 @@ import { ResizeHandle } from './ResizeHandle';
 import { useLayoutStore } from '@kurisu/state';
 import { usePersonaStore } from '@kurisu/state';
 import { startNotifications } from '@kurisu/state';
+import { useTasksStore } from '@kurisu/state';
 import { ConversationsPage } from '../conversations/ConversationsPage';
 import { SettingsPage } from '../settings/SettingsPage';
+import { TasksPage } from '../tasks/TasksPage';
 import { FileExplorerPage } from '../explorer/FileExplorerPage';
 import { ScreenErrorBoundary } from '../ScreenErrorBoundary';
 
@@ -32,6 +34,15 @@ export const MainLayout: React.FC = () => {
   // the socket open with the app "closed".
   useEffect(() => startNotifications(), []);
 
+  // Tasks run with nobody watching (#352); keep their list current from the
+  // start, so the Tasks page and the chat's task cards open on fresh state.
+  useEffect(() => {
+    useTasksStore.getState().listenForChanges();
+    // A run may already be waiting on the user (#352): its conversation shows
+    // the approval bar, so the approvals are known before the Tasks page opens.
+    void useTasksStore.getState().loadTasks();
+  }, []);
+
   const handleChatResizeEnd = useCallback((size: number) => {
     useLayoutStore.getState().setChatPanelWidth(size);
     useLayoutStore.getState().persistWidths();
@@ -41,6 +52,7 @@ export const MainLayout: React.FC = () => {
     switch (activePage) {
       case 'workspace': return <FileExplorerPage />;
       case 'conversations': return <ConversationsPage />;
+      case 'tasks': return <TasksPage />;
       case 'settings': return <SettingsPage />;
     }
   };

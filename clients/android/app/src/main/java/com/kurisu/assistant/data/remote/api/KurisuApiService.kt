@@ -61,6 +61,28 @@ interface KurisuApiService {
         @Body body: JsonObject,
     )
 
+    // Tasks (#352). No create: the assistant plans tasks with its own tools.
+    @GET("/tasks")
+    suspend fun listTasks(): List<AssistantTask>
+
+    @GET("/tasks/{id}")
+    suspend fun getTask(@Path("id") id: Int): AssistantTask
+
+    @PATCH("/tasks/{id}")
+    suspend fun updateTask(@Path("id") id: Int, @Body body: TaskUpdate): AssistantTask
+
+    @GET("/tasks/approvals")
+    suspend fun listTaskApprovals(): List<TaskApproval>
+
+    @POST("/tasks/approvals/{id}")
+    suspend fun answerTaskApproval(@Path("id") id: Int, @Body body: ApprovalAnswer): TaskApproval
+
+    @POST("/tasks/{id}/stop")
+    suspend fun stopTask(@Path("id") id: Int): Map<String, Boolean>
+
+    @DELETE("/tasks/{id}")
+    suspend fun deleteTask(@Path("id") id: Int): Map<String, String>
+
     // Messages
     @DELETE("/messages/{id}")
     suspend fun deleteMessage(@Path("id") id: Int): Map<String, Int>
@@ -78,6 +100,10 @@ interface KurisuApiService {
 
     @PATCH("/users/me")
     suspend fun updateUserProfile(@Body profile: UserProfile): UserProfile
+
+    /** Some profile fields, as a raw body: the account's time zone (#352). */
+    @PATCH("/users/me")
+    suspend fun patchUserProfile(@Body body: JsonObject): Map<String, String>
 
     @Multipart
     @PATCH("/users/me/avatars")

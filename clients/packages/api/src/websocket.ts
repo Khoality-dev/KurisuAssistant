@@ -126,6 +126,13 @@ export interface ContextInfoEvent extends BaseEvent {
 }
 
 
+// A task or one of its runs changed (#352); refetch the tasks. It names which
+// task but carries no task: `GET /tasks` is the one shape a client reads.
+export interface TasksChangedEvent extends BaseEvent {
+  type: 'tasks_changed';
+  task_id: number | null;
+}
+
 export interface ConnectedEvent extends BaseEvent {
   type: 'connected';
   chat_active: boolean;
@@ -146,7 +153,8 @@ export type ServerEvent =
   | ToolApprovalRequestEvent
   | ToolCallRequestEvent
   | VisionResultEvent
-  | ContextInfoEvent;
+  | ContextInfoEvent
+  | TasksChangedEvent;
 
 type EventHandler<T = ServerEvent> = (event: T) => void;
 

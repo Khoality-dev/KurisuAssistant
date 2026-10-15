@@ -100,6 +100,9 @@ class AgentContext:
     # {tool_name: "allow" | "deny"} from users.tool_policies. The server decides
     # with this; the client's approval answer can only narrow it, never widen it.
     tool_policies: Dict[str, str] = field(default_factory=dict)
+    # The account's time zone (core/timezone.py::user_timezone): the system
+    # prompt's "Current time" is the user's clock, not the server's. None is UTC.
+    timezone: Optional[Any] = None
 
 
 @dataclass

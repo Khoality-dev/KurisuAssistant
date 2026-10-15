@@ -32,6 +32,7 @@ export const SERVER_TO_CLIENT_EVENTS = [
   'notification',
   'notifications_ready',
   'notifications_read',
+  'tasks_changed',
 ] as const;
 
 export const EVENT_TYPES = [...CLIENT_TO_SERVER_EVENTS, ...SERVER_TO_CLIENT_EVENTS] as const;

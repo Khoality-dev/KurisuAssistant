@@ -101,7 +101,10 @@ exposed to the model as a plain function. A `delegate_task` chunk is
 1. `You are {persona name}.` plus the persona's `system_prompt` — or, with no
    persona, `You are the user's personal assistant.` — then the user's
    `users.system_prompt`, then the preferred name (the persona's
-   `preferred_name` if set, else the user's), then the current time
+   `preferred_name` if set, else the user's), then the current time on the
+   user's clock — "Current time: Friday 16 October 2026, 18:42 (Europe/Paris)",
+   in the account's zone (`core/timezone.py`, carried on `AgentContext.timezone`;
+   UTC when unset), so "tomorrow" is the user's tomorrow (#352)
 2. the user's skill names, with an instruction to load one before acting
 3. an **Expression** section, only when the persona's `character_config` is a
    VRM model with `vrm.emotion.enabled` (#243): it asks the model to open a
