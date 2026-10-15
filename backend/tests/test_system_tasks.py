@@ -488,6 +488,25 @@ class TestApproval:
         answer(account, approval["id"], False)
         wait_for_run(account, task_id)
 
+    def test_the_wait_is_a_notification_on_every_device(self, account):
+        """Not the stand-in: the run's notification is stored like any other (#353)."""
+        use_model(account)
+        task_id = make_task(account, title="Tidy up", instructions="call history_list {}")
+        kick()
+        run = wait_for_run(account, task_id, statuses=("waiting_for_approval",))
+        [approval] = wait_for_approval(account)
+
+        resp = account.client.get("/notifications?unread=true", headers=account.headers)
+        assert resp.status_code == 200, resp.text
+        [shown] = resp.json()["notifications"]
+        assert shown["source"] == "assistant"
+        assert shown["title"] == "Tidy up is waiting for your approval"
+        assert "history_list" in shown["body"]
+        assert shown["conversation_id"] == run["conversation_id"]
+
+        answer(account, approval["id"], False)
+        wait_for_run(account, task_id)
+
     def test_approving_carries_on_where_it_stopped(self, account, notified):
         use_model(account)
         task_id = make_task(account, instructions="call history_list {}")

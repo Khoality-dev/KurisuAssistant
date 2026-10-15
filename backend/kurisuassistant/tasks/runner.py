@@ -26,7 +26,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from kurisuassistant.agents import AgentContext, AssistantConfig, MainAgent, PersonaConfig
-from kurisuassistant.agents.selection import assistant_identity
+from kurisuassistant.agents.selection import persona_in_use
 from kurisuassistant.core.errors import GENERIC_MESSAGE, log_internal_error
 from kurisuassistant.core.timezone import user_timezone
 from kurisuassistant.db.models import Conversation
@@ -76,17 +76,13 @@ def task_run_prompt(title: str) -> str:
 
 
 def persona_for_run(session, user_id: int) -> PersonaConfig:
-    """Who a run speaks as: the account's persona in use, else the assistant.
-
-    The one place a run decides this, so the rule can change in one place.
-    """
+    """Who a run speaks as: the account's persona in use, as every chat turn does (#354)."""
     assistant = AssistantRepository(session).get_or_create_for_user(user_id)
-    persona_id = assistant.selected_persona_id
-    if persona_id is not None:
-        persona = PersonaRepository(session).get_by_user_and_id(user_id, persona_id)
-        if persona is not None and persona.enabled:
-            return ChatSessionHandler._to_persona_config(persona)
-    return assistant_identity()
+    personas = [
+        ChatSessionHandler._to_persona_config(p)
+        for p in PersonaRepository(session).list_enabled_by_user(user_id)
+    ]
+    return persona_in_use(personas, assistant.selected_persona_id)
 
 
 @dataclass

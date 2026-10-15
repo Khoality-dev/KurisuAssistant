@@ -88,8 +88,8 @@ the run it made stays a conversation. `GET /tasks/{id}` serves any task.
 `runner.run_task` is the chat's turn with nobody attached:
 
 1. One DB call reads the account's settings, the assistant and **the persona in
-   use** (`persona_for_run`: `assistants.selected_persona_id` when enabled, else
-   the assistant itself — the one place a run decides this), creates the run's
+   use** (`persona_for_run`, through `agents/selection.py::persona_in_use` as every
+   chat turn does, #354), creates the run's
    conversation (title = the task's, `task_run = true`, `task_id`), points the
    run at it, and saves the task's instructions as its opening user message.
 2. `MainAgent` runs with the run's approver as its handler and the account's
@@ -111,8 +111,9 @@ else is put to `approvals.RunApprover`, which stands in for the chat session:
 it writes a pending `task_approvals` row (the run, the tool, its arguments, the
 tool's own description of the call, when it was asked, when it expires), moves
 the run to `waiting_for_approval`, sends `tasks_changed`, notifies the user —
-`notify_approval_needed`, the one place this code reaches for #353's
-`notifications.notify`, imported lazily — and waits. The answer comes over REST
+`notify_approval_needed`, through `notifications.notify` like any other
+notification, so it reaches every device and is read once for all (#353) — and
+waits. The answer comes over REST
 (`GET /tasks/approvals`, `POST /tasks/approvals/{id}`), from the run's
 conversation or the Tasks screen, and resolves the waiting future: approved, the
 call runs with the user's changed arguments if any and the turn carries on;

@@ -51,16 +51,9 @@ def describe_timeout(seconds: float) -> str:
 
 async def notify_approval_needed(*, user_id: int, task_title: str, tool_name: str,
                                  conversation_id: Optional[int]) -> None:
-    """Tell the user a run is waiting on them, through #353's notifications.
+    """Tell the user a run is waiting on them, on every device (#353)."""
+    from kurisuassistant.notifications import notify
 
-    The one place this branch reaches for ``kurisuassistant.notifications``;
-    imported here, lazily, because it lands with #353.
-    """
-    try:
-        from kurisuassistant.notifications import notify
-    except ImportError:
-        logger.info("No notifications module yet; task %r waits for approval of %s", task_title, tool_name)
-        return
     await notify(
         user_id,
         source="assistant",
