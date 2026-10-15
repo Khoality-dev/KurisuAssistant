@@ -1,7 +1,7 @@
 """create_notifications_tables
 
 Revision ID: ad851b65d3ae
-Revises: 40309c742302
+Revises: 1bbca2496002
 Create Date: 2026-10-13 23:56:17.565868
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'ad851b65d3ae'
-down_revision: Union[str, Sequence[str], None] = '40309c742302'
+down_revision: Union[str, Sequence[str], None] = '1bbca2496002'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
