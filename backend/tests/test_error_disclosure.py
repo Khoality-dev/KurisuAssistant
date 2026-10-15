@@ -47,6 +47,16 @@ def leaking_details(tree: ast.Module):
     return offenders
 
 
+# ValueError subclasses whose ``str()`` is a sentence written for the user.
+SENTENCE_ERRORS = ("EntryError",)  # calendar/entries.py (#282)
+
+
+def test_the_sentence_errors_are_value_errors():
+    from kurisuassistant.calendar.entries import EntryError
+
+    assert issubclass(EntryError, ValueError)
+
+
 class TestRoutersDoNotEchoExceptions:
     @pytest.mark.parametrize("path", ROUTERS, ids=lambda p: p.name)
     def test_no_raw_exception_in_detail(self, path):
@@ -55,11 +65,13 @@ class TestRoutersDoNotEchoExceptions:
 
         # A deliberately-raised ValueError carries a message this code wrote, so
         # those stay: they are the actionable 4xx messages a caller can act on.
+        # So do the ValueError subclasses that exist only to carry such a sentence.
+        refusals = ("except ValueError",) + tuple(f"{name} as" for name in SENTENCE_ERRORS)
         allowed = set()
         for lineno in offenders:
             line_index = lineno - 1
             window = source.split("\n")[max(0, line_index - 3):line_index + 1]
-            if any("except ValueError" in line for line in window):
+            if any(refusal in line for line in window for refusal in refusals):
                 allowed.add(lineno)
 
         unexpected = [lineno for lineno in offenders if lineno not in allowed]

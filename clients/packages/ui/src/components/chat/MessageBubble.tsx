@@ -9,6 +9,7 @@ import {
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
+import { CalendarToolCard } from '../calendar/CalendarToolCard';
 import { apiClient } from '@kurisu/api';
 import { storage } from '@kurisu/api';
 
@@ -358,6 +359,11 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
               />
             )}
           </Box>
+          {/* A calendar tool's result is a card, shown whether or not the row
+              is expanded: what went on the calendar, with Open and Undo (#282). */}
+          {isTool && message.tool_status !== 'error' && message.tool_status !== 'denied' && (
+            <CalendarToolCard toolName={message.name} content={message.content} />
+          )}
           {/* Content — collapsed by default for tool messages */}
           {(!isTool || toolExpanded) && <Box
             sx={{

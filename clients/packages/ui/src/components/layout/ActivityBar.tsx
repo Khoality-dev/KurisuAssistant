@@ -8,6 +8,8 @@ import {
   ChatBubble as ChatFilledIcon,
   TaskAltOutlined as TasksIcon,
   TaskAlt as TasksFilledIcon,
+  CalendarMonthOutlined as CalendarIcon,
+  CalendarMonth as CalendarFilledIcon,
   SettingsOutlined as SettingsIcon,
   Settings as SettingsFilledIcon,
   Logout as LogoutIcon,
@@ -30,6 +32,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'workspace', label: 'Workspace', icon: <FolderIcon />, activeIcon: <FolderFilledIcon /> },
   { id: 'conversations', label: 'Conversations', icon: <ChatIcon />, activeIcon: <ChatFilledIcon /> },
   { id: 'tasks', label: 'Tasks', icon: <TasksIcon />, activeIcon: <TasksFilledIcon /> },
+  // Built in, not a plugin (#282, #268): the user's events and reminders.
+  { id: 'calendar', label: 'Calendar', icon: <CalendarIcon />, activeIcon: <CalendarFilledIcon /> },
   { id: 'settings', label: 'Settings', icon: <SettingsIcon />, activeIcon: <SettingsFilledIcon /> },
 ];
 

@@ -317,4 +317,26 @@ interface KurisuApiService {
 
     @POST("/notifications/read-for")
     suspend fun markNotificationsReadFor(@Body body: NotificationReadFor): NotificationReadResult
+
+    // Calendar (#282). Instants go as ISO 8601 UTC; an entry of another account is 404.
+    @GET("/calendar/entries")
+    suspend fun listCalendarEntries(
+        @Query("start") start: String,
+        @Query("end") end: String,
+    ): List<CalendarEntry>
+
+    @GET("/calendar/upcoming")
+    suspend fun getUpcomingCalendar(@Query("limit") limit: Int = 20): List<CalendarEntry>
+
+    @GET("/calendar/entries/{id}")
+    suspend fun getCalendarEntry(@Path("id") id: Int): CalendarEntry
+
+    @POST("/calendar/entries")
+    suspend fun createCalendarEntry(@Body body: CalendarEntryCreate): CalendarEntry
+
+    @PATCH("/calendar/entries/{id}")
+    suspend fun updateCalendarEntry(@Path("id") id: Int, @Body body: CalendarEntryUpdate): CalendarEntry
+
+    @DELETE("/calendar/entries/{id}")
+    suspend fun deleteCalendarEntry(@Path("id") id: Int)
 }

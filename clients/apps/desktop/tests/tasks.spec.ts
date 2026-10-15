@@ -127,8 +127,13 @@ test.describe('tasks', () => {
       has: page.locator('[data-testid="ChatBubbleOutlineIcon"], [data-testid="ChatBubbleIcon"]'),
     }).first().click();
     await page.getByRole('button', { name: 'New chat' }).click();
+    // The run's approval bar goes with its conversation; type only after, or
+    // the composer that replaces it drops the text (it is keyed on the conversation).
+    await expect(page.getByText('drive_write')).toHaveCount(0);
     const input = page.getByPlaceholder('Type your message...');
+    await expect(input).toBeEditable();
     await input.fill('Check flight prices to Hanoi every morning.');
+    await expect(input).toHaveValue('Check flight prices to Hanoi every morning.');
     await input.press('Enter');
 
     const card = page.getByTestId('task-card-4');

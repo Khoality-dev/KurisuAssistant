@@ -181,6 +181,11 @@ def system_client(system_db, mock_ollama_server):
     # hand, so parked they change nothing else.
     service.SCAN_INTERVAL_SECONDS = 10**9
     service.INDEX_SCAN_INTERVAL_SECONDS = 10**9
+    # Same for due calendar reminders (#282): test_calendar_reminders.py runs
+    # the scan by hand.
+    from kurisuassistant.workers import reminders
+
+    reminders.REMINDER_SCAN_INTERVAL_SECONDS = 10**9
 
     with TestClient(app) as client:
         yield client

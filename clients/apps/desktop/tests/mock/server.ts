@@ -334,8 +334,33 @@ export interface MockSkill {
   instructions?: string;
 }
 
+/**
+ * A calendar entry (#282), shaped as `GET /calendar/entries` answers it. A seed
+ * gives only what it needs; the rest is filled as the backend would.
+ */
+export interface MockCalendarEntry {
+  id: number;
+  kind: 'event' | 'reminder';
+  title: string;
+  notes: string | null;
+  all_day: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  done: boolean;
+  done_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type MockCalendarSeed = Partial<MockCalendarEntry> & Pick<MockCalendarEntry, 'kind' | 'title'>;
+
 export interface MockBackendOptions {
   personas?: MockPersona[];
+  /** What is on the account's calendar (#282). */
+  calendar?: MockCalendarSeed[];
+
   conversations?: MockConversationSeed[];
   tasks?: MockTaskSeed[];
   skills?: MockSkill[];
@@ -472,6 +497,9 @@ export class MockBackend {
   /** Phones registered for push (#353): FCM token → platform. Nothing is pushed from here. */
   public notificationDevices: Map<string, string> = new Map();
   private driveQuotaBytes = 15 * 1024 * 1024 * 1024;
+  /** The account's calendar (#282), oldest first. */
+  public calendarEntries: MockCalendarEntry[] = [];
+  private nextCalendarId = 1;
   /** The most recent upload, so a spec can assert what was sent. */
   public lastDriveUpload: { name: string; parent_id: number | null; bytes: number } | null = null;
 
@@ -567,6 +595,7 @@ export class MockBackend {
     }
 
     if (opts.driveQuotaBytes !== undefined) this.driveQuotaBytes = opts.driveQuotaBytes;
+    for (const seed of opts.calendar ?? []) this.addCalendarEntry(seed);
     if (opts.characterQuotaBytes !== undefined) this.characterQuotaBytes = opts.characterQuotaBytes;
     for (const entry of opts.drive ?? []) this.seedDriveEntry(entry);
     for (const seed of opts.conversations ?? []) this.seedConversation(seed);
@@ -1470,6 +1499,94 @@ export class MockBackend {
     // Above the catch-all below on purpose: that returns `{}` with a 200, so an
     // unimplemented drive route would look like an empty folder rather than a
     // missing endpoint.
+    // The calendar (#282) — `routers/calendar.py`, rule for rule: the same
+    // shapes, the same refusals and sentences, 404 for an id that is not there.
+    if (pathOnly === '/calendar/entries' && method === 'GET') {
+      const start = query.get('start');
+      const end = query.get('end');
+      if (!start || !end) return this.error(res, 422, 'start and end are required.');
+      const from = Date.parse(start);
+      const to = Date.parse(end);
+      if (!(to > from)) return this.error(res, 400, 'The window must end after it starts.');
+      if (to - from > 366 * 86_400_000) return this.error(res, 400, 'Ask for at most a year at a time.');
+      const firstDay = new Date(from - 86_400_000).toISOString().slice(0, 10);
+      const lastDay = new Date(to + 86_400_000).toISOString().slice(0, 10);
+      const rows = this.calendarEntries.filter((e) => {
+        if (e.all_day) return e.start_date! <= lastDay && e.end_date! >= firstDay;
+        const s0 = Date.parse(e.starts_at!);
+        const e0 = Date.parse(e.ends_at ?? e.starts_at!);
+        return s0 < to && e0 >= from;
+      });
+      return this.json(res, this.calendarSorted(rows));
+    }
+    if (pathOnly === '/calendar/upcoming' && method === 'GET') {
+      const limit = Number(query.get('limit') ?? 20);
+      const now = Date.now();
+      const today = new Date().toISOString().slice(0, 10);
+      const rows = this.calendarEntries.filter((e) => {
+        if (e.kind === 'reminder') return !e.done && Date.parse(e.starts_at!) >= now;
+        if (e.all_day) return e.end_date! >= today;
+        return Date.parse(e.ends_at!) >= now;
+      });
+      return this.json(res, this.calendarSorted(rows).slice(0, limit));
+    }
+    if (pathOnly === '/calendar/entries' && method === 'POST') {
+      const body = await this.readJson(req);
+      const row = this.calendarValidate(body);
+      if (typeof row === 'string') return this.error(res, 400, row);
+      const made = this.calendarRow({ ...row, done: false });
+      this.calendarEntries.push(made);
+      res.setHeader('Content-Type', 'application/json');
+      res.statusCode = 201;
+      return res.end(JSON.stringify(made));
+    }
+    const calendarMatch = pathOnly.match(/^\/calendar\/entries\/(\d+)$/);
+    if (calendarMatch) {
+      const id = Number(calendarMatch[1]);
+      const entry = this.calendarEntries.find((e) => e.id === id);
+      if (!entry) return this.error(res, 404, 'Not found');
+      if (method === 'GET') return this.json(res, entry);
+      if (method === 'DELETE') {
+        this.calendarEntries = this.calendarEntries.filter((e) => e.id !== id);
+        // `calendar/delivery.withdraw`: a reminder dealt with takes its notification down.
+        this.readNotifications((n) => n.reminder_id === id);
+        res.statusCode = 204;
+        return res.end();
+      }
+      if (method === 'PATCH') {
+        const body = await this.readJson(req);
+        const merged: Record<string, unknown> = { ...entry };
+        for (const key of ['title', 'notes', 'all_day', 'start_date', 'end_date'] as const) {
+          if (key in body) merged[key] = body[key];
+        }
+        if ('start_date' in body && !('end_date' in body) && entry.start_date && entry.end_date) {
+          const length = Date.parse(entry.end_date) - Date.parse(entry.start_date);
+          merged.end_date = new Date(Date.parse(body.start_date) + length).toISOString().slice(0, 10);
+        }
+        if ('starts_at' in body) {
+          if (!('ends_at' in body) && entry.kind === 'event' && entry.starts_at && entry.ends_at && body.starts_at) {
+            const length = Date.parse(entry.ends_at) - Date.parse(entry.starts_at);
+            merged.ends_at = new Date(Date.parse(body.starts_at) + length).toISOString();
+          }
+          merged.starts_at = body.starts_at;
+        }
+        if ('ends_at' in body) merged.ends_at = body.ends_at;
+        const row = this.calendarValidate({ ...merged, kind: entry.kind } as MockCalendarSeed);
+        if (typeof row === 'string') return this.error(res, 400, row);
+        if ('done' in body && entry.kind !== 'reminder') return this.error(res, 400, 'Only a reminder can be marked done.');
+        Object.assign(entry, row);
+        if ('done' in body) {
+          entry.done = Boolean(body.done);
+          entry.done_at = entry.done ? entry.done_at ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') : null;
+        }
+        entry.updated_at = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+        if (entry.kind === 'reminder' && (body.done || 'starts_at' in body)) {
+          this.readNotifications((n) => n.reminder_id === id);
+        }
+        return this.json(res, entry);
+      }
+    }
+
     if (pathOnly === '/drive/usage' && method === 'GET') {
       return this.json(res, {
         used_bytes: this.driveUsedBytes(),
@@ -2146,6 +2263,15 @@ export class MockBackend {
     return this.driveNodes.filter((n) => !n.is_dir).reduce((sum, n) => sum + n.size, 0);
   }
 
+  /** Put something on the calendar from a spec (#282); returns it as the API would. */
+  public addCalendarEntry(seed: MockCalendarSeed): MockCalendarEntry {
+    const row = this.calendarValidate(seed);
+    if (typeof row === 'string') throw new Error(`calendar entry "${seed.title}": ${row}`);
+    const made = this.calendarRow({ ...row, done: seed.done ?? false });
+    this.calendarEntries.push(made);
+    return made;
+  }
+
   /** Seed or inspect the drive from a spec. */
   public addDriveEntry(entry: MockDriveEntry): void {
     this.seedDriveEntry(entry);
@@ -2335,6 +2461,50 @@ export class MockBackend {
       }
     }
     return merged;
+  }
+
+  // ── the calendar (#282) ───────────────────────────────────────────────
+
+  /** `2026-10-17T02:00:00Z` — the backend's `to_wire`, whatever offset came in. */
+  private static wireInstant(value: unknown): string | null {
+    if (typeof value !== 'string' || !value) return null;
+    const ms = Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`);
+    return Number.isNaN(ms) ? null : new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  }
+
+  /** `calendar/entries.validate`, mirrored: the columns, or the refusal's sentence. */
+  private calendarValidate(seed: MockCalendarSeed): Omit<MockCalendarEntry, 'id' | 'done' | 'done_at' | 'created_at' | 'updated_at'> | string {
+    if (seed.kind !== 'event' && seed.kind !== 'reminder') return 'An entry is either an event or a reminder.';
+    const title = typeof seed.title === 'string' ? seed.title.trim() : '';
+    if (!title) return 'An entry needs a title.';
+    if (title.length > 200) return 'A title is at most 200 characters.';
+    const notes = typeof seed.notes === 'string' && seed.notes.trim() ? seed.notes.trim() : null;
+    const startsAt = MockBackend.wireInstant(seed.starts_at);
+    if (seed.kind === 'reminder') {
+      if (seed.all_day || !startsAt) return 'A reminder needs a date and a time.';
+      return { kind: 'reminder', title, notes, all_day: false, starts_at: startsAt, ends_at: null, start_date: null, end_date: null };
+    }
+    if (seed.all_day) {
+      if (!seed.start_date) return 'An all-day event needs a date.';
+      const endDate = seed.end_date ?? seed.start_date;
+      if (endDate < seed.start_date) return 'An event cannot end before it starts.';
+      return { kind: 'event', title, notes, all_day: true, starts_at: null, ends_at: null, start_date: seed.start_date, end_date: endDate };
+    }
+    if (!startsAt) return 'An event needs a start time, or a date if it lasts all day.';
+    const endsAt = MockBackend.wireInstant(seed.ends_at)
+      ?? new Date(Date.parse(startsAt) + 3_600_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    if (Date.parse(endsAt) <= Date.parse(startsAt)) return 'An event cannot end before it starts.';
+    return { kind: 'event', title, notes, all_day: false, starts_at: startsAt, ends_at: endsAt, start_date: null, end_date: null };
+  }
+
+  private calendarRow(row: Omit<MockCalendarEntry, 'id' | 'done_at' | 'created_at' | 'updated_at'>): MockCalendarEntry {
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    return { ...row, id: this.nextCalendarId++, done_at: row.done ? now : null, created_at: now, updated_at: now };
+  }
+
+  private calendarSorted(rows: MockCalendarEntry[]): MockCalendarEntry[] {
+    const key = (e: MockCalendarEntry) => (e.starts_at ? Date.parse(e.starts_at) : Date.parse(`${e.start_date}T00:00:00Z`));
+    return [...rows].sort((a, b) => key(a) - key(b) || a.id - b.id);
   }
 
   private json(res: http.ServerResponse, body: unknown, status = 200) {

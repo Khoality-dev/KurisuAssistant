@@ -20,6 +20,7 @@ from .version import router as version_router
 from .drive import router as drive_router
 from .notifications import router as notifications_router
 from .tasks import router as tasks_router
+from .calendar import router as calendar_router
 
 __all__ = [
     "auth_router",
@@ -42,4 +43,5 @@ __all__ = [
     "drive_router",
     "notifications_router",
     "tasks_router",
+    "calendar_router",
 ]

@@ -12,7 +12,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installBridge, resetBridge } from '@kurisu/platform/testing';
 import { apiClient, notificationSocket, storage, type NotificationSocketListener } from '@kurisu/api';
 import type { NotificationEvent, NotificationTarget } from '@kurisu/models';
+import { useCalendarStore } from './calendarStore';
 import { useConversationStore } from './conversationStore';
+import { useLayoutStore } from './layoutStore';
 import { startNotifications, useNotificationStore } from './notificationStore';
 
 const event = (id: number, extra: Partial<NotificationEvent> = {}): NotificationEvent => ({
@@ -64,7 +66,7 @@ beforeEach(() => {
       },
     },
   });
-  useNotificationStore.setState({ enabled: storage.getNotificationsEnabled(), unread: [], unreadCount: 0, calendarRequest: null });
+  useNotificationStore.setState({ enabled: storage.getNotificationsEnabled(), unread: [], unreadCount: 0 });
 });
 
 afterEach(() => {
@@ -197,11 +199,20 @@ describe('reading', () => {
     expect(loadConversation).toHaveBeenCalledWith(7);
   });
 
-  it('a click on a reminder reads it and asks for it in the calendar', () => {
+  it('a click on a reminder reads it and opens the Calendar on it (#282)', () => {
+    vi.spyOn(apiClient, 'getCalendarEntry').mockResolvedValue(undefined as never);
     stop = startNotifications();
     open({ target: { kind: 'calendar', reminderId: 42 }, id: 3 });
     expect(apiClient.markNotificationRead).toHaveBeenCalledWith(3);
-    expect(useNotificationStore.getState().calendarRequest?.reminderId).toBe(42);
+    expect(useLayoutStore.getState().activePage).toBe('calendar');
+    expect(useCalendarStore.getState().selectedId).toBe(42);
+  });
+
+  it('a calendar notification naming no reminder opens the Calendar', () => {
+    useLayoutStore.getState().setActivePage('workspace');
+    stop = startNotifications();
+    open({ target: { kind: 'calendar', reminderId: null }, id: 4 });
+    expect(useLayoutStore.getState().activePage).toBe('calendar');
   });
 
   it('opening the conversation it points to reads it', async () => {

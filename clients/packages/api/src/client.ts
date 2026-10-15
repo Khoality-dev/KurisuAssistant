@@ -5,6 +5,9 @@ import {
   type Assistant,
   type AssistantTask,
   type AssistantUpdate,
+  type CalendarEntry,
+  type CalendarEntryCreate,
+  type CalendarEntryUpdate,
   type CharacterClipUpload,
   type CharacterConfigDTO,
   type CharacterModelUpload,
@@ -1258,6 +1261,52 @@ class APIClient {
       headers: this.getHeaders(),
     });
     return response.data;
+  }
+
+  // Calendar (#282)
+  //
+  // The user's own events and reminders. Instants travel as ISO 8601 UTC; an
+  // all-day event is a pair of dates. An entry of another account is 404.
+
+  async listCalendarEntries(start: string, end: string): Promise<CalendarEntry[]> {
+    const response = await this.client.get<CalendarEntry[]>('/calendar/entries', {
+      headers: this.getHeaders(),
+      params: { start, end },
+    });
+    return response.data;
+  }
+
+  async getUpcomingCalendar(limit = 20): Promise<CalendarEntry[]> {
+    const response = await this.client.get<CalendarEntry[]>('/calendar/upcoming', {
+      headers: this.getHeaders(),
+      params: { limit },
+    });
+    return response.data;
+  }
+
+  async getCalendarEntry(id: number): Promise<CalendarEntry> {
+    const response = await this.client.get<CalendarEntry>(`/calendar/entries/${id}`, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async createCalendarEntry(body: CalendarEntryCreate): Promise<CalendarEntry> {
+    const response = await this.client.post<CalendarEntry>('/calendar/entries', body, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async updateCalendarEntry(id: number, changes: CalendarEntryUpdate): Promise<CalendarEntry> {
+    const response = await this.client.patch<CalendarEntry>(`/calendar/entries/${id}`, changes, {
+      headers: this.getHeaders(),
+    });
+    return response.data;
+  }
+
+  async deleteCalendarEntry(id: number): Promise<void> {
+    await this.client.delete(`/calendar/entries/${id}`, { headers: this.getHeaders() });
   }
 
   /**

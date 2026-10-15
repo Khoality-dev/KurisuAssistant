@@ -317,10 +317,10 @@ async function handleGetOpenFiles(): Promise<ToolResult> {
 
 async function handleNavigate(args: Record<string, unknown>): Promise<ToolResult> {
   const page = args.page as string;
-  if (!page || !['workspace', 'conversations', 'settings'].includes(page)) {
-    return err('page must be one of: workspace, conversations, settings');
+  if (!page || !['workspace', 'conversations', 'calendar', 'settings'].includes(page)) {
+    return err('page must be one of: workspace, conversations, calendar, settings');
   }
-  useLayoutStore.getState().setActivePage(page as 'workspace' | 'conversations' | 'settings');
+  useLayoutStore.getState().setActivePage(page as 'workspace' | 'conversations' | 'calendar' | 'settings');
   return ok(`Navigated to ${page}.`);
 }
 

@@ -8,6 +8,7 @@ from .skills import GetSkillInstructionsTool
 from .drive import DriveDeleteTool, DriveListTool, DriveReadTool, DriveWriteTool
 from .notify import NotifyUserTool
 from .tasks import TASK_TOOLS
+from .calendar import CalendarCreateTool, CalendarDeleteTool, CalendarListTool, CalendarMoveTool
 
 # Register built-in tools
 tool_registry.register(HistoryListTool())
@@ -33,6 +34,13 @@ tool_registry.register(DriveDeleteTool())
 # assistant is, and every call still goes through the user's tool policy.
 for _task_tool in TASK_TOOLS:
     tool_registry.register(_task_tool())
+# The calendar (#282) is one of the assistant's own features (#268), so its
+# tools are built in. A reminder only ever notifies the user; nothing on the
+# calendar makes the assistant act (see tools/calendar.py).
+tool_registry.register(CalendarCreateTool())
+tool_registry.register(CalendarListTool())
+tool_registry.register(CalendarMoveTool())
+tool_registry.register(CalendarDeleteTool())
 
 __all__ = [
     "BaseTool",

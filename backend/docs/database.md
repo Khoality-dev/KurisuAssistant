@@ -106,6 +106,15 @@ task_approvals  id, run_id→task_runs (CASCADE, indexed), user_id→users (CASC
                 status('pending'|'approved'|'denied'|'expired'|'cancelled'), modified_args(JSON)?
                 requested_at, expires_at, decided_at?
 
+calendar_entries id, user_id→users (CASCADE, indexed)              the user's calendar (#282)
+                kind('event'|'reminder'), title, notes?
+                all_day, starts_at?, ends_at?                      naive UTC; a timed event or a reminder
+                start_date?, end_date?                             dates, inclusive; an all-day event
+                done_at?, delivered_at?, delivery_attempts         reminders: done, notified once
+                created_at, updated_at
+                index (user_id, starts_at); partial index on starts_at where
+                kind = 'reminder' and delivered_at and done_at are null
+
 passages        id, user_id→users (CASCADE, indexed)               the retrieval index (#6)
                 source_kind('message'|'drive')
                 conversation_id→conversations (CASCADE, indexed)?

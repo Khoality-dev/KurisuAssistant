@@ -137,6 +137,7 @@ tools/
   history.py             list and read past conversations (built-in)
   recall.py              recall_regex / recall_semantic over the passage index (built-in)
   drive.py               the assistant's view of Kurisu Drive (not built-in)
+  calendar.py            calendar_create / _list / _move / _delete (built-in, #282)
   skills.py              on-demand skill lookup (built-in)
   notify.py              notify_user: a notification on every device (built-in)
   deferred.py            list/search/get_schema/call_tool meta-tools
@@ -152,13 +153,19 @@ db/
   session.py             engine and sessionmaker
   service.py             DBService: the single thread all DB access goes through
   repositories/          one per table, over a generic BaseRepository
-  alembic/               66 revisions, single head (ddb9d58117f1)
+  alembic/               67 revisions, single head (56e0bbe79ded)
 
 tasks/                   tasks (#352): schedules, the scheduler on the event
                          loop, one headless run (tasks.md)
 vision/processor.py      per-frame face and gesture pipeline
+calendar/                the user's calendar (#282): zone (its one zone
+                         lookup), times (zones and words),
+                         entries (what may be on it), delivery (one due
+                         reminder to notifications) — see calendar.md
 workers/                 background threads: idle scan, memory consolidation,
-                         the retrieval index (index-worker, index-scanner)
+                         the retrieval index (index-worker, index-scanner);
+                         and reminders.py, the due-reminder scanner, an
+                         asyncio task on the app's loop
 utils/                   prompt assembly, image storage, memory consolidation,
                          and the retrieval index: chunking, extraction,
                          embeddings, indexing

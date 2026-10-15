@@ -1266,3 +1266,87 @@ describe('tasks (#352)', () => {
     expect(resp.body.status).toBe('paused');
   });
 });
+
+describe('the calendar (#282)', () => {
+  const remove = async (path: string) => (await fetch(`${mock.url}${path}`, { method: 'DELETE' })).status;
+
+  it('creates, reads, moves, marks done and deletes, as the backend does', async () => {
+    const made = await post('/calendar/entries', { kind: 'reminder', title: 'Call Mom', starts_at: '2026-10-16T19:00:00-07:00' });
+    expect(made.status).toBe(201);
+    expect(made.body).toMatchObject({ kind: 'reminder', title: 'Call Mom', starts_at: '2026-10-17T02:00:00Z', ends_at: null, done: false });
+    expect(Object.keys(made.body)).not.toContain('created_by');
+
+    const id = made.body.id;
+    expect((await get(`/calendar/entries/${id}`)).body.title).toBe('Call Mom');
+    expect((await patch(`/calendar/entries/${id}`, { starts_at: '2026-10-18T02:00:00Z' })).body.starts_at).toBe('2026-10-18T02:00:00Z');
+    expect((await patch(`/calendar/entries/${id}`, { done: true })).body.done).toBe(true);
+    expect(await remove(`/calendar/entries/${id}`)).toBe(204);
+    expect((await get(`/calendar/entries/${id}`)).status).toBe(404);
+  });
+
+  it('a timed event lasts an hour by default and an all-day one is dates', async () => {
+    const event = await post('/calendar/entries', { kind: 'event', title: 'Dentist', starts_at: '2026-10-12T16:30:00Z' });
+    expect(event.body.ends_at).toBe('2026-10-12T17:30:00Z');
+    const day = await post('/calendar/entries', { kind: 'event', title: 'Birthday', all_day: true, start_date: '2026-10-18' });
+    expect(day.body).toMatchObject({ all_day: true, start_date: '2026-10-18', end_date: '2026-10-18', starts_at: null });
+  });
+
+  it('refuses what the backend refuses, with its sentences', async () => {
+    expect((await post('/calendar/entries', { kind: 'reminder', title: 'No time' })).body.detail)
+      .toBe('A reminder needs a date and a time.');
+    expect((await post('/calendar/entries', {
+      kind: 'event', title: 'Backwards', starts_at: '2026-10-12T17:00:00Z', ends_at: '2026-10-12T16:00:00Z',
+    })).status).toBe(400);
+    const event = await post('/calendar/entries', { kind: 'event', title: 'Lunch', starts_at: '2026-10-13T19:00:00Z' });
+    expect((await patch(`/calendar/entries/${event.body.id}`, { done: true })).status).toBe(400);
+  });
+
+  it('lists a window and what is coming up', async () => {
+    await post('/calendar/entries', { kind: 'reminder', title: 'Inside', starts_at: '2026-10-14T10:00:00Z' });
+    await post('/calendar/entries', { kind: 'reminder', title: 'Outside', starts_at: '2026-10-25T10:00:00Z' });
+    const listed = await get('/calendar/entries?start=2026-10-12T00:00:00Z&end=2026-10-19T00:00:00Z');
+    expect(listed.body.map((e: { title: string }) => e.title)).toEqual(['Inside']);
+    expect((await get('/calendar/entries')).status).toBe(422);
+
+  });
+
+  it('"coming up" is what is still ahead, soonest first', async () => {
+    const at = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString();
+    await post('/calendar/entries', { kind: 'reminder', title: 'Later', starts_at: at(3) });
+    await post('/calendar/entries', { kind: 'reminder', title: 'Soon', starts_at: at(1) });
+    await post('/calendar/entries', { kind: 'reminder', title: 'Past', starts_at: at(-1) });
+    const done = await post('/calendar/entries', { kind: 'reminder', title: 'Done already', starts_at: at(2) });
+    await patch(`/calendar/entries/${done.body.id}`, { done: true });
+    expect((await get('/calendar/upcoming')).body.map((e: { title: string }) => e.title)).toEqual(['Soon', 'Later']);
+  });
+
+  it('done, moved or deleted, a reminder takes its notification down, as the backend does', async () => {
+    const at = new Date(Date.now() - 60_000).toISOString();
+    const shown = async (title: string) => {
+      const made = await post('/calendar/entries', { kind: 'reminder', title, starts_at: at });
+      const sent = mock.sendNotification({ source: 'calendar', title, reminder_id: made.body.id });
+      return { id: made.body.id as number, unread: () => mock.getNotifications().find((n) => n.id === sent.id)!.read_at === null };
+    };
+    const done = await shown('Done');
+    const moved = await shown('Moved');
+    const deleted = await shown('Deleted');
+    const renamed = await shown('Renamed');
+
+    await patch(`/calendar/entries/${done.id}`, { done: true });
+    await patch(`/calendar/entries/${moved.id}`, { starts_at: new Date(Date.now() + 3_600_000).toISOString() });
+    await remove(`/calendar/entries/${deleted.id}`);
+    await patch(`/calendar/entries/${renamed.id}`, { title: 'Renamed again' });
+
+    expect([done.unread(), moved.unread(), deleted.unread(), renamed.unread()]).toEqual([false, false, false, true]);
+  });
+
+  it('a spec can seed entries and read them back', async () => {
+    const seeded = new MockBackend({ calendar: [{ kind: 'reminder', title: 'Seeded', starts_at: '2026-10-16T19:00:00Z' }] });
+    await seeded.start();
+    try {
+      expect(seeded.calendarEntries.map((e) => e.title)).toEqual(['Seeded']);
+    } finally {
+      await seeded.stop();
+    }
+  });
+});
