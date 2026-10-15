@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import com.kurisu.assistant.data.model.AsrLanguageModelEntry
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -117,4 +119,34 @@ class PreferencesDataStore @Inject constructor(
     private val KEY_AUTO_UPDATE = booleanPreferencesKey(StorageKeys.AUTO_UPDATE)
     suspend fun getAutoUpdate(): Boolean = ds.data.first()[KEY_AUTO_UPDATE] ?: true
     suspend fun setAutoUpdate(enabled: Boolean) { ds.edit { it[KEY_AUTO_UPDATE] = enabled } }
+
+    // Notifications on this phone (#353). On until the user turns them off.
+    private val KEY_NOTIFICATIONS_ENABLED = booleanPreferencesKey(StorageKeys.NOTIFICATIONS_ENABLED)
+    suspend fun getNotificationsEnabled(): Boolean = ds.data.first()[KEY_NOTIFICATIONS_ENABLED] ?: true
+    suspend fun setNotificationsEnabled(enabled: Boolean) { ds.edit { it[KEY_NOTIFICATIONS_ENABLED] = enabled } }
+
+    // Which notifications this phone has posted, per server (#353) — the one
+    // piece of notification state a device keeps, so a reconnect posts each
+    // unread one once and cancels what was read elsewhere. Bounded, newest kept.
+    private val KEY_NOTIFICATIONS_SHOWN = stringPreferencesKey(StorageKeys.NOTIFICATIONS_SHOWN)
+    private fun shownMap(raw: String?): Map<String, List<Int>> = try {
+        Json.decodeFromString(MapSerializer(String.serializer(), ListSerializer(Int.serializer())), raw ?: "{}")
+    } catch (_: Exception) { emptyMap() }
+    suspend fun getShownNotifications(server: String): Set<Int> =
+        shownMap(ds.data.first()[KEY_NOTIFICATIONS_SHOWN])[server].orEmpty().toSet()
+    suspend fun setShownNotifications(server: String, ids: Set<Int>) {
+        ds.edit {
+            val updated = shownMap(it[KEY_NOTIFICATIONS_SHOWN]) + (server to ids.sorted().takeLast(200))
+            it[KEY_NOTIFICATIONS_SHOWN] =
+                Json.encodeToString(MapSerializer(String.serializer(), ListSerializer(Int.serializer())), updated)
+        }
+    }
+
+    // The FCM token registered with the server for push (#353). Null when this
+    // phone is not registered — notifications off, signed out, or no Firebase.
+    private val KEY_PUSH_TOKEN = stringPreferencesKey(StorageKeys.PUSH_TOKEN)
+    suspend fun getRegisteredPushToken(): String? = ds.data.first()[KEY_PUSH_TOKEN]
+    suspend fun setRegisteredPushToken(token: String?) {
+        ds.edit { if (token == null) it.remove(KEY_PUSH_TOKEN) else it[KEY_PUSH_TOKEN] = token }
+    }
 }

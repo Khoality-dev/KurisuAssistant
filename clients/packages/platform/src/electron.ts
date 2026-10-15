@@ -39,6 +39,7 @@ export function electronBridge(): PlatformBridge | null {
       transferProgress: true,
       configurableServer: true,
       microphone: true,
+      systemNotifications: true,
     },
     files: api.explorer,
     transfers: api.drive,
@@ -50,6 +51,7 @@ export function electronBridge(): PlatformBridge | null {
     appTools: api.appTools,
     extensions: api.extensions,
     updater: api.updater,
+    notifications: api.notifications,
     openPath: (target) => api.openPath(target),
     openExternal: async (url) => {
       await api.openExternal(url);

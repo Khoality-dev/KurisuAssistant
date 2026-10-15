@@ -30,6 +30,11 @@ class EventType(str, Enum):
     VISION_RESULT = "vision_result"
     CONTEXT_INFO = "context_info"
 
+    # Server -> Client, on /ws/notifications (#353) — never on the chat socket
+    NOTIFICATION = "notification"
+    NOTIFICATIONS_READY = "notifications_ready"
+    NOTIFICATIONS_READ = "notifications_read"
+
 
 
 # Which way each event travels, and how it is carried. This is data rather than
@@ -58,6 +63,9 @@ SERVER_TO_CLIENT = frozenset({
     EventType.ERROR,
     EventType.VISION_RESULT,
     EventType.CONTEXT_INFO,
+    EventType.NOTIFICATION,
+    EventType.NOTIFICATIONS_READY,
+    EventType.NOTIFICATIONS_READ,
 })
 
 # Everything is a JSON text frame except the webcam frame, which is a binary

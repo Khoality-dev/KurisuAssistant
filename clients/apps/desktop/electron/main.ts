@@ -13,6 +13,7 @@ import { registerDriveTransferIPC } from './driveTransfers';
 import { startMcpServer, stopMcpServer, registerMcpServerIPC } from './mcpServer';
 import { loadSettings, saveSettings } from './settings';
 import { registerCredentialsIPC } from './credentials';
+import { registerNotificationIPC } from './notifications';
 import { buildContentSecurityPolicy, isAllowedNavigation, isExternallyOpenable } from './webSecurity';
 
 // Set custom cache path to avoid permission issues on Windows.
@@ -574,6 +575,10 @@ app.whenReady().then(() => {
   registerDriveTransferIPC();
   registerCredentialsIPC();
   registerMcpServerIPC();
+  registerNotificationIPC(() => {
+    focusMainWindow();
+    return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  });
   // The port is fixed in normal use; the E2E run overrides it so the suite
   // cannot end up talking to a real install listening on the default.
   const mcpPortOverride = Number(process.env.KURISU_E2E_MCP_PORT);

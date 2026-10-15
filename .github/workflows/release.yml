@@ -41,6 +41,11 @@ name: Release
 #   KURISU_KEYSTORE_PASSWORD — its password; the key inside uses the same one
 #                              (a PKCS12 keystore has exactly one), and the key
 #                              alias is read from the keystore at build time
+# Optional secret (push to phones — #353):
+#   KURISU_GOOGLE_SERVICES_JSON — the Firebase project's google-services.json,
+#                              written to clients/android/app/ so the APK gets
+#                              Firebase Cloud Messaging. Unset: the APK builds
+#                              the same, without background push.
 # The release itself is created with the workflow's own token.
 #
 # Asset names have no spaces. electron-builder's default NSIS name is
@@ -207,6 +212,7 @@ jobs:
     env:
       KURISU_KEYSTORE_BASE64: ${{ secrets.KURISU_KEYSTORE_BASE64 }}
       KURISU_KEYSTORE_PASSWORD: ${{ secrets.KURISU_KEYSTORE_PASSWORD }}
+      KURISU_GOOGLE_SERVICES_JSON: ${{ secrets.KURISU_GOOGLE_SERVICES_JSON }}
 
     steps:
       - name: Checkout the tag
@@ -254,6 +260,13 @@ jobs:
             echo "KURISU_KEY_ALIAS=$alias"
             echo "KURISU_KEY_PASSWORD=$KURISU_KEYSTORE_PASSWORD"
           } > .env
+
+      # Push to phones (#353): app/build.gradle.kts applies the google-services
+      # plugin only when this file exists, so without the secret the APK simply
+      # has no background push. Never committed (clients/android/.gitignore).
+      - name: Write google-services.json
+        if: env.KURISU_GOOGLE_SERVICES_JSON != ''
+        run: printf '%s' "$KURISU_GOOGLE_SERVICES_JSON" > app/google-services.json
 
       # versionName and versionCode come from the tag (app/build.gradle.kts
       # reads kurisu.releaseVersion); the committed values are the dev fallback.

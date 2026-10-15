@@ -1,5 +1,6 @@
-"""WebSocket router for real-time chat."""
+"""WebSocket routers: the chat (``/ws/chat``) and notifications (``/ws/notifications``)."""
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -12,6 +13,8 @@ from kurisuassistant.websocket.manager import manager
 from kurisuassistant.websocket.handlers import ChatSessionHandler
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.repositories import UserRepository
+from kurisuassistant.notifications import service as notifications
+from kurisuassistant.notifications.hub import hub as notification_hub
 
 logger = logging.getLogger(__name__)
 
@@ -87,13 +90,12 @@ def _extract_wire_protocol(websocket: WebSocket) -> Optional[int]:
         return _UNREADABLE_PROTOCOL
 
 
-@router.websocket("/ws/chat")
-async def websocket_chat(websocket: WebSocket):
-    """WebSocket endpoint for real-time chat.
+async def _authenticate(websocket: WebSocket) -> Optional[tuple[int, Optional[str], str]]:
+    """The handshake both sockets share: wire protocol, then credentials, then activation.
 
-    The client authenticates during the handshake, either with an Authorization
-    header or with the `kurisu.auth.bearer` subprotocol, and declares its wire
-    protocol with an `X-Wire-Protocol` header or a `kurisu.wire.<n>` subprotocol.
+    Returns ``(user_id, subprotocol_to_echo, username)``, or None after refusing
+    the socket with its close code: 4426 for a mismatched wire protocol (checked
+    before anything about the caller), 4001 otherwise.
     """
     token, subprotocol = _extract_token(websocket)
 
@@ -111,18 +113,21 @@ async def websocket_chat(websocket: WebSocket):
             "WS rejected: client wire protocol %s, server speaks %s",
             client_protocol, WIRE_PROTOCOL,
         )
-        return await reject(
+        await reject(
             f"wire_protocol_mismatch (server {WIRE_PROTOCOL})",
             code=WS_WIRE_PROTOCOL_MISMATCH,
         )
+        return None
 
     if not token:
         logger.info("WS rejected: no credentials in the handshake")
-        return await reject("Unauthorized")
+        await reject("Unauthorized")
+        return None
 
     username = get_current_user(token)
     if not username:
-        return await reject("Unauthorized")
+        await reject("Unauthorized")
+        return None
 
     def _get_user_id(session):
         user_repo = UserRepository(session)
@@ -131,16 +136,33 @@ async def websocket_chat(websocket: WebSocket):
             return None
         # The socket authenticates on its own, so the activation gate in
         # `get_authenticated_user` does not cover it. An unactivated account
-        # holding a valid token must not get a chat session.
+        # holding a valid token must not get a session.
         return user.id if user.is_active else False
 
     db = get_db_service()
     user_id = await db.execute(_get_user_id)
     if user_id is None:
-        return await reject("User not found")
+        await reject("User not found")
+        return None
     if user_id is False:
         logger.info("WS rejected: account '%s' is not activated", username)
-        return await reject(ACCOUNT_INACTIVE_DETAIL)
+        await reject(ACCOUNT_INACTIVE_DETAIL)
+        return None
+    return user_id, subprotocol, username
+
+
+@router.websocket("/ws/chat")
+async def websocket_chat(websocket: WebSocket):
+    """WebSocket endpoint for real-time chat.
+
+    The client authenticates during the handshake, either with an Authorization
+    header or with the `kurisu.auth.bearer` subprotocol, and declares its wire
+    protocol with an `X-Wire-Protocol` header or a `kurisu.wire.<n>` subprotocol.
+    """
+    authenticated = await _authenticate(websocket)
+    if authenticated is None:
+        return
+    user_id, subprotocol, username = authenticated
 
     await manager.connect(websocket, user_id, subprotocol=subprotocol)
 
@@ -174,3 +196,61 @@ async def websocket_chat(websocket: WebSocket):
         evicted = manager.disconnect(websocket, user_id)
         if evicted is not None:
             await evicted.shutdown()
+
+
+@router.websocket("/ws/notifications")
+async def websocket_notifications(websocket: WebSocket):
+    """Every device of the account, listening for notifications (#353).
+
+    The same handshake as the chat, but none of its exclusivity: the phone's
+    background service and the desktop's tray process each hold one, alongside
+    whatever chat socket is open, and none displaces another. Server to client
+    only — anything the client sends is ignored.
+
+    On connect, ``notifications_ready`` carries what is unread (the last week, at
+    most 50, oldest first): a device that was away shows the ones it has not
+    shown and drops the ones read meanwhile. Then each ``notification`` as it is
+    sent, and each ``notifications_read`` as any device reads some.
+    """
+    authenticated = await _authenticate(websocket)
+    if authenticated is None:
+        return
+    user_id, subprotocol, username = authenticated
+
+    await websocket.accept(subprotocol=subprotocol)
+    # Subscribed before the snapshot is read, so nothing sent in between is
+    # lost; a notification both would deliver is sent once.
+    queue = notification_hub.subscribe(user_id)
+    try:
+        snapshot = await notifications.unread(user_id)
+        await websocket.send_json({"type": "notifications_ready", "unread": snapshot})
+        in_snapshot = {event["id"] for event in snapshot}
+
+        async def forward() -> None:
+            while True:
+                event = await queue.get()
+                if event["type"] == "notification" and event["id"] in in_snapshot:
+                    continue
+                await websocket.send_json(event)
+
+        async def drain() -> None:
+            while True:
+                message = await websocket.receive()
+                if message["type"] == "websocket.disconnect":
+                    return
+
+        tasks = [asyncio.create_task(forward()), asyncio.create_task(drain())]
+        try:
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                if not task.cancelled() and task.exception() is not None:
+                    raise task.exception()
+        finally:
+            for task in tasks:
+                task.cancel()
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logger.error("Notifications socket for '%s' failed", username, exc_info=True)
+    finally:
+        notification_hub.unsubscribe(user_id, queue)

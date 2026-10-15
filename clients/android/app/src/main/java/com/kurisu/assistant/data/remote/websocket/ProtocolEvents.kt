@@ -33,6 +33,11 @@ object ProtocolEvents {
     const val VISION_RESULT = "vision_result"
     const val CONTEXT_INFO = "context_info"
 
+    // Server -> Client, on /ws/notifications only (#353): NotificationSocket.
+    const val NOTIFICATION = "notification"
+    const val NOTIFICATIONS_READY = "notifications_ready"
+    const val NOTIFICATIONS_READ = "notifications_read"
+
     val CLIENT_TO_SERVER = setOf(
         CHAT_REQUEST,
         TOOL_APPROVAL_RESPONSE,
@@ -53,5 +58,8 @@ object ProtocolEvents {
         ERROR,
         VISION_RESULT,
         CONTEXT_INFO,
+        NOTIFICATION,
+        NOTIFICATIONS_READY,
+        NOTIFICATIONS_READ,
     )
 }

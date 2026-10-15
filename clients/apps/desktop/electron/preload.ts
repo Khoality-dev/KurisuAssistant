@@ -198,6 +198,20 @@ contextBridge.exposeInMainWorld('electron', {
     rotateToken: () => ipcRenderer.invoke('mcp-server:rotate-token'),
   },
 
+  // OS notifications (#353), keyed by the server's notification id: the
+  // renderer shows each one, takes down the ones read elsewhere, and hears
+  // which one was clicked.
+  notifications: {
+    show: (notification: { id: number; title: string; body: string; target: unknown }) =>
+      ipcRenderer.invoke('notifications:show', notification),
+    close: (ids: number[]) => ipcRenderer.invoke('notifications:close', ids),
+    onOpen: (cb: (click: { target: any; id: number | null }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, click: { target: any; id: number | null }) => cb(click);
+      ipcRenderer.on('notifications:open', handler);
+      return () => { ipcRenderer.removeListener('notifications:open', handler); };
+    },
+  },
+
   characterWindow: {
     open: () => ipcRenderer.invoke('character:open-window'),
     close: () => ipcRenderer.invoke('character:close-window'),

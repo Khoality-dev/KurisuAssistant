@@ -6,6 +6,7 @@ import { ChatPanel } from './ChatPanel';
 import { ResizeHandle } from './ResizeHandle';
 import { useLayoutStore } from '@kurisu/state';
 import { usePersonaStore } from '@kurisu/state';
+import { startNotifications } from '@kurisu/state';
 import { ConversationsPage } from '../conversations/ConversationsPage';
 import { SettingsPage } from '../settings/SettingsPage';
 import { FileExplorerPage } from '../explorer/FileExplorerPage';
@@ -25,6 +26,11 @@ export const MainLayout: React.FC = () => {
     void loadPersonas();
     void openLatestConversation();
   }, [loadPersonas, openLatestConversation]);
+
+  // Notifications for as long as someone is signed in (#353). This layout
+  // stays mounted while the window is hidden in the tray, which is what keeps
+  // the socket open with the app "closed".
+  useEffect(() => startNotifications(), []);
 
   const handleChatResizeEnd = useCallback((size: number) => {
     useLayoutStore.getState().setChatPanelWidth(size);

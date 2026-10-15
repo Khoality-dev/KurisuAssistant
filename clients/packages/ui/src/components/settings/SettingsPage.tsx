@@ -13,6 +13,7 @@ import {
   Cloud as DriveIcon,
   Face as FacesIcon,
   GetApp as ExtensionsIcon,
+  Notifications as NotificationsIcon,
 } from '@mui/icons-material';
 import { useLayoutStore } from '@kurisu/state';
 import { useCapabilities } from '@kurisu/hooks';
@@ -31,6 +32,7 @@ const SkillsSection = React.lazy(() => import('./SkillsSection').then(m => ({ de
 const HostAccessSection = React.lazy(() => import('./HostAccessSection').then(m => ({ default: m.HostAccessSection })));
 const DriveSection = React.lazy(() => import('./DriveSection').then(m => ({ default: m.DriveSection })));
 const FacesSection = React.lazy(() => import('./FacesSection').then(m => ({ default: m.FacesSection })));
+const NotificationsSection = React.lazy(() => import('./NotificationsSection').then(m => ({ default: m.NotificationsSection })));
 const ExtensionsSection = React.lazy(() => import('./ExtensionsSection').then(m => ({ default: m.ExtensionsSection })));
 
 interface SettingsItem {
@@ -58,6 +60,7 @@ const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'tools', label: 'Tools & MCP', icon: <ToolsIcon /> },
   { id: 'skills', label: 'Skills', icon: <SkillsIcon /> },
   { id: 'drive', label: 'Kurisu Drive', icon: <DriveIcon /> },
+  { id: 'notifications', label: 'Notifications', icon: <NotificationsIcon />, needs: 'systemNotifications' },
   { id: 'host-access', label: 'Host Access', icon: <HostAccessIcon />, needs: 'hostTools' },
   { id: 'faces', label: 'Face Identities', icon: <FacesIcon /> },
   { id: 'extensions', label: 'Extensions', icon: <ExtensionsIcon />, needs: 'installer' },
@@ -92,6 +95,7 @@ function renderSection(sectionId: string) {
     case 'tools': return <ToolsSection />;
     case 'skills': return <SkillsSection />;
     case 'drive': return <DriveSection />;
+    case 'notifications': return <NotificationsSection />;
     case 'host-access': return <HostAccessSection />;
     case 'faces': return <FacesSection />;
     case 'extensions': return <ExtensionsSection />;

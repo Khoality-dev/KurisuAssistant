@@ -46,7 +46,7 @@ fetch there asks the main renderer for a fresh token over
 
 ## Storage keys (localStorage)
 
-`kurisu_remember_me`, `kurisu_selected_model`, `kurisu_voice_mode` (voice mode was on, #253), `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_media_volume`
+`kurisu_remember_me`, `kurisu_selected_model`, `kurisu_voice_mode` (voice mode was on, #253), `kurisu_notifications_enabled` (this device's notifications switch, on unless `false`, #353), `kurisu_notifications_shown` (which notifications this device has shown, as `{server URL: [ids]}` — the server keeps the notifications and their read state), `kurisu_backend_url`, `kurisu_tts_backend`, `kurisu_tts_voice`, `kurisu_tts_language`, `kurisu_media_volume`
 
 Layout, in `layoutStore` rather than `storage`: `kurisu_chat_panel_width`, `kurisu_workspace_tree_width`, `kurisu_character_visible` and `kurisu_character_panel_height` (the inline character panel, #241).
 

@@ -1,11 +1,13 @@
 # WebSocket Protocol
 
-One socket, `/ws/chat`, carries everything: chat, tool approval, client-side tool
-execution, context compaction and vision. Every frame is a JSON object.
+Two sockets. `/ws/chat` carries the conversation: chat, tool approval, client-side
+tool execution, context compaction and vision. `/ws/notifications` carries
+notifications to every device of the account, with the app closed — see
+[Notifications](#notifications-wsnotifications) below. Every frame is a JSON object.
 `websocket/events.py` is the source of truth for the shapes below; `parse_event()`
 there is the only thing that accepts a client event, and an unknown `type` raises.
 
-Wire protocol **7**. See `version.py` for the changelog.
+Wire protocol **8**. See `version.py` for the changelog.
 
 ## Handshake
 
@@ -364,6 +366,68 @@ A malformed or over-long message is answered with `error` (`BAD_BINARY_MESSAGE`)
 and the socket stays open — a bad frame is not a reason to drop a conversation.
 Backpressure is unchanged: the server skips a frame while inference is still
 running, and the client refills on each `vision_result`.
+
+## Notifications (`/ws/notifications`)
+
+**The server keeps every notification and whether it has been read; the clients
+only display them** (#353). `notifications.notify()` is how anything reaches the
+user outside the chat — the assistant's `notify_user` tool and calendar reminders
+both call it. It stores a row in `notifications` first, then hands the event to
+every `/ws/notifications` socket the account has open. It never raises into its
+caller — a failure is logged. `notifications.mark_read()` is the other half:
+reading on any device sets `read_at` once and is announced to every device. Both
+are also pushed to registered phones through Firebase Cloud Messaging
+(`notifications/push.py`, `API.md` "POST /notifications/devices"): an Android app
+that is not running holds no socket.
+
+The handshake is the chat's (`routers/ws.py::_authenticate`: 4426, then 4001), but
+the session rules are the opposite: **any number of these per account, and none
+displaces another or the chat**. The chat is last-one-wins because one handler
+writes to one socket; a notification is for every device at once. The desktop's
+tray process holds one for as long as notifications are on, and the Android app
+while it is open (closed, it is reached by push) (`clients/android/docs/patterns.md`,
+`clients/apps/desktop/docs/chat.md`). It is server-to-client only; anything a
+client sends is ignored. On connect:
+
+1. `notifications_ready` with what is unread — the last 7 days, at most 50,
+   oldest first. A device that was away shows the ones it has not shown yet and
+   takes down the ones it showed that are no longer here (read meanwhile). Older
+   unread ones stay in the app's list (`GET /notifications`) without a system
+   notification;
+2. each new `notification` as it is sent;
+3. each `notifications_read` as any device reads some.
+
+The socket subscribes before it reads the snapshot; a notification both would
+deliver is sent once. Reading happens over REST (`API.md`, Notifications): one
+(`POST /notifications/{id}/read`), all (`/read-all`), or every one pointing at a
+conversation or reminder the user just opened (`/read-for`).
+
+### `notification`
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | int | the device's key for its own "already shown" bookkeeping |
+| `source` | `"assistant"` \| `"calendar"` | |
+| `sender` | string | what to show it as: the persona in use when it was sent, `Assistant` with none, or `Calendar` |
+| `title` | string | at most 120 characters |
+| `body` | string | at most 1000 characters, may be empty |
+| `conversation_id` | int \| null | what tapping it opens; only ever one of the account's own |
+| `reminder_id` | int \| null | the calendar reminder it announces (#282) |
+| `created_at` | string | ISO-8601 UTC, `Z` |
+| `read_at` | string \| null | null until a device reads it |
+
+### `notifications_ready`
+
+| Field | Type | Notes |
+|---|---|---|
+| `unread` | list of `notification` | the recent unread, oldest first |
+
+### `notifications_read`
+
+| Field | Type | Notes |
+|---|---|---|
+| `ids` | list of int | what was just read, on whichever device; take each down |
+| `read_at` | string | when |
 
 ## Removed
 

@@ -34,6 +34,18 @@
       "direction": "server_to_client",
       "transport": "json"
     },
+    "notification": {
+      "direction": "server_to_client",
+      "transport": "json"
+    },
+    "notifications_read": {
+      "direction": "server_to_client",
+      "transport": "json"
+    },
+    "notifications_ready": {
+      "direction": "server_to_client",
+      "transport": "json"
+    },
     "stream_chunk": {
       "direction": "server_to_client",
       "transport": "json"

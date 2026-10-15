@@ -42,4 +42,10 @@ describe('which settings sections a host shows', () => {
     const { capabilities } = fakeBridge();
     expect(labels(capabilities)).not.toContain('Sub-Agents');
   });
+
+  it('lists Notifications only where the host can show them (#353)', () => {
+    const { capabilities } = fakeBridge();
+    expect(labels(capabilities)).not.toContain('Notifications');
+    expect(labels({ ...capabilities, systemNotifications: true })).toContain('Notifications');
+  });
 });

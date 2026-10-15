@@ -35,6 +35,7 @@ from kurisuassistant.routers import (
     character_router,
     vision_router,
     skills_router,
+    notifications_router,
     version_router,
     drive_router,
 )
@@ -60,6 +61,11 @@ async def lifespan(app: FastAPI):
 
     import kurisuassistant.workers as workers
     workers.start()
+
+    # Push to phones (#353): on when FCM_SERVICE_ACCOUNT_FILE names a service
+    # account, otherwise off — said once, and nothing else changes.
+    from kurisuassistant.notifications import push
+    push.init_from_environment()
 
     yield
 
@@ -173,6 +179,7 @@ app.include_router(character_router)
 app.include_router(vision_router)
 app.include_router(mcp_router)
 app.include_router(skills_router)
+app.include_router(notifications_router)
 app.include_router(drive_router)
 app.include_router(ws_router)
 

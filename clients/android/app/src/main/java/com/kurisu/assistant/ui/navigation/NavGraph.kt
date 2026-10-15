@@ -1,5 +1,9 @@
 package com.kurisu.assistant.ui.navigation
 
+import com.kurisu.assistant.ui.notifications.UnreadNotificationsScreen
+import androidx.compose.runtime.LaunchedEffect
+import com.kurisu.assistant.domain.notifications.NotificationTarget
+import com.kurisu.assistant.ui.settings.NotificationsScreen
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -41,13 +45,35 @@ object Routes {
     const val APPEARANCE = "appearance"
     const val FACES = "faces"
     const val ABOUT = "about"
+    const val NOTIFICATIONS = "notifications"
+    /** What is unread, opened from the bell on Chats (#353). */
+    const val UNREAD = "unread"
 }
 
 @Composable
 fun KurisuNavGraph(
     navController: NavHostController,
     startDestination: String,
+    onSignedIn: () -> Unit = {},
+    onSignedOut: () -> Unit = {},
+    notificationTarget: NotificationTarget? = null,
+    onOpenConversation: (Int) -> Unit = {},
+    onNotificationTargetHandled: () -> Unit = {},
+    onOpenNotificationTarget: (NotificationTarget) -> Unit = {},
 ) {
+    // A tapped notification (#353): a conversation opens in the chat; a
+    // reminder waits in NotificationNavigation for the calendar (#282).
+    LaunchedEffect(notificationTarget) {
+        when (val target = notificationTarget) {
+            is NotificationTarget.Conversation -> {
+                onOpenConversation(target.conversationId)
+                navController.navigate(Routes.CHAT) { launchSingleTop = true }
+            }
+            else -> Unit
+        }
+        if (notificationTarget != null) onNotificationTargetHandled()
+    }
+
     // Drawer destinations sit directly above Chats rather than stacking: picking
     // Personas from Skills must not leave Skills on the back stack for the
     // system back button to walk through.
@@ -59,6 +85,7 @@ fun KurisuNavGraph(
     }
 
     fun logout() {
+        onSignedOut()
         navController.navigate(Routes.LOGIN) {
             popUpTo(0) { inclusive = true }
         }
@@ -68,6 +95,7 @@ fun KurisuNavGraph(
         composable(Routes.LOGIN) {
             LoginScreen(
                 onLoginSuccess = {
+                    onSignedIn()
                     navController.navigate(Routes.CONVERSATIONS) {
                         popUpTo(Routes.LOGIN) { inclusive = true }
                     }
@@ -88,6 +116,7 @@ fun KurisuNavGraph(
                     // itself when there is none (#354).
                     onOpenChat = { navController.navigate(Routes.CHAT) },
                     onOpenMenu = openDrawer,
+                    onOpenNotifications = { navController.navigate(Routes.UNREAD) },
                 )
             }
         }
@@ -130,6 +159,7 @@ fun KurisuNavGraph(
                 onNavigateToTtsAsr = { navController.navigate(Routes.TTS_ASR) },
                 onNavigateToFaces = { navController.navigate(Routes.FACES) },
                 onNavigateToAbout = { navController.navigate(Routes.ABOUT) },
+                onNavigateToNotifications = { navController.navigate(Routes.NOTIFICATIONS) },
             )
         }
         composable(Routes.ACCOUNT) {
@@ -146,6 +176,15 @@ fun KurisuNavGraph(
         }
         composable(Routes.ABOUT) {
             AboutScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.NOTIFICATIONS) {
+            NotificationsScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.UNREAD) {
+            UnreadNotificationsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenTarget = onOpenNotificationTarget,
+            )
         }
     }
 }

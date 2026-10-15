@@ -15,16 +15,19 @@ com.kurisu.assistant/
 ├── data/
 │   ├── local/                   -- DataStore, EncryptedPrefs, StorageKeys
 │   ├── remote/api/              -- Retrofit service, interceptors, ProtocolMismatchSignal (live 426 / 4426 → update gate)
-│   ├── remote/websocket/        -- OkHttp WebSocket, event payloads
+│   ├── remote/websocket/        -- OkHttp WebSocket, event payloads, NotificationSocket (/ws/notifications, #353)
 │   ├── model/                   -- Data classes (API, WS, Animation, UpdateModels)
-│   └── repository/              -- Auth, Assistant, Persona, Conversation, TTS, ASR, Vision, Tools, Face, Update repos
+│   ├── push/                    -- PushRegistration + FcmTokenSource: this phone's FCM token on the server (#353)
+│   └── repository/              -- Auth, Assistant, Persona, Conversation, TTS, ASR, Vision, Tools, Face, Update,
+│                                   Notification (the server's notifications and their read state, #353) repos
 ├── domain/
 │   ├── chat/                    -- Stream processor, sentence splitter, narration stripper
 │   ├── tts/                     -- TTS queue, WAV parser, amplitude computer
 │   ├── audio/                   -- AudioRecorder, VoiceActivityDetector
-│   └── character/               -- Compositor, image cache, animation migration
+│   ├── character/               -- Compositor, image cache, animation migration
+│   └── notifications/           -- What a notification says and opens; NotificationSync (what to post and cancel)
 ├── ui/
-│   ├── navigation/              -- NavGraph + AppDrawerHost (routes: LOGIN, CONVERSATIONS, CHAT, ASSISTANT, PERSONAS, TOOLS_MCP, SKILLS, SETTINGS, ACCOUNT, TTS_ASR, APPEARANCE, FACES, ABOUT)
+│   ├── navigation/              -- NavGraph + AppDrawerHost (routes: LOGIN, CONVERSATIONS, CHAT, ASSISTANT, PERSONAS, TOOLS_MCP, SKILLS, SETTINGS, ACCOUNT, TTS_ASR, APPEARANCE, FACES, ABOUT, NOTIFICATIONS, UNREAD)
 │   ├── theme/                   -- Material 3 theme (primary #2563EB)
 │   ├── auth/                    -- Login screen + ViewModel
 │   ├── conversations/           -- Chats list (start destination) + voice mode strip + in-app update check
@@ -32,12 +35,14 @@ com.kurisu.assistant/
 │   ├── assistant/               -- The one assistant (wake word, thinking, memory, tools)
 │   ├── personas/                -- Persona CRUD (name, prompt, voice, avatar) + ViewModel
 │   ├── common/                  -- Shared UI bits (personaInitials, ModelDropdown)
-│   ├── settings/                -- Settings index + Account, Appearance, TTS & ASR, Tools & MCP, Skills screens
+│   ├── settings/                -- Settings index + Account, Appearance, Notifications, TTS & ASR, Tools & MCP, Skills screens
 │   ├── faces/                   -- Face Identities CRUD (camera capture via TakePicture intent + FileProvider)
 │   ├── update/                  -- UpdateDialog composable (in-app update from GitHub Releases)
 │   ├── version/                 -- Wire-protocol gate: UpdateRequiredScreen + UpdateRequiredCopy (which side to update)
 │   └── character/               -- Character canvas, video player, screen + ViewModel
-├── service/                     -- CoreService (foreground service), CoreState (shared singleton), VoiceInteractionManager
+├── service/                     -- CoreService (foreground service), CoreState (shared singleton), VoiceInteractionManager,
+│                                   KurisuMessagingService (FCM data messages with the app closed, #353), ForegroundNotifications
+│                                   (the socket while open), NotificationPoster, tap intents and NotificationNavigation
 └── di/                          -- Hilt modules (App, Network)
 ```
 
@@ -54,7 +59,9 @@ Login → Conversations ("Chats", the start destination; hamburger → app drawe
   ├── Tap a row / New chat FAB → Chat
   ├── In voice mode, say the wake word → Chat, in a new conversation (#341)
   ├── Drawer → Chats | Assistant | Personas | Tools & MCP | Skills
-  ├── Drawer → Settings → Account | Appearance | TTS & ASR | Face Identities | About
+  ├── Drawer → Settings → Account | Appearance | Notifications | TTS & ASR | Face Identities | About
+  ├── Bell (top bar) → Unread → an item → its conversation in Chat (#353)
+  ├── Tap a notification → its conversation in Chat (a reminder waits for the calendar, #282)
   └── Drawer → Logout
 Chat header (persona name) → persona sheet → "Manage personas" → Personas
 Chat header (face icon) → character overlay (a sheet, not a destination)

@@ -1,4 +1,5 @@
 import React from 'react';
+import { NotificationBell } from '../notifications/NotificationBell';
 import { Badge, Box, IconButton, Tooltip } from '@mui/material';
 import {
   FolderOutlined as FolderIcon,
@@ -90,6 +91,9 @@ export const ActivityBar: React.FC = () => {
             </Tooltip>
           );
         })}
+        {/* What is unread, on the server (#353): the first thing the bar shows
+            after the pages, so a notification read elsewhere clears here too. */}
+        <NotificationBell />
       </Box>
 
       {/* Bottom utility icons */}

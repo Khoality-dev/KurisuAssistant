@@ -18,6 +18,7 @@ import type {
   HostToolsAPI,
   MCPAPI,
   McpServerAPI,
+  NotificationsAPI,
   UpdaterAPI,
 } from './types';
 import { webBridge } from './web';
@@ -68,6 +69,11 @@ export interface Capabilities {
    * browser offers it only in a secure context; Electron always does.
    */
   microphone: boolean;
+  /**
+   * Notifications the OS shows, with the window hidden or behind others (#353).
+   * Where this is false the app shows none, and Settings has no Notifications.
+   */
+  systemNotifications: boolean;
 }
 
 /**
@@ -102,6 +108,8 @@ export interface PlatformBridge {
   readonly extensions: ExtensionsAPI | null;
   /** The app can replace itself. `null` where it cannot. */
   readonly updater: UpdaterAPI | null;
+  /** Notifications the OS shows. `null` where the host shows none. */
+  readonly notifications: NotificationsAPI | null;
   /** Reveal a file on the machine this is displayed on. */
   openPath(target: string): Promise<string>;
   /**

@@ -1,5 +1,6 @@
 package com.kurisu.assistant.data.repository
 
+import com.kurisu.assistant.data.model.ToolPolicyPatch
 import com.kurisu.assistant.data.model.MCPServer
 import com.kurisu.assistant.data.model.MCPServerCreate
 import com.kurisu.assistant.data.model.MCPServerTestResult
@@ -20,6 +21,15 @@ class ToolsRepository @Inject constructor(
     suspend fun listTools(): ToolsResponse = api.listTools()
 
     suspend fun listMCPServers(): List<MCPServer> = api.listMCPServers()
+
+    /** The tools the user has denied (#353: the switch for tools allowed by default). */
+    suspend fun deniedTools(): Set<String> =
+        api.getToolPolicies().tools.filterValues { it == "deny" }.keys
+
+    /** Store a deny, or remove it so the tool's own default applies again. */
+    suspend fun setToolDenied(toolName: String, denied: Boolean) {
+        api.patchToolPolicy(ToolPolicyPatch(toolName, if (denied) "deny" else null))
+    }
     suspend fun createMCPServer(data: MCPServerCreate): MCPServer = api.createMCPServer(data)
     suspend fun updateMCPServer(id: Int, data: MCPServerUpdate): MCPServer = api.updateMCPServer(id, data)
     suspend fun deleteMCPServer(id: Int) = api.deleteMCPServer(id)

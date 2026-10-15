@@ -30,6 +30,8 @@ const STORAGE_KEYS = {
   ASR_MODE: 'kurisu_asr_mode',
   ASR_FIXED_MODEL: 'kurisu_asr_fixed_model',
   ASR_MODEL_MAP: 'kurisu_asr_model_map',
+  NOTIFICATIONS_ENABLED: 'kurisu_notifications_enabled',
+  NOTIFICATIONS_SHOWN: 'kurisu_notifications_shown',
 } as const;
 
 // Keys from before the agent/persona split. Both held a cache that re-derives from
@@ -433,6 +435,48 @@ export const storage = {
       localStorage.removeItem(STORAGE_KEYS.ASR_LANGUAGE);
     } catch (error) {
       console.error('Failed to clear ASR language:', error);
+    }
+  },
+
+  /** Notifications on this device (#353). On until the user turns them off. */
+  getNotificationsEnabled(): boolean {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS_ENABLED) !== 'false';
+    } catch {
+      return true;
+    }
+  },
+
+  setNotificationsEnabled(on: boolean): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS_ENABLED, on.toString());
+    } catch (error) {
+      console.error('Failed to save the notifications setting:', error);
+    }
+  },
+
+  /**
+   * Which of `server`'s notifications this device has already shown (#353) —
+   * the one piece of notification state a device keeps, so a reconnect shows
+   * each unread one once and knows which shown ones to take down. Kept per
+   * server: ids from one server mean nothing to another. Bounded, newest kept.
+   */
+  getShownNotifications(server: string): number[] {
+    try {
+      const all = JSON.parse(localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS_SHOWN) || '{}');
+      return Array.isArray(all[server]) ? all[server].filter((id: unknown) => typeof id === 'number') : [];
+    } catch {
+      return [];
+    }
+  },
+
+  setShownNotifications(server: string, ids: number[]): void {
+    try {
+      const all = JSON.parse(localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS_SHOWN) || '{}');
+      all[server] = ids.slice(-200);
+      localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS_SHOWN, JSON.stringify(all));
+    } catch (error) {
+      console.error('Failed to save which notifications were shown:', error);
     }
   },
 

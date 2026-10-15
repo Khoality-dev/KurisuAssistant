@@ -400,3 +400,51 @@ class Passage(Base):
     conversation = relationship("Conversation")
     message = relationship("Message")
     drive_node = relationship("DriveNode")
+
+
+class Notification(Base):
+    """Something the user should see on every device, even with the app closed (#353).
+
+    The server keeps every notification and whether it has been read; the clients
+    only display them. Written by ``notifications.notify`` — the assistant's
+    ``notify_user`` tool and calendar reminders — and pushed over
+    ``/ws/notifications``. ``read_at`` is set once, by whichever device reads it
+    first, and every other device then drops it; a device that was away is sent
+    what is still unread when it reconnects. ``sender`` is fixed at send time: the
+    persona in use then, ``Assistant`` with none, or ``Calendar``. ``reminder_id``
+    is the calendar's id for the reminder and deliberately not a foreign key, so
+    this table does not depend on the calendar's.
+    """
+    __tablename__ = 'notifications'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    source = Column(String, nullable=False)  # "assistant" | "calendar"
+    sender = Column(String, nullable=False)
+    title = Column(Text, nullable=False)
+    body = Column(Text, nullable=False, default='', server_default='')
+    conversation_id = Column(
+        Integer, ForeignKey('conversations.id', ondelete='SET NULL'), nullable=True
+    )
+    reminder_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    read_at = Column(DateTime, nullable=True)
+
+
+class NotificationDevice(Base):
+    """A phone that gets notifications pushed through Firebase Cloud Messaging (#353).
+
+    A phone's app is not running to hold ``/ws/notifications``, so the server
+    pushes to it instead: each phone registers its FCM token here while its
+    notifications are on, and unregisters it when they are turned off or it
+    signs out. A token is one installed app, so it belongs to whoever registered
+    it last; one FCM reports as unregistered or invalid is dropped.
+    """
+    __tablename__ = 'notification_devices'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    platform = Column(String, nullable=False)  # "android"
+    fcm_token = Column(String, nullable=False, unique=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_seen_at = Column(DateTime, default=datetime.utcnow, nullable=False)

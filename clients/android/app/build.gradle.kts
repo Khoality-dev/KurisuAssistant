@@ -11,6 +11,39 @@ plugins {
     id("com.google.dagger.hilt.android")
 }
 
+// Push to phones through Firebase Cloud Messaging (#353). google-services.json is
+// per deployment and never committed (release.yml writes it from the optional
+// KURISU_GOOGLE_SERVICES_JSON secret), so the plugin is applied only when the file
+// is there: CI, forks and local builds without it build and test the same, and the
+// app simply has no background push. A variant the file does not list — the dev
+// flavor's com.kurisu.assistant.dev until it is added to the Firebase project —
+// builds with a warning instead of failing. The plugin's own
+// missingGoogleServicesStrategy only covers a missing *file* (4.4.2 still fails on a
+// missing *client*), so each variant whose applicationId the file does not list has
+// its process<Variant>GoogleServices task switched off: that build has no push.
+val googleServicesJson = file("google-services.json")
+if (googleServicesJson.exists()) {
+    apply(plugin = "com.google.gms.google-services")
+    extensions.configure<com.google.gms.googleservices.GoogleServicesPlugin.GoogleServicesPluginConfig> {
+        missingGoogleServicesStrategy =
+            com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy.WARN
+    }
+    @Suppress("UNCHECKED_CAST")
+    val listedPackages = ((groovy.json.JsonSlurper().parse(googleServicesJson) as Map<String, Any?>)["client"] as? List<Map<String, Any?>>)
+        .orEmpty()
+        .mapNotNull { ((it["client_info"] as? Map<*, *>)?.get("android_client_info") as? Map<*, *>)?.get("package_name") as? String }
+        .toSet()
+    val unlistedTasks = mutableSetOf<String>()
+    androidComponents.onVariants { variant ->
+        val id = variant.applicationId.get()
+        if (id !in listedPackages) {
+            unlistedTasks += "process${variant.name.replaceFirstChar { it.uppercase() }}GoogleServices"
+            logger.warn("google-services.json lists no client for $id: the ${variant.name} build has no push (#353)")
+        }
+    }
+    tasks.configureEach { if (name in unlistedTasks) enabled = false }
+}
+
 // Load release signing values from <repo-root>/.env (gitignored). See .env.template.
 // A missing or blank value is NOT substituted: a release build without them fails in
 // `verifyReleaseSigning` below. It used to fall back to the debug key that ships in every
@@ -309,6 +342,11 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
     // Hilt
+    // Push to phones (#353): data messages; without google-services.json no Firebase
+    // app initialises and FirebaseTokenSource answers no token.
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
+
     implementation("com.google.dagger:hilt-android:2.51.1")
     ksp("com.google.dagger:hilt-android-compiler:2.51.1")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")

@@ -5,7 +5,7 @@
  * one host. They live here now because a second host — a browser tab — has to
  * answer the same interface, and answer "no" to most of it.
  */
-import type { EmotionCue, FileEntry, ParsedCharacterConfig, SpeechSegment, SpeechSync } from '@kurisu/models';
+import type { EmotionCue, FileEntry, NotificationTarget, ParsedCharacterConfig, SpeechSegment, SpeechSync } from '@kurisu/models';
 
 /**
  * One persona's character, as shipped to the character window: the parsed
@@ -239,6 +239,20 @@ export interface UpdaterAPI {
   checkForUpdates: () => Promise<UpdateCheckResult>;
 }
 
+/**
+ * The host's own notifications (#353): shown by the OS, so they reach the user
+ * with the window hidden in the tray or behind others. Keyed by the server's
+ * notification id, so one read on another device can be taken down here.
+ */
+export interface NotificationsAPI {
+  /** Show one. Resolves false when the OS offers no notifications. */
+  show: (notification: { id: number; title: string; body: string; target: NotificationTarget }) => Promise<boolean>;
+  /** Take these down, if they are still showing. */
+  close: (ids: number[]) => Promise<void>;
+  /** The user clicked one: the window is already in front. */
+  onOpen: (cb: (click: { target: NotificationTarget; id: number | null }) => void) => () => void;
+}
+
 export interface ExtensionsAPI {
   checkHealth: (url: string) => Promise<Record<string, any> | null>;
   checkInstalled: (appName: string) => Promise<{ installed: boolean; path: string }>;
@@ -266,4 +280,5 @@ export interface ElectronAPI {
   credentials: CredentialsAPI;
   characterWindow: CharacterWindowAPI;
   extensions: ExtensionsAPI;
+  notifications: NotificationsAPI;
 }

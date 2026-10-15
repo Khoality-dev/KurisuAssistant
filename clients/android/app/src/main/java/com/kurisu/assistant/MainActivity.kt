@@ -1,6 +1,19 @@
 package com.kurisu.assistant
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.kurisu.assistant.data.repository.NotificationRepository
+import com.kurisu.assistant.service.CoreState
+import com.kurisu.assistant.service.NotificationNavigation
+import com.kurisu.assistant.service.ForegroundNotifications
+import com.kurisu.assistant.service.NotificationDelivery
+import com.kurisu.assistant.service.NotificationTargetIntent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -38,10 +51,59 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var versionRepository: VersionRepository
     @Inject lateinit var updateRepository: UpdateRepository
     @Inject lateinit var protocolMismatchSignal: ProtocolMismatchSignal
+    @Inject lateinit var notificationNavigation: NotificationNavigation
+    @Inject lateinit var notificationDelivery: NotificationDelivery
+    @Inject lateinit var foregroundNotifications: ForegroundNotifications
+    @Inject lateinit var coreState: CoreState
+    @Inject lateinit var notificationRepository: NotificationRepository
+
+    /** A tapped notification: read it on the server, and go where it points (#353). */
+    private fun openTappedNotification(intent: Intent?) {
+        val target = NotificationTargetIntent.read(intent) ?: return
+        NotificationTargetIntent.notificationId(intent)?.let { id ->
+            lifecycleScope.launch { notificationRepository.markRead(id) }
+        }
+        notificationNavigation.open(target)
+    }
+
+    /** Android 13+ asks before an app may post notifications (#353). */
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    /** Register for push and listen while signed in, if this phone has notifications on (#353). */
+    private fun startNotifications() {
+        lifecycleScope.launch {
+            if (!prefs.getNotificationsEnabled()) return@launch
+            notificationDelivery.start()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    // The socket path while the app is in front (#353); closed, Firebase pushes.
+    override fun onStart() {
+        super.onStart()
+        foregroundNotifications.onAppStarted()
+    }
+
+    override fun onStop() {
+        foregroundNotifications.onAppStopped()
+        super.onStop()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        openTappedNotification(intent)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (savedInstanceState == null) openTappedNotification(intent)
 
         setContent {
             val themeMode by prefs.themeModeFlow().collectAsState(initial = "system")
@@ -69,6 +131,7 @@ class MainActivity : ComponentActivity() {
                         if (versionCheck !is VersionCheck.Mismatch) {
                             startDestination = try {
                                 val user = authRepository.initializeAuth()
+                                if (user != null) startNotifications()
                                 if (user != null) Routes.CONVERSATIONS else Routes.LOGIN
                             } catch (_: Exception) {
                                 Routes.LOGIN
@@ -142,7 +205,17 @@ class MainActivity : ComponentActivity() {
                                 VersionCheckPlaceholder()
                             } else {
                                 val navController = rememberNavController()
-                                KurisuNavGraph(navController = navController, startDestination = dest)
+                                val pendingTarget by notificationNavigation.pending.collectAsState()
+                                KurisuNavGraph(
+                                    navController = navController,
+                                    startDestination = dest,
+                                    onSignedIn = ::startNotifications,
+                                    onSignedOut = notificationDelivery::stop,
+                                    notificationTarget = pendingTarget,
+                                    onOpenConversation = { coreState.setConversationId(it) },
+                                    onNotificationTargetHandled = notificationNavigation::handled,
+                                    onOpenNotificationTarget = notificationNavigation::open,
+                                )
                             }
                         }
                     }

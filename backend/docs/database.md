@@ -76,6 +76,17 @@ drive_nodes     id, user_id→users (CASCADE, indexed)               Kurisu Driv
                 unique (user_id, parent_id, name) where parent_id is not null
                 unique (user_id, name)            where parent_id is null
 
+notifications   id, user_id→users (CASCADE, indexed)               what notify() sent (#353); the server keeps
+                source('assistant'|'calendar'), sender             them and their read state, the clients
+                title, body(default '')                            only display them
+                conversation_id→conversations (SET NULL)?          what tapping it opens
+                reminder_id?                                       the calendar's id; no FK on purpose
+                created_at, read_at?                               read_at: set once, by whichever device reads it
+
+notification_devices id, user_id→users (CASCADE, indexed)          phones pushed to through FCM (#353)
+                platform, fcm_token(unique)                        a token is one app: last registrant owns it
+                created_at, last_seen_at
+
 passages        id, user_id→users (CASCADE, indexed)               the retrieval index (#6)
                 source_kind('message'|'drive')
                 conversation_id→conversations (CASCADE, indexed)?
