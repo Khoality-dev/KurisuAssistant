@@ -69,6 +69,8 @@ class TasksScreenTest : E2eTest() {
         composeRule.onNode(hasText("Pause") and hasClickAction()).performClick()
         assertTrue("paused on the server", waitUntilTrue { taskStatus(2) == "paused" })
 
+        // The pane shows Resume once its refetch lands, a moment after the server.
+        waitForText("Resume")
         composeRule.onNode(hasText("Resume") and hasClickAction()).performClick()
         assertTrue("resumed on the server", waitUntilTrue { taskStatus(2) == "scheduled" })
     }
