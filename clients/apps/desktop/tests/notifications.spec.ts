@@ -186,10 +186,12 @@ test.describe('notifications', () => {
     await expect.poll(() => mock.notificationListeners()).toBe(0);
     await expect(page.getByText("This computer won't get")).toBeVisible();
 
-    // A new window session (the fixture keeps no session across a reload):
-    // signed in again, the device remembers it is off.
+    // A new window session, signed in again — or still signed in, where an OS
+    // keychain keeps the session (Windows): the device remembers it is off.
     await page.reload();
-    await login(page);
+    const username = page.getByLabel('Username');
+    await expect(username.or(page.getByPlaceholder('Type your message...'))).toBeVisible({ timeout: 15_000 });
+    if (await username.isVisible()) await login(page);
     await page.waitForTimeout(1_000);
     expect(mock.notificationListeners()).toBe(0);
   });
