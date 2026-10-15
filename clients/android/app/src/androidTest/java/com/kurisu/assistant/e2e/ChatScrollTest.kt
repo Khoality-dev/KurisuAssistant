@@ -4,6 +4,8 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -30,7 +32,7 @@ class ChatScrollTest : E2eTest() {
     @Test
     fun opening_a_long_conversation_shows_its_latest_messages() {
         login()
-        openChat()
+        openLongConversation()
 
         waitUntilAtEnd("the conversation opened")
     }
@@ -38,7 +40,7 @@ class ChatScrollTest : E2eTest() {
     @Test
     fun the_users_own_message_is_shown_and_its_reply_followed_after_scrolling_up_to_read() {
         login()
-        openChat()
+        openLongConversation()
         waitUntilAtEnd("the conversation opened")
         scrollUpToRead()
         assertFalse("the swipes left the end of the transcript", atEnd())
@@ -53,7 +55,7 @@ class ChatScrollTest : E2eTest() {
     @Test
     fun scrolling_up_while_a_reply_streams_is_not_undone() {
         login()
-        openChat()
+        openLongConversation()
         waitUntilAtEnd("the conversation opened")
         val text = send("Tell me everything")
         waitUntilViewShows("Line 3 of")
@@ -64,6 +66,16 @@ class ChatScrollTest : E2eTest() {
         // The finished reply, reloaded from the server, lands where the stream was.
         pause(2_000)
         assertFalse("the reply pulled the transcript back down to its end", atEnd())
+    }
+
+    /**
+     * From the Chats list. "New chat" starts an empty conversation now that one is
+     * not kept per persona (#354), so the seeded one is opened by its row.
+     */
+    private fun openLongConversation() {
+        waitForText("A long conversation")
+        composeRule.onNodeWithText("A long conversation").performClick()
+        waitForText("Message...")
     }
 
     /** Two swipes down the transcript: well up from its end, as a person reading back would. */
