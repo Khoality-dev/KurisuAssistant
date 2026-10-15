@@ -65,8 +65,8 @@ class AssistantConfig:
 class PersonaConfig:
     """How the assistant sounds — the identity half. Mirrors ``db.models.Persona``.
 
-    Presentation only: no model, no tools, no memory, no trigger word. A
-    conversation binds to exactly one of these.
+    Presentation only: no model, no tools, no memory, no trigger word. One of
+    these, or none, is in use for the whole account (#354).
     """
     id: Optional[int] = None
     name: str = ""
@@ -77,25 +77,6 @@ class PersonaConfig:
     avatar_uuid: Optional[str] = None
     character_config: Optional[Dict] = None
     enabled: bool = True
-
-
-@dataclass
-class SubAgentConfig:
-    """A task-only worker. Mirrors ``db.models.SubAgent``.
-
-    Carries both halves at once because a sub-agent is its own capability and
-    its own (internal) label: it runs its own LLM loop but never speaks to the
-    user, is never bound to a conversation, and holds no memory.
-    """
-    id: Optional[int] = None
-    name: str = ""
-    description: str = ""
-    system_prompt: str = ""
-    model_name: Optional[str] = None
-    provider_type: str = "ollama"
-    available_tools: Optional[List[str]] = None  # None = every tool
-    think: bool = False
-    use_deferred_tools: bool = False
 
 
 @dataclass
@@ -177,11 +158,11 @@ class BaseAgent(ABC):
     ):
         """Bind the two halves an agent runs on.
 
-        ``capabilities`` answers "what can this run" — model, tools, reasoning
-        (an :class:`AssistantConfig` for MainAgent, a :class:`SubAgentConfig`
-        for SubAgent). ``identity`` answers "who is speaking" — name, prompt,
-        voice (a :class:`PersonaConfig` for MainAgent). A SubAgent is both at
-        once, so it passes one object and ``identity`` defaults to it.
+        ``capabilities`` answers "what can this run" — model, tools, reasoning:
+        the assistant's :class:`AssistantConfig`, for a MainAgent and for a
+        sub-agent it spawns alike. ``identity`` answers "who is speaking" — name,
+        prompt, voice: the persona in use for a MainAgent, a fixed worker label
+        for a SubAgent.
         """
         self.capabilities = capabilities
         self.identity = identity if identity is not None else capabilities
@@ -250,7 +231,7 @@ class BaseAgent(ABC):
         tool = self.tool_registry.get(tool_name)
         execution_location = "backend"
 
-        # Check extra_tools if not found in registry (e.g. SubAgentTool adapters)
+        # Check extra_tools if not found in registry (the injected delegate_task)
         if tool is None and hasattr(self, 'extra_tools') and self.extra_tools:
             for extra_tool in self.extra_tools:
                 if extra_tool.name == tool_name:
@@ -323,17 +304,17 @@ class BaseAgent(ABC):
             exec_args["conversation_id"] = context.conversation_id
         if context.user_id:
             exec_args["user_id"] = context.user_id
-        # Identity of the caller: the persona for a MainAgent, the sub-agent
-        # itself for a SubAgent. Kept under the generic name because it is part
-        # of the argument contract handed to client- and MCP-side tools.
+        # Identity of the caller: the persona in use for a MainAgent, none for a
+        # spawned SubAgent. Kept under the generic name because it is part of the
+        # argument contract handed to client- and MCP-side tools.
         exec_args["agent_id"] = self.identity.id
         if context.handler:
             exec_args["_handler"] = context.handler
         exec_args["_context"] = context
         # The caller's allowlist, for a built-in tool that reaches into what a
         # non-built-in one guards (recall over drive files asks "could
-        # drive_read run here?"). Not on AgentContext: the same context object
-        # is handed to sub-agents, whose allowlist is their own.
+        # drive_read run here?"). Not on AgentContext: the same context object is
+        # handed to a spawned sub-agent, which carries its own copy of the list.
         exec_args["_available_tools"] = self.capabilities.available_tools
 
         if execution_location == "frontend":

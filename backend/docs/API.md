@@ -14,7 +14,6 @@ routers disagree, the routers are right and this file is a bug.
 - [Messages](#messages)
 - [Assistant](#assistant)
 - [Personas](#personas)
-- [Sub-Agents](#sub-agents)
 - [Export & Import Format](#export--import-format)
 - [User Profile](#user-profile)
 - [Tool Policies](#tool-policies)
@@ -207,10 +206,11 @@ gets a 404 and spends nothing. `error` carries the provider's own message
 
 ### GET /conversations
 
-**Query:** `limit` (default 50), `persona_id` (optional).
+**Query:** `limit` (default 50). Newest first, by `updated_at`.
 
-With `persona_id`, returns a single-element list holding the **latest conversation
-bound to that persona**, or an empty list.
+A conversation carries no persona (#354): who answers is the persona in use for
+the whole account (`selected_persona_id` on `/assistant`). The `?persona_id=`
+filter is gone with the binding it filtered on.
 
 **Response:** `200 OK`
 ```json
@@ -218,7 +218,6 @@ bound to that persona**, or an empty list.
   {
     "id": 12,
     "title": "Conversation title",
-    "persona_id": 3,
     "created_at": "2026-09-04T10:30:00Z",
     "updated_at": "2026-09-04T11:45:00Z",
     "message_count": 24,
@@ -227,8 +226,6 @@ bound to that persona**, or an empty list.
   }
 ]
 ```
-
-`message_count` and `last_message` are omitted from the `persona_id` variant.
 
 ---
 
@@ -244,7 +241,6 @@ is what makes infinite scroll work.
 {
   "id": 12,
   "title": "Conversation title",
-  "persona_id": 3,
   "created_at": "2026-09-04T10:30:00Z",
   "messages": [
     {
@@ -284,8 +280,13 @@ Optional per-message keys, present only when set: `name`, `images`, `thinking`,
 `model_name`, `provider_type`, `tool_args`, `tool_status`, `tool_kind`,
 `duration_ms`, `context_files`, `emotion_cues`, `persona_id` + `persona`.
 
+`persona_id` + `persona` on an assistant message record who spoke: the persona in
+use when it was written. They are history, not a binding — the next turn answers
+as whoever is in use then (#354).
+
 On a tool message, `tool_kind` (`"tool"` | `"sub_agent"`) and `duration_ms` are what
-the live chunk carried, and `model_name` is a delegation's sub-agent model (#327).
+the live chunk carried, and on a `delegate_task` row `model_name` is the model its
+spawned sub-agent ran on (#327).
 Rows written before that have none of them.
 
 `emotion_cues` (#243) is where the persona's feeling changed inside an assistant
@@ -309,28 +310,25 @@ migration `0caebafdf4cc`; `compacted_context` is the sole summary source.
 
 ### PATCH /conversations/{conversation_id}
 
-Update the title, the bound persona, or both. Replaces the old
-`POST /conversations/{id}`, which only ever renamed.
+Rename a conversation. Replaces the old `POST /conversations/{id}`.
 
-**Request:** `application/json` — both fields optional, read through
-`model_fields_set`.
+**Request:** `application/json`
 
 | Field | Type | Description |
 |---|---|---|
 | `title` | string | New title. Empty or whitespace is rejected. |
-| `persona_id` | integer or null | Rebind the conversation. **`null` hands it to the assistant itself** (#302). |
+
+Any other field is a `422`. `persona_id` was accepted here until #354; a
+conversation has no persona to change now — switch the account's with
+`PATCH /assistant`.
 
 **Response:** `200 OK`
 ```json
-{"id": 12, "title": "New title", "persona_id": 3}
+{"id": 12, "title": "New title"}
 ```
 
-**Errors:** `400` nothing to update / empty title / that persona is disabled;
-`404` conversation or persona not found.
-
-This is what the chat header's per-conversation persona switch calls. The binding
-lives in the database rather than in client state, so it survives a reconnect and
-applies even if the user switches and then sends nothing.
+**Errors:** `400` nothing to update / empty title; `404` conversation not found;
+`422` an unknown field.
 
 ---
 
@@ -391,11 +389,11 @@ summary asserting something with no source.
 Exactly one assistant per user, so it is addressed **with no id** and has no `POST`
 and no `DELETE`: it is created at registration and dies with the account. It owns
 capability — model, tools, reasoning, memory — plus the voice wake word and
-`selected_persona_id`: who the account's chat is on. A client reads it when it
-opens and writes it when the user picks someone, so every device and every sign-in
-open on the same persona. The server never applies it; a chat request that names
-no persona is the assistant's (#334). It replaced `default_persona_id` in wire
-protocol 8.
+`selected_persona_id`: **the persona in use for the whole account** (#354). Every
+turn answers as it — in a new conversation or an old one, on every device, in
+voice mode — so writing it here is how a user switches persona, everywhere at
+once. Null is the assistant itself (#302). It replaced `default_persona_id` in
+wire protocol 8 (#334), and the chat path began applying it in wire protocol 9.
 
 ### GET /assistant
 
@@ -447,7 +445,7 @@ tool".
 `selected_persona_id` names a disabled persona; `404` that persona does not exist.
 
 **`trigger_word` is a voice wake word.** Saying it wakes the assistant and the
-conversation's bound persona answers. It selects nothing, and personas do not have
+persona in use answers. It selects nothing, and personas do not have
 one.
 
 ---
@@ -539,8 +537,9 @@ face.
 | `character_config` | object | no | null |
 | `enabled` | boolean | no | `true` |
 
-Creating a persona does not select it: `selected_persona_id` changes only through
-`PATCH /assistant`, and while it is null the chat is the assistant's own (#302).
+Creating a persona does not put it in use: `selected_persona_id` changes only
+through `PATCH /assistant`, and while it is null every turn is the assistant's own
+(#302).
 
 **Errors:** `400` reserved name (`Administrator`, `User`, `App Guide`) or a
 duplicate name; `422` a `character_config` without a `kind`, one that is not the
@@ -576,17 +575,18 @@ that point never fails the delete: the response is still `200`, a warning is
 logged with what was left behind, and the operator's sweep
 (`docs/operations.md`) reclaims it. Never a live persona without its assets.
 
-Any persona can be deleted, the last one included (#302). Deleting the *default*
-clears the pointer (the FK is `SET NULL`), so new conversations go back to the
-assistant; conversations bound to it are answered by the assistant from then on.
+Any persona can be deleted, the last one included (#302). Deleting the one in use
+clears the pointer (the FK is `SET NULL`), so every conversation goes back to the
+assistant. Its past messages keep their `persona_id` until then too — the FK on
+`messages.persona_id` is `SET NULL` as well.
 
 ### PATCH /personas/{persona_id}/enabled
 
 **Request:** `{"enabled": false}` → the updated persona.
 
-Disabling the selected persona clears `selected_persona_id`, here and through
-`PATCH /personas/{id}` with `enabled: false`: the chat goes back to the assistant
-(#302). Deleting it clears it through the foreign key.
+Disabling the persona in use clears `selected_persona_id`, here and through
+`PATCH /personas/{id}` with `enabled: false`: every conversation goes back to the
+assistant (#302). Deleting it clears it through the foreign key.
 
 ### GET /personas/{persona_id}/export
 
@@ -663,10 +663,11 @@ pose art is not metered). `{"character": null}` for a persona with no character.
 Accepts version 3 persona files and legacy version 2 agent exports whose
 `agent_type` is `main`; a v2 main agent's model, tools and memory are **dropped**,
 because capability belongs to the importing user's own assistant. A name collision
-gets a ` (2)` suffix. An imported persona does not become the default.
+gets a ` (2)` suffix. An imported persona is not put in use.
 
 **Errors:** `400` not `.json`, invalid JSON, unsupported version, the file
-describes a sub-agent, or it is a version 4 manifest (import the `.zip` it came in).
+describes a sub-agent (saved sub-agents are gone, #354), or it is a version 4
+manifest (import the `.zip` it came in).
 
 ### POST /personas/import/bundle
 
@@ -708,86 +709,17 @@ write path refuses; `507` over the 3D character quota.
 
 ## Sub-Agents
 
-A sub-agent is a task-only worker the assistant delegates to mid-answer. It runs
-its own LLM loop, so it carries its own model, tools and reasoning flags — but it
-has no identity: no avatar, no voice, **no memory**, never bound to a conversation,
-never shown as the speaker.
-
-The old `/agents` prefix is **gone rather than aliased**. A stale client posting
-`{"agent_type": "main"}` there would otherwise silently create a sub-agent instead
-of the persona it meant; a 404 is the honest answer.
-
-### GET /sub-agents
-
-```json
-[
-  {
-    "id": 7,
-    "name": "Web Search",
-    "description": "Searches the web and summarises",
-    "system_prompt": "…",
-    "model_name": null,
-    "provider_type": "ollama",
-    "available_tools": ["web_search"],
-    "think": false,
-    "use_deferred_tools": false,
-    "enabled": true
-  }
-]
-```
-
-`model_name: null` means the assistant's model; `available_tools: null` means every
-tool.
-
-### POST /sub-agents
-
-Same fields as the response, minus `id`. `name` is required; `provider_type`
-defaults to `"ollama"`, `enabled` to `true`, the booleans to `false`.
-
-### GET / PATCH / DELETE /sub-agents/{sub_agent_id}
-
-PATCH follows the same omitted-vs-null rule as personas. `name`, `description`,
-`provider_type`, `think`, `use_deferred_tools` and `enabled` may not be null;
-`model_name` and `available_tools` are clearable.
-
-DELETE → `{"message": "Sub-agent deleted successfully"}`. Nothing references a
-sub-agent, so there is nothing to repair.
-
-### PATCH /sub-agents/{sub_agent_id}/enabled
-
-**Request:** `{"enabled": false}` → the updated sub-agent.
-
-### GET /sub-agents/{sub_agent_id}/export
-
-```json
-{
-  "version": 3,
-  "kind": "sub_agent",
-  "name": "Web Search",
-  "description": "…",
-  "system_prompt": "…",
-  "model_name": null,
-  "provider_type": "ollama",
-  "available_tools": ["web_search"],
-  "think": false,
-  "use_deferred_tools": false
-}
-```
-
-Everything a sub-agent has travels, `use_deferred_tools` included — the v2 exporter
-omitted it, so an import could never restore it.
-
-### POST /sub-agents/import
-
-`multipart/form-data` with `file`. Accepts version 3 sub-agent files and version 2
-agent exports whose `agent_type` is `sub`. A v2 **main** agent is a persona and is
-refused here rather than quietly turned into a worker.
+There are none to manage (#354). `/sub-agents` and every route under it are gone,
+like `/agents` before them: a stale client gets a `404`. The assistant spawns a
+sub-agent itself, mid-answer, through the built-in `delegate_task` tool; it runs on
+the assistant's own model and tools and never appears in the API. See
+[Agents](agents.md).
 
 ---
 
 ## Export & Import Format
 
-One file format, two kinds, discriminated by `kind`. `EXPORT_VERSION` is **3**;
+One file format, discriminated by `kind`. `EXPORT_VERSION` is **3**;
 version **2** (the old single `agents` export, discriminated by `agent_type`) is
 still read, and version **4** is a persona's `persona.json` inside a bundle
 (`?character=true`, read only by `POST /personas/import/bundle`). Anything else is
@@ -797,11 +729,12 @@ a `400`.
 |---|---|---|
 | 4 | `kind: "persona"`, in a `.zip` | a persona with its character |
 | 3 | `kind: "persona"` | a persona |
-| 3 | `kind: "sub_agent"` | a sub-agent |
+| 3 | `kind: "sub_agent"` | refused: saved sub-agents are gone (#354) |
 | 2 | `agent_type: "main"` | a persona (model/tools/memory dropped) |
-| 2 | `agent_type: "sub"` | a sub-agent |
+| 2 | `agent_type: "sub"` | refused, as above |
 
-Posting a file to the wrong endpoint returns a `400` naming the right one.
+A sub-agent file is recognised and refused with a `400` that says why, rather
+than misread as a persona.
 `trigger_word` has no export at all — it is the assistant's now, not a persona's.
 
 ---
@@ -1538,10 +1471,10 @@ subprotocol entry; a mismatch closes with `4426` **before** authentication.
 `tool_call_request`, `context_info`, `done`, `error`,
 `vision_result`.
 
-`chat_request` takes an optional `persona_id` (a per-turn override that rebinds the
-conversation); the old ignored `agent_id` field is not accepted. On `stream_chunk`,
-`persona_id`/`persona_name` are set on assistant chunks only, and tool chunks carry
-`tool_kind` and `duration_ms`.
+`chat_request` names no persona: every turn answers as the persona in use for the
+whole account (#354), and a `persona_id` or the older `agent_id` sent by an old
+client is ignored. On `stream_chunk`, `persona_id`/`persona_name` are set on
+assistant chunks only, and tool chunks carry `tool_kind` and `duration_ms`.
 
 The `agent_switch` event no longer exists.
 
@@ -1581,8 +1514,8 @@ reference — raw exception text carries failing SQL, internal URLs and server p
    the request's own `model_name`. With neither it answers `error` /
    `NO_MODEL_SELECTED` and stops here, having created nothing.
 3. It creates the conversation, titled from the first 80 characters of the
-   message, and binds the persona the client named in `persona_id`, or none —
-   the assistant answers as itself (#334).
+   message. The conversation carries no persona: the turn answers as the persona
+   in use for the account, or as the assistant itself when none is (#354).
 4. Every `stream_chunk` carries the new `conversation_id`; assistant chunks carry
    the `persona_id` and `persona_name`.
 

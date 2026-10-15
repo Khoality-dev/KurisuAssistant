@@ -38,9 +38,7 @@ interface KurisuApiService {
 
     // Conversations
     @GET("/conversations")
-    suspend fun getConversations(
-        @Query("persona_id") personaId: Int? = null,
-    ): List<Conversation>
+    suspend fun getConversations(): List<Conversation>
 
     @GET("/conversations/{id}")
     suspend fun getConversation(
@@ -53,14 +51,9 @@ interface KurisuApiService {
     suspend fun deleteConversation(@Path("id") id: Int)
 
     /**
-     * Rename a conversation, rebind its persona, or both. Replaces the old
-     * `POST /conversations/{id}`, which only ever renamed.
-     *
-     * The body is a raw [JsonObject] because this route reads it through
-     * `model_fields_set`: an ABSENT key is left alone, while an explicit
-     * `"persona_id": null` hands the conversation to the assistant itself
-     * (#302). A typed DTO cannot tell those two
-     * apart. Build the body with [com.kurisu.assistant.data.repository.ConversationRepository].
+     * Rename a conversation — its `title` is all a conversation has to change:
+     * it is not tied to a persona (#354). Build the body with
+     * [com.kurisu.assistant.data.repository.ConversationRepository].
      */
     @PATCH("/conversations/{id}")
     suspend fun patchConversation(
@@ -164,32 +157,6 @@ interface KurisuApiService {
     @Multipart
     @POST("/personas/import")
     suspend fun importPersona(@Part file: MultipartBody.Part): Persona
-
-    // Sub-agents — task-only workers. No identity, no memory.
-    @GET("/sub-agents")
-    suspend fun listSubAgents(): List<SubAgent>
-
-    @GET("/sub-agents/{id}")
-    suspend fun getSubAgent(@Path("id") id: Int): SubAgent
-
-    @POST("/sub-agents")
-    suspend fun createSubAgent(@Body data: SubAgentCreate): SubAgent
-
-    @PATCH("/sub-agents/{id}")
-    suspend fun updateSubAgent(@Path("id") id: Int, @Body data: SubAgentUpdate): SubAgent
-
-    @DELETE("/sub-agents/{id}")
-    suspend fun deleteSubAgent(@Path("id") id: Int)
-
-    @PATCH("/sub-agents/{id}/enabled")
-    suspend fun setSubAgentEnabled(@Path("id") id: Int, @Body body: EnabledUpdate): SubAgent
-
-    @GET("/sub-agents/{id}/export")
-    suspend fun exportSubAgent(@Path("id") id: Int): ResponseBody
-
-    @Multipart
-    @POST("/sub-agents/import")
-    suspend fun importSubAgent(@Part file: MultipartBody.Part): SubAgent
 
     // Tools & MCP
     @GET("/tools")

@@ -46,7 +46,6 @@ import { useAuthStore } from '@kurisu/state';
 import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { ASSISTANT_NAME } from '@kurisu/models';
 import type { Assistant, Conversation } from '@kurisu/models';
-import { storage } from '@kurisu/api';
 
 import { useTTS } from '@kurisu/hooks';
 import { useVisionStore, setThinking } from '@kurisu/state';
@@ -58,7 +57,7 @@ import { useStreamingChat } from '@kurisu/hooks';
 import { useContextBreakdown } from '@kurisu/hooks';
 import { VoiceModeBar, voiceColors } from '../VoiceModeBar';
 import { VoiceModeToggle } from './VoiceModeToggle';
-import { InTheChatChip, selectionColors } from '../InTheChatChip';
+import { InUseChip, selectionColors } from '../InUseChip';
 import { NewInteractionMarker } from './NewInteractionMarker';
 import { ContextUsageBar } from './ContextUsageBar';
 import { MessageBubble } from './MessageBubble';
@@ -195,7 +194,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
 
   // Streaming chat hook
   const streaming = useStreamingChat({
-    personaId,
     currentConversation,
     messages,
     hasMoreMessages,
@@ -250,12 +248,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
     if (micError) streaming.setErrorToast(micError);
   }, [micError]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Who is answering here. The server binding on the loaded conversation wins
-  // over the client-side selection: the conversation is bound backend-side and
-  // that binding is what the next turn will actually use — and a null binding
-  // on a loaded conversation is the assistant itself, not "unknown" (#302).
+  // Who answers here: the persona in use for the whole account, in this
+  // conversation as in every other (#354). Null is the assistant itself (#302).
   const personas = usePersonaStore((s) => s.personas);
-  const activePersonaId = currentConversation ? currentConversation.persona_id : personaId;
+  const activePersonaId = personaId;
   const activePersona = useMemo(
     () => personas.find((p) => p.id === activePersonaId) || null,
     [personas, activePersonaId],
@@ -291,22 +287,21 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
   useEffect(() => {
     if (!resumeDialogOpen) return;
     setResumeLoading(true);
-    // With no persona chosen, the assistant's own conversations (#302).
-    apiClient.getConversations(personaId ?? undefined)
-      .then((convs) => setResumeConversations(personaId === null ? convs.filter((c) => c.persona_id === null) : convs))
+    // Every conversation: none is tied to a persona (#354).
+    apiClient.getConversations()
+      .then((convs) => setResumeConversations(convs))
       .catch((err) => {
         console.error('Failed to load conversations:', err);
         setResumeConversations([]);
       })
       .finally(() => setResumeLoading(false));
-  }, [resumeDialogOpen, personaId]);
+  }, [resumeDialogOpen]);
 
   const handleResumeSelect = useCallback(async (conv: Conversation) => {
     setResumeDialogOpen(false);
     if (conv.id === currentConversation?.id) return;
     await loadConversation(conv.id);
-    storage.setPersonaConversationId(conv.persona_id ?? personaId ?? 'unbound', conv.id);
-  }, [personaId, currentConversation?.id, loadConversation]);
+  }, [currentConversation?.id, loadConversation]);
 
   // Reset highlight when the resume picker opens
   useEffect(() => {
@@ -387,36 +382,22 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
 
   const selectPersona = usePersonaStore((s) => s.selectPersona);
 
-  // Picking a persona is a per-conversation override, not a global mode switch:
-  // PATCH /conversations/{id} rebinds the open conversation so the next turn —
-  // and any other client — sees the same answerer. With no conversation open yet
-  // there is nothing to patch; the selection alone decides who the conversation
-  // about to be created binds to.
-  //
-  // `null` is the assistant itself, with no persona (#302): the PATCH hands the
-  // open conversation to it, and with none open a new chat names no persona.
+  // Picking a persona puts it in use for the whole account (#354): PATCH
+  // /assistant, and the open conversation stays open and carries on as the
+  // new persona — as does every other conversation, on every device. `null`
+  // is the assistant itself, with no persona (#302).
   const handlePersonaPick = useCallback(async (id: number | null) => {
     setPersonaSheetError('');
-    const convId = currentConversation?.id;
-    if (convId && id !== currentConversation?.persona_id) {
+    if (id !== storePersonaId) {
       try {
-        await apiClient.patchConversation(convId, { persona_id: id });
-        // The conversation leaves the bucket it was in, so reopening that
-        // persona (or the assistant) does not land back on it.
-        const previous = currentConversation?.persona_id ?? 'unbound';
-        if (storage.getPersonaConversationId(previous) === convId) storage.clearPersonaConversationId(previous);
-        storage.setPersonaConversationId(id ?? 'unbound', convId);
-        await loadConversation(convId);
+        await selectPersona(id);
       } catch (err: any) {
         setPersonaSheetError(describeRequestFailure(err, 'Failed to switch persona'));
         return;
       }
     }
-    if (id !== storePersonaId) {
-      selectPersona(id);
-    }
     setPersonaSheetOpen(false);
-  }, [currentConversation?.id, currentConversation?.persona_id, loadConversation, selectPersona, storePersonaId]);
+  }, [selectPersona, storePersonaId]);
 
   // Who can be picked: the assistant itself first, then every enabled persona.
   // A disabled persona cannot answer, so it is not offered.
@@ -714,11 +695,11 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
   return (
     <Box ref={rootRef} sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%', position: 'relative' }}>
 
-      {/* Header: who is answering (click to override for this conversation), what it
-          runs on (click to change the assistant's model, for every persona) + token usage */}
+      {/* Header: the persona in use (click to switch it, for every conversation), what
+          it runs on (click to change the assistant's model, for every persona) + token usage */}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, px: 2, py: 0.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
-        <Tooltip title={currentConversation ? 'Change who answers in this conversation' : 'Choose who answers'}>
+        <Tooltip title="Persona in use, for every conversation">
           <ListItemButton
             onClick={() => setPersonaSheetOpen(true)}
             sx={{ flex: '0 1 auto', minWidth: 0, gap: 1, px: 1, py: 0.25, borderRadius: 1 }}
@@ -928,7 +909,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
         />
       ) : (
         <ChatComposer
-          personaId={personaId ?? null}
           conversationId={streaming.activeConversationId ?? null}
           externalDraft={streaming.externalDraft}
           externalDraftVersion={streaming.externalDraftVersion}
@@ -1073,12 +1053,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
                       <TableCell align="right">{breakdownData.tools_guidance_tokens.toLocaleString()}</TableCell>
                     </TableRow>
                   )}
-                  {breakdownData.sub_agents_tokens > 0 && (
-                    <TableRow>
-                      <TableCell>Sub-Agent Delegation Guide</TableCell>
-                      <TableCell align="right">{breakdownData.sub_agents_tokens.toLocaleString()}</TableCell>
-                    </TableRow>
-                  )}
                   <TableRow>
                     <TableCell>Message History ({breakdownData.message_count} msgs)</TableCell>
                     <TableCell align="right">{breakdownData.message_history_tokens.toLocaleString()}</TableCell>
@@ -1219,8 +1193,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
         </Box>
       )}
 
-      {/* Persona sheet — full-pane overlay, dismiss with Esc. A per-conversation
-          override: picking someone rebinds the open conversation. */}
+      {/* Persona sheet — full-pane overlay, dismiss with Esc. Picking someone puts
+          them in use for the whole account; the open conversation carries on (#354). */}
       {personaSheetOpen && (
         <Box
           sx={{
@@ -1234,10 +1208,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
         >
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 3, py: 2, borderBottom: 1, borderColor: 'divider' }}>
             <Box>
-              <Typography variant="h6">Who should answer?</Typography>
+              <Typography variant="h6">Persona in use</Typography>
               <Typography variant="caption" color="text.secondary">
-                {/* Who the chat is on is the account's, kept on the server (#334). */}
-                Saved to your account, so every device opens on it. Press Esc to cancel.
+                {/* The account's, kept on the server (#334, #354). */}
+                Saved to your account: every conversation, on every device, answers as it. Press Esc to cancel.
               </Typography>
             </Box>
             <IconButton size="small" onClick={() => setPersonaSheetOpen(false)}>
@@ -1298,7 +1272,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
                           </Typography>
                         ) : null}
                       />
-                      {isCurrent && <InTheChatChip />}
+                      {isCurrent && <InUseChip />}
                     </ListItemButton>
                   </React.Fragment>
                 );

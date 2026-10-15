@@ -1,7 +1,7 @@
 package com.kurisu.assistant.ui.common
 
 /**
- * The monogram shown for a persona (or a sub-agent) that has no avatar.
+ * The monogram shown for a persona that has no avatar.
  *
  * The rule is the FIRST LETTER of each of the first two whitespace-, hyphen- or
  * underscore-separated tokens, falling back to the first two letters of a

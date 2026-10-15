@@ -48,7 +48,7 @@ async function handleGetAssistant(): Promise<ToolResult> {
     `- Deferred tools: ${a.use_deferred_tools ? 'on' : 'off'}`,
     `- Memory: ${a.memory_enabled ? 'on' : 'off'}`,
     `- Wake word: ${a.trigger_word || 'none'}`,
-    `- The chat is on: persona ${a.selected_persona_id ?? 'none (the assistant as itself)'}`,
+    `- Persona in use: ${a.selected_persona_id ?? 'none (the assistant as itself)'}`,
   ];
   return ok(lines.join('\n'));
 }
@@ -66,11 +66,11 @@ async function handleUpdateAssistant(args: Record<string, unknown>): Promise<Too
   ]) {
     if (args[key] !== undefined) update[key] = args[key];
   }
-  // Who the chat is on goes through the store, so this window moves with it (#334).
+  // The persona in use goes through the store, so this window moves with it (#334).
   const selects = args.selected_persona_id !== undefined;
   if (Object.keys(update).length === 0 && !selects) return err('No fields to update.');
-  if (selects) usePersonaStore.getState().selectPersona((args.selected_persona_id as number | null) ?? null);
-  if (Object.keys(update).length === 0) return ok('The chat has moved.');
+  if (selects) await usePersonaStore.getState().selectPersona((args.selected_persona_id as number | null) ?? null);
+  if (Object.keys(update).length === 0) return ok('The persona in use has changed, for every conversation.');
 
   const a = await apiClient.updateAssistant(update);
   return ok(`Assistant updated — model ${a.model_name || 'not set'} (${a.provider_type}).`);
@@ -126,59 +126,6 @@ async function handleDeletePersona(args: Record<string, unknown>): Promise<ToolR
 
   await apiClient.deletePersona(personaId);
   return ok(`Persona #${personaId} deleted.`);
-}
-
-// --- Sub-agents (task-only workers) ---
-
-async function handleGetSubAgents(): Promise<ToolResult> {
-  const subAgents = await apiClient.listSubAgents();
-  if (subAgents.length === 0) return ok('No sub-agents configured.');
-  const lines = subAgents.map(s => {
-    const desc = s.description ? ` — ${s.description}` : '';
-    return `- **${s.name}** (#${s.id}) — ${s.model_name || "the assistant's model"}${s.enabled ? '' : ' (disabled)'}${desc}`;
-  });
-  return ok(lines.join('\n'));
-}
-
-async function handleCreateSubAgent(args: Record<string, unknown>): Promise<ToolResult> {
-  const name = args.name as string;
-  if (!name) return err('name is required.');
-
-  const subAgent = await apiClient.createSubAgent({
-    name,
-    description: args.description as string | undefined,
-    system_prompt: args.system_prompt as string | undefined,
-    model_name: args.model_name as string | undefined,
-    provider_type: args.provider_type as string | undefined,
-    available_tools: args.available_tools as string[] | undefined,
-    think: args.think as boolean | undefined,
-  });
-  return ok(`Sub-agent created: **${subAgent.name}** (#${subAgent.id})`);
-}
-
-async function handleUpdateSubAgent(args: Record<string, unknown>): Promise<ToolResult> {
-  const subAgentId = args.sub_agent_id as number;
-  if (!subAgentId) return err('sub_agent_id is required.');
-
-  const update: Record<string, unknown> = {};
-  for (const key of [
-    'name', 'description', 'system_prompt', 'model_name', 'provider_type',
-    'available_tools', 'think', 'use_deferred_tools', 'enabled',
-  ]) {
-    if (args[key] !== undefined) update[key] = args[key];
-  }
-  if (Object.keys(update).length === 0) return err('No fields to update.');
-
-  const subAgent = await apiClient.updateSubAgent(subAgentId, update);
-  return ok(`Sub-agent updated: **${subAgent.name}** (#${subAgent.id})`);
-}
-
-async function handleDeleteSubAgent(args: Record<string, unknown>): Promise<ToolResult> {
-  const subAgentId = args.sub_agent_id as number;
-  if (!subAgentId) return err('sub_agent_id is required.');
-
-  await apiClient.deleteSubAgent(subAgentId);
-  return ok(`Sub-agent #${subAgentId} deleted.`);
 }
 
 async function handleListMCPServers(): Promise<ToolResult> {
@@ -387,10 +334,6 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<To
     case 'app_create_persona': return handleCreatePersona(args);
     case 'app_update_persona': return handleUpdatePersona(args);
     case 'app_delete_persona': return handleDeletePersona(args);
-    case 'app_get_sub_agents': return handleGetSubAgents();
-    case 'app_create_sub_agent': return handleCreateSubAgent(args);
-    case 'app_update_sub_agent': return handleUpdateSubAgent(args);
-    case 'app_delete_sub_agent': return handleDeleteSubAgent(args);
     case 'app_list_mcp_servers': return handleListMCPServers();
     case 'app_add_mcp_server': return handleAddMCPServer(args);
     case 'app_update_mcp_server': return handleUpdateMCPServer(args);

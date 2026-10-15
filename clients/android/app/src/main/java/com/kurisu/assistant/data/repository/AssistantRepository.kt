@@ -10,7 +10,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * The user's single assistant: what it can do, and who the chat is on.
+ * The user's single assistant: what it can do, and the persona in use for the
+ * whole account (#354).
  *
  * There is exactly one per user and it is created at registration, so there is
  * no create and no delete — only read and patch. It owns model, provider, tools,
@@ -40,6 +41,6 @@ class AssistantRepository @Inject constructor(
     suspend fun clearSelectedPersona(): Assistant =
         api.patchAssistant(JsonObject(mapOf("selected_persona_id" to JsonNull)))
 
-    /** Models available to the assistant (and to sub-agents). */
+    /** Models available to the assistant (a sub-agent it spawns runs on the same). */
     suspend fun listModels(): List<ModelInfo> = api.getModels().models
 }

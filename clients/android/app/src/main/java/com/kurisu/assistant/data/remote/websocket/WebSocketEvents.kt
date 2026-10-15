@@ -13,12 +13,8 @@ data class ChatRequestPayload(
     val text: String,
     @SerialName("model_name") val modelName: String,
     @SerialName("conversation_id") val conversationId: Int? = null,
-    // Optional per-turn persona override. Omit on an ordinary message: a new
-    // conversation silently adopts the assistant's default persona (or, with
-    // none, the assistant answers as itself, #302) and an existing one keeps
-    // its binding. Sending it REBINDS the conversation.
-    // The old `agent_id` was renamed, not aliased — the backend ignores it.
-    @SerialName("persona_id") val personaId: Int? = null,
+    // No persona: who answers is the persona in use for the whole account
+    // (#354), and a request cannot name one.
     val images: List<String> = emptyList(),
 )
 

@@ -62,11 +62,11 @@ const MicIndicator: React.FC = () => {
 
 export interface ChatComposerProps {
   /**
-   * The scope the draft belongs to. Both halves resolve asynchronously after
-   * login (the persona store settles, the latest conversation loads), and a
-   * draft typed while they resolve must survive that — see the scope effect.
+   * The scope the draft belongs to: the conversation, and only that. It
+   * resolves asynchronously after login (the latest conversation loads), and a
+   * draft typed meanwhile must survive that — see the scope effect. The persona
+   * in use is not part of it: switching it keeps the conversation (#354).
    */
-  personaId: number | null;
   conversationId: number | null;
   externalDraft: string;
   externalDraftVersion: number;
@@ -79,7 +79,6 @@ export interface ChatComposerProps {
 const promptHistory: string[] = [];
 
 export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
-  personaId,
   conversationId,
   externalDraft,
   externalDraftVersion,
@@ -112,22 +111,20 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
 
   // The scope the draft was typed into, so a change can be told apart from a
   // scope that is only now resolving.
-  const scopeRef = useRef({ personaId, conversationId });
+  const scopeRef = useRef(conversationId);
 
   useEffect(() => {
     const previous = scopeRef.current;
-    scopeRef.current = { personaId, conversationId };
+    scopeRef.current = conversationId;
 
     // Drop the draft only when the user LEAVES a concrete conversation. After
-    // login the persona resolves from null and the latest conversation loads
-    // from null, both asynchronously; a draft typed in that window used to be
-    // wiped by this effect, which is also how the e2e composer sat disabled on
-    // a slow CI runner (#145). `null → id` is the same scope becoming known,
-    // not a switch, so the draft stays.
-    const leavingConcreteScope =
-      previous.personaId !== null &&
-      previous.conversationId !== null &&
-      (previous.personaId !== personaId || previous.conversationId !== conversationId);
+    // login the latest conversation loads from null asynchronously; a draft
+    // typed in that window used to be wiped by this effect, which is also how
+    // the e2e composer sat disabled on a slow CI runner (#145). `null → id` is
+    // the same scope becoming known, not a switch, so the draft stays. The
+    // persona in use is not part of the scope: switching it keeps the
+    // conversation, and so the draft (#354).
+    const leavingConcreteScope = previous !== null && previous !== conversationId;
     if (leavingConcreteScope) {
       setInput('');
       setImages([]);
@@ -140,7 +137,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
     for (const m of msgs) {
       if (m.role === 'user' && m.content) promptHistory.push(m.content);
     }
-  }, [personaId, conversationId]);
+  }, [conversationId]);
 
   useEffect(() => {
     setInput(externalDraft);

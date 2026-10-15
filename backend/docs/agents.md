@@ -1,14 +1,16 @@
 # Agents
 
-Three kinds of row, three different jobs. They used to be one `agents` table;
-migration `0dacee9f63b8_split_persona_from_assistant` took it apart again.
+One assistant per user, presented through an optional persona, spawning
+sub-agents when it needs help. They used to be one `agents` table; migration
+`0dacee9f63b8_split_persona_from_assistant` took it apart, and #354 dropped the
+saved sub-agents and the per-conversation persona binding.
 
-For what this looks like to a user, see the client screens docs — [Android](../../clients/android/docs/screens.md), [Desktop](../../clients/desktop/docs/screens.md) — where the Assistant
+For what this looks like to a user, see the client screens docs — [Android](../../clients/android/docs/screens.md), [Desktop](../../clients/apps/desktop/docs/screens.md) — where the Assistant
 and Personas screens are the split made visible.
 
 **The assistant** (`assistants`) is *what the user's assistant can do*. Exactly one
 row per user: model, provider, tool allowlist, reasoning switches, the single
-memory document, the voice wake word, and which persona new conversations bind to.
+memory document, the voice wake word, and the persona in use for the whole account.
 It is created with the account and cannot be created or deleted through the API —
 `GET`/`PATCH /assistant`, addressed with no id.
 
@@ -19,24 +21,27 @@ no trigger word**. Swapping persona changes who is speaking without changing wha
 the assistant can do or remember. `GET`/`POST /personas`,
 `GET`/`PATCH`/`DELETE /personas/{id}`, `PATCH /personas/{id}/enabled`.
 
-**A sub-agent** (`sub_agents`) is a task-only worker. It has its own model,
-provider, tools and reasoning switches, because it runs its own LLM loop — but no
-identity: no avatar, no voice, **no memory**, never bound to a conversation, never
-shown as the speaker. A `MainAgent` delegates to one by calling it as a tool and
-gets a single string back; the user sees only the main agent's account of it.
-`GET`/`POST /sub-agents`, `GET`/`PATCH`/`DELETE /sub-agents/{id}`,
-`PATCH /sub-agents/{id}/enabled`.
+**A sub-agent** is a helper the assistant spawns on the spot (#354). There are no
+saved sub-agents and nothing to set up: the assistant calls the built-in
+`delegate_task` tool with a task, and `agents/sub.py::DelegateTaskTool` runs a fresh
+`SubAgent` on the assistant's own `AssistantConfig` — its model, provider, tool
+allowlist and reasoning switch, but **not its memory** — and returns the
+sub-agent's final text as the tool result. A sub-agent has no persona, is never the
+speaker, and the user sees only the assistant's account of what it did. It is not
+offered `delegate_task` itself: that tool is injected into the assistant's turn as
+an `extra_tool`, not registered, so a helper cannot spawn helpers.
 
 In code (`agents/`), `MainAgent` is constructed as
 `MainAgent(assistant, tool_registry, identity=persona)`: `capabilities` is an
-`AssistantConfig`, `identity` a `PersonaConfig`. A `SubAgent` is both at once and
-passes a single `SubAgentConfig`. Both extend `BaseAgent`, which owns tool
-dispatch and approval.
+`AssistantConfig`, `identity` a `PersonaConfig`. `SubAgent(assistant, tool_registry)`
+runs on the same `AssistantConfig` under a fixed worker identity
+(`sub.worker_identity()`). Both extend `BaseAgent`, which owns tool dispatch and
+approval.
 
 There is no administrator, router, or group discussion mode. Those existed once
 and were removed.
 
-## Choosing the persona
+## The persona in use
 
 **A persona is optional (#302).** With none, the assistant answers as itself:
 `selection.assistant_identity()` is a `PersonaConfig` with no id, the name
@@ -44,41 +49,30 @@ and were removed.
 unchanged and its chunks carry `persona_id: null`. A new account has no persona
 and `assistants.selected_persona_id` starts null.
 
-A conversation binds to at most one persona, stored as `conversations.persona_id`;
-null means the assistant itself. `agents/selection.py::pick_persona` resolves who
-answers from the user's **enabled** personas, in this fixed order:
+**One persona, or none, is in use for the whole account (#354):**
+`assistants.selected_persona_id`. Every turn answers as it — in a new conversation
+or an old one, on every device, in voice mode and in a task run.
+`agents/selection.py::persona_in_use` resolves it against the user's **enabled**
+personas once per turn, inside the turn's setup query; a pointer at a persona that
+is not enabled (a race with a disable) is logged and the assistant answers.
+Switching is `PATCH /assistant {"selected_persona_id": …}` and applies everywhere
+at once; there is no other way to choose.
 
-1. an explicit override — the `persona_id` on this `chat_request`, or the binding
-   the conversation already has (also settable with `PATCH /conversations/{id}`,
-   where `null` hands the conversation to the assistant);
-2. otherwise the assistant itself. There is no "first persona" fallback and no
-   `NO_PERSONAS` refusal any more.
-
-`assistants.selected_persona_id` is **not** a step (#334). It is who the account's
-chat is on — every client opens on it and names it on a new chat's first message
-— and the server keeps it only so that every device and every sign-in agree. A
-chat that names nobody is the assistant's own: the server used to adopt the
-account's default persona there (the column this one replaced), which put a
-persona behind a desktop header that said "Assistant".
-
-An id that names a persona which is not enabled (disabled, deleted, or another
-user's) is logged and skipped rather than honoured.
+A conversation is **not** tied to a persona. `conversations` has no persona column,
+a `chat_request` cannot name one, and `PATCH /conversations/{id}` takes only a
+title (anything else is a 422). Opening an old conversation continues it as the
+persona in use now. Each stored assistant message still records who spoke
+(`messages.persona_id`) — a record of the past, which the clients use for avatars
+and the speaker split, never a binding.
 
 **Nothing scans the message for a trigger word and nothing is picked at random.**
 `assistants.trigger_word` is a *voice wake word*: saying it wakes the assistant,
-and whichever persona the conversation is bound to answers. It selects nothing, and
-neither does the server: nothing is adopted that the request did not name.
+and the persona in use answers. It selects nothing.
 
-The choice is written back to `conversations.persona_id` on the first bind **and on
-every later override**, so a per-turn switch survives to the next message and
-across a reconnect. Compaction no longer moves the conversation at all, so the
-binding it carries is simply the one already on the row (#99).
-
-Creating or importing a persona does not make it the default; only the user does,
-with `PATCH /assistant`. Any persona can be deleted, the last one included, and
-the default can be disabled: either hands new conversations back to the assistant
-(the FK is `SET NULL`; disabling clears the pointer explicitly), and conversations
-bound to a deleted persona go to the assistant too.
+Creating or importing a persona does not put it in use; only the user does, with
+`PATCH /assistant`. Any persona can be deleted, the last one included, and the one
+in use can be disabled: either hands every conversation back to the assistant (the
+FK is `SET NULL`; disabling clears the pointer explicitly).
 
 ## The turn loop
 
@@ -88,16 +82,17 @@ and if the reply contains tool calls, executes them and loops so the model can
 react to the results. Running out of rounds emits a visible "stopped after N
 rounds" chunk rather than just ending the stream.
 
-Sub-agents run the same shape internally, capped at 10, and return their final
-text. Nothing they emit reaches the client directly.
+A spawned sub-agent runs the same shape internally, capped at 10, and returns its
+final text. Nothing it emits reaches the client directly.
 
 A denied tool ends the loop.
 
 Each tool call is timed around `execute_tool`, and the resulting tool chunk carries
 `duration_ms` plus `tool_kind` (`"tool"` or `"sub_agent"`). Both exist because the
 chunk is only emitted *after* the call returns: a client can neither measure the
-call nor tell a delegation from an ordinary tool call, since a sub-agent is exposed
-to the model as a plain function.
+call nor tell a delegation from an ordinary tool call, since spawning a sub-agent is
+exposed to the model as a plain function. A `delegate_task` chunk is
+`tool_kind: "sub_agent"` with `model_name` set to the assistant's model.
 
 ## The system prompt
 
@@ -121,11 +116,11 @@ to the model as a plain function.
 5. the deferred-tool protocol, when `assistants.use_deferred_tools` is set
 6. the **assistant's** memory, when `assistants.memory_enabled` and it is non-empty
 7. the conversation's `compacted_context`, when there is one
-8. the available sub-agents and what each is for, built at runtime from the
-   injected `SubAgentTool` adapters
 
-A `SubAgent` builds a much smaller one: its own `system_prompt` and nothing else —
-no skills list, no memory, no compacted context, no sub-agent guide.
+There is no sub-agent section: `delegate_task`'s own description says when to use
+it. A `SubAgent` builds a much smaller prompt: `sub.SUB_AGENT_PROMPT` (one task,
+reply with the result alone, it goes back to the assistant) and the task — no
+persona, no skills list, no memory, no compacted context.
 
 History follows, replayed with the tool-call linkage intact: an assistant message
 carries the `tool_calls` it made, a tool message carries the `tool_call_id` it
@@ -174,8 +169,8 @@ half (#244 desktop, #246 Android).
 ## Tool access
 
 `assistants.available_tools` is a JSON array of tool names, or null for all of
-them; `sub_agents.available_tools` is the same field for a sub-agent's own loop.
-Built-in tools ignore it and are always offered.
+them; a spawned sub-agent runs under the same list. Built-in tools ignore it and
+are always offered, `delegate_task` included.
 
 **Permission is decided by the server, not the client.** `users.tool_policies` is
 read once per turn onto `AgentContext`, and `BaseAgent.execute_tool` applies it
@@ -188,18 +183,18 @@ before dispatch:
 - with no client attached, an unapproved call is refused rather than run.
 
 A call resolves against the deferred meta-tools (when enabled), then the native
-registry, then handler-injected tools such as sub-agent adapters, then tools the
+registry, then handler-injected tools (`delegate_task`), then tools the
 client registered over the socket, then a server-side MCP server.
 
 Besides `conversation_id`, `user_id` and `agent_id`, `execute_tool` injects the
 caller's allowlist as `_available_tools`. It is for a built-in tool that reaches
 into what a non-built-in one guards — the recall tools include drive passages
 only when `drive_read` could run for this caller — and it lives in the arguments
-rather than on `AgentContext` because the same context object is handed to
-sub-agents, whose allowlist is their own.
+rather than on `AgentContext` because the same context object is handed to a
+spawned sub-agent, which carries its own copy of the list.
 
 `tool_approval_request` keeps an `agent_id` field: it is the id of whoever is
-asking — the persona for a `MainAgent`, the sub-agent itself for a `SubAgent` —
+asking — the persona in use for a `MainAgent`, none for a spawned `SubAgent` —
 which is why it was not renamed to `persona_id`.
 
 ## Memory
@@ -223,8 +218,8 @@ five failures the conversation is stamped and left alone until it changes again.
 Because that state is in the database, a restart loses nothing and a failure no
 longer wedges a conversation for the life of the process (#96).
 `utils/memory_consolidation.py::consolidate_assistant_memory` feeds the model the
-bound persona's system prompt as "session instructions", the current memory, the
-conversation's `compacted_context` and its transcript, and stores the result
+current memory, the conversation's `compacted_context` and its transcript — no
+persona prompt, since a conversation is not tied to one (#354) — and stores the result
 (capped at 4000 characters). It uses the user's `summary_model`, so nothing
 consolidates without one configured.
 

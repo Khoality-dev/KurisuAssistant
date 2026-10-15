@@ -23,7 +23,8 @@ tool_registry.register(DriveListTool())
 tool_registry.register(DriveReadTool())
 tool_registry.register(DriveWriteTool())
 tool_registry.register(DriveDeleteTool())
-# Note: HandoffToTool and SubAgentTool are injected dynamically per-session, not registered globally
+# Note: delegate_task (agents/sub.py) is injected per turn, not registered globally:
+# it needs the assistant's own configuration to spawn a sub-agent.
 
 __all__ = [
     "BaseTool",

@@ -23,7 +23,7 @@ assistants                                          exactly one row per user
   memory(text)?             ONE document per user, shared by every persona
   memory_enabled(bool)
   trigger_word?             voice wake word; selects nothing
-  selected_persona_id→personas (SET NULL)           who the chat is on; clients read and write it, the server never applies it (#334)
+  selected_persona_id→personas (SET NULL)           the persona in use for the whole account; every turn answers as it (#334, #354)
   created_at
 
 personas                                            presentation only
@@ -34,20 +34,9 @@ personas                                            presentation only
   enabled(bool), created_at
   unique (user_id, name)
 
-sub_agents                                          task-only workers, no identity
-  id, user_id→users (CASCADE)
-  name, description, system_prompt
-  model_name?, provider_type(default 'ollama')
-  available_tools(JSON)?    null means every tool
-  think(bool), use_deferred_tools(bool)
-  enabled(bool), created_at
-  unique (user_id, name)
-  no memory column — see below
-
 conversations
   id, user_id→users
-  title
-  persona_id→personas (SET NULL)    null = the assistant itself (#302)
+  title                             no persona: who answers is the account's (#354)
   compacted_context(text, not null, default '')
   compacted_up_to_id(int, not null, default 0)
   created_at, updated_at(indexed)
@@ -61,13 +50,13 @@ messages
   tool_args(JSON)?, tool_status?                    on a tool message
   tool_kind?, duration_ms?                          on a tool message (#327): "tool" | "sub_agent",
                                                     and how long the call took; model_name on a
-                                                    tool message is a delegation's sub-agent model
+                                                    delegate_task row is the model its sub-agent ran on
   tool_calls(JSON)?                                 on the assistant message that made them
   tool_call_id?                                     on the tool message answering one
   emotion_cues(JSON)?                               where the persona's feeling changed, see below
   context_files(JSON)?, images(JSON, list of UUIDs)?
   conversation_id→conversations (CASCADE, indexed)
-  persona_id→personas (SET NULL)                    set on assistant messages only
+  persona_id→personas (SET NULL)                    who spoke; assistant messages only, never a binding
   created_at
 
 skills          id, user_id→users, name, instructions, created_at   unique (user_id, name)
@@ -166,10 +155,14 @@ now `conversations.persona_id` and `messages.agent_id` is now
 untouched. Every REST response that carried the old names carries the new ones
 (wire protocol 4).
 
-**Sub-agents have no memory column, and that is not an oversight.** Consolidation
-only ever joined through what is now `messages.persona_id`, which only ever held
-main-agent ids, so a sub-agent's memory could never have been written. The split
-dropped the column rather than keep one nothing could fill.
+**Conversations lost the persona, and saved sub-agents went** (migration
+`1bbca2496002`, wire protocol 9, #354). One persona, or none, is in use for the
+whole account — `assistants.selected_persona_id` — so `conversations.persona_id`
+and its foreign key were dropped; `messages.persona_id` stays, because it records
+who spoke, not who answers next. The `sub_agents` table was dropped with its rows:
+the assistant spawns a helper on its own configuration through `delegate_task`.
+The downgrade restores the schema only — every conversation comes back unbound and
+there are no saved sub-agents.
 
 **Memory consolidation keeps its state on the conversation row** (#96). A
 conversation is due when it has been idle past the threshold and
@@ -186,8 +179,8 @@ upgrade does not queue the user's whole history at once.
 **Compaction uses the watermark, and only the watermark.** `compacted_context`
 holds the summary and `compacted_up_to_id` is the last message it covers;
 `_load_context_messages` reads the summary plus everything after that id. A
-conversation is never split by compaction — it keeps its id, its title, its
-persona binding and all of its stored messages, and only the model's view of it
+conversation is never split by compaction — it keeps its id, its title and all
+of its stored messages, and only the model's view of it
 is trimmed. Until #99 the live path created a *second* conversation instead and
 set the watermark to 0, so it was never advanced and one thread became several in
 the history list.
@@ -250,7 +243,7 @@ is cancelled and never runs. The engine carries `connect_timeout`
 `alembic/env.py`, so a long migration is not cut short.
 
 Repositories live in `db/repositories/`, one per table over a generic
-`BaseRepository` (`assistant.py`, `persona.py`, `sub_agent.py`, `conversation.py`,
+`BaseRepository` (`assistant.py`, `persona.py`, `conversation.py`,
 `message.py`, `user.py`, `skill.py`, `mcp_server.py`, `face.py`, `drive.py`,
 `passages.py`). They take a session; they never open one.
 

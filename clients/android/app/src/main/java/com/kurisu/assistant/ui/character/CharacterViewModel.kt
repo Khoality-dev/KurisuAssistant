@@ -100,15 +100,14 @@ class CharacterViewModel @Inject constructor(
     }
 
     /**
-     * Load the character belonging to [personaId] — the persona answering the open
-     * conversation.
+     * Load the character belonging to [personaId] — the persona in use for the
+     * whole account (#354), which answers the open conversation like every other.
      *
      * This replaces a read of `savedStateHandle["agentId"]` against a route that
      * never carried an argument, so the id was always -1, the load never ran and
      * the screen sat on "Loading character…" forever. A null [personaId] is the
      * assistant answering as itself (#302): it has no character, and the screen
-     * says so rather than borrowing the default persona's — the chat already
-     * resolves a new chat to its default persona before it gets here.
+     * says so rather than borrowing another persona's.
      */
     fun bindPersona(personaId: Int?) {
         if (personaId != null && personaId == boundPersonaId) return

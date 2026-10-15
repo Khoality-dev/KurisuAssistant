@@ -14,7 +14,6 @@ import com.kurisu.assistant.data.repository.PersonaRepository
 import com.kurisu.assistant.data.repository.TtsRepository
 import com.kurisu.assistant.domain.character.CharacterConfigKind
 import com.kurisu.assistant.domain.tts.TtsQueueManager
-import com.kurisu.assistant.service.CoreState
 import com.kurisu.assistant.ui.assistant.apiErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
@@ -57,9 +56,8 @@ data class PersonasUiState(
     val baseUrl: String = "",
 
     val personas: List<Persona> = emptyList(),
+    /** The persona in use for the whole account (#354); null is the assistant itself. */
     val selectedPersonaId: Int? = null,
-    /** Who is answering the conversation that is currently open, if any. */
-    val openChatPersonaId: Int? = null,
 
     val availableVoices: List<VoiceInfo> = emptyList(),
     val isSaving: Boolean = false,
@@ -84,7 +82,6 @@ class PersonasViewModel @Inject constructor(
     // upload route to wrap.
     private val api: KurisuApiService,
     private val prefs: PreferencesDataStore,
-    coreState: CoreState,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PersonasUiState())
@@ -92,11 +89,6 @@ class PersonasViewModel @Inject constructor(
 
     init {
         load()
-        viewModelScope.launch {
-            coreState.state.collect { core ->
-                _state.update { it.copy(openChatPersonaId = core.currentPersonaId) }
-            }
-        }
     }
 
     fun load() {

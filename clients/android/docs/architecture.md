@@ -17,7 +17,7 @@ com.kurisu.assistant/
 │   ├── remote/api/              -- Retrofit service, interceptors, ProtocolMismatchSignal (live 426 / 4426 → update gate)
 │   ├── remote/websocket/        -- OkHttp WebSocket, event payloads
 │   ├── model/                   -- Data classes (API, WS, Animation, UpdateModels)
-│   └── repository/              -- Auth, Assistant, Persona, SubAgent, Conversation, TTS, ASR, Vision, Tools, Face, Update repos
+│   └── repository/              -- Auth, Assistant, Persona, Conversation, TTS, ASR, Vision, Tools, Face, Update repos
 ├── domain/
 │   ├── chat/                    -- Stream processor, sentence splitter, narration stripper
 │   ├── tts/                     -- TTS queue, WAV parser, amplitude computer
@@ -29,7 +29,7 @@ com.kurisu.assistant/
 │   ├── auth/                    -- Login screen + ViewModel
 │   ├── conversations/           -- Chats list (start destination) + voice mode strip + in-app update check
 │   ├── chat/                    -- Chat screen, message bubble, tool rail, input, markdown (no nav args)
-│   ├── assistant/               -- The one assistant (model, tools, memory, wake word) + sub-agent CRUD
+│   ├── assistant/               -- The one assistant (wake word, thinking, memory, tools)
 │   ├── personas/                -- Persona CRUD (name, prompt, voice, avatar) + ViewModel
 │   ├── common/                  -- Shared UI bits (personaInitials, ModelDropdown)
 │   ├── settings/                -- Settings index + Account, Appearance, TTS & ASR, Tools & MCP, Skills screens

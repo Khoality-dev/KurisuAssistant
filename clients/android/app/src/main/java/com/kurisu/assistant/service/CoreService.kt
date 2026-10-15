@@ -20,7 +20,6 @@ import com.kurisu.assistant.MainActivity
 import com.kurisu.assistant.R
 import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.remote.websocket.WebSocketManager
-import com.kurisu.assistant.data.repository.PersonaRepository
 import com.kurisu.assistant.data.repository.AsrRepository
 import com.kurisu.assistant.data.repository.ConversationRepository
 import com.kurisu.assistant.domain.audio.AudioRecorder
@@ -110,7 +109,6 @@ class CoreService : Service() {
     @Inject lateinit var streamProcessor: ChatStreamProcessor
     @Inject lateinit var ttsQueueManager: TtsQueueManager
     @Inject lateinit var voiceInteractionManager: VoiceInteractionManager
-    @Inject lateinit var personaRepository: PersonaRepository
     @Inject lateinit var conversationRepository: ConversationRepository
     @Inject lateinit var asrRepository: AsrRepository
     @Inject lateinit var prefs: PreferencesDataStore
@@ -387,14 +385,12 @@ class CoreService : Service() {
         streamProcessor.onConversationId = { convId ->
             serviceScope.launch {
                 coreState.setConversationId(convId)
-                // Null is the assistant answering as itself (#302), cached apart.
-                personaRepository.setConversationIdForPersona(coreState.state.value.currentPersonaId, convId)
             }
         }
 
         // Compaction is in place since #99: the server trims the conversation it
         // is already in and reports it with `context_info`, so there is no new
-        // conversation to adopt and the persona mapping stays valid.
+        // conversation to adopt.
 
         streamProcessor.onStreamDone = {
             serviceScope.launch {
@@ -449,18 +445,13 @@ class CoreService : Service() {
         streamProcessor.addUserMessage(text)
 
         serviceScope.launch {
-            // The conversation left behind stays in Chats; the cache that reopens
-            // it for this persona forgets it, as `/clear` does.
-            if (newConversation) personaRepository.clearConversationIdForPersona(state.currentPersonaId)
             try {
                 // Backend uses the assistant's configured model_name when modelName is empty.
                 wsManager.sendChatRequest(
                     text = text,
                     modelName = "",
+                    // No persona: the server answers as the one in use (#354).
                     conversationId = state.conversationId,
-                    // Only a chat that does not exist yet names who answers it;
-                    // an existing one is bound on the server (see ChatViewModel).
-                    personaId = if (state.conversationId == null) state.currentPersonaId else null,
                 )
             } catch (e: Exception) {
                 streamProcessor.setError(e.message ?: "Failed to send message")

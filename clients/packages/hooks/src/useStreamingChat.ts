@@ -5,7 +5,6 @@ import { useToolPermissionsStore } from '@kurisu/state';
 import { storage } from '@kurisu/api';
 import { fileToBase64 } from '@kurisu/api';
 import { useExplorerStore } from '@kurisu/state';
-import { usePersonaStore, whenSelectionLoaded } from '@kurisu/state';
 import { newId, WS_ERROR_NO_MODEL_SELECTED, type Message } from '@kurisu/models';
 import { handleCommand, publishSubtitle, pushEmotion, setThinking } from '@kurisu/state';
 import { StreamSpeechPlanner, type SegmentCue } from './emotionTiming';
@@ -18,7 +17,6 @@ import { StreamSpeechPlanner, type SegmentCue } from './emotionTiming';
 export type StreamingMessage = Message;
 
 export interface UseStreamingChatParams {
-  personaId: number | null;
   currentConversation: { id: number } | null;
   messages: Message[];
   hasMoreMessages: boolean;
@@ -70,7 +68,6 @@ export interface UseStreamingChatReturn {
 }
 
 export function useStreamingChat({
-  personaId,
   currentConversation,
   messages,
   hasMoreMessages,
@@ -333,10 +330,6 @@ export function useStreamingChat({
       state.conversationId = event.conversation_id;
       setActiveConversationId(event.conversation_id);
       setCurrentConversationId(event.conversation_id);
-
-      // Save the persona → conversation mapping. With no persona selected the
-      // conversation lands under 'unbound' until a chunk tells us who answered.
-      storage.setPersonaConversationId(personaId ?? 'unbound', event.conversation_id);
     }
 
     const messageRole = event.role;
@@ -344,31 +337,6 @@ export function useStreamingChat({
     // chunks; `persona_id`/`persona_name` are null on tool chunks.
     const chunkName = event.name || undefined;
     const eventPersonaId = event.persona_id ?? undefined;
-
-    // A conversation started with no persona selected sits under the 'unbound'
-    // key. The first assistant chunk names the persona the backend bound it to,
-    // so re-key it now — that is the only moment the client can learn it.
-    if (state.conversationId && eventPersonaId && !personaId
-        && storage.getPersonaConversationId('unbound') === state.conversationId) {
-      storage.setPersonaConversationId(eventPersonaId, state.conversationId);
-      storage.clearPersonaConversationId('unbound');
-    }
-
-    // The store's placeholder for a conversation this turn created carries no
-    // binding, and null there means the assistant itself (#302). The first
-    // assistant chunk says who actually answered; without this the header
-    // would call a persona's reply the assistant's, and picking the assistant
-    // in the sheet would look like no change and skip its PATCH.
-    if (messageRole === 'assistant' && state.conversationId) {
-      const bound = eventPersonaId ?? null;
-      useConversationStore.setState((s) => (
-        s.currentConversation?.id === state.conversationId
-          && s.currentConversation.message_count === 0
-          && s.currentConversation.persona_id !== bound
-          ? { currentConversation: { ...s.currentConversation, persona_id: bound } }
-          : {}
-      ));
-    }
 
     // Start a new bubble when the role changes (user → assistant → tool) or the
     // speaker changes. The speaker is the persona on assistant chunks — compare
@@ -595,14 +563,6 @@ export function useStreamingChat({
     // Drop any queued messages — backend will stream them next.
     setQueuedMessages([]);
 
-    // Refresh persona previews (last-message snippet on the sidebar). No
-    // conversation reload: streaming chunks already deliver every field the
-    // bubble needs, and resend/delete/raw-data have been removed, so the
-    // missing DB ids are no longer load-bearing on the client.
-    if (event.conversation_id) {
-      usePersonaStore.getState().loadPersonaPreviews();
-    }
-
     // A `connected` restore landed mid-turn and deferred rather than overwrite
     // it. The snapshot it applied is stale by exactly this turn, so re-read now
     // that the turn is persisted.
@@ -786,7 +746,6 @@ export function useStreamingChat({
     if (!overrideText.trim() || isStreamingRef.current) return;
     if (opts?.newConversation) {
       useConversationStore.getState().clearCurrentConversation();
-      storage.clearPersonaConversationId(personaId ?? 'unbound');
       setActiveConversationId(null);
     }
     await _doSend(overrideText.trim(), [], opts?.newConversation ? { conversationId: null } : undefined);
@@ -874,26 +833,15 @@ export function useStreamingChat({
       setStreamingThinking('');
       setJustFinishedStreaming(false);
 
-      // Who the chat is on comes back from the server after sign-in; a send
-      // that beats it would name nobody and the assistant would answer (#334).
-      let namedPersona = personaId;
-      if (conversationId === null && namedPersona === null && !usePersonaStore.getState().selectionLoaded) {
-        await whenSelectionLoaded();
-        namedPersona = usePersonaStore.getState().selectedPersonaId;
-      }
-
-      // Send via WebSocket. The persona is named only when starting a new
-      // conversation: it binds the conversation about to be created to the
-      // persona the chat is on, and with none named the assistant answers — the
-      // server adopts nobody on its own (#334). An existing conversation already
-      // carries its binding server-side, so nothing is overridden per turn.
+      // Send via WebSocket. No persona is named: the server answers as the
+      // persona in use for the whole account, in this conversation as in any
+      // other (#354), so a send that beats `GET /assistant` has nothing to wait for.
       await wsManager.sendChatRequest(
         text,
         '', // Model determined by backend
         conversationId,
         imageBase64,
         contextFiles,
-        conversationId === null ? namedPersona : null,
       );
     } catch (err: any) {
       console.error('Chat error:', err);
@@ -911,7 +859,7 @@ export function useStreamingChat({
       setStreamingThinking('');
       setIsStreaming(false);
     }
-  }, [activeConversationId, personaId, clearQueue, setCurrentConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeConversationId, clearQueue, setCurrentConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = useCallback(async (text: string, imageFiles: File[]) => {
     if (!text.trim()) return;
@@ -919,7 +867,7 @@ export function useStreamingChat({
 
     // Slash commands are always client-side — never send to backend
     if (trimmed.startsWith('/')) {
-      const feedback = await handleCommand(trimmed, { activeConversationId, personaId });
+      const feedback = await handleCommand(trimmed, { activeConversationId });
       if (feedback) setInfoToast(feedback);
       return;
     }
@@ -948,7 +896,7 @@ export function useStreamingChat({
     }
 
     await _doSend(trimmed, imageFiles);
-  }, [_doSend, activeConversationId, personaId]);
+  }, [_doSend, activeConversationId]);
 
   const handleCancel = () => {
     cancelledRef.current = true;

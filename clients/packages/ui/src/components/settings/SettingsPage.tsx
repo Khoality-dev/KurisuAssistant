@@ -7,7 +7,6 @@ import {
   Palette as AppearanceIcon,
   Memory as AssistantIcon,
   AccountCircle as PersonasIcon,
-  Engineering as SubAgentsIcon,
   Extension as ToolsIcon,
   AutoFixHigh as SkillsIcon,
   FolderOpen as HostAccessIcon,
@@ -27,7 +26,6 @@ const TTSSection = React.lazy(() => import('./TTSSection').then(m => ({ default:
 const AppearanceSection = React.lazy(() => import('./AppearanceSection').then(m => ({ default: m.AppearanceSection })));
 const AssistantSection = React.lazy(() => import('./AssistantSection').then(m => ({ default: m.AssistantSection })));
 const PersonasSection = React.lazy(() => import('./PersonasSection').then(m => ({ default: m.PersonasSection })));
-const SubAgentsSection = React.lazy(() => import('./SubAgentsSection').then(m => ({ default: m.SubAgentsSection })));
 const ToolsSection = React.lazy(() => import('./ToolsSection').then(m => ({ default: m.ToolsSection })));
 const SkillsSection = React.lazy(() => import('./SkillsSection').then(m => ({ default: m.SkillsSection })));
 const HostAccessSection = React.lazy(() => import('./HostAccessSection').then(m => ({ default: m.HostAccessSection })));
@@ -57,7 +55,6 @@ const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'appearance', label: 'Appearance', icon: <AppearanceIcon /> },
   { id: 'assistant', label: 'Assistant', icon: <AssistantIcon /> },
   { id: 'personas', label: 'Personas', icon: <PersonasIcon /> },
-  { id: 'sub-agents', label: 'Sub-Agents', icon: <SubAgentsIcon /> },
   { id: 'tools', label: 'Tools & MCP', icon: <ToolsIcon /> },
   { id: 'skills', label: 'Skills', icon: <SkillsIcon /> },
   { id: 'drive', label: 'Kurisu Drive', icon: <DriveIcon /> },
@@ -85,10 +82,12 @@ function renderSection(sectionId: string) {
     case 'appearance': return <AppearanceSection />;
     case 'assistant': return <AssistantSection />;
     case 'personas': return <PersonasSection />;
-    case 'sub-agents': return <SubAgentsSection />;
-    // Legacy route — the single "Agents" section became three. A persisted
-    // 'agents' lands on Personas, the half of it people came for.
+    // Legacy routes. The single "Agents" section became Assistant and
+    // Personas, and saved sub-agents are gone (#354): the assistant spawns its
+    // own. A persisted 'agents' or 'sub-agents' lands on Personas and
+    // Assistant, the halves people came for.
     case 'agents': return <PersonasSection />;
+    case 'sub-agents': return <AssistantSection />;
     case 'mcp-servers': return <ToolsSection />; // Legacy route — redirect to merged page
     case 'tools': return <ToolsSection />;
     case 'skills': return <SkillsSection />;

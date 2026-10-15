@@ -18,11 +18,12 @@ data class CoreServiceState(
     /** Someone is talking right now: from the VAD's start of speech to its end. */
     val userTalking: Boolean = false,
     val lastTranscript: String? = null,
+    /**
+     * The conversation the chat is in — chosen on the Chats list, or created by
+     * the server on a new chat's first message. Null is a new chat. No persona
+     * travels with it: one is in use for the whole account (#354).
+     */
     val conversationId: Int? = null,
-    // The persona answering in [conversationId]; null is the assistant answering
-    // as itself (#302). There is nothing to "select": one assistant owns
-    // capability, and this only records who is speaking.
-    val currentPersonaId: Int? = null,
 )
 
 @Singleton
@@ -67,10 +68,6 @@ class CoreState @Inject constructor() {
 
     fun setConversationId(id: Int?) {
         _state.update { it.copy(conversationId = id) }
-    }
-
-    fun setCurrentPersonaId(id: Int?) {
-        _state.update { it.copy(currentPersonaId = id) }
     }
 
     fun emitStreamDone() {

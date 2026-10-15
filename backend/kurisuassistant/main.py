@@ -30,7 +30,6 @@ from kurisuassistant.routers import (
     ws_router,
     assistant_router,
     personas_router,
-    sub_agents_router,
     models_router,
     tools_router,
     character_router,
@@ -90,7 +89,6 @@ app = FastAPI(
         {"name": "users", "description": "User profile management"},
         {"name": "assistant", "description": "The user's single assistant: model, tools, memory"},
         {"name": "personas", "description": "Personas: how the assistant looks and sounds"},
-        {"name": "sub-agents", "description": "Task-only workers the assistant delegates to"},
         {"name": "tools", "description": "Tools management"},
         {"name": "mcp", "description": "MCP server management"},
         {"name": "images", "description": "Image upload and retrieval"},
@@ -167,7 +165,6 @@ app.include_router(messages_router)
 app.include_router(users_router)
 app.include_router(assistant_router)
 app.include_router(personas_router)
-app.include_router(sub_agents_router)
 app.include_router(models_router)
 app.include_router(tools_router)
 app.include_router(images_router)

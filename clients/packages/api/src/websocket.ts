@@ -19,10 +19,8 @@ export interface ChatRequestEvent extends BaseEvent {
   text: string;
   model_name: string;
   conversation_id: number | null;
-  // Optional per-turn persona override. Omit it on an ordinary message: an
-  // existing conversation keeps its binding and a new one is the assistant's own
-  // (#334). Sending it rebinds the conversation server-side.
-  persona_id?: number | null;
+  // No persona: the server answers as the persona in use for the whole
+  // account, `selected_persona_id` (#354). A request cannot name one.
   images: string[]; // base64 encoded
 }
 
@@ -89,8 +87,8 @@ export interface ToolApprovalRequestEvent extends BaseEvent {
   approval_id: string;
   tool_name: string;
   tool_args: Record<string, unknown>;
-  // Kept as `agent_id`: it identifies whoever wants the call — the persona, or a
-  // sub-agent running under it. It is not a persona id.
+  // Kept as `agent_id`: it identifies whoever wants the call — the persona in
+  // use, or null for a sub-agent the assistant spawned. It is not a persona id.
   agent_id: number | null;
   name: string | null;
   description: string;
@@ -132,9 +130,6 @@ export interface ConnectedEvent extends BaseEvent {
   type: 'connected';
   chat_active: boolean;
   conversation_id: number | null;
-  // Persona bound to `conversation_id`, so a reconnecting client knows who is
-  // talking before the first chunk. Null when nothing is in flight or unbound.
-  persona_id: number | null;
   vision_active: boolean;
   vision_config: {
     enable_face: boolean;
@@ -384,7 +379,6 @@ class WebSocketManager {
     conversationId: number | null = null,
     images: string[] = [],
     contextFiles: Array<Record<string, unknown>> = [],
-    personaId: number | null = null,
   ): Promise<void> {
     // Ensure connected
     await this.connect();
@@ -396,9 +390,6 @@ class WebSocketManager {
       conversation_id: conversationId,
       images,
       context_files: contextFiles.length > 0 ? contextFiles : undefined,
-      // Omitted unless the caller names one: a new conversation that names nobody
-      // is the assistant's own (#334).
-      persona_id: personaId ?? undefined,
     });
   }
 

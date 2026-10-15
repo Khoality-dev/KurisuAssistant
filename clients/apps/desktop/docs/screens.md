@@ -19,12 +19,13 @@ The desktop was not part of the v3 visual redesign — it took the model change 
 
 ![Assistant](assets/03-settings-assistant.png)
 
-Where there was a single **Agents** section there are now three, because capability, presentation
-and task-only workers are three different resources.
+Where there was a single **Agents** section there are now two, because capability and presentation
+are different resources. There is no section for sub-agents: the assistant spawns its own when it
+needs help, on its own model and tools (#354).
 
 This screen is the capability half: one tool set, one memory, one wake word that selects no persona.
 The model is not here — it sits on the chat header beside the persona, applies to every persona, and
-is picked from there — and neither is who the chat is on, which is picked in the chat or on
+is picked from there — and neither is the persona in use, which is picked in the chat or on
 **Personas** (#197, #334).
 
 ## Personas
@@ -33,12 +34,12 @@ is picked from there — and neither is who the chat is on, which is picked in t
 
 Presentation only — a name, a prompt, a voice, a face. The editor is also the only place
 `voice_reference` and `preferred_name` are reachable; neither had a UI before the split. The one
-thing decided here that belongs to the assistant is who the chat is on: **Talk to** on a card, and
-the **In the chat** badge on the one it is on — the same selection the chat header and the
-Conversations page make, kept on the server as `selected_persona_id` so every device opens on it
-(#334). A persona is optional (#302): with none selected — where every account starts — the chat is
-the assistant's own, and **Use the assistant** on the selected card goes back to that. Any persona
-can be deleted, the last one included, and disabling the selected one clears it.
+thing decided here that belongs to the assistant is the persona in use: **Talk to** on a card, and
+the **In use** badge on the one in use — the same switch the chat header makes, kept on the server
+as `selected_persona_id` and applied to every conversation on every device (#334, #354). A persona
+is optional (#302): with none in use — where every account starts — the assistant answers as
+itself, and **Use the assistant** on the card in use goes back to that. Any persona can be deleted,
+the last one included, and disabling the one in use clears it.
 
 The screenshot above predates #334 and still shows **Default** and **Make default**.
 
@@ -53,22 +54,17 @@ each with Try) and framing — plus an optional Fine-tune with every number and 
 animations. When the steps do not fit, down to the window's 800×600 minimum, their column scrolls;
 a step is never shorter than what it holds (#299). Deleting a persona lists the character files that go with it, with their sizes.
 
-## Sub-agents
-
-![Sub-agents](assets/05-settings-sub-agents.png)
-
-Task-only workers the assistant calls mid-answer. They keep their own model and tools, because they
-run their own loop, but they have no identity and never speak to you directly.
-
 ## Chat
 
 ![Chat](assets/02-chat.png)
 
-The header names the persona answering and, beside it, the model — the assistant's, one for every
+The header names the persona in use and, beside it, the model — the assistant's, one for every
 persona; the menu behind it changes it from the next message on, and is what "Choose a model" opens
-when a new account's first message is refused for having none (#197). Each answer is labelled with
-the persona that produced it. A tool call carries its own name, and a delegated step is tagged with
-the sub-agent and the model that ran it.
+when a new account's first message is refused for having none (#197). The persona in use is the
+account's: switching it from the header applies to every conversation at once, and the open one
+carries on (#354). Each answer is labelled with the persona that produced it. A tool call carries
+its own name, and a step the assistant handed to a sub-agent it spawned is tagged **sub-agent**
+with the model that ran it.
 
 The Face button on that header (or `/live-animate`) shows the character in a panel above the
 messages — every persona in the conversation, with the subtitle under them. Its lower edge drags

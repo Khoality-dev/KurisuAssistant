@@ -9,14 +9,11 @@ object StorageKeys {
     const val TTS_BACKEND = "kurisu_tts_backend"
     const val BACKEND_URL = "kurisu_backend_url"
     // There is exactly one assistant, so there is nothing to select locally, and
-    // the default persona lives on the assistant row server-side — two devices
+    // the persona in use lives on the assistant row server-side — two devices
     // would otherwise disagree about who answers. `kurisu_selected_agent_id` is
-    // gone rather than renamed.
-    //
-    // Persona -> last conversation. A cache: it re-derives from the backend on a
-    // miss, so the rename needs no migration; a stale `kurisu_agent_conversations`
-    // blob is simply never read again.
-    const val PERSONA_CONVERSATIONS = "kurisu_persona_conversations"
+    // gone rather than renamed. So is `kurisu_persona_conversations`, the "last
+    // conversation per persona" cache: a conversation is not tied to a persona
+    // (#354), and `PersonaConversationsRemoval` deletes it from the store.
     const val AUDIO_INPUT_DEVICE_TYPE = "kurisu_audio_input_device_type"
     const val ASR_LANGUAGE = "kurisu_asr_language"
     // Voice mode on or off, remembered on this device: the desktop's key (#341).

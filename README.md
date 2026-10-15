@@ -2,7 +2,7 @@
 
 ![Kurisu Assistant banner](docs/assets/blue.png)
 
-Kurisu Assistant is a personal assistant built to help with both work and everyday life. It can answer questions, keep useful context, work with images, and hold voice conversations. It also works as a coding agent and general-purpose agentic harness that can read and edit files, run commands, use tools and skills, and delegate specialized work to sub-agents. Each account has one assistant with its own model, memory, and capabilities, while personas let you choose the name, personality, voice, and face that fit the moment.
+Kurisu Assistant is a personal assistant built to help with both work and everyday life. It can answer questions, keep useful context, work with images, and hold voice conversations. It also works as a coding agent and general-purpose agentic harness that can read and edit files, run commands, use tools and skills, and hand side tasks to sub-agents it starts itself. Each account has one assistant with its own model, memory, and capabilities, while personas let you choose the name, personality, voice, and face it answers with.
 
 The project is split into a server and two clients. Pick the guide that matches what you want to do:
 
@@ -16,13 +16,13 @@ The project is split into a server and two clients. Pick the guide that matches 
 Each package documents itself. For pictures of the apps, see
 **[Android screens](clients/android/docs/screens.md)** and
 **[Desktop screens](clients/desktop/docs/screens.md)**; for the model behind them -
-one assistant, its personas, and the sub-agents it calls - see
+one assistant, the persona it answers as, and the sub-agents it starts - see
 **[assistant architecture](backend/docs/agents.md)**.
 
 | | | |
 | --- | --- | --- |
 | ![Chats](clients/android/docs/assets/01-chats.png) | ![A conversation](clients/android/docs/assets/02-chat.png) | ![Assistant](clients/android/docs/assets/05-assistant.png) |
-| Conversations, labelled by the persona answering | A tool call, shown as a rail | One assistant: model, tools, memory, wake word |
+| Conversations, newest first | A tool call, shown as a rail | One assistant: model, tools, memory, wake word |
 
 ## Quick start for users
 
@@ -90,7 +90,7 @@ For backup, restore, updates, and removal, see [server operations](backend/docs/
 
 After signing in, configure at least one model provider under **Settings → Account**. Both clients support Ollama, Google Gemini, NVIDIA NIM and Poe; enter a provider's API key there and its models appear in the model pickers.
 
-Your account already has one assistant and no persona. Select the assistant's model, and optionally its tools, memory and voice wake word - those belong to the assistant, so they do not change when you switch persona. Personas are optional: create one to give the assistant a name, personality, voice and avatar, and make it the default if new conversations should use it. Without a default, a new conversation is answered by the assistant itself; the chat header switches persona for one conversation.
+Your account already has one assistant and no persona. Select the assistant's model, and optionally its tools, memory and voice wake word - those belong to the assistant, so they do not change when you switch persona. Personas are optional: create one to give the assistant a name, personality, voice and avatar, then pick it from the chat header or Settings → Personas. The persona you pick answers every conversation, old and new, on every device, until you pick another; with none picked, the assistant answers as itself.
 
 For voice conversations, select an ASR language/model and TTS backend, then enable **TTS Auto-Play**. Enable **Always Listen** only when you want the microphone kept active for trigger words or dictation. Available models and voices depend on the services installed on the server.
 
@@ -106,7 +106,7 @@ For voice conversations, select an ASR language/model and TTS backend, then enab
 - **Cannot connect:** check the complete URL, port, network reachability, and whether Android is incorrectly using `localhost`.
 - **No models:** verify the provider URL/key from the backend's point of view, then save settings and refresh models.
 - **Voice fails:** grant microphone permission, choose an ASR/TTS model, and ask the server operator to check service logs.
-- **Tool fails:** confirm the tool server passes its connection test, the assistant or sub-agent is allowed to use the tool, and any approval prompt is accepted.
+- **Tool fails:** confirm the tool server passes its connection test, the assistant is allowed to use the tool, and any approval prompt is accepted.
 
 For setup checks, see [If it does not work](#if-it-does-not-work).
 

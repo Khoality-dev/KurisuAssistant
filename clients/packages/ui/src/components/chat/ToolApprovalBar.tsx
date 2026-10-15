@@ -14,7 +14,7 @@ export interface ApprovalRequest {
   description: string;
   detail?: string;
   executionLocation?: 'backend' | 'frontend';
-  // Whoever asked for the call: the persona answering, or a sub-agent under it.
+  // Whoever asked for the call: the persona in use, or a sub-agent the assistant spawned.
   requesterName?: string;
   options?: ApprovalOption[];
 }

@@ -84,11 +84,8 @@ data class Conversation(
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("updated_at") val updatedAt: String = "",
     @SerialName("last_message") val lastMessage: ConversationLastMessage? = null,
-    // The persona bound to this conversation. The backend has always sent it and
-    // this client used to drop it on the floor, which is why a conversation row
-    // could not show who answers it. Null means the assistant answers as itself
-    // (#302). The server adopts nobody on its own (#334).
-    @SerialName("persona_id") val personaId: Int? = null,
+    // No persona: a conversation is not tied to one (#354). Who answers is the
+    // persona in use for the whole account, `Assistant.selectedPersonaId`.
 )
 
 @Serializable
@@ -113,9 +110,6 @@ data class ConversationDetail(
     @SerialName("compacted_up_to_id") val compactedUpToId: Int = 0,
     @SerialName("compacted_context") val compactedContext: String = "",
     @SerialName("system_prompt_token_count") val systemPromptTokenCount: Int = 0,
-    // Who is answering in this conversation — the chat header's current persona.
-    // Null means the assistant answers as itself (#302).
-    @SerialName("persona_id") val personaId: Int? = null,
 )
 
 @Serializable
@@ -182,17 +176,18 @@ data class TTSRequest(
     val provider: String? = null,
 )
 
-// ─── The assistant / persona / sub-agent split (wire protocol 4) ───────────
-//
-// The old `Agent` was one row doing three jobs. It is now three types:
+// ─── The assistant and its personas (wire protocol 4, 9) ────────────────────
 //
 //   Assistant — ONE per user, addressed with no id (`GET|PATCH /assistant`).
 //               Owns capability: model, provider, tools, reasoning, memory, the
-//               voice wake word, and which persona the chat is on (#334).
+//               voice wake word, and the persona in use for the whole account
+//               (#354).
 //   Persona   — MANY per user. Owns presentation only: name, prompt, voice, face.
 //               No model, no tools, no memory, no trigger word.
-//   SubAgent  — MANY per user. A task-only worker the assistant delegates to.
-//               Its own model and tools, but no identity and no memory.
+//
+// There are no saved sub-agents (#354): the assistant spawns a helper itself
+// when it needs one, through its built-in `delegate_task` tool, and a delegated
+// step still arrives as a tool chunk with `tool_kind: "sub_agent"`.
 //
 // PATCH bodies are read server-side through `model_fields_set`, so an omitted
 // field is left alone while an explicit null CLEARS the column — and several
@@ -212,11 +207,11 @@ data class Assistant(
     val memory: String? = null,
     @SerialName("memory_enabled") val memoryEnabled: Boolean = true,
     // A voice WAKE word, not a router: saying it wakes the assistant, and the
-    // conversation's bound persona answers. It selects no one.
+    // persona in use answers. It selects no one.
     @SerialName("trigger_word") val triggerWord: String? = null,
-    // Who the chat is on (#334): every client opens on it and names it on a new
-    // chat's first message. Null is the assistant itself. The server never
-    // applies it on its own.
+    // The persona in use for the whole account (#354): every turn, in any
+    // conversation, on every device, answers as it. Null is the assistant
+    // itself. Switching persona is a PATCH of this field.
     @SerialName("selected_persona_id") val selectedPersonaId: Int? = null,
 )
 
@@ -297,68 +292,7 @@ data class PersonaUpdate(
     val enabled: Boolean? = null,
 )
 
-@Serializable
-data class SubAgent(
-    val id: Int,
-    val name: String,
-    val description: String = "",
-    @SerialName("system_prompt") val systemPrompt: String = "",
-    // null means "the assistant's model".
-    @SerialName("model_name") val modelName: String? = null,
-    @SerialName("provider_type") val providerType: String = "ollama",
-    // null means "every tool".
-    @SerialName("available_tools") val availableTools: List<String>? = null,
-    val think: Boolean = false,
-    @SerialName("use_deferred_tools") val useDeferredTools: Boolean = false,
-    val enabled: Boolean = true,
-)
-
-@OptIn(ExperimentalSerializationApi::class)
-@Serializable
-data class SubAgentCreate(
-    val name: String,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val description: String? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    @SerialName("system_prompt") val systemPrompt: String? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    @SerialName("model_name") val modelName: String? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    @SerialName("provider_type") val providerType: String? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    @SerialName("available_tools") val availableTools: List<String>? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val think: Boolean? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    @SerialName("use_deferred_tools") val useDeferredTools: Boolean? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val enabled: Boolean? = null,
-)
-
-@OptIn(ExperimentalSerializationApi::class)
-@Serializable
-data class SubAgentUpdate(
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val name: String? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val description: String? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    @SerialName("system_prompt") val systemPrompt: String? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    @SerialName("model_name") val modelName: String? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    @SerialName("provider_type") val providerType: String? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    @SerialName("available_tools") val availableTools: List<String>? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val think: Boolean? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    @SerialName("use_deferred_tools") val useDeferredTools: Boolean? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val enabled: Boolean? = null,
-)
-
-/** Body for `PATCH /personas/{id}/enabled` and `PATCH /sub-agents/{id}/enabled`. */
+/** Body for `PATCH /personas/{id}/enabled`. */
 @Serializable
 data class EnabledUpdate(val enabled: Boolean)
 

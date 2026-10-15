@@ -1,41 +1,60 @@
-"""SubAgent — task-executor agent with no identity.
+"""SubAgent — a helper the assistant spawns on the spot (#354).
 
-Called synchronously by a MainAgent via the SubAgentTool adapter. Runs
-its own LLM + tool-loop internally, returns a single string back to the
-caller. The user sees only the MainAgent's paraphrased output, never
-the SubAgent's intermediate stream.
+There are no saved sub-agents. When the assistant wants help it calls
+``delegate_task`` with a task; :class:`DelegateTaskTool` spawns a fresh
+:class:`SubAgent` on the assistant's own model and tools, runs it to an answer,
+and hands that answer back as the tool result. The user sees only the
+assistant's account of it, never the sub-agent's intermediate stream.
+
+A sub-agent holds no memory and has no persona: it is never the speaker. It is
+not offered ``delegate_task`` itself, because that tool is injected into the
+assistant alone and is not in the registry the sub-agent draws on — a helper
+cannot spawn helpers.
 """
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List
 
 from kurisuassistant.tools.base import BaseTool
 
-from .base import BaseAgent, AgentContext, SubAgentConfig, async_iterate
+from .base import AgentContext, AssistantConfig, BaseAgent, PersonaConfig, async_iterate
 
 logger = logging.getLogger(__name__)
 
+#: The name the model calls to spawn a sub-agent, and the tool policy key.
+DELEGATE_TOOL_NAME = "delegate_task"
+
+#: What a spawned sub-agent is told it is. It answers its caller, not the user.
+SUB_AGENT_PROMPT = (
+    "You are a sub-agent working for the user's assistant. You were given one task. "
+    "Do it with the tools you have, then reply with the result alone: it goes back "
+    "to the assistant, not to the user."
+)
+
+
+def worker_identity() -> PersonaConfig:
+    """The label a spawned sub-agent runs under: no id, no voice, no character."""
+    return PersonaConfig(id=None, name="Sub-agent", system_prompt=SUB_AGENT_PROMPT)
+
 
 class SubAgent(BaseAgent):
-    """Task-only agent. No identity, no memory, no streaming to the frontend."""
+    """Task-only agent. No persona, no memory, no streaming to the frontend.
 
-    @property
-    def config(self) -> SubAgentConfig:
-        """The sub-agent's own row.
+    ``capabilities`` is the assistant's own :class:`AssistantConfig` — its model,
+    provider, tool allowlist and reasoning switch — so a helper can do what the
+    assistant can and nothing more. Its memory is never read here.
+    """
 
-        A sub-agent is its own capability and its own label, so ``capabilities``
-        and ``identity`` are the same object; this names it once for the
-        SubAgentTool adapter and the delegation guide.
-        """
-        return self.capabilities
+    def __init__(self, assistant: AssistantConfig, tool_registry):
+        super().__init__(assistant, tool_registry, identity=worker_identity())
 
     async def execute(self, task: str, context: AgentContext) -> str:
         """Run the sub-agent on a single task and return the final assistant text.
 
-        Builds a minimal message list (system prompt + the task),
-        runs the LLM tool-loop until completion, and accumulates the
-        assistant content into a string. Does not yield events.
+        Builds a minimal message list (its prompt + the task), runs the LLM
+        tool-loop until completion, and accumulates the assistant content into a
+        string. Does not yield events.
         """
         from kurisuassistant.models.llm import create_llm_provider
 
@@ -52,14 +71,10 @@ class SubAgent(BaseAgent):
 
         llm = create_llm_provider(provider_type, api_url=context.api_url, api_key=api_key)
 
-        system_parts: List[str] = []
-        if self.identity.system_prompt:
-            system_parts.append(self.identity.system_prompt)
-
-        messages: List[Dict] = []
-        if system_parts:
-            messages.append({"role": "system", "content": "\n\n".join(system_parts)})
-        messages.append({"role": "user", "content": task})
+        messages: List[Dict] = [
+            {"role": "system", "content": self.identity.system_prompt},
+            {"role": "user", "content": task},
+        ]
 
         allowed = (
             set(self.capabilities.available_tools)
@@ -150,54 +165,46 @@ class SubAgent(BaseAgent):
         return final_content or "Sub-agent returned empty response."
 
 
-class SubAgentTool(BaseTool):
-    """Thin adapter — exposes a SubAgent as a callable tool to a MainAgent's LLM."""
+class DelegateTaskTool(BaseTool):
+    """The assistant's way to spawn a sub-agent: one task in, one answer out.
 
-    built_in = False
+    Injected per turn by the chat handler as one of the assistant's
+    ``extra_tools``, because it needs the assistant's own configuration to build
+    the helper. ``built_in``: offered whatever the assistant's allowlist says,
+    since the helper can only use what that allowlist already permits. Running it
+    still goes through the user's tool policy like any other call.
+    """
 
-    def __init__(self, sub: SubAgent, taken: Optional[Set[str]] = None):
-        self.sub = sub
-        self.name = self._to_tool_name(sub.config.name, taken)
-        self.description = sub.config.description or f"Delegate task to {sub.config.name}"
+    name = DELEGATE_TOOL_NAME
+    description = (
+        "Spawn a sub-agent to work on one self-contained task and return its result. "
+        "It has your model and tools but none of this conversation: put everything it "
+        "needs in the task. Use it for a side task you can hand off; answer simple "
+        "things yourself."
+    )
+    built_in = True
 
-    @staticmethod
-    def _to_tool_name(agent_name: str, taken: Optional[Set[str]] = None) -> str:
-        """Convert an agent name to a valid tool name (snake_case).
+    def __init__(self, assistant: AssistantConfig, tool_registry):
+        self.assistant = assistant
+        self.tool_registry = tool_registry
 
-        Names collapse: "Web Search" and "web-search" both reduce to
-        ``web_search_agent``. Nothing checked for that, so one adapter silently
-        shadowed the other and the model was shown two identical schemas. A
-        collision now gets a numeric suffix.
-        """
-        name = agent_name.lower()
-        name = "".join(c if c.isalnum() else "_" for c in name)
-        while "__" in name:
-            name = name.replace("__", "_")
-        base = name.strip("_") + "_agent"
-
-        if taken is None:
-            return base
-
-        candidate = base
-        suffix = 2
-        while candidate in taken:
-            candidate = f"{base}_{suffix}"
-            suffix += 1
-        taken.add(candidate)
-        return candidate
+    @property
+    def model_name(self):
+        """The model a delegated step runs on — the assistant's own."""
+        return self.assistant.model_name
 
     def get_schema(self) -> Dict[str, Any]:
         return {
             "type": "function",
             "function": {
                 "name": self.name,
-                "description": f"Delegate a task to {self.sub.config.name}. {self.description}",
+                "description": self.description,
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "task": {
                             "type": "string",
-                            "description": "The task or question to send to this sub-agent",
+                            "description": "The whole task, with every detail the sub-agent needs",
                         },
                     },
                     "required": ["task"],
@@ -214,15 +221,15 @@ class SubAgentTool(BaseTool):
         if not task:
             return "Error: No task provided"
 
-        logger.info(f"SubAgent '{self.sub.config.name}' executing task: {task[:100]}...")
+        logger.info("Spawning a sub-agent for: %s...", task[:100])
         try:
-            result = await self.sub.execute(task, context)
-            logger.info(f"SubAgent '{self.sub.config.name}' returned {len(result)} chars")
+            result = await SubAgent(self.assistant, self.tool_registry).execute(task, context)
+            logger.info("Sub-agent returned %d chars", len(result))
             return result
         except Exception as e:
-            logger.error(f"SubAgent '{self.sub.config.name}' failed: {e}", exc_info=True)
+            logger.error("Sub-agent failed: %s", e, exc_info=True)
             return f"Sub-agent error: {e}"
 
     def describe_call(self, args: Dict[str, Any]) -> str:
         task = args.get("task", "")
-        return f"Asking {self.sub.config.name}: {task[:100]}..."
+        return f"Handing a task to a sub-agent: {task[:100]}..."

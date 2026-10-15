@@ -61,9 +61,9 @@ import com.kurisu.assistant.ui.update.UpdateDialog
  * that only navigates to the chat route is correct.
  *
  * There is no search field and no persona picker here. Search was cut rather
- * than half-wired, and a new chat silently takes the assistant's default
- * persona, or the assistant itself when there is none — the only persona choice
- * in the app is the per-conversation override on the chat header.
+ * than half-wired, and every chat answers as the persona in use for the whole
+ * account, or the assistant itself when there is none (#354) — chosen on the
+ * chat header or the Personas screen.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -285,10 +285,9 @@ private fun MicStatusBar(
 /**
  * A conversation: its title, when it last moved, and what was last said in it.
  *
- * Nothing here names the persona. One assistant with one default persona put
- * the same face and the same name on every row, which distinguished no row from
- * any other and left the title a third of the width (#192). A conversation
- * names who answers it in the chat header, where the override lives.
+ * Nothing here names the persona. A conversation is not tied to one (#354): the
+ * persona in use answers every row alike, and a face and a name on each would
+ * distinguish nothing and leave the title a third of the width (#192).
  */
 @Composable
 private fun ConversationRow(

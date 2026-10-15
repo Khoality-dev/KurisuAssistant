@@ -15,12 +15,12 @@ import {
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useTheme } from '@mui/material/styles';
-import { selectionColors } from '../InTheChatChip';
+import { selectionColors } from '../InUseChip';
 
 const MotionCard = motion(Card);
 
 interface ResourceCardProps {
-  /** Optional leading visual — a persona's avatar, a sub-agent's icon. */
+  /** Optional leading visual — a persona's avatar. */
   avatar?: React.ReactNode;
   title: string;
   description?: string;
@@ -28,11 +28,11 @@ interface ResourceCardProps {
   body: string;
   /** Caption chips joined with a middot — model name, voice, and so on. */
   meta?: Array<string | null | undefined>;
-  /** A small label beside the name — "Default" on the persona new chats start with. */
+  /** A small label beside the name — "In use" on the persona every conversation answers as. */
   badge?: React.ReactNode;
   /** An extra footer action, left of export and delete — "Talk to". */
   action?: React.ReactNode;
-  /** The one the chat is on: outlined in blue and marked current (#348). */
+  /** The persona in use: outlined in blue and marked current (#348). */
   selected?: boolean;
   enabled: boolean;
   onToggleEnabled: (enabled: boolean) => void;
@@ -42,9 +42,8 @@ interface ResourceCardProps {
 }
 
 /**
- * One card in the personas / sub-agents grids. The two resources are edited in
- * different dialogs but list identically, so the card lives here rather than
- * being written twice and drifting.
+ * One card in the personas grid, kept apart from the section so the card's
+ * layout and its selection marking (#348) live in one place.
  */
 export const ResourceCard: React.FC<ResourceCardProps> = ({
   avatar,

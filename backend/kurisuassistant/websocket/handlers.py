@@ -1,4 +1,4 @@
-"""WebSocket session handler — one conversation, one persona, optional sub-agent delegation."""
+"""WebSocket session handler — one conversation, answered as the persona in use (#354)."""
 
 import asyncio
 import json
@@ -37,11 +37,9 @@ from kurisuassistant.agents import (
     AssistantConfig,
     MainAgent,
     PersonaConfig,
-    SubAgent,
-    SubAgentConfig,
-    SubAgentTool,
+    DelegateTaskTool,
 )
-from kurisuassistant.agents.selection import pick_persona
+from kurisuassistant.agents.selection import persona_in_use
 from kurisuassistant.tools import tool_registry
 from kurisuassistant.vision import VisionProcessor
 from sqlalchemy import desc
@@ -51,7 +49,6 @@ from kurisuassistant.db.repositories import (
     ConversationRepository,
     MessageRepository,
     PersonaRepository,
-    SubAgentRepository,
     UserRepository,
 )
 from kurisuassistant.core.accounts import NO_MODEL_SELECTED_DETAIL
@@ -83,15 +80,15 @@ class NoModelSelected(Exception):
 class _TurnSetup:
     """Everything a turn needs from the database, read in one round trip.
 
-    The assistant row is read here rather than alongside the personas: it is a
-    single row keyed by user, so folding it into the setup query costs nothing
-    and saves a second trip to the DB thread.
+    The assistant row and the enabled personas are read here, in the same
+    query: who answers is decided from them, and folding them in saves a second
+    trip to the DB thread.
     """
     conversation_id: int
-    # The conversation's persona binding — None when the assistant answers as
-    # itself, or when nothing has answered yet.
-    persona_id: Optional[int]
     assistant: AssistantConfig
+    # The persona in use for the whole account (#354): ``selected_persona_id``
+    # resolved against the enabled personas, or the assistant itself.
+    persona: PersonaConfig
     system_messages: List[Dict] = field(default_factory=list)
     user_system_prompt: str = ""
     preferred_name: str = ""
@@ -110,10 +107,10 @@ class ChatSessionHandler:
 
     Flow:
     1. User sends a message
-    2. Resolve/create conversation. If ``persona_id`` is null, bind it —
-       explicit override → the assistant's default persona — and persist.
-    3. Run MainAgent (the user's single assistant, speaking as that persona)
-       with SubAgentTool adapters for each enabled SubAgent.
+    2. Resolve/create the conversation, and read who answers: the persona in
+       use for the whole account, or the assistant itself (#354).
+    3. Run MainAgent (the user's single assistant, speaking as that persona),
+       which can spawn a sub-agent through ``delegate_task``.
     4. Stream response; save messages with ``conversation_id`` as they complete.
     5. On idle, background worker consolidates assistant memory from the conversation.
     """
@@ -126,7 +123,6 @@ class ChatSessionHandler:
         self._send_lock = asyncio.Lock()
 
         self._task_conversation_id: Optional[int] = None
-        self._task_persona_id: Optional[int] = None
         self._task_done: bool = False
 
         self._client_tools: List[Dict] = []
@@ -259,7 +255,7 @@ class ChatSessionHandler:
     # ------------------------------------------------------------------
 
     async def _run_chat(self, event: ChatRequestEvent, extra_messages: Optional[List] = None):
-        """Bind the conversation to a persona if needed, then run the assistant."""
+        """Run the assistant on one turn, as the persona in use."""
         from fastapi import WebSocketDisconnect
         conversation_id: Optional[int] = None
         try:
@@ -270,23 +266,9 @@ class ChatSessionHandler:
             self._task_conversation_id = conversation_id
             self._task_done = False
 
-            personas, sub_agents = await self._load_agents()
-
-            # Binding precedence: an explicit choice for this turn (``persona_id``
-            # on this chat_request, or a PATCH that already wrote
-            # ``conversations.persona_id``) → the conversation's existing
-            # binding → the assistant itself. The assistant's default persona is
-            # not in it: that is the clients' to name when they mean it, and a
-            # chat that names nobody is the assistant's own (#302, #334).
-            override_id = (
-                event.persona_id if event.persona_id is not None else setup.persona_id
-            )
-            persona = pick_persona(personas, override_id=override_id)
-            self._task_persona_id = persona.id
-            if persona.id != setup.persona_id:
-                # Runs on a rebind too, not only on the first bind: an override
-                # that is not written back is forgotten by the next message.
-                await self._persist_persona(conversation_id, persona.id)
+            # Who answers is the account's, not the conversation's: the persona
+            # in use now, whichever conversation this is (#354).
+            persona = setup.persona
 
             # Save user's images to disk
             image_uuids: List[str] = []
@@ -407,20 +389,11 @@ class ChatSessionHandler:
                     conversation_id=conversation_id,
                 ))
 
-            # SubAgent tool adapters injected as extra_tools on the MainAgent
-            taken_tool_names: set = set()
-            sub_agent_tools = [
-                SubAgentTool(SubAgent(sa, tool_registry), taken_tool_names)
-                for sa in sub_agents
-            ]
-
             agent_context = AgentContext(
                 user_id=self.user_id,
                 conversation_id=conversation_id,
-                # The fallback model for anything that has none of its own. It
-                # now comes from the ASSISTANT rather than from the selected
-                # main agent: a sub-agent with a null ``model_name`` inherits
-                # the assistant's model, not the persona's (a persona has none).
+                # The fallback model when the assistant row has none: the one the
+                # client sent. A spawned sub-agent runs on the same.
                 model_name=assistant.model_name or event.model_name,
                 handler=self,
                 user_system_prompt=setup.user_system_prompt,
@@ -438,7 +411,9 @@ class ChatSessionHandler:
             )
 
             agent = MainAgent(assistant, tool_registry, identity=persona)
-            agent.extra_tools = sub_agent_tools
+            # Spawning a sub-agent needs the assistant's own configuration, so it
+            # is built per turn rather than registered globally.
+            agent.extra_tools = [DelegateTaskTool(assistant, tool_registry)]
 
             await self._stream_and_save_agent(
                 agent=agent,
@@ -666,9 +641,9 @@ class ChatSessionHandler:
     async def _setup_conversation(self, event: ChatRequestEvent) -> "_TurnSetup":
         """Read everything this turn needs from the DB in one round trip.
 
-        The user's assistant row is read (and created on first use) here rather
-        than with the personas: it is one row keyed by user, so it costs nothing
-        to fold in and saves a second hop to the DB thread.
+        The user's assistant row (created on first use) and enabled personas
+        are read here: who answers comes from them, and folding them in saves a
+        second hop to the DB thread.
         """
         db = get_db_service()
 
@@ -695,6 +670,11 @@ class ChatSessionHandler:
             # predates the split, or was made without one, can still chat.
             assistant_row = AssistantRepository(session).get_or_create_for_user(self.user_id)
             assistant = self._to_assistant_config(assistant_row)
+            personas = [
+                self._to_persona_config(p)
+                for p in PersonaRepository(session).list_enabled_by_user(self.user_id)
+            ]
+            persona = persona_in_use(personas, assistant_row.selected_persona_id)
 
             # The model the turn would actually run on, resolved exactly as
             # AgentContext resolves it below. Checked here, above the
@@ -707,18 +687,15 @@ class ChatSessionHandler:
                 title = (event.text[:80] + "...") if len(event.text) > 80 else event.text
                 conversation = conv_repo.create_conversation(self.user_id, title=title)
                 conversation_id = conversation.id
-                persona_id = None
             else:
                 conversation_id = event.conversation_id
-                conv = conv_repo.get_by_user_and_id(self.user_id, conversation_id)
-                persona_id = conv.persona_id if conv else None
 
             system_prompt, preferred_name = user_repo.get_preferences(user)
 
             return _TurnSetup(
                 conversation_id=conversation_id,
-                persona_id=persona_id,
                 assistant=assistant,
+                persona=persona,
                 system_messages=build_system_messages(system_prompt, preferred_name),
                 user_system_prompt=system_prompt,
                 preferred_name=preferred_name or "",
@@ -733,39 +710,6 @@ class ChatSessionHandler:
             )
 
         return await db.execute(_do_setup)
-
-    async def _persist_persona(self, conversation_id: int, persona_id: Optional[int]) -> None:
-        """Write the conversation's persona binding; None is the assistant itself.
-
-        Runs on the first bind and on every later override, so a rebind
-        survives to the next message.
-        """
-        db = get_db_service()
-
-        def _update(session):
-            conv_repo = ConversationRepository(session)
-            conv = conv_repo.get_by_id(conversation_id)
-            if conv:
-                conv_repo.update_persona(conv, persona_id)
-
-        await db.execute(_update)
-
-    async def _load_agents(self) -> tuple[List[PersonaConfig], List[SubAgentConfig]]:
-        """Load the user's enabled personas and sub-agents in one round trip."""
-        db = get_db_service()
-
-        def _query(session):
-            personas = [
-                self._to_persona_config(p)
-                for p in PersonaRepository(session).list_enabled_by_user(self.user_id)
-            ]
-            sub_agents = [
-                self._to_sub_agent_config(sa)
-                for sa in SubAgentRepository(session).list_enabled_by_user(self.user_id)
-            ]
-            return personas, sub_agents
-
-        return await db.execute(_query)
 
     @staticmethod
     def _to_assistant_config(assistant) -> AssistantConfig:
@@ -793,20 +737,6 @@ class ChatSessionHandler:
             avatar_uuid=persona.avatar_uuid,
             character_config=persona.character_config,
             enabled=persona.enabled,
-        )
-
-    @staticmethod
-    def _to_sub_agent_config(sub_agent) -> SubAgentConfig:
-        return SubAgentConfig(
-            id=sub_agent.id,
-            name=sub_agent.name,
-            description=sub_agent.description or "",
-            system_prompt=sub_agent.system_prompt or "",
-            model_name=sub_agent.model_name,
-            provider_type=sub_agent.provider_type or 'ollama',
-            available_tools=sub_agent.available_tools,
-            think=sub_agent.think,
-            use_deferred_tools=sub_agent.use_deferred_tools,
         )
 
     async def _update_timestamps(self, conversation_id: int):
@@ -845,9 +775,7 @@ class ChatSessionHandler:
         def _get_prefs(session):
             user = UserRepository(session).get_by_id(self.user_id)
             if not user:
-                return None, None, None, None, None, None, None
-            conv = ConversationRepository(session).get_by_user_and_id(self.user_id, conversation_id)
-            persona_id = conv.persona_id if conv else None
+                return None, None, None, None, None, None
             return (
                 user.summary_model,
                 getattr(user, 'summary_provider', 'ollama'),
@@ -855,10 +783,9 @@ class ChatSessionHandler:
                 getattr(user, 'gemini_api_key', None),
                 getattr(user, 'nvidia_api_key', None),
                 getattr(user, 'poe_api_key', None),
-                persona_id,
             )
 
-        summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key, poe_api_key, persona_id = await db.execute(_get_prefs)
+        summary_model, summary_provider, ollama_url, gemini_api_key, nvidia_api_key, poe_api_key = await db.execute(_get_prefs)
 
         if not summary_model:
             await self.send_event(ErrorEvent(error="No summary model configured.", code="NO_SUMMARY_MODEL"))
@@ -899,7 +826,6 @@ class ChatSessionHandler:
             # In place: the conversation keeps its id, its title and its history,
             # and only the model's view of it is trimmed (#99).
             await self._compact_in_place(conversation_id, summary, last_message_id)
-            self._task_persona_id = persona_id
         finally:
             # The spinner is the client's, and only this turns it off — the
             # empty-summary path used to return without ever doing so (#99).
@@ -1007,9 +933,6 @@ class ChatSessionHandler:
         await self.send_event(ConnectedEvent(
             chat_active=chat_active,
             conversation_id=self._task_conversation_id if show_conversation else None,
-            # Who that conversation is bound to, so a reconnecting client can
-            # render the right name and avatar before the first chunk.
-            persona_id=self._task_persona_id if show_conversation else None,
             vision_active=self._vision_processor is not None,
             vision_config=self._vision_config,
         ))

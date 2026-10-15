@@ -208,8 +208,8 @@ compacted-away part of the conversation the call is made from is searched.
 never arrives through the built-in bypass, and recall over drive files is file
 access. So document passages are included only when `drive_read` would itself
 be allowed to run: it is in the agent's allowlist (`_available_tools`, injected
-by `execute_tool` — not on `AgentContext`, because sub-agents share that object
-and have their own allowlist) and `users.tool_policies["drive_read"]` is not
+by `execute_tool` — not on `AgentContext`, because a spawned sub-agent shares
+that object and carries its own copy of the list) and `users.tool_policies["drive_read"]` is not
 `deny`. Otherwise the result says "Documents were not searched", and a
 `documents`-only call is refused outright. Under the default unset policy the
 approval the user gives to the recall call is what admits documents; that is

@@ -17,39 +17,40 @@ the memory.
 ![Chats](assets/01-chats.png)
 
 Conversations are what you navigate. A row is its title, when it last moved, and the last thing said
-in it. Neither the persona nor the model is on it: there is one assistant with at most one default
-persona, so a face and a name would be the same face and the same name on every row and would tell
-no two rows apart (#192). Who answers a conversation is on the conversation, in its header.
+in it. Neither the persona nor the model is on it: a conversation is not tied to a persona (#354) —
+one persona, or none, is in use for the whole account and answers every conversation — so a face and
+a name would be the same on every row and would tell no two rows apart (#192). The chat header names
+who answers.
 
 The strip at the top is voice mode: tap it to turn voice mode on or off, as the chat's top-bar
 button does (#341). The wake word (`kurisu` here) belongs to the **assistant**, not to any persona:
-in voice mode, saying it starts an interaction in a new conversation, and whichever persona the chat
-is on answers. The screenshots predate voice mode's redesign and still show the old strip.
+in voice mode, saying it starts an interaction in a new conversation, and the persona in use
+answers. The screenshots predate voice mode's redesign and still show the old strip.
 
 ## A conversation
 
 ![Chat transcript](assets/02-chat.png)
 
 The header names the **persona**, and beneath it the **model**. Each is its own tap. The persona
-sheet moves this conversation only. The model sheet changes the assistant's model — one model for
+sheet switches the persona in use for the whole account. The model sheet changes the assistant's model — one model for
 every persona — and applies from the next message; it is also what "Choose a model" opens when a
 new account's first message is refused for having none. Each answer carries the persona that
 produced it, so switching persona part-way through does not rewrite the past — old answers keep the
 voice that actually gave them.
 
-A tool call is a rail rather than a bubble: name, arguments, result, status. A step delegated to a
-sub-agent is tagged `sub-agent` and names the model that ran it.
+A tool call is a rail rather than a bubble: name, arguments, result, status. A step the assistant
+handed to a sub-agent it spawned (`delegate_task`, #354) is tagged `sub-agent` and names the model
+that ran it.
 
-## Switching persona for one conversation
+## Switching persona
 
-![Persona sheet](assets/03-persona-sheet.png)
-
-Tapping the header swaps the persona **for this conversation only**. The account default is
-untouched, and the change persists without sending a message. A persona is optional (#302): the
-sheet's first row is **Assistant** — no persona, the assistant answering as itself — and a chat with
-no persona says "Assistant" in its header. The row works in a chat that has not started yet too: the
-first message then names no persona, and the server leaves it with the assistant (#334) — it used to
-adopt the default there, so the row was held back until the first message.
+Tapping the header opens the persona sheet, and a pick switches the persona **in use for the whole
+account** (#354): it is saved as the assistant's `selected_persona_id`, with no message sent, and every
+conversation — the open one, the others, new ones, on every device — answers as it from the next
+turn. The open conversation stays open. A persona is optional (#302): the sheet's first row is
+**Assistant** — no persona, the assistant answering as itself — and then the header says
+"Assistant". The screenshot of this sheet (`assets/03-persona-sheet.png`) predates #354 and says
+"This conversation only", so it is not shown until it is captured again.
 
 ## Changing the model
 
@@ -64,12 +65,12 @@ model" opens when a new account's first message is refused for having no model y
 
 ![Assistant](assets/05-assistant.png)
 
-One screen for everything the assistant can do: wake word, thinking, memory, tools, sub-agents. Two
-things that look like they belong here do not (#197): the model is picked from the chat header, and
-the persona a new conversation starts with is chosen on **Personas** by tapping one — there is no
-picker on **New chat**. Memory is a single document, consolidated automatically from your
-conversations and read-only here. Sub-agents sit at the bottom, because they are workers this
-assistant calls rather than something you chat with.
+One screen for everything the assistant can do: wake word, thinking, memory, tools. Two things that
+look like they belong here do not (#197): the model is picked from the chat header, and the persona
+in use is chosen on **Personas** or the chat header — there is no picker on **New chat**. Memory is a
+single document, consolidated automatically from your conversations and read-only here. There are no
+sub-agents to set up (#354): the assistant spawns one itself when it wants to hand off a side task.
+The screenshot predates that and still shows the old sub-agent list at the bottom.
 
 ## Personas
 
@@ -81,11 +82,12 @@ A persona carries presentation only — there is no model, no tool list and no w
 editor. "Calls you" is what the persona calls *you*, not a display name for the persona.
 
 Personas are optional (#302). A new account has none, and the list's first row, **The assistant
-itself**, is selected until a persona is tapped; tapping a row puts the chat on it, on every device
-(`selected_persona_id`, #334), and tapping the assistant again sends `selected_persona_id: null`
+itself**, is selected until a persona is tapped; tapping a row puts it in use for the whole account,
+in every conversation and on every device (`selected_persona_id`, #334, #354), and tapping the
+assistant again sends `selected_persona_id: null`
 (`AssistantRepository.clearSelectedPersona`, a hand-built body because `AssistantUpdate` never sends a
 null). Any persona can be deleted, the last one included, and the selected one can be disabled — both
-hand new chats back to the assistant, and the **In the chat** badge follows.
+hand every chat back to the assistant, and the **In the chat** badge follows.
 
 ## Everything else
 
@@ -108,7 +110,7 @@ The app is driven against the **standalone mock backend** from the desktop packa
 deployed one (the rule in `CLAUDE.md`).
 
 **Every picture on this page comes from `--scenario docs`.** That one scenario furnishes all of
-them: three personas, the assistant and its memory, two sub-agents, two MCP servers, the built-in
+them: three personas, the assistant and its memory, two MCP servers, the built-in
 tool descriptions, two skills, and four conversations of different ages — one of which carries the
 transcript and the tool rail above. Any other scenario gives an app with nothing in it: before #195
 the mock's `/skills` was a hardcoded empty list and `/models` only ever offered `test-model`, so

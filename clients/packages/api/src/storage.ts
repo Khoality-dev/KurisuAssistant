@@ -25,7 +25,6 @@ const STORAGE_KEYS = {
   BACKEND_URL: 'kurisu_backend_url',
 
   ASR_DEVICE_ID: 'kurisu_asr_device_id',
-  PERSONA_CONVERSATIONS: 'kurisu_persona_conversations',
   ASR_LANGUAGE: 'kurisu_asr_language',
   VOICE_MODE: 'kurisu_voice_mode',
   ASR_MODE: 'kurisu_asr_mode',
@@ -43,6 +42,9 @@ const LEGACY_STORAGE_KEYS = [
   'kurisu_selected_persona_id',
   // "Always listen", which voice mode replaced: the mic listens only in voice mode (#253).
   'kurisu_asr_always_listen',
+  // The persona → conversation map. A conversation is not tied to a persona any
+  // more (#354): the app opens the account's latest conversation instead.
+  'kurisu_persona_conversations',
 ] as const;
 
 // Where the tokens used to be kept. Read once during migration, then removed.
@@ -118,18 +120,6 @@ function persistTokens(): void {
     })
     .catch((error) => console.error('Failed to persist tokens:', error));
 }
-
-/**
- * A key in the persona → conversation map. A number is a persona id. `'unbound'`
- * is the bucket for a conversation started while no persona was selected, which
- * is also the assistant's own: a persona is optional (#302), and a conversation
- * the assistant answers as itself stays here. It is re-keyed to a persona only
- * if the first `stream_chunk` names one, which the server no longer does for a
- * chat that named nobody (#334).
- * (It replaces the old `'group'` sentinel, which named a group-chat concept that
- * no longer exists.)
- */
-export type PersonaConversationKey = number | 'unbound';
 
 export const storage = {
   /**
@@ -418,48 +408,6 @@ export const storage = {
     } catch (error) {
       console.error('Failed to get ASR device ID:', error);
       return null;
-    }
-  },
-
-  getPersonaConversationMap(): Record<string, number> {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEYS.PERSONA_CONVERSATIONS);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  },
-
-  getPersonaConversationId(personaId: PersonaConversationKey): number | null {
-    const map = this.getPersonaConversationMap();
-    return map[String(personaId)] ?? null;
-  },
-
-  setPersonaConversationId(personaId: PersonaConversationKey, conversationId: number): void {
-    try {
-      const map = this.getPersonaConversationMap();
-      map[String(personaId)] = conversationId;
-      localStorage.setItem(STORAGE_KEYS.PERSONA_CONVERSATIONS, JSON.stringify(map));
-    } catch (error) {
-      console.error('Failed to save persona conversation mapping:', error);
-    }
-  },
-
-  clearPersonaConversationId(personaId: PersonaConversationKey): void {
-    try {
-      const map = this.getPersonaConversationMap();
-      delete map[String(personaId)];
-      localStorage.setItem(STORAGE_KEYS.PERSONA_CONVERSATIONS, JSON.stringify(map));
-    } catch (error) {
-      console.error('Failed to clear persona conversation mapping:', error);
-    }
-  },
-
-  clearAllPersonaConversations(): void {
-    try {
-      localStorage.removeItem(STORAGE_KEYS.PERSONA_CONVERSATIONS);
-    } catch (error) {
-      console.error('Failed to clear all persona conversations:', error);
     }
   },
 

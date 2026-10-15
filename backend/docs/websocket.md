@@ -79,16 +79,14 @@ State snapshot on connect/reconnect.
   "type": "connected",
   "chat_active": true,
   "conversation_id": 12,
-  "persona_id": 3,
   "vision_active": false,
   "vision_config": null
 }
 ```
 
-`persona_id` is the persona bound to `conversation_id`, so a reconnecting client
-knows who is talking before the first chunk. It is null when no conversation is in
-flight or the conversation has no binding yet. `conversation_id` and `persona_id`
-are both null unless a turn is running or has just finished.
+`conversation_id` is null unless a turn is running or has just finished. There is
+no `persona_id` (#354): who answers is the persona in use for the whole account,
+which a client reads from `GET /assistant`.
 
 ### `stream_chunk`
 
@@ -121,15 +119,16 @@ One per content chunk, thinking chunk and completed tool call.
 ```
 
 - `persona_id`, `persona_name` and `voice_reference` are set on **assistant chunks
-  only**. On a tool chunk all three are null and `name` carries the tool's own
-  label instead — a tool chunk is not the persona speaking.
+  only**: the persona in use when the turn ran (#354), or null and `Assistant` for
+  the assistant itself. On a tool chunk all three are null and `name` carries the
+  tool's own label instead — a tool chunk is not the persona speaking.
 - `tool_args`, `tool_status` (`"success" | "error" | "denied"`), `tool_kind` and
   `duration_ms` appear on `role: "tool"` chunks. `tool_kind` is `"tool"` or
   `"sub_agent"`; `duration_ms` is wall-clock time for the call. **These two are the
   only source for a sub-agent tag or a tool timing** — the chunk is emitted after
-  the call returns, and a sub-agent is exposed to the model as a plain function, so
-  a client can derive neither. A `sub_agent` chunk also names the sub-agent's model
-  in `model_name` (null when it has none of its own). All three are stored with the
+  the call returns, and spawning a sub-agent (`delegate_task`) is exposed to the
+  model as a plain function, so a client can derive neither. A `sub_agent` chunk
+  also names the model its sub-agent ran on in `model_name` — the assistant's own. All three are stored with the
   message and served by the history too (#327), so a reload keeps the tag.
 - `tool_calls` is set on an assistant chunk that made calls; `tool_call_id` on each
   tool chunk that answers one. The pairing is stored and replayed, because
@@ -170,7 +169,7 @@ One per content chunk, thinking chunk and completed tool call.
 ```
 
 `agent_id` is deliberately **not** renamed to `persona_id`: it identifies whoever is
-asking — the persona for a `MainAgent`, the sub-agent itself for a `SubAgent`.
+asking — the persona in use for a `MainAgent`, null for a spawned `SubAgent`.
 `execution_location` is `"backend"` or `"frontend"`. The server waits 300s for a
 reply and treats a timeout as a denial.
 
@@ -200,8 +199,8 @@ arrives (#99).
  "compacted_up_to_id": 431, "compacted_context": "…"}
 ```
 
-Compaction happens **in place**: the conversation keeps its id, its title, its
-persona binding and its stored messages. What changes is the row —
+Compaction happens **in place**: the conversation keeps its id, its title and its
+stored messages. What changes is the row —
 `compacted_context` holds the summary and `compacted_up_to_id` moves to the last
 message it covers, which is where the next turn starts reading. On a failed
 compaction the watermark stays where it was and `compacted_context` is empty.
@@ -266,7 +265,6 @@ shows as the usual toast.
   "text": "Hello",
   "model_name": "",
   "conversation_id": 12,
-  "persona_id": 3,
   "images": ["<base64>"],
   "context_files": [{"path": "src/a.ts", "fileName": "a.ts", "startLine": 1, "endLine": 20}]
 }
@@ -277,14 +275,12 @@ characters of `text` — unless the turn is refused for having no model, which i
 checked first precisely so that a message nobody can answer leaves no conversation
 behind.
 
-`persona_id` is an **optional per-turn override**. Omit it on an ordinary message:
-a conversation keeps its binding, and a new one — or one bound to nobody — is the
-assistant's own: its chunks carry `persona_id: null` and the name `Assistant`
-(#302). Nobody is adopted for a request that names none — not the account's
-selected persona either (#334); a client that means it for a new chat sends its id.
-`NO_PERSONAS` is no longer sent: a persona is optional. Sending `persona_id`
-rebinds the conversation, and the binding is persisted. The old, ignored `agent_id` field is **not** accepted — a client that
-still sends it is simply ignored, as before.
+A request names no persona (#354). Every turn answers as the persona in use for
+the whole account — `assistants.selected_persona_id` — in this conversation or any
+other; with none in use it is the assistant's own: its chunks carry
+`persona_id: null` and the name `Assistant` (#302). A `persona_id` sent by an older
+client, like the older `agent_id`, is ignored. `NO_PERSONAS` is no longer sent: a
+persona is optional.
 
 `model_name` is only a fallback: `assistants.model_name` wins when it is set. Both
 first-party clients send `""` and let the server decide. When neither is set the

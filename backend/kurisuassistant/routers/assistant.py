@@ -1,4 +1,4 @@
-"""The user's single assistant: what it can do, and who its chat is on.
+"""The user's single assistant: what it can do, and the persona it answers as.
 
 There is exactly one assistant per user, so it is addressed with no id and has no
 POST and no DELETE — it is created at registration and dies with the account. It
@@ -6,12 +6,11 @@ owns the capability half of the old agent (model, provider, tools, reasoning,
 memory) plus two things that are deliberately not per-persona:
 
 * ``trigger_word`` is a voice wake word. Saying it wakes the assistant; the
-  conversation's bound persona answers. It never selects a persona.
-* ``selected_persona_id`` is who the account's chat is on (#334): a client
-  reads it when it opens and writes it when the user picks someone, so a sign-in
-  elsewhere opens on the same one. Null — where every account starts — is the
-  assistant itself; a persona is optional (#302). The chat path never applies
-  it: a request that names no persona is the assistant's own.
+  persona in use answers. It never selects a persona.
+* ``selected_persona_id`` is the persona in use for the whole account (#334,
+  #354): every turn, in any conversation and on every device, answers as it, so
+  switching here switches everywhere at once. Null — where every account starts
+  — is the assistant itself; a persona is optional (#302).
 """
 
 import logging

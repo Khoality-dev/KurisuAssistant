@@ -23,7 +23,7 @@ nothing.
 from kurisuassistant.db.repositories import AssistantRepository
 
 #: Names the app uses for speakers that are not one of the user's personas, so a
-#: persona or sub-agent may not take them. Mirrored case-insensitively by
+#: persona may not take them. Mirrored case-insensitively by
 #: RESERVED_PERSONA_NAMES in migration 0dacee9f63b8.
 RESERVED_AGENT_NAMES = {"Administrator", "User", "App Guide"}
 

@@ -76,8 +76,8 @@ routers/                 one module per surface, all mounted in main.py
   conversations, messages
   assistant              the user's one assistant: model, tools, memory
   personas               how the assistant looks and sounds
-  sub_agents             task-only workers
-  portability            the shared export/import format for the two above;
+  portability            the export/import format for personas (a sub-agent
+                         file is recognised and refused, #354);
                          a persona's character travels only in a v4 bundle,
                          written and checked by character/bundle.py (#248)
   models, tools, skills, mcp
@@ -110,14 +110,15 @@ websocket/
   manager.py             ConnectionManager: sockets and handlers, keyed by user id
 
 agents/
-  base.py                BaseAgent, AgentContext, tool dispatch, and the three
+  base.py                BaseAgent, AgentContext, tool dispatch, and the two
                          configs: AssistantConfig (capability), PersonaConfig
-                         (identity), SubAgentConfig (both, for a worker)
+                         (identity)
   main.py                MainAgent: the assistant speaking as a persona; streams
                          to the user and runs the tool loop
-  sub.py                 SubAgent and the adapter exposing one as a tool
-  selection.py           pick_persona(): override → default (unanswered chats
-                         only) → the assistant itself
+  sub.py                 SubAgent, spawned on the spot, and delegate_task, the
+                         tool that spawns one on the assistant's own config
+  selection.py           persona_in_use(): selected_persona_id when enabled,
+                         else the assistant itself
 
 tools/
   base.py, registry.py   BaseTool and the global registry
@@ -153,14 +154,12 @@ utils/                   prompt assembly, image storage, memory consolidation,
 1. The client sends `chat_request` over the socket.
 2. `ChatSessionHandler._setup_conversation` resolves or creates the conversation
    and reads the user's preferences, including their tool policies.
-3. A persona is resolved and persisted to `conversations.persona_id`: an explicit
-   override (`chat_request.persona_id`, or the binding already stored) → the
-   assistant itself, with no persona (#302). Who the chat is on
-   (`assistants.selected_persona_id`) is the clients' to name; the server never
-   adopts it (#334). Nothing
-   scans for a trigger word and nothing is picked at random; the trigger word is a
-   voice wake word on the assistant and selects nothing. The write happens on a
-   rebind too, so a per-turn override survives to the next message.
+3. Who answers is read in the same setup query: the persona in use for the whole
+   account (`assistants.selected_persona_id`, resolved against the enabled
+   personas), or the assistant itself with no persona (#302, #354). The
+   conversation has no say: it is not tied to a persona, and the request cannot
+   name one. Nothing scans for a trigger word and nothing is picked at random;
+   the trigger word is a voice wake word on the assistant and selects nothing.
 4. Context is loaded: the conversation's `compacted_context` plus every message
    after `compacted_up_to_id`.
 5. If the estimated size exceeds 90% of the context window and a summary model is
@@ -170,7 +169,7 @@ utils/                   prompt assembly, image storage, memory consolidation,
    finish. The estimate counts text, images, tool payloads and thinking
    (`utils/tokens.py`), not words (#99).
 6. `MainAgent.process` runs the LLM loop — capability from the user's one
-   `assistants` row, identity from the bound persona — at most 10 tool rounds, or
+   `assistants` row, identity from the persona in use — at most 10 tool rounds, or
    25 with deferred tools. It yields a `stream_chunk` per content, thinking and
    tool chunk; tool chunks carry `tool_kind` and `duration_ms`.
 7. The handler writes each message to the database as the role boundary crosses,
@@ -183,7 +182,7 @@ utils/                   prompt assembly, image storage, memory consolidation,
 
 1. the deferred meta-tools, when the agent uses them;
 2. the native registry;
-3. `extra_tools`, which is where sub-agent adapters live;
+3. `extra_tools`, which is where `delegate_task` (spawn a sub-agent) lives;
 4. tools the client registered over the socket, executed on the client;
 5. a server-side MCP server.
 
@@ -247,14 +246,15 @@ release publishes must have shipped before the backend is deployed.
 
 ## Data
 
-Ten tables: `users`, `assistants`, `personas`, `sub_agents`, `conversations`,
+Nine tables: `users`, `assistants`, `personas`, `conversations`,
 `messages`, `skills`, `mcp_servers`, `face_identities`, `face_photos`. See
 `database.md`.
 
 The old merged `agents` table was split in migration `0dacee9f63b8`: one
 `assistants` row per user holds capability (model, tools, memory, wake word, and
-since #334 who the chat is on), `personas` holds presentation, and `sub_agents` holds task-only
-workers. `agents` was **renamed** to `personas` with its ids intact, because
+since #334 the persona in use for the whole account), and `personas` holds
+presentation; the `sub_agents` table it also made was dropped in #354, when the
+assistant began spawning its own. `agents` was **renamed** to `personas` with its ids intact, because
 `data/character_assets/{id}/` and the URLs inside `character_config` are keyed on
 them.
 

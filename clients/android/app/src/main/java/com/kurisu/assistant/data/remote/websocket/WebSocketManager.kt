@@ -209,21 +209,16 @@ class WebSocketManager @Inject constructor(
     private fun nowTimestamp(): String = Instant.now().toString()
 
     /**
-     * Send a chat turn.
-     *
-     * [personaId] is an optional override: leave it null and a new conversation
-     * silently adopts the assistant's default persona (or the assistant answers
-     * as itself when there is none, #302) while an existing one keeps its
-     * binding. Passing it REBINDS the conversation server-side.
+     * Send a chat turn. It names no persona: the server answers as the persona
+     * in use for the whole account (#354).
      */
     suspend fun sendChatRequest(
         text: String,
         modelName: String,
         conversationId: Int? = null,
-        personaId: Int? = null,
         images: List<String> = emptyList(),
     ) {
-        Log.d(TAG, "sendChatRequest: text='${text.take(50)}' personaId=$personaId convId=$conversationId")
+        Log.d(TAG, "sendChatRequest: text='${text.take(50)}' convId=$conversationId")
         ensureConnected()
         val payload = ChatRequestPayload(
             eventId = generateEventId(),
@@ -231,7 +226,6 @@ class WebSocketManager @Inject constructor(
             text = text,
             modelName = modelName,
             conversationId = conversationId,
-            personaId = personaId,
             images = images,
         )
         send(json.encodeToString(ChatRequestPayload.serializer(), payload))

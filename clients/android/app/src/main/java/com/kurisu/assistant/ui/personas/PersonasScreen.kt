@@ -205,11 +205,6 @@ fun PersonasScreen(
                                 ?.let { state.availableVoices.labelOf(it) },
                             avatarUrl = viewModel.avatarUrl(persona.avatarUuid),
                             isSelected = persona.id == state.selectedPersonaId,
-                            // The design only flags this when it differs from the
-                            // selection; saying "answering the open chat" on the
-                            // selected row would be noise on every row.
-                            isAnsweringOpenChat = persona.id == state.openChatPersonaId &&
-                                persona.id != state.selectedPersonaId,
                             onSelect = { viewModel.selectPersona(persona) },
                             onEdit = { viewModel.openPersona(persona) },
                         )
@@ -307,7 +302,6 @@ private fun PersonaRow(
     voiceName: String?,
     avatarUrl: String?,
     isSelected: Boolean,
-    isAnsweringOpenChat: Boolean,
     onSelect: () -> Unit,
     onEdit: () -> Unit,
 ) {
@@ -338,14 +332,6 @@ private fun PersonaRow(
                             "In the chat",
                             container = MaterialTheme.colorScheme.primary,
                             content = MaterialTheme.colorScheme.onPrimary,
-                        )
-                    }
-                    if (isAnsweringOpenChat) {
-                        Pill(
-                            "Answering the open chat",
-                            container = Color.Transparent,
-                            content = MaterialTheme.colorScheme.primary,
-                            outlined = true,
                         )
                     }
                 }

@@ -123,9 +123,6 @@ data class ConnectedEvent(
     override val timestamp: String = "",
     @SerialName("chat_active") val chatActive: Boolean = false,
     @SerialName("conversation_id") val conversationId: Int? = null,
-    // The persona bound to [conversationId], so a reconnecting client knows who
-    // is talking before the first chunk arrives.
-    @SerialName("persona_id") val personaId: Int? = null,
     @SerialName("frame_id") val frameId: Int? = null,
     @SerialName("vision_active") val visionActive: Boolean = false,
     @SerialName("vision_config") val visionConfig: JsonObject? = null,

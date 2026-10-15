@@ -50,7 +50,8 @@ export interface Message {
   tool_args?: Record<string, unknown>; // Tool input arguments (for tool role messages)
   tool_status?: string; // "success" | "error" | "denied" (from backend)
   // A tool message's kind and how long it ran — on the live chunk and, since
-  // #327, in the history too, so the sub-agent tag survives a reload.
+  // #327, in the history too, so the sub-agent tag survives a reload. A
+  // `sub_agent` row is the assistant's own `delegate_task` call (#354).
   tool_kind?: 'tool' | 'sub_agent' | null;
   duration_ms?: number | null;
   context_files?: Array<{ path: string; fileName: string; startLine?: number; endLine?: number; startColumn?: number; endColumn?: number }>;
@@ -74,10 +75,14 @@ export interface ConversationLastMessage {
   created_at: string | null;
 }
 
+/**
+ * A conversation carries no persona: one persona, or none, is in use for the
+ * whole account and answers in every conversation (#354). Who spoke each
+ * message is on the message.
+ */
 export interface Conversation {
   id: number;
   title: string;
-  persona_id: number | null;  // null = the assistant itself, no persona (#302)
   message_count: number;
   created_at: string;
   updated_at: string;
@@ -87,7 +92,6 @@ export interface Conversation {
 export interface ConversationDetail {
   id: number;
   title: string;
-  persona_id: number | null;
   created_at: string;
   messages: Message[];
   total_messages: number;
@@ -172,12 +176,12 @@ export interface Assistant {
   use_deferred_tools: boolean;
   memory: string | null;
   memory_enabled: boolean;
-  // Voice wake word. Saying it wakes the assistant; the conversation's bound
-  // persona answers. It selects nothing.
+  // Voice wake word. Saying it wakes the assistant; the persona in use answers.
+  // It selects nothing.
   trigger_word: string | null;
-  // Who the chat is on (#334): read when a client opens, written when the user
-  // picks someone, so every device opens on the same one. Null is the assistant
-  // itself. The server never applies it — a chat request names its persona.
+  // The persona in use for the whole account (#334, #354): every turn, in every
+  // conversation and on every device, answers as it. Null is the assistant
+  // itself. A chat request never names a persona; switching is a PATCH here.
   selected_persona_id: number | null;
 }
 
@@ -204,24 +208,6 @@ export interface Persona {
  */
 export interface PersonaExportSize {
   character: { kind: 'pose_graph' | 'vrm'; files: number; bytes: number; vrm_bytes: number } | null;
-}
-
-/**
- * A task-only worker the assistant delegates to mid-answer. Runs its own LLM loop,
- * so it carries its own model and tools — but it has no identity: no avatar, no
- * voice, no memory, never bound to a conversation, never shown as the speaker.
- */
-export interface SubAgent {
-  id: number;
-  name: string;
-  description: string;
-  system_prompt: string;
-  model_name: string | null;
-  provider_type: string;
-  available_tools: string[] | null;  // null = every tool
-  think: boolean;
-  use_deferred_tools: boolean;
-  enabled: boolean;
 }
 
 // Character asset types (backend responses)
@@ -294,41 +280,12 @@ export interface AssistantUpdate {
   selected_persona_id?: number | null;
 }
 
-export interface SubAgentCreate {
-  name: string;
-  description?: string;
-  system_prompt?: string;
-  model_name?: string;
-  provider_type?: string;
-  available_tools?: string[];
-  think?: boolean;
-  use_deferred_tools?: boolean;
-  enabled?: boolean;
-}
-
 /**
- * PATCH /sub-agents/{id}. Same null semantics as the others: `model_name: null`
- * means "the assistant's model", `available_tools: null` means "every tool".
- */
-export interface SubAgentUpdate {
-  name?: string;
-  description?: string;
-  system_prompt?: string;
-  model_name?: string | null;
-  provider_type?: string;
-  available_tools?: string[] | null;
-  think?: boolean;
-  use_deferred_tools?: boolean;
-  enabled?: boolean;
-}
-
-/**
- * PATCH /conversations/{id}. Replaces the old POST, which only ever renamed.
- * `persona_id: null` hands the conversation to the assistant itself (#302).
+ * PATCH /conversations/{id}: a rename, and nothing else. A conversation has no
+ * persona to change (#354); the backend refuses any other field with a 422.
  */
 export interface ConversationUpdate {
   title?: string;
-  persona_id?: number | null;
 }
 
 // MCP Server types

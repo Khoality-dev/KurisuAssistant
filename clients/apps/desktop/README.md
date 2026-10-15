@@ -20,12 +20,11 @@ Enter your server's complete URL, including `http://` or `https://`, then enter 
 ## Everyday use
 
 - **Workspace:** browse and edit folders allowed under **Settings → Host Access**.
-- **Conversations:** choose the persona answering a conversation and resume earlier conversations.
+- **Conversations:** find and reopen earlier conversations, newest first.
 - **Voice:** use the microphone button for dictation or trigger-word voice interaction. Configure ASR and TTS under **Settings → Voice** and **Settings → TTS & ASR**.
 - **Images:** attach an image or drag one onto the composer; the selected model must support vision.
 - **Assistant:** choose the account's model, tools, memory, and wake word.
-- **Personas:** create names, prompts, voices, avatars, and character graphs. A conversation is bound to one persona.
-- **Sub-Agents:** create task-only workers with their own models.
+- **Personas:** create names, prompts, voices, avatars, and character graphs. The persona picked in the chat header or here answers every conversation, on every device.
 - **Tools & MCP:** connect tool servers and review approval requests before allowing calls.
 - **Character:** configure animation, webcam vision, and face identities from Settings. `/live-animate` toggles the character window and `/vision` toggles webcam vision.
 
@@ -33,7 +32,7 @@ Typing `/` in the composer shows `/clear`, `/delete`, `/resume`, `/context`, `/p
 
 Before the first message, open **Settings → Assistant** and select a model. The first message fails when no model is selected.
 
-The settings sections are **Account**, **Voice**, **TTS & ASR**, **Appearance**, **Assistant**, **Personas**, **Sub-Agents**, **Tools & MCP**, **Skills**, **Host Access**, **Face Identities**, and **Extensions**.
+The settings sections are **Account**, **Voice**, **TTS & ASR**, **Appearance**, **Assistant**, **Personas**, **Tools & MCP**, **Skills**, **Host Access**, **Face Identities**, and **Extensions**.
 
 `/vision` uses the server's camera pipeline. Its body-pose stage requires CUDA, and the default server does not give the API a GPU. Text, tools, memory, and speech still work on a CPU-only server.
 

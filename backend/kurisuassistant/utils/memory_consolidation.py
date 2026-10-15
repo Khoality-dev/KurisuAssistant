@@ -5,10 +5,10 @@ row. After a conversation has been idle past the threshold this module rewrites
 that document from ``Conversation.compacted_context`` + the recent messages (no
 frames).
 
-Personas do not have memory. The persona bound to the consolidated conversation
-only contributes its ``system_prompt`` as context for *what* that session was
-about — the resulting document is shared by every persona the user has, so it
-must stay persona-neutral.
+Personas do not have memory, and none of their prompts is fed in: a conversation
+is not tied to a persona (#354) and may have been answered by several, and the
+resulting document is shared by every persona the user has, so it must stay
+persona-neutral.
 """
 
 import asyncio
@@ -121,40 +121,20 @@ async def consolidate_assistant_memory(
        the memory column) instead.
     """
     try:
-        from kurisuassistant.db.repositories import (
-            AssistantRepository,
-            ConversationRepository,
-            PersonaRepository,
-        )
+        from kurisuassistant.db.repositories import AssistantRepository
         from kurisuassistant.db.service import get_db_service
 
         db = get_db_service()
 
         def _load_assistant(session):
-            """Read the user's assistant + the bound persona's prompt.
-
-            One round trip: the assistant supplies the memory to rewrite, the
-            conversation's persona supplies the instructions that session ran
-            under (the assistant itself has no system prompt).
-            """
+            """Read the user's assistant: the memory to rewrite."""
             assistant = AssistantRepository(session).get_by_user(user_id)
             if not assistant:
                 return None
             if not assistant.memory_enabled:
                 return None
 
-            session_prompt = ""
-            conv = ConversationRepository(session).get_by_user_and_id(
-                user_id, conversation_id
-            )
-            if conv and conv.persona_id:
-                persona = PersonaRepository(session).get_by_user_and_id(
-                    user_id, conv.persona_id
-                )
-                if persona:
-                    session_prompt = persona.system_prompt or ""
-
-            return session_prompt, assistant.memory or ""
+            return assistant.memory or ""
 
         # --- read (start of the read-modify-write described above) ---
         assistant_data = db.execute_sync(_load_assistant)
@@ -165,7 +145,7 @@ async def consolidate_assistant_memory(
             )
             return
 
-        session_prompt, current_memory = assistant_data
+        current_memory = assistant_data
 
         compacted, transcript = _load_transcript(db, user_id, conversation_id)
         if not transcript.strip() and not compacted.strip():
@@ -178,8 +158,6 @@ async def consolidate_assistant_memory(
         llm = create_llm_provider(provider_type, api_url=api_url, api_key=api_key)
 
         parts = []
-        if session_prompt.strip():
-            parts.append(f"## Session Instructions (persona)\n{session_prompt}")
         parts.append(f"## Current Memory\n{current_memory or '(empty)'}")
         if compacted.strip():
             parts.append(f"## Earlier Context (summary)\n{compacted}")
