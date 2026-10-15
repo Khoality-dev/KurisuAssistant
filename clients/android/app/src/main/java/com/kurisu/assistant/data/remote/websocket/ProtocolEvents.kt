@@ -32,6 +32,7 @@ object ProtocolEvents {
     const val ERROR = "error"
     const val VISION_RESULT = "vision_result"
     const val CONTEXT_INFO = "context_info"
+    const val TASKS_CHANGED = "tasks_changed"
 
     // Server -> Client, on /ws/notifications only (#353): NotificationSocket.
     const val NOTIFICATION = "notification"
@@ -61,5 +62,6 @@ object ProtocolEvents {
         NOTIFICATION,
         NOTIFICATIONS_READY,
         NOTIFICATIONS_READ,
+        TASKS_CHANGED,
     )
 }

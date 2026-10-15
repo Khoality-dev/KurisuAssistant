@@ -14,6 +14,8 @@ import { storage } from '@kurisu/api';
 
 import type { StreamingMessage } from '@kurisu/hooks';
 import { MessageToolbar } from './MessageToolbar';
+import { TaskResultCard } from './TaskResultCard';
+import { parseTaskToolResult } from '@kurisu/models';
 import { RawDataDialog } from './RawDataDialog';
 import { useExplorerStore } from '@kurisu/state';
 import { useLayoutStore } from '@kurisu/state';
@@ -251,6 +253,8 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   const colorScheme = getColorScheme();
   const isTool = message.role === 'tool';
   const [toolExpanded, setToolExpanded] = useState(false);
+  // A task tool's result is a card, not a collapsed tool call (#352).
+  const taskResult = isTool ? parseTaskToolResult(message.name, message.content) : null;
 
   // Always render the toolbar when there's content — it's hidden via opacity:0
   // and revealed on hover. Mounting it only after streaming finishes used to
@@ -293,7 +297,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
         </Avatar>
       )}
       <Box sx={{ maxWidth: '80%' }}>
-        <Paper
+        {taskResult ? <TaskResultCard result={taskResult} /> : (<Paper
           elevation={0}
           sx={{
             p: 2,
@@ -629,7 +633,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
               </>
             )}
           </Box>}
-        </Paper>
+        </Paper>)}
 
         {/* Hover toolbar - appears below the bubble */}
         {showToolbar && (

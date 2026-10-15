@@ -29,6 +29,7 @@ class EventType(str, Enum):
     ERROR = "error"
     VISION_RESULT = "vision_result"
     CONTEXT_INFO = "context_info"
+    TASKS_CHANGED = "tasks_changed"
 
     # Server -> Client, on /ws/notifications (#353) — never on the chat socket
     NOTIFICATION = "notification"
@@ -66,6 +67,7 @@ SERVER_TO_CLIENT = frozenset({
     EventType.NOTIFICATION,
     EventType.NOTIFICATIONS_READY,
     EventType.NOTIFICATIONS_READ,
+    EventType.TASKS_CHANGED,
 })
 
 # Everything is a JSON text frame except the webcam frame, which is a binary
@@ -279,6 +281,19 @@ class ErrorEvent(BaseEvent):
     # PROVIDER_NOT_CONFIGURED, NO_SUMMARY_MODEL, COMPACT_EMPTY. Declared but not emitted here: CANCELLED,
     # TIMEOUT, UNAUTHORIZED. Keep this list and backend/docs/websocket.md in step.
     code: str = "INTERNAL_ERROR"
+
+
+@dataclass
+class TasksChangedEvent(BaseEvent):
+    """Server says a task or one of its runs changed (#352); refetch ``GET /tasks``.
+
+    Sent to every open socket of the account when a run starts or ends and when
+    a task is planned, changed or deleted, so the Tasks screen on every device
+    keeps up without polling. It carries only which task, not the task: the
+    REST surface is the one shape a client reads.
+    """
+    type: EventType = field(default=EventType.TASKS_CHANGED)
+    task_id: Optional[int] = None
 
 
 @dataclass

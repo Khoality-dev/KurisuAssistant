@@ -211,6 +211,19 @@ There is no `conversation_switched`. Compaction used to fork — a second
 conversation seeded with the summary — so one thread quietly became several in
 the history list while the watermark it wrote (`0`) trimmed nothing (#99).
 
+### `tasks_changed`
+
+A task or one of its runs changed (#352): a run started or ended, or a task was
+planned, changed or deleted. Sent to **every** open socket of the account, so the
+Tasks screen on each device refetches `GET /tasks` (and the open task's
+`GET /tasks/{id}`) instead of polling. It names the task and carries none of it.
+
+```json
+{"type": "tasks_changed", "task_id": 7}
+```
+
+See `tasks.md`.
+
 ### `done`
 
 ```json

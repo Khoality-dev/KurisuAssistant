@@ -7,7 +7,9 @@ import com.kurisu.assistant.ui.settings.NotificationsScreen
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
+import androidx.navigation.NavType
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import com.kurisu.assistant.ui.about.AboutScreen
 import com.kurisu.assistant.ui.assistant.AssistantScreen
 import com.kurisu.assistant.ui.auth.LoginScreen
@@ -21,6 +23,7 @@ import com.kurisu.assistant.ui.settings.SettingsScreen
 import com.kurisu.assistant.ui.settings.SkillsScreen
 import com.kurisu.assistant.ui.settings.ToolsMcpScreen
 import com.kurisu.assistant.ui.settings.TtsAsrScreen
+import com.kurisu.assistant.ui.tasks.TasksScreen
 
 object Routes {
     const val LOGIN = "login"
@@ -28,6 +31,12 @@ object Routes {
     /** The app's home: the list of conversations. */
     const val CONVERSATIONS = "conversations"
     const val CHAT = "chat"
+
+    /** The assistant's own work, now or on a schedule (#352). */
+    const val TASKS = "tasks"
+
+    /** Tasks with one open, from a task card in the chat. */
+    fun task(id: Int) = "$TASKS?open=$id"
 
     /** The one assistant: model, provider, tools, memory, wake word. */
     const val ASSISTANT = "assistant"
@@ -134,6 +143,25 @@ fun KurisuNavGraph(
                     onNavigateToPersonas = { navController.navigate(Routes.PERSONAS) },
                     onNavigateToAssistant = { navController.navigate(Routes.ASSISTANT) },
                     onNavigateToChats = { openTopLevel(Routes.CONVERSATIONS) },
+                    onNavigateToTask = { id -> navController.navigate(Routes.task(id)) },
+                )
+            }
+        }
+
+        composable(
+            route = "${Routes.TASKS}?open={open}",
+            arguments = listOf(navArgument("open") { type = NavType.IntType; defaultValue = -1 }),
+        ) { entry ->
+            AppDrawerHost(
+                currentRoute = Routes.TASKS,
+                onNavigate = ::openTopLevel,
+                onLoggedOut = ::logout,
+            ) { openDrawer ->
+                TasksScreen(
+                    onOpenMenu = openDrawer,
+                    openTaskId = entry.arguments?.getInt("open")?.takeIf { it > 0 },
+                    // A run's conversation is already on CoreState; show the chat.
+                    onOpenChat = { navController.navigate(Routes.CHAT) },
                 )
             }
         }

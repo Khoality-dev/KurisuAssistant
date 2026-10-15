@@ -9,6 +9,7 @@ from .skill import SkillRepository
 from .mcp_server import MCPServerRepository
 from .drive import DriveNodeRepository, split_path
 from .passages import Filters, Hit, PassageRepository
+from .task import TaskApprovalRepository, TaskRepository, TaskRunRepository
 
 __all__ = [
     "BaseRepository",
@@ -27,4 +28,7 @@ __all__ = [
     "PassageRepository",
     "Filters",
     "Hit",
+    "TaskApprovalRepository",
+    "TaskRepository",
+    "TaskRunRepository",
 ]

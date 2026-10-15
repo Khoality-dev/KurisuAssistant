@@ -116,7 +116,6 @@ class MainAgent(BaseAgent):
         context: AgentContext,
     ) -> List[Dict]:
         """Prepare messages for LLM: build the system prompt."""
-        import datetime
 
         system_parts = []
 
@@ -132,7 +131,8 @@ class MainAgent(BaseAgent):
         preferred_name = self.identity.preferred_name or context.preferred_name
         if preferred_name:
             base_prompt += f"\n\nThe user prefers to be called: {preferred_name}"
-        base_prompt += f"\n\nCurrent time: {datetime.datetime.utcnow().isoformat()}"
+        from kurisuassistant.core.timezone import UTC, local_time_label
+        base_prompt += f"\n\nCurrent time: {local_time_label(context.timezone or UTC)}"
         system_parts.append(base_prompt)
 
         if context.user_id:

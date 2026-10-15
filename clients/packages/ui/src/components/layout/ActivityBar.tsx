@@ -6,6 +6,8 @@ import {
   Folder as FolderFilledIcon,
   ChatBubbleOutline as ChatIcon,
   ChatBubble as ChatFilledIcon,
+  TaskAltOutlined as TasksIcon,
+  TaskAlt as TasksFilledIcon,
   SettingsOutlined as SettingsIcon,
   Settings as SettingsFilledIcon,
   Logout as LogoutIcon,
@@ -27,6 +29,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'workspace', label: 'Workspace', icon: <FolderIcon />, activeIcon: <FolderFilledIcon /> },
   { id: 'conversations', label: 'Conversations', icon: <ChatIcon />, activeIcon: <ChatFilledIcon /> },
+  { id: 'tasks', label: 'Tasks', icon: <TasksIcon />, activeIcon: <TasksFilledIcon /> },
   { id: 'settings', label: 'Settings', icon: <SettingsIcon />, activeIcon: <SettingsFilledIcon /> },
 ];
 
@@ -77,6 +80,7 @@ export const ActivityBar: React.FC = () => {
                   />
                 )}
                 <IconButton
+                  aria-label={item.label}
                   onClick={() => setActivePage(item.id)}
                   sx={{
                     color: isActive ? 'text.primary' : 'text.secondary',

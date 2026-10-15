@@ -58,3 +58,6 @@ pytest-asyncio>=0.23.0
 uvicorn[standard]==0.34.2
 alembic==1.16.4
 python-dotenv
+# The IANA timezone database for task schedules (#352): zoneinfo reads it from
+# here when the image has no system copy.
+tzdata

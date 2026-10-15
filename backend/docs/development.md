@@ -178,6 +178,9 @@ Then set the account's Ollama URL to `http://127.0.0.1:11435` under Settings →
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access token lifetime |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
 | `CONVERSATION_IDLE_THRESHOLD_MINUTES` | `30` | Idle time before a conversation's memory is consolidated |
+| `TASK_SCAN_INTERVAL_SECONDS` | `30` | How often the task scheduler looks for a due task (#352); a task the assistant starts now is started at once regardless |
+| `TASK_MAX_CONCURRENT_RUNS` | `2` | Task runs at once across the server; the rest wait, still shown as running. A run waiting for approval gives its place back (#352) |
+| `TASK_APPROVAL_TIMEOUT_SECONDS` | `86400` (24 h) | How long a task run waits for the user to approve a tool call before the call is denied and the run fails saying so (#352) |
 | `MCP_TLS_VERIFY` | `true` | Set to `false` to skip TLS verification on server-side MCP connections |
 | `AUTH_RATE_LIMIT_MAX_ATTEMPTS`, `AUTH_RATE_LIMIT_WINDOW_SECONDS` | `10`, `300` | Brute-force limit on `/login` and `/register`, per client address; `0` disables |
 | `AUTH_RATE_LIMIT_MAX_ATTEMPTS_PER_USER` | `20` | The same window counted per username — the bound that survives a shared address or a caller with many of them; `0` disables (#155) |

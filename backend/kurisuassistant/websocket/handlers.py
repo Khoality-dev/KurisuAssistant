@@ -52,6 +52,7 @@ from kurisuassistant.db.repositories import (
     UserRepository,
 )
 from kurisuassistant.core.accounts import NO_MODEL_SELECTED_DETAIL
+from kurisuassistant.core.timezone import user_timezone
 from kurisuassistant.models.llm.base import ProviderNotConfigured
 from kurisuassistant.core.errors import GENERIC_MESSAGE, log_internal_error
 from kurisuassistant.db.service import get_db_service
@@ -100,6 +101,8 @@ class _TurnSetup:
     summary_provider: str = "ollama"
     context_size: Optional[int] = None
     tool_policies: Dict[str, str] = field(default_factory=dict)
+    # The account's zone, for the prompt's "Current time" (core/timezone.py).
+    timezone: Optional[object] = None
 
 
 class ChatSessionHandler:
@@ -408,6 +411,7 @@ class ChatSessionHandler:
                 context_size=setup.context_size,
                 compacted_context=compacted_context,
                 tool_policies=setup.tool_policies,
+                timezone=setup.timezone,
             )
 
             agent = MainAgent(assistant, tool_registry, identity=persona)
@@ -707,6 +711,7 @@ class ChatSessionHandler:
                 summary_provider=summary_provider,
                 context_size=context_size,
                 tool_policies=tool_policies,
+                timezone=user_timezone(user),
             )
 
         return await db.execute(_do_setup)

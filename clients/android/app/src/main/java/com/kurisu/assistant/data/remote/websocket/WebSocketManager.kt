@@ -402,6 +402,7 @@ internal fun parseServerEvent(text: String): ServerEvent? {
         ProtocolEvents.NOTIFICATION -> parserJson.decodeFromString<NotificationEvent>(text)
         ProtocolEvents.NOTIFICATIONS_READY -> parserJson.decodeFromString<NotificationsReadyEvent>(text)
         ProtocolEvents.NOTIFICATIONS_READ -> parserJson.decodeFromString<NotificationsReadEvent>(text)
+        ProtocolEvents.TASKS_CHANGED -> parserJson.decodeFromString<TasksChangedEvent>(text)
         else -> null
     }
 }

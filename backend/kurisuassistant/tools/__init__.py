@@ -7,6 +7,7 @@ from .recall import RecallRegexTool, RecallSemanticTool
 from .skills import GetSkillInstructionsTool
 from .drive import DriveDeleteTool, DriveListTool, DriveReadTool, DriveWriteTool
 from .notify import NotifyUserTool
+from .tasks import TASK_TOOLS
 
 # Register built-in tools
 tool_registry.register(HistoryListTool())
@@ -28,6 +29,10 @@ tool_registry.register(DriveWriteTool())
 tool_registry.register(DriveDeleteTool())
 # Note: delegate_task (agents/sub.py) is injected per turn, not registered globally:
 # it needs the assistant's own configuration to spawn a sub-agent.
+# The task tools (#352) are built in: planning its own work is part of what the
+# assistant is, and every call still goes through the user's tool policy.
+for _task_tool in TASK_TOOLS:
+    tool_registry.register(_task_tool())
 
 __all__ = [
     "BaseTool",

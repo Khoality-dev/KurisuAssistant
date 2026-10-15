@@ -46,6 +46,9 @@ pypdf
 python-docx
 python-pptx
 openpyxl
+# The IANA timezone database for task schedules (#352): zoneinfo reads it from
+# here when the image has no system copy.
+tzdata
 # Testing
 pytest>=8.0.0
 pytest-asyncio>=0.23.0

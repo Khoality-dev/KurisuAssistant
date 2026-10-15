@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
+  Autocomplete,
   Box,
   Typography,
   TextField,
@@ -14,7 +15,7 @@ import {
   VisibilityOff as HideIcon,
   QrCode2 as QrCodeIcon,
 } from '@mui/icons-material';
-import { useAuthStore } from '@kurisu/state';
+import { knownTimezones, useAuthStore } from '@kurisu/state';
 import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { ModelPicker } from '../ModelPicker';
 import { LoginQrDialog } from './LoginQrDialog';
@@ -84,6 +85,10 @@ export const AccountSection: React.FC = () => {
   const [validating, setValidating] = useState('');
   const [summaryModel, setSummaryModel] = useState('');
   const [contextSize, setContextSize] = useState<number | ''>('');
+  // The account's time zone (#352): task schedules are read in it. Filled from
+  // this device the first time it was empty; changed here on purpose.
+  const [timezone, setTimezone] = useState('');
+  const [zones] = useState(() => knownTimezones());
   const [models, setModels] = useState<Array<{ name: string; provider: string }>>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -100,6 +105,7 @@ export const AccountSection: React.FC = () => {
       setPoeApiKey('');
       setSummaryModel(user.summary_model || '');
       setContextSize(user.context_size || '');
+      setTimezone(user.timezone || '');
     }
   }, [user]);
 
@@ -132,6 +138,7 @@ export const AccountSection: React.FC = () => {
       if (poeApiKey) profileUpdates.poe_api_key = poeApiKey;
       profileUpdates.summary_model = summaryModel.trim() || '';
       profileUpdates.context_size = contextSize || 0;
+      if ((timezone || null) !== (user?.timezone || null)) profileUpdates.timezone = timezone.trim();
 
       if (Object.keys(profileUpdates).length > 0) {
         await apiClient.updateUserProfile(profileUpdates);
@@ -143,7 +150,7 @@ export const AccountSection: React.FC = () => {
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error: any) {
       console.error('Failed to save account settings:', error);
-      setErrorMessage(error.message || 'Failed to save account settings');
+      setErrorMessage(describeRequestFailure(error, 'Failed to save account settings'));
     } finally {
       setIsSaving(false);
     }
@@ -163,6 +170,24 @@ export const AccountSection: React.FC = () => {
           {errorMessage}
         </Alert>
       )}
+
+      {/* Time zone (#352) */}
+      <Box sx={{ mb: 4 }}>
+        <Autocomplete
+          freeSolo
+          options={zones}
+          value={timezone}
+          onInputChange={(_e, value) => setTimezone(value)}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="Time zone"
+              placeholder="Europe/Paris"
+              helperText="Task schedules run on this clock."
+            />
+          )}
+        />
+      </Box>
 
       {/* Ollama Server URL */}
       <Box sx={{ mb: 4 }}>

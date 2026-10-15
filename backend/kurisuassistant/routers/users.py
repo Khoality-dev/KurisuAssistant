@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
 from kurisuassistant.core.errors import internal_error
 from kurisuassistant.core.deps import get_authenticated_user
+from kurisuassistant.core.timezone import parse_timezone
 from kurisuassistant.db.service import get_db_service
 from kurisuassistant.db.models import User
 from kurisuassistant.db.repositories import UserRepository
@@ -45,6 +46,7 @@ async def get_user_profile(
             "summary_model": user.summary_model,
             "summary_provider": getattr(user, 'summary_provider', 'ollama') or 'ollama',
             "context_size": user.context_size,
+            "timezone": getattr(user, "timezone", None),
         }
     except Exception as e:
         raise internal_error(e, f"Error fetching user profile for {user.username}")
@@ -68,6 +70,21 @@ async def update_user_profile(
         summary_provider = body.get("summary_provider")
         context_size = body.get("context_size")
 
+        # The account's time zone (#352): an IANA name, or "" / null to clear.
+        if "timezone" in body:
+            raw_zone = body.get("timezone")
+            try:
+                zone = parse_timezone(raw_zone) if raw_zone else None
+            except ValueError as e:
+                raise HTTPException(status_code=422, detail=str(e))
+
+            def _set_zone(session):
+                db_user = UserRepository(session).get_by_id(user.id)
+                if db_user is not None:
+                    db_user.timezone = zone
+
+            await get_db_service().execute(_set_zone)
+
         if any(v is not None for v in [system_prompt, preferred_name, ollama_url, gemini_api_key, nvidia_api_key, poe_api_key, summary_model, summary_provider, context_size]):
             def _update_prefs(session):
                 user_repo = UserRepository(session)
@@ -78,6 +95,8 @@ async def update_user_profile(
 
             db = get_db_service()
             await db.execute(_update_prefs)
+            return {"status": "ok", "message": "Profile updated successfully"}
+        elif "timezone" in body:
             return {"status": "ok", "message": "Profile updated successfully"}
         else:
             return {"status": "ok", "message": "No changes"}

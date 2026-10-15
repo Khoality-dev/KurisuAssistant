@@ -192,6 +192,10 @@ services:
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
       - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS:-30}
       - CONVERSATION_IDLE_THRESHOLD_MINUTES=${CONVERSATION_IDLE_THRESHOLD_MINUTES:-30}
+      # Tasks (#352): how often due tasks are looked for, and how many run at once.
+      - TASK_SCAN_INTERVAL_SECONDS=${TASK_SCAN_INTERVAL_SECONDS:-30}
+      - TASK_MAX_CONCURRENT_RUNS=${TASK_MAX_CONCURRENT_RUNS:-2}
+      - TASK_APPROVAL_TIMEOUT_SECONDS=${TASK_APPROVAL_TIMEOUT_SECONDS:-86400}
       - MAX_IMAGE_BYTES=${MAX_IMAGE_BYTES:-16777216}
       # Kurisu Drive. The quota is per account and registration is open by
       # default, so an unmetered drive is a disk-exhaustion surface for the

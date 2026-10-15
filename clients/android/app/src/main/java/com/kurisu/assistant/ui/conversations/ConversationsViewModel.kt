@@ -41,6 +41,8 @@ data class ConversationRowUi(
      * computed at render time so a row that stays on screen keeps ageing.
      */
     val timestamp: String?,
+    /** Written by a task run (#352), not by the user in a chat: drawn with a clock. */
+    val taskRun: Boolean = false,
 )
 
 data class ConversationsUiState(
@@ -120,6 +122,7 @@ class ConversationsViewModel @Inject constructor(
                         preview = conv.lastMessage?.content?.takeIf { it.isNotBlank() },
                         timestamp = conv.lastMessage?.createdAt
                             ?: conv.updatedAt.takeIf { it.isNotBlank() },
+                        taskRun = conv.taskRun,
                     )
                 }.sortedByDescending { it.timestamp ?: "" }
 

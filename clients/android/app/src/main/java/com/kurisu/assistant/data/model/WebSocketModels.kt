@@ -139,6 +139,18 @@ data class ContextInfoEvent(
     @SerialName("compacted_context") val compactedContext: String = "",
 ) : ServerEvent
 
+/**
+ * A task or one of its runs changed (#352): refetch `GET /tasks`. It names the
+ * task and carries none of it — the REST surface is the one shape a client reads.
+ */
+@Serializable
+data class TasksChangedEvent(
+    override val type: String = "tasks_changed",
+    @SerialName("event_id") override val eventId: String = "",
+    override val timestamp: String = "",
+    @SerialName("task_id") val taskId: Int? = null,
+) : ServerEvent
+
 
 /**
  * Server asks the client to run one of ITS OWN registered tools.

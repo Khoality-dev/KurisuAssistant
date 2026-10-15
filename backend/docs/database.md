@@ -14,6 +14,7 @@ users
   summary_model, summary_provider(default 'ollama') used for compaction + memory
   context_size
   tool_policies(JSON)                               {"tools": {name: allow|deny}}
+  timezone?                                         the account's IANA zone (#352), read via core/timezone.py
 
 assistants                                          exactly one row per user
   id, user_id→users (CASCADE, unique)
@@ -42,6 +43,8 @@ conversations
   created_at, updated_at(indexed)
   consolidated_at, consolidation_attempts(int, not null, default 0),
   consolidation_next_retry_at            memory-consolidation state, see below
+  task_run(bool, not null, default false)   written by a task run (#352)
+  task_id→tasks (SET NULL, indexed)?        the task; null once it is deleted
 
 messages
   id, role, message
@@ -87,6 +90,22 @@ notification_devices id, user_id→users (CASCADE, indexed)          phones push
                 platform, fcm_token(unique)                        a token is one app: last registrant owns it
                 created_at, last_seen_at
 
+tasks           id, user_id→users (CASCADE, indexed)               work the assistant does on its own (#352)
+                title, instructions
+                repeat('now'|'once'|'daily'|'weekdays'|'weekly'|'hourly'), timezone(default 'UTC')
+                run_at?(UTC, once), time_of_day?('HH:MM'), days(JSON, 0=Mon)?, every_hours?
+                state('active'|'paused'|'finished'), next_run_at(indexed)?, last_run_at?
+                planned_in_conversation_id→conversations (SET NULL)?
+                created_at, updated_at
+task_runs       id, task_id→tasks (CASCADE, indexed), user_id→users (CASCADE, indexed)
+                conversation_id→conversations (SET NULL)?          the conversation the run wrote
+                status('running'|'waiting_for_approval'|'done'|'failed'|'stopped'), error?
+                started_at, finished_at?
+task_approvals  id, run_id→task_runs (CASCADE, indexed), user_id→users (CASCADE, indexed)
+                tool_name, tool_args(JSON)?, description           a call a run waits on the user for
+                status('pending'|'approved'|'denied'|'expired'|'cancelled'), modified_args(JSON)?
+                requested_at, expires_at, decided_at?
+
 passages        id, user_id→users (CASCADE, indexed)               the retrieval index (#6)
                 source_kind('message'|'drive')
                 conversation_id→conversations (CASCADE, indexed)?
@@ -102,6 +121,10 @@ passages        id, user_id→users (CASCADE, indexed)               the retriev
 `conversations` also carries `indexed_up_to_id` and `indexed_at` — the
 retrieval index's watermark and stamp, the same shape as the consolidation
 columns.
+
+`tasks` and `conversations` point at each other (where a task was planned; which
+task a run's conversation belongs to), so `conversations.task_id`'s foreign key is
+declared `use_alter` and added after both tables exist. See `tasks.md`.
 
 Media is not stored here. Images, voice clips, character assets and drive files
 are files under `data/`, referenced by the UUID columns above.

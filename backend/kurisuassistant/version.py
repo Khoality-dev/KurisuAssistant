@@ -39,6 +39,21 @@ Update log (most recent first):
      `tool_kind: "sub_agent"`. Removed fields and routes, hence the bump: an
      installed client would keep binding conversations and sending a persona
      the server now ignores, and its Sub-agents screen would only find 404s.
+- 10: Tasks (#352). A new server event, `tasks_changed` (`task_id`), tells
+     every open client of the account that a task or one of its runs changed,
+     so the Tasks screen refetches `GET /tasks`. `GET /conversations` and
+     `GET /conversations/{id}` gain `task_run` and `task_id`: a conversation a
+     task run wrote. New routes `GET /tasks`, `GET`/`PATCH`/`DELETE
+     /tasks/{id}` and `POST /tasks/{id}/stop`, and six built-in tools the
+     assistant plans tasks with (`task_start`, `task_schedule`, `task_list`,
+     `task_update`, `task_stop`, `task_delete`), whose results the clients show
+     as cards. A run that needs a tool approved waits: its task's `status` is
+     `waiting_for_approval` with a `pending_approval`, and `GET /tasks/approvals`
+     / `POST /tasks/approvals/{id}` (`approved`, `modified_args`) answer it.
+     `GET /tasks` leaves out finished one-offs unless `?include_finished=true`.
+     `GET`/`PATCH /users/me` gain `timezone`, the account's IANA zone (a 422
+     for anything else), which schedules are read in. Bumped with the event: a
+     client that does not know it has no Tasks screen to keep up to date.
 - 8: The assistant's `default_persona_id` is gone; `selected_persona_id` takes
      its place on `GET`/`PATCH /assistant` — who the account's chat is on, which
      a client reads when it opens and writes when the user picks someone (#334).
@@ -176,7 +191,7 @@ def release_tag_problem(tag: str) -> str | None:
 
 
 __version__ = resolve_version(os.environ.get("KURISU_VERSION"))
-WIRE_PROTOCOL = 9
+WIRE_PROTOCOL = 10
 
 
 if __name__ == "__main__":

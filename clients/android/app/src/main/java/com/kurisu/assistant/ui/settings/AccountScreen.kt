@@ -66,6 +66,21 @@ fun AccountScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
+            // The account's time zone (#352). Filled from this phone the first
+            // time it was empty; saved with the rest below.
+            Text("Time zone", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                value = state.timezone,
+                onValueChange = viewModel::setTimezone,
+                label = { Text("Time zone") },
+                placeholder = { Text("Europe/Paris") },
+                supportingText = { Text("Task schedules run on this clock.") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
             // Ollama
             Text("Ollama", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(

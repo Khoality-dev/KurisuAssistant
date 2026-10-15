@@ -9,6 +9,10 @@ import com.kurisu.assistant.data.remote.api.KurisuApiService
 import com.kurisu.assistant.data.remote.websocket.WebSocketManager
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
+import com.kurisu.assistant.domain.time.deviceTimezone
+import com.kurisu.assistant.domain.time.fillTimezoneIfUnset
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -27,7 +31,7 @@ class AuthRepository @Inject constructor(
             password = password.toPlainBody(),
         )
         applyToken(response.accessToken, response.refreshToken, rememberMe)
-        return api.getUserProfile()
+        return withAccountTimezone(api.getUserProfile())
     }
 
     suspend fun register(username: String, password: String, email: String?, rememberMe: Boolean): UserProfile {
@@ -37,7 +41,7 @@ class AuthRepository @Inject constructor(
             email = email?.toPlainBody(),
         )
         applyToken(response.accessToken, response.refreshToken, rememberMe)
-        return api.getUserProfile()
+        return withAccountTimezone(api.getUserProfile())
     }
 
     suspend fun logout() {
@@ -59,7 +63,7 @@ class AuthRepository @Inject constructor(
             authInterceptor.setToken(token)
             wsManager.setToken(token)
             return try {
-                api.getUserProfile()
+                withAccountTimezone(api.getUserProfile())
             } catch (_: Exception) {
                 // Access token may be expired — try refresh
                 val refreshToken = encryptedPrefs.getRefreshToken()
@@ -67,7 +71,7 @@ class AuthRepository @Inject constructor(
                     try {
                         val response = api.refreshToken(mapOf("refresh_token" to refreshToken))
                         applyToken(response.accessToken, response.refreshToken, rememberMe)
-                        api.getUserProfile()
+                        withAccountTimezone(api.getUserProfile())
                     } catch (_: Exception) {
                         clearAllTokens()
                         null
@@ -85,6 +89,17 @@ class AuthRepository @Inject constructor(
 
     suspend fun updateUserProfile(profile: UserProfile): UserProfile =
         api.updateUserProfile(profile)
+
+    /** Set (or, with a blank [zone], clear) the account's time zone. A 422 names a bad one. */
+    suspend fun setTimezone(zone: String) {
+        api.patchUserProfile(buildJsonObject { put("timezone", zone.trim()) })
+    }
+
+    /** An empty account time zone is filled from this phone, once, silently (#352). */
+    private suspend fun withAccountTimezone(user: UserProfile): UserProfile =
+        fillTimezoneIfUnset(user, deviceTimezone()) { zone ->
+            api.patchUserProfile(buildJsonObject { put("timezone", zone) })
+        }
 
     private suspend fun applyToken(accessToken: String, refreshToken: String?, rememberMe: Boolean) {
         authInterceptor.setToken(accessToken)
