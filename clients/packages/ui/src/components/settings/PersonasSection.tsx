@@ -27,7 +27,6 @@ import {
 import { AnimatePresence } from 'framer-motion';
 import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { usePersonaStore } from '@kurisu/state';
-import { storage } from '@kurisu/api';
 import { parseCharacterConfig, type Persona, type PersonaExportSize, type VoiceInfo } from '@kurisu/models';
 import {
   AccountTree as GraphIcon,
@@ -37,7 +36,7 @@ import {
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { ResourceCard } from './ResourceCard';
-import { InTheChatChip, selectionColors } from '../InTheChatChip';
+import { InUseChip, selectionColors } from '../InUseChip';
 import { PersonaEditDialog, voiceName } from './PersonaEditDialog';
 import { mb, modelFilename } from '../character/vrmSetupText';
 import { exportedFilename, importFailure, includeLine, isBundle, meteredLine } from './personaExport';
@@ -100,12 +99,12 @@ export function deletedFiles(config: Persona['character_config'], vrmBytes?: num
  * nothing else. Capability (model, tools, memory, wake word) lives on the single
  * assistant, one section over.
  *
- * The one thing about the assistant that IS decided here is who the chat is on
- * (#334): the assistant's `selected_persona_id`, the same selection the chat
- * header and the Conversations page make, kept on the server so every device
- * opens on it. "Talk to" puts the chat on a persona and the card wears the
- * badge; a persona is optional (#302), and "Use the assistant" takes it off
- * again, which is where every account starts.
+ * The one thing about the assistant that IS decided here is the persona in use
+ * (#334, #354): the assistant's `selected_persona_id`, the same switch the chat
+ * header makes, kept on the server and applied to every conversation on every
+ * device. "Talk to" puts a persona in use and the card wears the badge; a
+ * persona is optional (#302), and "Use the assistant" takes it off again, which
+ * is where every account starts.
  */
 export const PersonasSection: React.FC = () => {
   const reloadPersonaStore = usePersonaStore((s) => s.loadPersonas);
@@ -176,20 +175,27 @@ export const PersonasSection: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const switchTo = async (id: number | null, done: string) => {
+    try {
+      await selectPersona(id);
+      flash(done);
+    } catch (err: any) {
+      setError(describeRequestFailure(err, 'Failed to switch persona'));
+    }
+  };
+
   const handleTalkTo = (persona: Persona) => {
     if (persona.id === selectedPersonaId) return;
-    selectPersona(persona.id);
-    flash(`The chat is on ${persona.name}.`);
+    void switchTo(persona.id, `${persona.name} is in use, in every conversation.`);
   };
 
   const handleUseAssistant = () => {
-    selectPersona(null);
-    flash('The chat is on the assistant itself.');
+    void switchTo(null, 'The assistant answers as itself, in every conversation.');
   };
 
   const handleToggleEnabled = async (persona: Persona, enabled: boolean) => {
     try {
-      // Disabling the one the chat is on is allowed: the server clears the
+      // Disabling the persona in use is allowed: the server clears the
       // selection and the reload puts the chat back on the assistant (#302, #334).
       await apiClient.togglePersonaEnabled(persona.id, enabled);
       await loadPersonas();
@@ -243,7 +249,6 @@ export const PersonasSection: React.FC = () => {
     if (!deleteTarget) return;
     try {
       await apiClient.deletePersona(deleteTarget.id);
-      storage.clearPersonaConversationId(deleteTarget.id);
       flash(`${deleteTarget.name} and all of its character files were deleted.`);
       setDeleteTarget(null);
       await loadPersonas();
@@ -339,7 +344,7 @@ export const PersonasSection: React.FC = () => {
         </Paper>
       ) : (
         <Box sx={{ maxWidth: 1200, mx: 'auto' }}>
-          {/* The assistant itself, above the personas (#348): who the chat is on
+          {/* The assistant itself, above the personas (#348): who answers
               when no persona is chosen, so the choice is marked here too. */}
           <ButtonBase
             role="group"
@@ -378,7 +383,7 @@ export const PersonasSection: React.FC = () => {
               </Typography>
               <Typography variant="body2" color="text.secondary">No persona. The assistant answers as itself.</Typography>
             </Box>
-            {selectedPersonaId === null && <InTheChatChip />}
+            {selectedPersonaId === null && <InUseChip />}
           </ButtonBase>
 
           {/* Columns sized to the pane, not the window, so the card actions do not wrap (#348). */}
@@ -408,7 +413,7 @@ export const PersonasSection: React.FC = () => {
                       characterLabel(persona.character_config),
                     ]}
                     selected={persona.id === selectedPersonaId}
-                    badge={persona.id === selectedPersonaId ? <InTheChatChip /> : undefined}
+                    badge={persona.id === selectedPersonaId ? <InUseChip /> : undefined}
                     action={persona.id === selectedPersonaId
                       ? (
                         <Button

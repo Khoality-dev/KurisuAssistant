@@ -45,11 +45,11 @@ assistant's system prompt **after** the persona's own prompt (and after the user
 `MainAgent._prepare_messages`, before the deferred-tool guide, the memory and the
 compacted context. Switching persona does not change which skills exist.
 
-**Sub-agents are not given the list.** `SubAgent.execute` builds its prompt from
-its own `system_prompt` and nothing else — no skills section, no memory, no
-compacted context. `get_skill_instructions` is a built-in tool, so a sub-agent can
-still call it by name; it just is not told what exists. If a sub-agent needs a
-skill, name it in that sub-agent's own `system_prompt`.
+**Sub-agents are not given the list.** A spawned `SubAgent` builds its prompt
+from the fixed worker prompt and its task, and nothing else — no skills section,
+no memory, no compacted context. `get_skill_instructions` is a built-in tool, so a
+sub-agent can still call it by name; it just is not told what exists. If a
+sub-agent needs a skill, the assistant names it in the task it hands over.
 
 ## Writing Effective Skills
 
@@ -107,8 +107,8 @@ implements it entirely on its own: it writes a `<name>.skill.json` file holding
 `{name, instructions, version: 1}` and, on import, posts the parsed fields back to
 `POST /skills`. Nothing about that file format is enforced by the backend.
 
-(Personas and sub-agents *do* have server-side export/import — a different format,
-version 3, described in [API.md](API.md#export--import-format).)
+(Personas *do* have server-side export/import — a different format, version 3,
+described in [API.md](API.md#export--import-format).)
 
 ## Key Files
 

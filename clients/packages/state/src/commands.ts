@@ -7,7 +7,6 @@
 
 export interface CommandContext {
   activeConversationId: number | null;
-  personaId: number | null;
 }
 
 interface Command {
@@ -20,16 +19,9 @@ const commands: Command[] = [
   {
     name: 'clear',
     description: 'Start a new empty conversation (keeps the current one in history)',
-    execute: async (_args, ctx) => {
+    execute: async () => {
       const { useConversationStore } = await import('./conversationStore');
-      const { storage } = await import('@kurisu/api');
-      const convStore = useConversationStore.getState();
-      convStore.clearCurrentConversation();
-      if (ctx.personaId) {
-        storage.clearPersonaConversationId(ctx.personaId);
-      } else {
-        storage.clearPersonaConversationId('unbound');
-      }
+      useConversationStore.getState().clearCurrentConversation();
       return 'Started a new conversation';
     },
   },
@@ -41,22 +33,13 @@ const commands: Command[] = [
         return 'No active conversation';
       }
       const { useConversationStore } = await import('./conversationStore');
-      const { storage } = await import('@kurisu/api');
-      const convStore = useConversationStore.getState();
-      await convStore.deleteConversation(ctx.activeConversationId);
-      if (ctx.personaId) {
-        storage.clearPersonaConversationId(ctx.personaId);
-      } else {
-        storage.clearPersonaConversationId('unbound');
-      }
+      await useConversationStore.getState().deleteConversation(ctx.activeConversationId);
       return 'Conversation deleted';
     },
   },
   {
     name: 'resume',
     description: 'Pick a previous conversation to resume',
-    // With no persona selected the picker lists the assistant's own
-    // conversations: a persona is optional (#302).
     execute: () => {
       window.dispatchEvent(new Event('kurisu:open-resume-picker'));
       return '';
@@ -75,7 +58,7 @@ const commands: Command[] = [
   },
   {
     name: 'persona',
-    description: 'Switch the persona answering in this conversation',
+    description: 'Switch the persona in use, for every conversation',
     execute: () => {
       window.dispatchEvent(new Event('kurisu:open-persona-picker'));
       return '';

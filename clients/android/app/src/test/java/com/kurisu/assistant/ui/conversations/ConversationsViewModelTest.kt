@@ -93,7 +93,6 @@ class ConversationsViewModelTest {
     private fun conversation(
         id: Int,
         title: String = "Chat $id",
-        personaId: Int? = null,
         lastMessageAt: String? = null,
         lastMessage: String = "hello",
         updatedAt: String = "2024-01-01T00:00:00Z",
@@ -101,14 +100,13 @@ class ConversationsViewModelTest {
         id = id,
         title = title,
         updatedAt = updatedAt,
-        personaId = personaId,
         lastMessage = lastMessageAt?.let {
             ConversationLastMessage(content = lastMessage, role = "assistant", createdAt = it)
         },
     )
 
     private fun newViewModel() = ConversationsViewModel(
-        application, personaRepo, assistantRepo, convRepo, prefs, coreState, updateRepo,
+        application, assistantRepo, convRepo, prefs, coreState, updateRepo,
         com.kurisu.assistant.service.VoiceInteractionManager(application),
     )
 
@@ -155,7 +153,6 @@ class ConversationsViewModelTest {
         coEvery { convRepo.getConversations() } returns listOf(
             conversation(
                 id = 414,
-                personaId = 3,
                 lastMessageAt = "2024-06-01T00:00:00Z",
                 lastMessage = "web-digger returned six sources",
             ),
@@ -170,45 +167,6 @@ class ConversationsViewModelTest {
         assertThat(row.preview).isEqualTo("web-digger returned six sources")
         assertThat(row.timestamp).isEqualTo("2024-06-01T00:00:00Z")
         coVerify(exactly = 0) { personaRepo.getImageUrl(any(), any()) }
-    }
-
-    @Test
-    fun `a new chat with no default is the assistant's, not the first persona's`() =
-        runTest {
-            // A persona is optional (#302): with no default, the assistant answers
-            // a new chat as itself. The chat screen resolves who answers with the
-            // same rule, so if the two disagree New chat clears the wrong cached
-            // conversation and the old one is resumed instead.
-            coEvery { personaRepo.listPersonas() } returns listOf(
-                makePersona(1, "Kurisu"), makePersona(3, "Coach"),
-            )
-            coEvery { assistantRepo.getAssistant() } returns makeAssistant(selectedPersonaId = null)
-
-            val vm = newViewModel()
-            advanceUntilIdle()
-
-            vm.startNewChat()
-            advanceUntilIdle()
-
-            coVerify(exactly = 1) { personaRepo.clearConversationIdForPersona(null) }
-            coVerify(exactly = 0) { personaRepo.clearConversationIdForPersona(1) }
-            coVerify(exactly = 0) { personaRepo.clearConversationIdForPersona(3) }
-        }
-
-    @Test
-    fun `a default that is disabled leaves a new chat to the assistant`() = runTest {
-        coEvery { personaRepo.listPersonas() } returns listOf(
-            makePersona(1, "Kurisu", enabled = false), makePersona(3, "Coach"),
-        )
-        coEvery { assistantRepo.getAssistant() } returns makeAssistant(selectedPersonaId = 1)
-
-        val vm = newViewModel()
-        advanceUntilIdle()
-
-        vm.startNewChat()
-        advanceUntilIdle()
-
-        coVerify(exactly = 1) { personaRepo.clearConversationIdForPersona(null) }
     }
 
     @Test
@@ -268,13 +226,9 @@ class ConversationsViewModelTest {
     }
 
     @Test
-    fun `new chat drops the resumable conversation and picks nobody`() = runTest {
-        // Decision: a new chat SILENTLY takes assistants.selected_persona_id.
-        // There is no picker, so nothing here selects a persona — it only makes
-        // sure a stale conversation is not resumed instead.
-        coEvery { personaRepo.listPersonas() } returns listOf(
-            makePersona(1, "Kurisu"), makePersona(3, "Coach"),
-        )
+    fun `new chat leaves the open conversation and picks nobody`() = runTest {
+        // A new chat answers as the persona in use for the whole account (#354):
+        // there is no picker here and nothing to remember per persona.
         coEvery { assistantRepo.getAssistant() } returns makeAssistant(selectedPersonaId = 3)
 
         val vm = newViewModel()
@@ -285,16 +239,13 @@ class ConversationsViewModelTest {
         advanceUntilIdle()
 
         assertThat(coreState.state.value.conversationId).isNull()
-        coVerify(exactly = 1) { personaRepo.clearConversationIdForPersona(3) }
+        coVerify(exactly = 0) { assistantRepo.updateAssistant(any()) }
     }
 
     @Test
-    fun `new chat only navigates once the stale conversation is gone`() = runTest {
-        // The chat screen reads the cached conversation id as it loads. If the
-        // FAB navigated first, the new chat could resume the old conversation.
-        coEvery { personaRepo.listPersonas() } returns listOf(makePersona(3, "Coach"))
-        coEvery { assistantRepo.getAssistant() } returns makeAssistant(selectedPersonaId = 3)
-
+    fun `new chat only navigates once the open conversation is gone`() = runTest {
+        // The chat opens the conversation CoreState names. If the FAB navigated
+        // first, the new chat would reopen the old one.
         val vm = newViewModel()
         advanceUntilIdle()
         coreState.setConversationId(421)
@@ -305,14 +256,10 @@ class ConversationsViewModelTest {
             navigated = true
             conversationIdWhenNavigated = coreState.state.value.conversationId
         }
-
-        assertThat(navigated).isFalse()
-
         advanceUntilIdle()
 
         assertThat(navigated).isTrue()
         assertThat(conversationIdWhenNavigated).isNull()
-        coVerify(exactly = 1) { personaRepo.clearConversationIdForPersona(3) }
     }
 
     @Test

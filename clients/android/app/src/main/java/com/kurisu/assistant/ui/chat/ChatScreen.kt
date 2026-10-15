@@ -124,7 +124,6 @@ fun ChatScreen(
             )
             is ChatModal.PersonaPicker -> PersonaSheet(
                 modal = modal,
-                selectedPersonaName = state.selectedPersonaName,
                 currentPersonaId = state.persona?.id,
                 baseUrl = state.baseUrl,
                 onDismiss = viewModel::dismissModal,
@@ -263,10 +262,11 @@ fun ChatScreen(
                 },
                 title = {
                     // The header names WHO is answering and WHAT it runs on, and
-                    // each is its own tap. The persona is this conversation's —
-                    // the sheet moves this thread only. The model is the
-                    // assistant's — one for every persona, applied from the next
-                    // message — so it is not on the Assistant page at all (#197).
+                    // each is its own tap. The persona is the one in use for the
+                    // whole account — the sheet switches it everywhere (#354). The
+                    // model is the assistant's — one for every persona, applied
+                    // from the next message — so it is not on the Assistant page
+                    // at all (#197).
                     Column(modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -834,7 +834,7 @@ private fun AssistantRow(
         if (isCurrent) {
             Icon(
                 Icons.Default.Check,
-                contentDescription = "Answering this conversation",
+                contentDescription = "In use",
                 tint = MaterialTheme.colorScheme.primary,
             )
         }
@@ -842,21 +842,17 @@ private fun AssistantRow(
 }
 
 /**
- * The per-conversation persona switch.
+ * The persona switch. It is the account's (#354): a pick is saved as the
+ * assistant's `selected_persona_id`, and every conversation — this one, the
+ * others, new ones, on every device — answers as it from the next turn. The
+ * subtitle says so, so the sheet does not read like a per-chat override.
  *
- * The subtitle is the whole contract: this conversation moves, the assistant's
- * selection does not. Without it the sheet reads like a global setting and every
- * future chat looks changed.
- *
- * The first row is the assistant itself — no persona (#302). A started chat is
- * handed to it with `persona_id: null`, and a chat that does not exist yet
- * starts with the assistant when its first message names nobody (#334).
+ * The first row is the assistant itself — no persona (#302).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PersonaSheet(
     modal: ChatModal.PersonaPicker,
-    selectedPersonaName: String?,
     currentPersonaId: Int?,
     baseUrl: String,
     onDismiss: () -> Unit,
@@ -870,11 +866,7 @@ private fun PersonaSheet(
         ) {
             Text("Persona", style = MaterialTheme.typography.titleLarge)
             Text(
-                text = if (selectedPersonaName != null) {
-                    "This conversation only — new chats stay with $selectedPersonaName"
-                } else {
-                    "This conversation only — new chats stay with the assistant"
-                },
+                text = "Saved to your account — every conversation answers as the persona in use",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -940,7 +932,7 @@ private fun PersonaSheet(
                     if (isCurrent) {
                         Icon(
                             Icons.Default.Check,
-                            contentDescription = "Answering this conversation",
+                            contentDescription = "In use",
                             tint = MaterialTheme.colorScheme.primary,
                         )
                     }

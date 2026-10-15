@@ -4,7 +4,7 @@
 - image uploads read whole into memory with no ceiling
 - the MCP orchestrator rebuilding every client on a thirty-second timer
 - a signing key written relative to the working directory
-- the tool-round cap ending a turn in silence, and colliding sub-agent tool names
+- the tool-round cap ending a turn in silence
 """
 
 import io
@@ -14,9 +14,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from kurisuassistant.agents.base import AssistantConfig, PersonaConfig, SubAgentConfig, AgentContext
+from kurisuassistant.agents.base import AssistantConfig, PersonaConfig, AgentContext
 from kurisuassistant.agents.main import MainAgent
-from kurisuassistant.agents.sub import SubAgent, SubAgentTool
 from kurisuassistant.tools import ToolRegistry
 
 
@@ -193,34 +192,8 @@ class TestSigningKeyLocation:
 
 
 # ---------------------------------------------------------------------------
-# Tool-round cap and sub-agent naming
+# Tool-round cap
 # ---------------------------------------------------------------------------
-
-class TestSubAgentToolNames:
-    def test_distinct_names_are_unchanged(self):
-        taken: set = set()
-        assert SubAgentTool._to_tool_name("Web Search", taken) == "web_search_agent"
-        assert SubAgentTool._to_tool_name("Planner", taken) == "planner_agent"
-
-    def test_colliding_names_are_disambiguated(self):
-        """"Web Search" and "web-search" both collapse to the same tool name."""
-        taken: set = set()
-        first = SubAgentTool._to_tool_name("Web Search", taken)
-        second = SubAgentTool._to_tool_name("web-search", taken)
-        third = SubAgentTool._to_tool_name("WEB_SEARCH", taken)
-
-        assert len({first, second, third}) == 3
-        assert second.startswith("web_search_agent")
-
-    def test_adapters_built_together_get_unique_names(self):
-        registry = ToolRegistry()
-        taken: set = set()
-        names = [
-            SubAgentTool(SubAgent(SubAgentConfig(id=i, name=n), registry), taken).name
-            for i, n in enumerate(["Web Search", "web-search"])
-        ]
-        assert len(set(names)) == 2
-
 
 class TestToolRoundCapIsAnnounced:
     async def test_the_user_is_told_the_turn_was_truncated(self):

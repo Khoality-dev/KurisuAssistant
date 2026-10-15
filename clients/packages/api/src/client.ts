@@ -32,9 +32,6 @@ import {
   type Skill,
   type SkillCreate,
   type SkillUpdate,
-  type SubAgent,
-  type SubAgentCreate,
-  type SubAgentUpdate,
   type ToolsResponse,
   type TTSModelsResponse,
   type TTSRequest,
@@ -264,37 +261,16 @@ class APIClient {
     return response.data;
   }
 
-  async getConversations(personaId?: number): Promise<Conversation[]> {
+  /**
+   * The account's conversations, newest first. A conversation carries no
+   * persona (#354), so there is nothing to filter on but the count.
+   */
+  async getConversations(limit?: number): Promise<Conversation[]> {
     const response = await this.client.get<Conversation[]>('/conversations', {
       headers: this.getHeaders(),
-      params: personaId ? { persona_id: personaId } : undefined,
+      params: limit ? { limit } : undefined,
     });
     return response.data;
-  }
-
-  /**
-   * The latest conversation the assistant answered as itself, with no persona
-   * (#302), or null. There is no server filter for a null binding, so it is
-   * picked from the full list.
-   */
-  async getLatestAssistantConversation(): Promise<Conversation | null> {
-    const answered = (await this.getConversations())
-      .filter((c) => c.persona_id === null && c.message_count > 0)
-      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-    return answered[0] ?? null;
-  }
-
-  /**
-   * The latest conversation bound to a persona, or null. `?persona_id=` returns a
-   * one-element list with no message_count and no last_message, so only the id is
-   * dependable here.
-   */
-  async getLatestConversationForPersona(personaId: number): Promise<Conversation | null> {
-    const response = await this.client.get<Conversation[]>('/conversations', {
-      headers: this.getHeaders(),
-      params: { persona_id: personaId },
-    });
-    return response.data.length > 0 ? response.data[0] : null;
   }
 
   async getConversation(
@@ -316,15 +292,14 @@ class APIClient {
   }
 
   /**
-   * Rename a conversation, rebind it to a persona, or both. Replaces the old
-   * POST /conversations/{id}. Omitted fields are untouched; `persona_id: null`
-   * hands it to the assistant itself (#302).
+   * Rename a conversation. A conversation has no persona to change (#354):
+   * switching persona is `updateAssistant({ selected_persona_id })`.
    */
   async patchConversation(
     id: number,
     data: ConversationUpdate,
-  ): Promise<{ id: number; title: string; persona_id: number | null }> {
-    const response = await this.client.patch<{ id: number; title: string; persona_id: number | null }>(
+  ): Promise<{ id: number; title: string }> {
+    const response = await this.client.patch<{ id: number; title: string }>(
       `/conversations/${id}`,
       data,
       { headers: this.getHeaders() }
@@ -603,7 +578,7 @@ class APIClient {
     return response.data;
   }
 
-  /** Create a persona. It does not become the default: only `updateAssistant` does that (#302). */
+  /** Create a persona. It is not put in use: only `updateAssistant` does that (#302, #354). */
   async createPersona(data: PersonaCreate): Promise<Persona> {
     const response = await this.client.post<Persona>('/personas', data, {
       headers: this.getHeaders(),
@@ -620,7 +595,7 @@ class APIClient {
 
   /**
    * Delete a persona, the last one included: the assistant answers without one
-   * (#302). Deleting the default leaves no default.
+   * (#302). Deleting the persona in use leaves none in use.
    */
   async deletePersona(id: number): Promise<void> {
     await this.client.delete(`/personas/${id}`, {
@@ -628,7 +603,7 @@ class APIClient {
     });
   }
 
-  /** Enable/disable a persona. Disabling the default clears the default (#302). */
+  /** Enable/disable a persona. Disabling the persona in use leaves none in use (#302). */
   async togglePersonaEnabled(id: number, enabled: boolean): Promise<Persona> {
     const response = await this.client.patch<Persona>(`/personas/${id}/enabled`, { enabled }, {
       headers: this.getHeaders(),
@@ -696,67 +671,6 @@ class APIClient {
     } catch (error) {
       throw toCharacterUploadError(error);
     }
-  }
-
-  // Sub-Agent Methods
-
-  /** List the user's sub-agents, enabled or not, oldest first. */
-  async listSubAgents(): Promise<SubAgent[]> {
-    const response = await this.client.get<SubAgent[]>('/sub-agents', {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  async getSubAgent(id: number): Promise<SubAgent> {
-    const response = await this.client.get<SubAgent>(`/sub-agents/${id}`, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  async createSubAgent(data: SubAgentCreate): Promise<SubAgent> {
-    const response = await this.client.post<SubAgent>('/sub-agents', data, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  async updateSubAgent(id: number, data: SubAgentUpdate): Promise<SubAgent> {
-    const response = await this.client.patch<SubAgent>(`/sub-agents/${id}`, data, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  async deleteSubAgent(id: number): Promise<void> {
-    await this.client.delete(`/sub-agents/${id}`, {
-      headers: this.getHeaders(),
-    });
-  }
-
-  async toggleSubAgentEnabled(id: number, enabled: boolean): Promise<SubAgent> {
-    const response = await this.client.patch<SubAgent>(`/sub-agents/${id}/enabled`, { enabled }, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  async exportSubAgent(id: number): Promise<Blob> {
-    const response = await this.client.get(`/sub-agents/${id}/export`, {
-      headers: this.getHeaders(),
-      responseType: 'blob',
-    });
-    return response.data;
-  }
-
-  async importSubAgent(file: File): Promise<SubAgent> {
-    const formData = new FormData();
-    formData.append('file', file);
-    const response = await this.client.post<SubAgent>('/sub-agents/import', formData, {
-      headers: this.getHeaders(),
-    });
-    return response.data;
   }
 
   // Tools Methods

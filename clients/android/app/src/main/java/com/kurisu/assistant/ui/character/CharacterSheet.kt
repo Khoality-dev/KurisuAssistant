@@ -29,8 +29,8 @@ fun CharacterSheet(
 ) {
     val state by viewModel.state.collectAsState()
 
-    // Bind to whoever is answering this conversation. The character used to be
-    // read off a nav argument the route never carried.
+    // Bind to the persona in use (#354). The character used to be read off a
+    // nav argument the route never carried.
     LaunchedEffect(personaId) { viewModel.bindPersona(personaId) }
 
     ModalBottomSheet(

@@ -1,18 +1,18 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
+  Button,
   Typography,
   List,
+  ListItem,
   ListItemButton,
   TextField,
   InputAdornment,
 } from '@mui/material';
-import { Search as SearchIcon } from '@mui/icons-material';
-import { usePersonaStore } from '@kurisu/state';
-import { storage } from '@kurisu/api';
+import { Search as SearchIcon, Add as AddIcon } from '@mui/icons-material';
 import { useConversationStore } from '@kurisu/state';
-import { ASSISTANT_NAME } from '@kurisu/models';
-import type { PersonaPreview } from '@kurisu/state';
+import { apiClient } from '@kurisu/api';
+import type { Conversation } from '@kurisu/models';
 
 function formatRelativeTime(dateStr: string | null | undefined): string {
   if (!dateStr) return '';
@@ -30,51 +30,53 @@ function formatRelativeTime(dateStr: string | null | undefined): string {
   return date.toLocaleDateString();
 }
 
-/** One row: the assistant itself (`id: null`) or a persona. */
-interface Row {
-  id: number | null;
-  name: string;
-  preview: PersonaPreview | null | undefined;
-}
-
+/**
+ * The account's conversations, newest first (#178, #354). A conversation is not
+ * tied to a persona — one persona, or none, answers in every conversation — so
+ * a row is a conversation: its title, when it last moved and how it ended.
+ * Opening one loads it in the chat panel beside this page.
+ */
 export const ConversationsPage: React.FC = () => {
-  const { personas, selectedPersonaId, selectPersona, personaPreviews, assistantPreview, loadPersonaPreviews } = usePersonaStore();
-  const { loadConversation } = useConversationStore();
-  const [search, setSearch] = React.useState('');
+  const currentId = useConversationStore((s) => s.currentConversation?.id ?? null);
+  const messageCount = useConversationStore((s) => s.messages.length);
+  const loadConversation = useConversationStore((s) => s.loadConversation);
+  const clearCurrentConversation = useConversationStore((s) => s.clearCurrentConversation);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [search, setSearch] = useState('');
 
+  // Read again whenever the open conversation changes or grows, so a reply
+  // moves its row to the top and a new chat's first message adds one.
   useEffect(() => {
-    loadPersonaPreviews();
-  }, [loadPersonaPreviews]);
+    let cancelled = false;
+    apiClient.getConversations()
+      .then((list) => { if (!cancelled) setConversations(list); })
+      .catch((err) => console.error('Failed to load conversations:', err))
+      .finally(() => { if (!cancelled) setLoaded(true); });
+    return () => { cancelled = true; };
+  }, [currentId, messageCount]);
 
-  const handleSelect = async (id: number | null) => {
-    selectPersona(id);
-    // Load the conversation this row is mapped to, if any.
-    const conversationId = storage.getPersonaConversationId(id ?? 'unbound');
-    if (conversationId) {
-      await loadConversation(conversationId);
-    }
-  };
-
-  // The assistant itself heads the list — a persona is optional, and its own
-  // conversations must stay reachable with none (#302) — then every persona.
-  // Sub-agents are a separate resource and never speak.
-  const rows: Row[] = [
-    { id: null, name: ASSISTANT_NAME, preview: assistantPreview },
-    ...personas.map((p) => ({ id: p.id, name: p.name, preview: personaPreviews[p.id] })),
-  ];
-  const filteredRows = search
-    ? rows.filter((r) => r.name.toLowerCase().includes(search.toLowerCase()))
-    : rows;
+  const query = search.trim().toLowerCase();
+  const rows = query
+    ? conversations.filter((c) =>
+      (c.title || '').toLowerCase().includes(query)
+      || (c.last_message?.content || '').toLowerCase().includes(query))
+    : conversations;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Header */}
       <Box sx={{ px: 3, pt: 3, pb: 2, flexShrink: 0 }}>
-        <Typography variant="h3" sx={{ mb: 2 }}>Conversations</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, gap: 2 }}>
+          <Typography variant="h3">Conversations</Typography>
+          <Button variant="outlined" size="small" startIcon={<AddIcon />} onClick={clearCurrentConversation}>
+            New chat
+          </Button>
+        </Box>
         <TextField
           size="small"
           fullWidth
-          placeholder="Search personas..."
+          placeholder="Search conversations..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           InputProps={{
@@ -87,43 +89,33 @@ export const ConversationsPage: React.FC = () => {
         />
       </Box>
 
-      {/* Persona list */}
       <List sx={{ flex: 1, overflow: 'auto', px: 1.5, py: 0 }}>
-        {filteredRows.map((row) => {
-          const preview = row.preview;
-          const hasMessage = !!preview?.lastMessage;
-          const timestamp = preview?.lastMessage?.created_at;
-          const messageText = preview?.lastMessage?.content;
-          const isSelected = row.id === selectedPersonaId;
+        {loaded && rows.length === 0 && (
+          <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1 }}>
+            {query ? 'No conversation matches.' : 'No conversations yet.'}
+          </Typography>
+        )}
+        {rows.map((conversation) => {
+          const isSelected = conversation.id === currentId;
+          const timestamp = conversation.last_message?.created_at ?? conversation.updated_at;
+          const preview = conversation.last_message?.content;
 
           return (
-            <ListItemButton
-              key={row.id ?? 'assistant'}
-              selected={isSelected}
-              onClick={() => handleSelect(row.id)}
-              sx={{
-                py: 1.5,
-                px: 2,
-                borderRadius: 1,
-                mb: 0.5,
-                transition: 'all 150ms ease',
-              }}
-            >
-              {/*
-                No avatar. The face was the same face repeated down the list —
-                it distinguished nothing and took the width the name and the
-                preview needed (#192).
-              */}
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 0.25 }}>
-                  <Typography
-                    variant="body2"
-                    sx={{ fontWeight: isSelected ? 700 : 500, fontSize: '0.875rem' }}
-                    noWrap
-                  >
-                    {row.name}
-                  </Typography>
-                  {hasMessage && (
+            <ListItem key={conversation.id} disablePadding sx={{ mb: 0.5 }}>
+              <ListItemButton
+                selected={isSelected}
+                onClick={() => { if (!isSelected) void loadConversation(conversation.id); }}
+                sx={{ py: 1.5, px: 2, borderRadius: 1, transition: 'all 150ms ease' }}
+              >
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 0.25 }}>
+                    <Typography
+                      variant="body2"
+                      sx={{ fontWeight: isSelected ? 700 : 500, fontSize: '0.875rem' }}
+                      noWrap
+                    >
+                      {conversation.title || 'New conversation'}
+                    </Typography>
                     <Typography
                       variant="caption"
                       sx={{
@@ -136,17 +128,17 @@ export const ConversationsPage: React.FC = () => {
                     >
                       {formatRelativeTime(timestamp)}
                     </Typography>
-                  )}
+                  </Box>
+                  <Typography
+                    variant="body2"
+                    sx={{ color: 'text.secondary', fontSize: '0.8rem' }}
+                    noWrap
+                  >
+                    {preview || 'No messages yet'}
+                  </Typography>
                 </Box>
-                <Typography
-                  variant="body2"
-                  sx={{ color: 'text.secondary', fontSize: '0.8rem' }}
-                  noWrap
-                >
-                  {hasMessage ? messageText : 'No messages yet'}
-                </Typography>
-              </Box>
-            </ListItemButton>
+              </ListItemButton>
+            </ListItem>
           );
         })}
       </List>

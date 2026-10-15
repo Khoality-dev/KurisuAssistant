@@ -101,7 +101,8 @@ class ChatViewModelModelTest {
         coEvery { assistantRepo.getAssistant() } returns assistant()
         coEvery { assistantRepo.listModels() } returns listOf(qwen, gemini)
         coEvery { personaRepo.listPersonas() } returns listOf(kurisu)
-        coEvery { personaRepo.getConversationIdForPersona(kurisu.id) } returns 421
+        // The Chats list chose this conversation: the chat opens on it.
+        coreState.setConversationId(421)
         coEvery { convRepo.getConversation(421, 20, 0) } returns ConversationDetail(
             id = 421,
             title = "Halden invoice",
@@ -111,7 +112,6 @@ class ChatViewModelModelTest {
             offset = 0,
             limit = 20,
             hasMore = false,
-            personaId = kurisu.id,
         )
     }
 
@@ -171,12 +171,11 @@ class ChatViewModelModelTest {
                 )
             }
             // The header names the new model; the sheet is gone; the
-            // conversation and its persona did not move.
+            // conversation and the persona in use did not move.
             assertThat(vm.state.value.assistant?.modelName).isEqualTo("gemini-2.0-flash")
             assertThat(vm.state.value.modal).isNull()
             assertThat(vm.state.value.persona?.id).isEqualTo(kurisu.id)
             assertThat(vm.state.value.conversationId).isEqualTo(421)
-            coVerify(exactly = 0) { convRepo.setConversationPersona(any(), any()) }
         }
 
     @Test

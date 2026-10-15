@@ -1,9 +1,10 @@
 /**
  * App config tools — let the assistant manage settings, MCP servers, and vision.
  *
- * The assistant/persona/sub-agent split is visible here: capability lives on the
- * one assistant (`app_*_assistant`), presentation on many personas
- * (`app_*_persona`), and delegated work on sub-agents (`app_*_sub_agent`). Every
+ * The assistant/persona split is visible here: capability lives on the one
+ * assistant (`app_*_assistant`), presentation on many personas
+ * (`app_*_persona`). There are no saved sub-agents to manage: the assistant
+ * spawns its own through the backend's `delegate_task` (#354). Every
  * name in APP_TOOL_NAMES must have a case in `src/services/appToolsHandler.ts` —
  * a schema with no handler is advertised to the model, costs tokens in every
  * tool list, and answers "Unknown app tool" when called.
@@ -37,10 +38,6 @@ const APP_TOOL_NAMES = new Set([
   'app_create_persona',
   'app_update_persona',
   'app_delete_persona',
-  'app_get_sub_agents',
-  'app_create_sub_agent',
-  'app_update_sub_agent',
-  'app_delete_sub_agent',
   'app_list_mcp_servers',
   'app_add_mcp_server',
   'app_update_mcp_server',
@@ -98,12 +95,12 @@ function getAppToolSchemas(): ToolSchema[] {
             trigger_word: {
               type: 'string',
               description:
-                'Voice wake word. Saying it wakes the assistant; the conversation\'s bound persona answers. It selects no persona.',
+                'Voice wake word. Saying it wakes the assistant; the persona in use answers. It selects no persona.',
             },
             selected_persona_id: {
               type: 'integer',
               description:
-                'Persona the chat is on — who answers new chats, on every device. Send null for the assistant itself, with no persona.',
+                'The persona in use for the whole account — who answers every conversation, on every device. Send null for the assistant itself, with no persona.',
             },
           },
           required: [],
@@ -176,81 +173,6 @@ function getAppToolSchemas(): ToolSchema[] {
             persona_id: { type: 'integer', description: 'ID of the persona to delete.' },
           },
           required: ['persona_id'],
-        },
-      },
-    },
-    // --- Sub-agents (task-only workers) ---
-    {
-      type: 'function',
-      function: {
-        name: 'app_get_sub_agents',
-        description:
-          'List sub-agents. A sub-agent is a worker the assistant delegates a task to mid-answer: ' +
-          'its own model and tools, but no name shown to the user, no voice, no memory.',
-        parameters: { type: 'object', properties: {}, required: [] },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'app_create_sub_agent',
-        description: 'Create a sub-agent the assistant can delegate to.',
-        parameters: {
-          type: 'object',
-          properties: {
-            name: { type: 'string', description: 'Name the assistant calls it by.' },
-            description: { type: 'string', description: 'What this sub-agent is for — the assistant reads this to decide when to delegate.' },
-            system_prompt: { type: 'string', description: 'Task instructions.' },
-            model_name: { type: 'string', description: "LLM model name. Omit to use the assistant's model." },
-            provider_type: { type: 'string', enum: ['ollama', 'gemini', 'nvidia'], description: 'LLM provider.' },
-            available_tools: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Allowlist of tool names (omit for every tool).',
-            },
-            think: { type: 'boolean', description: 'Enable extended reasoning.' },
-          },
-          required: ['name'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'app_update_sub_agent',
-        description: 'Update a sub-agent. Only provide fields you want to change.',
-        parameters: {
-          type: 'object',
-          properties: {
-            sub_agent_id: { type: 'integer', description: 'ID of the sub-agent to update.' },
-            name: { type: 'string', description: 'New name.' },
-            description: { type: 'string', description: 'New description.' },
-            system_prompt: { type: 'string', description: 'New task instructions.' },
-            model_name: { type: 'string', description: 'LLM model name.' },
-            provider_type: { type: 'string', enum: ['ollama', 'gemini', 'nvidia'], description: 'LLM provider.' },
-            available_tools: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Allowlist of tool names.',
-            },
-            think: { type: 'boolean', description: 'Enable extended reasoning.' },
-            enabled: { type: 'boolean', description: 'Enable or disable the sub-agent.' },
-          },
-          required: ['sub_agent_id'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'app_delete_sub_agent',
-        description: 'Delete a sub-agent by ID.',
-        parameters: {
-          type: 'object',
-          properties: {
-            sub_agent_id: { type: 'integer', description: 'ID of the sub-agent to delete.' },
-          },
-          required: ['sub_agent_id'],
         },
       },
     },

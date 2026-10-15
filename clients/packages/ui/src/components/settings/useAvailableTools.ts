@@ -9,10 +9,9 @@ import { useCapabilities } from '@kurisu/hooks';
 const INTERNAL_TOOLS = ['play_music', 'music_control', 'get_music_queue'];
 
 /**
- * Every tool an assistant or a sub-agent can be allowed to call: the backend's
- * MCP + built-in tools, plus the client-side host/app tools this Electron
- * process exposes. Both the assistant form and the sub-agent form pick from the
- * same list, so it is assembled once here.
+ * Every tool the assistant can be allowed to call: the backend's MCP + built-in
+ * tools, plus the client-side host/app tools this Electron process exposes. A
+ * sub-agent the assistant spawns is held to the same allowlist (#354).
  */
 export function useAvailableTools(onError?: (message: string) => void) {
   const [tools, setTools] = useState<Tool[]>([]);

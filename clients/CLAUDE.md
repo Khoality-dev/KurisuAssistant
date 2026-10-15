@@ -79,7 +79,7 @@ Phases 1 to 3 of #128. `apps/desktop` is now the Electron shell and nothing else
 main process, `main.tsx`, the packaging config and the end-to-end suite.
 
 The app-tool schema table is still in `apps/desktop/electron/appTools.ts`, while the
-dispatch that implements all 26 of those tools is in `packages/state` and needs no
+dispatch that implements all 23 of those tools is in `packages/state` and needs no
 Electron at all. `apps/desktop/tests/appTools.test.ts` reads both files across that
 seam to keep them in step. Moving the table down is what makes the assistant's own
 tools work anywhere.

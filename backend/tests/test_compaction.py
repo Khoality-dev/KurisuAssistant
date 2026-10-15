@@ -47,8 +47,8 @@ def find_event(ws, event_type: str):
     return found[0] if found else None
 
 
-def setup_db_prefs(monkeypatch, summary_model="qwen3:1.7b", persona_id=42):
-    """Patch get_db_service so the handler reads canned prefs and persona id."""
+def setup_db_prefs(monkeypatch, summary_model="qwen3:1.7b"):
+    """Patch get_db_service so the handler reads canned prefs."""
     db = MagicMock()
 
     def execute_sync(fn):
@@ -56,7 +56,7 @@ def setup_db_prefs(monkeypatch, summary_model="qwen3:1.7b", persona_id=42):
 
     def dispatch(fn):
         return {
-            "_get_prefs": (summary_model, "ollama", None, None, None, None, persona_id),
+            "_get_prefs": (summary_model, "ollama", None, None, None, None),
             "_get_ctx": 8192,
             # The in-place write returns nothing; it must not blow up here.
             "_write": None,

@@ -70,8 +70,8 @@ fun MessageBubble(
         MaterialTheme.colorScheme.primary
     }
 
-    // Who said this — the persona stamped on THIS message, not whoever the
-    // conversation is bound to now. Switching persona must not rewrite history
+    // Who said this — the persona stamped on THIS message, not the persona in
+    // use now (#354). Switching persona must not rewrite history
     // by making yesterday's answers look like they came from today's speaker.
     val speaker = message.personaName ?: message.persona?.name ?: message.name
     val label = if (isUser) "You" else (speaker ?: message.role.replaceFirstChar { it.uppercase() })

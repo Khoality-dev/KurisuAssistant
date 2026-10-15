@@ -29,7 +29,6 @@ class User(Base):
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     personas = relationship("Persona", back_populates="user", cascade="all, delete-orphan")
-    sub_agents = relationship("SubAgent", back_populates="user", cascade="all, delete-orphan")
     # One assistant per user — the capability half of the old Agent.
     assistant = relationship(
         "Assistant", back_populates="user", uselist=False, cascade="all, delete-orphan"
@@ -42,12 +41,8 @@ class Conversation(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     title = Column(Text, default='New conversation')
-    # Persona bound to this conversation — who answers. Null = the assistant itself
-    # (#302). A conversation nothing has answered yet takes the user's default persona
-    # (or an explicit override) at its first message; one already answered keeps what it
-    # has. There is no trigger-word routing here: the trigger word wakes the assistant,
-    # it does not choose the voice.
-    persona_id = Column(Integer, ForeignKey('personas.id', ondelete='SET NULL'), nullable=True)
+    # No persona: a conversation is not tied to one (#354). Who answers is the
+    # persona in use for the whole account, ``assistants.selected_persona_id``.
     compacted_context = Column(Text, nullable=False, default="", server_default="")
     compacted_up_to_id = Column(Integer, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -71,7 +66,6 @@ class Conversation(Base):
 
     user = relationship("User", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
-    persona = relationship("Persona", foreign_keys=[persona_id])
 
 
 class Message(Base):
@@ -107,6 +101,9 @@ class Message(Base):
     context_files = Column(JSON, nullable=True)
     images = Column(JSON, nullable=True)
     conversation_id = Column(Integer, ForeignKey('conversations.id', ondelete='CASCADE'), nullable=False)
+    # Who spoke: the persona in use when this assistant message was written. A
+    # record of the past, not a binding — the next turn answers as whoever is
+    # in use then (#354).
     persona_id = Column(Integer, ForeignKey('personas.id', ondelete='SET NULL'), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -130,9 +127,9 @@ class Persona(Base):
 
     A persona carries presentation only. It owns no model, no tools and no memory —
     those belong to the user's single :class:`Assistant`, so swapping persona changes
-    the voice without changing what the assistant can do or remember. A conversation
-    binds to exactly one persona (``conversations.persona_id``) and each message
-    records the persona that produced it (``messages.persona_id``).
+    the voice without changing what the assistant can do or remember. One persona,
+    or none, is in use for the whole account (``assistants.selected_persona_id``,
+    #354); each message records the persona that produced it (``messages.persona_id``).
     """
     __tablename__ = 'personas'
 
@@ -185,14 +182,14 @@ class Assistant(Base):
     memory = Column(Text, nullable=True)
     memory_enabled = Column(Boolean, default=True, nullable=False)
 
-    # Voice wake word. Assistant-level: saying it wakes the assistant, and the bound
-    # persona answers. It does not select a persona.
+    # Voice wake word. Assistant-level: saying it wakes the assistant, and the
+    # persona in use answers. It does not select a persona.
     trigger_word = Column(String, nullable=True)
 
-    # Who the account's chat is on (#334): a client reads it when it opens and
-    # writes it when the user picks someone. Null = the assistant itself (#302),
-    # where a new account starts and where deleting or disabling the persona
-    # returns it. The chat path never applies it — a request names its persona.
+    # The persona in use for the whole account (#334, #354): every turn, in any
+    # conversation and on every device, answers as it. Null = the assistant itself
+    # (#302), where a new account starts and where deleting or disabling the
+    # persona returns it.
     selected_persona_id = Column(
         Integer, ForeignKey('personas.id', ondelete='SET NULL'), nullable=True
     )
@@ -200,36 +197,6 @@ class Assistant(Base):
 
     user = relationship("User", back_populates="assistant")
     selected_persona = relationship("Persona", foreign_keys=[selected_persona_id])
-
-
-class SubAgent(Base):
-    """A task-only worker the assistant calls mid-answer.
-
-    Has its own model and tools because it runs its own LLM loop, but no identity: it
-    never speaks to the user and is never bound to a conversation. It carries no memory
-    — the consolidation pipeline only ever wrote main-agent memory, so a ``memory``
-    column here could never be filled.
-    """
-    __tablename__ = 'sub_agents'
-
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
-    name = Column(String, nullable=False)
-    description = Column(String, default='', nullable=False)
-    system_prompt = Column(Text, default='')
-
-    model_name = Column(String, nullable=True)
-    provider_type = Column(String, default='ollama', nullable=False)
-    available_tools = Column(JSON, nullable=True)
-    think = Column(Boolean, default=False, nullable=False)
-    use_deferred_tools = Column(Boolean, default=False, nullable=False)
-
-    enabled = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    __table_args__ = (UniqueConstraint('user_id', 'name', name='uq_sub_agent_user_id_name'),)
-
-    user = relationship("User", back_populates="sub_agents")
 
 
 class Skill(Base):

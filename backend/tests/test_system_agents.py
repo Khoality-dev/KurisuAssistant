@@ -1,6 +1,6 @@
 """System tests: what the assistant does beyond answering (#311).
 
-Sub-agents, skills, a server-side MCP tool, memory written after an idle
+A spawned sub-agent, skills, a server-side MCP tool, memory written after an idle
 conversation, and a conversation compacting itself when it outgrows its window —
 each through the real app, a real Postgres and the mock Ollama. Before this,
 sub-agents had no test past their tool names, skills a source grep, MCP a
@@ -72,53 +72,47 @@ def system_text(request):
 
 
 class TestSubAgents:
-    def test_the_assistant_delegates_and_the_sub_agent_answers_with_its_own_prompt(self, account, mock_ollama):
-        account.client.post(
-            "/sub-agents",
-            json={"name": "Researcher", "description": "Looks things up", "system_prompt": "You are a meticulous researcher.",
-                  "available_tools": ["drive_read"]},
-            headers=account.headers,
-        )
-        allow(account, "researcher_agent")
+    """The assistant spawns a sub-agent when it needs help (#354).
+
+    There is nothing to set up: no saved sub-agents and no ``/sub-agents`` routes.
+    ``delegate_task`` hands a task to a fresh sub-agent that runs on the
+    assistant's own model and tools, and its answer comes back as the tool result.
+    """
+
+    def test_the_assistant_spawns_a_sub_agent_on_its_own_model_and_tools(self, account, mock_ollama):
+        allow(account, "delegate_task")
         mock_ollama.state.script(
-            Reply(tool_calls=[ToolCall("researcher_agent", {"task": "What is the answer?"})]),
+            Reply(tool_calls=[ToolCall("delegate_task", {"task": "What is the answer?"})]),
             Reply(content="The answer is 42."),
-            Reply(content="My researcher says 42."),
+            Reply(content="My helper says 42."),
         )
 
-        events = turn(account, "ask the researcher")
+        events = turn(account, "ask a helper")
 
         assert events[-1]["type"] == "done"
-        assert text_of(events) == "My researcher says 42."
+        assert text_of(events) == "My helper says 42."
         main_first, sub, main_second = chat_requests(mock_ollama, 3)
-        assert "researcher_agent" in tool_names(main_first)
-        assert "You are a meticulous researcher." in system_text(sub)
+        assert "delegate_task" in tool_names(main_first)
+        assert sub["model"] == main_first["model"] == DEFAULT_MODEL, "the assistant's own model"
         assert sub["messages"][-1] == {"role": "user", "content": "What is the answer?"}
-        # Built-in tools are every agent's; the allowlist narrows the rest.
-        from kurisuassistant.tools.registry import tool_registry
-
-        built_in = {t.name for t in tool_registry._tools.values() if t.built_in}
-        assert tool_names(sub) - built_in == {"drive_read"}, "the sub-agent is offered only its own tools"
-        assert "drive_write" in tool_names(main_first), "the assistant itself is not narrowed"
+        assert tool_names(sub) == tool_names(main_first) - {"delegate_task"}, (
+            "the assistant's own tools, minus spawning another sub-agent"
+        )
+        assert "Your memory" not in system_text(sub), "a sub-agent holds no memory"
         assert [m["content"] for m in main_second["messages"] if m["role"] == "tool"] == ["The answer is 42."]
 
     def test_a_delegated_step_keeps_its_tag_model_and_duration_once_the_turn_is_reloaded(self, account, mock_ollama):
         """The stream says a tool row was a sub-agent's, which model ran it and for
         how long; the history used to drop all three, so the tag was gone as soon
         as a client reloaded the finished turn or reopened the chat (#327)."""
-        account.client.post(
-            "/sub-agents",
-            json={"name": "Researcher", "model_name": DEFAULT_MODEL},
-            headers=account.headers,
-        )
-        allow(account, "researcher_agent")
+        allow(account, "delegate_task")
         mock_ollama.state.script(
-            Reply(tool_calls=[ToolCall("researcher_agent", {"task": "What is the answer?"})]),
+            Reply(tool_calls=[ToolCall("delegate_task", {"task": "What is the answer?"})]),
             Reply(content="The answer is 42."),
-            Reply(content="My researcher says 42."),
+            Reply(content="My helper says 42."),
         )
 
-        events = turn(account, "ask the researcher")
+        events = turn(account, "ask a helper")
         streamed = [e for e in events if e["type"] == "stream_chunk" and e.get("role") == "tool"]
         assert [(e["tool_kind"], e.get("model_name")) for e in streamed] == [("sub_agent", DEFAULT_MODEL)]
 
@@ -145,13 +139,28 @@ class TestSubAgents:
         assert row["tool_kind"] == "tool"
         assert "model_name" not in row, "an ordinary tool runs no model of its own"
 
-    def test_a_disabled_sub_agent_is_not_offered(self, account, mock_ollama):
-        sub = account.client.post("/sub-agents", json={"name": "Researcher"}, headers=account.headers).json()
-        account.client.patch(f"/sub-agents/{sub['id']}/enabled", json={"enabled": False}, headers=account.headers)
+    def test_an_assistant_narrowed_to_some_tools_hands_its_sub_agent_the_same(self, account, mock_ollama):
+        resp = account.client.patch("/assistant", json={"available_tools": ["drive_read"]}, headers=account.headers)
+        assert resp.status_code == 200, resp.text
+        allow(account, "delegate_task")
+        mock_ollama.state.script(
+            Reply(tool_calls=[ToolCall("delegate_task", {"task": "Read my notes."})]),
+            Reply(content="Done."),
+            Reply(content="All read."),
+        )
 
-        turn(account, "hello")
+        turn(account, "read my notes via a helper")
 
-        assert "researcher_agent" not in tool_names(mock_ollama.state.requests_to("/api/chat")[0])
+        main_first, sub, _ = chat_requests(mock_ollama, 3)
+        from kurisuassistant.tools.registry import tool_registry
+
+        built_in = {t.name for t in tool_registry._tools.values() if t.built_in}
+        assert tool_names(sub) - built_in == {"drive_read"}
+        assert "drive_write" not in tool_names(sub)
+
+    def test_there_are_no_saved_sub_agents(self, account):
+        assert account.client.get("/sub-agents", headers=account.headers).status_code == 404
+        assert account.client.post("/sub-agents", json={"name": "Researcher"}, headers=account.headers).status_code == 404
 
 
 class TestSkills:

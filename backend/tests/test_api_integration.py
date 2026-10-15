@@ -37,12 +37,14 @@ class TestEventParsing:
             "text": "hello",
             "model_name": "qwen3.5:0.8b",
             "conversation_id": None,
-            "persona_id": None,
+            # A client before #354 still sends it; it names nobody now.
+            "persona_id": 7,
         }
         event = parse_event(data)
         assert isinstance(event, ChatRequestEvent)
         assert event.text == "hello"
         assert event.model_name == "qwen3.5:0.8b"
+        assert not hasattr(event, "persona_id"), "who answers is the account's, not the request's"
 
     def test_parse_chat_request_with_images(self):
         data = {

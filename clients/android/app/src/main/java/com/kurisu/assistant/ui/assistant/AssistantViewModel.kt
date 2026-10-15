@@ -4,12 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kurisu.assistant.data.model.Assistant
 import com.kurisu.assistant.data.model.AssistantUpdate
-import com.kurisu.assistant.data.model.ModelInfo
-import com.kurisu.assistant.data.model.SubAgent
-import com.kurisu.assistant.data.model.SubAgentCreate
-import com.kurisu.assistant.data.model.SubAgentUpdate
 import com.kurisu.assistant.data.repository.AssistantRepository
-import com.kurisu.assistant.data.repository.SubAgentRepository
 import com.kurisu.assistant.data.repository.ToolsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,14 +16,15 @@ import javax.inject.Inject
 /**
  * The Assistant screen's state.
  *
- * Everything here except [subAgents] is one row — `PATCH /assistant`. The screen
- * deliberately holds no per-persona copy of a model, a tool list or a memory
- * document: under wire protocol 4 those are the assistant's, and a persona that
- * carried its own would be the old "main agent" coming back.
+ * Everything here is one row — `PATCH /assistant`. The screen deliberately holds
+ * no per-persona copy of a model, a tool list or a memory document: under wire
+ * protocol 4 those are the assistant's, and a persona that carried its own would
+ * be the old "main agent" coming back. There are no sub-agents to set up either
+ * (#354): the assistant spawns one itself when it needs help.
  *
- * The assistant's model is not set from here either. It is picked from the chat
- * header (`ChatViewModel.pickModel`), and the default persona from the Personas
- * screen (#197). [availableModels] survives for the sub-agent editor's dropdown.
+ * The assistant's model is not set from here. It is picked from the chat header
+ * (`ChatViewModel.pickModel`), and the persona in use from the Personas screen
+ * (#197).
  */
 data class AssistantUiState(
     val isLoading: Boolean = true,
@@ -38,10 +34,7 @@ data class AssistantUiState(
     val message: String? = null,
 
     val assistant: Assistant? = null,
-    val subAgents: List<SubAgent> = emptyList(),
 
-    val availableModels: List<ModelInfo> = emptyList(),
-    val isRefreshingModels: Boolean = false,
     /** Every tool the backend offers, built-in and MCP, by name. */
     val allToolNames: List<String> = emptyList(),
 
@@ -54,18 +47,6 @@ data class AssistantUiState(
     // ── Tool picker ──
     val toolPickerOpen: Boolean = false,
     val toolDraft: Set<String> = emptySet(),
-
-    // ── Sub-agent editor ──
-    val subEditorOpen: Boolean = false,
-    val editingSubAgent: SubAgent? = null,
-    val subDraftName: String = "",
-    val subDraftDescription: String = "",
-    val subDraftModelName: String = "",
-    val subDraftSystemPrompt: String = "",
-    val subDraftThink: Boolean = false,
-    val subDraftTools: Set<String> = emptySet(),
-
-    val deletingSubAgent: SubAgent? = null,
 ) {
     /** null `available_tools` means "every tool"; an empty list means none. */
     val usesEveryTool: Boolean get() = assistant?.availableTools == null
@@ -84,7 +65,6 @@ data class AssistantUiState(
 @HiltViewModel
 class AssistantViewModel @Inject constructor(
     private val assistantRepository: AssistantRepository,
-    private val subAgentRepository: SubAgentRepository,
     private val toolsRepository: ToolsRepository,
 ) : ViewModel() {
 
@@ -100,8 +80,7 @@ class AssistantViewModel @Inject constructor(
             _state.update { it.copy(isLoading = true, loadError = null) }
             try {
                 val assistant = assistantRepository.getAssistant()
-                val subAgents = subAgentRepository.listSubAgents()
-                _state.update { it.copy(assistant = assistant, subAgents = subAgents) }
+                _state.update { it.copy(assistant = assistant) }
             } catch (e: Exception) {
                 // A first load that fails leaves the screen with nothing to draw,
                 // so it becomes a retryable screen state. A REFRESH that fails
@@ -116,26 +95,11 @@ class AssistantViewModel @Inject constructor(
                 _state.update { it.copy(isLoading = false) }
             }
 
-            // Editor inputs. A failure here costs a dropdown, not the screen.
-            refreshModels()
+            // The tool picker's input. A failure here costs a list, not the screen.
             runCatching {
                 val tools = toolsRepository.listTools()
                 (tools.builtinTools + tools.mcpTools).map { it.function.name }.distinct().sorted()
             }.onSuccess { names -> _state.update { it.copy(allToolNames = names) } }
-        }
-    }
-
-    fun refreshModels() {
-        viewModelScope.launch {
-            _state.update { it.copy(isRefreshingModels = true) }
-            try {
-                val models = assistantRepository.listModels()
-                _state.update { it.copy(availableModels = models) }
-            } catch (e: Exception) {
-                _state.update { it.copy(message = apiErrorMessage(e, "Could not load models")) }
-            } finally {
-                _state.update { it.copy(isRefreshingModels = false) }
-            }
         }
     }
 
@@ -227,135 +191,5 @@ class AssistantViewModel @Inject constructor(
         _state.update { it.copy(toolPickerOpen = false) }
         if (chosen.toSet() == s.assistant?.availableTools?.toSet()) return
         patchAssistant(AssistantUpdate(availableTools = chosen))
-    }
-
-    // ─── Sub-agents ───────────────────────────────────────────────────
-
-    fun openNewSubAgent() = _state.update {
-        it.copy(
-            subEditorOpen = true,
-            editingSubAgent = null,
-            subDraftName = "",
-            subDraftDescription = "",
-            subDraftModelName = it.assistant?.modelName
-                ?: it.availableModels.firstOrNull()?.name.orEmpty(),
-            subDraftSystemPrompt = "",
-            subDraftThink = false,
-            subDraftTools = emptySet(),
-        )
-    }
-
-    fun openSubAgentEditor(subAgent: SubAgent) = _state.update {
-        it.copy(
-            subEditorOpen = true,
-            editingSubAgent = subAgent,
-            subDraftName = subAgent.name,
-            subDraftDescription = subAgent.description,
-            subDraftModelName = subAgent.modelName.orEmpty(),
-            subDraftSystemPrompt = subAgent.systemPrompt,
-            subDraftThink = subAgent.think,
-            subDraftTools = subAgent.availableTools?.toSet() ?: emptySet(),
-        )
-    }
-
-    fun dismissSubAgentEditor() =
-        _state.update { it.copy(subEditorOpen = false, editingSubAgent = null) }
-
-    fun setSubDraftName(v: String) = _state.update { it.copy(subDraftName = v) }
-    fun setSubDraftDescription(v: String) = _state.update { it.copy(subDraftDescription = v) }
-    fun setSubDraftModelName(v: String) = _state.update { it.copy(subDraftModelName = v) }
-    fun setSubDraftSystemPrompt(v: String) = _state.update { it.copy(subDraftSystemPrompt = v) }
-    fun setSubDraftThink(v: Boolean) = _state.update { it.copy(subDraftThink = v) }
-
-    fun toggleSubDraftTool(name: String) = _state.update {
-        it.copy(
-            subDraftTools =
-                if (name in it.subDraftTools) it.subDraftTools - name else it.subDraftTools + name
-        )
-    }
-
-    fun saveSubAgent() {
-        val s = _state.value
-        val name = s.subDraftName.trim()
-        if (name.isBlank()) {
-            _state.update { it.copy(message = "Name is required") }
-            return
-        }
-        val model = s.subDraftModelName.trim()
-        if (model.isBlank()) {
-            _state.update { it.copy(message = "Model is required") }
-            return
-        }
-        // An empty tool set means "no tools" on update, but on create it is the
-        // difference between an explicit empty list and "inherit every tool" —
-        // send null there so a new worker is not born unable to do anything.
-        val tools = s.allToolNames.filter { it in s.subDraftTools }
-        val editing = s.editingSubAgent
-
-        viewModelScope.launch {
-            _state.update { it.copy(isSaving = true) }
-            try {
-                if (editing != null) {
-                    subAgentRepository.updateSubAgent(
-                        editing.id,
-                        SubAgentUpdate(
-                            name = name,
-                            description = s.subDraftDescription.trim(),
-                            systemPrompt = s.subDraftSystemPrompt,
-                            modelName = model,
-                            think = s.subDraftThink,
-                            availableTools = tools,
-                        ),
-                    )
-                    _state.update { it.copy(message = "Sub-agent updated") }
-                } else {
-                    subAgentRepository.createSubAgent(
-                        SubAgentCreate(
-                            name = name,
-                            description = s.subDraftDescription.trim().ifBlank { null },
-                            systemPrompt = s.subDraftSystemPrompt.ifBlank { null },
-                            modelName = model,
-                            think = s.subDraftThink,
-                            availableTools = tools.ifEmpty { null },
-                        ),
-                    )
-                    _state.update { it.copy(message = "Sub-agent created") }
-                }
-                _state.update { it.copy(subEditorOpen = false, editingSubAgent = null) }
-                reloadSubAgents()
-            } catch (e: Exception) {
-                _state.update { it.copy(message = apiErrorMessage(e, "Could not save the sub-agent")) }
-            } finally {
-                _state.update { it.copy(isSaving = false) }
-            }
-        }
-    }
-
-    fun confirmDeleteSubAgent(subAgent: SubAgent) =
-        _state.update { it.copy(deletingSubAgent = subAgent) }
-
-    fun dismissDeleteSubAgent() = _state.update { it.copy(deletingSubAgent = null) }
-
-    fun deleteSubAgent() {
-        val subAgent = _state.value.deletingSubAgent ?: return
-        viewModelScope.launch {
-            try {
-                subAgentRepository.deleteSubAgent(subAgent.id)
-                _state.update { it.copy(deletingSubAgent = null, message = "${subAgent.name} deleted") }
-                reloadSubAgents()
-            } catch (e: Exception) {
-                _state.update {
-                    it.copy(
-                        deletingSubAgent = null,
-                        message = apiErrorMessage(e, "Could not delete the sub-agent"),
-                    )
-                }
-            }
-        }
-    }
-
-    private suspend fun reloadSubAgents() {
-        runCatching { subAgentRepository.listSubAgents() }
-            .onSuccess { list -> _state.update { it.copy(subAgents = list) } }
     }
 }

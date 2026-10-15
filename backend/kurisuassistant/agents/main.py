@@ -48,8 +48,8 @@ class MainAgent(BaseAgent):
 
     - Persona + memory + skills + compacted context are folded into the
       system prompt by ``_prepare_messages``.
-    - ``extra_tools`` is a handler-injected list (SubAgentTool adapters,
-      etc.) mixed into the tool schemas presented to the LLM.
+    - ``extra_tools`` is a handler-injected list (``delegate_task``, which
+      spawns a sub-agent) mixed into the tool schemas presented to the LLM.
     - ``process`` yields StreamChunkEvent for every content/thinking/tool
       chunk produced during the LLM loop.
 
@@ -60,26 +60,18 @@ class MainAgent(BaseAgent):
         super().__init__(capabilities, tool_registry, identity=identity)
         self.turn_data: List[Dict] = []
 
-    def _sub_agent_tool(self, tool_name: str):
-        """The injected SubAgentTool adapter ``tool_name`` resolves to, or None."""
-        from .sub import SubAgentTool
-        for extra_tool in getattr(self, "extra_tools", None) or []:
-            if isinstance(extra_tool, SubAgentTool) and extra_tool.name == tool_name:
-                return extra_tool
-        return None
-
-    def _is_sub_agent_tool(self, tool_name: str) -> bool:
-        """Whether ``tool_name`` resolves to an injected SubAgentTool adapter.
+    def _delegate_tool(self, tool_name: str):
+        """The injected ``delegate_task`` tool ``tool_name`` resolves to, or None.
 
         The client tags a tool chunk as a delegation from this; it cannot work
-        it out itself, because a sub-agent is exposed to the LLM as an ordinary
-        function call with no marker in the name.
+        it out itself, because spawning a sub-agent is exposed to the LLM as an
+        ordinary function call.
         """
-        from .sub import SubAgentTool
+        from .sub import DelegateTaskTool
         for extra_tool in getattr(self, "extra_tools", None) or []:
-            if isinstance(extra_tool, SubAgentTool) and extra_tool.name == tool_name:
-                return True
-        return False
+            if isinstance(extra_tool, DelegateTaskTool) and extra_tool.name == tool_name:
+                return extra_tool
+        return None
 
     def _new_emotion_source(self) -> "EmotionSource | None":
         """A fresh stripper for one LLM round, or None when the persona has no channel.
@@ -125,22 +117,6 @@ class MainAgent(BaseAgent):
     ) -> List[Dict]:
         """Prepare messages for LLM: build the system prompt."""
         import datetime
-
-        # Build dynamic sub-agent delegation guide from injected SubAgentTool
-        # adapters. The set of sub-agents is per-user and runtime-mutable, so
-        # it must be assembled here rather than baked into stored prompts.
-        from .sub import SubAgentTool
-        sub_agent_lines = []
-        if hasattr(self, "extra_tools") and self.extra_tools:
-            for extra_tool in self.extra_tools:
-                if not isinstance(extra_tool, SubAgentTool):
-                    continue
-                sub_cfg = extra_tool.sub.config
-                desc = sub_cfg.description or (
-                    (sub_cfg.system_prompt or "")[:150] if sub_cfg.system_prompt else ""
-                )
-                desc = desc.strip() or "specialized worker"
-                sub_agent_lines.append(f"- `{extra_tool.name}` — {sub_cfg.name}: {desc}")
 
         system_parts = []
 
@@ -202,15 +178,6 @@ class MainAgent(BaseAgent):
 
         if context.compacted_context:
             system_parts.append("Conversation context:\n" + context.compacted_context)
-
-        if sub_agent_lines:
-            system_parts.append(
-                "## Available Sub-Agents\n"
-                "You can delegate specialized tasks by calling these sub-agent tools:\n"
-                + "\n".join(sub_agent_lines)
-                + "\n\nDelegate when a sub-agent is clearly suited to the task; "
-                "otherwise handle it yourself."
-            )
 
         prepared = [{"role": "system", "content": "\n\n".join(system_parts)}]
 
@@ -309,7 +276,7 @@ class MainAgent(BaseAgent):
                     client_tools = [t for t in client_tools if t.get("function", {}).get("name") in allowed]
                 tool_schemas.extend(client_tools)
 
-        # Handler-injected tools (SubAgentTool adapters)
+        # Handler-injected tools (delegate_task)
         if hasattr(self, 'extra_tools') and self.extra_tools:
             for extra_tool in self.extra_tools:
                 tool_schemas.append(extra_tool.get_schema())
@@ -479,7 +446,7 @@ class MainAgent(BaseAgent):
                     # persona_id/persona_name; ``name`` is the tool's own label.
                     # A delegation names the model that ran it; an ordinary
                     # tool runs none of its own (#327).
-                    delegate = self._sub_agent_tool(display_name)
+                    delegate = self._delegate_tool(display_name)
                     yield StreamChunkEvent(
                         content=result.content,
                         role="tool",
@@ -489,7 +456,7 @@ class MainAgent(BaseAgent):
                         tool_status=result.status,
                         tool_kind="sub_agent" if delegate else "tool",
                         duration_ms=duration_ms,
-                        model_name=(delegate.sub.config.model_name or None) if delegate else None,
+                        model_name=(delegate.model_name or context.model_name or None) if delegate else None,
                         images=result.images or None,
                         tool_call_id=call_ids[call_index],
                     )

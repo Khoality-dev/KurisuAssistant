@@ -26,6 +26,19 @@ Bumping rules:
 - Bump rarely; treat each bump as a coordinated release across all clients.
 
 Update log (most recent first):
+- 9: One persona in use for the whole account (#354). `selected_persona_id` on
+     `/assistant` is now who answers every turn, in any conversation: the chat
+     path applies it instead of only recording it. A conversation is not tied
+     to a persona any more — `chat_request` loses `persona_id`, `connected`
+     loses `persona_id`, and a conversation (`GET /conversations`,
+     `GET /conversations/{id}`) carries none; `PATCH /conversations/{id}` takes
+     only a `title`, and `GET /conversations?persona_id=` is gone. Saved
+     sub-agents are removed with the whole `/sub-agents` surface: the assistant
+     spawns a helper itself through the built-in `delegate_task` tool, which
+     runs on the assistant's own model and tools, and its tool chunks keep
+     `tool_kind: "sub_agent"`. Removed fields and routes, hence the bump: an
+     installed client would keep binding conversations and sending a persona
+     the server now ignores, and its Sub-agents screen would only find 404s.
 - 8: The assistant's `default_persona_id` is gone; `selected_persona_id` takes
      its place on `GET`/`PATCH /assistant` — who the account's chat is on, which
      a client reads when it opens and writes when the user picks someone (#334).
@@ -163,7 +176,7 @@ def release_tag_problem(tag: str) -> str | None:
 
 
 __version__ = resolve_version(os.environ.get("KURISU_VERSION"))
-WIRE_PROTOCOL = 8
+WIRE_PROTOCOL = 9
 
 
 if __name__ == "__main__":

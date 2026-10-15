@@ -43,7 +43,6 @@ class AuthRepository @Inject constructor(
         encryptedPrefs.clearToken()
         encryptedPrefs.clearRefreshToken()
         prefs.setRememberMe(false)
-        prefs.clearAllPersonaConversations()
         wsManager.clearToken()
         wsManager.disconnect()
     }

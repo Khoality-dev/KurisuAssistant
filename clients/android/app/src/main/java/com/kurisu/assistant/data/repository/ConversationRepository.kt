@@ -2,22 +2,22 @@ package com.kurisu.assistant.data.repository
 
 import com.kurisu.assistant.data.model.Conversation
 import com.kurisu.assistant.data.model.ConversationDetail
-import com.kurisu.assistant.data.model.Message
 import com.kurisu.assistant.data.model.MessageRawData
 import com.kurisu.assistant.data.remote.api.KurisuApiService
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * The user's conversations. A conversation is not tied to a persona (#354): who
+ * answers is the persona in use for the whole account, on the assistant row.
+ */
 @Singleton
 class ConversationRepository @Inject constructor(
     private val api: KurisuApiService,
 ) {
-    suspend fun getConversations(personaId: Int? = null): List<Conversation> =
-        api.getConversations(personaId)
+    suspend fun getConversations(): List<Conversation> = api.getConversations()
 
     suspend fun getConversation(id: Int, limit: Int = 20, offset: Int = 0): ConversationDetail =
         api.getConversation(id, limit, offset)
@@ -28,26 +28,6 @@ class ConversationRepository @Inject constructor(
 
     suspend fun getMessageRaw(id: Int): MessageRawData = api.getMessageRaw(id)
 
-    suspend fun getLatestConversationForPersona(personaId: Int): Conversation? {
-        val conversations = api.getConversations(personaId)
-        return conversations.firstOrNull()
-    }
-
     suspend fun renameConversation(id: Int, title: String) =
         api.patchConversation(id, buildJsonObject { put("title", title) })
-
-    /**
-     * Bind this conversation to [personaId], or hand it to the assistant itself
-     * when [personaId] is null (#302).
-     *
-     * The body is built by hand because the route distinguishes an absent key
-     * ("leave it alone") from an explicit null ("clear it"), which no nullable
-     * Kotlin field can express on its own.
-     */
-    suspend fun setConversationPersona(id: Int, personaId: Int?) {
-        val body: JsonObject = buildJsonObject {
-            if (personaId != null) put("persona_id", personaId) else put("persona_id", JsonNull)
-        }
-        api.patchConversation(id, body)
-    }
 }

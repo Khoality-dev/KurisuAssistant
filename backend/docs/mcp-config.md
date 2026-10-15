@@ -69,6 +69,6 @@ waits up to 120s for `tool_call_response`.
 No restart and no code change. Creating, updating or deleting a row invalidates
 that user's cached orchestrator, so the next turn sees the change.
 
-The new tools are available immediately unless `assistants.available_tools` (or a
-sub-agent's) is an allowlist that excludes them, and every call is still subject to
+The new tools are available immediately — to the assistant and to any sub-agent it
+spawns — unless `assistants.available_tools` is an allowlist that excludes them, and every call is still subject to
 `users.tool_policies`. See [Tools & Skills](tools.md).

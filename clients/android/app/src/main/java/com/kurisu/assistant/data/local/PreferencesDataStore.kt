@@ -20,7 +20,7 @@ import javax.inject.Singleton
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
     name = "kurisu_prefs",
-    produceMigrations = { listOf(AlwaysListenRemoval) },
+    produceMigrations = { listOf(AlwaysListenRemoval, PersonaConversationsRemoval) },
 )
 
 @Singleton
@@ -35,7 +35,6 @@ class PreferencesDataStore @Inject constructor(
     private val KEY_TTS_LANGUAGE = stringPreferencesKey(StorageKeys.TTS_LANGUAGE)
     private val KEY_TTS_BACKEND = stringPreferencesKey(StorageKeys.TTS_BACKEND)
     private val KEY_BACKEND_URL = stringPreferencesKey(StorageKeys.BACKEND_URL)
-    private val KEY_PERSONA_CONVERSATIONS = stringPreferencesKey(StorageKeys.PERSONA_CONVERSATIONS)
     private val KEY_AUDIO_INPUT_DEVICE_TYPE = intPreferencesKey(StorageKeys.AUDIO_INPUT_DEVICE_TYPE)
     private val KEY_ASR_LANGUAGE = stringPreferencesKey(StorageKeys.ASR_LANGUAGE)
     private val KEY_VOICE_MODE = booleanPreferencesKey(StorageKeys.VOICE_MODE)
@@ -62,42 +61,6 @@ class PreferencesDataStore @Inject constructor(
 
     suspend fun getTTSBackend(): String? = ds.data.first()[KEY_TTS_BACKEND]
     suspend fun setTTSBackend(backend: String) { ds.edit { it[KEY_TTS_BACKEND] = backend } }
-
-    // Persona -> last conversation (JSON map: personaId -> conversationId).
-    //
-    // Purely a cache. `PersonaRepository.getConversationIdForPersona` falls back
-    // to the backend and re-caches on a miss, which is why the rename off
-    // `kurisu_agent_conversations` ships with no migration: the old blob is
-    // simply orphaned and every lookup re-derives.
-    suspend fun getPersonaConversationMap(): Map<Int, Int> {
-        val json = ds.data.first()[KEY_PERSONA_CONVERSATIONS] ?: return emptyMap()
-        return try {
-            Json.decodeFromString<Map<String, Int>>(json).mapKeys { it.key.toInt() }
-        } catch (_: Exception) {
-            emptyMap()
-        }
-    }
-
-    suspend fun getPersonaConversationId(personaId: Int): Int? =
-        getPersonaConversationMap()[personaId]
-
-    suspend fun setPersonaConversationId(personaId: Int, conversationId: Int) {
-        writePersonaConversationMap(getPersonaConversationMap() + (personaId to conversationId))
-    }
-
-    suspend fun clearPersonaConversationId(personaId: Int) {
-        writePersonaConversationMap(getPersonaConversationMap() - personaId)
-    }
-
-    suspend fun clearAllPersonaConversations() { ds.edit { it.remove(KEY_PERSONA_CONVERSATIONS) } }
-
-    private suspend fun writePersonaConversationMap(map: Map<Int, Int>) {
-        val json = Json.encodeToString(
-            kotlinx.serialization.serializer<Map<String, Int>>(),
-            map.mapKeys { it.key.toString() }
-        )
-        ds.edit { it[KEY_PERSONA_CONVERSATIONS] = json }
-    }
 
     // Audio Input Device Type (-1 = default/auto)
     suspend fun getAudioInputDeviceType(): Int = ds.data.first()[KEY_AUDIO_INPUT_DEVICE_TYPE] ?: -1

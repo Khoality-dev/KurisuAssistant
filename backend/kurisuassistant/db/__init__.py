@@ -2,7 +2,7 @@
 
 from .base import Base
 from .session import engine, SessionLocal, get_session, get_db_session
-from .models import User, Conversation, Message, Persona, Assistant, SubAgent
+from .models import User, Conversation, Message, Persona, Assistant
 from .repositories import (
     BaseRepository,
     UserRepository,
@@ -10,7 +10,6 @@ from .repositories import (
     MessageRepository,
     PersonaRepository,
     AssistantRepository,
-    SubAgentRepository,
 )
 
 __all__ = [
@@ -24,12 +23,10 @@ __all__ = [
     "Message",
     "Persona",
     "Assistant",
-    "SubAgent",
     "BaseRepository",
     "UserRepository",
     "ConversationRepository",
     "MessageRepository",
     "PersonaRepository",
     "AssistantRepository",
-    "SubAgentRepository",
 ]

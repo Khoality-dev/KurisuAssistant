@@ -86,8 +86,8 @@ this mode, and `call_tool` refuses to invoke itself.
 ## The allowlist
 
 `assistants.available_tools` is a JSON array of tool names, or `null` for all of
-them. `sub_agents.available_tools` is the same field for a sub-agent's own loop.
-Personas have no tool field at all — swapping persona never changes what the
+them. A spawned sub-agent runs under the same list. Personas have no tool field at
+all — swapping persona never changes what the
 assistant can do. Built-in tools ignore the list.
 
 ## Permission
@@ -139,17 +139,21 @@ not through the native tool registry.
 
 See [MCP Configuration](mcp-config.md) for the server record format.
 
-## Sub-agents as tools
+## Spawning a sub-agent
 
-Each enabled sub-agent is wrapped in a `SubAgentTool` adapter and injected as
-`extra_tools` on the `MainAgent` for the turn. The adapter's name is the sub-agent's
-name snake-cased with an `_agent` suffix, de-duplicated with a numeric suffix when
-two names collapse to the same slug. It takes one argument, `task`, and returns the
-sub-agent's final text.
+There are no saved sub-agents (#354). `delegate_task` (`agents/sub.py`,
+`DelegateTaskTool`) is built in and injected as `extra_tools` on the `MainAgent`
+for each turn — not registered globally, because it needs the assistant's own
+configuration. It takes one argument, `task`, runs a fresh `SubAgent` on the
+assistant's model, provider, allowlist and reasoning switch (never its memory), and
+returns the sub-agent's final text. The sub-agent is offered the registry and the
+account's MCP tools, but not `delegate_task` — a helper cannot spawn helpers — and
+not the client's tools. Calling `delegate_task` goes through the user's tool policy
+like any other call; so does every tool the sub-agent calls.
 
 The model sees an ordinary function, so nothing in the call itself marks a
 delegation. The tool chunk's `tool_kind: "sub_agent"` is the only signal, and the
-server sets it.
+server sets it; its `model_name` is the assistant's model.
 
 ## Skills System
 
@@ -163,7 +167,7 @@ reference several.
   persona's prompt. Full instructions are fetched on demand with the
   `get_skill_instructions` tool.
 - **Sub-agents do not get the skills list.** `SubAgent.execute` builds its prompt
-  from its own `system_prompt` and nothing else. `get_skill_instructions` is
+  from the fixed `SUB_AGENT_PROMPT` and its task, and nothing else. `get_skill_instructions` is
   built-in, so a sub-agent can still call it — it just is not told which skills
   exist.
 - **Frontend:** a "Skills" tab in the desktop tools window with create/edit/delete.

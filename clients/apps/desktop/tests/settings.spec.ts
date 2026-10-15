@@ -36,17 +36,19 @@ test.describe('settings', () => {
     await login(page);
     await openSettings(page);
 
-    // The old single "Agents" section is gone: capability, presentation and the
-    // task-only workers are three different resources now, so they are three
-    // sections. Order is not asserted — only that every one is reachable.
+    // The old single "Agents" section is gone: capability and presentation are
+    // two sections, and there are no saved sub-agents to set up — the
+    // assistant spawns its own (#354). Order is not asserted — only that every
+    // one is reachable.
     for (const label of [
       'Account', 'Voice', 'TTS & ASR', 'Appearance',
-      'Assistant', 'Personas', 'Sub-Agents',
+      'Assistant', 'Personas',
       'Tools & MCP', 'Skills', 'Kurisu Drive', 'Host Access', 'Face Identities', 'Extensions',
     ]) {
       await expect(page.getByText(label, { exact: true }).first()).toBeVisible();
     }
     await expect(page.getByText('Agents', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('Sub-Agents', { exact: true })).toHaveCount(0);
   });
 
   test('appearance section renders theme toggle', async ({ page }) => {

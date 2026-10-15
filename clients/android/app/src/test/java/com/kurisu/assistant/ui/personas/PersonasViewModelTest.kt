@@ -14,7 +14,6 @@ import com.kurisu.assistant.data.repository.PersonaRepository
 import com.kurisu.assistant.data.repository.TtsRepository
 import com.kurisu.assistant.domain.character.CharacterConfigKind
 import com.kurisu.assistant.domain.tts.TtsQueueManager
-import com.kurisu.assistant.service.CoreState
 import com.kurisu.assistant.ui.common.personaInitials
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -55,7 +54,6 @@ class PersonasViewModelTest {
     private lateinit var ttsQueue: TtsQueueManager
     private lateinit var api: KurisuApiService
     private lateinit var prefs: PreferencesDataStore
-    private lateinit var coreState: CoreState
 
     private val kurisu = Persona(
         id = 1,
@@ -88,7 +86,6 @@ class PersonasViewModelTest {
         ttsQueue = mockk(relaxed = true)
         api = mockk(relaxed = true)
         prefs = mockk(relaxed = true)
-        coreState = CoreState()
 
         coEvery { prefs.getBackendUrl() } returns "https://example.test"
         coEvery { personaRepo.listPersonas() } returns listOf(kurisu, coach)
@@ -119,7 +116,6 @@ class PersonasViewModelTest {
         ttsQueue = ttsQueue,
         api = api,
         prefs = prefs,
-        coreState = coreState,
     )
 
     @Test
@@ -145,14 +141,11 @@ class PersonasViewModelTest {
     }
 
     @Test
-    fun `the row bound to the open conversation is tracked from the core state`() = runTest {
-        val vm = viewModel()
-        advanceUntilIdle()
-
-        coreState.setCurrentPersonaId(3)
-        advanceUntilIdle()
-
-        assertThat(vm.state.value.openChatPersonaId).isEqualTo(3)
+    fun `only the account's selection marks a row`() = runTest {
+        // A conversation is not tied to a persona (#354): there is no "answering
+        // the open chat" apart from the persona in use.
+        val names = PersonasUiState::class.java.declaredFields.map { it.name }
+        assertThat(names).doesNotContain("openChatPersonaId")
     }
 
     // ─── Who the chat is on (#334) ────────────────────────────────────

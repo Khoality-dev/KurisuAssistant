@@ -84,10 +84,6 @@ class ConnectedEvent(BaseEvent):
     type: EventType = field(default=EventType.CONNECTED)
     chat_active: bool = False
     conversation_id: Optional[int] = None
-    # Persona bound to ``conversation_id``, so a reconnecting client knows who
-    # it is talking to before the first chunk arrives. None when no
-    # conversation is in flight or it has no binding yet.
-    persona_id: Optional[int] = None
     vision_active: bool = False
     vision_config: Optional[Dict[str, Any]] = None
 
@@ -103,11 +99,8 @@ class ChatRequestEvent(BaseEvent):
     text: str = ""
     model_name: str = ""
     conversation_id: Optional[int] = None
-    # Explicit persona override for this turn. Omitted on an ordinary message:
-    # an existing conversation keeps its binding and a new one is the
-    # assistant's own — the default persona is never adopted silently (#334),
-    # so a client that wants it names it. Sending it rebinds the conversation.
-    persona_id: Optional[int] = None
+    # No persona: who answers is the persona in use for the whole account,
+    # ``assistants.selected_persona_id`` (#354). A request cannot name one.
     images: List[str] = field(default_factory=list)  # base64 encoded
     context_files: List[Dict[str, Any]] = field(default_factory=list)  # [{path, fileName, startLine, endLine, ...}]
 
@@ -303,7 +296,6 @@ def parse_event(data: Dict[str, Any]) -> BaseEvent:
             text=data.get("text", ""),
             model_name=data.get("model_name", ""),
             conversation_id=data.get("conversation_id"),
-            persona_id=data.get("persona_id"),
             images=data.get("images", []),
             context_files=data.get("context_files", []),
         )

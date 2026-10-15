@@ -68,8 +68,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // point the next account's paths at the previous one's rows.
     forgetDriveCache();
     storage.setRememberMe(false);
-    storage.clearAllPersonaConversations();
-    // The next account's selection is its own, and unknown until it loads (#334).
+    // The next account's persona in use is its own, and unknown until it loads (#334).
     usePersonaStore.setState({ selectedPersonaId: null, selectionLoaded: false });
     set({ isAuthenticated: false, user: null, rememberMe: false });
   },

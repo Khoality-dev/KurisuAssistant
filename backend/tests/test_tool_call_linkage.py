@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from kurisuassistant.agents.base import AssistantConfig, PersonaConfig, SubAgentConfig, AgentContext
+from kurisuassistant.agents.base import AssistantConfig, PersonaConfig, AgentContext
 from kurisuassistant.agents.main import MainAgent
 from kurisuassistant.tools import ToolRegistry
 

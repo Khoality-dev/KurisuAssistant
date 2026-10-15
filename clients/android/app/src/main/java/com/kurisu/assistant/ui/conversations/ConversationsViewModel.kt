@@ -8,7 +8,6 @@ import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.model.GithubRelease
 import com.kurisu.assistant.data.repository.AssistantRepository
 import com.kurisu.assistant.data.repository.ConversationRepository
-import com.kurisu.assistant.data.repository.PersonaRepository
 import com.kurisu.assistant.data.repository.UpdateRepository
 import com.kurisu.assistant.service.CoreService
 import com.kurisu.assistant.service.CoreState
@@ -27,10 +26,9 @@ import javax.inject.Inject
 /**
  * One row of the Chats list: a CONVERSATION, and nothing about who answers it.
  *
- * There is one assistant with one selected persona, so a face and a name on the
- * row were the same face and the same name on every row — they distinguished
- * nothing and cost the title its width. A conversation says who answers it in
- * the chat header, where the per-conversation override lives.
+ * A conversation is not tied to a persona (#354): one persona, or none, is in
+ * use for the whole account and answers every conversation, so the row has no
+ * face and no name to show. The chat header names who answers.
  *
  * The assistant's model is absent for the same reason.
  */
@@ -65,17 +63,12 @@ data class ConversationsUiState(
  *
  * Rows are conversations. The dead Home screen listed PERSONAS and hung one
  * conversation off each, which could show at most one chat per persona and hid
- * everything else the user had ever said; `Conversation.persona_id` now exists
- * on the model, so a conversation can name its own persona and the list is a
- * plain list of conversations again.
- *
- * It does not draw that persona. With one assistant the rows all resolve to the
- * same one, so the face and the name said nothing five times over (#192).
+ * everything else the user had ever said. A conversation carries no persona at
+ * all now (#354), so the list is a plain list of conversations.
  */
 @HiltViewModel
 class ConversationsViewModel @Inject constructor(
     private val application: Application,
-    private val personaRepository: PersonaRepository,
     private val assistantRepository: AssistantRepository,
     private val conversationRepository: ConversationRepository,
     private val prefs: PreferencesDataStore,
@@ -103,8 +96,6 @@ class ConversationsViewModel @Inject constructor(
 
     val voiceState = voiceInteractionManager.state
 
-    @Volatile private var selectedPersonaId: Int? = null
-
     init {
         load()
         checkForUpdate()
@@ -118,18 +109,9 @@ class ConversationsViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             try {
-                // No row names a persona any more, so the persona list is read
-                // for one thing: who a new chat will get — the selected persona
-                // while it is enabled, else the assistant itself (#302). The chat
-                // screen resolves it with this same rule, and the two must agree
-                // or `startNewChat` clears the wrong cached conversation.
-                val personas = personaRepository.listPersonas()
-
-                // The assistant is a bonus here — it supplies the wake word and
-                // the selected persona — so losing it must not lose the list.
+                // The assistant is a bonus here — it supplies the wake word —
+                // so losing it must not lose the list.
                 val assistant = runCatching { assistantRepository.getAssistant() }.getOrNull()
-                selectedPersonaId = assistant?.selectedPersonaId
-                    ?.takeIf { id -> personas.any { it.id == id && it.enabled } }
 
                 val rows = conversationRepository.getConversations().map { conv ->
                     ConversationRowUi(
@@ -186,19 +168,14 @@ class ConversationsViewModel @Inject constructor(
     /**
      * Start a new chat. There is no picker and no create call: the backend makes
      * the conversation when the first message arrives with a null
-     * `conversation_id`, bound to the persona the chat names — the selected one —
-     * or to the assistant itself when there is none (#302, #334). All this does
-     * is make sure nothing stale is resumed instead.
+     * `conversation_id`, and answers it as the persona in use for the whole
+     * account, or the assistant itself when there is none (#302, #354). All this
+     * does is leave the open conversation, before the chat is shown — it opens
+     * whatever [CoreState] names.
      */
     fun startNewChat(onReady: () -> Unit = {}) {
-        viewModelScope.launch {
-            personaRepository.clearConversationIdForPersona(selectedPersonaId)
-            coreState.setConversationId(null)
-            // Navigating before the clear lands would let the chat's own load
-            // read the stale cached id and resume the previous conversation, so
-            // the caller is released here rather than at the call site.
-            onReady()
-        }
+        coreState.setConversationId(null)
+        onReady()
     }
 
     // ---- In-app update ---------------------------------------------------

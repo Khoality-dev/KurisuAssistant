@@ -25,7 +25,7 @@ object Routes {
     const val CONVERSATIONS = "conversations"
     const val CHAT = "chat"
 
-    /** The one assistant: model, provider, tools, memory, wake word, sub-agents. */
+    /** The one assistant: model, provider, tools, memory, wake word. */
     const val ASSISTANT = "assistant"
 
     /** The many personas: name, prompt, voice, avatar, character. */
@@ -83,9 +83,9 @@ fun KurisuNavGraph(
             ) { openDrawer ->
                 ConversationsScreen(
                     // The view model has already put the id on CoreState, so the
-                    // chat only has to be shown; null is a brand-new chat and the
-                    // backend binds the default persona on its first message, or
-                    // leaves it to the assistant itself when there is none.
+                    // chat only has to be shown; null is a brand-new chat, which the
+                    // backend answers as the persona in use, or as the assistant
+                    // itself when there is none (#354).
                     onOpenChat = { navController.navigate(Routes.CHAT) },
                     onOpenMenu = openDrawer,
                 )

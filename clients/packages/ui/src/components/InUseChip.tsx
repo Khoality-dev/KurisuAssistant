@@ -4,9 +4,9 @@ import { alpha, type Theme } from '@mui/material/styles';
 import CheckIcon from '@mui/icons-material/Check';
 
 /**
- * How the one the chat is on is marked (#348): a blue outline and a tinted
- * row, the same on a persona's card, the Assistant row in Settings → Personas,
- * and the chat header's picker.
+ * How the persona in use is marked (#348): a blue outline and a tinted row, the
+ * same on a persona's card, the Assistant row in Settings → Personas, and the
+ * chat header's picker. It is the account's, for every conversation (#354).
  */
 export function selectionColors(theme: Theme) {
   const light = theme.palette.mode === 'light';
@@ -16,8 +16,8 @@ export function selectionColors(theme: Theme) {
   };
 }
 
-/** The "In the chat" chip: who the chat is on, wherever it is chosen (#348). */
-export const InTheChatChip: React.FC = () => (
+/** The "In use" chip: the persona in use, wherever it is chosen (#348, #354). */
+export const InUseChip: React.FC = () => (
   <Box
     sx={{
       display: 'inline-flex',
@@ -36,6 +36,6 @@ export const InTheChatChip: React.FC = () => (
     }}
   >
     <CheckIcon aria-hidden sx={{ fontSize: 14 }} />
-    In the chat
+    In use
   </Box>
 );

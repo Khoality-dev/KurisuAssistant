@@ -1,7 +1,7 @@
 """System tests: the settings routes, through the real app and database (#311).
 
 Deleting conversations and messages, tool policies, the model routes against the
-mock Ollama, sub-agents, MCP servers, skills and a persona's export and import —
+mock Ollama, MCP servers, skills and a persona's export and import —
 each was tested against a MagicMock database, a pydantic model or a source grep,
 or not at all. Every test has an account of its own (``account``), and the ones
 about ownership make a second.
@@ -143,50 +143,6 @@ class TestModels:
         assert resp.json() == {"models": [], "unavailable": []}
 
 
-class TestSubAgents:
-    def test_create_edit_toggle_export_import_delete(self, account, other):
-        created = account.client.post(
-            "/sub-agents",
-            json={"name": "Researcher", "description": "Looks things up", "system_prompt": "Be thorough.",
-                  "available_tools": ["history_list"], "use_deferred_tools": True},
-            headers=account.headers,
-        )
-        assert created.status_code == 200, created.text
-        sub = created.json()
-        assert sub["enabled"] is True
-
-        patched = account.client.patch(f"/sub-agents/{sub['id']}", json={"model_name": "tiny:1b", "available_tools": None}, headers=account.headers).json()
-        assert patched["model_name"] == "tiny:1b"
-        assert patched["available_tools"] is None, "null means every tool, and can be set back"
-        assert patched["system_prompt"] == "Be thorough.", "an omitted field is left alone"
-
-        toggled = account.client.patch(f"/sub-agents/{sub['id']}/enabled", json={"enabled": False}, headers=account.headers).json()
-        assert toggled["enabled"] is False
-
-        assert other.client.get(f"/sub-agents/{sub['id']}", headers=other.headers).status_code == 404
-        assert other.client.patch(f"/sub-agents/{sub['id']}", json={"name": "Mine"}, headers=other.headers).status_code == 404
-
-        exported = account.client.get(f"/sub-agents/{sub['id']}/export", headers=account.headers)
-        assert exported.status_code == 200
-        meta = exported.json()
-        assert (meta["version"], meta["kind"]) == (3, "sub_agent")
-        assert meta["use_deferred_tools"] is True
-
-        imported = account.client.post(
-            "/sub-agents/import",
-            files={"file": ("researcher.json", io.BytesIO(json.dumps(meta).encode()), "application/json")},
-            headers=account.headers,
-        )
-        assert imported.status_code == 200, imported.text
-        copy = imported.json()
-        assert copy["name"] == "Researcher (2)", "an import never takes an existing name"
-        assert (copy["system_prompt"], copy["model_name"], copy["use_deferred_tools"]) == ("Be thorough.", "tiny:1b", True)
-
-        assert account.client.delete(f"/sub-agents/{sub['id']}", headers=account.headers).status_code in (200, 204)
-        names = [s["name"] for s in account.client.get("/sub-agents", headers=account.headers).json()]
-        assert names == ["Researcher (2)"]
-
-
 class TestMcpServers:
     def test_an_sse_server_is_created_edited_and_deleted_by_its_owner_only(self, account, other):
         created = account.client.post(
@@ -276,8 +232,10 @@ class TestPersonaPortability:
         assert (copy["description"], copy["system_prompt"], copy["preferred_name"]) == ("A scientist", "Be sharp.", "Okabe")
 
     def test_a_sub_agent_file_is_not_a_persona(self, account):
-        sub = account.client.post("/sub-agents", json={"name": "Worker"}, headers=account.headers).json()
-        meta = account.client.get(f"/sub-agents/{sub['id']}/export", headers=account.headers).json()
+        # Saved sub-agents are gone (#354), but files exported before that remain.
+        meta = {"version": 3, "kind": "sub_agent", "name": "Worker", "description": "",
+                "system_prompt": "", "model_name": None, "provider_type": "ollama",
+                "available_tools": None, "think": False, "use_deferred_tools": False}
         resp = account.client.post(
             "/personas/import",
             files={"file": ("worker.json", io.BytesIO(json.dumps(meta).encode()), "application/json")},

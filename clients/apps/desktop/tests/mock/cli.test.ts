@@ -94,3 +94,13 @@ describe('scenarios', () => {
     }
   });
 });
+
+describe('the "sub-agent" scenario (#354)', () => {
+  it('delegates through the built-in delegate_task, on the assistant\'s own model, with nothing saved', () => {
+    const mock = createScenario('sub-agent');
+    const tool = SCENARIOS['sub-agent'].options.stream!.chunks.find((c) => c.role === 'tool')!;
+    expect(tool).toMatchObject({ name: 'delegate_task', toolKind: 'sub_agent' });
+    expect('subAgents' in SCENARIOS['sub-agent'].options).toBe(false);
+    expect(mock.getAssistant().model_name).not.toBeNull();
+  });
+});

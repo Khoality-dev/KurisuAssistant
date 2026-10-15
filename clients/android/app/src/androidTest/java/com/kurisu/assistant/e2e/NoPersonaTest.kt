@@ -21,7 +21,6 @@ class NoPersonaTest : E2eTest() {
         val conversation = mock.waitForConversation(text, onTimeout = ::dumpScreen) { conv ->
             conv.messagesAfter(text).any { it.role == "assistant" }
         }
-        assertNull(conversation.string("persona_id"))
         assertNull(conversation.messagesAfter(text).single().personaId)
     }
 }

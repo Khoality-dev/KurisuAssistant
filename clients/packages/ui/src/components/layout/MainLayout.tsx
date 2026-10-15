@@ -16,13 +16,15 @@ const MAX_CHAT_WIDTH = 700;
 
 export const MainLayout: React.FC = () => {
   const { activePage, chatPanelWidth } = useLayoutStore();
-  const { loadPersonas, loadPersonaPreviews } = usePersonaStore();
+  const loadPersonas = usePersonaStore((s) => s.loadPersonas);
+  const openLatestConversation = usePersonaStore((s) => s.openLatestConversation);
   const chatPanelRef = useRef<HTMLDivElement>(null);
 
-  // Load personas on mount
+  // Load the personas and the one in use, and open the latest conversation.
   useEffect(() => {
-    loadPersonas().then(() => loadPersonaPreviews());
-  }, [loadPersonas, loadPersonaPreviews]);
+    void loadPersonas();
+    void openLatestConversation();
+  }, [loadPersonas, openLatestConversation]);
 
   const handleChatResizeEnd = useCallback((size: number) => {
     useLayoutStore.getState().setChatPanelWidth(size);

@@ -57,24 +57,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.kurisu.assistant.data.model.SubAgent
 import com.kurisu.assistant.ui.common.ModelDropdown
 import com.kurisu.assistant.ui.personas.PersonaAvatar
 import com.kurisu.assistant.ui.theme.KurisuTheme
 
 /**
- * The user's single assistant: what it can do, and who answers by default.
+ * The user's single assistant: what it can do.
  *
- * Everything on this screen except the default-persona card and the sub-agent
- * list is one row, patched a field at a time through `PATCH /assistant`. The
- * screen that this replaces listed "main agents", each with its own model, tools
- * and memory; there is one of each now.
+ * Everything on this screen is one row, patched a field at a time through
+ * `PATCH /assistant`. The screen that this replaces listed "main agents", each
+ * with its own model, tools and memory; there is one of each now. There are no
+ * sub-agents to set up (#354): the assistant spawns one itself when it needs
+ * help, on its own model and tools.
  *
  * Two things that look like they belong here do not (#197). The model is picked
  * from the chat header, beside the persona, because that is where the question
  * comes up — and it is one model for every persona, so it is no more a persona's
- * than the tools are. The default persona is chosen on the Personas screen, by
- * tapping one. Neither is a capability, so neither is on this page.
+ * than the tools are. The persona in use is chosen on the Personas screen or the
+ * chat header. Neither is a capability, so neither is on this page.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,15 +109,6 @@ fun AssistantScreen(
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            if (state.assistant != null) {
-                ExtendedFloatingActionButton(
-                    onClick = viewModel::openNewSubAgent,
-                    icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                    text = { Text("New sub-agent") },
-                )
-            }
-        },
     ) { padding ->
         val assistant = state.assistant
         when {
@@ -136,7 +127,7 @@ fun AssistantScreen(
             ) {
                 item("intro") {
                     Text(
-                        "One assistant answers you. Personas change how it sounds; sub-agents are workers it calls.",
+                        "One assistant answers you. Personas change how it sounds; it hands side tasks to sub-agents it spawns itself.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 6.dp),
@@ -213,31 +204,6 @@ fun AssistantScreen(
                         }
                     }
                 }
-
-                item("subagents_header") {
-                    Column(modifier = Modifier.padding(top = 16.dp, bottom = 2.dp)) {
-                        Text("Sub-agents", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "Task-only workers the assistant calls",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-
-                if (state.subAgents.isEmpty()) {
-                    item("subagents_empty") {
-                        EmptySubAgents(onCreate = viewModel::openNewSubAgent)
-                    }
-                } else {
-                    items(state.subAgents, key = { it.id }) { subAgent ->
-                        SubAgentCard(
-                            subAgent = subAgent,
-                            onEdit = { viewModel.openSubAgentEditor(subAgent) },
-                            onDelete = { viewModel.confirmDeleteSubAgent(subAgent) },
-                        )
-                    }
-                }
             }
         }
     }
@@ -261,26 +227,6 @@ fun AssistantScreen(
             onClearAll = viewModel::clearToolDrafts,
             onSave = viewModel::saveTools,
             onDismiss = viewModel::dismissToolPicker,
-        )
-    }
-
-    if (state.subEditorOpen) {
-        SubAgentEditorDialog(state = state, viewModel = viewModel)
-    }
-
-    state.deletingSubAgent?.let { subAgent ->
-        AlertDialog(
-            onDismissRequest = viewModel::dismissDeleteSubAgent,
-            title = { Text("Delete sub-agent") },
-            text = { Text("Delete \"${subAgent.name}\"? The assistant can no longer call it.") },
-            confirmButton = {
-                TextButton(onClick = viewModel::deleteSubAgent) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = viewModel::dismissDeleteSubAgent) { Text("Cancel") }
-            },
         )
     }
 }
@@ -378,84 +324,6 @@ private fun MemoryDocument(memory: String?) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SubAgentCard(
-    subAgent: SubAgent,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth(), onClick = onEdit) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            PersonaAvatar(
-                name = subAgent.name,
-                avatarUrl = null,
-                size = 48.dp,
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    subAgent.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    subAgent.modelName ?: "the assistant's model",
-                    style = KurisuTheme.extraTypography.metadataSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(5.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    if (subAgent.think) TagChip("Think")
-                    val toolCount = subAgent.availableTools?.size
-                    TagChip(
-                        when (toolCount) {
-                            null -> "every tool"
-                            0 -> "no tools"
-                            1 -> "1 tool"
-                            else -> "$toolCount tools"
-                        }
-                    )
-                    if (!subAgent.enabled) TagChip("Disabled")
-                }
-            }
-            IconButton(onClick = onDelete) {
-                Icon(
-                    Icons.Outlined.Delete,
-                    contentDescription = "Delete ${subAgent.name}",
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TagChip(label: String) {
-    Surface(
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-    ) {
-        Text(
-            label,
-            style = KurisuTheme.extraTypography.metadataSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-        )
-    }
-}
-
 // ─── Empty / loading / error ──────────────────────────────────────────
 
 @Composable
@@ -477,22 +345,6 @@ private fun ErrorBox(message: String, onRetry: () -> Unit, modifier: Modifier = 
             Spacer(Modifier.height(12.dp))
             Button(onClick = onRetry) { Text("Try again") }
         }
-    }
-}
-
-@Composable
-private fun EmptySubAgents(onCreate: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            "No sub-agents yet",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(8.dp))
-        Button(onClick = onCreate) { Text("New sub-agent") }
     }
 }
 
@@ -518,7 +370,7 @@ private fun TriggerWordDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "Saying it starts a voice turn. Whoever is bound to the conversation answers — " +
+                    "Saying it starts a voice turn. The persona in use answers — " +
                         "the wake word never picks a persona. Leave it empty to turn it off.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -591,91 +443,5 @@ private fun ToolPickerDialog(
             TextButton(onClick = onSave, enabled = allTools.isNotEmpty()) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SubAgentEditorDialog(
-    state: AssistantUiState,
-    viewModel: AssistantViewModel,
-) {
-    AlertDialog(
-        onDismissRequest = viewModel::dismissSubAgentEditor,
-        title = {
-            Text(if (state.editingSubAgent != null) "Edit sub-agent" else "New sub-agent")
-        },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                OutlinedTextField(
-                    value = state.subDraftName,
-                    onValueChange = viewModel::setSubDraftName,
-                    label = { Text("Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = state.subDraftDescription,
-                    onValueChange = viewModel::setSubDraftDescription,
-                    label = { Text("Description") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    supportingText = { Text("How the assistant decides to call it") },
-                )
-                ModelDropdown(
-                    label = "Model",
-                    value = state.subDraftModelName,
-                    onValueChange = viewModel::setSubDraftModelName,
-                    availableModels = state.availableModels,
-                    isRefreshing = state.isRefreshingModels,
-                    onRefresh = viewModel::refreshModels,
-                )
-                OutlinedTextField(
-                    value = state.subDraftSystemPrompt,
-                    onValueChange = viewModel::setSubDraftSystemPrompt,
-                    label = { Text("System prompt") },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp),
-                    maxLines = 8,
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Think mode", modifier = Modifier.weight(1f))
-                    Switch(
-                        checked = state.subDraftThink,
-                        onCheckedChange = viewModel::setSubDraftThink,
-                    )
-                }
-                if (state.allToolNames.isNotEmpty()) {
-                    Text("Tools", style = MaterialTheme.typography.titleSmall)
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        state.allToolNames.forEach { name ->
-                            FilterChip(
-                                selected = name in state.subDraftTools,
-                                onClick = { viewModel.toggleSubDraftTool(name) },
-                                label = {
-                                    Text(name, style = KurisuTheme.extraTypography.metadataSmall)
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = viewModel::saveSubAgent, enabled = !state.isSaving) {
-                Text(if (state.editingSubAgent != null) "Save" else "Create")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = viewModel::dismissSubAgentEditor) { Text("Cancel") }
-        },
     )
 }

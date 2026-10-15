@@ -245,16 +245,18 @@ class TestPersisted:
 
     @pytest.fixture()
     def vrm_persona(self, system_client, headers):
-        """A VRM persona with emotion on, which each turn names (#334).
+        """A VRM persona with emotion on, in use for the account (#354).
 
-        The account starts with no persona (#302), so the fixture makes one and
-        takes it away again, leaving the assistant answering as itself."""
+        The account starts with no persona (#302), so the fixture makes one,
+        puts it in use, and takes it away again, leaving the assistant
+        answering as itself."""
         resp = system_client.post(
             "/personas", json={"name": "Vrm tester", "character_config": VRM_ON}, headers=headers,
         )
         assert resp.status_code == 200, resp.text
         persona = resp.json()
-        self.persona_id = persona["id"]
+        selected = system_client.patch("/assistant", json={"selected_persona_id": persona["id"]}, headers=headers)
+        assert selected.status_code == 200, selected.text
         yield persona
         system_client.delete(f"/personas/{persona['id']}", headers=headers)
 
@@ -263,9 +265,7 @@ class TestPersisted:
 
         with system_client.websocket_connect("/ws/chat", headers=headers) as ws:
             ws.receive_json()
-            ws.send_json(chat_request(
-                text, conversation_id=conversation_id, persona_id=getattr(self, "persona_id", None),
-            ))
+            ws.send_json(chat_request(text, conversation_id=conversation_id))
             return events_until_done(ws)
 
     def test_a_tagged_reply_is_stored_clean_with_its_cues(self, system_client, headers, mock_ollama, vrm_persona):
