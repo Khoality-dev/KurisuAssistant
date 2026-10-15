@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Badge,
   Box,
@@ -28,6 +28,9 @@ export const NotificationBell: React.FC = () => {
   const markAllRead = useNotificationStore((s) => s.markAllRead);
   const refreshUnread = useNotificationStore((s) => s.refreshUnread);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  // "Mark all read" leaves with the last unread one, and the focus with it;
+  // the heading takes it so Escape still closes the list.
+  const heading = useRef<HTMLDivElement>(null);
 
   const label = unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications';
 
@@ -56,9 +59,17 @@ export const NotificationBell: React.FC = () => {
         slotProps={{ paper: { sx: { width: 360, maxHeight: 480 } } }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
-          <Typography variant="subtitle2" sx={{ flex: 1 }}>Unread</Typography>
+          <Typography ref={heading} tabIndex={-1} variant="subtitle2" sx={{ flex: 1, outline: 'none' }}>Unread</Typography>
           {unread.length > 0 && (
-            <Button size="small" onClick={markAllRead}>Mark all read</Button>
+            <Button
+              size="small"
+              onClick={() => {
+                heading.current?.focus();
+                markAllRead();
+              }}
+            >
+              Mark all read
+            </Button>
           )}
         </Box>
         {unread.length === 0 ? (
