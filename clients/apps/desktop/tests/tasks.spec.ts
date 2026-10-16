@@ -16,7 +16,11 @@ async function login(page: Page) {
   await page.getByLabel('Username').fill('tester');
   await page.getByLabel('Password').fill('password');
   await page.getByRole('button', { name: 'Login' }).click();
-  await expect(page.getByPlaceholder('Type your message...')).toBeVisible({ timeout: 15_000 });
+  // Signed in, not "the composer is showing": sign-in opens the newest
+  // conversation, which in the tasks scenario is a run waiting for approval,
+  // and its approval bar takes the composer's place once the tasks load —
+  // before or after this check, depending on the machine (#362).
+  await expect(page.getByRole('button', { name: 'Logout' })).toBeVisible({ timeout: 15_000 });
 }
 
 function useTasksScenario(mock: MockBackend) {
