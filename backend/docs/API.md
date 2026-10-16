@@ -16,7 +16,6 @@ routers disagree, the routers are right and this file is a bug.
 - [Personas](#personas)
 - [Export & Import Format](#export--import-format)
 - [User Profile](#user-profile)
-- [Tool Policies](#tool-policies)
 - [Images](#images)
 - [Drive](#drive)
 - [Calendar](#calendar)
@@ -414,7 +413,7 @@ Created on demand for an account that predates the split and never got a row.
   "id": 1,
   "model_name": "llama3.2:latest",
   "provider_type": "ollama",
-  "available_tools": null,
+  "permission_mode": "ask",
   "think": false,
   "use_deferred_tools": false,
   "memory": "The user prefers concise answers…",
@@ -424,7 +423,11 @@ Created on demand for an account that predates the split and never got a row.
 }
 ```
 
-`available_tools: null` means **every tool**.
+`permission_mode` is the whole of tool permission (#360): `"ask"` (Always ask,
+the default — every tool call waits for approval, reads included), `"read_only"`
+(a tool that only looks runs, anything else is refused) or `"full"` (everything
+runs). Every tool is always offered; there is no tool list. See
+[Tools & Skills](tools.md).
 
 `model_name: null` means **no model chosen yet**, the state every account is
 registered in. Until it is set, `chat_request` is refused with
@@ -432,15 +435,15 @@ registered in. Until it is set, `chat_request` is refused with
 
 ### PATCH /assistant
 
-Omitted fields are untouched; an explicit `null` clears the column. That
-distinction matters for `available_tools` — `null` is the only way back to "every
-tool".
+Omitted fields are untouched; an explicit `null` clears the column. A field the
+route does not know — the removed `available_tools` included — is refused with
+`422`.
 
 | Field | Type | Nullable |
 |---|---|---|
 | `model_name` | string | yes |
 | `provider_type` | string | **no** |
-| `available_tools` | string[] | yes (null = every tool) |
+| `permission_mode` | `"ask"` \| `"read_only"` \| `"full"` | **no** (`"auto"` is 422) |
 | `think` | boolean | **no** |
 | `use_deferred_tools` | boolean | **no** |
 | `memory` | string | yes |
@@ -451,7 +454,8 @@ tool".
 **Response:** `200 OK` — the updated assistant.
 
 **Errors:** `400` a non-nullable field was sent as `null`, or
-`selected_persona_id` names a disabled persona; `404` that persona does not exist.
+`selected_persona_id` names a disabled persona; `404` that persona does not exist;
+`422` an unknown field or a `permission_mode` outside the three.
 
 **`trigger_word` is a voice wake word.** Saying it wakes the assistant and the
 persona in use answers. It selects nothing, and personas do not have
@@ -720,7 +724,7 @@ write path refuses; `507` over the 3D character quota.
 
 There are none to manage (#354). `/sub-agents` and every route under it are gone,
 like `/agents` before them: a stale client gets a `404`. The assistant spawns a
-sub-agent itself, mid-answer, through the built-in `delegate_task` tool; it runs on
+sub-agent itself, mid-answer, through its own `delegate_task` tool; it runs on
 the assistant's own model and tools and never appears in the API. See
 [Agents](agents.md).
 
@@ -808,37 +812,6 @@ file clears it.
 **Response:** `{"status": "ok", "agent_avatar_uuid": "660e8400-…"}`
 
 **Error:** `400` the file could not be read as an image.
-
----
-
-## Tool Policies
-
-The server, not the client, is the tool-permission authority. These policies are
-read once per turn and applied before dispatch: a stored `deny` never reaches the
-client, a stored `allow` skips the approval prompt, and anything else is put to the
-connected client — whose answer can only narrow the decision.
-
-### GET /users/me/tool-policies
-
-```json
-{"tools": {"read_file": "allow", "run_command": "deny"}}
-```
-
-### PUT /users/me/tool-policies
-
-Replace the whole map. **Request:** `{"tools": {"read_file": "allow"}}` →
-`{"status": "ok"}`.
-
-**Error:** `400` a value other than `"allow"` or `"deny"`.
-
-### PATCH /users/me/tool-policies
-
-Set or clear one entry.
-
-**Request:** `{"tool_name": "read_file", "policy": "allow"}` — `policy: null`
-removes the entry.
-
-**Errors:** `400` missing `tool_name`, or a policy that is not `allow`/`deny`/null.
 
 ---
 
@@ -1168,16 +1141,21 @@ briefly unreachable. `502` when no recognition engine is configured.
 ```json
 {
   "mcp_tools": [ /* flat list of the user's server-side MCP tool schemas */ ],
-  "builtin_tools": [ /* native tool schemas, each tagged "built_in" and "allowed_by_default" (#353): true|false */ ],
+  "server_tools": [ /* the server's own tool schemas */ ],
   "mcp_servers": { "server-name": [ /* that server's tools */ ] }
 }
 ```
 
-Native tools registered in `tools/__init__.py`: `history_list`, `history_read`,
-`recall_regex`, `recall_semantic`, `get_skill_instructions` — all `built_in`, so
-they ignore the `available_tools` allowlist (the recall tools still gate drive
-passages on `drive_read`; see `retrieval.md`) — and the four `drive_*` tools,
-which are not. The deferred meta-tools (`list_tools`,
+Every tool in all three carries `read_only` beside `type` and `function`: whether
+it only looks, which is what the Read only permission mode runs without asking
+(#360). For an MCP tool it is the server's `readOnlyHint` annotation; one without
+it is `false`. A connected client's own tools are not listed — they are the
+client's, and it shows them itself. `server_tools` was `builtin_tools`, with
+`built_in`/`allowed_by_default` flags, before wire protocol 11.
+
+The server's own tools are registered in `tools/__init__.py` (the history, recall,
+skill, notification, drive, task and calendar tools; `tools.md` lists which only
+look). The deferred meta-tools (`list_tools`,
 `search_tools`, `get_tool_schema`, `call_tool`) are created per-session rather than
 registered globally, and appear only when `assistants.use_deferred_tools` is set.
 

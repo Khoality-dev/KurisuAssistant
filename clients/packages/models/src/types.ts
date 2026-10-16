@@ -182,7 +182,9 @@ export interface Assistant {
   id: number;
   model_name: string | null;
   provider_type: string;
-  available_tools: string[] | null;  // null = every tool
+  // The account's permission mode (#360): what happens when the assistant calls
+  // a tool. Every tool is always offered; this is the whole of tool permission.
+  permission_mode: PermissionMode;
   think: boolean;
   use_deferred_tools: boolean;
   memory: string | null;
@@ -276,13 +278,13 @@ export interface PersonaUpdate {
 
 /**
  * PATCH /assistant. Omit a field to leave it alone; send an explicit `null` to
- * clear it — `available_tools: null` is the only way to say "every tool" again.
- * `provider_type`, `think`, `use_deferred_tools` and `memory_enabled` may not be null.
+ * clear it. `provider_type`, `permission_mode`, `think`, `use_deferred_tools` and
+ * `memory_enabled` may not be null, and an unknown field is a 422.
  */
 export interface AssistantUpdate {
   model_name?: string | null;
   provider_type?: string;
-  available_tools?: string[] | null;
+  permission_mode?: PermissionMode;
   think?: boolean;
   use_deferred_tools?: boolean;
   memory?: string | null;
@@ -350,16 +352,31 @@ export interface ToolFunction {
 export interface Tool {
   type: string;
   function: ToolFunction;
-  built_in?: boolean;
-  /** Runs without asking until the user denies it (#353) — `notify_user`. */
-  allowed_by_default?: boolean;
+  /**
+   * The tool only looks — it reads, lists or searches and changes nothing — so
+   * Read only runs it (#360). Absent counts as changing something. A client
+   * sends it with `client_tools_register`; the server reports it on `GET /tools`.
+   */
+  read_only?: boolean;
 }
 
 export interface ToolsResponse {
+  /** The server's own tools. */
+  server_tools: Tool[];
   mcp_tools: Tool[];
-  builtin_tools: Tool[];
   mcp_servers?: Record<string, Tool[]>;
 }
+
+/**
+ * What happens when the assistant calls a tool (#360):
+ * - `ask` — every call waits for approval, reads included (the default);
+ * - `read_only` — a tool that only looks runs; anything else is refused;
+ * - `full` — everything runs without asking.
+ * "Auto" is shown as coming soon and is not a value the server accepts yet.
+ */
+export type PermissionMode = 'ask' | 'read_only' | 'full';
+
+export const PERMISSION_MODES: readonly PermissionMode[] = ['ask', 'read_only', 'full'];
 
 // Skill types
 export interface Skill {

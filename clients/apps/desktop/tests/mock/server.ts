@@ -146,7 +146,8 @@ export interface MockAssistant {
   id?: number;
   model_name?: string | null;
   provider_type?: string;
-  available_tools?: string[] | null; // null = every tool
+  /** The account's permission mode (#360): "ask" (default), "read_only" or "full". */
+  permission_mode?: 'ask' | 'read_only' | 'full';
   think?: boolean;
   use_deferred_tools?: boolean;
   memory?: string | null;
@@ -224,7 +225,8 @@ const DEFAULT_STREAM: StreamScript = {
 export interface MockTool {
   name: string;
   description: string;
-  builtin?: boolean;
+  /** Only looks (#360): the server reports it on GET /tools. Absent is false. */
+  read_only?: boolean;
 }
 
 /**
@@ -374,7 +376,7 @@ export interface MockBackendOptions {
   characterQuotaBytes?: number;
   assistant?: MockAssistant;
   stream?: StreamScript;
-  tools?: { mcp?: MockTool[]; builtin?: MockTool[] };
+  tools?: { mcp?: MockTool[]; server?: MockTool[] };
   mcpServers?: Array<Partial<{
     id: number; name: string; transport_type: 'sse' | 'stdio'; url: string | null;
     command: string | null; args: string[] | null; env: Record<string, string> | null;
@@ -461,7 +463,7 @@ export class MockBackend {
     command: string | null; args: string[] | null; env: Record<string, string> | null;
     enabled: boolean; location: 'server' | 'client'; created_at: string;
   }> = [];
-  private tools: { mcp: MockTool[]; builtin: MockTool[] };
+  private tools: { mcp: MockTool[]; server: MockTool[] };
   /**
    * Last turn this backend ran, reported back on `connected` the way the real
    * server does — its session outlives a single socket, so a client that drops
@@ -556,7 +558,7 @@ export class MockBackend {
       // gets the default.
       model_name: assistant.model_name === undefined ? 'test-model' : assistant.model_name,
       provider_type: assistant.provider_type ?? 'mock',
-      available_tools: assistant.available_tools ?? null,
+      permission_mode: assistant.permission_mode ?? 'ask',
       think: assistant.think ?? false,
       use_deferred_tools: assistant.use_deferred_tools ?? false,
       memory: assistant.memory ?? null,
@@ -576,7 +578,7 @@ export class MockBackend {
     this.stream = opts.stream ?? DEFAULT_STREAM;
     this.tools = {
       mcp: opts.tools?.mcp ?? [],
-      builtin: opts.tools?.builtin ?? [],
+      server: opts.tools?.server ?? [],
     };
     for (const s of opts.mcpServers ?? []) {
       this.mcpServers.push({
@@ -728,8 +730,8 @@ export class MockBackend {
     else this.unreachable.delete(path);
   }
 
-  setTools(tools: { mcp?: MockTool[]; builtin?: MockTool[] }) {
-    this.tools = { mcp: tools.mcp ?? this.tools.mcp, builtin: tools.builtin ?? this.tools.builtin };
+  setTools(tools: { mcp?: MockTool[]; server?: MockTool[] }) {
+    this.tools = { mcp: tools.mcp ?? this.tools.mcp, server: tools.server ?? this.tools.server };
   }
 
   /**
@@ -1229,8 +1231,10 @@ export class MockBackend {
       }
       return this.json(res, { status: 'ok', message: 'Profile updated successfully' });
     }
+    // Removed with per-tool policies (#360). Said here rather than left to the
+    // catch-all, which still answers routes it does not know with a success (#309).
     if (pathOnly === '/users/me/tool-policies') {
-      return this.json(res, { tools: {} });
+      return this.error(res, 404, 'Not Found');
     }
 
     // Assistant — one per user, created at registration: no id, no POST, no DELETE.
@@ -1239,6 +1243,18 @@ export class MockBackend {
     }
     if (pathOnly === '/assistant' && method === 'PATCH') {
       const body = await this.readJson(req);
+      // As `routers/assistant.py` (#360): an unknown field is a 422 — the removed
+      // `available_tools` among them — and the mode is one of three, never null.
+      const fields = ['model_name', 'provider_type', 'permission_mode', 'think', 'use_deferred_tools',
+        'memory', 'memory_enabled', 'trigger_word', 'selected_persona_id'];
+      const unknown = Object.keys(body).filter((k) => !fields.includes(k));
+      if (unknown.length) return this.error(res, 422, `Extra inputs are not permitted: ${unknown.join(', ')}`);
+      for (const k of ['provider_type', 'permission_mode', 'think', 'use_deferred_tools', 'memory_enabled']) {
+        if (k in body && body[k] === null) return this.error(res, 400, `'${k}' cannot be null.`);
+      }
+      if ('permission_mode' in body && !['ask', 'read_only', 'full'].includes(body.permission_mode)) {
+        return this.error(res, 422, "permission_mode must be 'ask', 'read_only' or 'full'");
+      }
       // As `routers/assistant.py`: only an enabled persona of one's own.
       if (body.selected_persona_id != null) {
         const persona = this.findPersona(body.selected_persona_id);
@@ -1450,11 +1466,11 @@ export class MockBackend {
       const toToolFn = (t: MockTool) => ({
         type: 'function',
         function: { name: t.name, description: t.description, parameters: { type: 'object', properties: {} } },
-        built_in: !!t.builtin,
+        read_only: !!t.read_only,
       });
       return this.json(res, {
+        server_tools: this.tools.server.map(toToolFn),
         mcp_tools: this.tools.mcp.map(toToolFn),
-        builtin_tools: this.tools.builtin.map(toToolFn),
       });
     }
     if (pathOnly === '/mcp-servers' && method === 'GET') {

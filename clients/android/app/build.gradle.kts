@@ -139,7 +139,7 @@ android {
         // change to REST/WebSocket payloads, headers, or auth flow. Sent on
         // every request via WireProtocolInterceptor and checked once on
         // startup against `GET /version`.
-        buildConfigField("int", "WIRE_PROTOCOL", "10")
+        buildConfigField("int", "WIRE_PROTOCOL", "11")
         // Without this AGP falls back to the pre-AndroidX
         // android.test.InstrumentationTestRunner, which crashes on start —
         // the androidTest suite had never actually run (#126).

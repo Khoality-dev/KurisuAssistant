@@ -285,14 +285,6 @@ interface KurisuApiService {
     @DELETE("/skills/{id}")
     suspend fun deleteSkill(@Path("id") id: Int)
 
-    // Tool policies: the server applies them (#353 adds a switch for the
-    // tools that run without asking until denied).
-    @GET("/users/me/tool-policies")
-    suspend fun getToolPolicies(): ToolPolicies
-
-    @PATCH("/users/me/tool-policies")
-    suspend fun patchToolPolicy(@Body body: ToolPolicyPatch): ToolPolicies
-
     // Notifications (#353): the server keeps them and their read state; a read
     // here is announced to every device, which takes it down.
     @GET("/notifications")

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, Paper, Typography, Chip } from '@mui/material';
-import { Build as ToolIcon, CheckCircle, Block, Schedule, DoNotDisturb } from '@mui/icons-material';
+import { Build as ToolIcon, CheckCircle, Block } from '@mui/icons-material';
 
 export interface ApprovalOption {
   label: string;
@@ -19,13 +19,13 @@ export interface ApprovalRequest {
   options?: ApprovalOption[];
 }
 
-// Default options for tool approval
+// The server's question is about one call: approve it or deny it (#360). How
+// much runs without asking is the permission mode beside the chat input, so
+// there is no "always allow this tool" here. A request may bring its own
+// options — the desktop's host-tool gate does, to grant a folder.
 const DEFAULT_OPTIONS: ApprovalOption[] = [
-  { label: 'Approve once', value: 'approve', color: 'success', icon: <CheckCircle fontSize="small" /> },
-  { label: 'Allow for this session', value: 'session_allow', color: 'success', icon: <Schedule fontSize="small" /> },
-  { label: 'Always allow this tool', value: 'always_allow', color: 'success', icon: <CheckCircle fontSize="small" /> },
-  { label: 'Deny once', value: 'deny', color: 'error', icon: <Block fontSize="small" /> },
-  { label: 'Always deny this tool', value: 'always_deny', color: 'error', icon: <DoNotDisturb fontSize="small" /> },
+  { label: 'Approve', value: 'approve', color: 'success', icon: <CheckCircle fontSize="small" /> },
+  { label: 'Deny', value: 'deny', color: 'error', icon: <Block fontSize="small" /> },
 ];
 
 interface ToolApprovalBarProps {
@@ -36,11 +36,12 @@ interface ToolApprovalBarProps {
 export const ToolApprovalBar: React.FC<ToolApprovalBarProps> = ({ request, onRespond }) => {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
-  const optionCount = DEFAULT_OPTIONS.length;
+  const options = request.options?.length ? request.options : DEFAULT_OPTIONS;
+  const optionCount = options.length;
 
   const handleSelect = useCallback(() => {
-    onRespond(DEFAULT_OPTIONS[selectedIndex].value);
-  }, [selectedIndex, onRespond]);
+    onRespond(options[selectedIndex].value);
+  }, [options, selectedIndex, onRespond]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -82,6 +83,8 @@ export const ToolApprovalBar: React.FC<ToolApprovalBarProps> = ({ request, onRes
   return (
     <Paper
       ref={containerRef}
+      role="region"
+      aria-label="Tool approval"
       tabIndex={-1}
       elevation={3}
       sx={{
@@ -136,7 +139,7 @@ export const ToolApprovalBar: React.FC<ToolApprovalBarProps> = ({ request, onRes
 
       {/* Options */}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-        {DEFAULT_OPTIONS.map((opt, i) => (
+        {options.map((opt, i) => (
           <Chip
             key={opt.value}
             icon={opt.icon as React.ReactElement}

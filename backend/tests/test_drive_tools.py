@@ -81,12 +81,10 @@ class TestRegistration:
         for name in ("drive_list", "drive_read", "drive_write", "drive_delete"):
             assert tool_registry.get(name) is not None, name
 
-    def test_they_are_not_built_in(self):
-        """`built_in` bypasses an account's `available_tools` allowlist. File
-        access must not arrive that way — narrowing the allowlist has to be able
-        to take the drive away."""
-        for name in ("drive_list", "drive_read", "drive_write", "drive_delete"):
-            assert tool_registry.get(name).built_in is False, name
+    def test_listing_and_reading_only_look(self):
+        """What Read only runs (#360): the two that look, never the two that change."""
+        flags = {name: tool_registry.get(name).read_only for name in ("drive_list", "drive_read", "drive_write", "drive_delete")}
+        assert flags == {"drive_list": True, "drive_read": True, "drive_write": False, "drive_delete": False}
 
     def test_user_id_is_not_something_the_model_can_set(self):
         """It is injected after the model has produced its arguments. If it were

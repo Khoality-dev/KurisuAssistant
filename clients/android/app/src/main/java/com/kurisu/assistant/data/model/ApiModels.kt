@@ -204,13 +204,26 @@ data class TTSRequest(
 // apart here: a field left at its `null` default is not serialized at all, so a
 // partial update stays partial instead of blanking every field it did not set.
 
+/**
+ * What happens when the assistant calls a tool (#360). Every tool is always
+ * offered; this is the whole of tool permission, one for the account:
+ * [ASK] every call waits for approval (the default), [READ_ONLY] a tool that
+ * only looks runs and anything else is refused, [FULL] everything runs.
+ * "Auto" is shown as coming soon and is not a value the server accepts yet.
+ */
+@Serializable
+enum class PermissionMode(val title: String, val description: String) {
+    @SerialName("ask") ASK("Always ask", "Every call waits for your approval."),
+    @SerialName("read_only") READ_ONLY("Read only", "Looking runs; changing anything is refused."),
+    @SerialName("full") FULL("Full access", "Everything runs without asking."),
+}
+
 @Serializable
 data class Assistant(
     val id: Int,
     @SerialName("model_name") val modelName: String? = null,
     @SerialName("provider_type") val providerType: String = "ollama",
-    // null means "every tool" — an empty list means "no tools".
-    @SerialName("available_tools") val availableTools: List<String>? = null,
+    @SerialName("permission_mode") val permissionMode: PermissionMode = PermissionMode.ASK,
     val think: Boolean = false,
     @SerialName("use_deferred_tools") val useDeferredTools: Boolean = false,
     val memory: String? = null,
@@ -232,7 +245,7 @@ data class AssistantUpdate(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("provider_type") val providerType: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    @SerialName("available_tools") val availableTools: List<String>? = null,
+    @SerialName("permission_mode") val permissionMode: PermissionMode? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val think: Boolean? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
@@ -386,26 +399,15 @@ data class ToolFunction(
 data class Tool(
     val type: String,
     val function: ToolFunction,
-    @SerialName("built_in") val builtIn: Boolean? = null,
-    /** Runs without asking until the user denies it (#353) — `notify_user`. */
-    @SerialName("allowed_by_default") val allowedByDefault: Boolean = false,
-)
-
-/** `GET /users/me/tool-policies`: tool name → "allow" | "deny". */
-@Serializable
-data class ToolPolicies(val tools: Map<String, String> = emptyMap())
-
-/** `PATCH /users/me/tool-policies`: a null policy removes the tool's. */
-@Serializable
-data class ToolPolicyPatch(
-    @SerialName("tool_name") val toolName: String,
-    val policy: String?,
+    /** Only looks — Read only runs it (#360). Absent counts as changing something. */
+    @SerialName("read_only") val readOnly: Boolean = false,
 )
 
 @Serializable
 data class ToolsResponse(
-    @SerialName("mcp_tools") val mcpTools: List<Tool>,
-    @SerialName("builtin_tools") val builtinTools: List<Tool>,
+    /** The server's own tools. */
+    @SerialName("server_tools") val serverTools: List<Tool> = emptyList(),
+    @SerialName("mcp_tools") val mcpTools: List<Tool> = emptyList(),
     @SerialName("mcp_servers") val mcpServers: Map<String, List<Tool>>? = null,
 )
 

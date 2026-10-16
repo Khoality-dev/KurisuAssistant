@@ -30,10 +30,8 @@ def use_model(account):
     assert resp.status_code == 200, resp.text
 
 
-def allow(account, tool):
-    resp = account.client.patch(
-        "/users/me/tool-policies", json={"tool_name": tool, "policy": "allow"}, headers=account.headers,
-    )
+def set_mode(account, mode):
+    resp = account.client.patch("/assistant", json={"permission_mode": mode}, headers=account.headers)
     assert resp.status_code == 200, resp.text
 
 
@@ -119,7 +117,7 @@ def tool_chunks(events, name):
 class TestPlanningFromAChat:
     def test_the_assistant_schedules_a_repeating_task(self, account):
         use_model(account)
-        allow(account, "task_schedule")
+        set_mode(account, "full")
         events, conversation_id = chat(
             account,
             'call task_schedule {"title": "Morning briefing", "instructions": "Weather and today\'s calendar.",'
@@ -141,7 +139,7 @@ class TestPlanningFromAChat:
 
     def test_a_bad_schedule_comes_back_as_an_error_the_model_can_read(self, account):
         use_model(account)
-        allow(account, "task_schedule")
+        set_mode(account, "full")
         events, _ = chat(
             account,
             'call task_schedule {"title": "x", "instructions": "y", "repeat": "daily", "time": "8am"}',
@@ -153,7 +151,7 @@ class TestPlanningFromAChat:
 
     def test_the_assistant_starts_a_task_that_runs_on_its_own(self, account):
         use_model(account)
-        allow(account, "task_start")
+        set_mode(account, "full")
         events, conversation_id = chat(
             account,
             'call task_start {"title": "Apartment notes", "instructions": "Gather the apartment notes."}',
@@ -175,8 +173,7 @@ class TestPlanningFromAChat:
 
     def test_the_assistant_lists_changes_and_deletes_tasks(self, account):
         use_model(account)
-        for tool in ("task_list", "task_update", "task_delete"):
-            allow(account, tool)
+        set_mode(account, "full")
         task_id = make_task(
             account, title="French recap", repeat="weekly", time="20:00", days=["sun"],
             next_run_at=datetime.utcnow() + timedelta(days=3),
@@ -236,9 +233,9 @@ class TestRuns:
         reply = run_messages(account, run["conversation_id"])[-1]
         assert reply["persona_id"] == persona["id"]
 
-    def test_a_tool_set_to_allow_runs_without_anyone_there(self, account):
+    def test_full_access_runs_a_tool_without_anyone_there(self, account):
         use_model(account)
-        allow(account, "history_list")
+        set_mode(account, "full")
         task_id = make_task(account, instructions="call history_list {}")
         kick()
         run = wait_for_run(account, task_id)
@@ -249,7 +246,7 @@ class TestRuns:
 
     def test_a_run_cannot_start_or_change_tasks(self, account):
         use_model(account)
-        allow(account, "task_start")
+        set_mode(account, "full")
         task_id = make_task(account, instructions='call task_start {"title": "again", "instructions": "again"}')
         kick()
         run = wait_for_run(account, task_id)
@@ -544,16 +541,22 @@ class TestApproval:
         assert answer(account, approval["id"], True).status_code == 409
         wait_for_run(account, task_id)
 
-    def test_a_stored_deny_applies_first(self, account, notified):
+    def test_read_only_runs_a_read_without_waiting(self, account, notified):
         use_model(account)
-        resp = account.client.patch(
-            "/users/me/tool-policies", json={"tool_name": "history_list", "policy": "deny"}, headers=account.headers,
-        )
-        assert resp.status_code == 200
+        set_mode(account, "read_only")
         task_id = make_task(account, instructions="call history_list {}")
         kick()
         run = wait_for_run(account, task_id)
-        assert run["status"] == "failed" and "Deny" in run["error"]
+        assert run["status"] == "done", run
+        assert notified == [] and approvals_of(account) == []
+
+    def test_read_only_refuses_a_change_before_anyone_is_asked(self, account, notified):
+        use_model(account)
+        set_mode(account, "read_only")
+        task_id = make_task(account, instructions='call calendar_create {"kind": "reminder", "title": "x", "start": "2026-10-16T09:00"}')
+        kick()
+        run = wait_for_run(account, task_id)
+        assert run["status"] == "failed" and "Read only" in run["error"]
         assert notified == [] and approvals_of(account) == []
 
     def test_nobody_answering_denies_the_call(self, account, notified, monkeypatch):
@@ -638,7 +641,7 @@ class TestApproval:
 class TestTimezone:
     def test_the_assistant_schedules_in_the_accounts_zone(self, account):
         use_model(account)
-        allow(account, "task_schedule")
+        set_mode(account, "full")
         account.client.patch("/users/me", json={"timezone": "Europe/Paris"}, headers=account.headers)
         events, _ = chat(
             account,
@@ -652,7 +655,7 @@ class TestTimezone:
 
     def test_a_zone_named_in_the_call_still_wins(self, account):
         use_model(account)
-        allow(account, "task_schedule")
+        set_mode(account, "full")
         account.client.patch("/users/me", json={"timezone": "Europe/Paris"}, headers=account.headers)
         chat(
             account,

@@ -55,8 +55,8 @@ def read_until(ws, *types, limit=300):
     raise AssertionError(f"no {types} after {limit} events: {[e['type'] for e in out]}")
 
 
-def set_policy(account, tool, policy):
-    resp = account.client.patch("/users/me/tool-policies", json={"tool_name": tool, "policy": policy}, headers=account.headers)
+def set_mode(account, mode):
+    resp = account.client.patch("/assistant", json={"permission_mode": mode}, headers=account.headers)
     assert resp.status_code == 200, resp.text
 
 
@@ -340,7 +340,6 @@ class TestNotifyNeverRaises:
 
 class TestTheTool:
     def test_the_assistant_notifies_the_user_from_a_conversation(self, account, mock_ollama):
-        set_policy(account, "notify_user", "allow")
         mock_ollama.state.script(
             Reply(tool_calls=[ToolCall("notify_user", {"title": "Laundry", "body": "The machine is done."})]),
             Reply(content="I let you know."),
@@ -360,9 +359,9 @@ class TestTheTool:
         assert event["source"] == "assistant"
         assert event["conversation_id"] == conversation_id
 
-    def test_it_needs_no_approval_until_the_user_denies_it(self, account, mock_ollama):
-        """Allowed by default (#353): no stored policy, no prompt — the turn never
-        waits on an approval, and a task with nobody attached can still notify."""
+    def test_it_needs_no_approval_even_in_always_ask(self, account, mock_ollama):
+        """Allowed by default (#353): it never waits, in any permission mode —
+        a task with nobody attached can still notify."""
         mock_ollama.state.script(
             Reply(tool_calls=[ToolCall("notify_user", {"title": "Done", "body": "Finished."})]),
             Reply(content="Told you."),
@@ -376,12 +375,12 @@ class TestTheTool:
             assert "tool_approval_request" not in [e["type"] for e in events]
             assert phone.receive_json()["title"] == "Done"
 
-    def test_it_is_listed_as_allowed_by_default(self, account):
+    def test_it_is_listed_as_only_looking(self, account):
         resp = account.client.get("/tools", headers=account.headers)
         assert resp.status_code == 200, resp.text
-        flags = {t["function"]["name"]: t.get("allowed_by_default") for t in resp.json()["builtin_tools"]}
+        flags = {t["function"]["name"]: t.get("read_only") for t in resp.json()["server_tools"]}
         assert flags["notify_user"] is True
-        assert flags["history_list"] is False
+        assert flags["drive_write"] is False
 
     def test_it_is_offered_to_the_model(self, account, mock_ollama):
         mock_ollama.state.script(Reply(content="Hi."))
@@ -392,14 +391,14 @@ class TestTheTool:
         request = mock_ollama.state.requests_to("/api/chat")[0]
         assert "notify_user" in {t["function"]["name"] for t in request.get("tools") or []}
 
-    def test_a_denied_policy_sends_nothing(self, account, mock_ollama):
-        set_policy(account, "notify_user", "deny")
+    def test_read_only_still_sends_it(self, account, mock_ollama):
+        set_mode(account, "read_only")
         mock_ollama.state.script(
-            Reply(tool_calls=[ToolCall("notify_user", {"title": "No", "body": "Nope."})]),
-            Reply(content="Could not."),
+            Reply(tool_calls=[ToolCall("notify_user", {"title": "Still", "body": "Here."})]),
+            Reply(content="Sent."),
         )
         with account.socket() as chat:
             chat.receive_json()
             chat.send_json(chat_request("notify me"))
             read_until(chat, "done", "error")
-        assert list_notifications(account)["notifications"] == []
+        assert [n["title"] for n in list_notifications(account)["notifications"]] == ["Still"]

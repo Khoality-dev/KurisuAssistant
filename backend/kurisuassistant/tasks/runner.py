@@ -8,11 +8,12 @@ opened afterwards. When it has something the user should see it reaches them
 the way it would from any turn — the notification tool (#353) — and nothing
 here sends anything to a client except "tasks changed".
 
-There is no client to approve a tool call, so a call the user has neither
-allowed nor denied waits for them: ``approvals.RunApprover`` stands in for the
-chat session, writes a pending approval, notifies the user, and carries on with
-their answer. A denial — by the user, by nobody answering in time, or by a
-stored Deny — ends the turn, and the run is recorded as failed saying which.
+There is no client to approve a tool call, so a call the permission mode puts
+to the user (Always ask, #360) waits for them: ``approvals.RunApprover`` stands
+in for the chat session, writes a pending approval, notifies the user, and
+carries on with their answer. A denial — by the user, by nobody answering in
+time, or by Read only refusing a change — ends the turn, and the run is
+recorded as failed saying which.
 
 The streaming-and-saving loop is the chat's own (``_stream_and_save_agent``),
 run on a handler with no socket, so a run's messages are stored exactly as a
@@ -49,11 +50,11 @@ logger = logging.getLogger(__name__)
 NO_MODEL_REASON = "No model is selected for the assistant. Pick one on the Assistant screen."
 DENIED_REASON = "You denied {tool}, so the run stopped there."
 EXPIRED_REASON = "Nobody approved {tool} within {wait}, so it was denied and the run stopped there."
-POLICY_REASON = "{tool} is set to Deny in Settings › Tools, so the run stopped there."
+POLICY_REASON = "{tool} changes something and the permission mode is Read only, so the run stopped there."
 
 
 def denial_reason(tool: str, outcome: Optional[str]) -> str:
-    """Why a run ended on a denied call: the user, the clock, or the stored policy."""
+    """Why a run ended on a denied call: the user, the clock, or the permission mode."""
     from .approvals import APPROVAL_TIMEOUT_SECONDS, describe_timeout
 
     if outcome == "denied":
@@ -99,7 +100,7 @@ class _RunSetup:
     nvidia_api_key: Optional[str] = None
     poe_api_key: Optional[str] = None
     context_size: Optional[int] = None
-    tool_policies: Dict[str, str] = field(default_factory=dict)
+    permission_mode: str = "ask"
     timezone: Optional[object] = None
 
 
@@ -207,7 +208,7 @@ async def _run(db, turn: "_HeadlessTurn", approver, run_id, task_id, user_id, ti
         poe_api_key=setup.poe_api_key,
         client_tools=[],
         context_size=setup.context_size,
-        tool_policies=setup.tool_policies,
+        permission_mode=setup.permission_mode,
         timezone=setup.timezone,
     )
     agent = MainAgent(setup.assistant, tool_registry, identity=setup.persona)
@@ -260,7 +261,7 @@ def _prepare(session, run_id: int, task_id: int, user_id: int, title: str, instr
         nvidia_api_key=getattr(user, "nvidia_api_key", None),
         poe_api_key=getattr(user, "poe_api_key", None),
         context_size=user.context_size,
-        tool_policies=dict((user.tool_policies or {}).get("tools", {})),
+        permission_mode=assistant_row.permission_mode or "ask",
         timezone=user_timezone(user),
     )
 

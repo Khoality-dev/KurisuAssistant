@@ -21,6 +21,13 @@ export const HOST_TOOL_NAMES = new Set([
 ]);
 
 /**
+ * The host tools that only look, so the account's Read only mode runs them
+ * (#360). Writing, editing and running a command change something. Inside the
+ * desktop the folder boundary still applies to all of them.
+ */
+export const HOST_READ_ONLY_TOOLS = new Set(['host_read', 'host_search', 'host_list']);
+
+/**
  * Resolve a path the way policy decisions must see it.
  *
  * `path.resolve` alone normalises `..` but follows nothing, so a symlink inside

@@ -62,11 +62,11 @@ async def _create(user_id, **args):
 
 
 class TestRegistration:
-    def test_all_four_are_built_in(self):
+    def test_all_four_are_registered_and_only_listing_looks(self):
         for name in ("calendar_create", "calendar_list", "calendar_move", "calendar_delete"):
             tool = tool_registry.get(name)
             assert tool is not None, name
-            assert tool.built_in, name
+            assert tool.read_only is (name == "calendar_list"), name
             assert "user_id" not in json.dumps(tool.get_schema())
 
     def test_the_approval_sentence_names_the_entry(self):

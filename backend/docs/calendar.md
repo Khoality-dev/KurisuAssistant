@@ -4,7 +4,7 @@
 
 The user's events and reminders (#282). Built into the assistant, not a plugin
 (#268): both clients have a Calendar on their navigation, and the assistant
-keeps it with four built-in tools.
+keeps it with four tools of its own.
 
 **The calendar is the user's, and it is not agentic.** Nothing on it starts the
 assistant. A reminder notifies the user when it is due; work the assistant does
@@ -76,8 +76,9 @@ The clients show everything in the device's own zone.
 
 ## The tools
 
-All four are `built_in` — the calendar is one of the assistant's own features
-— and all four go past `users.tool_policies` like any other tool.
+The calendar is one of the assistant's own features, and all four go through the
+account's permission mode like any other tool (#360): `calendar_list` only looks,
+the other three change the calendar, so Read only refuses them.
 
 - `calendar_create(kind, title, start, end?, notes?)` and
   `calendar_move(id, start, end?)` answer JSON:

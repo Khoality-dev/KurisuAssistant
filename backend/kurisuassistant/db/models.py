@@ -25,7 +25,6 @@ class User(Base):
     gemini_api_key = Column(String, nullable=True)
     nvidia_api_key = Column(String, nullable=True)
     poe_api_key = Column(String, nullable=True)
-    tool_policies = Column(JSON, nullable=True)  # {"tools": {"tool_name": "allow"|"deny"}}
     # The account's IANA time zone, filled by a client from its device the first
     # time it is empty. Wall times — a task's 07:30 — are read in it; null is UTC.
     # Read through core/timezone.py::user_timezone, never directly.
@@ -189,7 +188,11 @@ class Assistant(Base):
     # Inference config
     model_name = Column(String, nullable=True)
     provider_type = Column(String, default='ollama', nullable=False)
-    available_tools = Column(JSON, nullable=True)  # NULL = every tool
+    # The account's permission mode (#360, agents/permissions.py): "ask" (every
+    # tool call waits for the user), "read_only" (tools that only look run,
+    # anything else is refused) or "full" (everything runs). Every tool is always
+    # offered; this is the whole of tool permission.
+    permission_mode = Column(String(16), nullable=False, server_default='ask')
     think = Column(Boolean, default=False, nullable=False)
     use_deferred_tools = Column(Boolean, default=False, nullable=False)
 

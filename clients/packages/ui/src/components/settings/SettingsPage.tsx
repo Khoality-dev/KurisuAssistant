@@ -57,7 +57,7 @@ const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'appearance', label: 'Appearance', icon: <AppearanceIcon /> },
   { id: 'assistant', label: 'Assistant', icon: <AssistantIcon /> },
   { id: 'personas', label: 'Personas', icon: <PersonasIcon /> },
-  { id: 'tools', label: 'Tools & MCP', icon: <ToolsIcon /> },
+  { id: 'tools', label: 'Tools', icon: <ToolsIcon /> },
   { id: 'skills', label: 'Skills', icon: <SkillsIcon /> },
   { id: 'drive', label: 'Kurisu Drive', icon: <DriveIcon /> },
   { id: 'notifications', label: 'Notifications', icon: <NotificationsIcon />, needs: 'systemNotifications' },

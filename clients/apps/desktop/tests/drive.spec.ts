@@ -112,17 +112,15 @@ test.describe('Kurisu Drive', () => {
     await expect(page.getByText(/Nothing moving/)).toBeVisible({ timeout: 10_000 });
   });
 
-  test("Settings carries the assistant's drive policy", async ({ page }) => {
+  test('Settings points drive access at the permission mode (#360)', async ({ page }) => {
     await signIn(page);
 
     await activityButton(page, 'SettingsOutlinedIcon').click();
     await page.getByText('Kurisu Drive', { exact: true }).first().click();
 
     await expect(page.getByRole('heading', { name: 'Kurisu Drive' })).toBeVisible({ timeout: 15_000 });
-    // The three the design names, and the reason this is its own section rather
-    // than four switches in Tools & MCP.
-    await expect(page.getByText('Read only')).toBeVisible();
-    await expect(page.getByText('Ask before writing')).toBeVisible();
-    await expect(page.getByText('Full access')).toBeVisible();
+    // No presets of its own any more: the drive is one tool set among the others.
+    await expect(page.getByText(/permission mode beside the chat input/)).toBeVisible();
+    await expect(page.getByText('Ask before writing')).toHaveCount(0);
   });
 });

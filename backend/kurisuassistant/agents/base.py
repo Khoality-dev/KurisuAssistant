@@ -11,12 +11,13 @@ import json
 import logging
 from abc import ABC
 from dataclasses import dataclass, field
-from typing import Callable, Coroutine, Dict, List, Any, Optional, TYPE_CHECKING
+from typing import Callable, Coroutine, Dict, List, Any, Optional, Set, TYPE_CHECKING
 
 from kurisuassistant.websocket.events import (
     ToolApprovalRequestEvent,
 )
 from kurisuassistant.tools import ToolRegistry
+from kurisuassistant.agents.permissions import decide
 
 if TYPE_CHECKING:
     from kurisuassistant.websocket.handlers import ChatSessionHandler
@@ -52,7 +53,6 @@ class AssistantConfig:
     id: Optional[int] = None
     model_name: Optional[str] = None
     provider_type: str = "ollama"
-    available_tools: Optional[List[str]] = None  # None = every tool
     think: bool = False
     use_deferred_tools: bool = False
     memory: Optional[str] = None
@@ -97,9 +97,12 @@ class AgentContext:
     images: Optional[List[str]] = None
     context_size: Optional[int] = None
     compacted_context: str = ""
-    # {tool_name: "allow" | "deny"} from users.tool_policies. The server decides
-    # with this; the client's approval answer can only narrow it, never widen it.
-    tool_policies: Dict[str, str] = field(default_factory=dict)
+    # The account's permission mode (agents/permissions.py), read once per turn
+    # from assistants.permission_mode. The server decides with it; the client's
+    # approval answer can only narrow that decision, never widen it.
+    permission_mode: str = "ask"
+    # Client tools the connected client registered as only looking (#360).
+    client_read_only_tools: Set[str] = field(default_factory=set)
     # The account's time zone (core/timezone.py::user_timezone): the system
     # prompt's "Current time" is the user's clock, not the server's. None is UTC.
     timezone: Optional[Any] = None
@@ -178,11 +181,12 @@ class BaseAgent(ABC):
         context: AgentContext,
         _depth: int = 0,
     ) -> ToolResult:
-        """Resolve and run a tool call, subject to the user's tool policy.
+        """Resolve and run a tool call, subject to the account's permission mode.
 
-        The server decides first, from ``context.tool_policies``: a stored deny
-        is final, a stored allow skips the prompt, and anything else is put to
-        the connected client, whose answer can only narrow that decision.
+        The server decides first, from ``context.permission_mode`` and whether the
+        tool only looks (``agents/permissions.py``): a refusal is final, "run"
+        skips the prompt, and "ask" is put to the connected client, whose answer
+        can only narrow that decision.
         """
         import json as _json
 
@@ -247,23 +251,33 @@ class BaseAgent(ABC):
         if tool is None and tool_name in client_tool_names:
             execution_location = "frontend"
 
-        allowed_tools = self.capabilities.available_tools
-        if allowed_tools is not None and tool_name not in allowed_tools:
-            if not (tool and tool.built_in):
-                logger.warning(f"Agent '{self.identity.name}' tried to use unavailable tool: {tool_name}")
-                return ToolResult(content=f"Tool not available: {tool_name}", status="error")
+        # The permission mode is the server's own decision and is applied first
+        # (#360): "refuse" is final and never reaches the client, "run" skips the
+        # prompt, and "ask" has to be approved by a human.
+        # Only Read only needs to know whether the tool only looks; for an MCP
+        # tool that means asking the orchestrator, so the other modes skip it.
+        read_only = False
+        if context.permission_mode == "read_only":
+            if tool is not None:
+                read_only = tool.read_only
+            elif execution_location == "frontend":
+                read_only = tool_name in (context.client_read_only_tools or set())
+            else:
+                read_only = await self._mcp_tool_is_read_only(tool_name, context)
+        decision = decide(context.permission_mode, read_only)
+        # A tool allowed by default (#353) never waits, in any mode.
+        if tool is not None and tool.allowed_by_default:
+            decision = "run"
 
-        # The stored policy is the server's own decision and is applied first.
-        # A "deny" is final and never reaches the client; an "allow" skips the
-        # prompt; anything else has to be approved by a human.
-        policy = (context.tool_policies or {}).get(tool_name)
-
-        if policy == "deny":
+        if decision == "refuse":
             logger.info(
-                "Tool '%s' refused for user %s by stored policy", tool_name, context.user_id,
+                "Tool '%s' refused for user %s: permission mode is Read only", tool_name, context.user_id,
             )
             return ToolResult(
-                content=f"Tool execution denied by policy: {tool_name}",
+                content=(
+                    f"Tool refused: the permission mode is Read only, which lets the "
+                    f"assistant look but not change anything: {tool_name}"
+                ),
                 status="denied",
             )
 
@@ -272,12 +286,7 @@ class BaseAgent(ABC):
         else:
             description = f"Execute {tool_name} with args: {tool_args}"
 
-        # A tool allowed by default (#353) runs with no stored policy as if one
-        # said "allow"; a stored "deny" was already applied above.
-        if policy is None and tool is not None and tool.allowed_by_default:
-            policy = "allow"
-
-        if policy != "allow":
+        if decision == "ask":
             if not context.handler:
                 # Nothing is attached that could approve this. Historically the
                 # call went ahead unchecked; it must not.
@@ -319,11 +328,6 @@ class BaseAgent(ABC):
         if context.handler:
             exec_args["_handler"] = context.handler
         exec_args["_context"] = context
-        # The caller's allowlist, for a built-in tool that reaches into what a
-        # non-built-in one guards (recall over drive files asks "could
-        # drive_read run here?"). Not on AgentContext: the same context object is
-        # handed to a spawned sub-agent, which carries its own copy of the list.
-        exec_args["_available_tools"] = self.capabilities.available_tools
 
         if execution_location == "frontend":
             if context.client_tool_callback:
@@ -347,6 +351,23 @@ class BaseAgent(ABC):
             return await self._execute_mcp_tool(tool_name, tool_args, context)
         else:
             return ToolResult(content=f"Unknown tool: {tool_name}", status="error")
+
+    async def _mcp_tool_is_read_only(self, tool_name: str, context: AgentContext) -> bool:
+        """Whether a server-side MCP tool said it only looks (its readOnlyHint).
+
+        A tool whose server says nothing, or that cannot be found, changes
+        something.
+        """
+        if not context.user_id:
+            return False
+        try:
+            from kurisuassistant.mcp_tools.orchestrator import get_user_orchestrator
+            orchestrator = get_user_orchestrator(context.user_id)
+            await orchestrator.get_tools()
+            return orchestrator.is_read_only(tool_name)
+        except Exception as e:
+            logger.warning("Could not tell whether MCP tool '%s' only looks: %s", tool_name, e)
+            return False
 
     async def _execute_mcp_tool(
         self,

@@ -9,6 +9,7 @@ import com.kurisu.assistant.data.local.PreferencesDataStore
 import com.kurisu.assistant.data.model.Assistant
 import com.kurisu.assistant.data.model.AssistantUpdate
 import com.kurisu.assistant.data.model.ModelInfo
+import com.kurisu.assistant.data.model.PermissionMode
 import com.kurisu.assistant.data.model.Persona
 import com.kurisu.assistant.data.model.ContextInfoEvent
 import com.kurisu.assistant.data.model.ErrorEvent
@@ -43,6 +44,8 @@ sealed class ChatModal {
     data class PersonaPicker(val personas: List<Persona>, val loading: Boolean = false) : ChatModal()
     /** The assistant's model — one for every persona. A pick applies from the next message. */
     data class ModelPicker(val models: List<ModelInfo>, val loading: Boolean = false) : ChatModal()
+    /** The account's permission mode, beside the input (#360). */
+    data object PermissionModePicker : ChatModal()
     data class ContextDialog(
         val conversationId: Int?,
         val tokenCount: Int?,
@@ -64,7 +67,7 @@ data class InteractionMarker(
 )
 
 data class ChatUiState(
-    /** The one assistant: model, tools, memory, wake word, and the persona in use. */
+    /** The one assistant: model, permission mode, memory, wake word, and the persona in use. */
     val assistant: Assistant? = null,
     val personas: List<Persona> = emptyList(),
     val messages: List<Message> = emptyList(),
@@ -570,6 +573,46 @@ class ChatViewModel @Inject constructor(
                 _state.update { it.copy(
                     modal = null,
                     commandFeedback = "Failed to resume conversation",
+                ) }
+            }
+        }
+    }
+
+    /**
+     * The permission mode sheet (#360). It refetches the assistant as it opens,
+     * so a mode changed on another device shows: the mode is the account's.
+     */
+    fun openPermissionModeSheet() {
+        _state.update { it.copy(modal = ChatModal.PermissionModePicker) }
+        viewModelScope.launch {
+            try {
+                val fresh = assistantRepository.getAssistant()
+                _state.update { it.copy(assistant = fresh) }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not refresh the assistant for the permission mode", e)
+            }
+        }
+    }
+
+    /**
+     * Change what the assistant may do without asking, for the whole account,
+     * on every device and in background tasks (#360). Optimistic, so the chip
+     * does not lag a tap, and rolled back when the server refuses.
+     */
+    fun setPermissionMode(mode: PermissionMode) {
+        val previous = _state.value.assistant ?: return
+        _state.update { if (it.modal == ChatModal.PermissionModePicker) it.copy(modal = null) else it }
+        if (previous.permissionMode == mode) return
+        _state.update { it.copy(assistant = previous.copy(permissionMode = mode)) }
+        viewModelScope.launch {
+            try {
+                val updated = assistantRepository.updateAssistant(AssistantUpdate(permissionMode = mode))
+                _state.update { it.copy(assistant = updated) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to change the permission mode", e)
+                _state.update { it.copy(
+                    assistant = it.assistant?.copy(permissionMode = previous.permissionMode),
+                    commandFeedback = "Could not change the permission mode",
                 ) }
             }
         }

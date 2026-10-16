@@ -27,6 +27,7 @@ import path from 'path';
 import * as fsOps from './fsOps';
 import { loadSettings, saveSettings } from './settings';
 import {
+  HOST_READ_ONLY_TOOLS,
   HOST_TOOL_NAMES,
   alwaysGrantFor,
   isPathAllowed,
@@ -251,9 +252,17 @@ interface ToolSchema {
     description: string;
     parameters: Record<string, unknown>;
   };
+  /** Only looks (#360): the account's Read only mode runs it. */
+  read_only?: boolean;
 }
 
 function getHostToolSchemas(): ToolSchema[] {
+  return hostToolSchemaTable().map((schema) =>
+    HOST_READ_ONLY_TOOLS.has(schema.function.name) ? { ...schema, read_only: true } : schema,
+  );
+}
+
+function hostToolSchemaTable(): ToolSchema[] {
   return [
     {
       type: 'function',

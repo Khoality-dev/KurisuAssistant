@@ -4,7 +4,6 @@ import { apiClient } from '@kurisu/api';
 import { forgetDriveCache } from '@kurisu/api';
 import { storage } from '@kurisu/api';
 import { resolveBridge } from '@kurisu/platform';
-import { useToolPermissionsStore } from './toolPermissionsStore';
 import { usePersonaStore } from './personaStore';
 import type { UserProfile } from '@kurisu/models';
 
@@ -44,7 +43,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const user = await withAccountTimezone(await apiClient.getUserProfile());
     set({ isAuthenticated: true, user, rememberMe });
     // Load tool permission policies
-    useToolPermissionsStore.getState().loadPolicies();
   },
 
   register: async (username: string, password: string, email?: string, rememberMe: boolean = false) => {
@@ -61,7 +59,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const user = await withAccountTimezone(await apiClient.getUserProfile());
     set({ isAuthenticated: true, user, rememberMe });
     // Load tool permission policies
-    useToolPermissionsStore.getState().loadPolicies();
   },
 
   logout: () => {
@@ -119,7 +116,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const user = await withAccountTimezone(await apiClient.getUserProfile());
       set({ isAuthenticated: true, user, rememberMe });
       // Load tool permission policies
-      useToolPermissionsStore.getState().loadPolicies();
     } catch {
       // Both tokens are invalid — clear everything
       storage.clearTokens();

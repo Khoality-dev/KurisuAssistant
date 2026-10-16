@@ -59,7 +59,7 @@ export function useContextBreakdown(opts: { personaId: number | null; enabled: b
   useEffect(() => {
     if (!enabled) return;
     apiClient.listTools()
-      .then((r) => setTools([...(r.builtin_tools || []), ...(r.mcp_tools || [])]))
+      .then((r) => setTools([...(r.server_tools || []), ...(r.mcp_tools || [])]))
       .catch(() => setTools([]));
     apiClient.listSkills()
       .then(setSkills)
@@ -112,16 +112,12 @@ export function useContextBreakdown(opts: { personaId: number | null; enabled: b
       messageHistoryTokens += toTokens(m.content) + toTokens(m.thinking);
     }
 
-    // Tool schemas — JSON-stringified, filtered to the assistant's allow-list
-    // (null means every tool)
-    let allowedTools = tools;
-    if (Array.isArray(assistant.available_tools)) {
-      const allowed = new Set(assistant.available_tools);
-      allowedTools = tools.filter((t) => allowed.has(t.function.name));
-    }
-    const toolSchemasJson = JSON.stringify(allowedTools);
+    // Tool schemas — JSON-stringified. Every tool is offered (#360); `read_only`
+    // is the server's to read and not part of what a model is sent.
+    const offered = tools.map(({ read_only: _readOnly, ...schema }) => schema);
+    const toolSchemasJson = JSON.stringify(offered);
     const toolSchemasTokens = toTokens(toolSchemasJson);
-    const loadedToolNames = allowedTools.map((t) => t.function.name);
+    const loadedToolNames = tools.map((t) => t.function.name);
 
     const systemPromptTokens = toTokens(systemPromptText);
     const memoryTokens = toTokens(memoryText);

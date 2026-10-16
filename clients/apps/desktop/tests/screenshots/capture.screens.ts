@@ -144,7 +144,7 @@ const FIXTURE = {
   assistant: {
     model_name: 'qwen3:8b',
     provider_type: 'ollama',
-    available_tools: null,
+    permission_mode: 'ask',
     think: true,
     use_deferred_tools: false,
     memory:
@@ -155,15 +155,15 @@ const FIXTURE = {
     selected_persona_id: 1,
   },
   tools: {
-    builtin: [
-      { name: 'history_list', description: 'List past conversations.', builtin: true },
-      { name: 'history_read', description: 'Read one past conversation.', builtin: true },
-      { name: 'recall_regex', description: 'Search past conversations and drive files by pattern.', builtin: true },
-      { name: 'recall_semantic', description: 'Search past conversations and drive files by meaning.', builtin: true },
+    server: [
+      { name: 'history_list', description: 'List past conversations.', read_only: true },
+      { name: 'history_read', description: 'Read one past conversation.', read_only: true },
+      { name: 'recall_regex', description: 'Search past conversations and drive files by pattern.', read_only: true },
+      { name: 'recall_semantic', description: 'Search past conversations and drive files by meaning.', read_only: true },
       {
         name: 'get_skill_instructions',
         description: 'Fetch a skill by name.',
-        builtin: true,
+        read_only: true,
       },
     ],
     mcp: [
@@ -258,7 +258,7 @@ test('capture desktop screenshots', async ({ browser }) => {
     const sections: Array<[string, string]> = [
       ['Assistant', '03-settings-assistant.png'],
       ['Personas', '04-settings-personas.png'],
-      ['Tools & MCP', '06-settings-tools-mcp.png'],
+      ['Tools', '06-settings-tools-mcp.png'],
       ['Skills', '07-settings-skills.png'],
     ];
     for (const [label, file] of sections) {

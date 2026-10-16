@@ -66,8 +66,6 @@ class Filters:
 
     #: ``"all"``, ``"conversations"`` or ``"documents"``.
     scope: str = "all"
-    #: Whether drive passages may be returned at all (the ``drive_read`` gate).
-    include_drive: bool = True
     #: Only this conversation.
     in_conversation: Optional[int] = None
     #: The conversation the caller is in. Its messages that are still verbatim
@@ -174,10 +172,7 @@ class PassageRepository(BaseRepository[Passage]):
             .filter(Passage.user_id == user_id)
         )
         scope = filters.scope
-        if not filters.include_drive and scope == "documents":
-            # Nothing can match: the caller asked for documents it may not see.
-            return q.filter(False)
-        if scope == "conversations" or not filters.include_drive:
+        if scope == "conversations":
             q = q.filter(Passage.source_kind == "message")
         elif scope == "documents":
             q = q.filter(Passage.source_kind == "drive")

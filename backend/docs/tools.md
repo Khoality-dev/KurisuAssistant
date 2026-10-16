@@ -1,9 +1,11 @@
 # Tools & Skills
 
-## Built-in Tools
+## The server's own tools
 
-`built_in = True` — always offered, and they ignore the `available_tools`
-allowlist. `conversation_id`, `user_id` and the caller's `agent_id` are injected
+Every tool is always offered (#360) — nothing switches one off, and there is no
+allowlist. What a call does is the account's permission mode's decision (below),
+from whether the tool **only looks**: `BaseTool.read_only`, off unless a tool
+sets it. `conversation_id`, `user_id` and the caller's `agent_id` are injected
 into the arguments by `BaseAgent.execute_tool`. Registered in `tools/__init__.py`:
 
 - `history_list` — list past conversations
@@ -17,9 +19,9 @@ into the arguments by `BaseAgent.execute_tool`. Registered in `tools/__init__.py
 - `notify_user` — a notification on every device of the account, with the app
   closed (#353): `title` and `body`, linked to the current conversation so
   tapping it opens it. Calls `notifications.notify()`, the same path as calendar
-  reminders. Built-in and **allowed by default** (below): it runs without a
-  prompt — a task with nobody attached has to be able to say it is done — until
-  the user stores a `deny`
+  reminders. Only looks, and **allowed by default** (below): it never waits, in
+  any permission mode — a task with nobody attached has to be able to say it is
+  done
 - the six task tools — below
 - `calendar_create`, `calendar_list`, `calendar_move`, `calendar_delete` — the
   user's events and reminders (#282). Wall-clock times in the account's zone;
@@ -28,10 +30,14 @@ into the arguments by `BaseAgent.execute_tool`. Registered in `tools/__init__.py
   `calendar.md`
 
 The two recall tools replaced `history_search` (#6): an unindexed `ILIKE` that
-truncated hits to 200 characters and cited nothing. Both are built-in, but
-**document passages are gated on `drive_read`** — included only when it is in
-the agent's allowlist and not denied by policy — so the drive's rule below still
-holds. See `retrieval.md`.
+truncated hits to 200 characters and cited nothing. They search documents as
+well as conversations with no gate of their own: `drive_read` only looks too, so
+any mode that lets a recall call run would let it run. See `retrieval.md`.
+
+The tools that only look: `history_list`, `history_read`, `recall_regex`,
+`recall_semantic`, `get_skill_instructions`, `notify_user`, `calendar_list`,
+`task_list`, `drive_list`, `drive_read`, `delegate_task` (below) and the four
+deferred meta-tools. Every other tool changes something.
 
 There are no music or routing tools in the registry. `play_music`,
 `music_control`, `get_music_queue`, `route_to_agent` and `route_to_user` were
@@ -40,17 +46,18 @@ removed; anything like them now arrives as an MCP tool.
 ## Task tools
 
 `task_start`, `task_schedule`, `task_list`, `task_update`, `task_stop` and
-`task_delete` (`tools/tasks.py`) are built in: the assistant plans its own work
-with them (#352). They pass the tool policy like any other tool. In a task run —
+`task_delete` (`tools/tasks.py`): the assistant plans its own work with them
+(#352). They pass the permission mode like any other tool; `task_list` only
+looks. In a task run —
 no client attached — the five that change something refuse, so a task cannot
 plan tasks. Their results are JSON the clients render as cards. See `tasks.md`.
 
 ## Drive tools
 
-Registered in the same place but **deliberately not `built_in`**: file access
-must not arrive through the allowlist bypass, so narrowing an account's
-`available_tools` takes the drive away. `user_id` is injected the same way, and
-is not in the declared schema — the model cannot name another account.
+Registered in the same place. `drive_list` and `drive_read` only look;
+`drive_write` and `drive_delete` change something, so Read only refuses them.
+`user_id` is injected the same way, and is not in the declared schema — the
+model cannot name another account.
 
 - `drive_list` — folder contents
 - `drive_read` — text only, bounded at 256 KB; binary is refused rather than
@@ -65,74 +72,60 @@ They all go through the same repository and blob store as `routers/drive.py`, so
 the assistant cannot reach anything the HTTP API would refuse. Renaming and
 moving are not exposed: those stay human actions. See `drive.md`.
 
-### The three-way Drive policy
-
-Settings → Kurisu Drive offers *Read only*, *Ask before writing* and *Full
-access*. That is not a new column — it is a view over `users.tool_policies`:
-
-| Setting | `drive_list` / `drive_read` | `drive_write` / `drive_delete` |
-| --- | --- | --- |
-| Read only | `allow` | `deny` |
-| Ask before writing (recommended) | `allow` | *unset* → the approval bar |
-| Full access | `allow` | `allow` |
-
-**A fresh account is in none of these.** It has no drive policies at all, which
-means every drive call stops at the approval bar — reads included — until
-someone picks one. That is not the same as "ask before writing", where reads are
-explicitly allowed and only writes prompt, so the settings screen names the
-unset state as its own rather than pretending it is the middle row. A
-combination matching none of the presets is shown as *Custom* and left to
-Tools & MCP.
-
-**Recall follows `drive_read`'s row, with one difference.** `recall_regex` and
-`recall_semantic` include drive passages when `drive_read` is `allow` *or unset*,
-and exclude them when it is `deny` (or when `drive_read` is not in the
-assistant's allowlist). In the unset state the approval the user gives to the
-recall call itself is what admits documents — there is no second prompt for the
-files it read through. Denying drive reads therefore takes documents out of
-recall too; a fresh account gets them the moment it approves a recall call.
-
-One source of truth, one enforcement point, no second policy to keep in step.
-
 ## Deferred (meta) tools
 
 When `assistants.use_deferred_tools` is set, the agent is not handed every schema
 at once. `tools/deferred.py` creates a per-session proxy and four meta-tools —
 `list_tools`, `search_tools`, `get_tool_schema`, `call_tool` — and the model
-discovers what it needs. These are created per session, not registered globally,
-so they do not appear in `GET /tools`. The tool-round cap rises from 10 to 25 in
+discovers what it needs. The server's own tools are still offered directly; the
+catalogue the meta-tools search is what arrives from elsewhere — the account's
+MCP servers and the connected client. These are created per session, not
+registered globally, so they do not appear in `GET /tools`. The tool-round cap rises from 10 to 25 in
 this mode, and `call_tool` refuses to invoke itself.
-
-## The allowlist
-
-`assistants.available_tools` is a JSON array of tool names, or `null` for all of
-them. A spawned sub-agent runs under the same list. Personas have no tool field at
-all — swapping persona never changes what the
-assistant can do. Built-in tools ignore the list.
 
 ## Permission
 
-**The server decides, and the client can only narrow it.** `users.tool_policies`
-(`{"tools": {name: "allow" | "deny"}}`) is read once per turn onto `AgentContext`:
+**One mode for the account is the whole of tool permission** (#360).
+`assistants.permission_mode` is read once per turn onto
+`AgentContext.permission_mode`, and `BaseAgent.execute_tool` applies
+`agents/permissions.py::decide` before dispatch:
 
-- a stored `deny` returns a `denied` result immediately and never reaches the
-  client;
-- a stored `allow` runs without prompting;
-- anything else emits `tool_approval_request` to the connected client, whose answer
-  may deny or modify the arguments but cannot widen the decision;
-- with no client session attached, an unapproved call is **refused**, not run.
+| Mode | A tool that only looks | A tool that changes something |
+| --- | --- | --- |
+| `ask` (Always ask, the default) | asks | asks |
+| `read_only` (Read only) | runs | refused |
+| `full` (Full access) | runs | runs |
 
-Policies are managed through `GET`/`PUT`/`PATCH /users/me/tool-policies`. Per-tool
-`requires_approval` and `risk_level` flags do not exist.
+- a refusal returns a `denied` result immediately and never reaches the client;
+- "run" goes ahead without prompting, with or without a client attached;
+- "ask" emits `tool_approval_request` to the connected client, whose answer may
+  deny or modify the arguments but cannot widen the decision;
+- with no client session attached, a call that would ask is **refused**, not
+  run — except in a task run, whose approver asks over REST (`tasks.md`).
+
+The mode is set with `PATCH /assistant` (`permission_mode`); the clients change
+it from the chat input. `auto` is shown by the clients as coming soon and is
+refused (422), and a value `decide` does not know asks. Personas have no tool
+field — swapping persona never changes what the assistant can do. There is no
+per-tool allow or deny, no allowlist, and no `requires_approval` or `risk_level`
+flag.
+
+**Whether a tool only looks** comes from the tool itself, and a tool that does not
+say counts as changing something:
+
+- the server's own tools: `BaseTool.read_only`;
+- server-side MCP tools: the tool's `readOnlyHint` annotation, read when the
+  orchestrator lists them (`mcp_tools/client.py`, `orchestrator.is_read_only`);
+- client tools: `read_only: true` beside `type` and `function` in a
+  `client_tools_register` entry. The handler takes it off before any model sees
+  the schema (`websocket/handlers.py`).
+
+Only Read only needs to know, so the other modes skip the MCP lookup.
 
 **One exception: a tool can be allowed by default** (#353). `BaseTool.allowed_by_default`
-(off unless a tool sets it) makes "no stored policy" mean `allow` instead of "ask", in
-`BaseAgent.execute_tool`, after a stored `deny` has already been applied — so the user's
-`deny` still wins, and the property is the tool's, not a seeded policy row. `GET /tools`
-reports it on each built-in tool (`allowed_by_default`), and both clients' tool settings
-offer a switch for those tools that stores or removes the `deny`. Only `notify_user` sets
-it: its whole effect is a notification to the account's own devices, and a task with
-nobody attached (#352) must be able to send one.
+(off unless a tool sets it) makes the tool run in every mode, Always ask included.
+Only `notify_user` sets it: its whole effect is a notification to the account's own
+devices, and a task with nobody attached (#352) must be able to send one.
 
 ## MCP Tools
 
@@ -156,9 +149,9 @@ The desktop app starts local MCP server processes on the user's own machine,
 discovers their tools, and registers the schemas over the socket with
 `client_tools_register`. Calls are forwarded with `tool_call_request` and answered
 with `tool_call_response`, with a 120s timeout. `AgentContext.client_tools` and
-`client_tool_callback` wire them into `MainAgent.process()`. They are subject to
-the same `available_tools` allowlist and the same server-side tool policy, which is
-applied before the client is ever asked.
+`client_tool_callback` wire them into `MainAgent.process()`. They go through the
+same permission mode, applied before the client is ever asked; one the client did
+not register as `read_only` counts as changing something.
 
 Registered client tools are dropped when a new socket replaces the session's — they
 belonged to that client.
@@ -171,14 +164,15 @@ See [MCP Configuration](mcp-config.md) for the server record format.
 ## Spawning a sub-agent
 
 There are no saved sub-agents (#354). `delegate_task` (`agents/sub.py`,
-`DelegateTaskTool`) is built in and injected as `extra_tools` on the `MainAgent`
-for each turn — not registered globally, because it needs the assistant's own
-configuration. It takes one argument, `task`, runs a fresh `SubAgent` on the
-assistant's model, provider, allowlist and reasoning switch (never its memory), and
-returns the sub-agent's final text. The sub-agent is offered the registry and the
-account's MCP tools, but not `delegate_task` — a helper cannot spawn helpers — and
-not the client's tools. Calling `delegate_task` goes through the user's tool policy
-like any other call; so does every tool the sub-agent calls.
+`DelegateTaskTool`) is injected as `extra_tools` on the `MainAgent` for each turn —
+not registered globally, because it needs the assistant's own configuration. It
+takes one argument, `task`, runs a fresh `SubAgent` on the assistant's model,
+provider and reasoning switch (never its memory), and returns the sub-agent's
+final text. The sub-agent is offered every tool in the registry and the account's
+MCP tools, but not `delegate_task` — a helper cannot spawn helpers — and not the
+client's tools. `delegate_task` itself only looks; every tool the sub-agent calls
+goes through the permission mode like the assistant's own, and a refused or denied
+call stops the helper, whose answer then says why (`Sub-agent stopped: …`).
 
 The model sees an ordinary function, so nothing in the call itself marks a
 delegation. The tool chunk's `tool_kind: "sub_agent"` is the only signal, and the
@@ -197,7 +191,7 @@ reference several.
   `get_skill_instructions` tool.
 - **Sub-agents do not get the skills list.** `SubAgent.execute` builds its prompt
   from the fixed `SUB_AGENT_PROMPT` and its task, and nothing else. `get_skill_instructions` is
-  built-in, so a sub-agent can still call it — it just is not told which skills
+  in the registry, so a sub-agent can still call it — it just is not told which skills
   exist.
 - **Frontend:** a "Skills" tab in the desktop tools window with create/edit/delete.
 

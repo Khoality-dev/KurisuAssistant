@@ -3,6 +3,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _read_only_hint(tool) -> bool:
+    """The tool's own readOnlyHint annotation; a tool that says nothing changes something."""
+    annotations = getattr(tool, "annotations", None)
+    return bool(getattr(annotations, "readOnlyHint", False)) if annotations is not None else False
+
+
 async def list_tools(client):
     try:
         async with client:
@@ -15,6 +21,9 @@ async def list_tools(client):
                         "description": t.description,
                         "parameters": t.inputSchema,
                     },
+                    # Not part of the schema: the orchestrator takes it off before
+                    # the schema reaches a model (#360).
+                    "read_only": _read_only_hint(t),
                 }
                 for t in mcp_tools
             ]

@@ -34,6 +34,9 @@ fun ChatInput(
     selectedImages: List<Uri>,
     isStreaming: Boolean,
     modifier: Modifier = Modifier,
+    /** The account's permission mode, as a chip under the input (#360); null until the assistant loads. */
+    permissionMode: com.kurisu.assistant.data.model.PermissionMode? = null,
+    onPermissionModeClick: () -> Unit = {},
 ) {
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
@@ -187,6 +190,13 @@ fun ChatInput(
                     )
                 }
             }
+        }
+        if (permissionMode != null) {
+            PermissionModeChip(
+                mode = permissionMode,
+                onClick = onPermissionModeClick,
+                modifier = Modifier.padding(start = 4.dp),
+            )
         }
     }
 }

@@ -24,7 +24,7 @@ import { resolveBridge } from '@kurisu/platform';
 let initialized = false;
 let initializing = false;
 let toolCallHandler: ((event: ToolCallRequestEvent) => void) | null = null;
-let clientTools: Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }> = [];
+let clientTools: Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> }; read_only?: boolean }> = [];
 
 /**
  * Initialize client-side MCP servers and register tools with backend.

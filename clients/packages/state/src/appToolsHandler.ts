@@ -43,7 +43,7 @@ async function handleGetAssistant(): Promise<ToolResult> {
   const a = await apiClient.getAssistant();
   const lines = [
     `- Model: ${a.model_name || 'not set'} (${a.provider_type})`,
-    `- Tools: ${a.available_tools === null ? 'every tool' : a.available_tools.join(', ') || 'none'}`,
+    `- Permission mode: ${a.permission_mode} (only the user can change it)`,
     `- Extended thinking: ${a.think ? 'on' : 'off'}`,
     `- Deferred tools: ${a.use_deferred_tools ? 'on' : 'off'}`,
     `- Memory: ${a.memory_enabled ? 'on' : 'off'}`,
@@ -57,11 +57,14 @@ async function handleGetAssistant(): Promise<ToolResult> {
  * Capability only. Presentation — name, prompt, voice, avatar — belongs to a
  * persona, so it goes through handleUpdatePersona instead. The pre-split tool
  * took both in one allowlist and could not say which resource it was writing.
+ *
+ * Never the permission mode (#360): the assistant must not be able to widen
+ * what it may do without asking. That is the user's alone, beside the input.
  */
 async function handleUpdateAssistant(args: Record<string, unknown>): Promise<ToolResult> {
   const update: Record<string, unknown> = {};
   for (const key of [
-    'model_name', 'provider_type', 'available_tools', 'think',
+    'model_name', 'provider_type', 'think',
     'use_deferred_tools', 'memory', 'memory_enabled', 'trigger_word',
   ]) {
     if (args[key] !== undefined) update[key] = args[key];
@@ -231,9 +234,9 @@ async function handleDeleteSkill(args: Record<string, unknown>): Promise<ToolRes
 async function handleListTools(): Promise<ToolResult> {
   const tools = await apiClient.listTools();
   const lines: string[] = [];
-  if (tools.builtin_tools.length > 0) {
-    lines.push('**Built-in tools:**');
-    tools.builtin_tools.forEach(t => lines.push(`- ${t.function.name}`));
+  if (tools.server_tools.length > 0) {
+    lines.push('**Server tools:**');
+    tools.server_tools.forEach(t => lines.push(`- ${t.function.name}`));
   }
   if (tools.mcp_tools.length > 0) {
     lines.push('\n**MCP tools:**');

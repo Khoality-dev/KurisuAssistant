@@ -14,10 +14,9 @@ calendar card from; the ``summary`` is the sentence for the model.
 The calendar never starts the assistant. Nothing here schedules work — that is a
 task (#352). A reminder only notifies the user when it is due.
 
-Built in, like the history and recall tools: the calendar is one of the
-assistant's own features (#268), not an add-on an allowlist should have to
-name. Approval still applies — ``users.tool_policies`` is checked in
-``agents/base.py`` before any of this runs.
+The calendar is one of the assistant's own features (#268). ``calendar_list``
+only looks (``read_only``); the other three change the calendar. The account's
+permission mode is applied in ``agents/base.py`` before any of this runs (#360).
 """
 
 import json
@@ -107,7 +106,6 @@ def _split(value: Any, tz) -> Tuple[Optional[datetime], Optional[date]]:
 
 class CalendarCreateTool(BaseTool):
     name = "calendar_create"
-    built_in = True
     description = (
         "Put an event or a reminder on the user's calendar. A reminder notifies the "
         "user at its time; an event is something happening, timed or all day. Times "
@@ -195,7 +193,7 @@ class CalendarCreateTool(BaseTool):
 
 class CalendarListTool(BaseTool):
     name = "calendar_list"
-    built_in = True
+    read_only = True
     description = (
         "List what is on the user's calendar — events and reminders, each with its id — "
         "between two local dates or times. Defaults to the next two weeks."
@@ -279,7 +277,6 @@ class CalendarListTool(BaseTool):
 
 class CalendarMoveTool(BaseTool):
     name = "calendar_move"
-    built_in = True
     description = (
         "Move an event or reminder on the user's calendar to a new local time (or a new "
         "date, for an all-day event). An event keeps its length unless an end is given. "
@@ -361,7 +358,6 @@ class CalendarMoveTool(BaseTool):
 
 class CalendarDeleteTool(BaseTool):
     name = "calendar_delete"
-    built_in = True
     description = "Delete an event or reminder from the user's calendar by its id from calendar_list."
 
     def get_schema(self) -> Dict[str, Any]:

@@ -163,6 +163,12 @@ interface ToolSchema {
     description: string;
     parameters: Record<string, unknown>;
   };
+  /** The server's readOnlyHint (#360); absent counts as changing something. */
+  read_only?: boolean;
+}
+
+function readOnlyHint(tool: { annotations?: { readOnlyHint?: boolean } }): { read_only?: true } {
+  return tool.annotations?.readOnlyHint === true ? { read_only: true } : {};
 }
 
 async function listAllTools(): Promise<ToolSchema[]> {
@@ -179,6 +185,7 @@ async function listAllTools(): Promise<ToolSchema[]> {
             description: tool.description || '',
             parameters: tool.inputSchema as Record<string, unknown>,
           },
+          ...readOnlyHint(tool),
         });
       }
     } catch (e) {
@@ -202,6 +209,7 @@ async function listToolsByServer(): Promise<Record<string, ToolSchema[]>> {
           description: tool.description || '',
           parameters: tool.inputSchema as Record<string, unknown>,
         },
+        ...readOnlyHint(tool),
       }));
     } catch (e) {
       console.error(`[MCP] Error listing tools from "${name}":`, e);

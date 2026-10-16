@@ -35,7 +35,7 @@ def agent(character_config=VRM_ON):
 def context():
     ctx = AgentContext(user_id=1, conversation_id=7, model_name="test-model")
     ctx.handler = None
-    ctx.tool_policies = {"lookup": "allow"}
+    ctx.permission_mode = "full"
     return ctx
 
 
@@ -295,9 +295,9 @@ class TestPersisted:
 
     def test_a_tagged_reply_with_a_tool_call_keeps_the_calls(self, system_client, headers, mock_ollama, vrm_persona):
         from tests.mock_ollama import Reply, ToolCall
-        from tests.test_system_chat import TOOL, set_tool_policy
+        from tests.test_system_chat import TOOL, set_mode
 
-        set_tool_policy(system_client, headers, "allow")
+        set_mode(system_client, headers, "full")
         mock_ollama.state.script(
             Reply(content="[[emotion:relaxed]]Let me look.", tool_calls=[ToolCall(TOOL, {"limit": 3})]),
             Reply(content="Found it. [[emotion:surprised]]Oh!"),
@@ -305,7 +305,7 @@ class TestPersisted:
         try:
             events = self._turn(system_client, headers, "what did we say?")
         finally:
-            set_tool_policy(system_client, headers, None)
+            set_mode(system_client, headers, "ask")
         assert events[-1]["type"] == "done"
 
         history = system_client.get(f"/conversations/{events[-1]['conversation_id']}", headers=headers).json()

@@ -1,6 +1,6 @@
 """System tests: the settings routes, through the real app and database (#311).
 
-Deleting conversations and messages, tool policies, the model routes against the
+Deleting conversations and messages, the permission mode, the model routes against the
 mock Ollama, MCP servers, skills and a persona's export and import —
 each was tested against a MagicMock database, a pydantic model or a source grep,
 or not at all. Every test has an account of its own (``account``), and the ones
@@ -75,33 +75,66 @@ class TestDeleting:
         assert [(m["role"], m["content"]) for m in left] == [("user", "one"), ("assistant", "You said: one")]
 
 
-class TestToolPolicies:
-    def test_put_replaces_them_and_the_next_turn_obeys(self, account, mock_ollama):
-        assert account.client.get("/users/me/tool-policies", headers=account.headers).json() == {"tools": {}}
+class TestPermissionMode:
+    """One mode for the account decides which tool calls wait (#360)."""
 
-        resp = account.client.put("/users/me/tool-policies", json={"tools": {"history_list": "deny"}}, headers=account.headers)
-        assert resp.status_code == 200
-        assert account.client.get("/users/me/tool-policies", headers=account.headers).json() == {"tools": {"history_list": "deny"}}
-
-        mock_ollama.state.script(Reply(tool_calls=[ToolCall("history_list", {})]), Reply(content="Refused."))
+    @staticmethod
+    def turn_events(account, text):
         with account.socket() as ws:
             ws.receive_json()
-            ws.send_json(chat_request("list"))
+            ws.send_json(chat_request(text))
             events = []
-            while not events or events[-1]["type"] not in ("done", "error"):
+            # An approval request nobody answers would wait forever: stop there,
+            # since what these tests check is that one was (or was not) sent.
+            while not events or events[-1]["type"] not in ("done", "error", "tool_approval_request"):
                 events.append(ws.receive_json())
+        return events
+
+    @staticmethod
+    def tool_statuses(events):
+        return [e["tool_status"] for e in events if e["type"] == "stream_chunk" and e["role"] == "tool"]
+
+    def test_a_new_account_always_asks(self, account):
+        assert account.client.get("/assistant", headers=account.headers).json()["permission_mode"] == "ask"
+
+    def test_read_only_runs_a_read_without_asking(self, account, mock_ollama):
+        resp = account.client.patch("/assistant", json={"permission_mode": "read_only"}, headers=account.headers)
+        assert resp.status_code == 200 and resp.json()["permission_mode"] == "read_only"
+
+        mock_ollama.state.script(Reply(tool_calls=[ToolCall("history_list", {})]), Reply(content="Listed."))
+        events = self.turn_events(account, "list")
         assert "tool_approval_request" not in {e["type"] for e in events}
-        assert [e["tool_status"] for e in events if e["type"] == "stream_chunk" and e["role"] == "tool"] == ["denied"]
+        assert self.tool_statuses(events) == ["success"]
 
-    def test_an_invalid_policy_is_refused_and_nothing_changes(self, account):
-        account.client.put("/users/me/tool-policies", json={"tools": {"history_list": "allow"}}, headers=account.headers)
-        resp = account.client.put("/users/me/tool-policies", json={"tools": {"history_list": "maybe"}}, headers=account.headers)
-        assert resp.status_code == 400
-        assert account.client.get("/users/me/tool-policies", headers=account.headers).json() == {"tools": {"history_list": "allow"}}
+    def test_read_only_refuses_a_change_without_asking(self, account, mock_ollama):
+        account.client.patch("/assistant", json={"permission_mode": "read_only"}, headers=account.headers)
 
-    def test_one_accounts_policy_is_not_anothers(self, account, other):
-        account.client.put("/users/me/tool-policies", json={"tools": {"history_list": "deny"}}, headers=account.headers)
-        assert other.client.get("/users/me/tool-policies", headers=other.headers).json() == {"tools": {}}
+        mock_ollama.state.script(
+            Reply(tool_calls=[ToolCall("calendar_create", {"kind": "reminder", "title": "x", "start": "2026-10-16T09:00"})]),
+            Reply(content="Refused."),
+        )
+        events = self.turn_events(account, "add it")
+        assert "tool_approval_request" not in {e["type"] for e in events}
+        assert self.tool_statuses(events) == ["denied"]
+
+    def test_auto_cannot_be_picked_yet(self, account):
+        for mode in ("auto", "maybe"):
+            resp = account.client.patch("/assistant", json={"permission_mode": mode}, headers=account.headers)
+            assert resp.status_code == 422, mode
+        assert account.client.patch("/assistant", json={"permission_mode": None}, headers=account.headers).status_code == 400
+        assert account.client.get("/assistant", headers=account.headers).json()["permission_mode"] == "ask"
+
+    def test_one_accounts_mode_is_not_anothers(self, account, other):
+        account.client.patch("/assistant", json={"permission_mode": "full"}, headers=account.headers)
+        assert other.client.get("/assistant", headers=other.headers).json()["permission_mode"] == "ask"
+
+    def test_there_is_no_tool_list_and_no_per_tool_policy(self, account):
+        body = account.client.get("/assistant", headers=account.headers).json()
+        assert "available_tools" not in body
+        assert account.client.patch("/assistant", json={"available_tools": ["history_list"]}, headers=account.headers).status_code == 422
+        for method in ("get", "put", "patch"):
+            resp = getattr(account.client, method)("/users/me/tool-policies", headers=account.headers)
+            assert resp.status_code in (404, 405), method
 
 
 class TestModels:

@@ -9,12 +9,14 @@ class BaseTool(ABC):
 
     name: str
     description: str
-    built_in: bool = False  # Built-in tools are always available to all agents
-    # Runs without asking when the user has stored no policy for it (#353). A
-    # stored "deny" still refuses it, and it is listed in Settings → Tools so it
-    # can be denied. For tools whose whole effect is on the user's own account
-    # and that a task with nobody attached must be able to use — notify_user.
-    # Off for everything else: no policy means ask.
+    # Whether the tool only looks (#360): it reads, lists or searches and changes
+    # nothing. The permission mode reads this — Read only runs such a tool without
+    # asking and refuses every other one. Off unless a tool says so: a tool that
+    # has not said counts as one that changes something.
+    read_only: bool = False
+    # Never waits, in any permission mode (#353): for a tool whose whole effect
+    # is on the user's own devices and that a task with nobody attached must be
+    # able to use — notify_user. Off for everything else.
     allowed_by_default: bool = False
 
     @abstractmethod

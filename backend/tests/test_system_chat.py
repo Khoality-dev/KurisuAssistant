@@ -36,8 +36,8 @@ def headers(token):
     return {"Authorization": f"Bearer {token}", "X-Wire-Protocol": str(WIRE_PROTOCOL)}
 
 
-def set_tool_policy(client, headers, policy):
-    resp = client.patch("/users/me/tool-policies", json={"tool_name": TOOL, "policy": policy}, headers=headers)
+def set_mode(client, headers, mode):
+    resp = client.patch("/assistant", json={"permission_mode": mode}, headers=headers)
     assert resp.status_code == 200, resp.text
 
 
@@ -476,7 +476,7 @@ class TestThePersonaInUse:
 
 class TestToolLoop:
     def test_an_allowed_tool_runs_and_its_result_feeds_the_next_turn(self, system_client, headers, mock_ollama):
-        set_tool_policy(system_client, headers, "allow")
+        set_mode(system_client, headers, "full")
         mock_ollama.state.script(
             Reply(tool_calls=[ToolCall(TOOL, {"limit": 3})]),
             Reply(content="Here is what I found."),
@@ -487,10 +487,10 @@ class TestToolLoop:
                 ws.send_json(chat_request("what did we talk about?"))
                 events = events_until_done(ws)
         finally:
-            set_tool_policy(system_client, headers, None)
+            set_mode(system_client, headers, "ask")
 
         assert events[-1]["type"] == "done"
-        assert "tool_approval_request" not in {e["type"] for e in events}, "a stored allow skips the prompt"
+        assert "tool_approval_request" not in {e["type"] for e in events}, "Full access skips the prompt"
 
         announcing = [e for e in events if e["type"] == "stream_chunk" and e["role"] == "assistant" and e.get("tool_calls")]
         assert announcing[0]["tool_calls"][0]["function"]["name"] == TOOL
@@ -510,8 +510,8 @@ class TestToolLoop:
         # only OpenAI-dialect providers see the linkage.
         assert "name" not in tool_msgs[0]
 
-    def test_an_unpoliced_tool_asks_the_client_first(self, system_client, headers, mock_ollama):
-        set_tool_policy(system_client, headers, None)
+    def test_always_ask_asks_the_client_first(self, system_client, headers, mock_ollama):
+        set_mode(system_client, headers, "ask")
         mock_ollama.state.script(
             Reply(tool_calls=[ToolCall(TOOL, {})]),
             Reply(content="Approved and done."),
@@ -532,10 +532,10 @@ class TestToolLoop:
         assert [e["tool_status"] for e in events if e["type"] == "stream_chunk" and e["role"] == "tool"] == ["success"]
         assert content_of(events) == "Approved and done."
 
-    def test_a_denied_tool_never_reaches_the_model_again_as_success(self, system_client, headers, mock_ollama):
-        set_tool_policy(system_client, headers, "deny")
+    def test_a_refused_tool_never_reaches_the_model_again_as_success(self, system_client, headers, mock_ollama):
+        set_mode(system_client, headers, "read_only")
         mock_ollama.state.script(
-            Reply(tool_calls=[ToolCall(TOOL, {})]),
+            Reply(tool_calls=[ToolCall("calendar_create", {"kind": "reminder", "title": "x", "start": "2026-10-16T09:00"})]),
             Reply(content="Understood, I cannot do that."),
         )
         try:
@@ -544,9 +544,9 @@ class TestToolLoop:
                 ws.send_json(chat_request("list my conversations"))
                 events = events_until_done(ws)
         finally:
-            set_tool_policy(system_client, headers, None)
+            set_mode(system_client, headers, "ask")
 
-        assert "tool_approval_request" not in {e["type"] for e in events}, "a stored deny never asks"
+        assert "tool_approval_request" not in {e["type"] for e in events}, "Read only refuses a change without asking"
         tool_chunks = [e for e in events if e["type"] == "stream_chunk" and e["role"] == "tool"]
         assert tool_chunks and tool_chunks[0]["tool_status"] == "denied"
         assert events[-1]["type"] in ("done", "error")

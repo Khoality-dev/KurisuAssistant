@@ -393,30 +393,6 @@ class APIClient {
     return response.data;
   }
 
-  // Tool Policies Methods
-
-  async getToolPolicies(): Promise<{ tools: Record<string, 'allow' | 'deny'> }> {
-    const response = await this.client.get('/users/me/tool-policies', {
-      headers: this.getHeaders(),
-    });
-    return response.data;
-  }
-
-  async updateToolPolicies(policies: { tools: Record<string, 'allow' | 'deny'> }): Promise<void> {
-    await this.client.put('/users/me/tool-policies', policies, {
-      headers: this.getHeaders(),
-    });
-  }
-
-  async patchToolPolicy(toolName: string, policy: 'allow' | 'deny' | null): Promise<void> {
-    await this.client.patch('/users/me/tool-policies', {
-      tool_name: toolName,
-      policy: policy,
-    }, {
-      headers: this.getHeaders(),
-    });
-  }
-
   async uploadImage(file: File): Promise<{ image_uuid: string; url: string }> {
     const formData = new FormData();
     formData.append('file', file);

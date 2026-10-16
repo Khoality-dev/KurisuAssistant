@@ -19,6 +19,5 @@ export * from './notificationStore';
 export * from './personaStore';
 export * from './tasksStore';
 export * from './timezone';
-export * from './toolPermissionsStore';
 export * from './transferStore';
 export * from './visionStore';

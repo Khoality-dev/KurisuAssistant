@@ -171,7 +171,7 @@ test.describe('tasks', () => {
     await page.getByTestId('task-row-5').click();
     await page.getByTestId('task-run-51').click();
     await expect(page.getByText('I will move them now.')).toBeVisible();
-    await page.getByText('Deny once').click();
+    await page.getByRole('region', { name: 'Tool approval' }).getByText('Deny', { exact: true }).click();
     await expect.poll(() => mock.approvalAnswers).toEqual([{ id: 9, approved: false }]);
   });
 });

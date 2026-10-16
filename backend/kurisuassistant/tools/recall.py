@@ -17,15 +17,10 @@ said or written, and say where.
 
 Scope comes from ``args["user_id"]``, injected by ``BaseAgent.execute_tool``
 after the model has produced its arguments — not in the schema, so the model
-cannot name another account. Both tools are ``built_in``, like the history
-tools they replace, so recall is always available. **Document passages are
-not.** They are included only when ``drive_read`` would itself be allowed: in
-the agent's allowlist (``_available_tools``, also injected) and not denied by
-``users.tool_policies``. Narrowing an assistant's tools or denying drive reads
-therefore takes documents out of recall too, which keeps the drive's rule that
-file access never arrives through the built-in bypass. Under the default unset
-("ask") policy, the approval the user gives to the recall call is what admits
-documents; ``docs/tools.md`` says so.
+cannot name another account. Both tools only look (``read_only``), like the
+history tools they replace, and search documents as well as conversations:
+``drive_read`` only looks too, so any permission mode that lets a recall call
+run would let it run (#360).
 
 The messages of the conversation the call is made from are skipped while they
 are still verbatim in the model's context (above the compaction watermark).
@@ -53,14 +48,6 @@ MAX_QUERY_CHARS = 2000
 EMBED_TIMEOUT_SECONDS = 15
 
 SCOPES = ("all", "conversations", "documents")
-
-DOCS_NOT_SEARCHED = (
-    "Documents were not searched: drive_read is not available to this assistant."
-)
-DOCS_ONLY_REFUSED = (
-    "Documents cannot be searched: drive_read is not available to this assistant. "
-    "Ask about conversations instead."
-)
 
 _COMMON_PROPERTIES: Dict[str, Any] = {
     "scope": {
@@ -114,22 +101,6 @@ def _as_text(value: Any) -> str:
     return value if isinstance(value, str) else str(value)
 
 
-def drive_allowed(args: Dict[str, Any]) -> bool:
-    """Would ``drive_read`` be allowed to run for this caller?
-
-    ``_available_tools`` is the agent's allowlist (None = every tool) and
-    ``_context.tool_policies`` the user's stored decisions, both injected by
-    ``BaseAgent.execute_tool``. Run outside an agent (tests), with neither
-    present, the answer is yes.
-    """
-    allow = args.get("_available_tools")
-    if allow is not None and "drive_read" not in allow:
-        return False
-    context = args.get("_context")
-    policies = getattr(context, "tool_policies", None) or {}
-    return policies.get("drive_read") != "deny"
-
-
 def _format_hit(index: int, hit) -> str:
     if hit.source_kind == "message":
         title = f' "{hit.conversation_title}"' if hit.conversation_title else ""
@@ -163,7 +134,7 @@ def format_hits(hits: List, footers: List[str]) -> str:
 
 
 class _RecallTool(BaseTool):
-    built_in = True
+    read_only = True
 
     #: The property the query itself arrives in: ``pattern`` or ``query``.
     query_field = ""
@@ -185,7 +156,7 @@ class _RecallTool(BaseTool):
             },
         }
 
-    def _filters(self, args: Dict[str, Any], include_drive: bool):
+    def _filters(self, args: Dict[str, Any]):
         from kurisuassistant.db.repositories import Filters
 
         scope = _as_text(args.get("scope")).strip().lower() or "all"
@@ -194,7 +165,6 @@ class _RecallTool(BaseTool):
         in_conversation = _as_int(args.get("in_conversation"), 0) or None
         return Filters(
             scope=scope,
-            include_drive=include_drive,
             in_conversation=in_conversation,
             # `conversation_id` is the one the call is made from, injected by
             # BaseAgent.execute_tool — not a filter the model chose.
@@ -214,19 +184,11 @@ class _RecallTool(BaseTool):
         if not query:
             return f"Error: {self.query_field} is required."
 
-        include_drive = drive_allowed(args)
-        filters = self._filters(args, include_drive)
-        if filters.scope == "documents" and not include_drive:
-            return DOCS_ONLY_REFUSED
-
-        footers: List[str] = []
-        if not include_drive and filters.scope == "all":
-            footers.append(DOCS_NOT_SEARCHED)
+        filters = self._filters(args)
         try:
-            hits, extra = await self._search(int(user_id), query, filters, self._limit(args))
+            hits, footers = await self._search(int(user_id), query, filters, self._limit(args))
         except _Refused as e:
             return str(e)
-        footers = extra + footers
         if not hits:
             return f"{self._nothing(query)}" + ("\n\n" + "\n".join(footers) if footers else "")
         return format_hits(hits, footers)

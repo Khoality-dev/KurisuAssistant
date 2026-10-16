@@ -44,31 +44,19 @@ class ToolRegistry:
         """
         return self._tools.get(name)
 
-    def get_schemas(self, available_tools: Optional[set] = None) -> List[Dict]:
-        """Get Ollama-compatible schemas for native tools.
+    def get_schemas(self) -> List[Dict]:
+        """Ollama-compatible schemas for every native tool.
 
-        Args:
-            available_tools: Set of allowed tool names, or None for all
-
-        Returns:
-            List of tool schemas
+        Every tool is offered (#360); the permission mode decides what a call does.
         """
-        schemas = []
-
-        for name, tool in self._tools.items():
-            if available_tools is not None and name not in available_tools and not tool.built_in:
-                continue
-            schemas.append(tool.get_schema())
-
-        return schemas
+        return [tool.get_schema() for tool in self._tools.values()]
 
     def get_native_tool_info(self) -> List[Dict]:
-        """Get schemas for all native tools, each tagged with built_in and allowed_by_default."""
+        """Schemas for all native tools, each tagged with whether it only looks."""
         results = []
         for tool in self._tools.values():
             schema = tool.get_schema()
-            schema["built_in"] = tool.built_in
-            schema["allowed_by_default"] = tool.allowed_by_default
+            schema["read_only"] = tool.read_only
             results.append(schema)
         return results
 

@@ -4,11 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import com.kurisu.assistant.data.model.Assistant
 import com.kurisu.assistant.data.model.AssistantUpdate
 import com.kurisu.assistant.data.model.ModelInfo
-import com.kurisu.assistant.data.model.Tool
-import com.kurisu.assistant.data.model.ToolFunction
-import com.kurisu.assistant.data.model.ToolsResponse
 import com.kurisu.assistant.data.repository.AssistantRepository
-import com.kurisu.assistant.data.repository.ToolsRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -45,7 +41,6 @@ class AssistantViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
 
     private lateinit var assistantRepo: AssistantRepository
-    private lateinit var toolsRepo: ToolsRepository
 
     /** Every body the view model sent to `PATCH /assistant`, in order. */
     private val patches = mutableListOf<AssistantUpdate>()
@@ -54,7 +49,6 @@ class AssistantViewModelTest {
         id = 1,
         modelName = "qwen3:8b",
         providerType = "ollama",
-        availableTools = null,
         think = false,
         memory = "Kho works in Europe/Berlin.",
         memoryEnabled = true,
@@ -78,17 +72,12 @@ class AssistantViewModelTest {
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         assistantRepo = mockk(relaxed = true)
-        toolsRepo = mockk(relaxed = true)
         patches.clear()
 
         coEvery { assistantRepo.getAssistant() } returns assistant
         coEvery { assistantRepo.listModels() } returns listOf(
             ModelInfo("qwen3:8b", "ollama"),
             ModelInfo("gemini-2.0-flash", "gemini"),
-        )
-        coEvery { toolsRepo.listTools() } returns ToolsResponse(
-            mcpTools = listOf(tool("mail.search")),
-            builtinTools = listOf(tool("web_search"), tool("read_file")),
         )
         coEvery { assistantRepo.updateAssistant(any()) } answers {
             patches += firstArg<AssistantUpdate>()
@@ -99,9 +88,6 @@ class AssistantViewModelTest {
     @After
     fun tearDown() = Dispatchers.resetMain()
 
-    private fun tool(name: String) =
-        Tool(type = "function", function = ToolFunction(name = name, description = ""))
-
     private fun httpError(code: Int, detail: String) = HttpException(
         Response.error<Any>(
             code,
@@ -111,7 +97,6 @@ class AssistantViewModelTest {
 
     private fun viewModel() = AssistantViewModel(
         assistantRepository = assistantRepo,
-        toolsRepository = toolsRepo,
     )
 
     @Test
@@ -122,25 +107,19 @@ class AssistantViewModelTest {
         val s = vm.state.value
         assertThat(s.isLoading).isFalse()
         assertThat(s.assistant?.modelName).isEqualTo("qwen3:8b")
-        // Built-in and MCP tools land in one list, sorted, for the picker.
-        assertThat(s.allToolNames).containsExactly("mail.search", "read_file", "web_search").inOrder()
     }
 
     @Test
-    fun `think, tools and memory all patch the one assistant, never a persona`() = runTest {
+    fun `think and memory both patch the one assistant, never a persona`() = runTest {
         val vm = viewModel()
         advanceUntilIdle()
 
         vm.setThink(true)
         advanceUntilIdle()
-        vm.openToolPicker()
-        vm.toggleToolDraft("read_file")
-        vm.saveTools()
-        advanceUntilIdle()
         vm.setMemoryEnabled(false)
         advanceUntilIdle()
 
-        assertThat(patches).hasSize(3)
+        assertThat(patches).hasSize(2)
         // No capability edit is allowed to leak onto a persona: that is exactly
         // what the old per-"main agent" model did. Since #197 the view model has
         // no persona repository to leak through at all, so "never a persona" is
@@ -160,12 +139,6 @@ class AssistantViewModelTest {
         vm.setMemoryEnabled(false)
         advanceUntilIdle()
         assertThat(keysOf(patches.last())).containsExactly("memory_enabled")
-
-        vm.openToolPicker()
-        vm.toggleToolDraft("read_file")
-        vm.saveTools()
-        advanceUntilIdle()
-        assertThat(keysOf(patches.last())).containsExactly("available_tools")
     }
 
     @Test
@@ -181,45 +154,11 @@ class AssistantViewModelTest {
     }
 
     @Test
-    fun `every tool opens the picker with everything selected`() = runTest {
-        val vm = viewModel()
-        advanceUntilIdle()
-        assertThat(vm.state.value.usesEveryTool).isTrue()
-        assertThat(vm.state.value.toolsSummary).isEqualTo("Every tool")
-
-        vm.openToolPicker()
-
-        assertThat(vm.state.value.toolDraft)
-            .containsExactly("mail.search", "read_file", "web_search")
-    }
-
-    @Test
-    fun `turning one tool off pins the assistant to an explicit list`() = runTest {
-        val vm = viewModel()
-        advanceUntilIdle()
-
-        vm.openToolPicker()
-        vm.toggleToolDraft("mail.search")
-        vm.saveTools()
-        advanceUntilIdle()
-
-        assertThat(patches.last().availableTools)
-            .containsExactly("read_file", "web_search").inOrder()
-        assertThat(vm.state.value.toolPickerOpen).isFalse()
-    }
-
-    @Test
-    fun `clearing every tool sends an empty list, which is not the same as absent`() = runTest {
-        val vm = viewModel()
-        advanceUntilIdle()
-
-        vm.openToolPicker()
-        vm.clearToolDrafts()
-        vm.saveTools()
-        advanceUntilIdle()
-
-        assertThat(patches.last().availableTools).isEmpty()
-        assertThat(keysOf(patches.last())).containsExactly("available_tools")
+    fun `there is no tool list to pick from`() {
+        // Every tool is always available (#360); how much runs without asking is
+        // the permission mode beside the chat input, not a list here.
+        val names = AssistantUiState::class.java.declaredFields.map { it.name }
+        assertThat(names.filter { it.contains("tool", ignoreCase = true) }).isEmpty()
     }
 
     @Test
@@ -281,7 +220,7 @@ class AssistantViewModelTest {
         advanceUntilIdle()
 
         val keys = patches.flatMap { keysOf(it) }.toSet()
-        assertThat(keys).containsNoneOf("model_name", "provider_type", "selected_persona_id")
+        assertThat(keys).containsNoneOf("model_name", "provider_type", "selected_persona_id", "permission_mode")
     }
 
     @Test

@@ -22,6 +22,8 @@ import {
   Mic as MicIcon,
 } from '@mui/icons-material';
 import { useMicStore, getMicAmplitude } from '@kurisu/state';
+import type { PermissionMode } from '@kurisu/models';
+import { PermissionModeChip } from './PermissionModeChip';
 
 /** Mic icon that lights up when sound is detected */
 const MicIndicator: React.FC = () => {
@@ -73,6 +75,10 @@ export interface ChatComposerProps {
   isStreaming: boolean;
   onSend: (text: string, imageFiles: File[]) => Promise<void>;
   onCancel: () => void;
+  /** The account's permission mode, shown beside the input (#360). Absent until the assistant loads. */
+  permissionMode?: PermissionMode | null;
+  onPermissionModeChange?: (mode: PermissionMode) => void;
+  onPermissionMenuOpen?: () => void;
 }
 
 // Module-level prompt history — survives component re-renders and remounts
@@ -85,6 +91,9 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
   isStreaming,
   onSend,
   onCancel,
+  permissionMode,
+  onPermissionModeChange,
+  onPermissionMenuOpen,
 }) => {
   const [input, setInput] = useState('');
   const [images, setImages] = useState<File[]>([]);
@@ -359,6 +368,11 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
           Send
         </Button>
       </Box>
+      {permissionMode && onPermissionModeChange && (
+        <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+          <PermissionModeChip mode={permissionMode} onChange={onPermissionModeChange} onOpen={onPermissionMenuOpen} />
+        </Box>
+      )}
     </Paper>
   );
 });

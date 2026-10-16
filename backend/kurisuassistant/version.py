@@ -26,6 +26,17 @@ Bumping rules:
 - Bump rarely; treat each bump as a coordinated release across all clients.
 
 Update log (most recent first):
+- 11: Permission modes (#360). Every tool is always offered; nothing switches
+     one off. The assistant's `available_tools` is removed from `GET`/`PATCH
+     /assistant` (a `PATCH` naming it, or any unknown field, is a 422) and
+     `permission_mode` takes its place: `"ask"` (the default — every call waits
+     for approval), `"read_only"` (a tool that only looks runs, anything else
+     is refused) or `"full"` (everything runs). `GET`/`PUT`/`PATCH
+     /users/me/tool-policies` are removed. `GET /tools` renames `builtin_tools`
+     to `server_tools`, and every tool there and in `mcp_tools`/`mcp_servers`
+     carries `read_only` instead of `built_in`/`allowed_by_default`. A
+     `client_tools_register` entry may carry `read_only: true` beside `type`
+     and `function`; one without it counts as changing something.
 - 9: One persona in use for the whole account (#354). `selected_persona_id` on
      `/assistant` is now who answers every turn, in any conversation: the chat
      path applies it instead of only recording it. A conversation is not tied
@@ -191,7 +202,7 @@ def release_tag_problem(tag: str) -> str | None:
 
 
 __version__ = resolve_version(os.environ.get("KURISU_VERSION"))
-WIRE_PROTOCOL = 10
+WIRE_PROTOCOL = 11
 
 
 if __name__ == "__main__":

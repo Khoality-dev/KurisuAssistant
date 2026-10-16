@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.kurisu.assistant.data.model.Assistant
 import com.kurisu.assistant.data.model.AssistantUpdate
 import com.kurisu.assistant.data.repository.AssistantRepository
-import com.kurisu.assistant.data.repository.ToolsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,14 +16,15 @@ import javax.inject.Inject
  * The Assistant screen's state.
  *
  * Everything here is one row — `PATCH /assistant`. The screen deliberately holds
- * no per-persona copy of a model, a tool list or a memory document: under wire
+ * no per-persona copy of a model or a memory document: under wire
  * protocol 4 those are the assistant's, and a persona that carried its own would
  * be the old "main agent" coming back. There are no sub-agents to set up either
  * (#354): the assistant spawns one itself when it needs help.
  *
  * The assistant's model is not set from here. It is picked from the chat header
  * (`ChatViewModel.pickModel`), and the persona in use from the Personas screen
- * (#197).
+ * (#197). Nor are tools: every tool is always available, and how much runs
+ * without asking is the permission mode beside the chat input (#360).
  */
 data class AssistantUiState(
     val isLoading: Boolean = true,
@@ -35,29 +35,12 @@ data class AssistantUiState(
 
     val assistant: Assistant? = null,
 
-    /** Every tool the backend offers, built-in and MCP, by name. */
-    val allToolNames: List<String> = emptyList(),
-
     val isSaving: Boolean = false,
 
     // ── Trigger-word editor ──
     val triggerEditorOpen: Boolean = false,
     val triggerDraft: String = "",
-
-    // ── Tool picker ──
-    val toolPickerOpen: Boolean = false,
-    val toolDraft: Set<String> = emptySet(),
 ) {
-    /** null `available_tools` means "every tool"; an empty list means none. */
-    val usesEveryTool: Boolean get() = assistant?.availableTools == null
-
-    val toolsSummary: String
-        get() {
-            val enabled = assistant?.availableTools ?: return "Every tool"
-            return if (allToolNames.isEmpty()) "${enabled.size} enabled"
-            else "${enabled.size} of ${allToolNames.size} enabled"
-        }
-
     /** Blank is stored rather than null, so treat both as "no wake word". */
     val triggerWord: String? get() = assistant?.triggerWord?.takeIf { it.isNotBlank() }
 }
@@ -65,7 +48,6 @@ data class AssistantUiState(
 @HiltViewModel
 class AssistantViewModel @Inject constructor(
     private val assistantRepository: AssistantRepository,
-    private val toolsRepository: ToolsRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AssistantUiState())
@@ -94,12 +76,6 @@ class AssistantViewModel @Inject constructor(
             } finally {
                 _state.update { it.copy(isLoading = false) }
             }
-
-            // The tool picker's input. A failure here costs a list, not the screen.
-            runCatching {
-                val tools = toolsRepository.listTools()
-                (tools.builtinTools + tools.mcpTools).map { it.function.name }.distinct().sorted()
-            }.onSuccess { names -> _state.update { it.copy(allToolNames = names) } }
         }
     }
 
@@ -164,32 +140,5 @@ class AssistantViewModel @Inject constructor(
             AssistantUpdate(triggerWord = draft),
             feedback = if (draft.isEmpty()) "Wake word cleared" else "Wake word → $draft",
         )
-    }
-
-    // ─── Tools ────────────────────────────────────────────────────────
-
-    fun openToolPicker() = _state.update {
-        // "Every tool" is shown as every chip selected: that is what it means,
-        // and it makes turning one off a single tap.
-        val selected = it.assistant?.availableTools?.toSet() ?: it.allToolNames.toSet()
-        it.copy(toolPickerOpen = true, toolDraft = selected)
-    }
-
-    fun dismissToolPicker() = _state.update { it.copy(toolPickerOpen = false) }
-
-    fun toggleToolDraft(name: String) = _state.update {
-        it.copy(toolDraft = if (name in it.toolDraft) it.toolDraft - name else it.toolDraft + name)
-    }
-
-    fun selectAllToolDrafts() = _state.update { it.copy(toolDraft = it.allToolNames.toSet()) }
-
-    fun clearToolDrafts() = _state.update { it.copy(toolDraft = emptySet()) }
-
-    fun saveTools() {
-        val s = _state.value
-        val chosen = s.allToolNames.filter { it in s.toolDraft }
-        _state.update { it.copy(toolPickerOpen = false) }
-        if (chosen.toSet() == s.assistant?.availableTools?.toSet()) return
-        patchAssistant(AssistantUpdate(availableTools = chosen))
     }
 }

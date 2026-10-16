@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, ConnectedEvent, ToolApprovalRequestEvent, ContextInfoEvent } from '@kurisu/api';
 import { useConversationStore } from '@kurisu/state';
-import { useToolPermissionsStore } from '@kurisu/state';
 import { storage } from '@kurisu/api';
 import { fileToBase64 } from '@kurisu/api';
 import { useExplorerStore } from '@kurisu/state';
@@ -646,22 +645,9 @@ export function useStreamingChat({
     const onError = (e: ErrorEvent) => handleErrorRef.current(e);
     const onConnected = (e: ConnectedEvent) => handleConnectedRef.current(e);
 
-    const onApproval = (e: ToolApprovalRequestEvent) => {
-      // Check tool permissions policy before showing dialog
-      const decision = useToolPermissionsStore.getState().getToolDecision(e.tool_name);
-      if (decision === 'allow') {
-        // Auto-approve based on policy
-        wsManager.sendToolApprovalResponse(e.approval_id, true);
-        return;
-      }
-      if (decision === 'deny') {
-        // Auto-deny based on policy
-        wsManager.sendToolApprovalResponse(e.approval_id, false);
-        return;
-      }
-      // No policy - show dialog
-      setPendingApproval(e);
-    };
+    // The server asks only when the permission mode says to (#360); every
+    // request it sends is put to the user, never answered here on their behalf.
+    const onApproval = (e: ToolApprovalRequestEvent) => setPendingApproval(e);
     const onContextInfo = (e: ContextInfoEvent) => {
       setIsCompacting(e.compacting);
       if (!e.compacting) {
@@ -944,25 +930,13 @@ export function useStreamingChat({
   }, []);
 
   /**
-   * Respond to a tool approval request.
-   * @param response - 'approve' | 'deny' | 'always_allow' | 'always_deny' | 'session_allow'
+   * Answer a tool approval request: this call, and only this call (#360).
+   * @param response - 'approve' | 'deny'
    */
   const respondToApproval = useCallback((response: string) => {
     if (!pendingApproval) return;
 
-    const toolName = pendingApproval.tool_name;
-    const approved = response !== 'deny' && response !== 'always_deny';
-
-    // Handle remember options
-    if (response === 'always_allow') {
-      useToolPermissionsStore.getState().setToolPolicy(toolName, 'allow');
-    } else if (response === 'always_deny') {
-      useToolPermissionsStore.getState().setToolPolicy(toolName, 'deny');
-    } else if (response === 'session_allow') {
-      useToolPermissionsStore.getState().addSessionApproval(toolName);
-    }
-
-    wsManager.sendToolApprovalResponse(pendingApproval.approval_id, approved);
+    wsManager.sendToolApprovalResponse(pendingApproval.approval_id, response === 'approve');
     setPendingApproval(null);
   }, [pendingApproval]);
 

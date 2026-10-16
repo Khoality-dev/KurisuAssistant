@@ -1,9 +1,8 @@
 """recall_regex and recall_semantic: the assistant's two ways back into past
 material (#6).
 
-Run the way ``BaseAgent.execute_tool`` runs them — ``user_id``, ``conversation_id``,
-``_context`` and ``_available_tools`` injected into the arguments, none of them in
-the schema. The passages come from the real indexer (``utils/indexing.py``) over
+Run the way ``BaseAgent.execute_tool`` runs them — ``user_id``, ``conversation_id``
+and ``_context`` injected into the arguments, none of them in the schema. The passages come from the real indexer (``utils/indexing.py``) over
 real messages and drive files; the embedding model is the mock Ollama, whose
 vectors are pinned where a test needs two texts to be near each other.
 
@@ -25,8 +24,6 @@ import pytest
 from kurisuassistant.tools import tool_registry
 from kurisuassistant.tools.drive import DriveWriteTool
 from kurisuassistant.tools.recall import (
-    DOCS_NOT_SEARCHED,
-    DOCS_ONLY_REFUSED,
     RecallRegexTool,
     RecallSemanticTool,
 )
@@ -131,8 +128,8 @@ def _embed_everything(db):
         ids = indexing.pending_passages(1000)
 
 
-def _ctx(policies=None):
-    return SimpleNamespace(tool_policies=policies or {})
+def _ctx():
+    return SimpleNamespace(permission_mode="ask")
 
 
 async def _regex(user_id, pattern, **extra):
@@ -149,14 +146,14 @@ class TestRegistration:
         assert tool_registry.get("recall_semantic") is not None
         assert tool_registry.get("history_search") is None, "removed, not aliased"
 
-    def test_they_are_built_in_like_the_history_tools(self):
-        assert tool_registry.get("recall_regex").built_in is True
-        assert tool_registry.get("recall_semantic").built_in is True
+    def test_they_only_look_like_the_history_tools(self):
+        assert tool_registry.get("recall_regex").read_only is True
+        assert tool_registry.get("recall_semantic").read_only is True
 
     def test_nothing_injected_is_in_the_schema(self):
         for tool in (RecallRegexTool(), RecallSemanticTool()):
             properties = tool.get_schema()["function"]["parameters"]["properties"]
-            for injected in ("user_id", "conversation_id", "_context", "_available_tools"):
+            for injected in ("user_id", "conversation_id", "_context"):
                 assert injected not in properties, (tool.name, injected)
 
     def test_each_requires_its_own_query_field(self):
@@ -295,33 +292,21 @@ class TestDocuments:
         assert f"Conversation #{conv_id}" in out and f"file #{node_id}" in out
 
 
-class TestTheDriveGate:
-    """Documents are included only when drive_read itself could run."""
+class TestDocumentsAreAlwaysSearched:
+    """There is no drive gate any more (#360): drive_read only looks, so any
+    permission mode that lets a recall call run would let drive_read run too."""
 
-    async def test_an_allowlist_without_drive_read_hides_documents(self, db, accounts):
-        owner, _ = accounts
-        await _file(db, owner, "/gated.txt", "the gated keyword otter")
-        out = await _regex(owner, "otter", _available_tools=["history_read", "recall_regex"], _context=_ctx())
-        assert "file #" not in out
-        assert DOCS_NOT_SEARCHED in out
-
-    async def test_a_denied_drive_read_hides_documents(self, db, accounts):
-        owner, _ = accounts
-        await _file(db, owner, "/denied.txt", "the denied keyword ibex")
-        out = await _regex(owner, "ibex", _available_tools=None, _context=_ctx({"drive_read": "deny"}))
-        assert "file #" not in out and DOCS_NOT_SEARCHED in out
-
-    async def test_documents_only_under_the_gate_is_refused_outright(self, db, accounts):
-        owner, _ = accounts
-        out = await _regex(owner, "anything", scope="documents", _context=_ctx({"drive_read": "deny"}))
-        assert out == DOCS_ONLY_REFUSED
-
-    async def test_an_allowlist_with_drive_read_or_an_unset_policy_admits_documents(self, db, accounts):
+    async def test_documents_come_back_without_any_allowlist_or_policy(self, db, accounts):
         owner, _ = accounts
         node_id = await _file(db, owner, "/open.txt", "the open keyword yak")
-        out = await _regex(owner, "yak", _available_tools=["drive_read"], _context=_ctx())
+        out = await _regex(owner, "yak", _context=_ctx())
         assert f"file #{node_id}" in out
-        assert DOCS_NOT_SEARCHED not in out
+
+    async def test_documents_only_is_a_scope_not_a_refusal(self, db, accounts):
+        owner, _ = accounts
+        node_id = await _file(db, owner, "/only.txt", "the only keyword ibex")
+        out = await _regex(owner, "ibex", scope="documents", _context=_ctx())
+        assert f"file #{node_id}" in out
 
 
 class TestSemantic:

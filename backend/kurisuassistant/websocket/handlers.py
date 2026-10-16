@@ -100,7 +100,7 @@ class _TurnSetup:
     summary_model: Optional[str] = None
     summary_provider: str = "ollama"
     context_size: Optional[int] = None
-    tool_policies: Dict[str, str] = field(default_factory=dict)
+    permission_mode: str = "ask"
     # The account's zone, for the prompt's "Current time" (core/timezone.py).
     timezone: Optional[object] = None
 
@@ -130,6 +130,7 @@ class ChatSessionHandler:
 
         self._client_tools: List[Dict] = []
         self._client_tool_names: set = set()
+        self._client_read_only_tools: set = set()
         self._pending_tool_calls: Dict[str, asyncio.Future] = {}
 
         self._message_queue: List[ChatRequestEvent] = []
@@ -410,7 +411,8 @@ class ChatSessionHandler:
                 images=event.images if event.images else None,
                 context_size=setup.context_size,
                 compacted_context=compacted_context,
-                tool_policies=setup.tool_policies,
+                permission_mode=setup.permission_mode,
+                client_read_only_tools=set(self._client_read_only_tools),
                 timezone=setup.timezone,
             )
 
@@ -666,14 +668,13 @@ class ChatSessionHandler:
             summary_model = user.summary_model
             summary_provider = getattr(user, 'summary_provider', 'ollama') or 'ollama'
             context_size = user.context_size
-            # Read once per turn; the agent consults this before every tool call
-            # so a policy decision never needs a DB round trip mid-stream.
-            tool_policies = dict((user.tool_policies or {}).get("tools", {}))
-
             # Exactly one assistant per user. Created on demand so a user who
             # predates the split, or was made without one, can still chat.
             assistant_row = AssistantRepository(session).get_or_create_for_user(self.user_id)
             assistant = self._to_assistant_config(assistant_row)
+            # Read once per turn; the agent consults it before every tool call
+            # so a permission decision never needs a DB round trip mid-stream.
+            permission_mode = assistant_row.permission_mode or "ask"
             personas = [
                 self._to_persona_config(p)
                 for p in PersonaRepository(session).list_enabled_by_user(self.user_id)
@@ -710,7 +711,7 @@ class ChatSessionHandler:
                 summary_model=summary_model,
                 summary_provider=summary_provider,
                 context_size=context_size,
-                tool_policies=tool_policies,
+                permission_mode=permission_mode,
                 timezone=user_timezone(user),
             )
 
@@ -722,7 +723,6 @@ class ChatSessionHandler:
             id=assistant.id,
             model_name=assistant.model_name,
             provider_type=assistant.provider_type or 'ollama',
-            available_tools=assistant.available_tools,
             think=assistant.think,
             use_deferred_tools=assistant.use_deferred_tools,
             memory=assistant.memory,
@@ -873,10 +873,20 @@ class ChatSessionHandler:
         logger.debug("Vision processing stopped for user %d", self.user_id)
 
     def _handle_client_tools_register(self, event: ClientToolsRegisterEvent):
-        self._client_tools = event.tools
+        # ``read_only`` (#360) is the client's word that a tool only looks. It is
+        # not part of the schema, so it is taken off before a model sees it.
+        tools, read_only = [], set()
+        for t in event.tools:
+            t = dict(t)
+            name = t.get("function", {}).get("name", "")
+            if t.pop("read_only", False) is True and name:
+                read_only.add(name)
+            tools.append(t)
+        self._client_tools = tools
+        self._client_read_only_tools = read_only
         self._client_tool_names = {
             t.get("function", {}).get("name", "")
-            for t in event.tools
+            for t in tools
             if t.get("function", {}).get("name")
         }
         logger.info(
@@ -959,6 +969,7 @@ class ChatSessionHandler:
             )
         self._client_tools = []
         self._client_tool_names = set()
+        self._client_read_only_tools = set()
         for future in self._pending_tool_calls.values():
             if not future.done():
                 future.set_result("Client disconnected before the tool call returned")

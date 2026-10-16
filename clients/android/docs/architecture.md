@@ -33,7 +33,7 @@ com.kurisu.assistant/
 │   ├── auth/                    -- Login screen + ViewModel
 │   ├── conversations/           -- Chats list (start destination) + voice mode strip + in-app update check; a task run's conversation has a clock (#352)
 │   ├── tasks/                   -- Tasks (#352): grouped list (waiting for approval first; finished one-offs not listed) with filter chips, a task opened in place with its runs, approve/deny, pause/resume/stop/edit/delete; refetches on `tasks_changed`. `TaskApprovalsViewModel` feeds the chat's approval sheet for a run's conversation
-│   ├── chat/                    -- Chat screen, message bubble, tool rail, task card (#352), input, markdown (no nav args)
+│   ├── chat/                    -- Chat screen, message bubble, tool rail, task card (#352), input with the permission mode chip and sheet (#360), markdown (no nav args)
 │   ├── calendar/                -- Calendar screen + ViewModel, the chat's calendar card (#282)
 │   ├── assistant/               -- The one assistant (wake word, thinking, memory, tools)
 │   ├── personas/                -- Persona CRUD (name, prompt, voice, avatar) + ViewModel
