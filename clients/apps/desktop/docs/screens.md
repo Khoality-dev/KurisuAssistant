@@ -76,8 +76,8 @@ says "Showing in its own window" until it is popped back in or the window is clo
 
 | | |
 | --- | --- |
-| ![Sign in](assets/01-login.png) | ![Tools & MCP](assets/06-settings-tools-mcp.png) |
-| Sign in | Tools & MCP |
+| ![Sign in](assets/01-login.png) | ![Tools](assets/06-settings-tools-mcp.png) |
+| Sign in | Tools |
 | ![Skills](assets/07-settings-skills.png) | |
 | Skills, appended to the assistant's prompt | |
 

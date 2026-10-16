@@ -465,7 +465,7 @@ class WebSocketManager {
   /**
    * Register client-side tool schemas with the backend.
    */
-  sendClientToolsRegister(tools: Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }>) {
+  sendClientToolsRegister(tools: Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> }; read_only?: boolean }>) {
     this.send({ type: 'client_tools_register', tools });
   }
 

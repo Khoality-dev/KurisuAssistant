@@ -12,6 +12,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
+  HOST_READ_ONLY_TOOLS,
+  HOST_TOOL_NAMES,
   alwaysGrantFor,
   isPathAllowed,
   normalizeCommand,
@@ -166,5 +168,12 @@ describe('targetPathsFor', () => {
   it('reports nothing when the call names no path', () => {
     expect(targetPathsFor('host_read', {}, [project])).toEqual([]);
     expect(targetPathsFor('host_search', { query: 'x' }, [])).toEqual([]);
+  });
+});
+
+describe('which host tools only look (#360)', () => {
+  it('is the three that read, list and search — never one that writes or runs', () => {
+    expect([...HOST_READ_ONLY_TOOLS].sort()).toEqual(['host_list', 'host_read', 'host_search']);
+    for (const name of HOST_READ_ONLY_TOOLS) expect(HOST_TOOL_NAMES.has(name)).toBe(true);
   });
 });

@@ -2,9 +2,9 @@
 
 ``task_start`` begins work in the background now; ``task_schedule`` sets it for
 later, once or repeating; ``task_list``, ``task_update``, ``task_stop`` and
-``task_delete`` look after what exists. All six are built in, so the assistant
-always has them, and like every tool they go through the user's tool policy:
-asked in the chat unless set to Allow.
+``task_delete`` look after what exists. The assistant always has all six, and
+like every tool they go through the account's permission mode (#360):
+``task_list`` only looks, the other five change something.
 
 A run cannot plan or change tasks. Nobody is there to see a task appear, and a
 task that schedules tasks is a loop with no one to stop it, so the five that
@@ -109,7 +109,6 @@ async def _db(op):
 
 
 class _TaskTool(BaseTool):
-    built_in = True
     #: Whether a task run may call it.
     allowed_in_run = False
 
@@ -211,6 +210,7 @@ class TaskScheduleTool(_TaskTool):
 
 class TaskListTool(_TaskTool):
     name = "task_list"
+    read_only = True
     description = (
         "List the user's tasks: running, scheduled, paused and finished, each with its id, "
         "schedule and next run."

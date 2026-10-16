@@ -148,6 +148,11 @@ fun ChatScreen(
                 modal = modal,
                 onDismiss = viewModel::dismissModal,
             )
+            ChatModal.PermissionModePicker -> PermissionModeSheet(
+                current = state.assistant?.permissionMode ?: com.kurisu.assistant.data.model.PermissionMode.ASK,
+                onPick = viewModel::setPermissionMode,
+                onDismiss = viewModel::dismissModal,
+            )
         }
     }
 
@@ -507,7 +512,6 @@ fun ChatScreen(
                         val a = state.assistant
                         listOfNotNull(
                             a?.modelName?.takeIf { it.isNotBlank() },
-                            a?.availableTools?.let { tools -> "${tools.size} tools" },
                             // The wake word is heard only in voice mode (#341).
                             a?.triggerWord?.takeIf { it.isNotBlank() && voiceState.voiceMode }?.let { "or say \u201C$it\u201D" },
                         ).joinToString(" · ")
@@ -686,6 +690,8 @@ fun ChatScreen(
                     onRemoveImage = viewModel::removeImage,
                     selectedImages = state.selectedImages,
                     isStreaming = streaming.isStreaming,
+                    permissionMode = state.assistant?.permissionMode,
+                    onPermissionModeClick = viewModel::openPermissionModeSheet,
                 )
             }
         }

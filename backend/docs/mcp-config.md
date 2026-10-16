@@ -70,5 +70,7 @@ No restart and no code change. Creating, updating or deleting a row invalidates
 that user's cached orchestrator, so the next turn sees the change.
 
 The new tools are available immediately — to the assistant and to any sub-agent it
-spawns — unless `assistants.available_tools` is an allowlist that excludes them, and every call is still subject to
-`users.tool_policies`. See [Tools & Skills](tools.md).
+spawns; nothing switches a tool off (#360). Every call is subject to the account's
+permission mode, and a tool counts as only looking — so Read only runs it without
+asking — only when its server sets the `readOnlyHint` annotation on it. A tool
+without one counts as changing something. See [Tools & Skills](tools.md).

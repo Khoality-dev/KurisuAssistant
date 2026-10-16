@@ -46,8 +46,8 @@ def assistant_text(events):
     return "".join(e.get("content") or "" for e in events if e["type"] == "stream_chunk" and e["role"] == "assistant")
 
 
-def set_policy(account, tool, policy):
-    resp = account.client.patch("/users/me/tool-policies", json={"tool_name": tool, "policy": policy}, headers=account.headers)
+def set_mode(account, mode):
+    resp = account.client.patch("/assistant", json={"permission_mode": mode}, headers=account.headers)
     assert resp.status_code == 200, resp.text
 
 
@@ -57,7 +57,7 @@ def offered_tools(request):
 
 class TestClientTools:
     def test_a_tool_the_client_registered_runs_on_the_client(self, account, mock_ollama):
-        set_policy(account, CLIENT_TOOL, "allow")
+        set_mode(account, "full")
         mock_ollama.state.script(
             Reply(tool_calls=[ToolCall(CLIENT_TOOL, {"text": "ping"})]),
             Reply(content="The client said pong."),
@@ -97,8 +97,9 @@ class TestClientTools:
             ws.send_json({"type": "tool_call_response", "request_id": request["request_id"], "content": "hi"})
             assert read_until(ws, "done", "error")[-1]["type"] == "done"
 
-    def test_a_denied_client_tool_never_reaches_the_client(self, account, mock_ollama):
-        set_policy(account, CLIENT_TOOL, "deny")
+    def test_a_refused_client_tool_never_reaches_the_client(self, account, mock_ollama):
+        """Read only refuses a client tool that did not register as only looking."""
+        set_mode(account, "read_only")
         mock_ollama.state.script(Reply(tool_calls=[ToolCall(CLIENT_TOOL, {"text": "x"})]), Reply(content="Cannot."))
         with account.socket() as ws:
             ws.receive_json()
@@ -110,8 +111,24 @@ class TestClientTools:
         assert "tool_call_request" not in types and "tool_approval_request" not in types
         assert [e["tool_status"] for e in events if e["type"] == "stream_chunk" and e["role"] == "tool"] == ["denied"]
 
+    def test_a_client_tool_registered_read_only_runs_in_read_only(self, account, mock_ollama):
+        set_mode(account, "read_only")
+        mock_ollama.state.script(Reply(tool_calls=[ToolCall(CLIENT_TOOL, {"text": "x"})]), Reply(content="Done."))
+        with account.socket() as ws:
+            ws.receive_json()
+            ws.send_json({"type": "client_tools_register", "tools": [{**CLIENT_TOOL_SCHEMA, "read_only": True}]})
+            ws.send_json(chat_request("echo x"))
+            events = read_until(ws, "tool_call_request", "tool_approval_request", "done", "error")
+            assert events[-1]["type"] == "tool_call_request"
+            ws.send_json({"type": "tool_call_response", "request_id": events[-1]["request_id"], "content": "x"})
+            assert read_until(ws, "done", "error")[-1]["type"] == "done"
+
+        # The flag is the server's to read, not part of the schema a model sees.
+        offered = [t for t in mock_ollama.state.requests_to("/api/chat")[0]["tools"] if t["function"]["name"] == CLIENT_TOOL]
+        assert offered and "read_only" not in offered[0]
+
     def test_a_client_error_reaches_the_model_as_an_error(self, account, mock_ollama):
-        set_policy(account, CLIENT_TOOL, "allow")
+        set_mode(account, "full")
         mock_ollama.state.script(Reply(tool_calls=[ToolCall(CLIENT_TOOL, {"text": "x"})]), Reply(content="It failed."))
         with account.socket() as ws:
             ws.receive_json()

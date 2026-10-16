@@ -178,15 +178,18 @@ cannot reach anything the HTTP API would refuse:
 | `drive_write` | the parent folder must exist; `if_exists` defaults to `fail` |
 | `drive_delete` | hard delete; a non-empty folder needs `recursive: true` |
 
-None is `built_in`, so narrowing an account's `available_tools` takes the drive
-away — file access must not arrive through the built-in bypass.
+`drive_list` and `drive_read` only look (`read_only`); `drive_write` and
+`drive_delete` change something, so the Read only permission mode refuses them
+(#360).
 
 Scope comes from `args["user_id"]`, injected by `BaseAgent.execute_tool` after
 the model has produced its arguments. It is not in the declared schema, so the
 model cannot name another account.
 
-Approval is the existing machinery, not something this module reimplements. See
-`tools.md` for how the three-way Drive policy maps onto `users.tool_policies`.
+Approval is the existing machinery, not something this module reimplements: the
+account's permission mode, applied in `BaseAgent.execute_tool` (`tools.md`).
+There is no drive-specific policy any more — the Read only / Ask before writing /
+Full access presets over per-tool policies went with them (#360).
 `describe_call` writes the sentence the approval bar shows; for `drive_write` and
 `drive_delete` it names the file and the size, because that is what someone reads
 before pressing Enter on something irreversible.
@@ -198,9 +201,8 @@ and `drive_write` queue it for the indexer, which extracts its text (UTF-8,
 Markdown, source, HTML, PDF, DOCX, PPTX, XLSX — never a secret by name), chunks
 it into verbatim passages and stores them with the page or line range. The
 assistant reaches them through `recall_regex` and `recall_semantic`, which cite
-the full path and the page. Those tools are built-in, so **drive passages are
-gated on `drive_read`**: included only when it is in the allowlist and not
-denied, which keeps the rule above. `retrieval.md` has the whole of it.
+the full path and the page. Documents are searched whenever recall runs: like
+`drive_read`, both recall tools only look. `retrieval.md` has the whole of it.
 
 ## Why a persona's 3D model is not a drive file
 

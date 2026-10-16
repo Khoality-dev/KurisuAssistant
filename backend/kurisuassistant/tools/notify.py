@@ -4,10 +4,10 @@ A notification on every device of the account, with the app closed, for
 something the user should see now: a background or scheduled task's result, a
 thing they asked to be told about. It goes through ``notifications.notify``,
 the same path as calendar reminders, and links the conversation it came from so
-tapping it opens that conversation. Built-in like the history tools, and
-allowed by default: with no stored policy it runs without a prompt — a task
-with nobody attached (#352) has to be able to say it is done — while a stored
-"deny" still refuses it.
+tapping it opens that conversation. It only looks (it changes nothing but what
+the user's own devices show) and is allowed by default: it never waits, in any
+permission mode — a task with nobody attached (#352) has to be able to say it
+is done.
 """
 
 import logging
@@ -27,7 +27,7 @@ class NotifyUserTool(BaseTool):
         "watching, or something they asked to be told about — not to repeat a "
         "reply they are reading in the chat."
     )
-    built_in = True
+    read_only = True
     allowed_by_default = True
 
     def get_schema(self) -> Dict[str, Any]:

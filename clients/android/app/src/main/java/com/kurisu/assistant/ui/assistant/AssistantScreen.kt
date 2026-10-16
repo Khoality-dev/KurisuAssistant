@@ -4,8 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,11 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
@@ -32,7 +27,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -68,12 +62,14 @@ import com.kurisu.assistant.ui.theme.KurisuTheme
  * `PATCH /assistant`. The screen that this replaces listed "main agents", each
  * with its own model, tools and memory; there is one of each now. There are no
  * sub-agents to set up (#354): the assistant spawns one itself when it needs
- * help, on its own model and tools.
+ * help, on its own model and tools. There is no tool list either (#360): every
+ * tool is always available, and how much runs without asking is the permission
+ * mode beside the chat input.
  *
  * Two things that look like they belong here do not (#197). The model is picked
  * from the chat header, beside the persona, because that is where the question
  * comes up — and it is one model for every persona, so it is no more a persona's
- * than the tools are. The persona in use is chosen on the Personas screen or the
+ * than the memory is. The persona in use is chosen on the Personas screen or the
  * chat header. Neither is a capability, so neither is on this page.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -185,22 +181,6 @@ fun AssistantScreen(
                             if (assistant.memoryEnabled) {
                                 MemoryDocument(assistant.memory)
                             }
-
-                            RowDivider()
-
-                            ValueRow(
-                                label = "Tools",
-                                value = state.toolsSummary,
-                                supporting = null,
-                                trailing = {
-                                    Icon(
-                                        Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                onClick = viewModel::openToolPicker,
-                            )
                         }
                     }
                 }
@@ -214,19 +194,6 @@ fun AssistantScreen(
             onValueChange = viewModel::setTriggerDraft,
             onSave = viewModel::saveTriggerWord,
             onDismiss = viewModel::dismissTriggerEditor,
-        )
-    }
-
-    if (state.toolPickerOpen) {
-        ToolPickerDialog(
-            allTools = state.allToolNames,
-            selected = state.toolDraft,
-            usesEveryToolToday = state.usesEveryTool,
-            onToggle = viewModel::toggleToolDraft,
-            onSelectAll = viewModel::selectAllToolDrafts,
-            onClearAll = viewModel::clearToolDrafts,
-            onSave = viewModel::saveTools,
-            onDismiss = viewModel::dismissToolPicker,
         )
     }
 }
@@ -382,66 +349,3 @@ private fun TriggerWordDialog(
     )
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ToolPickerDialog(
-    allTools: List<String>,
-    selected: Set<String>,
-    usesEveryToolToday: Boolean,
-    onToggle: (String) -> Unit,
-    onSelectAll: () -> Unit,
-    onClearAll: () -> Unit,
-    onSave: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Tools") },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (allTools.isEmpty()) {
-                    Text(
-                        "No tools are available. Add an MCP server under Tools & MCP.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    Text(
-                        if (usesEveryToolToday) {
-                            "The assistant can use every tool. Turning one off pins it to the list you pick here."
-                        } else {
-                            "${selected.size} of ${allTools.size} enabled."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        TextButton(onClick = onSelectAll) { Text("Select all") }
-                        TextButton(onClick = onClearAll) { Text("Clear") }
-                    }
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        allTools.forEach { name ->
-                            FilterChip(
-                                selected = name in selected,
-                                onClick = { onToggle(name) },
-                                label = {
-                                    Text(name, style = KurisuTheme.extraTypography.metadataSmall)
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onSave, enabled = allTools.isNotEmpty()) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}

@@ -180,8 +180,8 @@ at `recall_regex`.
 
 ## The tools
 
-`tools/recall.py`. Both are `built_in`, like the history tools they replace, so
-recall is always offered. Both take `scope` (`all` | `conversations` |
+`tools/recall.py`. Both only look (`read_only`), like the history tools they
+replace, so Read only runs them without asking (#360). Both take `scope` (`all` | `conversations` |
 `documents`), `in_conversation`, `after`, `before` and `limit` (8, at most 20);
 `recall_regex` takes `pattern`, `recall_semantic` takes `query`. `user_id` and
 `conversation_id` are injected by `BaseAgent.execute_tool` and are not in the
@@ -204,16 +204,12 @@ model's context already; recall is for what scrolled away, so only the
 compacted-away part of the conversation the call is made from is searched.
 `in_conversation` overrides that.
 
-**Documents are gated on `drive_read`.** The drive's rule is that file access
-never arrives through the built-in bypass, and recall over drive files is file
-access. So document passages are included only when `drive_read` would itself
-be allowed to run: it is in the agent's allowlist (`_available_tools`, injected
-by `execute_tool` — not on `AgentContext`, because a spawned sub-agent shares
-that object and carries its own copy of the list) and `users.tool_policies["drive_read"]` is not
-`deny`. Otherwise the result says "Documents were not searched", and a
-`documents`-only call is refused outright. Under the default unset policy the
-approval the user gives to the recall call is what admits documents; that is
-stated in `tools.md`'s policy table.
+**Documents are searched whenever recall runs.** There used to be a gate: drive
+passages only when `drive_read` was in the assistant's allowlist and not denied
+by policy. Both are gone (#360), and `drive_read` only looks, so any permission
+mode that lets a recall call run would let `drive_read` run too — under Always
+ask, the approval the user gives the recall call is what admits documents.
+`Filters.include_drive` went with the gate.
 
 `recall_regex` validates the pattern with Python's `re` first (a sentence, not
 a traceback, for an unbalanced parenthesis) and turns the database's own refusal

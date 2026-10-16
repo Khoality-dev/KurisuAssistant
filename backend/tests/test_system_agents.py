@@ -54,8 +54,8 @@ def chat_requests(mock_ollama, expected: int):
     return requests
 
 
-def allow(account, tool):
-    resp = account.client.patch("/users/me/tool-policies", json={"tool_name": tool, "policy": "allow"}, headers=account.headers)
+def set_mode(account, mode):
+    resp = account.client.patch("/assistant", json={"permission_mode": mode}, headers=account.headers)
     assert resp.status_code == 200, resp.text
 
 
@@ -80,7 +80,7 @@ class TestSubAgents:
     """
 
     def test_the_assistant_spawns_a_sub_agent_on_its_own_model_and_tools(self, account, mock_ollama):
-        allow(account, "delegate_task")
+        set_mode(account, "full")
         mock_ollama.state.script(
             Reply(tool_calls=[ToolCall("delegate_task", {"task": "What is the answer?"})]),
             Reply(content="The answer is 42."),
@@ -105,7 +105,7 @@ class TestSubAgents:
         """The stream says a tool row was a sub-agent's, which model ran it and for
         how long; the history used to drop all three, so the tag was gone as soon
         as a client reloaded the finished turn or reopened the chat (#327)."""
-        allow(account, "delegate_task")
+        set_mode(account, "full")
         mock_ollama.state.script(
             Reply(tool_calls=[ToolCall("delegate_task", {"task": "What is the answer?"})]),
             Reply(content="The answer is 42."),
@@ -127,7 +127,7 @@ class TestSubAgents:
         assert row["duration_ms"] == streamed[0]["duration_ms"]
 
     def test_an_ordinary_tool_row_is_kind_tool_once_reloaded(self, account, mock_ollama):
-        allow(account, "drive_list")
+        set_mode(account, "full")
         mock_ollama.state.script(
             Reply(tool_calls=[ToolCall("drive_list", {"path": "/"})]),
             Reply(content="Nothing there."),
@@ -139,10 +139,9 @@ class TestSubAgents:
         assert row["tool_kind"] == "tool"
         assert "model_name" not in row, "an ordinary tool runs no model of its own"
 
-    def test_an_assistant_narrowed_to_some_tools_hands_its_sub_agent_the_same(self, account, mock_ollama):
-        resp = account.client.patch("/assistant", json={"available_tools": ["drive_read"]}, headers=account.headers)
-        assert resp.status_code == 200, resp.text
-        allow(account, "delegate_task")
+    def test_a_sub_agent_has_every_tool_the_assistant_has_but_delegation(self, account, mock_ollama):
+        """No tool list narrows either of them (#360); a helper only cannot spawn helpers."""
+        set_mode(account, "full")
         mock_ollama.state.script(
             Reply(tool_calls=[ToolCall("delegate_task", {"task": "Read my notes."})]),
             Reply(content="Done."),
@@ -152,11 +151,23 @@ class TestSubAgents:
         turn(account, "read my notes via a helper")
 
         main_first, sub, _ = chat_requests(mock_ollama, 3)
-        from kurisuassistant.tools.registry import tool_registry
+        assert tool_names(sub) == tool_names(main_first) - {"delegate_task"}
+        assert {"drive_read", "drive_write"} <= tool_names(sub)
 
-        built_in = {t.name for t in tool_registry._tools.values() if t.built_in}
-        assert tool_names(sub) - built_in == {"drive_read"}
-        assert "drive_write" not in tool_names(sub)
+    def test_a_helpers_calls_follow_the_permission_mode(self, account, mock_ollama):
+        set_mode(account, "read_only")
+        mock_ollama.state.script(
+            Reply(tool_calls=[ToolCall("delegate_task", {"task": "Add a reminder."})]),
+            Reply(tool_calls=[ToolCall("calendar_create", {"kind": "reminder", "title": "x", "start": "2026-10-16T09:00"})]),
+            Reply(content="It was refused."),
+        )
+
+        turn(account, "add it via a helper")
+
+        # The helper stops at the refusal, and says why to the assistant.
+        requests = chat_requests(mock_ollama, 3)
+        delegate_result = [m for m in requests[2]["messages"] if m["role"] == "tool"][-1]
+        assert "Read only" in delegate_result["content"]
 
     def test_there_are_no_saved_sub_agents(self, account):
         assert account.client.get("/sub-agents", headers=account.headers).status_code == 404
@@ -166,7 +177,7 @@ class TestSubAgents:
 class TestSkills:
     def test_a_skill_is_named_in_the_prompt_and_its_instructions_reach_the_model(self, account, mock_ollama):
         account.client.post("/skills", json={"name": "Haiku", "instructions": "Write five, seven, five."}, headers=account.headers)
-        allow(account, "get_skill_instructions")
+        set_mode(account, "full")
         mock_ollama.state.script(
             Reply(tool_calls=[ToolCall("get_skill_instructions", {"name": "Haiku"})]),
             Reply(content="Autumn moonlight..."),
@@ -185,7 +196,7 @@ class TestSkills:
         _create_activated_user("skill-owner-" + account.username, "pw")
         owner = Account(account.client, "skill-owner-" + account.username, "pw")
         owner.client.post("/skills", json={"name": "Secret", "instructions": "classified"}, headers=owner.headers)
-        allow(account, "get_skill_instructions")
+        set_mode(account, "full")
         mock_ollama.state.script(Reply(tool_calls=[ToolCall("get_skill_instructions", {"name": "Secret"})]), Reply(content="None."))
 
         turn(account, "use the secret skill")
@@ -234,7 +245,7 @@ class TestServerSideMcp:
         assert "add" in {t["function"]["name"] for t in listed["mcp_tools"]}
         assert "add" in {t["function"]["name"] for t in listed["mcp_servers"]["maths"]}
 
-        allow(account, "add")
+        set_mode(account, "full")
         mock_ollama.state.script(Reply(tool_calls=[ToolCall("add", {"a": 2, "b": 3})]), Reply(content="It is 5."))
         events = turn(account, "what is 2 + 3?")
 

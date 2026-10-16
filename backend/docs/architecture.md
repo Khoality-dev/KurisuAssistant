@@ -129,17 +129,19 @@ agents/
                          to the user and runs the tool loop
   sub.py                 SubAgent, spawned on the spot, and delegate_task, the
                          tool that spawns one on the assistant's own config
+  permissions.py         the permission mode (#360): decide(mode, read_only)
+                         → run | ask | refuse
   selection.py           persona_in_use(): selected_persona_id when enabled,
                          else the assistant itself
 
 tools/
   base.py, registry.py   BaseTool and the global registry
-  history.py             list and read past conversations (built-in)
-  recall.py              recall_regex / recall_semantic over the passage index (built-in)
-  drive.py               the assistant's view of Kurisu Drive (not built-in)
-  calendar.py            calendar_create / _list / _move / _delete (built-in, #282)
-  skills.py              on-demand skill lookup (built-in)
-  notify.py              notify_user: a notification on every device (built-in)
+  history.py             list and read past conversations
+  recall.py              recall_regex / recall_semantic over the passage index
+  drive.py               the assistant's view of Kurisu Drive
+  calendar.py            calendar_create / _list / _move / _delete (#282)
+  skills.py              on-demand skill lookup
+  notify.py              notify_user: a notification on every device
   deferred.py            list/search/get_schema/call_tool meta-tools
 
 models/                  inference providers; no DB access, no business logic
@@ -208,11 +210,13 @@ utils/                   prompt assembly, image storage, memory consolidation,
 4. tools the client registered over the socket, executed on the client;
 5. a server-side MCP server.
 
-**Permission is decided by the server.** `users.tool_policies` is read once per
-turn onto `AgentContext`. A stored `deny` returns immediately and never reaches
-the client. A stored `allow` skips the prompt. Anything else asks the connected
-client, whose answer can only narrow the server's decision, never widen it. With
-no client attached, an unapproved call is refused rather than run.
+**Permission is decided by the server.** Every tool is always offered; the
+account's one permission mode, `assistants.permission_mode`, is read once per
+turn onto `AgentContext` (#360). Under Read only a tool that does not only look
+is refused immediately and never reaches the client, and one that does runs
+without a prompt; Full access runs everything; Always ask (the default) asks the
+connected client, whose answer can only narrow the server's decision, never widen
+it. With no client attached, a call that would ask is refused rather than run.
 
 ## Sessions
 

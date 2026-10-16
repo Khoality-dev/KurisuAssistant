@@ -9,7 +9,7 @@ For what this looks like to a user, see the client screens docs — [Android](..
 and Personas screens are the split made visible.
 
 **The assistant** (`assistants`) is *what the user's assistant can do*. Exactly one
-row per user: model, provider, tool allowlist, reasoning switches, the single
+row per user: model, provider, permission mode, reasoning switches, the single
 memory document, the voice wake word, and the persona in use for the whole account.
 It is created with the account and cannot be created or deleted through the API —
 `GET`/`PATCH /assistant`, addressed with no id.
@@ -22,10 +22,10 @@ the assistant can do or remember. `GET`/`POST /personas`,
 `GET`/`PATCH`/`DELETE /personas/{id}`, `PATCH /personas/{id}/enabled`.
 
 **A sub-agent** is a helper the assistant spawns on the spot (#354). There are no
-saved sub-agents and nothing to set up: the assistant calls the built-in
+saved sub-agents and nothing to set up: the assistant calls the
 `delegate_task` tool with a task, and `agents/sub.py::DelegateTaskTool` runs a fresh
-`SubAgent` on the assistant's own `AssistantConfig` — its model, provider, tool
-allowlist and reasoning switch, but **not its memory** — and returns the
+`SubAgent` on the assistant's own `AssistantConfig` — its model, provider and
+reasoning switch, but **not its memory** — and returns the
 sub-agent's final text as the tool result. A sub-agent has no persona, is never the
 speaker, and the user sees only the assistant's account of what it did. It is not
 offered `delegate_task` itself: that tool is injected into the assistant's turn as
@@ -171,30 +171,30 @@ half (#244 desktop, #246 Android).
 
 ## Tool access
 
-`assistants.available_tools` is a JSON array of tool names, or null for all of
-them; a spawned sub-agent runs under the same list. Built-in tools ignore it and
-are always offered, `delegate_task` included.
+Every tool is always offered (#360): the registry, the account's MCP servers and
+whatever the connected client registered, and `delegate_task`. A spawned
+sub-agent gets the same, minus `delegate_task` and the client's tools. Nothing
+switches a tool off.
 
-**Permission is decided by the server, not the client.** `users.tool_policies` is
-read once per turn onto `AgentContext`, and `BaseAgent.execute_tool` applies it
-before dispatch:
+**Permission is decided by the server, not the client.** One mode per account,
+`assistants.permission_mode`, is read once per turn onto
+`AgentContext.permission_mode`, and `BaseAgent.execute_tool` applies
+`agents/permissions.py::decide` before dispatch, from whether the tool only looks
+(`read_only`; see `tools.md`):
 
-- a stored `deny` returns immediately and never reaches the client;
-- a stored `allow` runs without prompting;
-- anything else asks the connected client, and that answer can only narrow the
-  server's decision;
-- with no client attached, an unapproved call is refused rather than run.
+- `ask` (the default): every call asks the connected client, and that answer can
+  only narrow the server's decision;
+- `read_only`: a tool that only looks runs without asking; anything else is
+  refused immediately and never reaches the client;
+- `full`: everything runs without asking;
+- with no client attached, a call that would ask is refused rather than run.
+
+A sub-agent shares the turn's `AgentContext`, so its calls follow the same mode;
+a refused or denied call stops it, and its answer says why.
 
 A call resolves against the deferred meta-tools (when enabled), then the native
 registry, then handler-injected tools (`delegate_task`), then tools the
 client registered over the socket, then a server-side MCP server.
-
-Besides `conversation_id`, `user_id` and `agent_id`, `execute_tool` injects the
-caller's allowlist as `_available_tools`. It is for a built-in tool that reaches
-into what a non-built-in one guards — the recall tools include drive passages
-only when `drive_read` could run for this caller — and it lives in the arguments
-rather than on `AgentContext` because the same context object is handed to a
-spawned sub-agent, which carries its own copy of the list.
 
 `tool_approval_request` keeps an `agent_id` field: it is the id of whoever is
 asking — the persona in use for a `MainAgent`, none for a spawned `SubAgent` —

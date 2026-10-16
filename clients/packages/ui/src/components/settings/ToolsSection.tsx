@@ -1,11 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ToolPermissionSwitch } from './ToolPermissionSwitch';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
   Paper,
   Typography,
-  Card,
-  CardContent,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -13,26 +10,27 @@ import {
   Chip,
   Button,
   CircularProgress,
-  IconButton,
   Switch,
   TextField,
   Select,
   MenuItem,
   FormControl,
   InputLabel,
+  Collapse,
+  ButtonBase,
+  InputAdornment,
 } from '@mui/material';
 import {
   Extension as ExtensionIcon,
-  Dns as DnsIcon,
   Refresh as RefreshIcon,
-  CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon,
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   PlayArrow as TestIcon,
   Computer as ComputerIcon,
   Cloud as CloudIcon,
+  ChevronRight as ChevronIcon,
+  Search as SearchIcon,
 } from '@mui/icons-material';
 import { apiClient, describeRequestFailure } from '@kurisu/api';
 import {
@@ -42,8 +40,8 @@ import {
   type MCPServerTestResult,
   type Tool,
 } from '@kurisu/models';
-import type { McpServerInfo } from '@kurisu/platform';
-import { refreshClientMCPServers, getClientTools, getClientToolsByServer } from '@kurisu/state';
+import { refreshClientMCPServers, getClientTools, getClientToolsByServer, useLayoutStore } from '@kurisu/state';
+import { buildToolCatalog, matchesQuery, type CatalogGroup, type CatalogTool } from './toolCatalog';
 import { requireAppTools, requireExtensions, requireHostTools, requireMcp, resolveBridge } from '@kurisu/platform';
 
 // --- Local server detection ---
@@ -67,7 +65,13 @@ const LOCAL_SERVER_POLL_INTERVAL = 5000;
 
 export const ToolsSection: React.FC = () => {
   // --- Tools state ---
-  const [tools, setTools] = useState<{ mcp: Tool[], builtin: Tool[], client: Tool[], mcpServers: Record<string, Tool[]> }>({ mcp: [], builtin: [], client: [], mcpServers: {} });
+  // Everything the assistant has, by where it runs (#360). Nothing here turns a
+  // tool on or off; the permission mode beside the chat input decides what waits.
+  const [tools, setTools] = useState<{ server: Tool[]; mcpServers: Record<string, Tool[]>; client: Tool[]; clientByServer: Record<string, Tool[]> }>(
+    { server: [], mcpServers: {}, client: [], clientByServer: {} },
+  );
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
 
@@ -94,25 +98,12 @@ export const ToolsSection: React.FC = () => {
   const [detectedServers, setDetectedServices] = useState<Record<string, { running: boolean; version?: string }>>({});
   const mcpAutoRegistered = useRef<Set<string>>(new Set());
 
-  // This app's own MCP endpoint — the one an external client connects *to*.
-  // Its token is a credential for local code execution, so it starts hidden.
-  const [mcpServerInfo, setMcpServerInfo] = useState<McpServerInfo | null>(null);
-  const [tokenVisible, setTokenVisible] = useState(false);
-
-  useEffect(() => {
-    resolveBridge().mcpServer?.getInfo()
-      .then(setMcpServerInfo)
-      .catch(() => setMcpServerInfo(null));
-  }, []);
-
-  // Programs this app is allowed to launch: whether Playwright starts on its
-  // own, and the command lines answered "Always allow" at the spawn prompt.
+  // Whether Playwright starts on its own. The approved command lines and this
+  // desktop's MCP endpoint are in Host Access (DesktopProgramsPanel).
   const [playwrightAutostart, setPlaywrightAutostart] = useState(false);
-  const [approvedSpawns, setApprovedSpawns] = useState<string[]>([]);
 
   useEffect(() => {
     resolveBridge().mcp?.getPlaywrightAutostart().then(setPlaywrightAutostart).catch(() => {});
-    resolveBridge().mcp?.getApprovedSpawns().then(setApprovedSpawns).catch(() => {});
   }, []);
 
   const setPlaywrightAutostartSetting = useCallback(async (enabled: boolean) => {
@@ -121,42 +112,18 @@ export const ToolsSection: React.FC = () => {
     if (typeof stored === 'boolean') setPlaywrightAutostart(stored);
   }, []);
 
-  const revokeSpawn = useCallback(async (commandLine: string) => {
-    const remaining = await resolveBridge().mcp?.revokeApprovedSpawn(commandLine);
-    if (remaining) setApprovedSpawns(remaining);
-  }, []);
-
-  const rotateMcpServerToken = useCallback(async () => {
-    const info = await resolveBridge().mcpServer?.rotateToken();
-    if (info) {
-      setMcpServerInfo(info);
-      setTokenVisible(true);
-    }
-  }, []);
-
   // --- Tools loading ---
 
-  const applyToolsResponse = async (toolsRes: { mcp_tools: Tool[]; builtin_tools: Tool[]; mcp_servers?: Record<string, Tool[]> }) => {
-    const mcpServersMap: Record<string, Tool[]> = { ...(toolsRes.mcp_servers || {}) };
-    const allMcpTools = [...toolsRes.mcp_tools];
-    const clientGrouped = await getClientToolsByServer();
-    for (const [serverName, serverTools] of Object.entries(clientGrouped)) {
-      mcpServersMap[serverName] = serverTools as Tool[];
-      allMcpTools.push(...(serverTools as Tool[]));
-    }
-    const clientTools: Tool[] = [];
+  const applyToolsResponse = async (toolsRes: { server_tools: Tool[]; mcp_tools: Tool[]; mcp_servers?: Record<string, Tool[]> }) => {
+    const clientByServer = (await getClientToolsByServer()) as Record<string, Tool[]>;
+    const client: Tool[] = [];
     if (resolveBridge().hostTools) {
-      try { clientTools.push(...(await requireHostTools().listTools() as Tool[])); } catch {}
+      try { client.push(...(await requireHostTools().listTools() as Tool[])); } catch {}
     }
     if (resolveBridge().appTools) {
-      try { clientTools.push(...(await requireAppTools().listTools() as Tool[])); } catch {}
+      try { client.push(...(await requireAppTools().listTools() as Tool[])); } catch {}
     }
-    const mcpToolNames = new Set(allMcpTools.map(t => t.function.name));
-    const serverBuiltinNames = new Set(toolsRes.builtin_tools.map(t => t.function.name));
-    const dedupedClientTools = clientTools.filter(t =>
-      !mcpToolNames.has(t.function.name) && !serverBuiltinNames.has(t.function.name)
-    );
-    setTools({ mcp: allMcpTools, builtin: toolsRes.builtin_tools, client: dedupedClientTools, mcpServers: mcpServersMap });
+    setTools({ server: toolsRes.server_tools, mcpServers: toolsRes.mcp_servers || {}, client, clientByServer });
   };
 
   // --- MCP server management ---
@@ -355,15 +322,16 @@ export const ToolsSection: React.FC = () => {
     }
   };
 
-  const handleToggleServer = async (server: MCPServer) => {
+  // A server is there or it is removed (#360). One switched off before that has
+  // a way back, and nothing switches one off again.
+  const handleTurnServerOn = async (server: MCPServer) => {
     try {
-      await apiClient.updateMCPServer(server.id, { enabled: !server.enabled });
-      setMcpServers(prev =>
-        prev.map(s => s.id === server.id ? { ...s, enabled: !s.enabled } : s)
-      );
+      await apiClient.updateMCPServer(server.id, { enabled: true });
+      setMcpServers(prev => prev.map(s => s.id === server.id ? { ...s, enabled: true } : s));
       if (server.location === 'client') await refreshClientMCPServers();
+      await applyToolsResponse(await apiClient.listTools());
     } catch (err: any) {
-      setError(describeRequestFailure(err, 'Failed to toggle MCP server'));
+      setError(describeRequestFailure(err, 'Failed to turn the MCP server on'));
     }
   };
 
@@ -401,6 +369,13 @@ export const ToolsSection: React.FC = () => {
     setDetailsDialogOpen(true);
   };
 
+  const catalog = useMemo(() => buildToolCatalog({
+    serverTools: tools.server,
+    mcpServers: tools.mcpServers,
+    clientTools: tools.client,
+    clientToolsByServer: tools.clientByServer,
+  }), [tools]);
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
@@ -411,345 +386,256 @@ export const ToolsSection: React.FC = () => {
 
   const localMcpUrls = new Set(LOCAL_SERVERS.filter(s => s.mcpUrl).flatMap((s) => [s.mcpUrl!, s.mcpUrl!.replace('://127.0.0.1:', '://localhost:')]));
   const userServers = mcpServers.filter((s) => !s.url || !localMcpUrls.has(s.url));
+  const toolCount = catalog.kurisu.concat(catalog.desktop).reduce((n, g) => n + g.tools.length, 0)
+    + Object.values(catalog.mcp).reduce((n, t) => n + t.length, 0);
+  const searching = query.trim().length > 0;
+  const lendsTools = !!(resolveBridge().hostTools || resolveBridge().appTools || resolveBridge().mcp);
 
-  // Helper to render a consistent server card with tools
-  const renderServerCard = (
+  const effectTag = (t: CatalogTool) => t.effect === 'reads'
+    ? <Chip label="Reads" size="small" sx={{ height: 22, fontWeight: 600 }} />
+    : <Chip label="Changes" size="small" color="warning" variant="outlined" sx={{ height: 22, fontWeight: 600 }} />;
+
+  const toolRows = (list: CatalogTool[]) => list.filter((t) => matchesQuery(t, query)).map((t) => (
+    <ButtonBase
+      key={t.name}
+      onClick={() => handleToolClick(t.tool)}
+      sx={{
+        display: 'flex', alignItems: 'center', gap: 2, width: '100%', py: 1, px: 1, borderRadius: 1,
+        justifyContent: 'flex-start', textAlign: 'left', borderTop: '1px solid', borderColor: 'divider',
+        '&:hover': { bgcolor: 'action.hover' },
+      }}
+    >
+      <Typography variant="body2" sx={{ fontFamily: 'monospace', flex: '0 0 210px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {t.name}
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {t.description || 'No description'}
+      </Typography>
+      {effectTag(t)}
+    </ButtonBase>
+  ));
+
+  /** One collapsible row: a group of tools, or a server with its tools. */
+  const groupRow = (
+    id: string,
     name: string,
-    subtitle: string | null,
-    chips: React.ReactNode,
-    serverToolsList: Tool[],
-    actions?: React.ReactNode,
-  ) => (
-    <Card sx={{ border: '1px solid', borderColor: 'divider' }}>
-      <CardContent>
-        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-          <Box sx={{ flex: 1, mr: actions ? 2 : 0 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: subtitle ? 1 : 0 }}>
-              <DnsIcon fontSize="small" color="primary" />
-              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{name}</Typography>
-              {chips}
-              {serverToolsList.length > 0 && (
-                <Chip label={`${serverToolsList.length} tools`} size="small" variant="outlined" />
-              )}
+    list: CatalogTool[],
+    extras: { status?: React.ReactNode; detail?: React.ReactNode; actions?: React.ReactNode; dimmed?: boolean } = {},
+  ) => {
+    const visible = list.filter((t) => matchesQuery(t, query));
+    if (searching && visible.length === 0) return null;
+    const expanded = searching || !!open[id];
+    return (
+      <Box key={id} sx={{ '& + &': { borderTop: '1px solid', borderColor: 'divider' }, opacity: extras.dimmed ? 0.7 : 1 }}>
+        <ButtonBase
+          aria-expanded={expanded}
+          onClick={() => setOpen((prev) => ({ ...prev, [id]: !prev[id] }))}
+          sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%', minHeight: 56, px: 2, py: 1, justifyContent: 'flex-start', textAlign: 'left' }}
+        >
+          <ChevronIcon fontSize="small" sx={{ color: 'text.secondary', transition: 'transform .15s', transform: expanded ? 'rotate(90deg)' : 'none' }} />
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>{name}</Typography>
+              {extras.status}
             </Box>
-            {subtitle && (
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{
-                  fontFamily: 'monospace',
-                  fontSize: '0.75rem',
-                  backgroundColor: (t: any) => t.palette.mode === 'light' ? '#f5f5f5' : '#1A1A1A',
-                  p: 1,
-                  borderRadius: 1,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {subtitle}
-              </Typography>
+            {extras.detail}
+          </Box>
+          <Typography variant="caption" color="text.secondary">
+            {list.length ? `${list.length} tool${list.length === 1 ? '' : 's'}` : '—'}
+          </Typography>
+        </ButtonBase>
+        <Collapse in={expanded} unmountOnExit>
+          <Box sx={{ px: 2, pb: 1.5, pl: 6 }}>
+            {visible.length > 0 ? toolRows(visible) : (
+              <Typography variant="caption" color="text.secondary">No tools.</Typography>
+            )}
+            {extras.actions && (
+              <Box sx={{ display: 'flex', gap: 1, pt: 1.25, mt: 0.5, borderTop: '1px solid', borderColor: 'divider', flexWrap: 'wrap', alignItems: 'center' }}>
+                {extras.actions}
+              </Box>
             )}
           </Box>
-          {actions && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-              {actions}
-            </Box>
-          )}
+        </Collapse>
+      </Box>
+    );
+  };
+
+  const section = (title: string, where: string, blurb: string, rows: (React.ReactNode | null)[]) => {
+    const present = rows.filter(Boolean);
+    if (searching && present.length === 0) return null;
+    return (
+      <Box component="section" sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+        <Box>
+          <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.25, flexWrap: 'wrap' }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{title}</Typography>
+            <Typography variant="caption" color="text.secondary">{where}</Typography>
+          </Box>
+          <Typography variant="body2" color="text.secondary">{blurb}</Typography>
         </Box>
-        {serverToolsList.length > 0 && renderToolGrid(serverToolsList)}
-      </CardContent>
-    </Card>
+        <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+          {present.length ? present : (
+            <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>Nothing here yet.</Typography>
+          )}
+        </Paper>
+      </Box>
+    );
+  };
+
+  const statusChip = (label: string, color: 'success' | 'default' | 'error') => (
+    <Chip label={label} size="small" color={color} variant={color === 'default' ? 'outlined' : 'filled'} sx={{ height: 22, ...(color === 'success' ? { color: '#fff' } : {}) }} />
+  );
+  const mono = (text: string) => (
+    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      {text}
+    </Typography>
   );
 
-  const renderToolGrid = (toolsList: Tool[]) => (
-    <Box sx={{ mt: 1.5, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 1 }}>
-      {toolsList.map((tool) => (
-        <Paper
-          key={tool.function.name}
-          variant="outlined"
-          onClick={() => handleToolClick(tool)}
-          sx={{
-            p: 1.5,
-            cursor: 'pointer',
-            '&:hover': { bgcolor: 'action.hover' },
-            transition: 'background-color 0.15s',
-          }}
-        >
-          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-            {tool.function.name}
-          </Typography>
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-              lineHeight: 1.3,
-            }}
-          >
-            {tool.function.description || 'No description'}
-          </Typography>
-        </Paper>
-      ))}
-    </Box>
-  );
+  const localGroups = catalog.desktop.filter((g) => g.id.startsWith('local:'));
+  const hostAndApp = catalog.desktop.filter((g) => !g.id.startsWith('local:'));
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h5" fontWeight={600}>Tools & Servers</Typography>
-        <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleNewServer}>
-          Add MCP Server
-        </Button>
+    <Box sx={{ maxWidth: 900, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 3.5 }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
+          <Box sx={{ flex: '1 1 360px', minWidth: 0 }}>
+            <Typography variant="h5" fontWeight={600}>Tools</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Everything below is available to the assistant. Whether a call waits for you is the
+              permission mode beside the chat input.
+            </Typography>
+          </Box>
+          <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleNewServer}>
+            Add MCP server
+          </Button>
+        </Box>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+          <TextField
+            size="small"
+            placeholder={`Search ${toolCount} tools`}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            inputProps={{ 'aria-label': 'Search tools' }}
+            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+            sx={{ flex: '1 1 320px' }}
+          />
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
+              <Chip label="Reads" size="small" sx={{ height: 22, fontWeight: 600 }} />
+              <Typography variant="caption" color="text.secondary">only looks</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
+              <Chip label="Changes" size="small" color="warning" variant="outlined" sx={{ height: 22, fontWeight: 600 }} />
+              <Typography variant="caption" color="text.secondary">refused in Read only</Typography>
+            </Box>
+          </Box>
+        </Box>
       </Box>
 
       {error && (
-        <Box sx={{ mb: 2, color: 'error.main' }}>
-          <Typography variant="body2">{error}</Typography>
-        </Box>
+        <Typography variant="body2" color="error">{error}</Typography>
       )}
 
-      <Box sx={{ maxWidth: 1200, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {/* This app as an MCP server: the endpoint external clients connect to. */}
-        {mcpServerInfo && (
-          <Paper variant="outlined" sx={{ p: 2 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
-              This app as an MCP server
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-              Publishes the host and app tools to an MCP client on this machine. It listens on
-              localhost only, and a client must send the token below. Anyone holding it can run
-              commands here, so treat it as a password.
-            </Typography>
-            <Typography variant="body2" sx={{ fontFamily: 'monospace', mb: 0.75 }}>
-              {mcpServerInfo.url}
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-              <Typography
-                variant="body2"
-                sx={{ fontFamily: 'monospace', wordBreak: 'break-all', flex: 1, minWidth: 240 }}
-              >
-                Authorization: Bearer {tokenVisible ? mcpServerInfo.token : '•'.repeat(24)}
-              </Typography>
-              <Button size="small" onClick={() => setTokenVisible((v) => !v)}>
-                {tokenVisible ? 'Hide' : 'Show'}
-              </Button>
-              <Button size="small" onClick={() => navigator.clipboard.writeText(mcpServerInfo.token)}>
-                Copy
-              </Button>
-              <Button size="small" color="warning" onClick={rotateMcpServerToken}>
-                New token
-              </Button>
-            </Box>
-          </Paper>
-        )}
+      {section('Kurisu', 'on the server, from every device',
+        'The assistant’s own features. Always there, wherever you talk to it.',
+        catalog.kurisu.map((g: CatalogGroup) => groupRow(`kurisu:${g.id}`, g.name, g.tools)),
+      )}
 
-        {/* Programs this app may launch locally. */}
-        <Paper variant="outlined" sx={{ p: 2 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
-            Local programs
-          </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-            Starting a local MCP server runs a program on this computer. Each command line is
-            asked about the first time it runs; the ones you allowed permanently are listed here.
-          </Typography>
-
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-            <Box>
-              <Typography variant="body2">Start Playwright automatically</Typography>
-              <Typography variant="caption" color="text.secondary">
-                Downloads and runs {PLAYWRIGHT_MCP_PACKAGE} from npm whenever the app connects.
-              </Typography>
-            </Box>
-            <Switch
-              checked={playwrightAutostart}
-              onChange={(e) => setPlaywrightAutostartSetting(e.target.checked)}
-            />
-          </Box>
-
-          {approvedSpawns.length > 0 && (
-            <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-              {approvedSpawns.map((commandLine) => (
-                <Box
-                  key={commandLine}
-                  sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
-                >
-                  <Typography
-                    variant="caption"
-                    sx={{ fontFamily: 'monospace', wordBreak: 'break-all', flex: 1 }}
-                  >
-                    {commandLine}
-                  </Typography>
-                  <Button size="small" color="warning" onClick={() => revokeSpawn(commandLine)}>
-                    Revoke
+      {lendsTools && section('This desktop', 'lent while this desktop is connected',
+        'Run on this computer. A phone or the browser lends none, and never takes these away.',
+        [
+          ...hostAndApp.map((g) => groupRow(`desktop:${g.id}`, g.name, g.tools, g.id === 'host' ? {
+            detail: <Typography variant="caption" color="text.secondary">Only inside the folders granted in Host Access</Typography>,
+            actions: (
+              <Button size="small" variant="outlined" onClick={() => useLayoutStore.getState().setSettingsSection('host-access')}>
+                Host Access
+              </Button>
+            ),
+          } : {})),
+          ...LOCAL_SERVERS.map((svc) => {
+            const status = detectedServers[svc.id];
+            const running = !!status?.running;
+            const group = localGroups.find((g) => g.name === (svc.mcpName || svc.name));
+            return groupRow(`local:${svc.id}`, svc.name, group?.tools ?? [], {
+              status: statusChip(running ? 'Running' : 'Not running', running ? 'success' : 'default'),
+              detail: mono(`Local MCP server${svc.mcpUrl ? ` · ${svc.mcpUrl.replace(/^https?:\/\//, '').replace(/\/sse$/, '')}` : ''}${running && status?.version ? ` · v${status.version}` : ''}`),
+              dimmed: !running,
+              actions: (
+                <>
+                  <Button size="small" variant="outlined" startIcon={<RefreshIcon />} onClick={() => reconnectLocalServer(svc)}>
+                    Reconnect
                   </Button>
-                </Box>
-              ))}
-            </Box>
-          )}
-        </Paper>
-
-        {/* Built-in tools card (app + server built-in) */}
-        {(tools.client.length > 0 || tools.builtin.length > 0) && renderServerCard(
-          'Built-in',
-          null,
-          null,
-          [...tools.builtin, ...tools.client],
-        )}
-
-        {/* Local servers — same card design */}
-        {LOCAL_SERVERS.map((svc) => {
-          const status = detectedServers[svc.id];
-          const isRunning = status?.running;
-          const svcTools = tools.mcpServers[svc.name] || [];
-          return (
-            <Card
-              key={svc.id}
-              sx={{
-                border: '1px solid',
-                borderColor: 'divider',
-                opacity: isRunning ? 1 : 0.5,
-              }}
-            >
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                  <Box sx={{ flex: 1, mr: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <DnsIcon fontSize="small" color={isRunning ? 'primary' : 'disabled'} />
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{svc.name}</Typography>
-                      <Chip label="Local" size="small" variant="outlined" color="info" />
-                      <Chip
-                        label={isRunning ? 'Running' : 'Offline'}
-                        size="small"
-                        color={isRunning ? 'success' : 'default'}
-                        variant={isRunning ? 'filled' : 'outlined'}
-                        sx={isRunning ? { color: '#fff' } : {}}
-                      />
-                      {isRunning && status?.version && (
-                        <Typography variant="caption" color="text.secondary">v{status.version}</Typography>
-                      )}
-                      {svcTools.length > 0 && (
-                        <Chip label={`${svcTools.length} tools`} size="small" variant="outlined" />
-                      )}
-                    </Box>
-                  </Box>
-                  <IconButton size="small" onClick={() => reconnectLocalServer(svc)} title="Reconnect">
-                    <RefreshIcon fontSize="small" />
-                  </IconButton>
-                </Box>
-                {svcTools.length > 0 && renderToolGrid(svcTools)}
-              </CardContent>
-            </Card>
-          );
-        })}
-
-        {/* User MCP servers */}
-        {userServers.map((server) => {
-          const serverTools = tools.mcpServers[server.name] || [];
-          return (
-            <Card
-              key={server.id}
-              sx={{
-                border: '1px solid',
-                borderColor: 'divider',
-                opacity: server.enabled ? 1 : 0.6,
-              }}
-            >
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                  <Box sx={{ flex: 1, mr: 2 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                      <DnsIcon fontSize="small" color={server.enabled ? 'primary' : 'disabled'} />
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{server.name}</Typography>
-                      <Chip
-                        label={server.transport_type.toUpperCase()}
-                        size="small"
-                        variant="outlined"
-                        color={server.transport_type === 'sse' ? 'primary' : 'secondary'}
-                      />
-                      <Chip
-                        icon={server.location === 'client' ? <ComputerIcon /> : <CloudIcon />}
-                        label={server.location === 'client' ? 'Internal' : 'External'}
-                        size="small"
-                        variant="outlined"
-                        color={server.location === 'client' ? 'warning' : 'default'}
-                      />
-                      {serverTools.length > 0 && (
-                        <Chip label={`${serverTools.length} tools`} size="small" variant="outlined" />
-                      )}
-                      {testResults[server.id] && (
-                        <Chip
-                          icon={testResults[server.id].status === 'available' ? <CheckCircleIcon /> : <CancelIcon />}
-                          label={
-                            testResults[server.id].status === 'available'
-                              ? `${testResults[server.id].tool_count} tools`
-                              : 'Unavailable'
-                          }
-                          size="small"
-                          color={testResults[server.id].status === 'available' ? 'success' : 'error'}
-                        />
-                      )}
-                    </Box>
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{
-                        fontFamily: 'monospace',
-                        fontSize: '0.75rem',
-                        backgroundColor: (t: any) => t.palette.mode === 'light' ? '#f5f5f5' : '#1A1A1A',
-                        p: 1,
-                        borderRadius: 1,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {server.transport_type === 'sse'
-                        ? server.url || '(no URL)'
-                        : `${server.command || ''}${server.args?.length ? ' ' + server.args.join(' ') : ''}`
-                      }
-                    </Typography>
-                    {testResults[server.id]?.error && (
-                      <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
-                        {testResults[server.id].error}
+                  {svc.id === 'playwright' && resolveBridge().mcp && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Switch size="small" checked={playwrightAutostart} onChange={(e) => setPlaywrightAutostartSetting(e.target.checked)} inputProps={{ 'aria-label': 'Start Playwright with the app' }} />
+                      <Typography variant="caption" color="text.secondary">
+                        Start with the app (runs {PLAYWRIGHT_MCP_PACKAGE} from npm)
                       </Typography>
-                    )}
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-                    <Switch
-                      size="small"
-                      checked={server.enabled}
-                      onChange={() => handleToggleServer(server)}
-                      title={server.enabled ? 'Disable' : 'Enable'}
-                    />
-                    <IconButton
-                      size="small"
-                      onClick={() => handleTestServer(server)}
-                      title="Test connection"
-                      disabled={testingServerId === server.id || !server.enabled}
-                    >
-                      {testingServerId === server.id
-                        ? <CircularProgress size={18} />
-                        : <TestIcon fontSize="small" />
-                      }
-                    </IconButton>
-                    <IconButton size="small" onClick={() => handleEditServer(server)} title="Edit">
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                    <IconButton size="small" onClick={() => handleDeleteServer(server)} title="Delete" color="error">
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                </Box>
-                {serverTools.length > 0 && renderToolGrid(serverTools)}
-              </CardContent>
-            </Card>
-          );
-        })}
-      </Box>
+                    </Box>
+                  )}
+                </>
+              ),
+            });
+          }),
+          ...localGroups
+            .filter((g) => !LOCAL_SERVERS.some((svc) => (svc.mcpName || svc.name) === g.name))
+            .map((g) => groupRow(g.id, g.name, g.tools, { status: statusChip('Running', 'success'), detail: mono('Local MCP server') })),
+        ],
+      )}
+
+      {section('MCP servers', 'servers you added',
+        'Remove one to take its tools away.',
+        userServers.map((server) => {
+          const test = testResults[server.id];
+          const onThisComputer = server.location === 'client';
+          const list = (onThisComputer ? catalog.desktop.find((g) => g.name === server.name)?.tools : catalog.mcp[server.name]) ?? [];
+          const status = !server.enabled
+            ? statusChip('Turned off', 'default')
+            : test
+              ? statusChip(test.status === 'available' ? 'Connected' : 'Unreachable', test.status === 'available' ? 'success' : 'error')
+              : null;
+          return groupRow(`mcp:${server.id}`, server.name, list, {
+            status: (
+              <>
+                {status}
+                <Chip
+                  icon={onThisComputer ? <ComputerIcon /> : <CloudIcon />}
+                  label={onThisComputer ? 'On this computer' : 'On the server'}
+                  size="small"
+                  variant="outlined"
+                  sx={{ height: 22 }}
+                />
+              </>
+            ),
+            detail: (
+              <>
+                {mono(server.transport_type === 'sse'
+                  ? server.url || '(no URL)'
+                  : `${server.command || ''}${server.args?.length ? ' ' + server.args.join(' ') : ''}`)}
+                {test?.error && <Typography variant="caption" color="error" sx={{ display: 'block' }}>{test.error}</Typography>}
+              </>
+            ),
+            dimmed: !server.enabled,
+            actions: (
+              <>
+                {!server.enabled && (
+                  <Button size="small" variant="outlined" onClick={() => handleTurnServerOn(server)}>Turn back on</Button>
+                )}
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={testingServerId === server.id ? <CircularProgress size={14} /> : <TestIcon />}
+                  disabled={testingServerId === server.id || !server.enabled}
+                  onClick={() => handleTestServer(server)}
+                >
+                  Test
+                </Button>
+                <Button size="small" variant="outlined" startIcon={<EditIcon />} onClick={() => handleEditServer(server)}>Edit</Button>
+                <Button size="small" variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteServer(server)}>Remove</Button>
+              </>
+            ),
+          });
+        }),
+      )}
 
       {/* Tool Details Dialog */}
       <Dialog
@@ -761,7 +647,7 @@ export const ToolsSection: React.FC = () => {
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <ExtensionIcon />
-            <Typography variant="h6">{selectedTool?.function.name}</Typography>
+            <Typography variant="h6" sx={{ fontFamily: 'monospace' }}>{selectedTool?.function.name}</Typography>
           </Box>
         </DialogTitle>
         <DialogContent dividers>
@@ -769,27 +655,14 @@ export const ToolsSection: React.FC = () => {
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               <Box>
                 <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  Source
+                  In Read only
                 </Typography>
-                <Chip
-                  label={(() => {
-                    const srvName = Object.entries(tools.mcpServers).find(([, serverTools]) =>
-                      serverTools.some(t => t.function.name === selectedTool.function.name)
-                    )?.[0];
-                    return srvName || (selectedTool.built_in ? 'Built-in' : 'Native');
-                  })()}
-                  color={tools.mcp.some(t => t.function.name === selectedTool.function.name) ? 'primary' : 'secondary'}
-                  size="small"
-                />
+                <Typography>
+                  {selectedTool.read_only
+                    ? 'Runs without asking: it only looks.'
+                    : 'Refused: it changes something, or does not say that it only looks.'}
+                </Typography>
               </Box>
-              {selectedTool.allowed_by_default && (
-                <Box>
-                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Permission
-                  </Typography>
-                  <ToolPermissionSwitch toolName={selectedTool.function.name} />
-                </Box>
-              )}
               <Box>
                 <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                   Description

@@ -110,8 +110,7 @@ const DOCS_PERSONAS = [
 const DOCS_ASSISTANT = {
   model_name: 'qwen3:8b',
   provider_type: 'ollama',
-  // null is "every tool", which is what the Assistant screen prints.
-  available_tools: null,
+  permission_mode: 'ask' as const,
   think: true,
   use_deferred_tools: false,
   memory:
@@ -142,20 +141,20 @@ const DOCS_MCP_SERVERS = [
 
 /** Verbatim from `backend/kurisuassistant/tools/` — that screen quotes the backend. */
 const DOCS_TOOLS = {
-  builtin: [
+  server: [
     {
       name: 'history_list',
       description:
         'List past conversations with titles, compacted summaries, message counts, and timestamps. '
         + 'Returns most recent first. Use to find which conversation to read in detail.',
-      builtin: true,
+      read_only: true,
     },
     {
       name: 'history_read',
       description:
         'Read messages from a specific past conversation. Use history_list first to find the '
         + 'conversation_id, then read it in detail.',
-      builtin: true,
+      read_only: true,
     },
     {
       name: 'recall_regex',
@@ -163,7 +162,7 @@ const DOCS_TOOLS = {
         'Search everything the user said or wrote before — past conversations and the files in '
         + 'their drive — with a case-insensitive regular expression. Returns matching passages '
         + 'newest first, quoted verbatim, each with its source.',
-      builtin: true,
+      read_only: true,
     },
     {
       name: 'recall_semantic',
@@ -171,14 +170,14 @@ const DOCS_TOOLS = {
         'Search past conversations and the files in the user\'s drive by meaning: describe what '
         + 'you are looking for and get the passages closest to it, even when the original used '
         + 'different words.',
-      builtin: true,
+      read_only: true,
     },
     {
       name: 'get_skill_instructions',
       description:
         'Get the full instructions for a skill by name. Call this before performing a task when a '
         + 'relevant skill is listed in the system prompt.',
-      builtin: true,
+      read_only: true,
     },
   ],
   mcp: [
@@ -239,12 +238,12 @@ const DOCS_CONVERSATIONS: MockConversationSeed[] = [
         content:
           'personas table: id, user_id, name, description, system_prompt, voice_reference, '
           + 'avatar_uuid, character_config, preferred_name, enabled. No model_name, no '
-          + 'available_tools, no memory.',
+          + 'tool list, no memory.',
       },
       {
         role: 'assistant',
         content:
-          'In the schema itself. The personas table has no model_name, no available_tools and no '
+          'In the schema itself. The personas table has no model_name, no tool list and no '
           + 'memory column at all \u2014 so a persona cannot carry capability even by accident. The '
           + 'migration drops those columns rather than leaving them nullable.',
       },
@@ -391,7 +390,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     description: 'Assistant text interrupted by a tool result, then the answer.',
     options: {
       personas: [KURISU, AMADEUS],
-      tools: { builtin: [{ name: 'lookup', description: 'Look a value up.', builtin: true }] },
+      tools: { server: [{ name: 'lookup', description: 'Look a value up.', read_only: true }] },
       stream: {
         chunks: [
           { content: 'Let me check. ', role: 'assistant', delayMs: 150 },

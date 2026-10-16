@@ -77,7 +77,7 @@ describe('app tools', () => {
     };
 
     const persona = paramsOf('app_update_persona');
-    for (const capability of ['model_name', 'available_tools', 'memory', 'trigger_word', 'think']) {
+    for (const capability of ['model_name', 'permission_mode', 'memory', 'trigger_word', 'think']) {
       expect(persona).not.toContain(`${capability}:`);
     }
 
@@ -85,5 +85,32 @@ describe('app tools', () => {
     for (const presentation of ['name:', 'system_prompt:', 'voice_reference:', 'avatar_uuid:']) {
       expect(assistant).not.toContain(`            ${presentation}`);
     }
+  });
+
+  it('cannot change the permission mode, nor bring back a tool list (#360)', () => {
+    const at = schemaSource.indexOf("name: 'app_update_assistant'");
+    const next = schemaSource.indexOf("name: 'app_", at + 1);
+    const assistant = schemaSource.slice(at, next);
+    expect(assistant).not.toContain('permission_mode');
+    expect(assistant).not.toContain('available_tools');
+
+    const handler = handlerSource.slice(
+      handlerSource.indexOf('async function handleUpdateAssistant'),
+      handlerSource.indexOf('async function', handlerSource.indexOf('async function handleUpdateAssistant') + 1),
+    );
+    expect(handler).not.toContain("'permission_mode'");
+  });
+
+  it('says which app tools only look, so Read only runs them (#360)', () => {
+    const declared = schemaSource.slice(
+      schemaSource.indexOf('APP_READ_ONLY_TOOLS'),
+      schemaSource.indexOf(']);', schemaSource.indexOf('APP_READ_ONLY_TOOLS')),
+    );
+    const readOnly = matchAll(declared, /'(app_[a-z_]+)'/g);
+    expect([...readOnly].sort()).toEqual([
+      'app_get_assistant', 'app_get_open_files', 'app_get_personas',
+      'app_list_mcp_servers', 'app_list_skills', 'app_list_tools',
+    ]);
+    for (const name of readOnly) expect(advertised.has(name)).toBe(true);
   });
 });

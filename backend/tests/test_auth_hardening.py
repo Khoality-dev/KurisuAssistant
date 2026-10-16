@@ -141,7 +141,6 @@ class FakeUser:
         self.summary_model = None
         self.summary_provider = "ollama"
         self.context_size = None
-        self.tool_policies = None
 
 
 def profile_client(user):

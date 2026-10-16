@@ -10,9 +10,10 @@ after the model has produced its arguments; it is not in the declared schema and
 the model cannot set it. A tool with no user context refuses rather than
 guessing, exactly as the history tools do.
 
-Approval is not this module's job. ``users.tool_policies`` is applied in
-``agents/base.py`` before any of this runs: a stored ``deny`` never reaches here,
-a stored ``allow`` skips the prompt, and anything else stops at the client's
+Approval is not this module's job. The account's permission mode (#360) is
+applied in ``agents/base.py`` before any of this runs: ``drive_list`` and
+``drive_read`` only look (``read_only``), so Read only runs them and refuses the
+other two before they reach here; Always ask stops every call at the client's
 approval bar. What these tools owe that bar is a ``describe_call`` sentence
 worth reading before someone presses Enter — which is why the write and delete
 ones name the file and the size rather than dumping the arguments.
@@ -115,6 +116,7 @@ class DriveListTool(BaseTool):
     """List a folder in the user's drive."""
 
     name = "drive_list"
+    read_only = True
     description = (
         "List the contents of a folder in the user's Kurisu Drive — the account's "
         "own file storage on this server, shared by every device they sign in from. "
@@ -196,6 +198,7 @@ class DriveReadTool(BaseTool):
     """Read a text file from the user's drive."""
 
     name = "drive_read"
+    read_only = True
     description = (
         "Read a text file from the user's Kurisu Drive and return its contents. "
         "Only text is returned; a binary file (an image, a PDF, an archive) is "

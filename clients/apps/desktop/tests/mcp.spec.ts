@@ -1,9 +1,10 @@
 /**
- * Tests for the Tools & MCP settings page:
- *   - Built-in and MCP tools are listed from GET /tools
+ * Tests for Settings › Tools (#360):
+ *   - The server's own tools are listed from GET /tools, grouped, each tagged by
+ *     whether it only looks — and nothing switches one on or off
  *   - User-defined MCP servers are listed from GET /mcp-servers
  *   - Creating a new MCP server hits POST /mcp-servers with the right payload
- *   - Deleting a server hits DELETE and removes the card
+ *   - Removing a server hits DELETE and takes its row away
  */
 
 import { test, expect } from './fixtures';
@@ -21,25 +22,39 @@ async function openTools(page: Page) {
     has: page.locator('[data-testid="SettingsOutlinedIcon"], [data-testid="SettingsIcon"]'),
   }).first();
   await settingsBtn.click();
-  await page.getByText('Tools & MCP', { exact: true }).first().click();
-  await expect(page.getByRole('heading', { name: 'Tools & Servers' })).toBeVisible({ timeout: 10_000 });
+  await page.getByText('Tools', { exact: true }).first().click();
+  await expect(page.getByRole('heading', { name: 'Tools', exact: true })).toBeVisible({ timeout: 10_000 });
 }
 
 test.describe('tools & MCP', () => {
-  test('lists built-in tools from /tools', async ({ page, mock }) => {
+  test("lists the server's own tools by feature, tagged Reads or Changes, with no switches", async ({ page, mock }) => {
     mock.setTools({
-      builtin: [
-        { name: 'search_web', description: 'Search the web for information', builtin: true },
-        { name: 'get_time', description: 'Get current time', builtin: true },
+      server: [
+        { name: 'drive_read', description: 'Read a drive file', read_only: true },
+        { name: 'drive_write', description: 'Write a drive file' },
       ],
     });
 
     await login(page);
     await openTools(page);
 
-    await expect(page.getByText('Built-in', { exact: true }).first()).toBeVisible();
-    await expect(page.getByText('search_web').first()).toBeVisible();
-    await expect(page.getByText('get_time').first()).toBeVisible();
+    await page.locator('section').getByRole('button', { name: /Kurisu Drive/ }).click();
+    const read = page.getByRole('button', { name: /drive_read/ });
+    const write = page.getByRole('button', { name: /drive_write/ });
+    await expect(read).toContainText('Reads');
+    await expect(write).toContainText('Changes');
+    // Every tool is always available: nothing on the page turns one off.
+    await expect(page.getByRole('checkbox')).toHaveCount(0);
+  });
+
+  test('the search box finds a tool inside a closed group', async ({ page, mock }) => {
+    mock.setTools({ server: [{ name: 'calendar_list', description: 'Your events', read_only: true }] });
+    await login(page);
+    await openTools(page);
+
+    await expect(page.getByText('calendar_list')).toHaveCount(0);
+    await page.getByLabel('Search tools').fill('events');
+    await expect(page.getByText('calendar_list')).toBeVisible();
   });
 
   test('lists pre-configured user MCP servers', async ({ page, mock }) => {
@@ -61,7 +76,7 @@ test.describe('tools & MCP', () => {
     await login(page);
     await openTools(page);
 
-    await page.getByRole('button', { name: 'Add MCP Server' }).click();
+    await page.getByRole('button', { name: 'Add MCP server' }).click();
 
     await expect(page.getByRole('heading', { name: 'New MCP Server' })).toBeVisible({ timeout: 5_000 });
 
@@ -82,7 +97,7 @@ test.describe('tools & MCP', () => {
     await expect(page.getByText('search-engine').first()).toBeVisible({ timeout: 5_000 });
   });
 
-  test('delete removes the server card and calls DELETE', async ({ page, mock }) => {
+  test('Remove takes the server away and calls DELETE', async ({ page, mock }) => {
     const server = mock.addMcpServer({
       name: 'disposable-server',
       transport_type: 'sse',
@@ -94,9 +109,8 @@ test.describe('tools & MCP', () => {
 
     await expect(page.getByText('disposable-server').first()).toBeVisible({ timeout: 10_000 });
 
-    // Find the card containing the server name, then the delete icon button within it.
-    const card = page.locator(':scope', { has: page.getByText('disposable-server') }).first();
-    await card.locator('button').filter({ has: page.locator('[data-testid="DeleteIcon"]') }).first().click();
+    await page.getByRole('button', { name: /disposable-server/ }).click();
+    await page.getByRole('button', { name: 'Remove' }).click();
 
     await expect(page.getByText('disposable-server')).toHaveCount(0, { timeout: 5_000 });
     expect(mock.getMcpServers().find((s) => s.id === server.id)).toBeUndefined();

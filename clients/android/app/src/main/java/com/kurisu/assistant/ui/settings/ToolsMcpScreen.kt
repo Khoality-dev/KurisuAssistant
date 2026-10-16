@@ -89,14 +89,11 @@ fun ToolsMcpScreen(
                     onEdit = viewModel::openEditServer,
                     onDelete = viewModel::confirmDeleteServer,
                     onTest = viewModel::testServer,
-                    onToggleEnabled = viewModel::toggleServerEnabled,
+                    onTurnOn = viewModel::turnServerOn,
                 )
                 1 -> ToolsList(
-                    builtinTools = state.builtinTools,
-                    mcpTools = state.mcpTools,
+                    catalog = state.catalog,
                     onToolClick = viewModel::showToolDetail,
-                    deniedTools = state.deniedTools,
-                    onToolAllowed = viewModel::setToolAllowed,
                 )
             }
         }
@@ -114,6 +111,12 @@ fun ToolsMcpScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(tool.function.description, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (tool.readOnly) "In Read only: runs without asking — it only looks."
+                        else "In Read only: refused — it changes something, or does not say that it only looks.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     if (tool.function.parameters.isNotEmpty()) {
                         Text("Parameters", style = MaterialTheme.typography.titleSmall)
                         Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(6.dp)) {
@@ -164,7 +167,7 @@ private fun ServersList(
     onEdit: (MCPServer) -> Unit,
     onDelete: (Int) -> Unit,
     onTest: (Int) -> Unit,
-    onToggleEnabled: (MCPServer) -> Unit,
+    onTurnOn: (MCPServer) -> Unit,
 ) {
     if (servers.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -181,10 +184,13 @@ private fun ServersList(
                                 style = MaterialTheme.typography.titleSmall,
                                 modifier = Modifier.weight(1f),
                             )
-                            Switch(
-                                checked = server.enabled,
-                                onCheckedChange = { onToggleEnabled(server) },
-                            )
+                            // No switch (#360): a server is there or it is removed.
+                            // One switched off before that has a way back.
+                            if (!server.enabled) {
+                                TextButton(onClick = { onTurnOn(server) }, modifier = Modifier.heightIn(min = 48.dp)) {
+                                    Text("Turn back on")
+                                }
+                            }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             SuggestionChip(onClick = {}, label = { Text(server.transportType.uppercase(), style = MaterialTheme.typography.labelSmall) })
@@ -370,70 +376,96 @@ private fun ExposedDropdown(
 
 @Composable
 private fun ToolsList(
-    builtinTools: List<Tool>,
-    mcpTools: List<Tool>,
+    catalog: ToolCatalog,
     onToolClick: (Tool) -> Unit,
-    deniedTools: Set<String> = emptySet(),
-    onToolAllowed: (String, Boolean) -> Unit = { _, _ -> },
 ) {
-    val allTools = builtinTools + mcpTools
-    if (allTools.isEmpty()) {
+    if (catalog.kurisu.isEmpty() && catalog.mcp.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No tools available", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-    } else {
-        LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (builtinTools.isNotEmpty()) {
-                item { Text("Built-in", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(bottom = 4.dp)) }
-                items(builtinTools) { tool ->
-                    ToolCard(
-                        tool = tool,
-                        onClick = { onToolClick(tool) },
-                        // Runs without asking until denied (#353): the switch is the deny.
-                        allowed = if (tool.allowedByDefault) tool.function.name !in deniedTools else null,
-                        onAllowed = { onToolAllowed(tool.function.name, it) },
-                    )
-                }
+        return
+    }
+    // Every tool is always available (#360): nothing here turns one off. The tag
+    // says what Read only does with it; the mode itself is beside the chat input.
+    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            Text(
+                "Everything here is available to the assistant. Whether a call waits for you is the permission mode beside the chat input.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (catalog.kurisu.isNotEmpty()) {
+            item { SectionTitle("Kurisu", "on the server, from every device") }
+            catalog.kurisu.forEach { group ->
+                item(key = group.id) { GroupLabel(group.name) }
+                items(group.tools, key = { "${group.id}/${it.name}" }) { ToolCard(it, onClick = { onToolClick(it.tool) }) }
             }
-            if (mcpTools.isNotEmpty()) {
-                item { Text("MCP", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)) }
-                items(mcpTools) { tool ->
-                    ToolCard(tool = tool, onClick = { onToolClick(tool) })
-                }
+        }
+        if (catalog.mcp.isNotEmpty()) {
+            item { SectionTitle("MCP servers", "servers you added") }
+            catalog.mcp.forEach { group ->
+                item(key = group.id) { GroupLabel(group.name) }
+                items(group.tools, key = { "${group.id}/${it.name}" }) { ToolCard(it, onClick = { onToolClick(it.tool) }) }
             }
         }
     }
 }
 
 @Composable
-private fun ToolCard(
-    tool: Tool,
-    onClick: () -> Unit,
-    allowed: Boolean? = null,
-    onAllowed: (Boolean) -> Unit = {},
-) {
-    Card(modifier = Modifier.fillMaxWidth(), onClick = onClick) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun SectionTitle(title: String, where: String) {
+    Row(
+        modifier = Modifier.padding(top = 8.dp),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        Text(where, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun GroupLabel(name: String) {
+    Text(name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp))
+}
+
+@Composable
+private fun ToolCard(tool: CatalogTool, onClick: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), onClick = onClick) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(tool.function.name, style = MaterialTheme.typography.titleSmall)
-                Text(
-                    tool.function.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (allowed != null) {
+                Text(tool.name, style = MaterialTheme.typography.titleSmall.copy(fontFamily = JetBrainsMono))
+                if (tool.description.isNotBlank()) {
                     Text(
-                        if (allowed) "Runs without asking" else "Denied",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
+                        tool.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
-            if (allowed != null) {
-                Switch(checked = allowed, onCheckedChange = onAllowed)
-            }
+            EffectTag(tool.effect)
         }
+    }
+}
+
+@Composable
+private fun EffectTag(effect: ToolEffect) {
+    val reads = effect == ToolEffect.READS
+    Surface(
+        color = if (reads) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = if (reads) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onTertiaryContainer,
+        shape = RoundedCornerShape(50),
+    ) {
+        Text(
+            effect.label,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        )
     }
 }

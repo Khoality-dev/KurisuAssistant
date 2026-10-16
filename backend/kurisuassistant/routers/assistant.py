@@ -14,11 +14,12 @@ memory) plus two things that are deliberately not per-persona:
 """
 
 import logging
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
+from kurisuassistant.agents.permissions import DEFAULT_PERMISSION_MODE, PermissionMode
 from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.db.models import User
 from kurisuassistant.db.repositories import AssistantRepository, PersonaRepository
@@ -28,10 +29,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 
-# Columns a PATCH may not set to null. ``available_tools``, ``model_name``,
-# ``memory``, ``trigger_word`` and ``selected_persona_id`` are all clearable, and
-# clearing available_tools is the only way to say "every tool".
-_NON_NULLABLE = {"provider_type", "think", "use_deferred_tools", "memory_enabled"}
+# Columns a PATCH may not set to null. ``model_name``, ``memory``,
+# ``trigger_word`` and ``selected_persona_id`` are all clearable.
+_NON_NULLABLE = {"provider_type", "permission_mode", "think", "use_deferred_tools", "memory_enabled"}
 
 
 class AssistantResponse(BaseModel):
@@ -39,7 +39,7 @@ class AssistantResponse(BaseModel):
     id: int
     model_name: Optional[str] = None
     provider_type: str = "ollama"
-    available_tools: Optional[List[str]] = None
+    permission_mode: PermissionMode = DEFAULT_PERMISSION_MODE
     think: bool = False
     use_deferred_tools: bool = False
     memory: Optional[str] = None
@@ -52,12 +52,16 @@ class AssistantUpdate(BaseModel):
     """Request body for updating the assistant.
 
     Read through ``model_fields_set``: an omitted field is left alone and an
-    explicit ``null`` writes NULL. ``available_tools`` needs that distinction —
-    null means "every tool", so without it the user can never undo a restriction.
+    explicit ``null`` writes NULL. ``permission_mode`` is one of
+    ``agents/permissions.PERMISSION_MODES`` — "auto" is shown by the clients as
+    coming soon and refused here. An unknown field is a 422, so a client still
+    sending the removed ``available_tools`` hears about it (#360).
     """
+    model_config = ConfigDict(extra="forbid")
+
     model_name: Optional[str] = None
     provider_type: Optional[str] = None
-    available_tools: Optional[List[str]] = None
+    permission_mode: Optional[PermissionMode] = None
     think: Optional[bool] = None
     use_deferred_tools: Optional[bool] = None
     memory: Optional[str] = None
@@ -72,7 +76,7 @@ def _assistant_to_response(assistant) -> AssistantResponse:
         id=assistant.id,
         model_name=assistant.model_name,
         provider_type=assistant.provider_type or "ollama",
-        available_tools=assistant.available_tools,
+        permission_mode=assistant.permission_mode or DEFAULT_PERMISSION_MODE,
         think=assistant.think,
         use_deferred_tools=assistant.use_deferred_tools,
         memory=assistant.memory,

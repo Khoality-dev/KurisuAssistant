@@ -96,7 +96,7 @@ describe('mock backend: the assistant and its personas', () => {
       id: 1,
       model_name: 'test-model',
       provider_type: 'mock',
-      available_tools: null,
+      permission_mode: 'ask',
       think: false,
       use_deferred_tools: false,
       memory: null,
@@ -232,6 +232,30 @@ describe('mock backend: the assistant and its personas', () => {
     // The catch-all returns {} rather than a list, so a client still calling it
     // gets nothing usable instead of a plausible-looking fixture.
     expect((await get('/agents')).body).toEqual({});
+  });
+});
+
+describe('mock backend: the permission mode (#360)', () => {
+  const setMode = (body: unknown) => patch('/assistant', body);
+
+  it('changes the mode, and refuses Auto, null and an unknown field as the backend does', async () => {
+    expect((await setMode({ permission_mode: 'read_only' })).status).toBe(200);
+    expect((await get('/assistant')).body.permission_mode).toBe('read_only');
+    expect((await setMode({ permission_mode: 'auto' })).status).toBe(422);
+    expect((await setMode({ permission_mode: null })).status).toBe(400);
+    expect((await setMode({ available_tools: ['x'] })).status).toBe(422);
+    expect((await get('/assistant')).body.permission_mode).toBe('read_only');
+  });
+
+  it('has no per-tool policies any more', async () => {
+    expect((await get('/users/me/tool-policies')).status).toBe(404);
+  });
+
+  it('lists the server\'s own tools as server_tools, each saying whether it only looks', async () => {
+    mock.setTools({ server: [{ name: 'drive_read', description: 'Read', read_only: true }, { name: 'drive_write', description: 'Write' }] });
+    const { body } = await get('/tools');
+    expect(body.builtin_tools).toBeUndefined();
+    expect(body.server_tools.map((t: any) => [t.function.name, t.read_only])).toEqual([['drive_read', true], ['drive_write', false]]);
   });
 });
 
@@ -478,7 +502,7 @@ describe('mock backend: seeded conversations', () => {
             role: 'tool',
             name: 'recall_regex',
             args: { pattern: 'personas table columns' },
-            content: 'personas table: no model_name, no available_tools, no memory.',
+            content: 'personas table: no model_name, no tool list, no memory.',
           },
           { role: 'assistant', content: 'In the schema itself.' },
         ],

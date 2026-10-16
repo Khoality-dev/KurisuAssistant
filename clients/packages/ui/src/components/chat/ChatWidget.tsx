@@ -42,11 +42,11 @@ import HeadsetOffIcon from '@mui/icons-material/HeadsetOff';
 
 import { AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '@kurisu/state';
-import { useTasksStore, useToolPermissionsStore } from '@kurisu/state';
+import { useTasksStore } from '@kurisu/state';
 import { useAuthStore } from '@kurisu/state';
 import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { ASSISTANT_NAME } from '@kurisu/models';
-import type { Assistant, Conversation } from '@kurisu/models';
+import type { Assistant, Conversation, PermissionMode } from '@kurisu/models';
 
 import { useTTS } from '@kurisu/hooks';
 import { useVisionStore, setThinking } from '@kurisu/state';
@@ -332,9 +332,24 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
     return () => window.removeEventListener('keydown', handler);
   }, [resumeDialogOpen, resumeConversations, resumeActiveIdx, handleResumeSelect]);
 
-  useEffect(() => {
+  const reloadAssistant = useCallback(() => {
     apiClient.getAssistant().then(setAssistant).catch(() => { /* the header says "No model" */ });
   }, []);
+  useEffect(() => { reloadAssistant(); }, [reloadAssistant]);
+
+  // The permission mode beside the input (#360). One setting for the account:
+  // the menu refetches as it opens, so a mode changed on another device shows.
+  const setErrorToast = streaming.setErrorToast;
+  const changePermissionMode = useCallback(async (mode: PermissionMode) => {
+    const previous = assistant;
+    if (previous) setAssistant({ ...previous, permission_mode: mode });
+    try {
+      setAssistant(await apiClient.updateAssistant({ permission_mode: mode }));
+    } catch (err) {
+      if (previous) setAssistant(previous);
+      setErrorToast(describeRequestFailure(err, 'Could not change the permission mode'));
+    }
+  }, [assistant, setErrorToast]);
 
   // The wake word the mic listens for comes off the assistant (#337).
   useEffect(() => {
@@ -541,10 +556,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
   const taskApproval = useTasksStore((s) => s.approvalForConversation(currentConversation?.id));
   const handleTaskApprovalRespond = useCallback((value: string) => {
     if (!taskApproval) return;
-    const approved = value === 'approve' || value === 'session_allow' || value === 'always_allow';
-    if (value === 'always_allow') void useToolPermissionsStore.getState().setToolPolicy(taskApproval.tool_name, 'allow');
-    if (value === 'always_deny') void useToolPermissionsStore.getState().setToolPolicy(taskApproval.tool_name, 'deny');
-    void useTasksStore.getState().answerApproval(taskApproval.id, approved);
+    void useTasksStore.getState().answerApproval(taskApproval.id, value === 'approve');
   }, [taskApproval]);
 
   const handleHostApprovalRespond = useCallback((value: string) => {
@@ -941,6 +953,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
           isStreaming={streaming.isStreaming}
           onSend={streaming.handleSend}
           onCancel={streaming.handleCancel}
+          permissionMode={assistant?.permission_mode ?? null}
+          onPermissionModeChange={changePermissionMode}
+          onPermissionMenuOpen={reloadAssistant}
         />
       )}
       <Snackbar

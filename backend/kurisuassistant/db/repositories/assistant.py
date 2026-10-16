@@ -35,7 +35,7 @@ class AssistantRepository(BaseRepository[Assistant]):
         """Create the user's assistant.
 
         Accepts any assistant column as a keyword — ``model_name``,
-        ``provider_type``, ``available_tools``, ``think``, ``use_deferred_tools``,
+        ``provider_type``, ``permission_mode``, ``think``, ``use_deferred_tools``,
         ``memory``, ``memory_enabled``, ``trigger_word``, ``selected_persona_id``
         — so a caller never has to create then immediately update.
 
@@ -73,7 +73,7 @@ class AssistantRepository(BaseRepository[Assistant]):
         assistant: Assistant,
         model_name: Any = UNSET,
         provider_type: Any = UNSET,
-        available_tools: Any = UNSET,
+        permission_mode: Any = UNSET,
         think: Any = UNSET,
         use_deferred_tools: Any = UNSET,
         memory: Any = UNSET,
@@ -84,8 +84,8 @@ class AssistantRepository(BaseRepository[Assistant]):
         """Update the assistant.
 
         Omitted arguments are left alone; an argument passed as ``None`` writes
-        NULL. That is how the trigger word is removed, ``available_tools`` is
-        reset to "every tool", or the default persona is unpinned.
+        NULL. That is how the trigger word is removed or the persona in use is
+        unpinned.
 
         Args:
             assistant: Assistant instance to update
@@ -98,7 +98,7 @@ class AssistantRepository(BaseRepository[Assistant]):
             assistant,
             model_name=model_name,
             provider_type=provider_type,
-            available_tools=available_tools,
+            permission_mode=permission_mode,
             think=think,
             use_deferred_tools=use_deferred_tools,
             memory=memory,

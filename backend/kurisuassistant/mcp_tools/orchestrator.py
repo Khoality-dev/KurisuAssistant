@@ -87,6 +87,8 @@ class UserMCPOrchestrator:
         self._server_configs: Dict[str, tuple] = {}
         self._tool_to_client: Dict[str, FastMCPClient] = {}
         self._tool_to_server: Dict[str, str] = {}
+        # Tools whose server says they only look (readOnlyHint, #360).
+        self._read_only: set = set()
         self._cached_tools: List[Dict] = []
         self._tools_cache_time: float = 0
         self._cache_ttl: int = 30
@@ -167,12 +169,15 @@ class UserMCPOrchestrator:
             all_tools: List[Dict] = []
             tool_to_client: Dict[str, FastMCPClient] = {}
             tool_to_server: Dict[str, str] = {}
+            read_only: set = set()
 
             for server_name, client in self._server_clients.items():
                 try:
                     tools = await list_tools(client)
                     for tool in tools:
                         tool_name = tool.get("function", {}).get("name", "")
+                        if tool.pop("read_only", False) and tool_name:
+                            read_only.add(tool_name)
                         if tool_name:
                             tool_to_client[tool_name] = client
                             tool_to_server[tool_name] = server_name
@@ -183,9 +188,14 @@ class UserMCPOrchestrator:
             self._cached_tools = all_tools
             self._tool_to_client = tool_to_client
             self._tool_to_server = tool_to_server
+            self._read_only = read_only
             self._tools_cache_time = current_time
 
         return self._cached_tools
+
+    def is_read_only(self, tool_name: str) -> bool:
+        """Whether the tool's server said it only looks, as of the last listing."""
+        return tool_name in self._read_only
 
     def get_tools_by_server(self) -> Dict[str, List[Dict]]:
         """Get cached tools grouped by server name."""

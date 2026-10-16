@@ -29,7 +29,7 @@ def agent():
 
 class TestCallToolDepthGuard:
     async def test_call_tool_cannot_name_itself(self):
-        ctx = AgentContext(user_id=1, tool_policies={"call_tool": "allow"})
+        ctx = AgentContext(user_id=1, permission_mode="full")
         result = await agent().execute_tool(
             "call_tool", {"name": "call_tool", "arguments": {}}, ctx,
         )
@@ -37,13 +37,13 @@ class TestCallToolDepthGuard:
         assert "cannot invoke call_tool" in result.content
 
     async def test_a_missing_inner_name_is_refused(self):
-        ctx = AgentContext(user_id=1, tool_policies={"call_tool": "allow"})
+        ctx = AgentContext(user_id=1, permission_mode="full")
         result = await agent().execute_tool("call_tool", {"arguments": {}}, ctx)
         assert result.status == "error"
         assert "requires a tool name" in result.content
 
     async def test_unparseable_arguments_are_refused(self):
-        ctx = AgentContext(user_id=1, tool_policies={"call_tool": "allow"})
+        ctx = AgentContext(user_id=1, permission_mode="full")
         result = await agent().execute_tool(
             "call_tool", {"name": "echo", "arguments": "{not json"}, ctx,
         )
@@ -51,7 +51,7 @@ class TestCallToolDepthGuard:
         assert "valid JSON" in result.content
 
     async def test_non_object_arguments_are_refused(self):
-        ctx = AgentContext(user_id=1, tool_policies={"call_tool": "allow"})
+        ctx = AgentContext(user_id=1, permission_mode="full")
         result = await agent().execute_tool(
             "call_tool", {"name": "echo", "arguments": "[1, 2, 3]"}, ctx,
         )
@@ -60,7 +60,7 @@ class TestCallToolDepthGuard:
 
     async def test_one_level_of_indirection_still_works(self):
         """The guard must not break the protocol it protects."""
-        ctx = AgentContext(user_id=1, handler=None, tool_policies={"echo": "allow"})
+        ctx = AgentContext(user_id=1, handler=None, permission_mode="full")
         a = agent()
         with patch.object(a, "_execute_mcp_tool", new_callable=AsyncMock) as mcp:
             mcp.return_value = MagicMock(content="ok", status="success")
@@ -217,7 +217,7 @@ class TestToolRoundCapIsAnnounced:
                 return iter([FakeChunk()])  # always asks for another tool
 
         a = agent()
-        ctx = AgentContext(user_id=1, conversation_id=1, tool_policies={"echo": "allow"})
+        ctx = AgentContext(user_id=1, conversation_id=1, permission_mode="full")
 
         with patch("kurisuassistant.models.llm.create_llm_provider", return_value=Provider()), \
              patch.object(MainAgent, "execute_tool", new_callable=AsyncMock) as mock_exec, \

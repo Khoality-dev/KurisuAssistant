@@ -237,44 +237,34 @@ class MainAgent(BaseAgent):
         messages = await self._prepare_messages(messages, context)
         self.last_prepared_messages = messages
 
-        allowed = (
-            set(self.capabilities.available_tools)
-            if self.capabilities.available_tools is not None
-            else None
-        )
-
         if self.capabilities.use_deferred_tools:
             from kurisuassistant.tools.deferred import create_deferred_tools, META_TOOL_NAMES
             proxy, meta_tools = create_deferred_tools(
                 tool_registry=self.tool_registry,
-                available_tools=allowed,
                 user_id=context.user_id,
                 client_tools=context.client_tools or [],
             )
             self._deferred_proxy = proxy
             tool_schemas = [mt.get_schema() for mt in meta_tools]
+            # The server's own tools are offered directly; the catalog holds
+            # what MCP servers and the connected client bring.
             for tool in self.tool_registry._tools.values():
-                if tool.built_in and tool.name not in META_TOOL_NAMES:
+                if tool.name not in META_TOOL_NAMES:
                     tool_schemas.append(tool.get_schema())
         else:
             self._deferred_proxy = None
-            tool_schemas = self.tool_registry.get_schemas(allowed)
+            tool_schemas = self.tool_registry.get_schemas()
 
             if context.user_id:
                 try:
                     from kurisuassistant.mcp_tools.orchestrator import get_user_orchestrator
                     mcp_tools = await get_user_orchestrator(context.user_id).get_tools()
-                    if allowed is not None:
-                        mcp_tools = [t for t in mcp_tools if t.get("function", {}).get("name") in allowed]
                     tool_schemas.extend(mcp_tools)
                 except Exception as e:
                     logger.warning(f"Failed to load MCP tools for user {context.user_id}: {e}")
 
             if context.client_tools:
-                client_tools = context.client_tools
-                if allowed is not None:
-                    client_tools = [t for t in client_tools if t.get("function", {}).get("name") in allowed]
-                tool_schemas.extend(client_tools)
+                tool_schemas.extend(context.client_tools)
 
         # Handler-injected tools (delegate_task)
         if hasattr(self, 'extra_tools') and self.extra_tools:

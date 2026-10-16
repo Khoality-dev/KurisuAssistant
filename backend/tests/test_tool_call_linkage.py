@@ -178,7 +178,7 @@ class TestAgentEmitsLinkage:
         a = agent()
         ctx = context()
         ctx.handler = None
-        ctx.tool_policies = {"get_weather": "allow"}
+        ctx.permission_mode = "full"
 
         with patch("kurisuassistant.models.llm.create_llm_provider", return_value=fake_provider(turns)), \
              patch.object(MainAgent, "execute_tool", new_callable=AsyncMock) as mock_exec:
@@ -211,7 +211,7 @@ class TestAgentEmitsLinkage:
         a = agent()
         ctx = context()
         ctx.handler = None
-        ctx.tool_policies = {"get_weather": "allow"}
+        ctx.permission_mode = "full"
 
         with patch("kurisuassistant.models.llm.create_llm_provider", return_value=fake_provider(turns)), \
              patch.object(MainAgent, "execute_tool", new_callable=AsyncMock) as mock_exec:

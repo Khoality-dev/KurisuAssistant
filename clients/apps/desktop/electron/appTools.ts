@@ -29,7 +29,22 @@ interface ToolSchema {
     description: string;
     parameters: Record<string, unknown>;
   };
+  /** Only looks (#360): the account's Read only mode runs it. */
+  read_only?: boolean;
 }
+
+/**
+ * The app tools that only look — they read the app's state and change nothing —
+ * so Read only runs them (#360). Every other one changes something.
+ */
+const APP_READ_ONLY_TOOLS = new Set([
+  'app_get_assistant',
+  'app_get_personas',
+  'app_list_mcp_servers',
+  'app_list_skills',
+  'app_list_tools',
+  'app_get_open_files',
+]);
 
 const APP_TOOL_NAMES = new Set([
   'app_get_assistant',
@@ -58,6 +73,12 @@ const APP_TOOL_NAMES = new Set([
 ]);
 
 function getAppToolSchemas(): ToolSchema[] {
+  return appToolSchemaTable().map((schema) =>
+    APP_READ_ONLY_TOOLS.has(schema.function.name) ? { ...schema, read_only: true } : schema,
+  );
+}
+
+function appToolSchemaTable(): ToolSchema[] {
   return [
     // --- Assistant (capability: one per user, created at registration) ---
     {
@@ -65,8 +86,8 @@ function getAppToolSchemas(): ToolSchema[] {
       function: {
         name: 'app_get_assistant',
         description:
-          "The user's single assistant: model, provider, tool allowlist, reasoning, " +
-          'memory, voice wake word, and the persona new conversations bind to.',
+          "The user's single assistant: model, provider, permission mode, reasoning, " +
+          'memory, voice wake word, and the persona in use.',
         parameters: { type: 'object', properties: {}, required: [] },
       },
     },
@@ -83,11 +104,6 @@ function getAppToolSchemas(): ToolSchema[] {
           properties: {
             model_name: { type: 'string', description: 'LLM model name (e.g. "gemma3:4b").' },
             provider_type: { type: 'string', enum: ['ollama', 'gemini', 'nvidia'], description: 'LLM provider.' },
-            available_tools: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Allowlist of tool names. Omit to leave alone; send null for every tool.',
-            },
             think: { type: 'boolean', description: 'Enable extended reasoning.' },
             use_deferred_tools: { type: 'boolean', description: 'Defer tool schemas until searched for.' },
             memory: { type: 'string', description: 'Long-term memory notes.' },

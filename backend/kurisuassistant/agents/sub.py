@@ -76,20 +76,13 @@ class SubAgent(BaseAgent):
             {"role": "user", "content": task},
         ]
 
-        allowed = (
-            set(self.capabilities.available_tools)
-            if self.capabilities.available_tools is not None
-            else None
-        )
-        tool_schemas = self.tool_registry.get_schemas(allowed)
+        tool_schemas = self.tool_registry.get_schemas()
 
         # Server-side MCP tools
         if context.user_id:
             try:
                 from kurisuassistant.mcp_tools.orchestrator import get_user_orchestrator
                 mcp_tools = await get_user_orchestrator(context.user_id).get_tools()
-                if allowed is not None:
-                    mcp_tools = [t for t in mcp_tools if t.get("function", {}).get("name") in allowed]
                 tool_schemas.extend(mcp_tools)
             except Exception as e:
                 logger.warning(f"SubAgent failed to load MCP tools: {e}")
@@ -138,7 +131,7 @@ class SubAgent(BaseAgent):
                 assistant_msg["tool_calls"] = tc_list
                 messages.append(assistant_msg)
 
-                tool_denied = False
+                denied_result = None
                 for tc in all_tool_calls:
                     tool_name = tc.function.name
                     tool_args = tc.function.arguments
@@ -148,11 +141,13 @@ class SubAgent(BaseAgent):
                     result = await self.execute_tool(tool_name, tool_args, context)
                     messages.append({"role": "tool", "content": result.content})
                     if result.status == "denied":
-                        tool_denied = True
+                        denied_result = result
                         break
 
-                if tool_denied:
-                    final_content = full_content or "Sub-agent stopped: user denied a tool."
+                if denied_result is not None:
+                    # Say why — the user said no, or the permission mode refused
+                    # it — so the assistant can tell the user (#360).
+                    final_content = full_content or f"Sub-agent stopped: {denied_result.content}"
                     break
 
             else:
@@ -170,9 +165,9 @@ class DelegateTaskTool(BaseTool):
 
     Injected per turn by the chat handler as one of the assistant's
     ``extra_tools``, because it needs the assistant's own configuration to build
-    the helper. ``built_in``: offered whatever the assistant's allowlist says,
-    since the helper can only use what that allowlist already permits. Running it
-    still goes through the user's tool policy like any other call.
+    the helper. It counts as only looking (``read_only``): it changes nothing
+    itself, and every call the helper makes goes through the permission mode
+    like the assistant's own (#360).
     """
 
     name = DELEGATE_TOOL_NAME
@@ -182,7 +177,7 @@ class DelegateTaskTool(BaseTool):
         "needs in the task. Use it for a side task you can hand off; answer simple "
         "things yourself."
     )
-    built_in = True
+    read_only = True
 
     def __init__(self, assistant: AssistantConfig, tool_registry):
         self.assistant = assistant

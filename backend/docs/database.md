@@ -13,13 +13,12 @@ users
   ollama_url, gemini_api_key, nvidia_api_key, poe_api_key   write-only over the API
   summary_model, summary_provider(default 'ollama') used for compaction + memory
   context_size
-  tool_policies(JSON)                               {"tools": {name: allow|deny}}
   timezone?                                         the account's IANA zone (#352), read via core/timezone.py
 
 assistants                                          exactly one row per user
   id, user_id→users (CASCADE, unique)
   model_name?, provider_type(default 'ollama')
-  available_tools(JSON)?    null means every tool
+  permission_mode(default 'ask')   ask | read_only | full — the whole of tool permission (#360)
   think(bool), use_deferred_tools(bool)
   memory(text)?             ONE document per user, shared by every persona
   memory_enabled(bool)
@@ -206,6 +205,14 @@ who spoke, not who answers next. The `sub_agents` table was dropped with its row
 the assistant spawns a helper on its own configuration through `delegate_task`.
 The downgrade restores the schema only — every conversation comes back unbound and
 there are no saved sub-agents.
+
+**The tool controls became one permission mode** (migration `4836cfe18f40`, wire
+protocol 11, #360). `assistants.available_tools` and `users.tool_policies` were
+dropped and `assistants.permission_mode` (`'ask'` by server default) added, so
+every account starts in Always ask: stored allows went with the column, stored
+denies became asks, and a narrowed tool list became every tool behind the
+approval bar — nothing a user had becomes allowed without asking. The downgrade
+brings both columns back empty, which is "every tool, ask for each".
 
 **Memory consolidation keeps its state on the conversation row** (#96). A
 conversation is due when it has been idle past the threshold and

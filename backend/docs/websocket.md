@@ -175,8 +175,11 @@ asking — the persona in use for a `MainAgent`, null for a spawned `SubAgent`.
 `execution_location` is `"backend"` or `"frontend"`. The server waits 300s for a
 reply and treats a timeout as a denial.
 
-Only calls the server has not already decided reach the client. A stored `deny` in
-`users.tool_policies` never produces this event, and a stored `allow` skips it.
+Only calls the server has not already decided reach the client: the account's
+permission mode (#360) decides first. Under Always ask (`ask`, the default) every
+call produces this event; under Read only a tool that only looks runs without it
+and any other tool is refused without it; under Full access nothing produces it.
+`notify_user` never does, in any mode.
 
 ### `tool_call_request`
 
@@ -329,10 +332,15 @@ Clears the queue and cancels the running task.
 ### `client_tools_register`
 
 ```json
-{"type": "client_tools_register", "tools": [ /* OpenAI-style function schemas */ ]}
+{"type": "client_tools_register", "tools": [
+  {"type": "function", "function": { /* name, description, parameters */ }, "read_only": true}
+]}
 ```
 
 Registered per connection and cleared when a new socket replaces this one.
+`read_only` (optional, protocol 11) is the client's word that the tool only looks,
+so Read only runs it without asking; an entry without it counts as changing
+something. The server takes it off before any model sees the schema.
 
 ### `compact_context`
 

@@ -13,11 +13,8 @@ import { Save as SaveIcon } from '@mui/icons-material';
 import { apiClient, describeRequestFailure } from '@kurisu/api';
 import { useMicStore } from '@kurisu/state';
 import type { Assistant, AssistantUpdate } from '@kurisu/models';
-import { ToolGroupChecklist } from './ToolGroupChecklist';
-import { useAvailableTools } from './useAvailableTools';
 
 interface AssistantFormData {
-  available_tools: string[] | null;
   think: boolean;
   use_deferred_tools: boolean;
   memory: string;
@@ -27,7 +24,6 @@ interface AssistantFormData {
 
 function toForm(assistant: Assistant): AssistantFormData {
   return {
-    available_tools: assistant.available_tools ?? null,
     think: assistant.think,
     use_deferred_tools: assistant.use_deferred_tools,
     memory: assistant.memory || '',
@@ -37,8 +33,7 @@ function toForm(assistant: Assistant): AssistantFormData {
 }
 
 /**
- * The user's single assistant: what it can do. One tool set, one memory, one
- * wake word — created at registration, so there is nothing to add or delete
+ * The user's single assistant: what it can do. One memory, one wake word — created at registration, so there is nothing to add or delete
  * here. Personas change who answers; none of this changes with them.
  *
  * Two things that look like they belong here do not (#197). The model is picked
@@ -54,8 +49,6 @@ export const AssistantSection: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-
-  const { toolGroups, complete: toolsComplete } = useAvailableTools(setError);
 
   const flash = (message: string) => {
     setSuccessMessage(message);
@@ -89,7 +82,6 @@ export const AssistantSection: React.FC = () => {
       || saved.memory !== form.memory
       || saved.memory_enabled !== form.memory_enabled
       || saved.trigger_word !== form.trigger_word
-      || JSON.stringify(saved.available_tools) !== JSON.stringify(form.available_tools)
     );
   }, [assistant, form]);
 
@@ -98,10 +90,6 @@ export const AssistantSection: React.FC = () => {
     const saved = toForm(assistant);
     const update: AssistantUpdate = {};
 
-    if (JSON.stringify(form.available_tools) !== JSON.stringify(saved.available_tools)) {
-      // `null` is the only way to say "every tool" again.
-      update.available_tools = form.available_tools;
-    }
     if (form.think !== saved.think) update.think = form.think;
     if (form.use_deferred_tools !== saved.use_deferred_tools) update.use_deferred_tools = form.use_deferred_tools;
     if (form.memory !== saved.memory) update.memory = form.memory || null;
@@ -141,10 +129,10 @@ export const AssistantSection: React.FC = () => {
     <Box sx={{ maxWidth: 720, mx: 'auto', pb: 4 }}>
       <Typography variant="h5" sx={{ mb: 0.5, fontWeight: 600 }}>Assistant</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        What your assistant can do: one tool set, one memory, one wake word. You have exactly
+        What your assistant can do: one memory, one wake word, how it reasons. You have exactly
         one — it is created with your account. Personas change who answers, never any of this.
-        The model it runs on is picked from the chat header, and which persona a new conversation
-        starts with is set on Personas.
+        The model it runs on is picked from the chat header, and how much it may do without asking
+        is the permission mode beside the chat input. Every tool is always available.
       </Typography>
 
       {successMessage && <Alert severity="success" sx={{ mb: 2 }}>{successMessage}</Alert>}
@@ -159,18 +147,6 @@ export const AssistantSection: React.FC = () => {
           helperText="Say this in voice mode to wake the assistant. It selects no persona — whichever persona the conversation is bound to answers."
         />
 
-        <Box>
-          <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>Tools</Typography>
-          <ToolGroupChecklist
-            complete={toolsComplete}
-            groups={toolGroups}
-            enabledTools={form.available_tools}
-            onChange={(available_tools) => setForm({ ...form, available_tools })}
-          />
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-            All tools are enabled by default. Unchecking one hides it from every reply.
-          </Typography>
-        </Box>
 
         <Box sx={{ display: 'flex', flexDirection: 'column' }}>
           <FormControlLabel

@@ -26,7 +26,7 @@ class HistoryListTool(BaseTool):
         "and timestamps. Returns most recent first. Use to find which conversation "
         "to read in detail."
     )
-    built_in = True
+    read_only = True
 
     def get_schema(self) -> Dict[str, Any]:
         return {
@@ -114,7 +114,7 @@ class HistoryReadTool(BaseTool):
         "Read messages from a specific past conversation. Use history_list first "
         "to find the conversation_id, then read it in detail."
     )
-    built_in = True
+    read_only = True
 
     def get_schema(self) -> Dict[str, Any]:
         return {

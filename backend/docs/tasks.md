@@ -2,7 +2,7 @@
 
 Work the assistant does on its own, now or on a schedule (#352). A chat turn
 needs someone in the chat waiting for the reply; a task does not. The assistant
-plans tasks itself with six built-in tools, a scheduler on the event loop runs
+plans tasks itself with six task tools, a scheduler on the event loop runs
 them, and each run is an ordinary assistant turn with nobody attached, saved to
 a conversation of its own.
 
@@ -93,7 +93,7 @@ the run it made stays a conversation. `GET /tasks/{id}` serves any task.
    conversation (title = the task's, `task_run = true`, `task_id`), points the
    run at it, and saves the task's instructions as its opening user message.
 2. `MainAgent` runs with the run's approver as its handler and the account's
-   tool policies. The
+   permission mode (`assistants.permission_mode`, #360). The
    system prompt gains a `## Task run` section (via the user-prompt slot):
    nobody is in the chat, finish with an account of what was done, notify the
    user if they should hear now.
@@ -105,9 +105,11 @@ the run it made stays a conversation. `GET /tasks/{id}` serves any task.
    `stopped`; the conversation is queued for the retrieval index; every open
    client of the account hears `tasks_changed`.
 
-**A tool call the user has not decided on waits for them.** The stored Allow or
-Deny policy applies first, as everywhere (`BaseAgent.execute_tool`). Anything
-else is put to `approvals.RunApprover`, which stands in for the chat session:
+**A tool call the permission mode puts to the user waits for them.** The mode
+applies first, as everywhere (`BaseAgent.execute_tool`): Full access runs every
+call, Read only runs a tool that only looks and refuses the rest, and only under
+Always ask — every call, reads included, except `notify_user` — is a call put to
+`approvals.RunApprover`, which stands in for the chat session:
 it writes a pending `task_approvals` row (the run, the tool, its arguments, the
 tool's own description of the call, when it was asked, when it expires), moves
 the run to `waiting_for_approval`, sends `tasks_changed`, notifies the user —
@@ -120,7 +122,7 @@ call runs with the user's changed arguments if any and the turn carries on;
 denied, the call ends as denied and so does the turn, as in the chat. Nobody
 answering within `TASK_APPROVAL_TIMEOUT_SECONDS` (24 h) denies it. The run's
 failure says which: "You denied *tool*", "Nobody approved *tool* within 24
-hours", or "*tool* is set to Deny in Settings › Tools".
+hours", or "*tool* changes something and the permission mode is Read only".
 
 A run cannot plan tasks: the five task tools that change something refuse in a
 run — no session attached, or the approver (`is_task_run`) in its place
@@ -132,7 +134,8 @@ A run tells the user something the way any turn does — the notification tool
 
 ## The tools
 
-All six are `built_in` and go through the tool policy like any other tool:
+All six go through the permission mode like any other tool; `task_list` only
+looks, the other five change something:
 
 | Tool | Does |
 |---|---|

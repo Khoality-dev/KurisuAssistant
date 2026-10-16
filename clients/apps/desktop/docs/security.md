@@ -102,7 +102,7 @@ they only work together:
    own `fetch` sends it, so testing that header refuses every real client. The
    unit tests passed with it in; `tests/mcpServer.spec.ts` caught it.
 4. **A bearer token** on everything but `/health`, minted on first run into
-   `settings.json` and shown in Settings → Tools & MCP. Loopback is not an
+   `settings.json` and shown in Settings → Host Access. Loopback is not an
    identity: another account on the machine can open a socket too.
 
 The decision function is `electron/mcpServerAuth.ts`, free of electron imports

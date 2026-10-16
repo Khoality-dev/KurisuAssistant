@@ -5,9 +5,10 @@ the question to the client, a run writes a pending ``task_approvals`` row, moves
 itself to ``waiting_for_approval``, notifies the user and waits. The user answers
 over REST — from the run's conversation or the Tasks screen — and the run carries
 on where it stopped: approved, the call runs (with the user's changed arguments,
-if any); denied, it ends as denied, as in the chat. A stored Allow or Deny policy
-is applied before any of this (``BaseAgent.execute_tool``), so only calls the user
-has said nothing about wait.
+if any); denied, it ends as denied, as in the chat. The account's permission
+mode is applied before any of this (``BaseAgent.execute_tool``, #360), so only
+calls it puts to the user wait: every call in Always ask, none in Read only or
+Full access.
 
 Nobody answering within ``TASK_APPROVAL_TIMEOUT_SECONDS`` (24 h) denies the call
 and the run fails saying so. A waiting run gives its concurrency slot back while

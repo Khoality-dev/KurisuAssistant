@@ -18,6 +18,7 @@ import {
 } from '@mui/icons-material';
 import { refreshClientMCPServers } from '@kurisu/state';
 import { requireHostTools, resolveBridge } from '@kurisu/platform';
+import { DesktopProgramsPanel } from './DesktopProgramsPanel';
 
 export const HostAccessSection: React.FC = () => {
   const [paths, setPaths] = useState<string[]>([]);
@@ -206,6 +207,7 @@ export const HostAccessSection: React.FC = () => {
             </Button>
           </>
         )}
+        <Box sx={{ mt: 3 }}><DesktopProgramsPanel /></Box>
       </Box>
     </Box>
   );
