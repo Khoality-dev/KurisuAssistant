@@ -64,3 +64,30 @@ describe('the persona in use (#334, #354)', () => {
     expect('personaPreviews' in usePersonaStore.getState()).toBe(false);
   });
 });
+
+describe('a pick made while the personas are loading (#364)', () => {
+  it('is not undone by the load that started before it', async () => {
+    // The load reads the server before the pick is saved, and answers after.
+    let answer!: () => void;
+    vi.mocked(apiClient.getAssistant).mockImplementationOnce(() => {
+      const before = { ...assistant };
+      return new Promise((resolve) => { answer = () => resolve(before as never); });
+    });
+    const loading = usePersonaStore.getState().loadPersonas();
+    await vi.waitFor(() => expect(answer).toBeTypeOf('function'));
+
+    await usePersonaStore.getState().selectPersona(null);
+    answer();
+    await loading;
+
+    expect(usePersonaStore.getState().selectedPersonaId).toBeNull();
+    expect(usePersonaStore.getState().selectionLoaded).toBe(true);
+  });
+
+  it('a load that starts after the pick still reads the server', async () => {
+    await usePersonaStore.getState().selectPersona(1);
+    assistant.selected_persona_id = 2; // changed on another device
+    await usePersonaStore.getState().loadPersonas();
+    expect(usePersonaStore.getState().selectedPersonaId).toBe(2);
+  });
+});

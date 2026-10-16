@@ -65,6 +65,13 @@ async function openLatestConversation(): Promise<void> {
   }
 }
 
+/**
+ * Counts the picks made on this device. A load that reads the server before a
+ * pick is saved answers after it, with the selection from before; it must not
+ * put that back (#364). A load started after the pick reads the saved one.
+ */
+let picks = 0;
+
 export const usePersonaStore = create<PersonaState>((set, get) => ({
   personas: [],
   selectedPersonaId: null,
@@ -74,11 +81,12 @@ export const usePersonaStore = create<PersonaState>((set, get) => ({
   loadPersonas: async () => {
     try {
       set({ isLoading: true });
+      const picksBefore = picks;
       const [personas, assistant] = await Promise.all([apiClient.listPersonas(), apiClient.getAssistant()]);
       // The server clears a selection whose persona is disabled or deleted; one
       // missing from the list anyway still falls back to the assistant, never to
       // another persona the user did not pick.
-      const selected = assistant.selected_persona_id;
+      const selected = picks === picksBefore ? assistant.selected_persona_id : get().selectedPersonaId;
       const finalId = selected !== null && personas.some((p) => p.id === selected) ? selected : null;
       set({ personas, selectedPersonaId: finalId, selectionLoaded: true });
     } catch (err) {
@@ -92,6 +100,7 @@ export const usePersonaStore = create<PersonaState>((set, get) => ({
 
   selectPersona: async (id: number | null) => {
     const previous = get().selectedPersonaId;
+    picks += 1;
     set({ selectedPersonaId: id });
     try {
       // The account's, so every conversation and every device answers as it.
