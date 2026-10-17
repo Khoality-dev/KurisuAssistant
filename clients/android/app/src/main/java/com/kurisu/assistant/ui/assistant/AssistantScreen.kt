@@ -67,10 +67,9 @@ import com.kurisu.assistant.ui.theme.KurisuTheme
  * mode beside the chat input.
  *
  * Two things that look like they belong here do not (#197). The model is picked
- * from the chat header, beside the persona, because that is where the question
- * comes up — and it is one model for every persona, so it is no more a persona's
- * than the memory is. The persona in use is chosen on the Personas screen or the
- * chat header. Neither is a capability, so neither is on this page.
+ * from the chat header, because that is where the question comes up — and it
+ * is one model for every persona, so it is no more a persona's than the memory
+ * is. The persona in use is chosen on the Personas screen (#365). Neither is a capability, so neither is on this page.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

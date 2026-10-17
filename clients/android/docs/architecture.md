@@ -66,8 +66,9 @@ Login → Conversations ("Chats", the start destination; hamburger → app drawe
   ├── Bell (top bar) → Unread → an item → its conversation in Chat (#353)
   ├── Tap a notification → its conversation in Chat (a reminder: Calendar on that entry, #282)
   └── Drawer → Logout
-Chat header (persona name) → persona sheet → "Manage personas" → Personas
-Chat header (face icon) → character overlay (a sheet, not a destination)
+Chat header (model name) → model sheet
+Chat ⋮ menu → Live character → character overlay (a sheet, not a destination)
+`/persona` → persona sheet → "Manage personas" → Personas
 Chat task card → "Open in Tasks" → Tasks with that task open (`tasks?open={id}`)
 Tasks → a task's run → Chat, on that run's conversation
 A calendar card in the chat → Calendar on that entry (`Routes.calendar(id)`)

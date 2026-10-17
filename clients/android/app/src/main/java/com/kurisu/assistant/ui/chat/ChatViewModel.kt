@@ -94,7 +94,7 @@ data class ChatUiState(
 
 
     /**
-     * Who answers — the header names it: the persona in use for the whole
+     * Who answers: the persona in use for the whole
      * account (#354), while it is enabled, else nobody — the assistant itself, as
      * a persona is optional (#302). The server resolves it the same way; a turn
      * never names it. Every conversation, this one included, answers as it.
@@ -417,7 +417,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    /** Open the persona switcher — header tap or `/persona`. The switch is the account's (#354). */
+    /** Open the persona switcher — `/persona`; the Personas page is the other way (#365). The switch is the account's (#354). */
     fun openPersonaSheet() {
         _state.update { it.copy(modal = ChatModal.PersonaPicker(emptyList(), loading = true)) }
         viewModelScope.launch {
@@ -631,7 +631,7 @@ class ChatViewModel @Inject constructor(
         val previous = _state.value.assistant ?: return
         val answers = "${persona?.name ?: ASSISTANT_NAME} answers every chat"
 
-        // The header must not lag a tap, so the swap is optimistic and reverted
+        // The sheet must not lag a tap, so the swap is optimistic and reverted
         // if the PATCH fails.
         _state.update { it.copy(assistant = previous.copy(selectedPersonaId = persona?.id), modal = null) }
 

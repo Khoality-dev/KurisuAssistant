@@ -28,7 +28,7 @@ import javax.inject.Inject
  *
  * A conversation is not tied to a persona (#354): one persona, or none, is in
  * use for the whole account and answers every conversation, so the row has no
- * face and no name to show. The chat header names who answers.
+ * face and no name to show. Each reply's bubble names who gave it.
  *
  * The assistant's model is absent for the same reason.
  */

@@ -31,9 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -284,156 +282,123 @@ fun ChatScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                navigationIcon = {
-                    IconButton(onClick = onOpenMenu) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu")
-                    }
-                },
-                title = {
-                    // The header names WHO is answering and WHAT it runs on, and
-                    // each is its own tap. The persona is the one in use for the
-                    // whole account — the sheet switches it everywhere (#354). The
-                    // model is the assistant's — one for every persona, applied
-                    // from the next message — so it is not on the Assistant page
-                    // at all (#197).
-                    Column(modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
+            Column {
+                TopAppBar(
+                    modifier = Modifier.testTag("chat-header"),
+                    navigationIcon = {
+                        IconButton(onClick = onOpenMenu) {
+                            Icon(Icons.Default.Menu, contentDescription = "Menu")
+                        }
+                    },
+                    title = {
+                        // The header names the model the assistant runs on, and a tap
+                        // changes it. The model is the assistant's — one for every
+                        // persona, applied from the next message — so it is not on the
+                        // Assistant page at all (#197). The persona is not named here:
+                        // it is switched rarely, from the Personas page (#365).
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .clip(MaterialTheme.shapes.small)
-                                .clickable(onClick = viewModel::openPersonaSheet),
+                                .clickable(onClickLabel = "Change model", onClick = viewModel::openModelSheet)
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
                         ) {
                             Text(
-                                text = state.persona?.name ?: "Assistant",
+                                text = state.assistant?.modelName?.takeIf { it.isNotBlank() }
+                                    ?: "Choose a model",
                                 style = MaterialTheme.typography.titleMedium,
                                 maxLines = 1,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
                             )
                             Icon(
                                 Icons.Default.ExpandMore,
-                                contentDescription = "Switch persona",
-                                modifier = Modifier.size(18.dp).padding(start = 2.dp),
+                                contentDescription = null,
+                                modifier = Modifier.padding(start = 2.dp).size(20.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        val isTyping = streaming.typingAgentName != null || streaming.isStreaming
-                        if (isTyping) {
-                            Text(
-                                text = "${state.persona?.name ?: "Assistant"} is typing…",
-                                style = KurisuTheme.extraTypography.metadataSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    },
+                    actions = {
+                        // Voice mode (#341): the one control for the mic, in place of
+                        // "Always listen" in the menu.
+                        VoiceModeButton(
+                            on = voiceState.voiceMode,
+                            attention = voiceState.voiceMode && voicePhase.isProblem,
+                            onToggle = { viewModel.setVoiceMode(!voiceState.voiceMode) },
+                        )
+                        var overflowOpen by remember { mutableStateOf(false) }
+                        IconButton(onClick = { overflowOpen = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More")
+                        }
+                        DropdownMenu(
+                            expanded = overflowOpen,
+                            onDismissRequest = { overflowOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Live character") },
+                                leadingIcon = { Icon(Icons.Outlined.Face, contentDescription = null) },
+                                onClick = {
+                                    overflowOpen = false
+                                    showCharacter = true
+                                },
                             )
-                        } else {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .clip(MaterialTheme.shapes.small)
-                                    .clickable(onClick = viewModel::openModelSheet),
-                            ) {
-                                Text(
-                                    text = state.assistant?.modelName?.takeIf { it.isNotBlank() }
-                                        ?: "No model",
-                                    style = KurisuTheme.extraTypography.metadataSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false),
+                            DropdownMenuItem(
+                                text = { Text("New conversation") },
+                                leadingIcon = { Icon(Icons.Outlined.AddComment, contentDescription = null) },
+                                onClick = {
+                                    overflowOpen = false
+                                    viewModel.clearCurrentConversation()
+                                },
+                            )
+                            if (state.conversationId != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Compact context") },
+                                    leadingIcon = { Icon(Icons.Outlined.Compress, contentDescription = null) },
+                                    onClick = {
+                                        overflowOpen = false
+                                        viewModel.compactContext()
+                                    },
                                 )
-                                Icon(
-                                    Icons.Default.ExpandMore,
-                                    contentDescription = "Change model",
-                                    modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                DropdownMenuItem(
+                                    text = { Text("Context breakdown") },
+                                    leadingIcon = { Icon(Icons.Outlined.DataObject, contentDescription = null) },
+                                    onClick = {
+                                        overflowOpen = false
+                                        viewModel.openContextDialog()
+                                    },
                                 )
-                                if (voiceState.voiceMode) {
-                                    Text(
-                                        text = " · voice mode on",
-                                        style = KurisuTheme.extraTypography.metadataSmall,
-                                        color = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFF60A5FA) else Color(0xFF0070DB),
-                                        fontWeight = FontWeight.Medium,
-                                        maxLines = 1,
-                                    )
-                                }
+                                DropdownMenuItem(
+                                    text = { Text("Reload from server") },
+                                    leadingIcon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
+                                    onClick = {
+                                        overflowOpen = false
+                                        viewModel.refreshConversation()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text("Delete conversation", color = MaterialTheme.colorScheme.error)
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Outlined.DeleteOutline,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
+                                    onClick = {
+                                        overflowOpen = false
+                                        viewModel.requestDeleteConversation()
+                                    },
+                                )
                             }
                         }
-                    }
-                },
-                actions = {
-                    // Voice mode (#341): the one control for the mic, in place of
-                    // "Always listen" in the menu.
-                    VoiceModeButton(
-                        on = voiceState.voiceMode,
-                        attention = voiceState.voiceMode && voicePhase.isProblem,
-                        onToggle = { viewModel.setVoiceMode(!voiceState.voiceMode) },
-                    )
-                    IconButton(onClick = { showCharacter = true }) {
-                        Icon(Icons.Outlined.Face, contentDescription = "Live character")
-                    }
-
-                    var overflowOpen by remember { mutableStateOf(false) }
-                    IconButton(onClick = { overflowOpen = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More")
-                    }
-                    DropdownMenu(
-                        expanded = overflowOpen,
-                        onDismissRequest = { overflowOpen = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("New conversation") },
-                            leadingIcon = { Icon(Icons.Outlined.AddComment, contentDescription = null) },
-                            onClick = {
-                                overflowOpen = false
-                                viewModel.clearCurrentConversation()
-                            },
-                        )
-                        if (state.conversationId != null) {
-                            DropdownMenuItem(
-                                text = { Text("Compact context") },
-                                leadingIcon = { Icon(Icons.Outlined.Compress, contentDescription = null) },
-                                onClick = {
-                                    overflowOpen = false
-                                    viewModel.compactContext()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Context breakdown") },
-                                leadingIcon = { Icon(Icons.Outlined.DataObject, contentDescription = null) },
-                                onClick = {
-                                    overflowOpen = false
-                                    viewModel.openContextDialog()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Reload from server") },
-                                leadingIcon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
-                                onClick = {
-                                    overflowOpen = false
-                                    viewModel.refreshConversation()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Text("Delete conversation", color = MaterialTheme.colorScheme.error)
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Outlined.DeleteOutline,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error,
-                                    )
-                                },
-                                onClick = {
-                                    overflowOpen = false
-                                    viewModel.requestDeleteConversation()
-                                },
-                            )
-                        }
-                    }
-                },
-            )
+                    },
+                )
+                // The transcript scrolls under the bar; a hairline keeps the two apart.
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
         },
     ) { padding ->
         Column(
