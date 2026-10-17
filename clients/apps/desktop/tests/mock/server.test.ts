@@ -14,6 +14,7 @@ import WebSocket from 'ws';
 import { MOCK_BACKEND_VERSION, MockBackend, ONE_POSE_CHARACTER, VRM_CHARACTER_WITH_MODEL } from './server';
 import { VRMA_CLIP_BYTES, VRMA_CLIP_SHA256, VRM_MODEL_BYTES, VRM_MODEL_SHA256, buildGlb, sha256Hex } from './vrmFixture';
 import { readZip, writeZip } from './zip';
+import { SCENARIOS } from './scenarios';
 import {
   WIRE_PROTOCOL,
   WS_AUTH_SUBPROTOCOL,
@@ -1436,6 +1437,72 @@ describe('the calendar (#282)', () => {
       expect(seeded.calendarEntries.map((e) => e.title)).toEqual(['Seeded']);
     } finally {
       await seeded.stop();
+    }
+  });
+});
+
+describe('mock backend: onboarding a new account (#342)', () => {
+  const startScenario = async (name: string) => {
+    const scenario = SCENARIOS[name];
+    const m = new MockBackend(scenario.options);
+    await m.start();
+    scenario.apply?.(m);
+    return m;
+  };
+  const call = async (m: MockBackend, method: string, path: string, body?: unknown) => {
+    const res = await fetch(`${m.url}${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json() };
+  };
+
+  it('owes no onboarding to the accounts every other scenario plays', async () => {
+    expect((await get('/users/me')).body.onboarding_pending).toBe(false);
+    const noPersona = await startScenario('no-persona');
+    try {
+      expect((await call(noPersona, 'GET', '/users/me')).body.onboarding_pending).toBe(false);
+    } finally {
+      await noPersona.stop();
+    }
+  });
+
+  it('starts a new account with nothing: no model, persona, wake word or provider', async () => {
+    const m = await startScenario('new-account');
+    try {
+      const profile = (await call(m, 'GET', '/users/me')).body;
+      expect(profile.onboarding_pending).toBe(true);
+      expect(profile.ollama_url).toBeNull();
+      const assistant = (await call(m, 'GET', '/assistant')).body;
+      expect(assistant).toMatchObject({ model_name: null, trigger_word: null, selected_persona_id: null });
+      expect((await call(m, 'GET', '/personas')).body).toEqual([]);
+      // As the backend: only the providers the account has set up are asked.
+      expect((await call(m, 'GET', '/models')).body).toEqual({ models: [], unavailable: [] });
+
+      await call(m, 'PATCH', '/users/me', { ollama_url: 'http://192.168.1.20:11434' });
+      expect((await call(m, 'GET', '/users/me')).body.ollama_url).toBe('http://192.168.1.20:11434');
+      expect((await call(m, 'GET', '/models')).body.models.length).toBeGreaterThan(0);
+    } finally {
+      await m.stop();
+    }
+  });
+
+  it('ends onboarding when a client says so or a persona is made, and never brings it back', async () => {
+    const m = await startScenario('new-account');
+    try {
+      expect((await call(m, 'PATCH', '/users/me', { onboarded: false })).status).toBe(422);
+      expect((await call(m, 'PATCH', '/users/me', { onboarded: true })).status).toBe(200);
+      expect((await call(m, 'GET', '/users/me')).body.onboarding_pending).toBe(false);
+    } finally {
+      await m.stop();
+    }
+    const n = await startScenario('new-account');
+    try {
+      await call(n, 'POST', '/personas', { name: 'Kurisu' });
+      expect((await call(n, 'GET', '/users/me')).body.onboarding_pending).toBe(false);
+    } finally {
+      await n.stop();
     }
   });
 });
