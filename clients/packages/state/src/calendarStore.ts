@@ -22,6 +22,9 @@ import { useLayoutStore } from './layoutStore';
  * `openEntry` is the navigation target: the chat card's "Open in Calendar"
  * and, with #353, a reminder notification's tap open the page on that entry's
  * week with it selected.
+ *
+ * A repeating reminder (#355) is several items with one id, so the selection is
+ * the id and the time (`selectedAt`), and Done on one says which time.
  */
 interface CalendarState {
   view: CalendarView;
@@ -30,6 +33,8 @@ interface CalendarState {
   entries: CalendarEntry[];
   upcoming: CalendarEntry[];
   selectedId: number | null;
+  /** Which time of the selected entry — a repeating reminder's are separate items. */
+  selectedAt: string | null;
   loading: boolean;
   /** The last refusal or failure, as a sentence. */
   error: string | null;
@@ -39,12 +44,13 @@ interface CalendarState {
   /** One day or one week back (-1) or forward (+1), by the view. */
   step: (direction: -1 | 1) => void;
   today: () => void;
-  select: (id: number | null) => void;
+  select: (id: number | null, at?: string | null) => void;
   load: () => Promise<void>;
   openEntry: (id: number) => void;
   create: (body: CalendarEntryCreate) => Promise<CalendarEntry | null>;
   move: (id: number, changes: CalendarEntryUpdate) => Promise<CalendarEntry | null>;
-  setDone: (id: number, done: boolean) => Promise<void>;
+  /** `occurrenceAt`: the time of a repeating reminder this is about. */
+  setDone: (id: number, done: boolean, occurrenceAt?: string | null) => Promise<void>;
   remove: (id: number) => Promise<boolean>;
   clearError: () => void;
 }
@@ -69,6 +75,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
     entries: [],
     upcoming: [],
     selectedId: null,
+    selectedAt: null,
     loading: false,
     error: null,
 
@@ -85,7 +92,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
       get().setAnchor(addDays(anchor, direction * (view === 'week' ? 7 : 1)));
     },
     today: () => get().setAnchor(new Date()),
-    select: (id) => set({ selectedId: id }),
+    select: (id, at = null) => set({ selectedId: id, selectedAt: id === null ? null : at }),
     clearError: () => set({ error: null }),
 
     load: async () => {
@@ -107,11 +114,13 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
 
     openEntry: (id) => {
       useLayoutStore.getState().setActivePage('calendar');
-      set({ selectedId: id });
+      set({ selectedId: id, selectedAt: null });
       void (async () => {
         try {
+          // A repeating reminder answers as its time from today on — the one to show.
           const entry = await apiClient.getCalendarEntry(id);
           const day = entry ? entryDay(entry) : null;
+          if (entry?.repeat && get().selectedId === id) set({ selectedAt: entry.starts_at });
           if (day && get().selectedId === id) get().setAnchor(day);
         } catch {
           // Gone (deleted since), or the server is away: the page still opens.
@@ -121,19 +130,20 @@ export const useCalendarStore = create<CalendarState>((set, get) => {
 
     create: async (body) => {
       const made = await change(() => apiClient.createCalendarEntry(body));
-      if (made) set({ selectedId: made.id });
+      if (made) set({ selectedId: made.id, selectedAt: made.repeat ? made.starts_at : null });
       return made;
     },
     move: (id, changes) => change(() => apiClient.updateCalendarEntry(id, changes)),
-    setDone: async (id, done) => {
-      await change(() => apiClient.updateCalendarEntry(id, { done }));
+    setDone: async (id, done, occurrenceAt) => {
+      const changes = occurrenceAt ? { done, occurrence_at: occurrenceAt } : { done };
+      await change(() => apiClient.updateCalendarEntry(id, changes));
     },
     remove: async (id) => {
       const ok = (await change(async () => {
         await apiClient.deleteCalendarEntry(id);
         return true;
       })) === true;
-      if (ok && get().selectedId === id) set({ selectedId: null });
+      if (ok && get().selectedId === id) set({ selectedId: null, selectedAt: null });
       return ok;
     },
   };

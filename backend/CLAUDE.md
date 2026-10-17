@@ -16,7 +16,7 @@ This is the `backend/` package of the KurisuAssistant monorepo (see the root `CL
 - [Tools & Skills](docs/tools.md) — the server's own tools, the permission mode, MCP tools (server + client), skills system
 - [Skills Format](docs/skills.md) — skill format, prompt injection, API
 - [Vision Pipeline](docs/vision.md) — face recognition, gesture detection, character animation
-- [Calendar](docs/calendar.md) — the user's events and reminders (#282): one table, the four calendar tools, its one zone lookup (`calendar/zone.zone_for`, the account's zone), and the due-reminder scanner that hands a reminder to notifications once. Not agentic: nothing on it starts the assistant
+- [Calendar](docs/calendar.md) — the user's events and reminders (#282), reminders that repeat (#355): one table, the five calendar tools, its one zone lookup (`calendar/zone.zone_for`, the account's zone), and the due-reminder scanner that hands a reminder to notifications once. Not agentic: nothing on it starts the assistant
 - [Kurisu Drive](docs/drive.md) — account-scoped file storage: the tree, the blob store, path safety, quotas, the drive tools
 - [Recall](docs/retrieval.md) — the passage index over past conversations and drive files, the `recall_regex` / `recall_semantic` tools, chunking, extraction, the server-wide embedding model, the indexer and its scanner
 - [Tasks](docs/tasks.md) — work the assistant does on its own (#352): schedules, the scheduler on the event loop, a run as a headless turn in its own conversation, the six task tools, how a run waits for the user to approve a tool, the account's time zone (`core/timezone.py`)

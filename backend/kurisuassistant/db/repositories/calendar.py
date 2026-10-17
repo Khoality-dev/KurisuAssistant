@@ -3,6 +3,9 @@
 Every read takes a ``user_id`` and filters on it, as the drive's repository
 does: the router and the assistant's tools both come through here, so "whose
 entry is this" is answered in one place.
+
+A repeating reminder (#355) is one row, the series; these queries find the rows
+and ``calendar/entries.expand`` / ``coming_up`` turn a series into its times.
 """
 
 from datetime import date, datetime, timedelta
@@ -29,12 +32,15 @@ class CalendarEntryRepository(BaseRepository[CalendarEntry]):
         for a reminder, happens) at or after the start. An all-day entry is a
         range of dates with no zone of its own, so it is matched a day wider on
         each side and the client places it by its own calendar dates — the one
-        reading of "18 October" that is right wherever the user is.
+        reading of "18 October" that is right wherever the user is. A repeating
+        reminder may have times in any window after its first, so every one
+        that started before the end is returned for the caller to expand.
         """
         first_day = (start - timedelta(days=1)).date()
         last_day = (end + timedelta(days=1)).date()
         timed = and_(
             CalendarEntry.all_day.is_(False),
+            CalendarEntry.repeat.is_(None),
             CalendarEntry.starts_at < end,
             func.coalesce(CalendarEntry.ends_at, CalendarEntry.starts_at) >= start,
         )
@@ -43,9 +49,10 @@ class CalendarEntryRepository(BaseRepository[CalendarEntry]):
             CalendarEntry.start_date <= last_day,
             CalendarEntry.end_date >= first_day,
         )
+        repeating = and_(CalendarEntry.repeat.isnot(None), CalendarEntry.starts_at < end)
         return (
             self.session.query(CalendarEntry)
-            .filter(CalendarEntry.user_id == user_id, or_(timed, all_day))
+            .filter(CalendarEntry.user_id == user_id, or_(timed, all_day, repeating))
             .order_by(
                 func.coalesce(CalendarEntry.starts_at, cast(CalendarEntry.start_date, DateTime)),
                 CalendarEntry.id,
@@ -57,7 +64,8 @@ class CalendarEntryRepository(BaseRepository[CalendarEntry]):
         """What is still ahead: events not yet over, reminders not done and not past.
 
         ``today`` is the user's own date, for all-day events. Ordered by when
-        each begins, all-day ones at the start of their day.
+        each begins, all-day ones at the start of their day. Repeating reminders
+        are not here: :meth:`repeating` gives them, to expand.
         """
         timed_event = and_(
             CalendarEntry.kind == "event",
@@ -71,6 +79,7 @@ class CalendarEntryRepository(BaseRepository[CalendarEntry]):
         )
         reminder = and_(
             CalendarEntry.kind == "reminder",
+            CalendarEntry.repeat.is_(None),
             CalendarEntry.done_at.is_(None),
             CalendarEntry.starts_at >= now,
         )
@@ -85,17 +94,41 @@ class CalendarEntryRepository(BaseRepository[CalendarEntry]):
             .all()
         )
 
+    def repeating(self, user_id: int) -> List[CalendarEntry]:
+        """The account's repeating reminders — few, and each a series."""
+        return (
+            self.session.query(CalendarEntry)
+            .filter(CalendarEntry.user_id == user_id, CalendarEntry.repeat.isnot(None))
+            .order_by(CalendarEntry.id)
+            .all()
+        )
+
     def due_reminders(self, now: datetime, limit: int) -> List[CalendarEntry]:
-        """Reminders whose time has come and that have not gone out, oldest first."""
+        """One-off reminders whose time has come and that have not gone out, oldest first."""
         return (
             self.session.query(CalendarEntry)
             .filter(
                 CalendarEntry.kind == "reminder",
+                CalendarEntry.repeat.is_(None),
                 CalendarEntry.delivered_at.is_(None),
                 CalendarEntry.done_at.is_(None),
                 CalendarEntry.starts_at <= now,
             )
             .order_by(CalendarEntry.starts_at, CalendarEntry.id)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+            .all()
+        )
+
+    def due_repeating(self, now: datetime, limit: int) -> List[CalendarEntry]:
+        """Repeating reminders whose next time has come, soonest first (#355)."""
+        return (
+            self.session.query(CalendarEntry)
+            .filter(
+                CalendarEntry.repeat.isnot(None),
+                CalendarEntry.next_due_at <= now,
+            )
+            .order_by(CalendarEntry.next_due_at, CalendarEntry.id)
             .limit(limit)
             .with_for_update(skip_locked=True)
             .all()

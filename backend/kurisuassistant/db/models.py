@@ -602,6 +602,15 @@ class CalendarEntry(Base):
     done_at = Column(DateTime, nullable=True)
     delivered_at = Column(DateTime, nullable=True)
     delivery_attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    # A reminder that repeats (#355): ``repeat`` is 'daily' | 'weekdays' |
+    # 'weekly', ``repeat_days`` the weekly days ('mon,thu'), and ``starts_at``
+    # its first time, whose wall-clock time in the account's zone every later
+    # time keeps (``calendar/repeat.py``). ``next_due_at`` is the next time the
+    # scanner delivers; ``delivered_at`` and ``done_at`` stay empty, because each
+    # time is delivered on its own and done on its own (``CalendarOccurrence``).
+    repeat = Column(String, nullable=True)
+    repeat_days = Column(String, nullable=True)
+    next_due_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
@@ -613,9 +622,41 @@ class CalendarEntry(Base):
         Index(
             'ix_calendar_entries_due', 'starts_at',
             postgresql_where=text(
-                "kind = 'reminder' AND delivered_at IS NULL AND done_at IS NULL"
+                "kind = 'reminder' AND repeat IS NULL AND delivered_at IS NULL AND done_at IS NULL"
             ),
+        ),
+        # …and the repeating reminders, by their next time.
+        Index(
+            'ix_calendar_entries_repeat_due', 'next_due_at',
+            postgresql_where=text("repeat IS NOT NULL"),
         ),
     )
 
     user = relationship("User")
+    occurrences = relationship(
+        "CalendarOccurrence",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="selectin",
+        order_by="CalendarOccurrence.occurs_at",
+    )
+
+
+class CalendarOccurrence(Base):
+    """One time of a repeating reminder that the user marked done (#355).
+
+    A row exists only while that time is done: marking it not done deletes it.
+    ``occurs_at`` is the time as ``calendar/repeat.py`` computes it, naive UTC.
+    The other times of the series stay as they were — done is per time.
+    """
+
+    __tablename__ = 'calendar_occurrences'
+
+    id = Column(Integer, primary_key=True)
+    entry_id = Column(Integer, ForeignKey('calendar_entries.id', ondelete='CASCADE'), nullable=False)
+    occurs_at = Column(DateTime, nullable=False)
+    done_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('entry_id', 'occurs_at', name='uq_calendar_occurrences_entry_id_occurs_at'),
+    )

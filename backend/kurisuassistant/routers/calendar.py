@@ -8,11 +8,16 @@ entry may be. An entry of another account is 404, never 403 — the drive's rule
 Instants travel as ISO 8601 UTC with a ``Z``; an all-day entry is a pair of
 dates with no zone. Nothing here starts the assistant: a due reminder only
 notifies the user (``workers/reminders.py``).
+
+A repeating reminder (#355) is answered as its times: one item per time in a
+window, each with that time's ``starts_at`` and done state, ``repeat_from``
+naming the series' first time. Its times are the account's wall-clock time, so
+every handler reads the account's zone.
 """
 
 import logging
 from datetime import date, datetime
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
@@ -41,10 +46,18 @@ class EntryCreate(BaseModel):
     ends_at: Optional[datetime] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    #: 'daily' | 'weekdays' | 'weekly' — a reminder's alone (#355).
+    repeat: Optional[str] = None
+    #: The weekly days, 'mon' … 'sun'.
+    repeat_days: Optional[List[str]] = None
 
 
 class EntryUpdate(BaseModel):
-    """Only the fields sent change. ``done`` is a reminder's alone."""
+    """Only the fields sent change. ``done`` is a reminder's alone.
+
+    ``repeat: null`` stops a repeat. On a repeating reminder ``starts_at`` moves
+    its first time, and ``done`` needs ``occurrence_at`` — which of its times.
+    """
 
     title: Optional[str] = None
     notes: Optional[str] = None
@@ -54,6 +67,9 @@ class EntryUpdate(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     done: Optional[bool] = None
+    repeat: Optional[str] = None
+    repeat_days: Optional[List[str]] = None
+    occurrence_at: Optional[datetime] = None
 
 
 def _instant(value: Optional[datetime]) -> Optional[datetime]:
@@ -76,10 +92,11 @@ async def list_entries(
         raise HTTPException(status_code=400, detail="The window must end after it starts.")
     if end_utc - start_utc > entries.MAX_WINDOW:
         raise HTTPException(status_code=400, detail="Ask for at most a year at a time.")
+    tz = zone.zone_for(user)
     try:
         def _list(session):
             rows = CalendarEntryRepository(session).in_window(user.id, start_utc, end_utc)
-            return [entries.to_response(r) for r in rows]
+            return entries.expand(rows, tz, start_utc, end_utc)
 
         return await get_db_service().execute(_list)
     except Exception as e:
@@ -93,11 +110,14 @@ async def upcoming(
 ):
     """What is still ahead, soonest first: the "Coming up" list."""
     now = datetime.utcnow()
-    today = times.local(now, zone.zone_for(user)).date()
+    tz = zone.zone_for(user)
+    today = times.local(now, tz).date()
     try:
         def _upcoming(session):
-            rows = CalendarEntryRepository(session).upcoming(user.id, now, today, limit)
-            return [entries.to_response(r) for r in rows]
+            repo = CalendarEntryRepository(session)
+            return entries.coming_up(
+                repo.upcoming(user.id, now, today, limit), repo.repeating(user.id), tz, now, limit,
+            )
 
         return await get_db_service().execute(_upcoming)
     except Exception as e:
@@ -106,9 +126,13 @@ async def upcoming(
 
 @router.get("/entries/{entry_id}")
 async def get_entry(entry_id: int, user: User = Depends(get_authenticated_user)):
+    """One entry — a repeating reminder as its time from today on, which is
+    what opening it (from a card or a notification) should show."""
+    tz = zone.zone_for(user)
+
     def _get(session):
         row = CalendarEntryRepository(session).get_for_user(user.id, entry_id)
-        return entries.to_response(row) if row else None
+        return entries.to_response(row, tz) if row else None
 
     result = await get_db_service().execute(_get)
     if result is None:
@@ -128,16 +152,21 @@ async def create_entry(body: EntryCreate, user: User = Depends(get_authenticated
             ends_at=_instant(body.ends_at),
             start_date=body.start_date,
             end_date=body.end_date,
+            repeat=body.repeat,
+            repeat_days=body.repeat_days,
         )
     except entries.EntryError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    tz = zone.zone_for(user)
 
     def _create(session):
         now = datetime.utcnow()
         row = CalendarEntryRepository(session).create(
             user_id=user.id, created_at=now, updated_at=now, **columns,
         )
-        return entries.to_response(row)
+        entries.schedule(row, tz, now)
+        session.flush()
+        return entries.to_response(row, tz)
 
     try:
         return await get_db_service().execute(_create)
@@ -150,17 +179,20 @@ async def update_entry(
     entry_id: int, body: EntryUpdate, user: User = Depends(get_authenticated_user),
 ):
     changes = {key: getattr(body, key) for key in body.model_fields_set}
-    for key in ("starts_at", "ends_at"):
+    for key in ("starts_at", "ends_at", "occurrence_at"):
         if key in changes:
             changes[key] = _instant(changes[key])
+    tz = zone.zone_for(user)
 
     def _update(session):
         row = CalendarEntryRepository(session).get_for_user(user.id, entry_id)
         if row is None:
             raise _NotFound()
-        entries.apply_update(row, changes)
+        entries.apply_update(row, changes, tz)
         session.flush()
-        return entries.to_response(row)
+        # A change to one of a repeating reminder's times answers as that time.
+        at = changes.get("occurrence_at") if row.repeat else None
+        return entries.to_response(row, tz, at=at)
 
     try:
         entry = await get_db_service().execute(_update)
@@ -170,7 +202,9 @@ async def update_entry(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise internal_error(e, "Error changing the calendar")
-    if entry["kind"] == "reminder" and (changes.get("done") or "starts_at" in changes):
+    if entry["kind"] == "reminder" and (
+        changes.get("done") or {"starts_at", "repeat", "repeat_days"} & changes.keys()
+    ):
         await delivery.withdraw(user.id, entry_id)
     return entry
 

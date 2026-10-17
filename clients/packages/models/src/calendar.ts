@@ -10,10 +10,22 @@
  *
  * Nothing on the calendar says who put it there, and nothing on it starts the
  * assistant — work it does by itself is a task (#352).
+ *
+ * A reminder can repeat (#355). The server answers it as its times — one item
+ * per time, all with the same `id` — so an item is told apart by `entryKey`,
+ * and Done on one says which time (`occurrence_at`).
  */
 
 export type CalendarEntryKind = 'event' | 'reminder';
 export type CalendarView = 'day' | 'week';
+export type CalendarRepeat = 'daily' | 'weekdays' | 'weekly';
+export type CalendarWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
+/** Monday first, as a weekly repeat stores them. */
+export const CALENDAR_WEEKDAYS: readonly CalendarWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const WEEKDAY_NAMES: Record<CalendarWeekday, string> = {
+  mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday',
+};
 
 /** One entry as `GET /calendar/entries` answers it. */
 export interface CalendarEntry {
@@ -29,9 +41,15 @@ export interface CalendarEntry {
   /** `YYYY-MM-DD`, an all-day event's first and last day (inclusive). */
   start_date: string | null;
   end_date: string | null;
-  /** Reminders only. */
+  /** Reminders only — for a repeating one, this time's own. */
   done: boolean;
   done_at: string | null;
+  /** How a reminder repeats (#355); null when it does not. */
+  repeat: CalendarRepeat | null;
+  /** The days of a weekly repeat, Monday first. */
+  repeat_days: CalendarWeekday[];
+  /** A repeating reminder's first time — what an edit changes. `starts_at` is this item's time. */
+  repeat_from: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -45,9 +63,15 @@ export interface CalendarEntryCreate {
   ends_at?: string;
   start_date?: string;
   end_date?: string;
+  repeat?: CalendarRepeat | null;
+  repeat_days?: CalendarWeekday[];
 }
 
-/** Only the fields sent change. A moved event keeps its length unless `ends_at` is sent. */
+/**
+ * Only the fields sent change. A moved event keeps its length unless `ends_at`
+ * is sent. `repeat: null` stops a repeat; on a repeating reminder `done` needs
+ * `occurrence_at`, the time it is about.
+ */
 export interface CalendarEntryUpdate {
   title?: string;
   notes?: string | null;
@@ -57,10 +81,32 @@ export interface CalendarEntryUpdate {
   start_date?: string;
   end_date?: string;
   done?: boolean;
+  repeat?: CalendarRepeat | null;
+  repeat_days?: CalendarWeekday[];
+  occurrence_at?: string;
 }
 
 /** The tools the assistant keeps the calendar with (`backend/kurisuassistant/tools/calendar.py`). */
-export const CALENDAR_TOOL_NAMES = ['calendar_create', 'calendar_list', 'calendar_move', 'calendar_delete'] as const;
+export const CALENDAR_TOOL_NAMES = ['calendar_create', 'calendar_list', 'calendar_move', 'calendar_repeat', 'calendar_delete'] as const;
+
+/** `Every day`, `Every weekday`, `Every Monday and Thursday`; null when it does not repeat. */
+export function describeRepeat(entry: Pick<CalendarEntry, 'repeat' | 'repeat_days'>): string | null {
+  if (entry.repeat === 'daily') return 'Every day';
+  if (entry.repeat === 'weekdays') return 'Every weekday';
+  if (entry.repeat !== 'weekly') return null;
+  const names = CALENDAR_WEEKDAYS.filter((d) => entry.repeat_days?.includes(d)).map((d) => WEEKDAY_NAMES[d]);
+  if (names.length === 0) return 'Every week';
+  const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  return `Every ${listed}`;
+}
+
+/**
+ * What tells one item from another: the id, and for a repeating reminder's
+ * times — which share it — the time. A React key and the selection both use it.
+ */
+export function entryKey(entry: Pick<CalendarEntry, 'id' | 'starts_at' | 'start_date'>): string {
+  return `${entry.id}@${entry.starts_at ?? entry.start_date ?? ''}`;
+}
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -248,22 +294,23 @@ export function entryDay(entry: CalendarEntry): Date | null {
 
 /** What a calendar tool's answer means for the chat card. */
 export interface CalendarToolResult {
-  action: 'created' | 'moved' | 'deleted';
+  action: 'created' | 'moved' | 'changed' | 'deleted';
   summary: string;
   entry?: CalendarEntry;
   deleted?: { id: number; kind: CalendarEntryKind; title: string };
 }
 
 /**
- * Read what `calendar_create`, `calendar_move` or `calendar_delete` answered
- * into the card the chat draws; null for anything else — another tool, an
- * error, a listing, text.
+ * Read what `calendar_create`, `calendar_move`, `calendar_repeat` or
+ * `calendar_delete` answered into the card the chat draws; null for anything
+ * else — another tool, an error, a listing, text.
  */
 export function parseCalendarToolResult(toolName: string | null | undefined, content: string | null | undefined): CalendarToolResult | null {
   const action = toolName === 'calendar_create' ? 'created'
     : toolName === 'calendar_move' ? 'moved'
-      : toolName === 'calendar_delete' ? 'deleted'
-        : null;
+      : toolName === 'calendar_repeat' ? 'changed'
+        : toolName === 'calendar_delete' ? 'deleted'
+          : null;
   if (!action || !content) return null;
   let body: unknown;
   try {

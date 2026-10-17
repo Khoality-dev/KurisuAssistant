@@ -110,9 +110,14 @@ calendar_entries id, user_id→users (CASCADE, indexed)              the user's 
                 all_day, starts_at?, ends_at?                      naive UTC; a timed event or a reminder
                 start_date?, end_date?                             dates, inclusive; an all-day event
                 done_at?, delivered_at?, delivery_attempts         reminders: done, notified once
+                repeat('daily'|'weekdays'|'weekly')?, repeat_days?  a repeating reminder (#355): starts_at is
+                next_due_at?                                       its first time; the scanner's cursor
                 created_at, updated_at
                 index (user_id, starts_at); partial index on starts_at where
-                kind = 'reminder' and delivered_at and done_at are null
+                kind = 'reminder', repeat is null and delivered_at and done_at are null;
+                partial index on next_due_at where repeat is not null
+calendar_occurrences id, entry_id→calendar_entries (CASCADE)       a repeating reminder's time that is done
+                occurs_at, done_at                                 unique (entry_id, occurs_at)
 
 passages        id, user_id→users (CASCADE, indexed)               the retrieval index (#6)
                 source_kind('message'|'drive')
