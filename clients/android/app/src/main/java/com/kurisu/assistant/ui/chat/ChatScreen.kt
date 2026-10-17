@@ -305,7 +305,7 @@ fun ChatScreen(
                         ) {
                             Text(
                                 text = state.assistant?.modelName?.takeIf { it.isNotBlank() }
-                                    ?: "Choose a model",
+                                    ?: "No model",
                                 style = MaterialTheme.typography.titleMedium,
                                 maxLines = 1,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
