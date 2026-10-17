@@ -27,6 +27,7 @@ import com.kurisu.assistant.ui.settings.SkillsScreen
 import com.kurisu.assistant.ui.settings.ToolsMcpScreen
 import com.kurisu.assistant.ui.settings.TtsAsrScreen
 import com.kurisu.assistant.ui.tasks.TasksScreen
+import com.kurisu.assistant.ui.drive.DriveScreen
 
 object Routes {
     const val LOGIN = "login"
@@ -56,6 +57,9 @@ object Routes {
         is NotificationTarget.Calendar -> calendar(target.reminderId)
         NotificationTarget.App -> null
     }
+
+    /** The account's files on the server (#175). */
+    const val DRIVE = "drive"
 
     /** The one assistant: model, provider, tools, memory, wake word. */
     const val ASSISTANT = "assistant"
@@ -156,6 +160,16 @@ fun KurisuNavGraph(
                 onLoggedOut = ::logout,
             ) { openDrawer ->
                 CalendarScreen(onOpenMenu = openDrawer, openReminderId = reminderId)
+            }
+        }
+
+        composable(Routes.DRIVE) {
+            AppDrawerHost(
+                currentRoute = Routes.DRIVE,
+                onNavigate = ::openTopLevel,
+                onLoggedOut = ::logout,
+            ) { openDrawer ->
+                DriveScreen(onOpenMenu = openDrawer)
             }
         }
 

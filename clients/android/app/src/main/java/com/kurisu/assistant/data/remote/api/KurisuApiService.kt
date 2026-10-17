@@ -83,6 +83,43 @@ interface KurisuApiService {
     @DELETE("/tasks/{id}")
     suspend fun deleteTask(@Path("id") id: Int): Map<String, String>
 
+    // Kurisu Drive (#175). Nodes are addressed by id; a folder that is not the
+    // account's is a 404, never a 403.
+    @GET("/drive/usage")
+    suspend fun getDriveUsage(): DriveUsage
+
+    /** A folder's children, folders first, then by name. A null [parentId] is the root. */
+    @GET("/drive/nodes")
+    suspend fun listDriveNodes(@Query("parent_id") parentId: Int?): List<DriveNode>
+
+    @POST("/drive/folders")
+    suspend fun createDriveFolder(@Body body: DriveFolderCreate): DriveNode
+
+    /**
+     * Rename, move, or both. A JSON object rather than a data class because a
+     * left-out `parent_id` keeps the parent and an explicit `null` moves the
+     * node to the root.
+     */
+    @PATCH("/drive/nodes/{id}")
+    suspend fun updateDriveNode(@Path("id") id: Int, @Body body: JsonObject): DriveNode
+
+    /** Hard and recursive: the drive has no trash. */
+    @DELETE("/drive/nodes/{id}")
+    suspend fun deleteDriveNode(@Path("id") id: Int): Map<String, Boolean>
+
+    /** The file is the raw body, not multipart; where it goes is the query. */
+    @POST("/drive/files")
+    suspend fun uploadDriveFile(
+        @Query("name") name: String,
+        @Query("parent_id") parentId: Int?,
+        @Query("overwrite") overwrite: Boolean,
+        @Body body: RequestBody,
+    ): DriveNode
+
+    @Streaming
+    @GET("/drive/files/{id}/content")
+    suspend fun downloadDriveFile(@Path("id") id: Int): ResponseBody
+
     // Messages
     @DELETE("/messages/{id}")
     suspend fun deleteMessage(@Path("id") id: Int): Map<String, Int>

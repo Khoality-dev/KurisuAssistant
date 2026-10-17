@@ -3,7 +3,8 @@
 Account-scoped file storage on the server. A file put in from any signed-in
 client comes back, unchanged, from any other — which is the thing that did not
 exist before (#17). The desktop explorer shows it as a second root beside "This
-computer"; the assistant reaches it through four tools.
+computer", Android has a Drive screen of its own (#175), and the assistant
+reaches it through four tools.
 
 REST only. Nothing here touches the WebSocket, so the wire protocol is untouched
 and the drive tools ride the tool-approval machinery that already exists.

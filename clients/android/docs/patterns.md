@@ -66,6 +66,36 @@ Three words, used as the desktop uses them (#253): **voice mode**, the **wake wo
 
 Every tool the assistant has is always offered to it; nothing switches one off, and the Assistant screen has no tool list. The account's **permission mode** is a chip under the chat input (`ui/chat/PermissionModeControls.kt`): Always ask (the default — every call waits), Read only (a tool that only looks runs; anything else is refused by the server and never reaches the phone), Full access (everything runs), and Auto, shown as coming soon and not selectable. Tapping it opens a bottom sheet; `ChatViewModel.openPermissionModeSheet` refetches the assistant so a mode changed on another device shows, and `setPermissionMode` patches `PATCH /assistant {permission_mode}` optimistically, rolling back with "Could not change the permission mode". The approval sheet answers one call: Approve or Deny — nothing is answered on the user's behalf. Tools & MCP lists the tools grouped like the desktop's Settings › Tools (`ui/settings/ToolCatalog.kt`: Kurisu by feature — Calendar, Tasks, Kurisu Drive, History and recall, Other — and MCP servers by server), each tagged Reads or Changes from `read_only`, a tool that does not say counting as Changes; a server has no on/off switch, and one switched off before #360 shows "Turn back on". The phone lends no tools of its own.
 
+## Kurisu Drive (#175)
+
+The account's files on the server, through the same `/drive/…` routes the desktop explorer uses
+(`backend/docs/drive.md`). `DriveScreen` browses one folder at a time; `DriveViewModel` keeps the path.
+
+- **Transfers outlive the screen.** `domain/drive/DriveTransfers` is a singleton with its own
+  `SupervisorJob` on `Dispatchers.IO`: one transfer at a time, each WAITING → ACTIVE → DONE / FAILED /
+  STOPPED, with progress updated at most once a percent. The screen shows the current one in a strip
+  and every one in a sheet. They run while the app's process lives; there is no foreground service
+  for them, so Android may end a long one after the app is left.
+- **Uploads stream from the picked file.** The body is the raw file (`POST /drive/files?name=&parent_id=`,
+  not multipart, as the server takes it) and reopens the file every time OkHttp writes it. Before
+  sending, an upload asks `GET /drive/usage`: a file over `max_file_bytes`, or past the quota, is
+  refused without a byte sent, and since that call is authenticated an expired login is refreshed by
+  `AuthInterceptor` then rather than in the middle of a long body. An upload still answered 401 is sent
+  once more from the start.
+- **A name already taken asks.** Before uploading, the picked files' names are checked against the open
+  folder: free ones go straight away, and each clash asks Replace (`overwrite=true`), Keep both
+  (`budget (1).xlsx`) or Skip, with "Do the same for the other files" for the rest of the batch. The
+  server still decides; a 409 it sends anyway is that transfer's error.
+- **Downloads land in the cache, then go to an app.** `data/local/DriveFiles` writes to
+  `cache/drive/<id>-<checksum>/<name>` through a `.part` file renamed when complete, and hands it on as
+  a `FileProvider` URI (`file_paths.xml` shares `drive/`); an unchanged file opens from the cache
+  without downloading again, and older copies of it are removed. Save to phone writes into the document
+  the system "save as" picker made, and deletes it if the download fails or is stopped.
+- **Errors are the server's sentences** (`DriveFormat.errorMessage`), and a 413 or 507 without one —
+  nginx answers an oversized body with its own page — still says why.
+- **The assistant's access is the permission mode.** There is no drive policy (#360); the storage card
+  says what the account's mode lets the assistant do there, and opens the same sheet as the chat's chip.
+
 ## QR Code Login
 - LoginScreen has a "Sign in with QR code" button (visible in Login mode only) that opens `QrLoginScanner` in a fullscreen Dialog. CameraX `ImageAnalysis` feeds frames to ML Kit `BarcodeScanning` (bundled flavour, no Play Services dep). On the first decoded payload, `LoginViewModel.applyLoginQr()` parses it, fills the form, and auto-submits.
 - Shared payload format (must match Desktop generator): `{"v":1,"server":"https://...","username":"foo","password":"bar"}`. `v` is the schema version. Unknown fields are ignored. Bad payloads surface via `state.error` snackbar.

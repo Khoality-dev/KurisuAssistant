@@ -89,6 +89,17 @@ assistant again sends `selected_persona_id: null`
 null). Any persona can be deleted, the last one included, and the selected one can be disabled — both
 hand every chat back to the assistant, and the **In the chat** badge follows.
 
+## Drive
+
+Not captured yet: the `docs` scenario seeds no drive files, so a picture of it would be an empty
+folder. The account's files, a folder at a time (#175). At the root a storage card says how full the
+drive is, how large one file may be, and what the assistant may do there — which is the account's
+permission mode, and a tap changes it. A folder's path sits under the title and each step of it goes
+back there. Tapping a file opens it in another app; its menu saves it to the phone, shares, renames,
+moves or deletes it, and delete asks first, because the drive has no trash. **+** uploads files from the
+phone or makes a folder. While something is uploading or downloading, a strip at the bottom says how far
+it has got and stops it, and a sheet lists every transfer with its reason when one failed.
+
 ## Everything else
 
 | | |

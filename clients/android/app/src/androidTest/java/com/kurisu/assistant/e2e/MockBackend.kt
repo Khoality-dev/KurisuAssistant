@@ -62,6 +62,11 @@ class MockBackend(val scenario: String) {
         Request.Builder().url("$url$path").post(body.toRequestBody("application/json".toMediaType())).build(),
     )
 
+    /** A raw body, as `POST /drive/files` takes a file (#175). */
+    fun postBytes(path: String, body: ByteArray): String = call(
+        Request.Builder().url("$url$path").post(body.toRequestBody("application/octet-stream".toMediaType())).build(),
+    )
+
     /** Null when the mock answers 404: the thing is gone. */
     fun getOrNull(path: String): String? {
         val response = http.newCall(Request.Builder().url("$url$path").build()).execute()

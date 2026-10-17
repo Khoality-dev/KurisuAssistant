@@ -2,4 +2,6 @@
 <paths>
     <cache-path name="apk" path="updates/" />
     <cache-path name="face_photos" path="face_photos/" />
+    <!-- Drive files downloaded to open or share (#175). -->
+    <cache-path name="drive" path="drive/" />
 </paths>
