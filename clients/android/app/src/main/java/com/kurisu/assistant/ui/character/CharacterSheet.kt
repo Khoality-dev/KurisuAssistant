@@ -10,6 +10,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.kurisu.assistant.domain.character.CharacterConfigKind
+import com.kurisu.assistant.ui.character.vrm.VrmWebView
 
 /**
  * The live character, as a sheet over the transcript.
@@ -19,12 +21,17 @@ import androidx.hilt.navigation.compose.hiltViewModel
  * is hosted inside the chat screen, dismissed by swiping the sheet down or
  * tapping the scrim, and the conversation keeps running underneath the whole
  * time.
+ *
+ * A pose graph is drawn here by the 2D compositor; a VRM by the character page
+ * in a WebView (#246), which draws its own subtitle. [restingEmotion] is the
+ * face the open conversation's last reply ended on.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CharacterSheet(
     personaId: Int?,
     onDismiss: () -> Unit,
+    restingEmotion: String? = null,
     viewModel: CharacterViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -32,6 +39,7 @@ fun CharacterSheet(
     // Bind to the persona in use (#354). The character used to be read off a
     // nav argument the route never carried.
     LaunchedEffect(personaId) { viewModel.bindPersona(personaId) }
+    LaunchedEffect(restingEmotion) { viewModel.setRestingEmotion(restingEmotion) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -50,6 +58,15 @@ fun CharacterSheet(
                     .background(Color.Black, MaterialTheme.shapes.large),
             ) {
                 when {
+                    state.isLoaded && state.kind == CharacterConfigKind.VRM -> {
+                        VrmWebView(
+                            feed = viewModel.vrmFeed,
+                            assetHandler = viewModel.assetHandler,
+                            onProblem = viewModel::onCharacterProblem,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+
                     state.isLoaded -> {
                         CharacterCanvas(
                             compositor = viewModel.compositor,

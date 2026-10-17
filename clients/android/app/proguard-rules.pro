@@ -17,3 +17,8 @@
 # Retrofit
 -keepattributes Signature
 -keepattributes Exceptions
+
+# The character page calls these by name through window.KurisuNative (#246)
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}

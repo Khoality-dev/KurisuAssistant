@@ -24,7 +24,7 @@ com.kurisu.assistant/
 │   ├── chat/                    -- Stream processor, sentence splitter, narration stripper
 │   ├── tts/                     -- TTS queue, WAV parser, amplitude computer
 │   ├── audio/                   -- AudioRecorder, VoiceActivityDetector
-│   ├── character/               -- Compositor, image cache, animation migration
+│   ├── character/               -- Compositor, image cache, animation migration; vrm/: the 3D page's messages, feed, asset resolver
 │   ├── calendar/                -- CalendarMath: windows, which day an entry is on, a repeat in words and the key of each of its times (#355), the tool card (#282)
 │   ├── drive/                   -- DriveTransfers (every upload and download, one at a time, in the app's scope) and DriveFormat (#175)
 │   └── notifications/           -- What a notification says and opens; NotificationSync (what to post and cancel)
@@ -44,7 +44,7 @@ com.kurisu.assistant/
 │   ├── faces/                   -- Face Identities CRUD (camera capture via TakePicture intent + FileProvider)
 │   ├── update/                  -- UpdateDialog composable (in-app update from GitHub Releases)
 │   ├── version/                 -- Wire-protocol gate: UpdateRequiredScreen + UpdateRequiredCopy (which side to update)
-│   └── character/               -- Character canvas, video player, screen + ViewModel
+│   └── character/               -- Character canvas, video player, screen + ViewModel; vrm/: the page's WebView and bridge
 ├── service/                     -- CoreService (foreground service), CoreState (shared singleton), VoiceInteractionManager,
 │                                   KurisuMessagingService (FCM data messages with the app closed, #353), ForegroundNotifications
 │                                   (the socket while open), NotificationPoster, tap intents and NotificationNavigation
