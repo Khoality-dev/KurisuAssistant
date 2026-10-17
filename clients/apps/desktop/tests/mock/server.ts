@@ -375,6 +375,17 @@ export interface MockBackendOptions {
   skills?: MockSkill[];
   /** What `GET /models` offers. Defaults to the one model the specs assert on. */
   models?: Array<{ name: string; provider?: string }>;
+  /**
+   * Whether the account has a provider set up (an Ollama address). False plays a
+   * brand-new account: `GET /models` is empty, as the backend's is, until a client
+   * PATCHes `ollama_url` or a key (#293, #342). Defaults to true.
+   */
+  providersConfigured?: boolean;
+  /**
+   * Whether the account's onboarding is over (#342). Defaults to true, so no
+   * other scenario is walked through it; `new-account` sets false.
+   */
+  onboarded?: boolean;
   /** What `GET /tts/voices` offers; none by default. */
   voices?: MockVoice[];
   drive?: MockDriveEntry[];
@@ -459,6 +470,11 @@ export class MockBackend {
   public lastTaskPatch: { id: number; body: any } | null = null;
   /** The account's time zone (#352), and every value a client PATCHed into it. */
   private accountTimezone: string | null = null;
+  /** Onboarding finished or skipped (#342); a persona made also ends it. */
+  public onboarded = true;
+  /** The account's Ollama address and which provider keys it has (#293). */
+  public ollamaUrl: string | null = 'http://localhost:11434';
+  private providerKeys = { gemini: false, nvidia: false, poe: false };
   public timezonePatches: Array<string | null> = [];
   /** Every `POST /tasks/approvals/{id}` answer, oldest first. */
   public approvalAnswers: Array<{ id: number; approved: boolean }> = [];
@@ -574,7 +590,8 @@ export class MockBackend {
       memory_enabled: assistant.memory_enabled ?? true,
       // Non-optional on the client's `Assistant` type. The old mock omitted it,
       // which is what forced a component to cast the response `as any`.
-      trigger_word: assistant.trigger_word ?? 'kurisu',
+      // An explicit null is a new account's (#342); only an omitted field defaults.
+      trigger_word: assistant.trigger_word === undefined ? 'kurisu' : assistant.trigger_word,
       // The persona in use (#334, #354). An explicit null is a state under test
       // too: personas, but none in use, so the assistant answers (#302). Only an
       // omitted field defaults to the first persona, which keeps the stock
@@ -624,6 +641,8 @@ export class MockBackend {
     if (opts.models) {
       this.models = opts.models.map((m) => ({ name: m.name, provider: m.provider ?? 'ollama' }));
     }
+    if (opts.providersConfigured === false) this.ollamaUrl = null;
+    if (opts.onboarded === false) this.onboarded = false;
     if (opts.voices) this.voices = opts.voices.map((v) => ({ ...v }));
 
     this.httpServer = http.createServer((req, res) => this.handleHttp(req, res));
@@ -750,6 +769,20 @@ export class MockBackend {
    */
   setAssistantModel(model: string | null) {
     this.assistant.model_name = model;
+  }
+
+  /**
+   * The state an account is in right after it registers (#342): no persona, no
+   * model, no wake word, no provider, and its onboarding owed.
+   */
+  becomeNewAccount() {
+    this.personas = [];
+    Object.assign(this.assistant, { model_name: null, trigger_word: null, selected_persona_id: null });
+    this.ollamaUrl = null;
+    this.providerKeys = { gemini: false, nvidia: false, poe: false };
+    this.onboarded = false;
+    // What the provider it connects will list; the stock 'mock' provider is no real one.
+    this.models = [{ name: 'test-model', provider: 'ollama' }];
   }
 
   /** The preset voices `GET /tts/voices` lists from now on. */
@@ -1221,15 +1254,26 @@ export class MockBackend {
         preferred_name: 'Tester',
         context_size: 8192,
         // Provider keys are write-only; the profile reports only whether one is set.
-        has_gemini_key: false,
-        has_nvidia_key: false,
-        has_poe_key: false,
+        has_gemini_key: this.providerKeys.gemini,
+        has_nvidia_key: this.providerKeys.nvidia,
+        has_poe_key: this.providerKeys.poe,
         // The account's IANA zone (#352); null until a client fills it.
         timezone: this.accountTimezone,
+        ollama_url: this.ollamaUrl,
+        // Owed until a client finishes or skips it, never with a persona (#342).
+        onboarding_pending: !this.onboarded && this.personas.length === 0,
       });
     }
     if (pathOnly === '/users/me' && method === 'PATCH') {
       const body = await this.readJson(req);
+      if ('onboarded' in body) {
+        if (body.onboarded !== true) return this.error(res, 422, 'onboarded can only be set to true');
+        this.onboarded = true;
+      }
+      if ('ollama_url' in body) this.ollamaUrl = body.ollama_url || null;
+      for (const p of ['gemini', 'nvidia', 'poe'] as const) {
+        if (`${p}_api_key` in body) this.providerKeys[p] = !!body[`${p}_api_key`];
+      }
       if ('timezone' in body) {
         const zone = (body.timezone ?? '').trim();
         if (zone && !isIanaZone(zone)) {
@@ -1280,6 +1324,8 @@ export class MockBackend {
     }
     if (pathOnly === '/personas' && method === 'POST') {
       const body = await this.readJson(req);
+      // An account with a persona has been set up (#342), as on the backend.
+      this.onboarded = true;
       const persona: ResolvedPersona = {
         id: Math.max(0, ...this.personas.map((p) => p.id)) + 1,
         name: body.name ?? 'Persona',
@@ -1347,6 +1393,7 @@ export class MockBackend {
       return res.end(zip);
     }
     if (pathOnly === '/personas/import/bundle' && method === 'POST') {
+      this.onboarded = true;
       const body = await this.readRaw(req);
       this.lastBundleImport = { bytes: body.length, personaId: null };
       const imported = this.importBundle(body);
@@ -1469,7 +1516,9 @@ export class MockBackend {
       if (this.unreachable.has('/models')) {
         return this.error(res, 502, 'The model host (Ollama) is unreachable. (reference: mock)');
       }
-      return this.json(res, { models: this.models, unavailable: [] });
+      // The backend asks only the providers the account has set up (#293).
+      const configured = !!this.ollamaUrl || Object.values(this.providerKeys).some(Boolean);
+      return this.json(res, { models: configured ? this.models : [], unavailable: [] });
     }
     if (pathOnly === '/tools') {
       const toToolFn = (t: MockTool) => ({

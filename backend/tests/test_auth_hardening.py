@@ -141,6 +141,8 @@ class FakeUser:
         self.summary_model = None
         self.summary_provider = "ollama"
         self.context_size = None
+        # Onboarded (#342), so reading the profile asks the database nothing.
+        self.onboarded_at = "2026-10-17T00:00:00"
 
 
 def profile_client(user):

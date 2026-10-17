@@ -67,8 +67,9 @@ describe('scenarios', () => {
       expect(typeof version.wire_protocol).toBe('number');
       const personas = await (await fetch(`http://127.0.0.1:${port}/personas`)).json();
       const names = personas.map((p: { name: string }) => p.name);
-      // Every scenario has Kurisu, except the one about having nobody (#302).
-      if (name === 'no-persona') expect(names).toEqual([]);
+      // Every scenario has Kurisu, except the ones about having nobody (#302)
+      // and an account just registered (#342).
+      if (name === 'no-persona' || name === 'new-account') expect(names).toEqual([]);
       else expect(names).toContain('Kurisu');
     } finally {
       await mock.stop();

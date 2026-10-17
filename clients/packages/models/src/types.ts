@@ -131,6 +131,13 @@ export interface UserProfile {
    * device; task schedules are read in it. PATCH "" clears it.
    */
   timezone?: string | null;
+  /**
+   * Whether a client should walk this account through its onboarding (#342):
+   * true until a client reports it finished or skipped, never with a persona.
+   */
+  onboarding_pending?: boolean;
+  /** PATCH only, and only `true`: the onboarding was finished or skipped. */
+  onboarded?: true;
 }
 
 /**

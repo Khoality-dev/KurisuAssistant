@@ -1,6 +1,7 @@
 """User profile management routes."""
 
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
@@ -8,7 +9,7 @@ from kurisuassistant.core.errors import internal_error
 from kurisuassistant.core.deps import get_authenticated_user
 from kurisuassistant.core.timezone import parse_timezone
 from kurisuassistant.db.service import get_db_service
-from kurisuassistant.db.models import User
+from kurisuassistant.db.models import Persona, User
 from kurisuassistant.db.repositories import UserRepository
 from kurisuassistant.utils.images import upload_image
 
@@ -32,8 +33,16 @@ async def get_user_profile(
     it is the account-level fallback a client shows when the answering persona has
     no avatar of its own, and it is what migration 0dacee9f63b8 copied into the
     persona it seeded for accounts that had none.
+
+    ``onboarding_pending`` (#342) says whether a client should walk this account
+    through its model, an optional persona and the wake word: until a client
+    reports the flow finished or skipped, and never once the account has a persona.
     """
     try:
+        def _has_persona(session) -> bool:
+            return session.query(Persona.id).filter(Persona.user_id == user.id).first() is not None
+
+        pending = user.onboarded_at is None and not await get_db_service().execute(_has_persona)
         return {
             "username": user.username,
             "system_prompt": user.system_prompt or "",
@@ -47,6 +56,7 @@ async def get_user_profile(
             "summary_provider": getattr(user, 'summary_provider', 'ollama') or 'ollama',
             "context_size": user.context_size,
             "timezone": getattr(user, "timezone", None),
+            "onboarding_pending": pending,
         }
     except Exception as e:
         raise internal_error(e, f"Error fetching user profile for {user.username}")
@@ -69,6 +79,19 @@ async def update_user_profile(
         summary_model = body.get("summary_model")
         summary_provider = body.get("summary_provider")
         context_size = body.get("context_size")
+
+        # Onboarding finished or skipped (#342). Only `true`: once over it stays
+        # over, on every device; a client cannot make it owed again.
+        if "onboarded" in body:
+            if body.get("onboarded") is not True:
+                raise HTTPException(status_code=422, detail="onboarded can only be set to true")
+
+            def _set_onboarded(session):
+                db_user = UserRepository(session).get_by_id(user.id)
+                if db_user is not None and db_user.onboarded_at is None:
+                    db_user.onboarded_at = datetime.utcnow()
+
+            await get_db_service().execute(_set_onboarded)
 
         # The account's time zone (#352): an IANA name, or "" / null to clear.
         if "timezone" in body:
@@ -96,7 +119,7 @@ async def update_user_profile(
             db = get_db_service()
             await db.execute(_update_prefs)
             return {"status": "ok", "message": "Profile updated successfully"}
-        elif "timezone" in body:
+        elif "timezone" in body or "onboarded" in body:
             return {"status": "ok", "message": "Profile updated successfully"}
         else:
             return {"status": "ok", "message": "No changes"}

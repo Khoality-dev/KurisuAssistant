@@ -19,5 +19,6 @@ export * from './notificationStore';
 export * from './personaStore';
 export * from './tasksStore';
 export * from './timezone';
+export * from './onboarding';
 export * from './transferStore';
 export * from './visionStore';
