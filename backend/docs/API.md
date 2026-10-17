@@ -769,9 +769,16 @@ than misread as a persona.
   "summary_model": "llama3.2:latest",
   "summary_provider": "ollama",
   "context_size": 8192,
-  "timezone": "Europe/Paris"
+  "timezone": "Europe/Paris",
+  "onboarding_pending": false
 }
 ```
+
+`onboarding_pending` (#342) says whether a client should walk this account
+through its onboarding — a provider and model, an optional persona, the wake
+word: true until a client reports it finished or skipped (`PATCH {"onboarded":
+true}`, from any device), and never once the account has a persona (creating or
+importing one ends it too). `users.onboarded_at` holds when.
 
 `timezone` is the account's IANA time zone, or null until a client fills it from
 its device (both do, once, the first time they find it empty). Task schedules are
@@ -801,6 +808,7 @@ client shows when the answering persona has no avatar of its own.
 | `summary_provider` | string | `ollama` \| `gemini` \| `nvidia` \| `poe` |
 | `context_size` | integer | Context window used for the 90% compaction trigger |
 | `timezone` | string | An IANA time zone such as `Europe/Paris`; `""` or null clears it. Anything else is a `422` naming it |
+| `onboarded` | `true` | The onboarding was finished or skipped (#342). Only `true`: anything else is a `422`, so a client cannot make it owed again |
 
 **Response:** `{"status": "ok", "message": "Profile updated successfully"}`
 

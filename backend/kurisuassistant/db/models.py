@@ -29,6 +29,10 @@ class User(Base):
     # time it is empty. Wall times — a task's 07:30 — are read in it; null is UTC.
     # Read through core/timezone.py::user_timezone, never directly.
     timezone = Column(String, nullable=True)
+    # When the account's onboarding was finished or skipped (#342), on any device.
+    # Null means a client should still offer it — unless the account has a persona,
+    # which also stamps it. Set once and never cleared.
+    onboarded_at = Column(DateTime, nullable=True)
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     personas = relationship("Persona", back_populates="user", cascade="all, delete-orphan")

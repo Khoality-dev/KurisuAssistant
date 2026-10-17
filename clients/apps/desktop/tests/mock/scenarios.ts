@@ -542,6 +542,21 @@ export const SCENARIOS: Record<string, Scenario> = {
     description: 'An account with no persona at all: the assistant answers as itself, persona_id null.',
     options: { personas: [], assistant: { selected_persona_id: null }, stream: SHORT_REPLY },
   },
+  'new-account': {
+    // onboarding.spec.ts and Android's OnboardingTest (#342): an account just
+    // registered — no provider, model, persona or wake word, and its onboarding owed.
+    description: 'A brand-new account: no provider, model, persona or wake word; onboarding is owed.',
+    options: {
+      personas: [],
+      assistant: { selected_persona_id: null, model_name: null, trigger_word: null },
+      providersConfigured: false,
+      onboarded: false,
+      // What connecting Ollama lists (the stock 'mock' provider is no real one).
+      models: [{ name: 'test-model', provider: 'ollama' }],
+      voices: PRESET_VOICES,
+      stream: SHORT_REPLY,
+    },
+  },
 };
 
 export const DEFAULT_SCENARIO = 'default';

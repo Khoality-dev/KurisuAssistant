@@ -5,6 +5,7 @@ import { createAppTheme } from './theme/theme';
 import { useAuthStore } from '@kurisu/state';
 import { LoginWindow } from './components/LoginWindow';
 import { MainLayout } from './components/layout/MainLayout';
+import { OnboardingGate } from './components/onboarding/OnboardingGate';
 import { UpdateDialog } from './components/UpdateDialog';
 import { UpdateRequiredScreen } from './components/UpdateRequiredScreen';
 import { apiClient, configureAuthedFetch } from '@kurisu/api';
@@ -96,7 +97,7 @@ const MainApp: React.FC = () => {
 
   return (
     <>
-      {isAuthenticated ? <MainLayout /> : <LoginWindow />}
+      {isAuthenticated ? <OnboardingGate><MainLayout /></OnboardingGate> : <LoginWindow />}
       <UpdateDialog />
     </>
   );
