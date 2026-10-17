@@ -362,6 +362,9 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
+    // The VRM character page's WebView: asset loader, message ports, feature checks (#246)
+    implementation("androidx.webkit:webkit:1.12.1")
+
     // Kotlin Serialization + Retrofit converter
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
     implementation("com.jakewharton.retrofit:retrofit2-kotlinx-serialization-converter:1.0.0")
@@ -403,6 +406,7 @@ dependencies {
     testImplementation("androidx.test:core:1.6.1")
     testImplementation("androidx.test.ext:junit:1.2.1")
     testImplementation("com.google.truth:truth:1.4.4")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 
     // ---- Instrumented / E2E tests (androidTest) ----
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

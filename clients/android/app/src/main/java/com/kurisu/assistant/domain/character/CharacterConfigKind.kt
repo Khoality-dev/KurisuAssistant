@@ -11,16 +11,14 @@ import kotlinx.serialization.json.JsonPrimitive
  *
  * The backend stamps every config with a `kind` and refuses a save without one
  * (wire protocol 7), so there is no kind-less fallback: a config this build cannot
- * classify is [UNSUPPORTED], never guessed at. A [VRM] config is one this build
- * recognises but cannot draw yet — the sheet says so and points at an update,
- * where it used to say "no character configured" while the persona list said
- * "character".
+ * classify is [UNSUPPORTED], never guessed at. A [VRM] config is drawn by the
+ * character page in a WebView (#246).
  */
 enum class CharacterConfigKind {
     /** No config, or a pose-graph config with no tree in it. */
     NONE,
     POSE_GRAPH,
-    /** A 3D model. Recognised, not rendered on this build. */
+    /** A 3D model, drawn by the character page in a WebView. */
     VRM,
     /** A kind this build does not know, or a config it will not trust. */
     UNSUPPORTED;
@@ -75,9 +73,9 @@ enum class CharacterConfigKind {
 /** What the character sheet says instead of a picture, per kind; null when it can draw one. */
 fun CharacterConfigKind.unrenderableMessage(): String? = when (this) {
     CharacterConfigKind.NONE -> "This persona has no character configured."
-    CharacterConfigKind.VRM -> "3D character — update the app to see it."
     CharacterConfigKind.UNSUPPORTED -> "This character needs a newer app."
-    CharacterConfigKind.POSE_GRAPH -> null
+    // A VRM is drawn by the character page in a WebView (#246).
+    CharacterConfigKind.POSE_GRAPH, CharacterConfigKind.VRM -> null
 }
 
 /** The persona list's word for it: `character`, `3D character`, or nothing. */

@@ -44,6 +44,7 @@ import com.kurisu.assistant.domain.character.CharacterConfigKind
 import com.kurisu.assistant.domain.character.metaLabel
 import com.kurisu.assistant.service.CoreService
 import com.kurisu.assistant.ui.character.CharacterSheet
+import com.kurisu.assistant.domain.character.vrm.restingEmotionOf
 import com.kurisu.assistant.ui.theme.KurisuTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -218,6 +219,7 @@ fun ChatScreen(
         CharacterSheet(
             personaId = state.persona?.id,
             onDismiss = { showCharacter = false },
+            restingEmotion = restingEmotionOf(state.messages, state.persona?.id),
         )
     }
 

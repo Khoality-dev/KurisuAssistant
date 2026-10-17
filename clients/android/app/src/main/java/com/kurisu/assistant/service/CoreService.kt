@@ -375,9 +375,9 @@ class CoreService : Service() {
     private fun wireCallbacks() {
         // "Generate TTS during responses" is a setting the user can turn off; the
         // sentence still reaches the queue only when it is on (#200).
-        streamProcessor.onSentenceBoundary = { text, voice ->
+        streamProcessor.onSentenceBoundary = { text, voice, cues ->
             serviceScope.launch {
-                if (prefs.getTTSAutoPlay()) ttsQueueManager.queueText(text, voice)
+                if (prefs.getTTSAutoPlay()) ttsQueueManager.queueText(text, voice, cues)
             }
         }
         ttsQueueManager.onError = { message -> coreState.emitSpeechError(message) }

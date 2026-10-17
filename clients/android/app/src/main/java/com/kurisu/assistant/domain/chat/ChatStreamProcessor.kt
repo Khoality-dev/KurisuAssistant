@@ -2,6 +2,7 @@ package com.kurisu.assistant.domain.chat
 
 import com.kurisu.assistant.data.model.*
 import com.kurisu.assistant.data.remote.websocket.WebSocketManager
+import com.kurisu.assistant.domain.tts.SegmentCue
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
@@ -35,7 +36,8 @@ class ChatStreamProcessor @Inject constructor(
     val state: StateFlow<StreamingState> = _state
 
     // TTS callbacks
-    var onSentenceBoundary: ((text: String, voice: String?) -> Unit)? = null
+    /** A sentence to speak, with the feelings inside it (#244, #246). */
+    var onSentenceBoundary: ((text: String, voice: String?, cues: List<SegmentCue>) -> Unit)? = null
     var onStreamDone: (() -> Unit)? = null
     var onConversationId: ((conversationId: Int) -> Unit)? = null
     var onConnected: ((ConnectedEvent) -> Unit)? = null
@@ -49,6 +51,7 @@ class ChatStreamProcessor @Inject constructor(
     private var currentVoice: String? = null
     private var currentImages: MutableList<String> = mutableListOf()
     private var ttsBuffer = StringBuilder()
+    private val cuePlanner = SpeechCuePlanner()
 
     private var collectJob: Job? = null
 
@@ -126,6 +129,7 @@ class ChatStreamProcessor @Inject constructor(
     fun cancelStream() {
         wsManager.sendCancel()
         flushTTSBuffer()
+        cuePlanner.reset()
         _state.update { it.copy(isStreaming = false, typingAgentName = null, queuedMessages = emptyList()) }
     }
 
@@ -158,6 +162,8 @@ class ChatStreamProcessor @Inject constructor(
             if (currentRole == "assistant") {
                 flushTTSBuffer()
             }
+            // The backend's cue offsets restart with every round (#243).
+            cuePlanner.newRun()
 
             currentRole = event.role
             currentContent = StringBuilder(event.content)
@@ -211,12 +217,16 @@ class ChatStreamProcessor @Inject constructor(
         }
 
         // TTS sentence splitting (only for assistant, not tool messages)
+        if (event.role == "assistant" && event.emotion != null && event.emotionAt != null) {
+            cuePlanner.cue(event.emotion, event.emotionAt)
+        }
         if (event.role == "assistant" && event.content.isNotEmpty()) {
             ttsBuffer.append(event.content)
             var result = splitAtSentenceBoundary(ttsBuffer.toString())
             while (result != null) {
                 val (sentence, remainder) = result
-                onSentenceBoundary?.invoke(sentence, currentVoice)
+                // Measured on the raw buffer: the offsets are into the text the backend counted.
+                speak(sentence, rawLength = ttsBuffer.length - remainder.length)
                 ttsBuffer = StringBuilder(remainder)
                 result = splitAtSentenceBoundary(ttsBuffer.toString())
             }
@@ -225,6 +235,7 @@ class ChatStreamProcessor @Inject constructor(
 
     private fun handleDone(event: DoneEvent) {
         flushTTSBuffer()
+        cuePlanner.newRun()
         _state.update { it.copy(isStreaming = false, typingAgentName = null) }
         onStreamDone?.invoke()
     }
@@ -265,9 +276,15 @@ class ChatStreamProcessor @Inject constructor(
     private fun flushTTSBuffer() {
         val remaining = ttsBuffer.toString().trim()
         if (remaining.isNotEmpty()) {
-            onSentenceBoundary?.invoke(remaining, currentVoice)
+            speak(remaining, rawLength = ttsBuffer.length)
         }
         ttsBuffer = StringBuilder()
+    }
+
+    private fun speak(sentence: String, rawLength: Int) {
+        // A sentence narration swallows is not spoken; its feeling opens the next one.
+        val cues = cuePlanner.take(rawLength, spoken = stripNarration(sentence).isNotBlank())
+        onSentenceBoundary?.invoke(sentence, currentVoice, cues)
     }
 
     private fun resetStreamState() {
@@ -278,6 +295,7 @@ class ChatStreamProcessor @Inject constructor(
         currentVoice = null
         currentImages = mutableListOf()
         ttsBuffer = StringBuilder()
+        cuePlanner.reset()
         _state.update { StreamingState() }
     }
 }

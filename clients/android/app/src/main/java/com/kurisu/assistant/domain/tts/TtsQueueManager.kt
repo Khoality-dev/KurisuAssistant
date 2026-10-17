@@ -24,11 +24,21 @@ data class TtsState(
     val isQueueActive: Boolean = false,
     val amplitude: Float = 0f,
     val currentText: String? = null,
+    /**
+     * The sentence playing now, for the 3D character page (#246): set once
+     * `MediaPlayer.start()` has returned, kept across sentences, and dropped
+     * once when the queue drains — the page's cue to let the feeling go.
+     */
+    val currentSegment: SpeechSegment? = null,
+    /** The player's own position, every [SPEECH_SYNC_INTERVAL_MS] while a sentence plays. */
+    val speechSync: SpeechSync? = null,
 )
 
 private data class TtsQueueItem(
     val audioDeferred: Deferred<ByteArray>,
     val text: String,
+    /** Feelings inside this sentence, as fractions of the way through it (#244). */
+    val cues: List<SegmentCue>,
 )
 
 @Singleton
@@ -72,7 +82,7 @@ class TtsQueueManager @Inject constructor(
         return ampFlow
     }
 
-    fun queueText(text: String, voice: String? = null) {
+    fun queueText(text: String, voice: String? = null, cues: List<SegmentCue> = emptyList()) {
         val trimmed = stripNarration(text.trim())
         if (trimmed.isBlank()) return
 
@@ -81,7 +91,7 @@ class TtsQueueManager @Inject constructor(
             val backend = resolveTtsBackend(prefs.getTTSBackend())
             ttsRepository.synthesize(trimmed, voice, backend = backend)
         }
-        queue.add(TtsQueueItem(audioDeferred, trimmed))
+        queue.add(TtsQueueItem(audioDeferred, trimmed, cues))
         _state.update { it.copy(isQueueActive = true) }
 
         if (!isPlayingQueue) {
@@ -97,7 +107,7 @@ class TtsQueueManager @Inject constructor(
                 try {
                     _state.update { it.copy(currentText = item.text) }
                     val wavBytes = item.audioDeferred.await()
-                    playWavBytes(wavBytes)
+                    playWavBytes(wavBytes, item)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -105,12 +115,14 @@ class TtsQueueManager @Inject constructor(
                     onError?.invoke(describeSpeechFailure("Speech", e))
                 }
             }
-            _state.update { it.copy(isPlaying = false, isQueueActive = false, amplitude = 0f, currentText = null) }
+            _state.update {
+                it.copy(isPlaying = false, isQueueActive = false, amplitude = 0f, currentText = null, currentSegment = null, speechSync = null)
+            }
             isPlayingQueue = false
         }
     }
 
-    private suspend fun playWavBytes(wavBytes: ByteArray) {
+    private suspend fun playWavBytes(wavBytes: ByteArray, item: TtsQueueItem) {
         // Pre-compute amplitude curve for lip sync
         val parsed = parseWavPcm(wavBytes)
         val curve = if (parsed != null) computeRMSCurve(parsed.samples, parsed.sampleRate) else null
@@ -151,22 +163,34 @@ class TtsQueueManager @Inject constructor(
                     true
                 }
 
-                // Start amplitude polling
-                if (curve != null) {
-                    amplitudeJob = scope.launch {
-                        while (isActive) {
-                            try {
-                                val pos = player.currentPosition
+                player.start()
+                // Stamped after start() returned, never before: the page clocks the
+                // mouth from this moment, and prepare() can take a while (#246).
+                val segment = speechSegmentOf(item.text, System.currentTimeMillis(), player.duration.toLong(), curve, item.cues)
+                _state.update { it.copy(currentSegment = segment, speechSync = null) }
+
+                // Poll the player: the 2D mouth's amplitude every frame-ish, and the
+                // position for the 3D page twice a second.
+                amplitudeJob = scope.launch {
+                    var sinceSync = 0L
+                    while (isActive) {
+                        try {
+                            val pos = player.currentPosition
+                            if (curve != null) {
                                 val idx = (pos / curve.windowDurationMs).toInt()
                                 val amp = if (idx in curve.values.indices) curve.values[idx] else 0f
                                 _state.update { it.copy(amplitude = amp) }
-                            } catch (_: Exception) { break }
-                            delay(POLL_INTERVAL_MS)
-                        }
+                            }
+                            sinceSync += POLL_INTERVAL_MS
+                            if (sinceSync >= SPEECH_SYNC_INTERVAL_MS) {
+                                sinceSync = 0
+                                val sync = SpeechSync(pos.toLong(), System.currentTimeMillis())
+                                _state.update { it.copy(speechSync = sync) }
+                            }
+                        } catch (_: Exception) { break }
+                        delay(POLL_INTERVAL_MS)
                     }
                 }
-
-                player.start()
 
                 cont.invokeOnCancellation {
                     amplitudeJob?.cancel()
