@@ -339,6 +339,10 @@ export interface MockSkill {
 /**
  * A calendar entry (#282), shaped as `GET /calendar/entries` answers it. A seed
  * gives only what it needs; the rest is filled as the backend would.
+ *
+ * A repeating reminder (#355) is stored as its series — `starts_at` its first
+ * time — and answered as its times; which of them are done is
+ * `MockBackend.calendarDoneTimes`.
  */
 export interface MockCalendarEntry {
   id: number;
@@ -352,6 +356,9 @@ export interface MockCalendarEntry {
   end_date: string | null;
   done: boolean;
   done_at: string | null;
+  repeat: 'daily' | 'weekdays' | 'weekly' | null;
+  repeat_days: string[];
+  repeat_from: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -501,6 +508,8 @@ export class MockBackend {
   private driveQuotaBytes = 15 * 1024 * 1024 * 1024;
   /** The account's calendar (#282), oldest first. */
   public calendarEntries: MockCalendarEntry[] = [];
+  /** The times of each repeating reminder that are done (#355), as wire instants. */
+  public calendarDoneTimes = new Map<number, Set<string>>();
   private nextCalendarId = 1;
   /** The most recent upload, so a spec can assert what was sent. */
   public lastDriveUpload: { name: string; parent_id: number | null; bytes: number } | null = null;
@@ -1528,23 +1537,37 @@ export class MockBackend {
       const firstDay = new Date(from - 86_400_000).toISOString().slice(0, 10);
       const lastDay = new Date(to + 86_400_000).toISOString().slice(0, 10);
       const rows = this.calendarEntries.filter((e) => {
+        if (e.repeat) return false;
         if (e.all_day) return e.start_date! <= lastDay && e.end_date! >= firstDay;
         const s0 = Date.parse(e.starts_at!);
         const e0 = Date.parse(e.ends_at ?? e.starts_at!);
         return s0 < to && e0 >= from;
       });
-      return this.json(res, this.calendarSorted(rows));
+      const times = this.calendarEntries
+        .filter((e) => e.repeat)
+        .flatMap((e) => this.calendarTimes(e, from, to).map((at) => this.calendarAt(e, at)));
+      return this.json(res, this.calendarSorted([...rows, ...times]));
     }
     if (pathOnly === '/calendar/upcoming' && method === 'GET') {
       const limit = Number(query.get('limit') ?? 20);
       const now = Date.now();
       const today = new Date().toISOString().slice(0, 10);
       const rows = this.calendarEntries.filter((e) => {
+        if (e.repeat) return false;
         if (e.kind === 'reminder') return !e.done && Date.parse(e.starts_at!) >= now;
         if (e.all_day) return e.end_date! >= today;
         return Date.parse(e.ends_at!) >= now;
       });
-      return this.json(res, this.calendarSorted(rows).slice(0, limit));
+      const times: MockCalendarEntry[] = [];
+      for (const e of this.calendarEntries.filter((r) => r.repeat)) {
+        const done = this.calendarDoneTimes.get(e.id) ?? new Set<string>();
+        let at = this.calendarNextAtOrAfter(e, now);
+        for (let n = 0, found = 0; at && found < limit && n < limit * 4 + 8; n++) {
+          if (!done.has(at)) { times.push(this.calendarAt(e, at)); found++; }
+          at = this.calendarNextAtOrAfter(e, Date.parse(at) + 1000);
+        }
+      }
+      return this.json(res, this.calendarSorted([...rows, ...times]).slice(0, limit));
     }
     if (pathOnly === '/calendar/entries' && method === 'POST') {
       const body = await this.readJson(req);
@@ -1554,16 +1577,17 @@ export class MockBackend {
       this.calendarEntries.push(made);
       res.setHeader('Content-Type', 'application/json');
       res.statusCode = 201;
-      return res.end(JSON.stringify(made));
+      return res.end(JSON.stringify(this.calendarAnswer(made)));
     }
     const calendarMatch = pathOnly.match(/^\/calendar\/entries\/(\d+)$/);
     if (calendarMatch) {
       const id = Number(calendarMatch[1]);
       const entry = this.calendarEntries.find((e) => e.id === id);
       if (!entry) return this.error(res, 404, 'Not found');
-      if (method === 'GET') return this.json(res, entry);
+      if (method === 'GET') return this.json(res, this.calendarAnswer(entry));
       if (method === 'DELETE') {
         this.calendarEntries = this.calendarEntries.filter((e) => e.id !== id);
+        this.calendarDoneTimes.delete(id);
         // `calendar/delivery.withdraw`: a reminder dealt with takes its notification down.
         this.readNotifications((n) => n.reminder_id === id);
         res.statusCode = 204;
@@ -1572,8 +1596,19 @@ export class MockBackend {
       if (method === 'PATCH') {
         const body = await this.readJson(req);
         const merged: Record<string, unknown> = { ...entry };
-        for (const key of ['title', 'notes', 'all_day', 'start_date', 'end_date'] as const) {
+        for (const key of ['title', 'notes', 'all_day', 'start_date', 'end_date', 'repeat', 'repeat_days'] as const) {
           if (key in body) merged[key] = body[key];
+        }
+        if ('repeat' in body && !('repeat_days' in body) && body.repeat !== 'weekly') merged.repeat_days = [];
+        // Stopping a repeat leaves one reminder: at the time sent, else its latest
+        // that has come, else its first (`calendar/entries.apply_update`, #355).
+        const wasRepeating = Boolean(entry.repeat);
+        const stopping = wasRepeating && !merged.repeat;
+        let stoppedAt: string | null = null;
+        if (stopping && !('starts_at' in body)) {
+          stoppedAt = this.calendarLatestAtOrBefore(entry, Date.now())
+            ?? this.calendarNextAtOrAfter(entry, Date.parse(entry.starts_at!)) ?? entry.starts_at;
+          merged.starts_at = stoppedAt;
         }
         if ('start_date' in body && !('end_date' in body) && entry.start_date && entry.end_date) {
           const length = Date.parse(entry.end_date) - Date.parse(entry.start_date);
@@ -1590,16 +1625,45 @@ export class MockBackend {
         const row = this.calendarValidate({ ...merged, kind: entry.kind } as MockCalendarSeed);
         if (typeof row === 'string') return this.error(res, 400, row);
         if ('done' in body && entry.kind !== 'reminder') return this.error(res, 400, 'Only a reminder can be marked done.');
+        const occurrence = MockBackend.wireInstant(body.occurrence_at);
+        if ('done' in body && row.repeat) {
+          if (!occurrence) return this.error(res, 400, 'Say which time of a repeating reminder is done.');
+          const probe = { ...entry, ...row } as MockCalendarEntry;
+          if (this.calendarNextAtOrAfter(probe, Date.parse(occurrence)) !== occurrence) {
+            return this.error(res, 400, "That is not one of this reminder's times.");
+          }
+        }
+        const retimed = row.starts_at !== entry.starts_at || row.repeat !== entry.repeat
+          || row.repeat_days.join(',') !== entry.repeat_days.join(',');
+        const oldStart = entry.starts_at;
+        const oldDone = entry.done;
+        const doneTimes = this.calendarDoneTimes.get(id) ?? new Set<string>();
         Object.assign(entry, row);
+        if (row.repeat) {
+          if (!wasRepeating && oldDone && oldStart) doneTimes.add(oldStart);
+          else if (retimed) for (const at of [...doneTimes]) if (Date.parse(at) > Date.now()) doneTimes.delete(at);
+          this.calendarDoneTimes.set(id, doneTimes);
+          entry.done = false;
+          entry.done_at = null;
+        } else if (stopping) {
+          entry.done = stoppedAt !== null && doneTimes.has(stoppedAt);
+          entry.done_at = entry.done ? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') : null;
+          this.calendarDoneTimes.delete(id);
+        }
         if ('done' in body) {
-          entry.done = Boolean(body.done);
-          entry.done_at = entry.done ? entry.done_at ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') : null;
+          if (row.repeat) {
+            if (body.done) doneTimes.add(occurrence!);
+            else doneTimes.delete(occurrence!);
+          } else {
+            entry.done = Boolean(body.done);
+            entry.done_at = entry.done ? entry.done_at ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') : null;
+          }
         }
         entry.updated_at = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-        if (entry.kind === 'reminder' && (body.done || 'starts_at' in body)) {
+        if (entry.kind === 'reminder' && (body.done || 'starts_at' in body || 'repeat' in body || 'repeat_days' in body)) {
           this.readNotifications((n) => n.reminder_id === id);
         }
-        return this.json(res, entry);
+        return this.json(res, entry.repeat ? this.calendarAt(entry, occurrence ?? this.calendarCurrent(entry)) : entry);
       }
     }
 
@@ -2491,6 +2555,12 @@ export class MockBackend {
   /** `calendar/entries.validate`, mirrored: the columns, or the refusal's sentence. */
   private calendarValidate(seed: MockCalendarSeed): Omit<MockCalendarEntry, 'id' | 'done' | 'done_at' | 'created_at' | 'updated_at'> | string {
     if (seed.kind !== 'event' && seed.kind !== 'reminder') return 'An entry is either an event or a reminder.';
+    const asked = seed.repeat as string | null | undefined;
+    const askedDays = (seed.repeat_days ?? []) as string[];
+    if (seed.kind !== 'reminder' && ((asked && asked !== 'none') || askedDays.length)) return 'Only a reminder can repeat.';
+    const repeated = MockBackend.calendarRepeat(asked, askedDays);
+    if (typeof repeated === 'string') return repeated;
+    const once = { repeat: null, repeat_days: [] as string[], repeat_from: null };
     const title = typeof seed.title === 'string' ? seed.title.trim() : '';
     if (!title) return 'An entry needs a title.';
     if (title.length > 200) return 'A title is at most 200 characters.';
@@ -2498,19 +2568,96 @@ export class MockBackend {
     const startsAt = MockBackend.wireInstant(seed.starts_at);
     if (seed.kind === 'reminder') {
       if (seed.all_day || !startsAt) return 'A reminder needs a date and a time.';
-      return { kind: 'reminder', title, notes, all_day: false, starts_at: startsAt, ends_at: null, start_date: null, end_date: null };
+      return { kind: 'reminder', title, notes, all_day: false, starts_at: startsAt, ends_at: null, start_date: null, end_date: null, ...repeated, repeat_from: null };
     }
     if (seed.all_day) {
       if (!seed.start_date) return 'An all-day event needs a date.';
       const endDate = seed.end_date ?? seed.start_date;
       if (endDate < seed.start_date) return 'An event cannot end before it starts.';
-      return { kind: 'event', title, notes, all_day: true, starts_at: null, ends_at: null, start_date: seed.start_date, end_date: endDate };
+      return { kind: 'event', title, notes, all_day: true, starts_at: null, ends_at: null, start_date: seed.start_date, end_date: endDate, ...once };
     }
     if (!startsAt) return 'An event needs a start time, or a date if it lasts all day.';
     const endsAt = MockBackend.wireInstant(seed.ends_at)
       ?? new Date(Date.parse(startsAt) + 3_600_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
     if (Date.parse(endsAt) <= Date.parse(startsAt)) return 'An event cannot end before it starts.';
-    return { kind: 'event', title, notes, all_day: false, starts_at: startsAt, ends_at: endsAt, start_date: null, end_date: null };
+    return { kind: 'event', title, notes, all_day: false, starts_at: startsAt, ends_at: endsAt, start_date: null, end_date: null, ...once };
+  }
+
+  // ── a reminder that repeats (#355) — `calendar/repeat.py`, in this process's zone ──
+
+  private static readonly WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+  /** `repeat.normalize`, mirrored: the rule and its days, or the refusal. */
+  private static calendarRepeat(rule: string | null | undefined, days: string[]):
+    { repeat: MockCalendarEntry['repeat']; repeat_days: string[] } | string {
+    if (!rule || rule === 'none') {
+      return days.length ? 'Days only go with a weekly repeat.' : { repeat: null, repeat_days: [] };
+    }
+    if (rule !== 'daily' && rule !== 'weekdays' && rule !== 'weekly') {
+      return 'A reminder repeats every day, every weekday, or every week on chosen days.';
+    }
+    const wanted = days.map((d) => String(d).trim().toLowerCase());
+    if (rule !== 'weekly') return wanted.length ? 'Days only go with a weekly repeat.' : { repeat: rule, repeat_days: [] };
+    const unknown = wanted.find((d) => !MockBackend.WEEKDAYS.includes(d));
+    if (unknown) return `'${unknown}' is not a day. Use mon, tue, wed, thu, fri, sat or sun.`;
+    if (!wanted.length) return 'A weekly repeat needs at least one day.';
+    return { repeat: 'weekly', repeat_days: MockBackend.WEEKDAYS.filter((d) => wanted.includes(d)) };
+  }
+
+  /** The series' times on the local days from `fromDay` for `count` days, in that order. */
+  private calendarTimesOn(row: MockCalendarEntry, days: Date[]): string[] {
+    const first = new Date(row.starts_at!);
+    const firstDay = new Date(first.getFullYear(), first.getMonth(), first.getDate()).getTime();
+    const out: string[] = [];
+    for (const day of days) {
+      if (day.getTime() < firstDay) continue;
+      const weekday = MockBackend.WEEKDAYS[(day.getDay() + 6) % 7];
+      const matches = row.repeat === 'daily' || (row.repeat === 'weekdays' && !['sat', 'sun'].includes(weekday))
+        || (row.repeat === 'weekly' && row.repeat_days.includes(weekday));
+      if (!matches) continue;
+      const at = new Date(day.getFullYear(), day.getMonth(), day.getDate(), first.getHours(), first.getMinutes(), first.getSeconds());
+      if (at.getTime() >= first.getTime()) out.push(at.toISOString().replace(/\.\d{3}Z$/, 'Z'));
+    }
+    return out;
+  }
+
+  private static localDays(from: number, count: number, step = 1): Date[] {
+    const start = new Date(from);
+    return Array.from({ length: count }, (_, n) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + n * step));
+  }
+
+  /** Every time of `row` in `[from, to)`. */
+  private calendarTimes(row: MockCalendarEntry, from: number, to: number): string[] {
+    const count = Math.ceil((to - from) / 86_400_000) + 3;
+    return this.calendarTimesOn(row, MockBackend.localDays(from - 86_400_000, count))
+      .filter((at) => Date.parse(at) >= from && Date.parse(at) < to);
+  }
+
+  private calendarNextAtOrAfter(row: MockCalendarEntry, ms: number): string | null {
+    const from = Math.max(ms, Date.parse(row.starts_at!)) - 86_400_000;
+    return this.calendarTimesOn(row, MockBackend.localDays(from, 10)).find((at) => Date.parse(at) >= ms) ?? null;
+  }
+
+  private calendarLatestAtOrBefore(row: MockCalendarEntry, ms: number): string | null {
+    if (ms < Date.parse(row.starts_at!)) return null;
+    return this.calendarTimesOn(row, MockBackend.localDays(ms + 86_400_000, 10, -1)).find((at) => Date.parse(at) <= ms) ?? null;
+  }
+
+  /** `entries.current_time`: its first time from the start of today. */
+  private calendarCurrent(row: MockCalendarEntry): string {
+    const now = new Date();
+    return this.calendarNextAtOrAfter(row, new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) ?? row.starts_at!;
+  }
+
+  /** One time of a repeating reminder, as the backend answers it. */
+  private calendarAt(row: MockCalendarEntry, at: string): MockCalendarEntry {
+    const done = this.calendarDoneTimes.get(row.id)?.has(at) ?? false;
+    return { ...row, starts_at: at, done, done_at: done ? row.updated_at : null, repeat_from: row.starts_at };
+  }
+
+  /** An entry on its own: a repeating reminder as its time from today on. */
+  private calendarAnswer(row: MockCalendarEntry): MockCalendarEntry {
+    return row.repeat ? this.calendarAt(row, this.calendarCurrent(row)) : row;
   }
 
   private calendarRow(row: Omit<MockCalendarEntry, 'id' | 'done_at' | 'created_at' | 'updated_at'>): MockCalendarEntry {

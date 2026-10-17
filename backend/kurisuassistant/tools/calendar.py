@@ -1,4 +1,4 @@
-"""The assistant's calendar tools (#282): create, list, move and delete.
+"""The assistant's calendar tools (#282): create, list, move, repeat and delete.
 
 "Remind me to call Mom on Friday" should put a reminder on the user's calendar.
 These tools are how: they go through ``CalendarEntryRepository`` and
@@ -12,10 +12,12 @@ answer in JSON carrying the entry, which is what both clients draw the chat's
 calendar card from; the ``summary`` is the sentence for the model.
 
 The calendar never starts the assistant. Nothing here schedules work — that is a
-task (#352). A reminder only notifies the user when it is due.
+task (#352). A reminder only notifies the user when it is due — at each of its
+times, when it repeats (#355): ``calendar_create`` takes the repeat and
+``calendar_repeat`` changes or stops it.
 
 The calendar is one of the assistant's own features (#268). ``calendar_list``
-only looks (``read_only``); the other three change the calendar. The account's
+only looks (``read_only``); the other four change the calendar. The account's
 permission mode is applied in ``agents/base.py`` before any of this runs (#360).
 """
 
@@ -64,9 +66,14 @@ async def _zone(user_id: int):
 
 
 def describe_entry(row, tz) -> str:
-    """``the reminder “Call Mom” on Fri 16 Oct 2026, 19:00`` and the like."""
-    from kurisuassistant.calendar import times
+    """``the reminder “Call Mom” on Fri 16 Oct 2026, 19:00`` and the like —
+    ``the reminder “Take the pills” every day at 08:00, from Fri 16 Oct 2026``
+    for one that repeats."""
+    from kurisuassistant.calendar import repeat, times
 
+    if row.repeat:
+        first = times.format_date(times.local(row.starts_at, tz).date())
+        return f"the {row.kind} “{row.title}” {repeat.describe(row, tz)}, from {first}"
     if row.all_day:
         when = times.format_date(row.start_date)
         if row.end_date and row.end_date != row.start_date:
@@ -89,9 +96,36 @@ def _card(row, tz, summary: str) -> str:
 
     return json.dumps({
         "summary": summary,
-        "entry": entries.to_response(row),
+        "entry": entries.to_response(row, tz),
         "time_zone": tz.key,
     })
+
+
+#: How the model names a repeat. ``none`` is only for calendar_repeat.
+_REPEAT_SCHEMA = {
+    "repeat": {
+        "type": "string",
+        "enum": ["daily", "weekdays", "weekly"],
+        "description": "Reminders only: come back every day, every weekday (Mon–Fri), or every week on repeat_days, at the same local time.",
+    },
+    "repeat_days": {
+        "type": "array",
+        "items": {"type": "string", "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]},
+        "description": "The days of a weekly repeat.",
+    },
+}
+
+
+def _repeat_words(rule: Any, days: Any) -> str:
+    """``every weekday`` — what the approval prompt says a repeat is."""
+    if rule == "daily":
+        return "every day"
+    if rule == "weekdays":
+        return "every weekday"
+    if rule == "weekly":
+        listed = ", ".join(_text(d) for d in days) if isinstance(days, list) else _text(days)
+        return f"every week on {listed}" if listed else "every week"
+    return _text(rule)
 
 
 def _split(value: Any, tz) -> Tuple[Optional[datetime], Optional[date]]:
@@ -134,6 +168,7 @@ class CalendarCreateTool(BaseTool):
                             "description": "Events only: when it ends. Defaults to an hour after a timed start, or the same day.",
                         },
                         "notes": {"type": "string", "description": "Anything else worth keeping with it."},
+                        **_REPEAT_SCHEMA,
                     },
                     "required": ["kind", "title", "start"],
                 },
@@ -144,7 +179,10 @@ class CalendarCreateTool(BaseTool):
         kind = _text(args.get("kind")) or "entry"
         title = _text(args.get("title")) or "untitled"
         start = _text(args.get("start")).replace("T", " ")
-        return f"Add the {kind} “{title}” to the calendar at {start}"
+        sentence = f"Add the {kind} “{title}” to the calendar at {start}"
+        if args.get("repeat"):
+            sentence += f", repeating {_repeat_words(args.get('repeat'), args.get('repeat_days'))}"
+        return sentence
 
     async def execute(self, args: Dict[str, Any]) -> str:
         from kurisuassistant.calendar import entries, times
@@ -177,6 +215,8 @@ class CalendarCreateTool(BaseTool):
                 ends_at=ends_at,
                 start_date=start_date,
                 end_date=end_date,
+                repeat=args.get("repeat"),
+                repeat_days=args.get("repeat_days"),
             )
         except ValueError as e:
             return _error(str(e))
@@ -186,6 +226,8 @@ class CalendarCreateTool(BaseTool):
             row = CalendarEntryRepository(session).create(
                 user_id=user_id, created_at=now, updated_at=now, **columns,
             )
+            entries.schedule(row, tz, now)
+            session.flush()
             return _card(row, tz, f"Added {describe_entry(row, tz)} ({tz.key}).")
 
         return await get_db_service().execute(_create)
@@ -196,7 +238,8 @@ class CalendarListTool(BaseTool):
     read_only = True
     description = (
         "List what is on the user's calendar — events and reminders, each with its id — "
-        "between two local dates or times. Defaults to the next two weeks."
+        "between two local dates or times. Defaults to the next two weeks. A repeating "
+        "reminder is listed once, with its repeat and its next time in the window."
     )
 
     def get_schema(self) -> Dict[str, Any]:
@@ -220,7 +263,7 @@ class CalendarListTool(BaseTool):
         return "Look at the calendar"
 
     async def execute(self, args: Dict[str, Any]) -> str:
-        from kurisuassistant.calendar import times
+        from kurisuassistant.calendar import repeat, times
         from kurisuassistant.db.repositories import CalendarEntryRepository
         from kurisuassistant.db.service import get_db_service
 
@@ -255,6 +298,15 @@ class CalendarListTool(BaseTool):
             rows = CalendarEntryRepository(session).in_window(user_id, start, end)
             lines = []
             for row in rows[:MAX_LIST_ENTRIES]:
+                if row.repeat:
+                    first = next(iter(repeat.occurrences(row, tz, start, end)), None)
+                    if first is None:
+                        continue  # started before the end, but no time in this window
+                    done = " (done)" if first in {o.occurs_at for o in row.occurrences} else ""
+                    lines.append(
+                        f"- #{row.id}: {describe_entry(row, tz)}; next {times.format_local(first, tz)}{done}"
+                    )
+                    continue
                 if row.all_day and (
                     row.end_date < times.local(start, tz).date()
                     or row.start_date > times.local(end - timedelta(seconds=1), tz).date()
@@ -342,7 +394,7 @@ class CalendarMoveTool(BaseTool):
                 if ends_at is not None:
                     changes["ends_at"] = ends_at
             try:
-                entries.apply_update(row, changes)
+                entries.apply_update(row, changes, tz)
             except entries.EntryError as e:
                 return _error(str(e))
             session.flush()
@@ -352,6 +404,87 @@ class CalendarMoveTool(BaseTool):
         moved: list = []
         result = await get_db_service().execute(_move)
         if moved == ["reminder"]:
+            await delivery.withdraw(user_id, entry_id)
+        return result
+
+
+class CalendarRepeatTool(BaseTool):
+    name = "calendar_repeat"
+    description = (
+        "Make a reminder on the user's calendar repeat — every day, every weekday, or every "
+        "week on chosen days, at its time — change how it repeats, or stop it repeating with "
+        "repeat 'none'. Find the id with calendar_list. To move its time, use calendar_move."
+    )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer", "description": "The reminder's id from calendar_list."},
+                        "repeat": {
+                            "type": "string",
+                            "enum": ["daily", "weekdays", "weekly", "none"],
+                            "description": "How it repeats from now on; 'none' stops it, leaving it once.",
+                        },
+                        "repeat_days": _REPEAT_SCHEMA["repeat_days"],
+                    },
+                    "required": ["id", "repeat"],
+                },
+            },
+        }
+
+    def describe_call(self, args: Dict[str, Any]) -> str:
+        entry = f"calendar entry #{_text(args.get('id'))}"
+        if args.get("repeat") in (None, "", "none"):
+            return f"Stop {entry} repeating"
+        return f"Make {entry} repeat {_repeat_words(args.get('repeat'), args.get('repeat_days'))}"
+
+    async def execute(self, args: Dict[str, Any]) -> str:
+        from kurisuassistant.calendar import delivery, entries, repeat, times
+        from kurisuassistant.db.repositories import CalendarEntryRepository
+        from kurisuassistant.db.service import get_db_service
+
+        user_id = args.get("user_id")
+        if not user_id:
+            return _error("No user context available.")
+        entry_id = _entry_id(args.get("id"))
+        if entry_id is None:
+            return _error("Name the reminder by its id from calendar_list.")
+        rule = args.get("repeat")
+        changes: Dict[str, Any] = {
+            "repeat": None if rule in (None, "", "none") else rule,
+            "repeat_days": args.get("repeat_days") or None,
+        }
+        tz = await _zone(user_id)
+
+        def _repeat(session):
+            row = CalendarEntryRepository(session).get_for_user(user_id, entry_id)
+            if row is None:
+                return _error(f"There is no calendar entry #{entry_id}.")
+            try:
+                entries.apply_update(row, changes, tz)
+            except entries.EntryError as e:
+                return _error(str(e))
+            session.flush()
+            changed.append(row.id)
+            if row.repeat:
+                first = times.format_date(times.local(row.starts_at, tz).date())
+                return _card(
+                    row, tz,
+                    f"The {row.kind} “{row.title}” now repeats {repeat.describe(row, tz)}, from {first} ({tz.key}).",
+                )
+            return _card(
+                row, tz, f"The {row.kind} “{row.title}” no longer repeats; it is {describe_entry(row, tz)} ({tz.key}).",
+            )
+
+        changed: list = []
+        result = await get_db_service().execute(_repeat)
+        if changed:
             await delivery.withdraw(user_id, entry_id)
         return result
 

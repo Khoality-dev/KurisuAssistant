@@ -8,7 +8,7 @@ from .skills import GetSkillInstructionsTool
 from .drive import DriveDeleteTool, DriveListTool, DriveReadTool, DriveWriteTool
 from .notify import NotifyUserTool
 from .tasks import TASK_TOOLS
-from .calendar import CalendarCreateTool, CalendarDeleteTool, CalendarListTool, CalendarMoveTool
+from .calendar import CalendarCreateTool, CalendarDeleteTool, CalendarListTool, CalendarMoveTool, CalendarRepeatTool
 
 # Register the server's own tools
 tool_registry.register(HistoryListTool())
@@ -37,6 +37,7 @@ for _task_tool in TASK_TOOLS:
 tool_registry.register(CalendarCreateTool())
 tool_registry.register(CalendarListTool())
 tool_registry.register(CalendarMoveTool())
+tool_registry.register(CalendarRepeatTool())
 tool_registry.register(CalendarDeleteTool())
 
 __all__ = [

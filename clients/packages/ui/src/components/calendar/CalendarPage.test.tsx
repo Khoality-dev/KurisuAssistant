@@ -52,8 +52,14 @@ const local = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m).toISOS
 const callMom = {
   id: 7, kind: 'reminder', title: 'Call Mom', notes: null, all_day: false,
   starts_at: local(16, 19), ends_at: null, start_date: null, end_date: null,
-  done: false, done_at: null, created_at: null, updated_at: null,
+  done: false, done_at: null, repeat: null, repeat_days: [], repeat_from: null,
+  created_at: null, updated_at: null,
 };
+/** A reminder every morning since Thursday 15th: one item per time, one id. */
+const pills = (d: number, done = false) => ({
+  ...callMom, id: 11, title: 'Take the pills', starts_at: local(d, 8), done,
+  repeat: 'daily', repeat_from: local(15, 8),
+});
 const lunch = {
   ...callMom, id: 8, kind: 'event', title: 'Lunch with Anna', starts_at: local(13, 12), ends_at: local(13, 13),
 };
@@ -111,6 +117,71 @@ describe('the Calendar page', () => {
   });
 });
 
+describe('a reminder that repeats (#355)', () => {
+  it('is on each of its days, and Done marks only the time selected', async () => {
+    api.listCalendarEntries.mockResolvedValue([pills(16), pills(17)]);
+    await act(async () => { root.render(<CalendarPage />); });
+
+    expect(container.querySelector('[data-day="2026-10-16"]')!.textContent).toContain('Take the pills');
+    const saturday = container.querySelector('[data-day="2026-10-17"] [data-entry-id="11"]') as HTMLElement;
+    expect(saturday).not.toBeNull();
+
+    await act(async () => { saturday.click(); });
+    const panel = container.querySelector('[aria-label="Selected entry"]')!;
+    expect(panel.textContent).toContain('Every day');
+    expect(panel.textContent).toContain('Sat 17 Oct');
+    // Only Saturday's is selected, not every time of it.
+    expect(container.querySelectorAll('[data-entry-id="11"][data-selected="true"]')).toHaveLength(1);
+
+    await act(async () => { button('Done')!.click(); });
+    expect(api.updateCalendarEntry).toHaveBeenCalledWith(11, { done: true, occurrence_at: local(17, 8) });
+  });
+
+  it('Coming up lists each of its next times', async () => {
+    api.getUpcomingCalendar.mockResolvedValue([pills(16), pills(17), pills(18)]);
+    await act(async () => { root.render(<CalendarPage />); });
+    const aside = container.querySelector('aside')!;
+    expect(aside.textContent!.match(/Take the pills/g)).toHaveLength(3);
+  });
+
+  it('a new reminder can repeat every week on chosen days', async () => {
+    await act(async () => { root.render(<CalendarPage />); });
+    await act(async () => { button('New')!.click(); });
+    const dialog = () => document.querySelector('[role="dialog"]')!;
+    const inDialog = (name: string) => [...dialog().querySelectorAll('button')]
+      .find((b) => b.textContent?.trim() === name || b.getAttribute('aria-label') === name) as HTMLElement;
+
+    await act(async () => { inDialog('Reminder').click(); });
+    const title = dialog().querySelector('input') as HTMLInputElement;
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      set.call(title, 'Bins out');
+      title.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => { inDialog('Weekly').click(); });
+    await act(async () => { inDialog('Monday').click(); });
+    await act(async () => { inDialog('Thursday').click(); });
+    await act(async () => { inDialog('Add').click(); });
+
+    expect(api.createCalendarEntry).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'reminder', title: 'Bins out', repeat: 'weekly', repeat_days: ['mon', 'thu'],
+    }));
+  });
+
+  it('Edit can stop it repeating without moving it', async () => {
+    api.listCalendarEntries.mockResolvedValue([pills(16)]);
+    await act(async () => { root.render(<CalendarPage />); });
+    await act(async () => { (container.querySelector('[data-entry-id="11"]') as HTMLElement).click(); });
+    await act(async () => { button('Edit')!.click(); });
+    const once = [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent?.trim() === 'Once') as HTMLElement;
+    await act(async () => { once.click(); });
+    const save = [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent?.trim() === 'Save') as HTMLElement;
+    await act(async () => { save.click(); });
+
+    expect(api.updateCalendarEntry).toHaveBeenCalledWith(11, { title: 'Take the pills', repeat: null });
+  });
+});
+
 describe('the chat card', () => {
   const created = JSON.stringify({
     summary: 'Added the reminder “Call Mom” on Fri 16 Oct 2026, 19:00 (UTC).',
@@ -132,6 +203,17 @@ describe('the chat card', () => {
     await act(async () => { button('Undo')!.click(); });
     expect(api.deleteCalendarEntry).toHaveBeenCalledWith(7);
     expect(container.textContent).toContain('Removed from your calendar');
+  });
+
+  it('says a repeat was changed, and how it repeats now', async () => {
+    const changed = JSON.stringify({
+      summary: 'The reminder “Take the pills” now repeats every day at 08:00, from Thu 15 Oct 2026 (UTC).',
+      entry: pills(16),
+      time_zone: 'UTC',
+    });
+    await act(async () => { root.render(<CalendarToolCard toolName="calendar_repeat" content={changed} />); });
+    expect(container.textContent).toContain('Reminder changed on your calendar');
+    expect(container.textContent).toContain('Every day');
   });
 
   it('renders nothing for a result it cannot read', async () => {

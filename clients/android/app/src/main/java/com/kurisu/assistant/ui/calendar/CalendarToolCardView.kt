@@ -77,6 +77,7 @@ fun CalendarToolCardView(
     val heading = when {
         undone || card.action == CalendarToolAction.DELETED -> "Removed from your calendar"
         card.action == CalendarToolAction.CREATED -> "$kindLabel added to your calendar"
+        card.action == CalendarToolAction.CHANGED -> "$kindLabel changed on your calendar"
         else -> "$kindLabel moved on your calendar"
     }
     val entry = card.entry
@@ -107,7 +108,11 @@ fun CalendarToolCardView(
         if (entry != null) {
             val day = CalendarMath.dayOf(entry, zone)
             Text(
-                listOfNotNull(day?.let(CalendarMath::shortDate), CalendarMath.describeWhen(entry, zone)).joinToString(" · "),
+                listOfNotNull(
+                    day?.let(CalendarMath::shortDate),
+                    CalendarMath.describeWhen(entry, zone),
+                    CalendarMath.describeRepeat(entry),
+                ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

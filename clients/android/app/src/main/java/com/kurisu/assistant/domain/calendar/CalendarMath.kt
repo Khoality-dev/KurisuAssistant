@@ -20,7 +20,7 @@ enum class CalendarView { DAY, WEEK }
 /** What a view shows: its days, and the window to ask the server for. */
 data class CalendarWindow(val start: Instant, val end: Instant, val days: List<LocalDate>)
 
-enum class CalendarToolAction { CREATED, MOVED, DELETED }
+enum class CalendarToolAction { CREATED, MOVED, CHANGED, DELETED }
 
 @Serializable
 data class DeletedEntry(val id: Int, val kind: String, val title: String)
@@ -114,6 +114,35 @@ object CalendarMath {
         }
     }
 
+    /** Monday first, as a weekly repeat stores them (#355). */
+    val WEEKDAYS = listOf("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+    private val weekdayNames = mapOf(
+        "mon" to "Monday", "tue" to "Tuesday", "wed" to "Wednesday", "thu" to "Thursday",
+        "fri" to "Friday", "sat" to "Saturday", "sun" to "Sunday",
+    )
+
+    /** `Every day`, `Every weekday`, `Every Monday and Thursday`; null when it does not repeat. */
+    fun describeRepeat(entry: CalendarEntry): String? = when (entry.repeat) {
+        "daily" -> "Every day"
+        "weekdays" -> "Every weekday"
+        "weekly" -> {
+            val names = WEEKDAYS.filter { it in entry.repeatDays }.mapNotNull(weekdayNames::get)
+            when (names.size) {
+                0 -> "Every week"
+                1 -> "Every ${names[0]}"
+                else -> "Every ${names.dropLast(1).joinToString(", ")} and ${names.last()}"
+            }
+        }
+        else -> null
+    }
+
+    /**
+     * What tells one entry from another: the id, and for a repeating
+     * reminder's times — which share it — the time. List keys and the
+     * selection use it.
+     */
+    fun entryKey(entry: CalendarEntry): String = "${entry.id}@${entry.startsAt ?: entry.startDate.orEmpty()}"
+
     /** `Fri 16 Oct`. */
     fun shortDate(day: LocalDate): String =
         "${day.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} ${day.dayOfMonth} " +
@@ -135,13 +164,15 @@ object CalendarMath {
     }
 
     /**
-     * What `calendar_create`, `calendar_move` or `calendar_delete` answered, as
-     * the chat card; null for another tool, an error, a listing or text.
+     * What `calendar_create`, `calendar_move`, `calendar_repeat` or
+     * `calendar_delete` answered, as the chat card; null for another tool, an
+     * error, a listing or text.
      */
     fun toolCard(toolName: String?, content: String?, json: Json): CalendarToolCard? {
         val action = when (toolName) {
             "calendar_create" -> CalendarToolAction.CREATED
             "calendar_move" -> CalendarToolAction.MOVED
+            "calendar_repeat" -> CalendarToolAction.CHANGED
             "calendar_delete" -> CalendarToolAction.DELETED
             else -> return null
         }

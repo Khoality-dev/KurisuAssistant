@@ -11,6 +11,13 @@ released and ``delivery_attempts`` bumped, so the next scan tries again; after
 ``MAX_DELIVERY_ATTEMPTS`` the stamp stays and the failure is logged as an
 error — the reminder is still on the calendar, it just never notified.
 
+A repeating reminder (#355) is claimed by its cursor, ``next_due_at``: the
+claim moves the cursor past now and hands on the latest time that has come —
+one notification, however many times a server that was down missed — unless
+that time was marked done. A failed delivery puts the cursor back on the same
+time; after ``MAX_DELIVERY_ATTEMPTS`` that time is given up and the series goes
+on. ``delivered_at`` is never stamped on a series: every time comes.
+
 This runs as an asyncio task on the app's own event loop rather than on a
 worker thread like the scanners in ``service.py``: delivery reaches the
 clients' open connections (#353), which live on that loop. The database work
@@ -35,7 +42,7 @@ MAX_DELIVERY_ATTEMPTS = 5
 
 async def scan_once(now: Optional[datetime] = None) -> int:
     """Deliver every reminder due by ``now``. Returns how many went out."""
-    from kurisuassistant.calendar import delivery, zone
+    from kurisuassistant.calendar import delivery, repeat, zone
     from kurisuassistant.db.models import User
     from kurisuassistant.db.repositories import CalendarEntryRepository
     from kurisuassistant.db.service import get_db_service
@@ -44,20 +51,40 @@ async def scan_once(now: Optional[datetime] = None) -> int:
     db = get_db_service()
 
     def _claim(session):
-        rows = CalendarEntryRepository(session).due_reminders(now, SCAN_LIMIT)
+        repo = CalendarEntryRepository(session)
         zones = {}
         claimed = []
-        for row in rows:
+
+        def zone_of(user_id):
+            if user_id not in zones:
+                zones[user_id] = zone.zone_for(session.get(User, user_id))
+            return zones[user_id]
+
+        for row in repo.due_reminders(now, SCAN_LIMIT):
             row.delivered_at = now
-            if row.user_id not in zones:
-                user = session.get(User, row.user_id)
-                zones[row.user_id] = zone.zone_for(user).key
             claimed.append({
                 "id": row.id,
                 "user_id": row.user_id,
                 "title": row.title,
                 "starts_at": row.starts_at,
-                "time_zone": zones[row.user_id],
+                "time_zone": zone_of(row.user_id).key,
+            })
+        for row in repo.due_repeating(now, SCAN_LIMIT):
+            tz = zone_of(row.user_id)
+            at = repeat.latest_at_or_before(row, tz, now)
+            row.next_due_at = repeat.next_after(row, tz, now)
+            done = {o.occurs_at for o in row.occurrences}
+            if at is None or at in done:
+                row.delivery_attempts = 0
+                continue
+            claimed.append({
+                "id": row.id,
+                "user_id": row.user_id,
+                "title": row.title,
+                "starts_at": at,
+                "time_zone": tz.key,
+                "repeating": True,
+                "attempts": row.delivery_attempts or 0,
             })
         return claimed
 
@@ -67,25 +94,53 @@ async def scan_once(now: Optional[datetime] = None) -> int:
         try:
             await delivery.deliver(entry)
         except Exception as exc:
-            await _release(entry["id"], exc)
+            await _release(entry, exc)
         else:
             sent += 1
+            if entry.get("repeating") and entry["attempts"]:
+                await _settled(entry["id"])
     return sent
 
 
-async def _release(entry_id: int, exc: Exception) -> None:
+async def _settled(entry_id: int) -> None:
+    """A repeating reminder's time went out after failing before: the next
+    time starts with no failures counted."""
+    from kurisuassistant.db.models import CalendarEntry
+    from kurisuassistant.db.service import get_db_service
+
+    def _reset(session):
+        row = session.get(CalendarEntry, entry_id)
+        if row is not None:
+            row.delivery_attempts = 0
+
+    await get_db_service().execute(_reset)
+
+
+async def _release(entry: dict, exc: Exception) -> None:
     """Give a failed claim back for the next scan — or give up on it."""
     from kurisuassistant.db.models import CalendarEntry
     from kurisuassistant.db.service import get_db_service
+
+    entry_id = entry["id"]
 
     def _undo(session):
         row = session.get(CalendarEntry, entry_id)
         if row is None:
             return None
-        row.delivery_attempts = (row.delivery_attempts or 0) + 1
-        if row.delivery_attempts < MAX_DELIVERY_ATTEMPTS:
+        attempts = (row.delivery_attempts or 0) + 1
+        if entry.get("repeating"):
+            if not row.repeat:
+                return None  # stopped since it was claimed: nothing to retry
+            if attempts < MAX_DELIVERY_ATTEMPTS:
+                row.next_due_at = entry["starts_at"]  # the same time, next scan
+                row.delivery_attempts = attempts
+            else:
+                row.delivery_attempts = 0  # given up on this time; the series goes on
+            return attempts
+        row.delivery_attempts = attempts
+        if attempts < MAX_DELIVERY_ATTEMPTS:
             row.delivered_at = None
-        return row.delivery_attempts
+        return attempts
 
     attempts = await get_db_service().execute(_undo)
     if attempts is None:

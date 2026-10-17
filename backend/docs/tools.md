@@ -23,11 +23,12 @@ into the arguments by `BaseAgent.execute_tool`. Registered in `tools/__init__.py
   any permission mode — a task with nobody attached has to be able to say it is
   done
 - the six task tools — below
-- `calendar_create`, `calendar_list`, `calendar_move`, `calendar_delete` — the
-  user's events and reminders (#282). Wall-clock times in the account's zone;
-  create and move answer JSON with the entry, which the clients draw as the
-  chat's calendar card. Nothing on the calendar makes the assistant act. See
-  `calendar.md`
+- `calendar_create`, `calendar_list`, `calendar_move`, `calendar_repeat`,
+  `calendar_delete` — the user's events and reminders (#282). Wall-clock times
+  in the account's zone; create, move and repeat answer JSON with the entry,
+  which the clients draw as the chat's calendar card. A reminder can repeat
+  (#355): `calendar_create` takes the repeat, `calendar_repeat` changes or stops
+  it. Nothing on the calendar makes the assistant act. See `calendar.md`
 
 The two recall tools replaced `history_search` (#6): an unindexed `ILIKE` that
 truncated hits to 200 characters and cited nothing. They search documents as

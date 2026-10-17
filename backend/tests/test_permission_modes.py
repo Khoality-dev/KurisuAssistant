@@ -179,7 +179,7 @@ class TestWhichToolsOnlyLook:
     }
     CHANGES = {
         "drive_write", "drive_delete", "calendar_create", "calendar_move",
-        "calendar_delete", "task_start", "task_schedule", "task_update",
+        "calendar_repeat", "calendar_delete", "task_start", "task_schedule", "task_update",
         "task_stop", "task_delete",
     }
 
