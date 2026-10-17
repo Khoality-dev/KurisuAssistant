@@ -79,6 +79,32 @@ describe('calendarStore', () => {
     expect(api.listCalendarEntries.mock.calls.length).toBeGreaterThanOrEqual(4);
   });
 
+  it('Done on one time of a repeating reminder says which time (#355)', async () => {
+    const s = useCalendarStore.getState();
+    await s.setDone(5, true, '2026-10-17T15:00:00Z');
+    expect(api.updateCalendarEntry).toHaveBeenCalledWith(5, { done: true, occurrence_at: '2026-10-17T15:00:00Z' });
+  });
+
+  it('selects one time of a repeating reminder, not all of them (#355)', () => {
+    useCalendarStore.getState().select(5, '2026-10-17T15:00:00Z');
+    expect(useCalendarStore.getState()).toMatchObject({ selectedId: 5, selectedAt: '2026-10-17T15:00:00Z' });
+    useCalendarStore.getState().select(null);
+    expect(useCalendarStore.getState()).toMatchObject({ selectedId: null, selectedAt: null });
+  });
+
+  it('opening a repeating reminder selects the time it opened on (#355)', async () => {
+    api.getCalendarEntry.mockResolvedValueOnce({
+      id: 43, kind: 'reminder', title: 'Take the pills', notes: null, all_day: false,
+      starts_at: new Date(2026, 9, 21, 8).toISOString(), ends_at: null,
+      start_date: null, end_date: null, done: false, done_at: null,
+      repeat: 'daily', repeat_days: [], repeat_from: new Date(2026, 9, 1, 8).toISOString(),
+      created_at: null, updated_at: null,
+    } as never);
+    useCalendarStore.getState().openEntry(43);
+    await vi.waitFor(() => expect(useCalendarStore.getState().selectedAt).toBe(new Date(2026, 9, 21, 8).toISOString()));
+    expect(useCalendarStore.getState().anchor.getDate()).toBe(21);
+  });
+
   it('a refusal is kept as a sentence, not thrown', async () => {
     api.createCalendarEntry.mockRejectedValueOnce({ response: { status: 400, data: { detail: 'A reminder needs a date and a time.' } } });
     const made = await useCalendarStore.getState().create({ kind: 'reminder', title: 'x' });
