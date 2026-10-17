@@ -163,6 +163,8 @@ class PersonasViewModelTest {
             assistantRepo.updateAssistant(AssistantUpdate(selectedPersonaId = 3))
         }
         assertThat(vm.state.value.selectedPersonaId).isEqualTo(3)
+        // Every chat, the open one included, not only new ones (#354, #365).
+        assertThat(vm.state.value.message).isEqualTo("${coach.name} answers every chat")
         // The default is a server-side pointer, not a local preference: two
         // devices must not be able to disagree about who answers.
         coVerify(exactly = 0) { personaRepo.updatePersona(any(), any()) }
@@ -318,7 +320,7 @@ class PersonasViewModelTest {
 
         coVerify(exactly = 1) { assistantRepo.clearSelectedPersona() }
         assertThat(vm.state.value.selectedPersonaId).isNull()
-        assertThat(vm.state.value.message).isEqualTo("New chats will use the assistant itself")
+        assertThat(vm.state.value.message).isEqualTo("The assistant answers every chat")
     }
 
     @Test

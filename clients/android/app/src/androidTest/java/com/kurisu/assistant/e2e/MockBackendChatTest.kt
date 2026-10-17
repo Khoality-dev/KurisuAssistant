@@ -1,11 +1,17 @@
 package com.kurisu.assistant.e2e
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasScrollToKeyAction
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
+import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
@@ -14,8 +20,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Login, a streamed reply, and the header's persona switch, against the
- * `default` scenario: two personas, Kurisu in use, a short reply (#126).
+ * Login, a streamed reply, the chat header, and switching the persona from the
+ * Personas page, against the `default` scenario: two personas, Kurisu in use,
+ * a short reply (#126).
  *
  * The switch is the account's (#354): it changes who answers every conversation,
  * so a test that makes it puts the mock's selection back, or the next test on the
@@ -28,6 +35,47 @@ class MockBackendChatTest : E2eTest() {
 
     private fun restoreSelection(id: String?) {
         mock.patch("/assistant", """{"selected_persona_id": ${id ?: "null"}}""")
+    }
+
+    /** The persona is switched on the Personas page, not in the chat (#365). */
+    private fun switchOnPersonasPage(name: String) {
+        openDrawerItem("Personas")
+        waitForText(name)
+        composeRule.onNodeWithText(name).performClick()
+    }
+
+    /** Personas was opened from the drawer, so Back lands on the Chats list. */
+    private fun backToChats() {
+        composeRule.onNodeWithContentDescription("Back").performClick()
+        // Both screens have a Refresh; wait out the transition so a tap lands on Chats.
+        waitUntilGone("A persona swaps the assistant's voice, name and system prompt. The model, tools and memory stay the same.")
+        waitForText("Chats")
+    }
+
+    @Test
+    fun the_chat_header_names_the_model_and_not_the_persona() {
+        login()
+        openChat()
+
+        // The model is the title.
+        val model = hasText("test-model") and hasAnyAncestor(hasTestTag("chat-header"))
+        assertTrue("the header shows the model", waitUntilTrue {
+            runCatching { composeRule.onNode(model).assertIsDisplayed() }.isSuccess
+        })
+
+        // The persona in use is Kurisu, and the header does not say so (#365).
+        composeRule.onNodeWithContentDescription("Switch persona").assertDoesNotExist()
+        composeRule.onNode(hasText("Kurisu") and hasAnyAncestor(hasTestTag("chat-header"))).assertDoesNotExist()
+
+        // Tapping the model opens the model sheet.
+        composeRule.onNode(model).performClick()
+        waitForText("Model")
+        Espresso.pressBack()
+
+        // Voice mode and the menu are the only icons; the character is in the menu.
+        composeRule.onNodeWithContentDescription("Live character").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("More").performClick()
+        waitForText("Live character")
     }
 
     @Test
@@ -61,10 +109,10 @@ class MockBackendChatTest : E2eTest() {
             login()
             openChat()
 
-            composeRule.onNodeWithContentDescription("Switch persona").performClick()
-            waitForText("No persona — the assistant answers as itself")
-            composeRule.onNodeWithText("No persona — the assistant answers as itself").performClick()
-            waitForText("Assistant answers every chat")
+            switchOnPersonasPage("The assistant itself")
+            waitForText("The assistant answers every chat")
+            backToChats()
+            openChat()
             assertTrue("the account has no persona in use", waitUntilTrue { selectedPersonaId() == null })
             val text = send("Just you, please")
 
@@ -78,7 +126,7 @@ class MockBackendChatTest : E2eTest() {
     }
 
     @Test
-    fun the_chat_header_switches_the_persona_in_use_for_every_chat() {
+    fun the_personas_page_switches_the_persona_in_use_for_every_chat() {
         val before = selectedPersonaId()
         try {
             login()
@@ -91,18 +139,30 @@ class MockBackendChatTest : E2eTest() {
             // learned the conversation id.
             waitUntilViewShows("mock backend.")
             val conversationId = first.string("id")
+            // Every mock conversation is titled alike; name this one so its row can be found.
+            val title = unique("Who answers")
+            mock.patch("/conversations/$conversationId", """{"title":"$title"}""")
             // Whichever of the two personas is not in use is the one to switch to.
             val (targetId, targetName) = if (before == "1") "2" to "Amadeus" else "1" to "Kurisu"
 
-            composeRule.onNodeWithContentDescription("Switch persona").performClick()
-            waitForText(targetName)
-            composeRule.onNodeWithText(targetName).performClick()
+            switchOnPersonasPage(targetName)
             waitForText("$targetName answers every chat")
 
             // Saved to the account, with no message sent.
             assertTrue("the account's persona is $targetName", waitUntilTrue { selectedPersonaId() == targetId })
 
-            // The open conversation stays open and continues as the new persona.
+            // The same conversation continues as the new persona.
+            backToChats()
+            composeRule.onNodeWithContentDescription("Refresh").performClick()
+            // The list keeps its place on refresh, so a row added above it is
+            // off screen: scroll to it rather than wait for it to appear.
+            assertTrue("the Chats list has \"$title\"", waitUntilTrue {
+                runCatching {
+                    composeRule.onNode(hasScrollToKeyAction()).performScrollToNode(hasText(title))
+                }.isSuccess
+            })
+            composeRule.onNodeWithText(title).performClick()
+            waitForText(text)
             val next = send("And now?")
             val after = mock.waitForConversation(next, onTimeout = ::dumpScreen) { conv ->
                 conv.messagesAfter(next).any { it.role == "assistant" }
