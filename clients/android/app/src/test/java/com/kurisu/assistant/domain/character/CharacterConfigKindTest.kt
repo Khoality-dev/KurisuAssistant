@@ -65,12 +65,12 @@ class CharacterConfigKindTest {
     }
 
     @Test
-    fun `each kind has its sentence, and only a pose graph has none`() {
+    fun `each kind has its sentence, and only the kinds this build draws have none`() {
         assertThat(CharacterConfigKind.POSE_GRAPH.unrenderableMessage()).isNull()
+        // A VRM is drawn in the character page's WebView since #246.
+        assertThat(CharacterConfigKind.VRM.unrenderableMessage()).isNull()
         assertThat(CharacterConfigKind.NONE.unrenderableMessage())
             .isEqualTo("This persona has no character configured.")
-        assertThat(CharacterConfigKind.VRM.unrenderableMessage())
-            .isEqualTo("3D character — update the app to see it.")
         assertThat(CharacterConfigKind.UNSUPPORTED.unrenderableMessage())
             .isEqualTo("This character needs a newer app.")
         assertThat(CharacterConfigKind.VRM.metaLabel()).isEqualTo("3D character")

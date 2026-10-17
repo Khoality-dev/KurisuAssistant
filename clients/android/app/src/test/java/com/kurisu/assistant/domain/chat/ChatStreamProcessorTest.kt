@@ -9,6 +9,7 @@ import com.kurisu.assistant.data.model.StreamChunkEvent
 import com.kurisu.assistant.data.model.ToolCallRequestEvent
 import com.kurisu.assistant.data.model.WsErrorCodes
 import com.kurisu.assistant.data.remote.websocket.WebSocketManager
+import com.kurisu.assistant.domain.tts.SegmentCue
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -139,7 +140,7 @@ class ChatStreamProcessorTest {
     @Test
     fun `sentence boundary fires callback for assistant only`() = runTest {
         val received = mutableListOf<String>()
-        processor.onSentenceBoundary = { text, _ -> received.add(text) }
+        processor.onSentenceBoundary = { text, _, _ -> received.add(text) }
         processor.startCollecting()
         processor.startStreaming()
 
@@ -153,7 +154,7 @@ class ChatStreamProcessorTest {
     @Test
     fun `tool role does not feed TTS`() = runTest {
         val received = mutableListOf<String>()
-        processor.onSentenceBoundary = { text, _ -> received.add(text) }
+        processor.onSentenceBoundary = { text, _, _ -> received.add(text) }
         processor.startCollecting()
 
         eventsFlow.emit(chunk(role = "tool", content = "Tool output.", name = "x"))
@@ -165,7 +166,7 @@ class ChatStreamProcessorTest {
     @Test
     fun `DoneEvent flushes remaining TTS buffer and invokes callback`() = runTest {
         val received = mutableListOf<String>()
-        processor.onSentenceBoundary = { text, _ -> received.add(text) }
+        processor.onSentenceBoundary = { text, _, _ -> received.add(text) }
         var doneFired = false
         processor.onStreamDone = { doneFired = true }
         processor.startCollecting()
@@ -274,15 +275,44 @@ class ChatStreamProcessorTest {
         processor.startCollecting() // should not crash or double-subscribe
     }
 
+    @Test
+    fun `a feeling rides the sentence it is in, and a tool call restarts the count`() = runTest {
+        val received = mutableListOf<Pair<String, List<SegmentCue>>>()
+        processor.onSentenceBoundary = { text, _, cues -> received.add(text to cues) }
+        processor.startCollecting()
+        processor.startStreaming()
+
+        // The splitter cuts after the full stop, so the second sentence is
+        // " That is sad." from offset 5, and the cue at 6 is one unit into it.
+        eventsFlow.emit(chunk(role = "assistant", content = "Fine. ", emotion = "relaxed", emotionAt = 0))
+        eventsFlow.emit(chunk(role = "assistant", content = "That is sad.", emotion = "sad", emotionAt = 6))
+        eventsFlow.emit(chunk(role = "assistant", content = " Wait"))
+        eventsFlow.emit(chunk(role = "tool", content = "result", name = "x"))
+        // The next round counts from zero again (#243): this cue is at 0, not 23.
+        eventsFlow.emit(chunk(role = "assistant", content = "Oh! ", emotion = "surprised", emotionAt = 0))
+        eventsFlow.emit(DoneEvent(conversationId = 1))
+        advanceUntilIdle()
+
+        assertThat(received.map { it.first }).containsExactly("Fine.", "That is sad.", "Wait", "Oh!").inOrder()
+        assertThat(received[0].second).containsExactly(SegmentCue("relaxed", 0.0))
+        assertThat(received[1].second).containsExactly(SegmentCue("sad", 1.0 / 13))
+        assertThat(received[2].second).isEmpty()
+        assertThat(received[3].second).containsExactly(SegmentCue("surprised", 0.0))
+    }
+
     private fun chunk(
         role: String,
         content: String,
         name: String? = null,
         conversationId: Int = 1,
+        emotion: String? = null,
+        emotionAt: Int? = null,
     ) = StreamChunkEvent(
         role = role,
         content = content,
         name = name,
         conversationId = conversationId,
+        emotion = emotion,
+        emotionAt = emotionAt,
     )
 }
