@@ -33,6 +33,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.NotificationsNone
+import androidx.compose.material.icons.outlined.Repeat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -64,6 +65,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -90,10 +94,14 @@ private val AllDayTint = Color(0xFF7E22CE)
  *
  * A phone opens on today: the week strip on top, the day's entries in time
  * order with the now-line among them, and "Coming up" below. The week view
- * lists every day of the week. Tapping an entry opens its sheet — Done, Move,
+ * lists every day of the week. Tapping an entry opens its sheet — Done, Edit,
  * Delete. Nothing here says who put an entry on the calendar, and nothing here
  * starts the assistant. [openReminderId] is the navigation target a reminder
  * notification opens (#353).
+ *
+ * A repeating reminder (#355) is on each of its days, every time an entry of
+ * its own with the series' id: items are keyed and selected by
+ * [CalendarMath.entryKey], and Done is for the time selected.
  */
 
 @Composable
@@ -110,9 +118,11 @@ fun CalendarScreen(
         openReminderId?.let(viewModel::openEntry)
     }
 
-    val selected = state.selectedId?.let { id ->
-        state.entries.firstOrNull { it.id == id } ?: state.upcoming.firstOrNull { it.id == id }
-    }
+    /** One entry — a repeating reminder's other times are not it. */
+    fun isSelected(entry: CalendarEntry) =
+        entry.id == state.selectedId && (state.selectedAt == null || entry.startsAt == state.selectedAt)
+    fun selectEntry(entry: CalendarEntry) = viewModel.select(entry.id, if (entry.isRepeating) entry.startsAt else null)
+    val selected = state.entries.firstOrNull(::isSelected) ?: state.upcoming.firstOrNull(::isSelected)
 
     Scaffold(
         topBar = {
@@ -205,14 +215,14 @@ fun CalendarScreen(
                             nowShown = true
                             item(key = "now-$day") { NowLine() }
                         }
-                        item(key = "${day}-${entry.id}") {
-                            EntryRow(entry, zone, selected = entry.id == state.selectedId) { viewModel.select(entry.id) }
+                        item(key = "${day}-${CalendarMath.entryKey(entry)}") {
+                            EntryRow(entry, zone, selected = isSelected(entry)) { selectEntry(entry) }
                         }
                     }
                     if (!nowShown && dayEntries.isNotEmpty()) item(key = "now-end-$day") { NowLine() }
                 }
-                val shownIds = state.entries.map { it.id }.toSet()
-                val later = state.upcoming.filter { it.id !in shownIds }
+                val shown = state.entries.map(CalendarMath::entryKey).toSet()
+                val later = state.upcoming.filter { CalendarMath.entryKey(it) !in shown }
                 if (later.isNotEmpty()) {
                     item(key = "later") {
                         Text(
@@ -222,9 +232,9 @@ fun CalendarScreen(
                             modifier = Modifier.padding(top = 12.dp),
                         )
                     }
-                    items(later, key = { "u-${it.id}" }) { entry ->
+                    items(later, key = { "u-${CalendarMath.entryKey(it)}" }) { entry ->
                         UpcomingRow(entry, zone) {
-                            viewModel.select(entry.id)
+                            selectEntry(entry)
                             CalendarMath.dayOf(entry, zone)?.let(viewModel::setAnchor)
                         }
                     }
@@ -238,7 +248,7 @@ fun CalendarScreen(
             EntrySheet(
                 entry = selected,
                 zone = zone,
-                onDone = { viewModel.setDone(selected.id, !selected.done) },
+                onDone = { viewModel.setDone(selected.id, !selected.done, if (selected.isRepeating) selected.startsAt else null) },
                 onMove = { editor = EditorTarget(selected) },
                 onDelete = { viewModel.delete(selected.id) },
             )
@@ -355,7 +365,11 @@ private fun EntryRow(entry: CalendarEntry, zone: ZoneId, selected: Boolean, onCl
                 textDecoration = if (entry.done) TextDecoration.LineThrough else null,
             )
             Text(
-                CalendarMath.describeWhen(entry, zone) + if (entry.isReminder) " · Reminder" else "",
+                listOfNotNull(
+                    CalendarMath.describeWhen(entry, zone),
+                    if (entry.isReminder) "Reminder" else null,
+                    CalendarMath.describeRepeat(entry),
+                ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -378,12 +392,17 @@ private fun UpcomingRow(entry: CalendarEntry, zone: ZoneId, onClick: () -> Unit)
         Icon(entryIcon(entry), contentDescription = null, tint = if (entry.isReminder) ReminderTint else EventTint, modifier = Modifier.size(18.dp))
         Column(Modifier.weight(1f)) {
             Text(entry.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-            Text(CalendarMath.describeWhen(entry, zone), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                listOfNotNull(CalendarMath.describeWhen(entry, zone), CalendarMath.describeRepeat(entry)).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
 
 private fun entryIcon(entry: CalendarEntry) = when {
+    entry.isRepeating -> Icons.Outlined.Repeat
     entry.isReminder -> Icons.Outlined.NotificationsNone
     entry.allDay -> Icons.Outlined.Cake
     else -> Icons.Outlined.Event
@@ -409,9 +428,19 @@ private fun EntrySheet(
             listOfNotNull(day?.let(CalendarMath::shortDate), CalendarMath.describeWhen(entry, zone)).joinToString(" · "),
             style = MaterialTheme.typography.bodyMedium,
         )
+        CalendarMath.describeRepeat(entry)?.let { repeats ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Outlined.Repeat, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(repeats, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
         if (entry.isReminder) {
             Text(
-                "Notifies your devices when it is due, even with the app closed.",
+                if (entry.isRepeating) {
+                    "Notifies your devices at each of its times, even with the app closed."
+                } else {
+                    "Notifies your devices when it is due, even with the app closed."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -425,7 +454,7 @@ private fun EntrySheet(
                     Text(if (entry.done) "Not done" else "Done")
                 }
             }
-            OutlinedButton(onClick = onMove) { Text("Move") }
+            OutlinedButton(onClick = onMove) { Text("Edit") }
             TextButton(onClick = onDelete) {
                 Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
                 Spacer(Modifier.width(6.dp))
@@ -436,7 +465,14 @@ private fun EntrySheet(
     }
 }
 
-/** New entry, or Move. Dates and times come from the platform pickers. */
+/**
+ * New entry, or Edit. Dates and times come from the platform pickers.
+ *
+ * A reminder also has Repeats (#355): Once, Daily, Weekdays, or Weekly on chosen
+ * days — the desktop dialog's choices. A repeating reminder is edited as its
+ * series, from its first time, and only what changed is sent, so stopping the
+ * repeat does not also move it.
+ */
 @Composable
 private fun EntryEditor(
     entry: CalendarEntry?,
@@ -448,22 +484,29 @@ private fun EntryEditor(
     onMove: (Int, CalendarEntryUpdate) -> Unit,
 ) {
     val context = LocalContext.current
-    val start = entry?.let { CalendarMath.startOf(it, zone) }
+    // A repeating reminder is edited from its first time, not the time tapped.
+    val start = entry?.let { e -> (e.repeatFrom ?: e.startsAt)?.let { Instant.parse(it).atZone(zone) } }
     var kind by remember { mutableStateOf(entry?.kind ?: "event") }
     var title by remember { mutableStateOf(entry?.title ?: "") }
     var allDay by remember { mutableStateOf(entry?.allDay ?: false) }
-    var date by remember { mutableStateOf(entry?.let { CalendarMath.dayOf(it, zone) } ?: defaultDay) }
+    var date by remember {
+        mutableStateOf(if (entry?.allDay == true) CalendarMath.dayOf(entry, zone) ?: defaultDay else start?.toLocalDate() ?: defaultDay)
+    }
+    var repeat by remember { mutableStateOf(entry?.repeat ?: "once") }
+    var days by remember { mutableStateOf(entry?.repeatDays?.toSet() ?: emptySet()) }
     var time by remember {
         mutableStateOf(start?.toLocalTime() ?: LocalTime.now(zone).plusHours(1).withMinute(0).withSecond(0).withNano(0))
     }
     val isReminder = kind == "reminder"
     val timed = isReminder || !allDay
+    val rule: String? = if (isReminder && repeat != "once") repeat else null
+    val ruleDays = CalendarMath.WEEKDAYS.filter { it in days }
 
     fun instant(day: LocalDate, at: LocalTime) = day.atTime(at).atZone(zone).toInstant().toString()
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (entry == null) "New entry" else "Move ${entry.kind}") },
+        title = { Text(if (entry == null) "New entry" else "Edit ${entry.kind}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (entry == null) {
@@ -504,24 +547,42 @@ private fun EntryEditor(
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(String.format(Locale.ROOT, "%02d:%02d", time.hour, time.minute)) }
                 }
+                if (isReminder) {
+                    RepeatChoice(repeat = repeat, days = days, onRepeat = { repeat = it }, onDays = { days = it })
+                }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = {
             Button(
-                enabled = title.isNotBlank(),
+                enabled = title.isNotBlank() && !(rule == "weekly" && ruleDays.isEmpty()),
                 onClick = {
                     if (entry != null) {
+                        val at = instant(date, time)
+                        // A series' time is sent only when it moved; a one-off's always was.
+                        val moved = start == null || Instant.parse(at) != start.toInstant()
+                        val repeatChanged = isReminder &&
+                            (rule != entry.repeat || (rule == "weekly" && ruleDays != entry.repeatDays))
                         onMove(
                             entry.id,
                             if (entry.allDay) {
                                 CalendarEntryUpdate(title = title, startDate = date.toString())
                             } else {
-                                CalendarEntryUpdate(title = title, startsAt = instant(date, time))
+                                CalendarEntryUpdate(
+                                    title = title,
+                                    startsAt = if (!entry.isRepeating || moved) at else null,
+                                    repeat = if (repeatChanged) CalendarEntryUpdate.repeat(rule) else null,
+                                    repeatDays = if (repeatChanged && rule == "weekly") ruleDays else null,
+                                )
                             },
                         )
                     } else if (timed) {
-                        onCreate(CalendarEntryCreate(kind = kind, title = title, startsAt = instant(date, time)))
+                        onCreate(
+                            CalendarEntryCreate(
+                                kind = kind, title = title, startsAt = instant(date, time),
+                                repeat = rule, repeatDays = if (rule == "weekly") ruleDays else null,
+                            ),
+                        )
                     } else {
                         onCreate(CalendarEntryCreate(kind = kind, title = title, allDay = true, startDate = date.toString(), endDate = date.toString()))
                     }
@@ -530,4 +591,52 @@ private fun EntryEditor(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+private val repeatChoices = listOf("once" to "Once", "daily" to "Daily", "weekdays" to "Weekdays", "weekly" to "Weekly")
+private val dayLetters = mapOf(
+    "mon" to ("M" to "Monday"), "tue" to ("T" to "Tuesday"), "wed" to ("W" to "Wednesday"),
+    "thu" to ("T" to "Thursday"), "fri" to ("F" to "Friday"), "sat" to ("S" to "Saturday"), "sun" to ("S" to "Sunday"),
+)
+
+/** A reminder's Repeats (#355), and the days of a weekly one. */
+@Composable
+private fun RepeatChoice(
+    repeat: String,
+    days: Set<String>,
+    onRepeat: (String) -> Unit,
+    onDays: (Set<String>) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Repeats", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            repeatChoices.forEachIndexed { i, (value, label) ->
+                SegmentedButton(
+                    selected = repeat == value,
+                    onClick = { onRepeat(value) },
+                    shape = SegmentedButtonDefaults.itemShape(index = i, count = repeatChoices.size),
+                    icon = {},
+                ) { Text(label, maxLines = 1, style = MaterialTheme.typography.labelSmall) }
+            }
+        }
+        if (repeat == "weekly") {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                CalendarMath.WEEKDAYS.forEach { day ->
+                    val (letter, name) = dayLetters.getValue(day)
+                    val on = day in days
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .background(if (on) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
+                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                            .clickable { onDays(if (on) days - day else days + day) }
+                            .semantics { contentDescription = name; selected = on },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(letter, color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+            }
+        }
+    }
 }

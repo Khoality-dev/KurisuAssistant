@@ -29,9 +29,12 @@ class CalendarMathTest {
         startDate: String? = null,
         endDate: String? = null,
         done: Boolean = false,
+        repeat: String? = null,
+        repeatDays: List<String> = emptyList(),
     ) = CalendarEntry(
         id = id, kind = kind, title = title, allDay = allDay,
         startsAt = startsAt, endsAt = endsAt, startDate = startDate, endDate = endDate, done = done,
+        repeat = repeat, repeatDays = repeatDays,
     )
 
     @Test
@@ -99,5 +102,38 @@ class CalendarMathTest {
         assertThat(CalendarMath.toolCard("calendar_create", """{"error": "A reminder needs a date and a time."}""", json)).isNull()
         assertThat(CalendarMath.toolCard("calendar_list", "On the calendar from …", json)).isNull()
         assertThat(CalendarMath.toolCard("drive_write", created, json)).isNull()
+    }
+
+    @Test
+    fun `a repeat in words (#355)`() {
+        assertThat(CalendarMath.describeRepeat(entry(kind = "reminder", repeat = "daily"))).isEqualTo("Every day")
+        assertThat(CalendarMath.describeRepeat(entry(kind = "reminder", repeat = "weekdays"))).isEqualTo("Every weekday")
+        assertThat(CalendarMath.describeRepeat(entry(kind = "reminder", repeat = "weekly", repeatDays = listOf("mon", "thu"))))
+            .isEqualTo("Every Monday and Thursday")
+        assertThat(CalendarMath.describeRepeat(entry(kind = "reminder", repeat = "weekly", repeatDays = listOf("mon", "wed", "fri"))))
+            .isEqualTo("Every Monday, Wednesday and Friday")
+        assertThat(CalendarMath.describeRepeat(entry(kind = "reminder"))).isNull()
+    }
+
+    @Test
+    fun `each time of a repeating reminder has a key of its own (#355)`() {
+        val friday = entry(id = 7, kind = "reminder", repeat = "daily", startsAt = "2026-10-16T15:00:00Z")
+        val saturday = friday.copy(startsAt = "2026-10-17T15:00:00Z")
+        assertThat(CalendarMath.entryKey(friday)).isNotEqualTo(CalendarMath.entryKey(saturday))
+        assertThat(CalendarMath.entryKey(entry(id = 9, allDay = true, startDate = "2026-10-18"))).isEqualTo("9@2026-10-18")
+        assertThat(CalendarMath.onDay(listOf(friday, saturday), LocalDate.of(2026, 10, 17), la)).containsExactly(saturday)
+    }
+
+    @Test
+    fun `what calendar_repeat answered is a change (#355)`() {
+        val json = NetworkModule.provideJson()
+        val changed = """
+            {"summary": "The reminder “Take the pills” now repeats every day at 08:00, from Fri 16 Oct 2026 (UTC).",
+             "entry": {"id": 42, "kind": "reminder", "title": "Take the pills", "all_day": false,
+                       "starts_at": "2026-10-16T08:00:00Z", "repeat": "daily", "repeat_days": [],
+                       "repeat_from": "2026-10-16T08:00:00Z"},
+             "time_zone": "UTC"}
+        """.trimIndent()
+        assertThat(CalendarMath.toolCard("calendar_repeat", changed, json)!!.action).isEqualTo(CalendarToolAction.CHANGED)
     }
 }

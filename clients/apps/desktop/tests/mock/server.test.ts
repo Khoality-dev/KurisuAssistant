@@ -1334,6 +1334,71 @@ describe('the calendar (#282)', () => {
 
   });
 
+  describe('a reminder that repeats (#355)', () => {
+    // The mock reads a repeat in its own process's zone — the zone the app shows
+    // too — so these build their instants from local wall-clock Dates.
+    const wire = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const window = (from: Date, to: Date) => `/calendar/entries?start=${wire(from)}&end=${wire(to)}`;
+    const first = new Date(2026, 9, 16, 8);
+
+    it('is listed once for each of its times, each done on its own', async () => {
+      const made = await post('/calendar/entries', { kind: 'reminder', title: 'Take the pills', starts_at: wire(first), repeat: 'daily' });
+      expect(made.status).toBe(201);
+      expect(made.body).toMatchObject({ repeat: 'daily', repeat_days: [], repeat_from: wire(first) });
+      const id = made.body.id;
+      const mine = async () => (await get(window(new Date(2026, 9, 15), new Date(2026, 9, 19)))).body
+        .filter((e: { id: number }) => e.id === id)
+        .map((e: { starts_at: string; done: boolean }) => [e.starts_at, e.done]);
+
+      const sat = wire(new Date(2026, 9, 17, 8));
+      expect(await mine()).toEqual([[wire(first), false], [sat, false], [wire(new Date(2026, 9, 18, 8)), false]]);
+
+      const done = await patch(`/calendar/entries/${id}`, { done: true, occurrence_at: sat });
+      expect(done.body).toMatchObject({ starts_at: sat, done: true });
+      expect((await mine()).map(([, d]: [string, boolean]) => d)).toEqual([false, true, false]);
+      expect((await patch(`/calendar/entries/${id}`, { done: true })).status).toBe(400);
+    });
+
+    it('every weekday, and every week on chosen days', async () => {
+      const weekdays = await post('/calendar/entries', { kind: 'reminder', title: 'Stand up', starts_at: wire(first), repeat: 'weekdays' });
+      const weekly = await post('/calendar/entries', {
+        kind: 'reminder', title: 'Bins out', starts_at: wire(first), repeat: 'weekly', repeat_days: ['thu', 'mon'],
+      });
+      expect(weekly.body.repeat_days).toEqual(['mon', 'thu']);
+      const listed = (await get(window(new Date(2026, 9, 16), new Date(2026, 9, 23)))).body;
+      const days = (id: number) => listed.filter((e: { id: number }) => e.id === id)
+        .map((e: { starts_at: string }) => new Date(e.starts_at).getDate());
+      expect(days(weekdays.body.id)).toEqual([16, 19, 20, 21, 22]);
+      expect(days(weekly.body.id)).toEqual([19, 22]);
+    });
+
+    it('refuses what the backend refuses', async () => {
+      expect((await post('/calendar/entries', { kind: 'event', title: 'Standup', starts_at: wire(first), repeat: 'daily' })).body.detail)
+        .toBe('Only a reminder can repeat.');
+      expect((await post('/calendar/entries', { kind: 'reminder', title: 'Weekly', starts_at: wire(first), repeat: 'weekly' })).body.detail)
+        .toBe('A weekly repeat needs at least one day.');
+    });
+
+    it('can be changed, and stopping leaves one reminder', async () => {
+      const made = await post('/calendar/entries', { kind: 'reminder', title: 'Take the pills', starts_at: wire(first), repeat: 'daily' });
+      const changed = await patch(`/calendar/entries/${made.body.id}`, { repeat: 'weekly', repeat_days: ['wed'] });
+      expect(changed.body).toMatchObject({ repeat: 'weekly', repeat_days: ['wed'] });
+      const stopped = await patch(`/calendar/entries/${made.body.id}`, { repeat: null });
+      expect(stopped.body).toMatchObject({ repeat: null, repeat_from: null });
+      const listed = (await get(window(new Date(2026, 9, 16), new Date(2026, 10, 16)))).body
+        .filter((e: { id: number }) => e.id === made.body.id);
+      expect(listed.length).toBeLessThanOrEqual(1);
+    });
+
+    it('coming up has its next times', async () => {
+      const soon = new Date(Date.now() + 3_600_000);
+      soon.setSeconds(0, 0);
+      const made = await post('/calendar/entries', { kind: 'reminder', title: 'Every day', starts_at: wire(soon), repeat: 'daily' });
+      const upcoming = (await get('/calendar/upcoming?limit=3')).body.filter((e: { id: number }) => e.id === made.body.id);
+      expect(upcoming).toHaveLength(3);
+    });
+  });
+
   it('"coming up" is what is still ahead, soonest first', async () => {
     const at = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString();
     await post('/calendar/entries', { kind: 'reminder', title: 'Later', starts_at: at(3) });

@@ -1000,6 +1000,9 @@ An entry:
   "end_date": null,
   "done": false,
   "done_at": null,
+  "repeat": null,
+  "repeat_days": [],
+  "repeat_from": null,
   "created_at": "2026-10-13T22:20:00Z",
   "updated_at": "2026-10-13T22:20:00Z"
 }
@@ -1009,35 +1012,55 @@ A timed event has `starts_at` and `ends_at`; an all-day event has `all_day:
 true` and `start_date`/`end_date` (inclusive) instead. Nothing says who put an
 entry there.
 
+**A reminder can repeat** (#355): `repeat` is `daily`, `weekdays` (Monday to
+Friday) or `weekly`, with the weekly days in `repeat_days` (`mon` … `sun`,
+Monday first). Its times keep the wall-clock time of its first, `repeat_from`,
+in the account's zone. A repeating reminder is answered **as one of its
+times**: `starts_at` is that time and `done`/`done_at` that time's own — the
+window lists one item per time, all with the same `id`; `GET` of one entry and
+the answer to a create or a change give its first time from the start of the
+account's today (the one that has the change, for a change to one time).
+
 ### GET /calendar/entries?start=…&end=…
 
-Every entry overlapping `[start, end)` — what a day or week view shows. Both
-are required (`422` without), the window must end after it starts and be at
-most a year (`400`). All-day entries are matched a day wider on each side; the
-client places them by their own dates.
+Every entry overlapping `[start, end)` — what a day or week view shows — and
+each time of a repeating reminder in it. Both are required (`422` without), the
+window must end after it starts and be at most a year (`400`). All-day entries
+are matched a day wider on each side; the client places them by their own
+dates.
 
 ### GET /calendar/upcoming?limit=20
 
 What is still ahead, soonest first: events not yet over (all-day ones until the
 end of their last day in the account's zone — `calendar/zone.zone_for`) and reminders not done and not
-past. `limit` 1–100.
+past, a repeating reminder's next times among them. `limit` 1–100.
 
 ### POST /calendar/entries
 
 `{"kind": "event" | "reminder", "title", "notes"?, "all_day"?, "starts_at"?,
-"ends_at"?, "start_date"?, "end_date"?}` → `201` with the entry. A reminder
-needs `starts_at`; a timed event with no `ends_at` lasts an hour; an all-day
-event with no `end_date` is one day.
+"ends_at"?, "start_date"?, "end_date"?, "repeat"?, "repeat_days"?}` → `201` with
+the entry. A reminder needs `starts_at`; a timed event with no `ends_at` lasts
+an hour; an all-day event with no `end_date` is one day. Only a reminder
+repeats, and a weekly repeat needs at least one day (`400`). A repeating
+reminder whose first time has already passed today notifies from its next one.
 
 ### GET /calendar/entries/{id}
 
 ### PATCH /calendar/entries/{id}
 
 Any of `title`, `notes`, `all_day`, `starts_at`, `ends_at`, `start_date`,
-`end_date`, `done`. Only the fields sent change, and the result is validated as
-a whole before anything is written. Moving a timed event's start without an end
-keeps its length; moving a reminder makes it due again. `done` is a reminder's
-alone (`400` for an event).
+`end_date`, `done`, `repeat`, `repeat_days`, `occurrence_at`. Only the fields
+sent change, and the result is validated as a whole before anything is written.
+Moving a timed event's start without an end keeps its length; moving a reminder
+makes it due again. `done` is a reminder's alone (`400` for an event).
+
+On a repeating reminder `starts_at` moves its first time — and so the time of
+day of all of them — and `done` needs `occurrence_at`, the time it is about
+(`400` without, or for an instant that is not one of its times); the other
+times keep theirs. `repeat` changes the repeat, and `repeat: null` stops it,
+leaving a one-off reminder: at `starts_at` when sent, else at its latest time
+that has come (which does not notify again), else at its first. A one-off
+reminder given a `repeat` becomes a series from its own time.
 
 ### DELETE /calendar/entries/{id}
 

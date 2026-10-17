@@ -6,6 +6,7 @@ import {
   NotificationsNoneOutlined as ReminderIcon,
 } from '@mui/icons-material';
 import {
+  describeRepeat,
   describeWhen,
   entryDay,
   formatShortDate,
@@ -22,9 +23,9 @@ const kindLabel = (kind: string) => (kind === 'reminder' ? 'Reminder' : 'Event')
 
 /**
  * How a calendar tool call looks in the chat (#282): what was put on the
- * calendar and when, with "Open in Calendar" and — for something just added —
- * "Undo". Renders nothing for a result it cannot read, so the tool row falls
- * back to the plain one.
+ * calendar and when — and how it repeats (#355) — with "Open in Calendar"
+ * and, for something just added, "Undo". Renders nothing for a result it
+ * cannot read, so the tool row falls back to the plain one.
  */
 export const CalendarToolCard: React.FC<Props> = ({ toolName, content }) => {
   const result = parseCalendarToolResult(toolName, content);
@@ -40,10 +41,15 @@ export const CalendarToolCard: React.FC<Props> = ({ toolName, content }) => {
     ? 'Removed from your calendar'
     : result.action === 'created'
       ? `${kindLabel(kind)} added to your calendar`
-      : `${kindLabel(kind)} moved on your calendar`;
+      : result.action === 'changed'
+        ? `${kindLabel(kind)} changed on your calendar`
+        : `${kindLabel(kind)} moved on your calendar`;
   const title = result.entry?.title ?? result.deleted?.title ?? '';
   const day = result.entry ? entryDay(result.entry) : null;
-  const when = result.entry && day ? `${formatShortDate(day)} · ${describeWhen(result.entry)}` : null;
+  const repeats = result.entry ? describeRepeat(result.entry) : null;
+  const when = result.entry && day
+    ? `${formatShortDate(day)} · ${describeWhen(result.entry)}${repeats ? ` · ${repeats}` : ''}`
+    : null;
 
   const undo = async () => {
     if (!result.entry) return;

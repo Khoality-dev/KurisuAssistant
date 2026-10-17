@@ -83,4 +83,40 @@ test.describe('the calendar', () => {
     await expect.poll(() => mock.calendarEntries.some((e) => e.id === lunch.id)).toBe(false);
   });
 
+
+  test('a reminder that repeats is on each of its days, and Done is for the one day (#355)', async ({ page, mock }) => {
+    const now = new Date();
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7), 8, 0);
+    const pills = mock.addCalendarEntry({ kind: 'reminder', title: 'Take the pills', starts_at: monday.toISOString(), repeat: 'daily' });
+
+    await signIn(page);
+    await openCalendar(page);
+
+    // One on every day of the week shown.
+    await expect(page.locator(`[data-day] [data-entry-id="${pills.id}"]`)).toHaveCount(7, { timeout: 10_000 });
+
+    const today = todayAt(8);
+    await page.locator(`[data-day="${dateKey(today)}"] [data-entry-id="${pills.id}"]`).click();
+    const panel = page.getByRole('region', { name: 'Selected entry' });
+    await expect(panel).toContainText('Every day');
+    await panel.getByRole('button', { name: 'Done' }).click();
+
+    await expect.poll(() => [...(mock.calendarDoneTimes.get(pills.id) ?? [])])
+      .toEqual([today.toISOString().replace(/\.\d{3}Z$/, 'Z')]);
+  });
+
+  test('a new reminder can be made to repeat every weekday', async ({ page, mock }) => {
+    await signIn(page);
+    await openCalendar(page);
+
+    await page.getByRole('button', { name: 'New' }).click();
+    await page.getByRole('button', { name: 'Reminder' }).click();
+    await page.getByLabel('Title').fill('Stand up');
+    await page.getByLabel('Date').fill(dateKey(todayAt(9)));
+    await page.getByLabel('Time').fill('09:00');
+    await page.getByRole('button', { name: 'Weekdays' }).click();
+    await page.getByRole('button', { name: 'Add' }).click();
+
+    await expect.poll(() => mock.calendarEntries.find((e) => e.title === 'Stand up')?.repeat).toBe('weekdays');
+  });
 });

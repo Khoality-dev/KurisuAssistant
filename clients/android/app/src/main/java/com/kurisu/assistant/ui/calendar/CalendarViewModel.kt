@@ -26,6 +26,8 @@ data class CalendarUiState(
     val entries: List<CalendarEntry> = emptyList(),
     val upcoming: List<CalendarEntry> = emptyList(),
     val selectedId: Int? = null,
+    /** Which time of the selected entry: a repeating reminder's are separate entries (#355). */
+    val selectedAt: String? = null,
     val loading: Boolean = false,
     /** The last refusal or failure, as a sentence. */
     val error: String? = null,
@@ -40,6 +42,9 @@ data class CalendarUiState(
  * there from a chat. A phone opens on today's day; the week is one tap away.
  * [openEntry] is the navigation target a reminder notification's tap uses
  * (#353): that entry's day, with it selected.
+ *
+ * A repeating reminder (#355) is several entries with one id, so the selection
+ * is the id and the time, and Done on one names the time.
  */
 @HiltViewModel
 class CalendarViewModel @Inject constructor(
@@ -75,7 +80,7 @@ class CalendarViewModel @Inject constructor(
 
     fun today() = setAnchor(currentDay())
 
-    fun select(id: Int?) = _state.update { it.copy(selectedId = id) }
+    fun select(id: Int?, at: String? = null) = _state.update { it.copy(selectedId = id, selectedAt = if (id == null) null else at) }
 
     fun clearError() = _state.update { it.copy(error = null) }
 
@@ -98,9 +103,13 @@ class CalendarViewModel @Inject constructor(
     }
 
     fun openEntry(id: Int) {
-        _state.update { it.copy(selectedId = id) }
+        _state.update { it.copy(selectedId = id, selectedAt = null) }
         viewModelScope.launch {
             runCatching { repo.get(id) }.onSuccess { entry ->
+                // A repeating reminder answers as its time from today on — the one to show.
+                if (entry.isRepeating && _state.value.selectedId == id) {
+                    _state.update { it.copy(selectedAt = entry.startsAt) }
+                }
                 CalendarMath.dayOf(entry, zone)?.let { day ->
                     if (_state.value.selectedId == id) setAnchor(day)
                 }
@@ -110,7 +119,7 @@ class CalendarViewModel @Inject constructor(
 
     fun create(body: CalendarEntryCreate, onDone: () -> Unit = {}) = change {
         val made = repo.create(body)
-        _state.update { it.copy(selectedId = made.id) }
+        _state.update { it.copy(selectedId = made.id, selectedAt = if (made.isRepeating) made.startsAt else null) }
         onDone()
     }
 
@@ -119,11 +128,13 @@ class CalendarViewModel @Inject constructor(
         onDone()
     }
 
-    fun setDone(id: Int, done: Boolean) = change { repo.update(id, CalendarEntryUpdate(done = done)) }
+    /** [occurrenceAt]: the time of a repeating reminder this is about. */
+    fun setDone(id: Int, done: Boolean, occurrenceAt: String? = null) =
+        change { repo.update(id, CalendarEntryUpdate(done = done, occurrenceAt = occurrenceAt)) }
 
     fun delete(id: Int) = change {
         repo.delete(id)
-        if (_state.value.selectedId == id) _state.update { it.copy(selectedId = null) }
+        if (_state.value.selectedId == id) _state.update { it.copy(selectedId = null, selectedAt = null) }
     }
 
     /** Run a change, then re-read; a failure is kept as a sentence. */

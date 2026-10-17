@@ -127,4 +127,35 @@ class CalendarViewModelTest {
         advanceUntilIdle()
         assertThat(vm.state.value.error).isEqualTo("A reminder needs a date and a time.")
     }
+
+    @Test
+    fun `Done on one time of a repeating reminder says which time (#355)`() = runTest(dispatcher) {
+        val vm = viewModel()
+        vm.setDone(7, true, "2026-10-17T15:00:00Z")
+        advanceUntilIdle()
+        coVerify { repo.update(7, CalendarEntryUpdate(done = true, occurrenceAt = "2026-10-17T15:00:00Z")) }
+    }
+
+    @Test
+    fun `one time of a repeating reminder is selected, not all of them (#355)`() = runTest(dispatcher) {
+        val vm = viewModel()
+        vm.select(11, "2026-10-17T15:00:00Z")
+        assertThat(vm.state.value.selectedId).isEqualTo(11)
+        assertThat(vm.state.value.selectedAt).isEqualTo("2026-10-17T15:00:00Z")
+        vm.select(null)
+        assertThat(vm.state.value.selectedAt).isNull()
+    }
+
+    @Test
+    fun `a repeating reminder opened from a notification selects the time it opened on (#355)`() = runTest(dispatcher) {
+        coEvery { repo.get(11) } returns CalendarEntry(
+            id = 11, kind = "reminder", title = "Take the pills", startsAt = "2026-10-21T15:00:00Z",
+            repeat = "daily", repeatFrom = "2026-10-01T15:00:00Z",
+        )
+        val vm = viewModel()
+        vm.openEntry(11)
+        advanceUntilIdle()
+        assertThat(vm.state.value.selectedAt).isEqualTo("2026-10-21T15:00:00Z")
+        assertThat(vm.state.value.anchor).isEqualTo(LocalDate.of(2026, 10, 21))
+    }
 }

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CALENDAR_TOOL_NAMES,
   calendarWindow,
+  describeRepeat,
   describeWhen,
   entriesForDay,
+  entryKey,
   formatWindowTitle,
   layoutTimed,
   localDateKey,
@@ -29,6 +32,9 @@ function entry(partial: Partial<CalendarEntry>): CalendarEntry {
     end_date: null,
     done: false,
     done_at: null,
+    repeat: null,
+    repeat_days: [],
+    repeat_from: null,
     created_at: null,
     updated_at: null,
     ...partial,
@@ -139,5 +145,41 @@ describe('the chat card', () => {
     expect(parseCalendarToolResult('drive_write', JSON.stringify(created))).toBeNull();
     expect(parseCalendarToolResult('calendar_list', 'On the calendar from …')).toBeNull();
     expect(parseCalendarToolResult('calendar_create', 'not json')).toBeNull();
+  });
+});
+
+describe('a reminder that repeats (#355)', () => {
+  it('says how it repeats', () => {
+    expect(describeRepeat(entry({ kind: 'reminder', repeat: 'daily' }))).toBe('Every day');
+    expect(describeRepeat(entry({ kind: 'reminder', repeat: 'weekdays' }))).toBe('Every weekday');
+    expect(describeRepeat(entry({ kind: 'reminder', repeat: 'weekly', repeat_days: ['mon', 'thu'] })))
+      .toBe('Every Monday and Thursday');
+    expect(describeRepeat(entry({ kind: 'reminder', repeat: 'weekly', repeat_days: ['mon', 'wed', 'fri'] })))
+      .toBe('Every Monday, Wednesday and Friday');
+    expect(describeRepeat(entry({ kind: 'reminder', repeat: 'weekly', repeat_days: ['sat'] }))).toBe('Every Saturday');
+    expect(describeRepeat(entry({ kind: 'reminder' }))).toBeNull();
+  });
+
+  it('keys each of its times apart, since they share an id', () => {
+    const friday = entry({ id: 7, kind: 'reminder', repeat: 'daily', starts_at: '2026-10-16T15:00:00Z' });
+    const saturday = { ...friday, starts_at: '2026-10-17T15:00:00Z' };
+    expect(entryKey(friday)).not.toBe(entryKey(saturday));
+    expect(entryKey(friday)).toBe(entryKey({ ...friday }));
+    expect(entryKey(entry({ id: 9, all_day: true, start_date: '2026-10-18' }))).toBe('9@2026-10-18');
+  });
+
+  it('each time sits on its own day', () => {
+    const friday = entry({ id: 7, kind: 'reminder', repeat: 'daily', starts_at: at(2026, 10, 16, 8).toISOString() });
+    const saturday = { ...friday, starts_at: at(2026, 10, 17, 8).toISOString() };
+    expect(entriesForDay([friday, saturday], at(2026, 10, 17)).timed).toEqual([saturday]);
+  });
+
+  it('reads what calendar_repeat answered as a change', () => {
+    expect(CALENDAR_TOOL_NAMES).toContain('calendar_repeat');
+    const body = {
+      summary: 'The reminder “Take the pills” now repeats every weekday at 08:00, from Fri 16 Oct 2026 (UTC).',
+      entry: entry({ id: 42, kind: 'reminder', title: 'Take the pills', repeat: 'weekdays', starts_at: '2026-10-16T08:00:00Z' }),
+    };
+    expect(parseCalendarToolResult('calendar_repeat', JSON.stringify(body))?.action).toBe('changed');
   });
 });

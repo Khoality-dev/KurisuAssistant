@@ -1,5 +1,5 @@
 """The assistant's calendar tools (#282): calendar_create, calendar_list,
-calendar_move, calendar_delete.
+calendar_move, calendar_repeat (#355), calendar_delete.
 
 Run directly, the way ``BaseAgent.execute_tool`` runs them — ``user_id``
 injected into the arguments, never in the schema. The model writes wall-clock
@@ -62,8 +62,8 @@ async def _create(user_id, **args):
 
 
 class TestRegistration:
-    def test_all_four_are_registered_and_only_listing_looks(self):
-        for name in ("calendar_create", "calendar_list", "calendar_move", "calendar_delete"):
+    def test_all_five_are_registered_and_only_listing_looks(self):
+        for name in ("calendar_create", "calendar_list", "calendar_move", "calendar_repeat", "calendar_delete"):
             tool = tool_registry.get(name)
             assert tool is not None, name
             assert tool.read_only is (name == "calendar_list"), name

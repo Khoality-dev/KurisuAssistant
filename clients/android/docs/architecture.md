@@ -25,7 +25,7 @@ com.kurisu.assistant/
 │   ├── tts/                     -- TTS queue, WAV parser, amplitude computer
 │   ├── audio/                   -- AudioRecorder, VoiceActivityDetector
 │   ├── character/               -- Compositor, image cache, animation migration
-│   ├── calendar/                -- CalendarMath: windows, which day an entry is on, the tool card (#282)
+│   ├── calendar/                -- CalendarMath: windows, which day an entry is on, a repeat in words and the key of each of its times (#355), the tool card (#282)
 │   └── notifications/           -- What a notification says and opens; NotificationSync (what to post and cancel)
 ├── ui/
 │   ├── navigation/              -- NavGraph + AppDrawerHost (routes: LOGIN, CONVERSATIONS, CHAT, TASKS, CALENDAR, ASSISTANT, PERSONAS, TOOLS_MCP, SKILLS, SETTINGS, ACCOUNT, TTS_ASR, APPEARANCE, FACES, ABOUT, NOTIFICATIONS, UNREAD)
@@ -34,7 +34,7 @@ com.kurisu.assistant/
 │   ├── conversations/           -- Chats list (start destination) + voice mode strip + in-app update check; a task run's conversation has a clock (#352)
 │   ├── tasks/                   -- Tasks (#352): grouped list (waiting for approval first; finished one-offs not listed) with filter chips, a task opened in place with its runs, approve/deny, pause/resume/stop/edit/delete; refetches on `tasks_changed`. `TaskApprovalsViewModel` feeds the chat's approval sheet for a run's conversation
 │   ├── chat/                    -- Chat screen, message bubble, tool rail, task card (#352), input with the permission mode chip and sheet (#360), markdown (no nav args)
-│   ├── calendar/                -- Calendar screen + ViewModel, the chat's calendar card (#282)
+│   ├── calendar/                -- Calendar screen + ViewModel, the chat's calendar card (#282); a reminder's Repeats in the editor (#355)
 │   ├── assistant/               -- The one assistant (wake word, thinking, memory, tools)
 │   ├── personas/                -- Persona CRUD (name, prompt, voice, avatar) + ViewModel
 │   ├── common/                  -- Shared UI bits (personaInitials, ModelDropdown)
