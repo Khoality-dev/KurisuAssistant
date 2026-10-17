@@ -1,9 +1,10 @@
 """Repository for Persona model operations."""
 
+from datetime import datetime
 from typing import Any, Optional, List
 from sqlalchemy.orm import Session
 
-from ..models import Persona
+from ..models import Persona, User
 from .base import BaseRepository, UNSET
 
 
@@ -91,12 +92,19 @@ class PersonaRepository(BaseRepository[Persona]):
         Every column a caller may legitimately set is accepted here, so importing
         a persona is a single create rather than a create-then-update.
 
+        An account with a persona has been set up, so its onboarding (#342) is
+        over from here on, on every device — however the persona was made.
+
         Raises:
             ValueError: If a persona with the same name exists for this user
         """
         existing = self.get_by_user_and_name(user_id, name)
         if existing:
             raise ValueError(f"Persona '{name}' already exists")
+
+        user = self.session.get(User, user_id)
+        if user is not None and user.onboarded_at is None:
+            user.onboarded_at = datetime.utcnow()
 
         return self.create(
             user_id=user_id,

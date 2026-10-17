@@ -39,6 +39,7 @@ com.kurisu.assistant/
 │   ├── drive/                   -- Kurisu Drive (#175): a folder at a time, the storage card, row menus, the + menu, the transfer strip and sheet, Move sheet
 │   ├── assistant/               -- The one assistant (wake word, thinking, memory, tools)
 │   ├── personas/                -- Persona CRUD (name, prompt, voice, avatar) + ViewModel
+│   ├── onboarding/              -- A new account's first steps (#342): screen, ViewModel, the gate's ViewModel
 │   ├── common/                  -- Shared UI bits (personaInitials, ModelDropdown)
 │   ├── settings/                -- Settings index + Account, Appearance, Notifications, TTS & ASR, Tools & MCP, Skills screens
 │   ├── faces/                   -- Face Identities CRUD (camera capture via TakePicture intent + FileProvider)
@@ -61,6 +62,7 @@ Launch → GET /version against the stored URL (MainActivity)
         └── "Change server" → sign out, then Login with the stored URL editable (#150)
 Mid-session: HTTP 426 (WireProtocolInterceptor) or WebSocket close 4426 → the same gate
 Login → Conversations ("Chats", the start destination; hamburger → app drawer)
+  └── GET /users/me says onboarding_pending → Onboarding (#342) → Start chatting → Chat (a new conversation); Skip → back to Chats
   ├── Tap a row / New chat FAB → Chat
   ├── In voice mode, say the wake word → Chat, in a new conversation (#341)
   ├── Drawer → Chats | Tasks | Calendar | Drive | Assistant | Personas | Tools & MCP | Skills

@@ -2,6 +2,7 @@ package com.kurisu.assistant.ui.navigation
 
 import com.kurisu.assistant.ui.notifications.UnreadNotificationsScreen
 import androidx.compose.runtime.LaunchedEffect
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.kurisu.assistant.domain.notifications.NotificationTarget
 import com.kurisu.assistant.ui.settings.NotificationsScreen
 import androidx.compose.runtime.Composable
@@ -28,6 +29,8 @@ import com.kurisu.assistant.ui.settings.ToolsMcpScreen
 import com.kurisu.assistant.ui.settings.TtsAsrScreen
 import com.kurisu.assistant.ui.tasks.TasksScreen
 import com.kurisu.assistant.ui.drive.DriveScreen
+import com.kurisu.assistant.ui.onboarding.OnboardingGateViewModel
+import com.kurisu.assistant.ui.onboarding.OnboardingScreen
 
 object Routes {
     const val LOGIN = "login"
@@ -60,6 +63,9 @@ object Routes {
 
     /** The account's files on the server (#175). */
     const val DRIVE = "drive"
+
+    /** A new account's first steps: model, an optional persona, wake word (#342). */
+    const val ONBOARDING = "onboarding"
 
     /** The one assistant: model, provider, tools, memory, wake word. */
     const val ASSISTANT = "assistant"
@@ -132,6 +138,12 @@ fun KurisuNavGraph(
         }
 
         composable(Routes.CONVERSATIONS) {
+            // A new account is walked through its first steps before anything
+            // else (#342); the server says whether it is still owed.
+            val gate: OnboardingGateViewModel = hiltViewModel()
+            LaunchedEffect(gate) {
+                if (gate.isPending()) navController.navigate(Routes.ONBOARDING) { launchSingleTop = true }
+            }
             AppDrawerHost(
                 currentRoute = Routes.CONVERSATIONS,
                 onNavigate = ::openTopLevel,
@@ -171,6 +183,16 @@ fun KurisuNavGraph(
             ) { openDrawer ->
                 DriveScreen(onOpenMenu = openDrawer)
             }
+        }
+
+        composable(Routes.ONBOARDING) {
+            OnboardingScreen(
+                // The first conversation, on what was just chosen.
+                onFinished = {
+                    navController.navigate(Routes.CHAT) { popUpTo(Routes.ONBOARDING) { inclusive = true } }
+                },
+                onSkipped = { navController.popBackStack() },
+            )
         }
 
         composable(Routes.CHAT) {

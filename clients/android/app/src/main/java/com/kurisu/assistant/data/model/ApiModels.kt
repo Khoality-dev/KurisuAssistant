@@ -141,6 +141,11 @@ data class UserProfile(
      * until a client fills it from its device (`domain/time/AccountTimezone`).
      */
     val timezone: String? = null,
+    /**
+     * Whether this account is owed its onboarding (#342): true until a client
+     * reports it finished or skipped, never once it has a persona.
+     */
+    @SerialName("onboarding_pending") val onboardingPending: Boolean = false,
 )
 
 /**
@@ -485,8 +490,12 @@ data class MessageRawData(
 @Serializable
 data class ModelInfo(val name: String, val provider: String = "ollama")
 
+/** A provider `GET /models` could not reach, and the server's sentence for it (#151). */
 @Serializable
-data class ModelsResponse(val models: List<ModelInfo>)
+data class UnavailableProvider(val provider: String, val detail: String)
+
+@Serializable
+data class ModelsResponse(val models: List<ModelInfo>, val unavailable: List<UnavailableProvider> = emptyList())
 
 @Serializable
 data class AsrModelInfo(

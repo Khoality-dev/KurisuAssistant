@@ -14,6 +14,7 @@ users
   summary_model, summary_provider(default 'ollama') used for compaction + memory
   context_size
   timezone?                                         the account's IANA zone (#352), read via core/timezone.py
+  onboarded_at?                                     onboarding finished or skipped, or a persona made (#342); set once
 
 assistants                                          exactly one row per user
   id, user_id→users (CASCADE, unique)
