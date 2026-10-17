@@ -19,8 +19,8 @@ the memory.
 Conversations are what you navigate. A row is its title, when it last moved, and the last thing said
 in it. Neither the persona nor the model is on it: a conversation is not tied to a persona (#354) —
 one persona, or none, is in use for the whole account and answers every conversation — so a face and
-a name would be the same on every row and would tell no two rows apart (#192). The chat header names
-who answers.
+a name would be the same on every row and would tell no two rows apart (#192). Each reply's bubble
+names who gave it.
 
 The strip at the top is voice mode: tap it to turn voice mode on or off, as the chat's top-bar
 button does (#341). The wake word (`kurisu` here) belongs to the **assistant**, not to any persona:
@@ -31,12 +31,12 @@ answers. The screenshots predate voice mode's redesign and still show the old st
 
 ![Chat transcript](assets/02-chat.png)
 
-The header names the **persona**, and beneath it the **model**. Each is its own tap. The persona
-sheet switches the persona in use for the whole account. The model sheet changes the assistant's model — one model for
-every persona — and applies from the next message; it is also what "Choose a model" opens when a
-new account's first message is refused for having none. Each answer carries the persona that
-produced it, so switching persona part-way through does not rewrite the past — old answers keep the
-voice that actually gave them.
+The header names the **model**, and a tap opens the model sheet. It does not name the persona (#365):
+the persona changes rarely, so it is switched on **Personas** and each answer's bubble says who gave
+it. The right of the bar is voice mode and the menu; **Live character** is in the menu. A hairline
+divides the bar from the transcript. Each answer carries the persona that produced it, so switching
+persona part-way through does not rewrite the past — old answers keep the voice that actually gave
+them. The screenshot predates #365 and still shows the persona over the model.
 
 A tool call is a rail rather than a bubble: name, arguments, result, status. A step the assistant
 handed to a sub-agent it spawned (`delegate_task`, #354) is tagged `sub-agent` and names the model
@@ -44,19 +44,19 @@ that ran it.
 
 ## Switching persona
 
-Tapping the header opens the persona sheet, and a pick switches the persona **in use for the whole
-account** (#354): it is saved as the assistant's `selected_persona_id`, with no message sent, and every
-conversation — the open one, the others, new ones, on every device — answers as it from the next
-turn. The open conversation stays open. A persona is optional (#302): the sheet's first row is
-**Assistant** — no persona, the assistant answering as itself — and then the header says
-"Assistant". The screenshot of this sheet (`assets/03-persona-sheet.png`) predates #354 and says
-"This conversation only", so it is not shown until it is captured again.
+A row on **Personas** switches the persona **in use for the whole account** (#354): it is saved as
+the assistant's `selected_persona_id`, with no message sent, and every conversation — the open one,
+the others, new ones, on every device — answers as it from the next turn. A persona is optional
+(#302): the first row is **The assistant itself** — no persona. `/persona` in the chat still opens a
+sheet that does the same; the header has no way in (#365). The screenshot of that sheet
+(`assets/03-persona-sheet.png`) predates #354 and says "This conversation only", so it is not shown
+until it is captured again.
 
 ## Changing the model
 
 ![Model sheet](assets/03b-model-sheet.png)
 
-The model name beneath the persona opens the other sheet. This one is **not** per conversation: the
+The model name on the header opens this sheet. It is **not** per conversation: the
 model is the assistant's, so it changes for every persona, and it applies from the next message.
 It is the only model picker in the app — the Assistant page has none — and it is what "Choose a
 model" opens when a new account's first message is refused for having no model yet (#197).
@@ -67,7 +67,7 @@ model" opens when a new account's first message is refused for having no model y
 
 One screen for everything the assistant can do: wake word, thinking, memory, tools. Two things that
 look like they belong here do not (#197): the model is picked from the chat header, and the persona
-in use is chosen on **Personas** or the chat header — there is no picker on **New chat**. Memory is a
+in use is chosen on **Personas** — there is no picker on **New chat**. Memory is a
 single document, consolidated automatically from your conversations and read-only here. There are no
 sub-agents to set up (#354): the assistant spawns one itself when it wants to hand off a side task.
 The screenshot predates that and still shows the old sub-agent list at the bottom.

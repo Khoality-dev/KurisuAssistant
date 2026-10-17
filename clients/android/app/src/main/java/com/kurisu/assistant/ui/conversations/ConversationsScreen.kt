@@ -65,7 +65,7 @@ import com.kurisu.assistant.ui.update.UpdateDialog
  * There is no search field and no persona picker here. Search was cut rather
  * than half-wired, and every chat answers as the persona in use for the whole
  * account, or the assistant itself when there is none (#354) — chosen on the
- * chat header or the Personas screen.
+ * Personas screen (#365).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

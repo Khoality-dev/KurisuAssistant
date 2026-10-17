@@ -77,10 +77,10 @@ import java.io.File
 /**
  * The personas: who the one assistant sounds like.
  *
- * Tapping a row puts the chat on it — who new chats start with, on every
- * device, kept on the server as the assistant's `selected_persona_id` (#334) —
- * and the pencil opens the editor. A single conversation overrides it from the
- * chat header.
+ * Tapping a row puts it in use — it answers every chat, on every device, kept
+ * on the server as the assistant's `selected_persona_id` (#354) — and the pencil
+ * opens the editor. This page is the only place the persona is switched: the
+ * chat header does not name it, because it changes rarely (#365).
  *
  * @param onPreviewCharacter opens the character canvas for a persona, when the
  *   nav graph has somewhere to send it. Left null, the editor's character row is
@@ -139,7 +139,7 @@ fun PersonasScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    "Personas are optional. Tap one to talk to it in new chats, on every device, or tap the assistant itself to use none. A single conversation can override it from the chat header.",
+                    "Personas are optional. Tap one to have it answer every chat, on every device, or tap the assistant itself to use none.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

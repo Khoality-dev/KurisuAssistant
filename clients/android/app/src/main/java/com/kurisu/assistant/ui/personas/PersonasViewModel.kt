@@ -132,11 +132,13 @@ class PersonasViewModel @Inject constructor(
     // ─── Who the chat is on (#334) ────────────────────────────────────
 
     /**
-     * Tapping a row puts the chat on it: who new conversations start with.
+     * Tapping a row puts it in use: it answers every chat, the open one included
+     * (#354). The chat header does not offer it, so this page is where it is
+     * switched (#365).
      *
      * This is `assistants.selected_persona_id`, not a local preference, so every
-     * device opens on the same persona. The server never applies it — the chat
-     * names it on a new conversation's first message (#334).
+     * device answers as the same persona. The server resolves it on every turn;
+     * a turn never names it (#354).
      */
     fun selectPersona(persona: Persona) {
         if (persona.id == _state.value.selectedPersonaId) return
@@ -149,7 +151,7 @@ class PersonasViewModel @Inject constructor(
                 _state.update {
                     it.copy(
                         selectedPersonaId = assistant.selectedPersonaId,
-                        message = "New chats will use ${persona.name}",
+                        message = "${persona.name} answers every chat",
                     )
                 }
             } catch (e: Exception) {
@@ -163,7 +165,7 @@ class PersonasViewModel @Inject constructor(
     }
 
     /**
-     * New chats go to the assistant itself: no persona selected (#302).
+     * Every chat goes to the assistant itself: no persona selected (#302).
      *
      * Where every account starts, and what deleting or disabling the selected
      * persona returns to; this is the way back to it on purpose.
@@ -177,7 +179,7 @@ class PersonasViewModel @Inject constructor(
                 _state.update {
                     it.copy(
                         selectedPersonaId = assistant.selectedPersonaId,
-                        message = "New chats will use the assistant itself",
+                        message = "The assistant answers every chat",
                     )
                 }
             } catch (e: Exception) {
