@@ -25,6 +25,14 @@ private val errorJson = Json { ignoreUnknownKeys = true; isLenient = true }
  * nothing answered; the login screen has it, the rest leave it out.
  */
 fun apiErrorMessage(t: Throwable, fallback: String, origin: String? = null): String {
+    return apiErrorDetail(t)
+        ?: RequestFailure.describe(t, origin)
+        ?: t.message?.takeIf { it.isNotBlank() }
+        ?: fallback
+}
+
+/** The API's own sentence — a 4xx's string `detail` — or null when it gave none. */
+fun apiErrorDetail(t: Throwable): String? {
     val detail = (t as? HttpException)?.let { http ->
         // errorBody() is a one-shot stream; read it once and tolerate anything.
         val body = runCatching { http.response()?.errorBody()?.string() }.getOrNull()
@@ -38,7 +46,4 @@ fun apiErrorMessage(t: Throwable, fallback: String, origin: String? = null): Str
         }
     }
     return detail?.takeIf { it.isNotBlank() }
-        ?: RequestFailure.describe(t, origin)
-        ?: t.message?.takeIf { it.isNotBlank() }
-        ?: fallback
 }

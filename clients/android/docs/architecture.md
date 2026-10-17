@@ -13,28 +13,30 @@ com.kurisu.assistant/
 ├── KurisuApplication.kt         -- @HiltAndroidApp
 ├── MainActivity.kt              -- Single activity, NavHost
 ├── data/
-│   ├── local/                   -- DataStore, EncryptedPrefs, StorageKeys
+│   ├── local/                   -- DataStore, EncryptedPrefs, StorageKeys, DriveFiles (a picked file, the drive cache, a saved document — #175)
 │   ├── remote/api/              -- Retrofit service, interceptors, ProtocolMismatchSignal (live 426 / 4426 → update gate)
 │   ├── remote/websocket/        -- OkHttp WebSocket, event payloads, NotificationSocket (/ws/notifications, #353)
-│   ├── model/                   -- Data classes (API, WS, Animation, UpdateModels)
+│   ├── model/                   -- Data classes (API, WS, Animation, UpdateModels, DriveModels)
 │   ├── push/                    -- PushRegistration + FcmTokenSource: this phone's FCM token on the server (#353)
 │   └── repository/              -- Auth, Assistant, Persona, Conversation, Calendar, TTS, ASR, Vision, Tools, Face, Update,
-│                                   Notification (the server's notifications and their read state, #353) repos
+│                                   Notification (the server's notifications and their read state, #353), Drive (#175) repos
 ├── domain/
 │   ├── chat/                    -- Stream processor, sentence splitter, narration stripper
 │   ├── tts/                     -- TTS queue, WAV parser, amplitude computer
 │   ├── audio/                   -- AudioRecorder, VoiceActivityDetector
 │   ├── character/               -- Compositor, image cache, animation migration
 │   ├── calendar/                -- CalendarMath: windows, which day an entry is on, a repeat in words and the key of each of its times (#355), the tool card (#282)
+│   ├── drive/                   -- DriveTransfers (every upload and download, one at a time, in the app's scope) and DriveFormat (#175)
 │   └── notifications/           -- What a notification says and opens; NotificationSync (what to post and cancel)
 ├── ui/
-│   ├── navigation/              -- NavGraph + AppDrawerHost (routes: LOGIN, CONVERSATIONS, CHAT, TASKS, CALENDAR, ASSISTANT, PERSONAS, TOOLS_MCP, SKILLS, SETTINGS, ACCOUNT, TTS_ASR, APPEARANCE, FACES, ABOUT, NOTIFICATIONS, UNREAD)
+│   ├── navigation/              -- NavGraph + AppDrawerHost (routes: LOGIN, CONVERSATIONS, CHAT, TASKS, CALENDAR, DRIVE, ASSISTANT, PERSONAS, TOOLS_MCP, SKILLS, SETTINGS, ACCOUNT, TTS_ASR, APPEARANCE, FACES, ABOUT, NOTIFICATIONS, UNREAD)
 │   ├── theme/                   -- Material 3 theme (primary #2563EB)
 │   ├── auth/                    -- Login screen + ViewModel
 │   ├── conversations/           -- Chats list (start destination) + voice mode strip + in-app update check; a task run's conversation has a clock (#352)
 │   ├── tasks/                   -- Tasks (#352): grouped list (waiting for approval first; finished one-offs not listed) with filter chips, a task opened in place with its runs, approve/deny, pause/resume/stop/edit/delete; refetches on `tasks_changed`. `TaskApprovalsViewModel` feeds the chat's approval sheet for a run's conversation
 │   ├── chat/                    -- Chat screen, message bubble, tool rail, task card (#352), input with the permission mode chip and sheet (#360), markdown (no nav args)
 │   ├── calendar/                -- Calendar screen + ViewModel, the chat's calendar card (#282); a reminder's Repeats in the editor (#355)
+│   ├── drive/                   -- Kurisu Drive (#175): a folder at a time, the storage card, row menus, the + menu, the transfer strip and sheet, Move sheet
 │   ├── assistant/               -- The one assistant (wake word, thinking, memory, tools)
 │   ├── personas/                -- Persona CRUD (name, prompt, voice, avatar) + ViewModel
 │   ├── common/                  -- Shared UI bits (personaInitials, ModelDropdown)
@@ -61,7 +63,7 @@ Mid-session: HTTP 426 (WireProtocolInterceptor) or WebSocket close 4426 → the 
 Login → Conversations ("Chats", the start destination; hamburger → app drawer)
   ├── Tap a row / New chat FAB → Chat
   ├── In voice mode, say the wake word → Chat, in a new conversation (#341)
-  ├── Drawer → Chats | Tasks | Calendar | Assistant | Personas | Tools & MCP | Skills
+  ├── Drawer → Chats | Tasks | Calendar | Drive | Assistant | Personas | Tools & MCP | Skills
   ├── Drawer → Settings → Account | Appearance | Notifications | TTS & ASR | Face Identities | About
   ├── Bell (top bar) → Unread → an item → its conversation in Chat (#353)
   ├── Tap a notification → its conversation in Chat (a reminder: Calendar on that entry, #282)
@@ -103,6 +105,12 @@ Back everywhere → navController.popBackStack()
   model sheet (`ChatModal.ModelPicker`), which is the only model picker in the app (#197).
 - `ConversationsViewModel` observes `CoreState.asrTranscripts` for the assistant's wake word. The
   trigger is assistant-level and selects no persona.
+
+- `Routes.DRIVE` (#175) is a drawer destination like Chats. A folder opens in place, not as a route: the
+  path lives in `DriveViewModel` and system Back goes up one folder until the root, where it leaves. A
+  file is handed to another app with `ACTION_VIEW` (or the share sheet) on a `FileProvider` URI under
+  the cache's `drive/`; nothing navigates. Transfers belong to the `DriveTransfers` singleton, so leaving
+  the screen does not stop one.
 
 - `Routes.CALENDAR` (#282) is a drawer destination like Chats. Its pattern is
   `calendar?reminderId={reminderId}`: `Routes.calendar(id)` opens it on one entry
