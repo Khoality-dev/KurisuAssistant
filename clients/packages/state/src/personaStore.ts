@@ -49,8 +49,13 @@ interface PersonaState {
 async function openLatestConversation(): Promise<void> {
   const convStore = useConversationStore.getState();
   const startedOn = convStore.currentConversation?.id ?? null;
-  const stillOurs = () =>
-    (useConversationStore.getState().currentConversation?.id ?? null) === startedOn;
+  const navigationsBefore = convStore.navigations;
+  // Nothing moved meanwhile: no conversation started by a send, none opened,
+  // and no New chat — which leaves the id where it was (#312).
+  const stillOurs = () => {
+    const now = useConversationStore.getState();
+    return (now.currentConversation?.id ?? null) === startedOn && now.navigations === navigationsBefore;
+  };
 
   try {
     const [latest] = await apiClient.getConversations(1);

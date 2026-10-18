@@ -23,6 +23,13 @@ interface ConversationState {
    * way — a lookup must not undo a conversation the user started meanwhile (#321).
    */
   loadConversation: (id: number, opts?: { unlessChanged?: boolean }) => Promise<void>;
+  /**
+   * Bumped by every move the user makes — opening a conversation, New chat,
+   * a conversation started by a send. A lookup compares it rather than the id:
+   * New chat goes from no conversation to no conversation, and an id cannot
+   * tell that apart from nothing having happened (#312).
+   */
+  navigations: number;
   loadMoreMessages: () => Promise<void>;
   deleteConversation: (id: number) => Promise<void>;
   clearCurrentConversation: () => void;
@@ -54,10 +61,16 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   compactedContext: '',
   systemPromptTokenCount: 0,
 
+  navigations: 0,
+
   loadConversation: async (id: number, opts?: { unlessChanged?: boolean }) => {
     const startedOn = get().currentConversation?.id ?? null;
+    if (!opts?.unlessChanged && id !== startedOn) set({ navigations: get().navigations + 1 });
+    const navigationsBefore = get().navigations;
     const data = await apiClient.getConversation(id, 20, 0);
-    if (opts?.unlessChanged && (get().currentConversation?.id ?? null) !== startedOn) return;
+    if (opts?.unlessChanged && (
+      (get().currentConversation?.id ?? null) !== startedOn || get().navigations !== navigationsBefore
+    )) return;
 
     // Carry over _clientKey from the previous in-store messages so that
     // recently-streamed bubbles keep their React identity across the reload.
@@ -154,6 +167,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   clearCurrentConversation: () => {
     set({
+      navigations: get().navigations + 1,
       currentConversation: null,
       messages: [],
       totalMessages: 0,
