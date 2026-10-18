@@ -647,6 +647,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
     searchQuery,
     searchMatches,
     searchMatchIdx,
+    // The last bubble shows Stop while speech plays (#312).
+    isQueueActive,
   ]);
 
   const messagesPane = useMemo(() => (
@@ -958,10 +960,14 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
           onPermissionMenuOpen={reloadAssistant}
         />
       )}
+      {/* Not closed by a click elsewhere: the click that sends a message or a
+          command is one, and it closed the notice that click had just raised
+          (#312). Keyed on the text, so a second notice gets its own time. */}
       <Snackbar
+        key={`error:${streaming.errorToast ?? ''}`}
         open={!!streaming.errorToast}
         autoHideDuration={6000}
-        onClose={() => streaming.setErrorToast(null)}
+        onClose={(_, reason) => { if (reason !== 'clickaway') streaming.setErrorToast(null); }}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       >
         <Alert onClose={() => streaming.setErrorToast(null)} severity="error" variant="filled" sx={{ width: '100%' }}>
@@ -988,9 +994,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
         </Box>
       </Snackbar>
       <Snackbar
+        key={`info:${streaming.infoToast ?? ''}`}
         open={!!streaming.infoToast}
         autoHideDuration={3000}
-        onClose={() => streaming.setInfoToast(null)}
+        onClose={(_, reason) => { if (reason !== 'clickaway') streaming.setInfoToast(null); }}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       >
         <Alert onClose={() => streaming.setInfoToast(null)} severity="info" variant="filled" sx={{ width: '100%' }}>

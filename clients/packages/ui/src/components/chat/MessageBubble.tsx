@@ -25,6 +25,9 @@ import { resolveBridge } from '@kurisu/platform';
 
 const MotionBox = motion(Box);
 
+/** A stored image is fetched by id with the token; one just sent is still its own bytes. */
+const imageSrc = (image: string) => (image.startsWith('data:') ? image : apiClient.getUserImageUrl(image));
+
 /** Wraps children and highlights text nodes matching `query` via DOM manipulation. */
 const HighlightWrapper: React.FC<{ query?: string; children: React.ReactNode }> = ({ query, children }) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -484,11 +487,11 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
             {/* Show images if present */}
             {message.images && message.images.length > 0 && (
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: displayContent ? 1 : 0 }}>
-                {message.images.map((imageUuid, idx) => (
+                {message.images.map((image, idx) => (
                   <Box
                     key={idx}
                     component="img"
-                    src={apiClient.getUserImageUrl(imageUuid)}
+                    src={imageSrc(image)}
                     alt={`Image ${idx + 1}`}
                     sx={{
                       maxWidth: '100%',
@@ -496,7 +499,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                       borderRadius: 1,
                       cursor: 'pointer',
                     }}
-                    onClick={() => window.open(apiClient.getUserImageUrl(imageUuid), '_blank')}
+                    onClick={() => window.open(imageSrc(image), '_blank')}
                   />
                 ))}
               </Box>
@@ -671,6 +674,10 @@ function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubbl
     prev.message === next.message &&
     prev.index === next.index &&
     prev.isLast === next.isLast &&
+    // The last bubble's Stop is speech playing; leaving this out kept it up
+    // until something else redrew the bubble, which after a failed reply was
+    // never (#312).
+    prev.isQueueActive === next.isQueueActive &&
     prev.isStreaming === next.isStreaming &&
     prev.streamingThinking === next.streamingThinking &&
     prev.streamingContent === next.streamingContent &&
