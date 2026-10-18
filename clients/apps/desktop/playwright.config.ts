@@ -3,6 +3,9 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests',
   testMatch: /.*\.spec\.ts$/,
+  // The real-backend suite needs a running server; it has its own config
+  // (`playwright.real.config.ts`, #313).
+  testIgnore: '**/realBackend/**',
   // Specs tagged @gpu assert a rendered WebGL frame; CI has no GPU and passes
   // no GPU flags, so they run only when a developer asks (docs/testing.md).
   grepInvert: process.env.KURISU_E2E_GPU ? undefined : /@gpu/,

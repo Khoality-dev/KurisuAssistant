@@ -60,7 +60,7 @@ const MAIN_ENTRY = path.join(PROJECT_ROOT, 'dist-electron', 'main.js');
  * state is discarded either way, so killing it when it will not leave is
  * correct, not a workaround.
  */
-async function shutDown(app: ElectronApplication): Promise<void> {
+export async function shutDown(app: ElectronApplication): Promise<void> {
   // Read the pid while the app object is still live. Once Playwright has
   // disposed it, `app.process()` throws — and a timer that ran late did
   // exactly that during the *next* test, which Playwright then failed with an
@@ -96,6 +96,86 @@ async function shutDown(app: ElectronApplication): Promise<void> {
   }
 }
 
+/**
+ * A temporary userData directory and a free MCP port for one app. Isolated per
+ * test — prevents state bleed and the single-instance lock from blocking runs.
+ */
+export async function createAppPaths(): Promise<AppPaths> {
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kurisu-e2e-'));
+  return {
+    userDataDir,
+    mcpPort: await freePort(),
+    settingsFile: path.join(userDataDir, 'settings.json'),
+  };
+}
+
+/**
+ * Launch the app with its own userData and MCP port, pointed at `backendUrl`
+ * and on the login form. The mock-backed fixture below and the real-backend
+ * suite (`tests/realBackend/`, #313) both start the app this way.
+ */
+export async function launchApp(backendUrl: string, appPaths: AppPaths, electronArgs: string[] = []): Promise<ElectronApplication> {
+  if (!fs.existsSync(MAIN_ENTRY)) {
+    throw new Error(`Electron entry missing: ${MAIN_ENTRY}. Run "npm run build" first.`);
+  }
+
+  const app = await electron.launch({
+    // `--no-sandbox` on Linux only, and only here in the tests: Ubuntu 24.04,
+    // which is what `ubuntu-latest` is, blocks the unprivileged user
+    // namespaces Chromium's sandbox needs, and Electron 43 hangs on shutdown
+    // rather than failing outright — every test passes and then the worker
+    // dies with "Worker teardown timeout". Windows and the Playwright
+    // container are unaffected, which is why this only ever showed on CI.
+    // The shipped app is not launched this way.
+    //
+    // `electronArgs` is a spec file's own flags (`vrm.spec.ts` asks for
+    // SwiftShader, #306); `KURISU_E2E_ELECTRON_ARGS` adds a developer's for
+    // the manual GPU spec (`vrmRender.gpu.spec.ts`, #240). Both empty, as
+    // for every other spec on CI, the app launches as it ships.
+    args: [
+      ...(process.platform === 'linux' ? [MAIN_ENTRY, '--no-sandbox'] : [MAIN_ENTRY]),
+      ...electronArgs,
+      ...(process.env.KURISU_E2E_ELECTRON_ARGS ?? '').split(/\s+/).filter(Boolean),
+    ],
+    cwd: PROJECT_ROOT,
+    env: {
+      ...process.env,
+      // Ensure the test Electron instance uses an isolated userData dir so the
+      // single-instance lock from a real running install doesn't block us.
+      KURISU_E2E_USER_DATA_DIR: appPaths.userDataDir,
+      // Likewise for the built-in MCP server's port: on the default, the suite
+      // would be poking at whatever install is already running on this machine.
+      KURISU_E2E_MCP_PORT: String(appPaths.mcpPort),
+      // Ensure production mode (no VITE_DEV_SERVER_URL) so main.ts loads dist/index.html
+      VITE_DEV_SERVER_URL: '',
+      KURISU_E2E: '1',
+    },
+  });
+
+  // First window = LoginWindow (renderer)
+  const firstPage = await app.firstWindow();
+
+  // Surface renderer console/errors in test output so failures are debuggable.
+  firstPage.on('console', (msg) => {
+    const type = msg.type();
+    if (type === 'error' || type === 'warning' || process.env.RENDERER_DEBUG) {
+      console.log(`[renderer ${type}]`, msg.text());
+    }
+  });
+  firstPage.on('pageerror', (err) => console.log('[renderer pageerror]', err.message));
+
+  // Seed backend URL into localStorage and reload so axios + wsManager pick it up.
+  await firstPage.evaluate((url) => {
+    localStorage.setItem('kurisu_backend_url', url);
+    localStorage.removeItem('kurisu_auth_token');
+    localStorage.removeItem('kurisu_refresh_token');
+    localStorage.setItem('kurisu_remember_me', 'false');
+  }, backendUrl);
+  await firstPage.reload();
+
+  return app;
+}
+
 export const test = base.extend<Fixtures>({
   electronArgs: [[], { option: true }],
 
@@ -110,80 +190,16 @@ export const test = base.extend<Fixtures>({
   },
 
   appPaths: async ({}, use) => {
-    // Isolated user data per test — prevents state bleed and the single-instance
-    // lock from blocking parallel runs.
-    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kurisu-e2e-'));
-    const paths: AppPaths = {
-      userDataDir,
-      mcpPort: await freePort(),
-      settingsFile: path.join(userDataDir, 'settings.json'),
-    };
+    const paths = await createAppPaths();
     try {
       await use(paths);
     } finally {
-      try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { /* noop */ }
+      try { fs.rmSync(paths.userDataDir, { recursive: true, force: true }); } catch { /* noop */ }
     }
   },
 
   electronApp: async ({ mock, appPaths, electronArgs }, use) => {
-    if (!fs.existsSync(MAIN_ENTRY)) {
-      throw new Error(`Electron entry missing: ${MAIN_ENTRY}. Run "npm run build" first.`);
-    }
-
-    const app = await electron.launch({
-      // `--no-sandbox` on Linux only, and only here in the tests: Ubuntu 24.04,
-      // which is what `ubuntu-latest` is, blocks the unprivileged user
-      // namespaces Chromium's sandbox needs, and Electron 43 hangs on shutdown
-      // rather than failing outright — every test passes and then the worker
-      // dies with "Worker teardown timeout". Windows and the Playwright
-      // container are unaffected, which is why this only ever showed on CI.
-      // The shipped app is not launched this way.
-      //
-      // `electronArgs` is a spec file's own flags (`vrm.spec.ts` asks for
-      // SwiftShader, #306); `KURISU_E2E_ELECTRON_ARGS` adds a developer's for
-      // the manual GPU spec (`vrmRender.gpu.spec.ts`, #240). Both empty, as
-      // for every other spec on CI, the app launches as it ships.
-      args: [
-        ...(process.platform === 'linux' ? [MAIN_ENTRY, '--no-sandbox'] : [MAIN_ENTRY]),
-        ...electronArgs,
-        ...(process.env.KURISU_E2E_ELECTRON_ARGS ?? '').split(/\s+/).filter(Boolean),
-      ],
-      cwd: PROJECT_ROOT,
-      env: {
-        ...process.env,
-        // Ensure the test Electron instance uses an isolated userData dir so the
-        // single-instance lock from a real running install doesn't block us.
-        KURISU_E2E_USER_DATA_DIR: appPaths.userDataDir,
-        // Likewise for the built-in MCP server's port: on the default, the suite
-        // would be poking at whatever install is already running on this machine.
-        KURISU_E2E_MCP_PORT: String(appPaths.mcpPort),
-        // Ensure production mode (no VITE_DEV_SERVER_URL) so main.ts loads dist/index.html
-        VITE_DEV_SERVER_URL: '',
-        KURISU_E2E: '1',
-      },
-    });
-
-    // First window = LoginWindow (renderer)
-    const firstPage = await app.firstWindow();
-
-    // Surface renderer console/errors in test output so failures are debuggable.
-    firstPage.on('console', (msg) => {
-      const type = msg.type();
-      if (type === 'error' || type === 'warning' || process.env.RENDERER_DEBUG) {
-        console.log(`[renderer ${type}]`, msg.text());
-      }
-    });
-    firstPage.on('pageerror', (err) => console.log('[renderer pageerror]', err.message));
-
-    // Seed backend URL into localStorage and reload so axios + wsManager pick it up.
-    await firstPage.evaluate((url) => {
-      localStorage.setItem('kurisu_backend_url', url);
-      localStorage.removeItem('kurisu_auth_token');
-      localStorage.removeItem('kurisu_refresh_token');
-      localStorage.setItem('kurisu_remember_me', 'false');
-    }, mock.url);
-    await firstPage.reload();
-
+    const app = await launchApp(mock.url, appPaths, electronArgs);
     try {
       await use(app);
     } finally {

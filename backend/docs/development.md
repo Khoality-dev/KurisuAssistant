@@ -160,7 +160,7 @@ python -m tests.mock_ollama --port 11435              # the model
 uvicorn kurisuassistant.main:app --port 15597         # the backend
 ```
 
-Then set the account's Ollama URL to `http://127.0.0.1:11435` under Settings → Account. Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `GET /_mock/requests`, `DELETE /_mock/requests`, `POST /_mock/reset`, `GET /_mock/state`. (For a backend running in Docker, the Ollama URL `http://host.docker.internal:11435` reaches a mock on the host.)
+Then set the account's Ollama URL to `http://127.0.0.1:11435` under Settings → Account. Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `GET /_mock/requests`, `DELETE /_mock/requests`, `POST /_mock/reset`, `GET /_mock/state`. (For a backend running in Docker, the Ollama URL `http://host.docker.internal:11435` reaches a mock on the host.) CI does exactly this for the desktop app (#313): `.github/workflows/real-backend-e2e.yml` migrates a fresh Postgres, starts both processes — the backend with `AUTH_RATE_LIMIT_MAX_ATTEMPTS` raised, since the suite signs in far more than ten times in five minutes — and runs `clients/apps/desktop/tests/realBackend/` against them, so a backend change that breaks what the app expects fails there (`clients/apps/desktop/docs/testing.md`).
 
 ## Environment Variables
 
