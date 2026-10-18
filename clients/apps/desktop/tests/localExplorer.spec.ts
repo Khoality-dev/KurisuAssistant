@@ -111,6 +111,7 @@ test.describe('the explorer on this computer', () => {
     await page.keyboard.press('Control+End');
     await page.keyboard.type('\nsecond line');
     await page.keyboard.press('Control+s');
-    await expect.poll(() => fs.readFileSync(path.join(dir, 'notes.txt'), 'utf8'), { timeout: 10_000 }).toBe('first line\nsecond line');
+    // The editor breaks the line the platform's way (CRLF on Windows).
+    await expect.poll(() => fs.readFileSync(path.join(dir, 'notes.txt'), 'utf8').replace(/\r\n/g, '\n'), { timeout: 10_000 }).toBe('first line\nsecond line');
   });
 });

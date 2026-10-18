@@ -131,7 +131,8 @@ test.describe('writing to Kurisu Drive', () => {
     await page.keyboard.type('\nbuy eggs');
     await page.keyboard.press('Control+s');
 
-    await expect.poll(() => mock.getDriveContent('/todo.md')?.toString('utf8'), { timeout: 10_000 }).toBe('buy milk\nbuy eggs');
+    // The editor breaks the line the platform's way (CRLF on Windows).
+    await expect.poll(() => mock.getDriveContent('/todo.md')?.toString('utf8').replace(/\r\n/g, '\n'), { timeout: 10_000 }).toBe('buy milk\nbuy eggs');
   });
 
   test('a name the server refuses says why, and nothing changes', async ({ page, mock }) => {
