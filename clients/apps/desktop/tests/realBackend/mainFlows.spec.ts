@@ -48,17 +48,15 @@ test.describe('the desktop app against the real backend', () => {
     await page.getByLabel('Ollama address').fill(ollama.url);
     await page.getByRole('button', { name: 'Connect' }).click();
     await expect(page.getByText('Connected · 1 model')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole('radio', { name: MOCK_MODEL })).toBeChecked();
-    await page.getByRole('button', { name: 'Next' }).click();
-    await page.getByLabel('No persona').check();
-    await page.getByRole('button', { name: 'Next' }).click();
-    await page.getByRole('textbox', { name: 'Wake word' }).fill('Computer');
+    await expect(page.getByRole('combobox', { name: 'Model' })).toHaveText(MOCK_MODEL);
+    // The model is all onboarding asks for (#376).
     await page.getByRole('button', { name: 'Start chatting' }).click();
     await expect(composer(page)).toBeVisible({ timeout: 20_000 });
 
     const me = await account.json<{ onboarding_pending: boolean; ollama_url: string }>('/users/me');
     expect(me).toMatchObject({ onboarding_pending: false, ollama_url: ollama.url });
-    expect(await account.json('/assistant')).toMatchObject({ model_name: MOCK_MODEL, trigger_word: 'Computer', selected_persona_id: null });
+    expect(await account.json('/assistant')).toMatchObject({ model_name: MOCK_MODEL, trigger_word: null, selected_persona_id: null });
+    expect(await account.json('/personas')).toEqual([]);
 
     await ollama.script({ content: 'Your first answer.' });
     await composer(page).fill('Hello?');
