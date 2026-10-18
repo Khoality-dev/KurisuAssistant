@@ -1,6 +1,6 @@
 # Testing
 
-[← clients/desktop](../CLAUDE.md)
+[← clients/apps/desktop](../CLAUDE.md)
 
 What runs where, and the one suite that cannot run on the host.
 

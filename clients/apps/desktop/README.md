@@ -1,6 +1,6 @@
 # Kurisu Assistant Desktop
 
-The Windows and Linux desktop client for [Kurisu Assistant](../../README.md).
+The Windows and Linux desktop client for [Kurisu Assistant](../../../README.md).
 
 See [Screens](docs/screens.md) for what the app looks like and the model it presents.
 
@@ -15,24 +15,25 @@ The app checks for updates when it starts.
 
 ## Sign in
 
-Enter your server's complete URL, including `http://` or `https://`, then enter your username and password. On a fresh self-hosted server, register in the app; you cannot sign in until the server operator activates your account by following the [server setup tutorial](../../README.md#set-up-your-own-server). Under **Settings → Account**, you can generate a QR code after re-entering your password for Android sign-in. The QR contains the username and password in plain text, so treat it as a credential.
+Enter your server's complete URL, including `http://` or `https://`, then enter your username and password. On a fresh self-hosted server, register in the app; you cannot sign in until the server operator activates your account by following the [server setup tutorial](../../../README.md#set-up-your-own-server). Under **Settings → Account**, you can generate a QR code after re-entering your password for Android sign-in. The QR contains the username and password in plain text, so treat it as a credential.
 
 ## Everyday use
 
-- **Workspace:** browse and edit folders allowed under **Settings → Host Access**.
+- **Workspace:** browse and edit this computer's files and your Kurisu Drive side by side. What the assistant's own file tools may reach is set under **Settings → Host Access**.
 - **Conversations:** find and reopen earlier conversations, newest first.
-- **Voice:** use the microphone button for dictation or trigger-word voice interaction. Configure ASR and TTS under **Settings → Voice** and **Settings → TTS & ASR**.
-- **Images:** attach an image or drag one onto the composer; the selected model must support vision.
-- **Assistant:** choose the account's model, tools, memory, and wake word.
-- **Personas:** create names, prompts, voices, avatars, and character graphs. The persona picked in the chat header or here answers every conversation, on every device.
-- **Tools & MCP:** connect tool servers and review approval requests before allowing calls.
-- **Character:** configure animation, webcam vision, and face identities from Settings. `/live-animate` toggles the character window and `/vision` toggles webcam vision.
+- **Model:** pick the account's model from the menu beside the persona in the chat header.
+- **Voice:** turn on voice mode with the headset button in the chat header; say the wake word to start talking. Configure the microphone and speech under **Settings → Voice** and **Settings → TTS & ASR**, where **Generate TTS During Responses** turns spoken replies on or off.
+- **Images:** drag an image onto the message box; the selected model must support vision.
+- **Assistant:** set the wake word, memory, extended thinking and deferred tools.
+- **Personas:** create names, prompts, voices, avatars, and 2D or 3D characters. The persona picked in the chat header or here answers every conversation, on every device.
+- **Tools:** see every tool the assistant has, add MCP servers, and choose how much runs without asking with the permission mode beside the message box.
+- **Character:** show the animated character in the chat with the face button in the chat header or `/live-animate`, and pop it out into its own window. `/vision` turns on webcam vision; face identities are under Settings.
 
 Typing `/` in the composer shows `/clear`, `/delete`, `/resume`, `/context`, `/persona`, `/refresh`, `/compact`, `/live-animate`, and `/vision`. There is no `/agents` command.
 
-Before the first message, open **Settings → Assistant** and select a model. The first message fails when no model is selected.
+A new account is walked through choosing a model the first time it signs in. Without one, the first message asks you to choose a model from the chat header.
 
-The settings sections are **Account**, **Voice**, **TTS & ASR**, **Appearance**, **Assistant**, **Personas**, **Tools & MCP**, **Skills**, **Host Access**, **Face Identities**, and **Extensions**.
+The settings sections are **Account**, **Voice**, **TTS & ASR**, **Appearance**, **Assistant**, **Personas**, **Tools**, **Skills**, **Kurisu Drive**, **Notifications**, **Host Access**, **Face Identities**, and **Extensions**.
 
 `/vision` uses the server's camera pipeline. Its body-pose stage requires CUDA, and the default server does not give the API a GPU. Text, tools, memory, and speech still work on a CPU-only server.
 
@@ -40,16 +41,18 @@ The settings sections are **Account**, **Voice**, **TTS & ASR**, **Appearance**,
 
 - **Host Access** is a boundary. A file call runs only when its path is already allowed or you explicitly approve the displayed path for that call. A stored tool approval cannot authorize an unrelated path. A permanent approval grants the exact path; a directory includes its subtree.
 - Bash approval is per exact command. Approving `git status` approves nothing else.
-- Starting a local MCP server prompts first and shows the exact command line. Playwright auto-start is off by default under **Settings → Tools & MCP**.
-- The desktop is an MCP server for external clients on `127.0.0.1` only. It requires the bearer token shown under **Settings → Tools & MCP**. Anyone with that token can run commands on this machine.
+- Starting a local MCP server prompts first and shows the exact command line. Playwright auto-start is off by default under **Settings → Tools**.
+- The desktop is an MCP server for external clients on `127.0.0.1` only. It requires the bearer token shown under **Settings → Host Access**. Anyone with that token can run commands on this machine.
 - Sign-in tokens are stored in the operating-system keychain. Without a keychain, **Remember me** is disabled and the session ends when the app closes.
 
 ## Run from source
 
-Requires Node.js 20 or newer and a running backend:
+Requires Node.js 22.12 or newer and a running backend. Dependencies install once for the whole TypeScript workspace, from `clients/`:
 
 ```bash
-npm install
+cd ../..          # clients/
+npm ci
+cd apps/desktop
 npm run electron:dev
 ```
 
@@ -59,8 +62,8 @@ Run tests with `npm test`. End-to-end tests use `npm run test:e2e:build && npm r
 
 ## Client configuration
 
-The server URL is entered on the login screen and saved locally. The default is `http://localhost:15597`; use the URL supplied by your server administrator for remote or LAN servers. See [`CLAUDE.md`](CLAUDE.md) for the architecture map and [`backend/docs/`](../../backend/docs/) for server protocol details.
+The server URL is entered on the login screen and saved locally. The default is `http://localhost:15597`; use the URL supplied by your server administrator for remote or LAN servers. See [`CLAUDE.md`](CLAUDE.md) for the architecture map and [`backend/docs/`](../../../backend/docs/) for server protocol details.
 
 ## License
 
-MIT. See the repository [LICENSE](../../LICENSE).
+MIT. See the repository [LICENSE](../../../LICENSE).

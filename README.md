@@ -10,12 +10,12 @@ The project is split into a server and two clients. Pick the guide that matches 
 | --- | --- | --- |
 | [Set up your own server](#set-up-your-own-server) | Starting a server and connecting a client | Deployment tutorial |
 | [Backend](backend/README.md) | Running your own server | Docker setup, providers, data, backups |
-| [Desktop client](clients/desktop/README.md) | Windows and Linux users | Install, sign in, chat, voice, tools |
+| [Desktop client](clients/apps/desktop/README.md) | Windows and Linux users | Install, sign in, chat, voice, tools |
 | [Android client](clients/android/README.md) | Android users | Install the APK, permissions, mobile voice |
 
 Each package documents itself. For pictures of the apps, see
 **[Android screens](clients/android/docs/screens.md)** and
-**[Desktop screens](clients/desktop/docs/screens.md)**; for the model behind them -
+**[Desktop screens](clients/apps/desktop/docs/screens.md)**; for the model behind them -
 one assistant, the persona it answers as, and the sub-agents it starts - see
 **[assistant architecture](backend/docs/agents.md)**.
 
@@ -72,15 +72,15 @@ The user can now sign in.
 
 For a cloud model, add its API key under **Settings → Account**. For Ollama,
 leave the default URL if it runs on the server computer; on Linux, start it with
-`OLLAMA_HOST=0.0.0.0 ollama serve` so Docker can reach it. Then select and save
-a model under **Settings → Assistant** on desktop or **Assistant** in the
-Android drawer before sending your first message.
+`OLLAMA_HOST=0.0.0.0 ollama serve` so Docker can reach it. The first time you
+sign in, the app walks you through connecting a provider and choosing a model;
+later you change the model from the chat header, on desktop and on Android.
 
 ### If it does not work
 
 - **Cannot connect:** open `/health` with the same host and port; on a phone, replace `localhost` with the server's LAN address.
 - **No models appear:** check that Ollama is reachable from Docker, or save a valid cloud provider key and refresh the model list.
-- **The first message fails:** select and save a model under **Assistant**.
+- **The first message fails:** choose a model from the chat header.
 - **The account is not activated yet:** ask the server operator to activate it using the command above; waiting accounts are listed in the API startup log.
 - **The server does not start:** from `backend/`, run `docker compose logs api` and check the first reported error.
 
@@ -90,9 +90,9 @@ For backup, restore, updates, and removal, see [server operations](backend/docs/
 
 After signing in, configure at least one model provider under **Settings → Account**. Both clients support Ollama, Google Gemini, NVIDIA NIM and Poe; enter a provider's API key there and its models appear in the model pickers.
 
-Your account already has one assistant and no persona. Select the assistant's model, and optionally its tools, memory and voice wake word - those belong to the assistant, so they do not change when you switch persona. Personas are optional: create one to give the assistant a name, personality, voice and avatar, then pick it from the chat header or Settings → Personas. The persona you pick answers every conversation, old and new, on every device, until you pick another; with none picked, the assistant answers as itself.
+Your account already has one assistant and no persona. Choose the assistant's model from the chat header, and optionally its memory and voice wake word - those belong to the assistant, so they do not change when you switch persona. Personas are optional: create one to give the assistant a name, personality, voice and avatar, then pick it from the chat header or Settings → Personas. The persona you pick answers every conversation, old and new, on every device, until you pick another; with none picked, the assistant answers as itself.
 
-For voice conversations, select an ASR language/model and TTS backend, then enable **TTS Auto-Play**. Enable **Always Listen** only when you want the microphone kept active for trigger words or dictation. Available models and voices depend on the services installed on the server.
+For voice conversations, select an ASR language/model and TTS backend; spoken replies are on unless you turn off **Generate TTS During Responses** (Settings → TTS & ASR on desktop). Turn on **voice mode** from the chat header when you want the microphone listening for the wake word; with it off, the microphone is off. Available models and voices depend on the services installed on the server.
 
 ## Common safety notes
 
