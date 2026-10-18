@@ -139,6 +139,12 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
       setImages([]);
     }
 
+    // `null → id` is the scope becoming known — a first message has just
+    // started this conversation — so what was sent in it stays in the history.
+    // Rebuilding here, from a store the reply has not reached yet, lost that
+    // first message from the up arrow (#312).
+    if (previous === null && conversationId !== null && promptHistory.length > 0) return;
+
     // Pre-populate prompt history from conversation's user messages
     promptHistory.length = 0;
     historyIdxRef.current = -1;

@@ -68,6 +68,7 @@ import { ToolApprovalBar, ApprovalRequest } from './ToolApprovalBar';
 import { NoModelPrompt } from './NoModelPrompt';
 import { resolveBridge } from '@kurisu/platform';
 import { useTheme } from '@mui/material/styles';
+import { findScope } from '../findScope';
 
 /** Below this, the chat column is narrow: the voice pill says "On" and End voice mode gets its own row (#345). */
 const NARROW_COLUMN_PX = 480;
@@ -148,6 +149,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        // The file tree and an editor search their own; anywhere else it is the chat's.
+        const scope = findScope();
+        if (scope !== null && scope !== 'chat') return;
+        if (document.activeElement?.closest('.monaco-editor')) return;
         e.preventDefault();
         setSearchOpen(true);
         setTimeout(() => searchInputRef.current?.focus(), 50);
@@ -720,7 +725,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
   ), [isLoadingMessages, messageElements, streaming.queuedMessages, compactedContext, showInteractionMarker, interactionMarker, triggerWord]);
 
   return (
-    <Box ref={rootRef} sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%', position: 'relative' }}>
+    <Box ref={rootRef} data-find-scope="chat" sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%', position: 'relative' }}>
 
       {/* Header: the persona in use (click to switch it, for every conversation), what
           it runs on (click to change the assistant's model, for every persona) + token usage */}

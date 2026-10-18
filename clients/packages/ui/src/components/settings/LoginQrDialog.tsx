@@ -27,14 +27,28 @@ export const LoginQrDialog: React.FC<Props> = ({ open, username, onClose }) => {
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState('');
   const [generated, setGenerated] = useState(false);
+  // What the code says, set once the password checks out. The canvas only
+  // exists after that, so it is drawn by the effect below — drawing from the
+  // handler found no canvas and left the dialog with a blank one (#312).
+  const [payload, setPayload] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
       setPassword('');
       setError('');
       setGenerated(false);
+      setPayload(null);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!generated || !payload || !canvasRef.current) return;
+    QRCode.toCanvas(canvasRef.current, payload, {
+      width: 280,
+      margin: 2,
+      errorCorrectionLevel: 'M',
+    }).catch((err: unknown) => setError(describeRequestFailure(err, 'Could not draw the QR code')));
+  }, [generated, payload]);
 
   const handleGenerate = async () => {
     if (!password) return;
@@ -45,20 +59,12 @@ export const LoginQrDialog: React.FC<Props> = ({ open, username, onClose }) => {
       // resulting token — the current session keeps using its own.
       await apiClient.verifyCredentials(username, password);
 
-      const payload = JSON.stringify({
+      setPayload(JSON.stringify({
         v: 1,
         server: storage.getBackendUrl(),
         username,
         password,
-      });
-
-      if (canvasRef.current) {
-        await QRCode.toCanvas(canvasRef.current, payload, {
-          width: 280,
-          margin: 2,
-          errorCorrectionLevel: 'M',
-        });
-      }
+      }));
       setGenerated(true);
     } catch (err: any) {
       setError(describeRequestFailure(err, 'Could not verify password'));
@@ -100,7 +106,7 @@ export const LoginQrDialog: React.FC<Props> = ({ open, username, onClose }) => {
           </Box>
         )}
 
-        {!generated && error && (
+        {error && (
           <Alert severity="error" sx={{ mt: 2 }}>
             {error}
           </Alert>

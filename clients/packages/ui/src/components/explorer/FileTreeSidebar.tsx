@@ -15,6 +15,7 @@ import { useExplorerStore } from '@kurisu/state';
 import { DRIVE_ROOT_LABEL, dirnameOf, fileSource, isDrivePath } from '@kurisu/api';
 import { DriveQuotaBar } from './DriveQuotaBar';
 import { requireFiles, resolveBridge } from '@kurisu/platform';
+import { findScope } from '../findScope';
 
 interface TreeNode {
   entry: FileEntry;
@@ -77,10 +78,11 @@ export const FileTreeSidebar: React.FC<FileTreeSidebarProps> = ({ rootPath, show
     resolveBridge().files?.hasVSCode?.().then(setHasVSCode).catch(() => {});
   }, []);
 
-  // Ctrl+F focuses tree search when sidebar has focus
+  // Ctrl+F focuses tree search when the tree is where I am (`findScope`).
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        if (findScope() !== 'file-tree') return;
         // Let Monaco handle its own Ctrl+F — only intercept if focus is
         // NOT inside a Monaco editor (which uses class 'monaco-editor')
         const active = document.activeElement;
@@ -261,7 +263,7 @@ export const FileTreeSidebar: React.FC<FileTreeSidebarProps> = ({ rootPath, show
   const hasSearchResults = nameOnlyMatches.length > 0 || (searchResults?.matches.length || 0) > 0;
 
   return (
-    <Box ref={sidebarRef} sx={{ display: 'flex', flexDirection: 'row', height: '100%', width: workspaceTreeWidth, flexShrink: 0 }}>
+    <Box ref={sidebarRef} data-find-scope="file-tree" sx={{ display: 'flex', flexDirection: 'row', height: '100%', width: workspaceTreeWidth, flexShrink: 0 }}>
       <Box
         sx={{
           flex: 1,

@@ -95,7 +95,7 @@ Settings → Notifications is one switch for this computer (`kurisu_notification
 ## Composer scope
 - `ChatComposer` takes `conversationId` (nullable) rather than a string key — the conversation alone is the draft's scope; switching the persona in use keeps the conversation and so the draft (#354). It resolves asynchronously after login — the latest conversation loads — and a draft typed in that window must survive it.
 - The scope effect clears `input` and `images` only when **leaving a concrete conversation**: the previous conversation had an id and it changed — with or without a persona in use. `null → id` is the scope becoming known, not a switch, so the draft stays. Before this the effect cleared on any change, which lost real keystrokes and is what left the e2e composer disabled right after `fill()` on Windows CI (#145).
-- Prompt history is repopulated from the store's messages on every scope change, as before.
+- Prompt history is repopulated from the store's messages on every scope change but one: `null → id` with a history already there is a first message starting this conversation, and what was sent stays — rebuilding from a store the reply had not reached yet lost that message from the up arrow (#312).
 
 ## Prompt History
 - Session-scoped prompt history tracked in `ChatComposer` via `promptHistoryRef`
@@ -104,6 +104,7 @@ Settings → Notifications is one switch for this computer (`kurisu_notification
 - Only active when command dropdown is closed
 
 ## Keyboard Shortcuts
+- **Ctrl+F**: Search the conversation (`Search messages...`; Enter and Shift+Enter move between matches, Esc closes). The file tree has its own Ctrl+F, and each part of the window marks itself with `data-find-scope` (`ui/src/components/findScope.ts`): the key goes to the part with focus, or the one last clicked, and the chat stands aside for a Monaco editor too. Both used to open on one key press (#312).
 - **Esc**: Cancel streaming (only during active stream)
 - **Enter**: Send message (or select command if dropdown open)
 - **Shift+Enter**: Newline
