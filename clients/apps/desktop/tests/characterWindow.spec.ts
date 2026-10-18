@@ -114,7 +114,7 @@ test.describe('character window', () => {
     // window holds no refresh token, so the only way to a 200 is the round
     // trip: 401 in the window → `character:session-request` → the main window
     // refreshes and pushes → the window retries with the new bearer.
-    mock.expireAccessToken();
+    mock.expireAccessToken('test-access-token', { onlyUnder: '/character-assets/' });
 
     const characterPage = await openCharacterWindow(page, electronApp);
 

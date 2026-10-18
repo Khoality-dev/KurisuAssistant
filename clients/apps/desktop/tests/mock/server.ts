@@ -67,6 +67,33 @@ export const ONE_POSE_CHARACTER: CharacterConfigDTO = {
   },
 };
 
+/**
+ * What `POST /tts` answers: half a second of a quiet 220 Hz tone, 16 kHz mono
+ * 16-bit PCM — a real WAV, so playback, the mouth's amplitude curve and the
+ * sentence's duration all run as they do on a server (#312).
+ */
+export const SPEECH_WAV: Buffer = (() => {
+  const rate = 16_000;
+  const samples = rate / 2;
+  const wav = Buffer.alloc(44 + samples * 2);
+  wav.write('RIFF', 0, 'ascii');
+  wav.writeUInt32LE(36 + samples * 2, 4);
+  wav.write('WAVEfmt ', 8, 'ascii');
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(rate, 24);
+  wav.writeUInt32LE(rate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write('data', 36, 'ascii');
+  wav.writeUInt32LE(samples * 2, 40);
+  for (let i = 0; i < samples; i++) {
+    wav.writeInt16LE(Math.round(3000 * Math.sin((2 * Math.PI * 220 * i) / rate)), 44 + i * 2);
+  }
+  return wav;
+})();
+
 /** A 1×1 transparent PNG — the bytes every character-asset GET here answers. */
 const TINY_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
@@ -197,6 +224,25 @@ export interface StreamChunk {
    */
   emotion?: VrmEmotion;
   emotionAt?: number;
+  /**
+   * Tool chunks only: the permission mode is Always ask, so the server asks the
+   * user first (`tool_approval_request`) and waits. Approved, the call goes on
+   * as scripted; denied, it is stored as denied and the turn ends there, as
+   * `agents/main.py` ends it (#312).
+   */
+  ask?: { description?: string };
+  /**
+   * Tool chunks only: one of the app's own tools, registered by the client, so
+   * the server sends `tool_call_request` and the chunk's content is whatever the
+   * app answers — its status read the way `ToolResult.from_content` reads it.
+   */
+  onClient?: boolean;
+  /**
+   * The turn fails here: an `error` with this sentence and `INTERNAL_ERROR`,
+   * no `done`, and nothing after it is sent. Only what was finished is kept:
+   * the server saves a message when the speaker changes, not as it streams.
+   */
+  fail?: string;
 }
 
 export interface StreamScript {
@@ -418,6 +464,8 @@ interface StoredMessage {
   model_name?: string | null;
   /** Assistant messages of a VRM persona: where the feeling changed (#243). */
   emotion_cues?: EmotionCueRecord[] | null;
+  /** User messages: the images sent with it, as ids `GET /images/{uuid}` serves. */
+  images?: string[];
   created_at: string;
 }
 
@@ -552,8 +600,22 @@ export class MockBackend {
   /** The most recent model or clip upload, so a spec can assert what was sent. */
   public lastCharacterUpload: { path: string; sha256: string | null; bytes: number; status: number } | null = null;
 
-  /** A bearer the asset route now refuses; see `expireAccessToken`. */
-  private expiredAssetBearer: string | null = null;
+  /** Bearers refused as expired, and the path prefix they are refused under (null: everywhere); see `expireAccessToken`. */
+  private expiredBearers = new Map<string, string | null>();
+  /** `/auth/refresh` refuses: the refresh token is no good either (#312). */
+  private refreshRefused = false;
+  /** How many access tokens `/auth/refresh` has handed out. */
+  public refreshCount = 0;
+  /** Every answer to a `tool_approval_request`, oldest first (#312). */
+  public approvalResponses: Array<{ tool: string; approved: boolean }> = [];
+  /** Every answer to a `tool_call_request` — the app running its own tool — oldest first. */
+  public toolCallResponses: Array<{ tool: string; content: string; isError: boolean }> = [];
+  /** Images sent with a chat message, by the id the stored message names. */
+  private chatImages = new Map<string, Buffer>();
+  /** Every `POST /tts`, oldest first (#312). */
+  public speechRequests: Array<{ text: string; voice: string | null; provider: string | null }> = [];
+  /** `POST /tts` fails like this until cleared; see `failSpeech`. */
+  private speechFailure: { status: number; detail: string } | null = null;
   public lastMcpServerCreate: any = null;
   /** Body of the most recent `PATCH /conversations/{id}`, with the id it hit. */
   public lastConversationPatch: { id: number; body: any } | null = null;
@@ -673,12 +735,22 @@ export class MockBackend {
       const clientProtocol = declared
         ? Number.parseInt(declared.slice(WS_WIRE_SUBPROTOCOL_PREFIX.length), 10)
         : null;
+      const header = req.headers['authorization'];
+      const bearer = offered[0] === WS_AUTH_SUBPROTOCOL && offered[1]
+        ? `Bearer ${offered[1]}`
+        : (typeof header === 'string' ? header : null);
 
       this.wss.handleUpgrade(req, socket, head, (ws) => {
         // Checked before authenticating, like the backend: a client on the wrong
         // protocol is closed with 4426 and must not be served.
         if (clientProtocol !== null && !Number.isNaN(clientProtocol) && clientProtocol !== this.wireProtocol) {
           ws.close(WS_WIRE_PROTOCOL_MISMATCH, `wire_protocol_mismatch (server ${this.wireProtocol})`);
+          return;
+        }
+        // Then the token: an expired one is closed with 4001, which is what
+        // sends a client to `/auth/refresh` (#312).
+        if (this.isExpired(bearer)) {
+          ws.close(4001, 'Token has expired');
           return;
         }
         if (isNotifications) {
@@ -825,16 +897,40 @@ export class MockBackend {
   }
 
   /**
-   * Age the login's access token out of the asset route. The backend refuses
-   * an access token past its hour with a 401; this mock has no clock, so a spec
-   * says when. Only `/character-assets` looks — the rest of the mock
-   * authenticates nobody — and `/auth/refresh` keeps issuing
-   * `test-access-token-refreshed`, which the route still accepts. That is the
-   * whole of the round trip `characterWindow.spec.ts` drives: a 401 in the
-   * character window, a refresh in the main one, a retry with the new bearer.
+   * Age an access token out, everywhere. The backend refuses an access token
+   * past its hour with a 401 and the chat socket closes with 4001; this mock has
+   * no clock, so a spec says when. Every route refuses it from then on — a
+   * request with no token at all is still served, since the mock authenticates
+   * nobody else — and `/auth/refresh` hands out a new one (the first is
+   * `test-access-token-refreshed`) unless `refuseRefresh` was called (#312).
+   * `onlyUnder` confines it to paths under one prefix — the socket is then
+   * unaffected — for a spec about one client's refresh, not the session's
+   * (`characterWindow.spec.ts`: the window refused while the main window is not).
    */
-  expireAccessToken(token = 'test-access-token'): void {
-    this.expiredAssetBearer = `Bearer ${token}`;
+  expireAccessToken(token = 'test-access-token', opts: { onlyUnder?: string } = {}): void {
+    this.expiredBearers.set(`Bearer ${token}`, opts.onlyUnder ?? null);
+  }
+
+  /**
+   * Make `POST /tts` fail as the backend's speech router does when its engine
+   * is down (`speech/synthesis.py`: a 502 with the outage sentence), or with a
+   * 400 that keeps an engine's own reason. `null` restores the audio.
+   */
+  failSpeech(failure: { status: number; detail: string } | null = {
+    status: 502, detail: 'The speech service is unavailable. (reference: mock)',
+  }): void {
+    this.speechFailure = failure;
+  }
+
+  /** The refresh token is no good either: `/auth/refresh` answers 401, and the session is over. */
+  refuseRefresh(refused = true): void {
+    this.refreshRefused = refused;
+  }
+
+  private isExpired(authorization: string | undefined | null, path?: string): boolean {
+    if (!authorization || !this.expiredBearers.has(authorization)) return false;
+    const under = this.expiredBearers.get(authorization);
+    return under === null || (path !== undefined && path.startsWith(under!));
   }
 
   /**
@@ -1243,7 +1339,34 @@ export class MockBackend {
       });
     }
     if (pathOnly === '/auth/refresh' && method === 'POST') {
-      return this.json(res, { access_token: 'test-access-token-refreshed', token_type: 'Bearer' });
+      if (this.refreshRefused) return this.error(res, 401, 'Invalid refresh token');
+      this.refreshCount += 1;
+      const issued = this.refreshCount === 1
+        ? 'test-access-token-refreshed'
+        : `test-access-token-refreshed-${this.refreshCount}`;
+      return this.json(res, { access_token: issued, token_type: 'Bearer' });
+    }
+
+    // An expired access token is refused everywhere but the routes that take
+    // none (#312). The 3D store does its own check, so it can record the refusal.
+    const authorization = req.headers['authorization'];
+    if (this.isExpired(typeof authorization === 'string' ? authorization : null, pathOnly)
+      && pathOnly !== '/health' && !pathOnly.startsWith('/character-assets/')) {
+      await this.readRaw(req);
+      return this.error(res, 401, 'Token has expired');
+    }
+
+    // The images sent with chat messages. Behind a token on the real server —
+    // `?token=` for an <img>, since #154 — and a 404 for any id it does not hold.
+    const imageMatch = pathOnly.match(/^\/images\/(?:u\/)?([0-9a-f-]{36})$/);
+    if (imageMatch && method === 'GET') {
+      const bytes = this.chatImages.get(imageMatch[1]);
+      if (!bytes) return this.error(res, 404, 'Image not found');
+      res.statusCode = 200;
+      res.setHeader('Content-Type', bytes[0] === 0x89 ? 'image/png' : 'image/jpeg');
+      res.setHeader('Cache-Control', 'private');
+      res.setHeader('Content-Length', String(bytes.length));
+      return res.end(bytes);
     }
 
     // User profile
@@ -2067,7 +2190,7 @@ export class MockBackend {
     const storeRoute = /^\/character-assets\/(usage|\d+\/(character-config|vrm\/model|vrma(\/[^/]+)?))$/.test(pathOnly);
     if (storeRoute) {
       const authorization = req.headers.authorization ?? null;
-      if (!authorization?.startsWith('Bearer ') || authorization === this.expiredAssetBearer) {
+      if (!authorization?.startsWith('Bearer ') || this.isExpired(authorization, pathOnly)) {
         if (method === 'GET') {
           this.lastCharacterAssetRequest = { path: pathOnly, authorization };
           this.characterAssetRequests.push({ path: pathOnly, authorization, status: 401 });
@@ -2245,7 +2368,7 @@ export class MockBackend {
         return this.error(res, status, detail);
       };
       if (!authorization?.startsWith('Bearer ')) return refuse(401, 'Not authenticated');
-      if (authorization === this.expiredAssetBearer) return refuse(401, 'Token has expired');
+      if (this.isExpired(authorization, pathOnly)) return refuse(401, 'Token has expired');
       const persona = this.personas.find((p) => p.id === Number(assetMatch[1]));
       const tree = persona?.character_config?.pose_tree as { nodes?: Array<{ id: string }> } | undefined;
       const node = tree?.nodes?.find((n) => n.id === assetMatch[2]);
@@ -2262,6 +2385,17 @@ export class MockBackend {
     if (pathOnly.startsWith('/character-assets/')) {
       if (method === 'PUT' || method === 'POST') await this.readRaw(req);
       return this.error(res, 404, 'Not found');
+    }
+
+    // Speech (#312): a short WAV, as the engines answer, or the server's failure.
+    if (pathOnly === '/tts' && method === 'POST') {
+      const body = await this.readJson(req);
+      this.speechRequests.push({ text: body.text ?? '', voice: body.voice ?? null, provider: body.provider ?? null });
+      if (this.speechFailure) return this.error(res, this.speechFailure.status, this.speechFailure.detail);
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'audio/wav');
+      res.setHeader('Content-Length', String(SPEECH_WAV.length));
+      return res.end(SPEECH_WAV);
     }
 
     if (pathOnly === '/faces') return this.json(res, []);
@@ -2431,6 +2565,7 @@ export class MockBackend {
       ...(m.duration_ms != null ? { duration_ms: m.duration_ms } : {}),
       ...(m.model_name ? { model_name: m.model_name } : {}),
       ...(m.emotion_cues?.length ? { emotion_cues: m.emotion_cues } : {}),
+      ...(m.images?.length ? { images: m.images } : {}),
       // Only an assistant message has a speaker. The embedded stamp is what the
       // bubble renders its name and avatar from on a reload.
       ...(m.persona_id !== null
@@ -2770,10 +2905,18 @@ export class MockBackend {
       }
     };
 
-    // Per-connection cancel flag — set when a cancel event arrives, cleared when a new
-    // chat_request starts. The streaming loop polls this before each chunk so it can
-    // abort without letting late chunks leak onto the client after a stop click.
+    // Per-connection state, as `ChatSessionHandler` keeps it. `cancelRequested`
+    // is polled before each chunk so a stop click lets no late chunk leak onto
+    // the client; `busy` and `queue` are the server's message queue: a
+    // chat_request that arrives mid-turn waits, and everything that waited is
+    // answered as one follow-up turn (`_process_queue`).
     let cancelRequested = false;
+    let busy = false;
+    let queue: any[] = [];
+    // What the turn is waiting on the client for, by approval or request id. A
+    // cancel answers every wait with null, which ends the turn.
+    const waits = new Map<string, (reply: any | null) => void>();
+    const waitFor = (id: string) => new Promise<any | null>((resolve) => waits.set(id, resolve));
 
     // Announce connection. The real session outlives one socket, so a reconnect
     // reports the last turn's conversation. No persona: who answers is the
@@ -2786,177 +2929,289 @@ export class MockBackend {
       vision_config: null,
     });
 
+    const userMessage = (request: any): StoredMessage => {
+      // Images are saved as files on the server and the message keeps their ids.
+      const images: string[] = [];
+      for (const b64 of Array.isArray(request.images) ? request.images : []) {
+        const id = randomUUID();
+        this.chatImages.set(id, Buffer.from(String(b64), 'base64'));
+        images.push(id);
+      }
+      return {
+        id: this.nextMessageId++,
+        role: 'user',
+        content: request.text ?? '',
+        thinking: null,
+        persona_id: null,
+        name: null,
+        tool_args: null,
+        tool_status: null,
+        ...(images.length ? { images } : {}),
+        created_at: new Date().toISOString(),
+      };
+    };
+
+    const runTurn = async (event: any, extras: any[]) => {
+      cancelRequested = false;
+      busy = true;
+      try {
+        await playTurn(event, extras);
+      } finally {
+        busy = false;
+      }
+      if (queue.length > 0 && ws.readyState === WebSocket.OPEN) {
+        const [primary, ...rest] = queue;
+        queue = [];
+        void runTurn(primary, rest);
+      }
+    };
+
+    const playTurn = async (event: any, extras: any[]) => {
+      // The real server refuses the turn when neither the assistant row nor the
+      // request names a model, before it creates a conversation — see
+      // backend/kurisuassistant/websocket/handlers.py. A new account is in
+      // exactly that state, so the mock has to be able to reproduce it. Anything
+      // queued behind it would fail the same way, so the queue is dropped.
+      if (!this.assistant.model_name && !event.model_name) {
+        queue = [];
+        send({
+          type: 'error',
+          error: 'No model is selected yet. Choose one on the Assistant screen, then send your message again.',
+          code: 'NO_MODEL_SELECTED',
+        });
+        return;
+      }
+
+      let conv = event.conversation_id ? this.conversations.get(event.conversation_id) : undefined;
+
+      // Who answers is the persona in use for the whole account, in any
+      // conversation (#354). A `persona_id` or a legacy `agent_id` on the
+      // request is ignored, exactly as the real server ignores it.
+      const persona = this.personaInUse();
+
+      if (!conv) {
+        // A null conversation_id means "start one", titled after the first
+        // message as the backend titles it. A stale id the mock has never
+        // seen keeps its number, so the client's own bookkeeping stays
+        // consistent instead of silently moving to a different conversation.
+        const text: string = event.text ?? '';
+        const title = text.length > 80 ? `${text.slice(0, 80)}...` : text;
+        conv = this.createConversation(title, event.conversation_id ?? undefined);
+      }
+      const conversationId = conv.id;
+      this.lastTurn = { conversationId };
+
+      for (const request of [event, ...extras]) conv.messages.push(userMessage(request));
+      this.touch(conv);
+
+      // Chunks are grouped into stored messages the way the backend groups
+      // them: a new message starts whenever the role or the speaker changes.
+      type Segment = {
+        role: string; content: string; thinking: string;
+        personaId: number | null; name: string | null;
+        toolArgs: Record<string, unknown> | null; toolStatus: string | null;
+        toolKind: string | null; durationMs: number | null; modelName: string | null;
+        emotionCues: EmotionCueRecord[];
+      };
+      const segments: Segment[] = [];
+      // How the turn ended: `done` when it ran out of script or a call was
+      // denied, `cancelled` on a stop, `failed` on a scripted failure.
+      let ending: 'done' | 'cancelled' | 'failed' = 'done';
+
+      for (const chunk of this.stream.chunks) {
+        if (chunk.delayMs) await sleep(chunk.delayMs);
+        if (cancelRequested) { ending = 'cancelled'; break; }
+
+        if (chunk.fail !== undefined) {
+          send({ type: 'error', error: chunk.fail, code: 'INTERNAL_ERROR' });
+          ending = 'failed';
+          break;
+        }
+
+        const role = chunk.role ?? 'assistant';
+        const isTool = role === 'tool';
+        let content = chunk.content;
+        let toolStatus: string | null = chunk.toolStatus ?? (isTool ? 'success' : null);
+        const toolName = chunk.name ?? 'mock_tool';
+        let denied = false;
+
+        // Always ask: the user decides before the call runs (`BaseAgent.execute_tool`).
+        if (isTool && chunk.ask) {
+          const approvalId = randomUUID();
+          send({
+            type: 'tool_approval_request',
+            approval_id: approvalId,
+            tool_name: toolName,
+            tool_args: chunk.toolArgs ?? {},
+            agent_id: persona?.id ?? null,
+            name: persona?.name ?? ASSISTANT_NAME,
+            description: chunk.ask.description ?? `Execute ${toolName} with args: ${JSON.stringify(chunk.toolArgs ?? {})}`,
+            execution_location: chunk.onClient ? 'frontend' : 'backend',
+          });
+          const reply = await waitFor(approvalId);
+          if (reply === null || cancelRequested) { ending = 'cancelled'; break; }
+          this.approvalResponses.push({ tool: toolName, approved: !!reply.approved });
+          if (!reply.approved) {
+            content = `Tool execution denied by user: ${toolName}`;
+            toolStatus = 'denied';
+            denied = true;
+          }
+        }
+
+        // One of the app's own tools: the app runs it and its answer is the result.
+        if (isTool && chunk.onClient && !denied) {
+          const requestId = randomUUID();
+          send({ type: 'tool_call_request', request_id: requestId, tool_name: toolName, tool_args: chunk.toolArgs ?? {} });
+          const reply = await waitFor(requestId);
+          if (reply === null || cancelRequested) { ending = 'cancelled'; break; }
+          content = String(reply.content ?? '');
+          this.toolCallResponses.push({ tool: toolName, content, isError: !!reply.is_error });
+          toolStatus = toolStatusOf(content);
+          denied = toolStatus === 'denied';
+        }
+
+        // An assistant chunk speaks as a persona; a tool chunk speaks as
+        // nobody, and `name` carries the tool's own label instead.
+        const speaker = isTool
+          ? undefined
+          : (this.findPersona(chunk.personaId) ?? persona);
+        const personaId = isTool ? null : (chunk.personaId ?? speaker?.id ?? null);
+        // With no persona the assistant speaks as itself, named "Assistant" (#302).
+        const personaName = isTool ? null : (chunk.personaName ?? speaker?.name ?? ASSISTANT_NAME);
+        const label = isTool ? toolName : personaName;
+        // A tool chunk says what it was and how long it took; a delegation also
+        // names the model it ran on, as the backend does (#327) — the
+        // assistant's own, since it spawns the sub-agent on it (#354).
+        const toolKind = isTool ? (chunk.toolKind ?? 'tool') : null;
+        const durationMs = isTool ? (chunk.durationMs ?? 12) : null;
+        const toolModel = toolKind === 'sub_agent'
+          ? (this.assistant.model_name ?? event.model_name ?? null)
+          : null;
+
+        const last = segments[segments.length - 1];
+        if (!last || last.role !== role || last.name !== label) {
+          segments.push({
+            role,
+            content,
+            thinking: chunk.thinking ?? '',
+            personaId,
+            name: label,
+            toolArgs: chunk.toolArgs ?? null,
+            toolStatus,
+            toolKind,
+            durationMs,
+            modelName: toolModel,
+            emotionCues: [],
+          });
+        } else {
+          last.content += content;
+          if (chunk.thinking) last.thinking += chunk.thinking;
+        }
+        if (!isTool && chunk.emotion) {
+          segments[segments.length - 1].emotionCues.push({ emotion: chunk.emotion, at: chunk.emotionAt ?? 0 });
+        }
+
+        send({
+          type: 'stream_chunk',
+          content,
+          thinking: chunk.thinking ?? null,
+          role,
+          persona_id: personaId,
+          persona_name: personaName,
+          name: label,
+          voice_reference: isTool ? null : (speaker?.voice_reference ?? null),
+          model_name: isTool ? toolModel : this.assistant.model_name,
+          provider_type: isTool ? null : this.assistant.provider_type,
+          tool_args: chunk.toolArgs ?? null,
+          tool_status: toolStatus,
+          // Only meaningful on a tool chunk, and the client's only source for
+          // the sub-agent tag and the call duration.
+          tool_kind: toolKind,
+          duration_ms: durationMs,
+          conversation_id: conversationId,
+          images: null,
+          token_count: null,
+          // Only an assistant chunk of a VRM persona with emotion on carries
+          // these; the backend leaves them null everywhere else.
+          emotion: (!isTool && chunk.emotion) ? chunk.emotion : null,
+          emotion_at: (!isTool && chunk.emotion) ? (chunk.emotionAt ?? 0) : null,
+        });
+
+        // A denied call ends the turn (`tool_denied` in agents/main.py).
+        if (denied) break;
+      }
+
+      // Persist whatever made it out (partial content on cancel counts). A
+      // failure loses the message being written: the server saves one when
+      // the speaker changes, and the exception comes first.
+      const kept = ending === 'failed' ? segments.slice(0, -1) : segments;
+      for (const seg of kept) {
+        conv.messages.push({
+          id: this.nextMessageId++,
+          role: seg.role,
+          content: seg.content,
+          thinking: seg.thinking || null,
+          persona_id: seg.personaId,
+          name: seg.name,
+          tool_args: seg.toolArgs,
+          tool_status: seg.toolStatus,
+          tool_kind: seg.toolKind,
+          duration_ms: seg.durationMs,
+          model_name: seg.modelName,
+          emotion_cues: seg.emotionCues.length ? seg.emotionCues : null,
+          created_at: new Date().toISOString(),
+        });
+      }
+      this.touch(conv);
+
+      if (ending === 'done') {
+        send({ type: 'done', conversation_id: conversationId });
+      }
+      // Cancel path: client already synthesized its own local 'done' equivalent
+      // via handleCancel. A server 'done' here would re-enter handleDone and
+      // clear cancelledRef, re-enabling late chunk delivery.
+    };
+
+    ws.on('close', () => {
+      for (const resolve of waits.values()) resolve(null);
+      waits.clear();
+    });
+
     ws.on('message', async (raw) => {
       let event: any;
       try { event = JSON.parse(raw.toString()); } catch { return; }
       if (process.env.MOCK_DEBUG) console.log('[mock] ws recv:', event.type, event.text ?? '');
 
       if (event.type === 'chat_request') {
-        cancelRequested = false;
         this.lastChatRequest = event;
-
-        // The real server refuses the turn when neither the assistant row nor the
-        // request names a model, before it creates a conversation — see
-        // backend/kurisuassistant/websocket/handlers.py. A new account is in
-        // exactly that state, so the mock has to be able to reproduce it.
-        if (!this.assistant.model_name && !event.model_name) {
-          send({
-            type: 'error',
-            error: 'No model is selected yet. Choose one on the Assistant screen, then send your message again.',
-            code: 'NO_MODEL_SELECTED',
-          });
+        if (busy) {
+          if (queue.length >= 20) {
+            send({
+              type: 'error',
+              error: 'Too many messages queued while the assistant is replying. Wait for the current reply to finish.',
+              code: 'QUEUE_FULL',
+            });
+            return;
+          }
+          queue.push(event);
           return;
         }
+        await runTurn(event, []);
+      }
 
-        let conv = event.conversation_id ? this.conversations.get(event.conversation_id) : undefined;
-
-        // Who answers is the persona in use for the whole account, in any
-        // conversation (#354). A `persona_id` or a legacy `agent_id` on the
-        // request is ignored, exactly as the real server ignores it.
-        const persona = this.personaInUse();
-
-        if (!conv) {
-          // A null conversation_id means "start one", titled after the first
-          // message as the backend titles it. A stale id the mock has never
-          // seen keeps its number, so the client's own bookkeeping stays
-          // consistent instead of silently moving to a different conversation.
-          const text: string = event.text ?? '';
-          const title = text.length > 80 ? `${text.slice(0, 80)}...` : text;
-          conv = this.createConversation(title, event.conversation_id ?? undefined);
-        }
-        const conversationId = conv.id;
-        this.lastTurn = { conversationId };
-
-        conv.messages.push({
-          id: this.nextMessageId++,
-          role: 'user',
-          content: event.text ?? '',
-          thinking: null,
-          persona_id: null,
-          name: null,
-          tool_args: null,
-          tool_status: null,
-          created_at: new Date().toISOString(),
-        });
-        this.touch(conv);
-
-        // Chunks are grouped into stored messages the way the backend groups
-        // them: a new message starts whenever the role or the speaker changes.
-        type Segment = {
-          role: string; content: string; thinking: string;
-          personaId: number | null; name: string | null;
-          toolArgs: Record<string, unknown> | null; toolStatus: string | null;
-          toolKind: string | null; durationMs: number | null; modelName: string | null;
-          emotionCues: EmotionCueRecord[];
-        };
-        const segments: Segment[] = [];
-        let aborted = false;
-
-        for (const chunk of this.stream.chunks) {
-          if (chunk.delayMs) await sleep(chunk.delayMs);
-          if (cancelRequested) { aborted = true; break; }
-
-          const role = chunk.role ?? 'assistant';
-          const isTool = role === 'tool';
-
-          // An assistant chunk speaks as a persona; a tool chunk speaks as
-          // nobody, and `name` carries the tool's own label instead.
-          const speaker = isTool
-            ? undefined
-            : (this.findPersona(chunk.personaId) ?? persona);
-          const personaId = isTool ? null : (chunk.personaId ?? speaker?.id ?? null);
-          // With no persona the assistant speaks as itself, named "Assistant" (#302).
-          const personaName = isTool ? null : (chunk.personaName ?? speaker?.name ?? ASSISTANT_NAME);
-          const label = isTool ? (chunk.name ?? 'mock_tool') : personaName;
-          // A tool chunk says what it was and how long it took; a delegation also
-          // names the model it ran on, as the backend does (#327) — the
-          // assistant's own, since it spawns the sub-agent on it (#354).
-          const toolKind = isTool ? (chunk.toolKind ?? 'tool') : null;
-          const durationMs = isTool ? (chunk.durationMs ?? 12) : null;
-          const toolModel = toolKind === 'sub_agent'
-            ? (this.assistant.model_name ?? event.model_name ?? null)
-            : null;
-
-          const last = segments[segments.length - 1];
-          if (!last || last.role !== role || last.name !== label) {
-            segments.push({
-              role,
-              content: chunk.content,
-              thinking: chunk.thinking ?? '',
-              personaId,
-              name: label,
-              toolArgs: chunk.toolArgs ?? null,
-              toolStatus: chunk.toolStatus ?? (isTool ? 'success' : null),
-              toolKind,
-              durationMs,
-              modelName: toolModel,
-              emotionCues: [],
-            });
-          } else {
-            last.content += chunk.content;
-            if (chunk.thinking) last.thinking += chunk.thinking;
-          }
-          if (!isTool && chunk.emotion) {
-            segments[segments.length - 1].emotionCues.push({ emotion: chunk.emotion, at: chunk.emotionAt ?? 0 });
-          }
-
-          send({
-            type: 'stream_chunk',
-            content: chunk.content,
-            thinking: chunk.thinking ?? null,
-            role,
-            persona_id: personaId,
-            persona_name: personaName,
-            name: label,
-            voice_reference: isTool ? null : (speaker?.voice_reference ?? null),
-            model_name: isTool ? toolModel : this.assistant.model_name,
-            provider_type: isTool ? null : this.assistant.provider_type,
-            tool_args: chunk.toolArgs ?? null,
-            tool_status: chunk.toolStatus ?? (isTool ? 'success' : null),
-            // Only meaningful on a tool chunk, and the client's only source for
-            // the sub-agent tag and the call duration.
-            tool_kind: toolKind,
-            duration_ms: durationMs,
-            conversation_id: conversationId,
-            images: null,
-            token_count: null,
-            // Only an assistant chunk of a VRM persona with emotion on carries
-            // these; the backend leaves them null everywhere else.
-            emotion: (!isTool && chunk.emotion) ? chunk.emotion : null,
-            emotion_at: (!isTool && chunk.emotion) ? (chunk.emotionAt ?? 0) : null,
-          });
-        }
-
-        // Persist whatever made it out (partial content on cancel counts).
-        for (const seg of segments) {
-          conv.messages.push({
-            id: this.nextMessageId++,
-            role: seg.role,
-            content: seg.content,
-            thinking: seg.thinking || null,
-            persona_id: seg.personaId,
-            name: seg.name,
-            tool_args: seg.toolArgs,
-            tool_status: seg.toolStatus,
-            tool_kind: seg.toolKind,
-            duration_ms: seg.durationMs,
-            model_name: seg.modelName,
-            emotion_cues: seg.emotionCues.length ? seg.emotionCues : null,
-            created_at: new Date().toISOString(),
-          });
-        }
-        this.touch(conv);
-
-        if (!aborted) {
-          send({ type: 'done', conversation_id: conversationId });
-        }
-        // Cancel path: client already synthesized its own local 'done' equivalent
-        // via handleCancel. A server 'done' here would re-enter handleDone and
-        // clear cancelledRef, re-enabling late chunk delivery.
+      if (event.type === 'tool_approval_response' || event.type === 'tool_call_response') {
+        const id = event.type === 'tool_approval_response' ? event.approval_id : event.request_id;
+        const resolve = waits.get(id);
+        waits.delete(id);
+        resolve?.(event);
       }
 
       if (event.type === 'cancel') {
+        // `_handle_cancel`: the turn stops and the queue is dropped.
         cancelRequested = true;
+        queue = [];
+        for (const resolve of waits.values()) resolve(null);
+        waits.clear();
       }
 
       // Compaction. The backend summarizes, opens a NEW conversation carrying
@@ -3000,4 +3255,19 @@ export class MockBackend {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** `ToolResult.from_content` (agents/base.py): how the server reads a tool's answer. */
+function toolStatusOf(content: string): 'success' | 'error' | 'denied' {
+  const lowered = content.toLowerCase();
+  if (lowered.includes('denied by user') || lowered.includes('denied by the user')) return 'denied';
+  const stripped = content.trim();
+  if (stripped.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(stripped);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'error' in parsed) return 'error';
+    } catch { /* not JSON */ }
+  }
+  if (stripped.startsWith('Client tool error:') || stripped.startsWith('MCP client not available')) return 'error';
+  return 'success';
 }
