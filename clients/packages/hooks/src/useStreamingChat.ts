@@ -95,7 +95,15 @@ export function useStreamingChat({
   const [pendingApproval, setPendingApproval] = useState<ToolApprovalRequestEvent | null>(null);
   const [contextTokens, setContextTokens] = useState(0);
   const [isCompacting, setIsCompacting] = useState(false);
-  const [queuedMessages, setQueuedMessages] = useState<Message[]>([]);
+  const [queuedMessages, setQueuedMessagesState] = useState<Message[]>([]);
+  // Mirrored, so handleDone — registered once — reads the messages that waited
+  // rather than the ones there were when it was created.
+  const queuedMessagesRef = useRef<Message[]>([]);
+  const setQueuedMessages = useCallback((updater: Message[] | ((prev: Message[]) => Message[])) => {
+    const next = typeof updater === 'function' ? updater(queuedMessagesRef.current) : updater;
+    queuedMessagesRef.current = next;
+    setQueuedMessagesState(next);
+  }, []);
 
   // Ref to track streaming state without stale closures
   const isStreamingRef = useRef(false);
@@ -173,6 +181,42 @@ export function useStreamingChat({
   useEffect(() => {
     isStreamingRef.current = isStreaming;
   }, [isStreaming]);
+
+  /** Forget the bubble being written, keeping the conversation the turn was in. */
+  const resetTurnState = (conversationId: number | null) => {
+    streamingStateRef.current = {
+      currentRole: null,
+      currentPersonaId: undefined,
+      currentName: undefined,
+      accumulatedContent: '',
+      accumulatedThinking: '',
+      hasPlaceholder: false,
+      hasStarted: false,
+      conversationId,
+    };
+  };
+
+  /**
+   * Messages sent during a turn are the server's next turn: it answers
+   * everything that waited as one (`_process_queue`) once a turn ends, done or
+   * failed. They stop waiting and become that turn's opening, with a bubble for
+   * its reply — dropping them, as this used to, left the reply streaming into
+   * nothing until a reload (#312).
+   */
+  const startQueuedTurn = () => {
+    const queued = queuedMessagesRef.current;
+    if (queued.length === 0) return;
+    setQueuedMessages([]);
+    turnSeqRef.current++;
+    updateStreaming([
+      ...queued.map((m) => ({ ...m, queued: undefined })),
+      { role: 'assistant', content: '', _clientKey: newId() },
+    ]);
+    streamingStateRef.current.hasPlaceholder = true;
+    setJustFinishedStreaming(false);
+    setIsStreaming(true);
+    isStreamingRef.current = true;
+  };
 
   const pushExternalDraft = useCallback((text: string) => {
     setExternalDraft(text);
@@ -559,8 +603,11 @@ export function useStreamingChat({
     if (finalized.length > 0) {
       useConversationStore.getState().appendMessages(finalized);
     }
-    // Drop any queued messages — backend will stream them next.
-    setQueuedMessages([]);
+    // The turn is over: the next chunk starts a bubble of its own instead of
+    // being added to this turn's text, which is no longer on screen.
+    resetTurnState(state.conversationId);
+
+    startQueuedTurn();
 
     // A `connected` restore landed mid-turn and deferred rather than overwrite
     // it. The snapshot it applied is stale by exactly this turn, so re-read now
@@ -584,16 +631,48 @@ export function useStreamingChat({
       // stream answer to nothing. Only handleDone clears them otherwise, and no
       // `done` is coming.
       setQueuedMessages([]);
-    } else {
-      console.error('WebSocket error:', event.error);
-      setErrorToast(event.error);
+      updateStreaming([]);
+      cancelStreamUpdate();
+      setStreamingContent('');
+      setStreamingThinking('');
+      setIsStreaming(false);
+      return;
     }
+
+    console.error('WebSocket error:', event.error);
+    setErrorToast(event.error);
+
+    // Refused: the message that did not fit in the queue. The reply carries on.
+    if (event.code === 'QUEUE_FULL') {
+      setQueuedMessages((prev) => prev.slice(0, -1));
+      return;
+    }
+    // Not about a reply (a refused `/compact`, say): nothing on screen to undo.
+    if (!isStreamingRef.current) return;
+
+    // The reply failed partway. What stays is what the server kept: my
+    // message and every bubble it finished — it saves one when the speaker
+    // changes, so the one it was writing is gone. Wiping the lot, as this used
+    // to, took my message off the screen though the server had it (#312).
+    const state = streamingStateRef.current;
+    const kept = streamingMessagesRef.current.slice(0, -1);
     updateStreaming([]);
     cancelStreamUpdate();
     setStreamingContent('');
     setStreamingThinking('');
     setIsStreaming(false);
-  }, [updateStreaming, pushExternalDraft]);
+    isStreamingRef.current = false;
+    speechPlanner.reset();
+    setThinking(false);
+    if (kept.length > 0) useConversationStore.getState().appendMessages(kept);
+    resetTurnState(state.conversationId);
+    if (state.conversationId) loadConversation(state.conversationId).catch(console.error);
+
+    // A setting the account lacks fails whatever waited too, and the server
+    // drops its queue for it; after any other failure it answers the queue next.
+    if (event.code === 'PROVIDER_NOT_CONFIGURED') setQueuedMessages([]);
+    else startQueuedTurn();
+  }, [updateStreaming, pushExternalDraft, loadConversation]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleConnected = useCallback((event: ConnectedEvent) => {
     if (event.chat_active && event.conversation_id) {      // Server still has an active streaming task; enter streaming mode and load
@@ -792,7 +871,9 @@ export function useStreamingChat({
       const userMessage: Message = {
         role: 'user',
         content: text,
-        images: [],
+        // Shown from the bytes until the server's copies replace them on the
+        // next load: the bubble used to have no image at all (#312).
+        images: imageFiles.map((file, i) => localImageUrl(file, imageBase64[i])),
         context_files: contextFiles.length > 0 ? contextFiles as Message['context_files'] : undefined,
         _clientKey: newId(),
       };
@@ -859,18 +940,24 @@ export function useStreamingChat({
     }
 
     if (isStreamingRef.current) {
-      // Already streaming — queue: show dimmed user bubble below streaming content
-      setQueuedMessages(prev => [...prev, { role: 'user', content: trimmed, images: [], queued: true, _clientKey: newId() }]);
-      // This is a send too, so it owns the text a refusal would hand back —
-      // otherwise the composer would be refilled with the previous turn's
-      // message and this one lost.
-      lastSentTextRef.current = trimmed;
-
       const imageBase64: string[] = [];
       for (const imageFile of imageFiles) {
         const base64 = await fileToBase64(imageFile);
         imageBase64.push(base64);
       }
+
+      // Already streaming — queue: show dimmed user bubble below streaming content
+      setQueuedMessages(prev => [...prev, {
+        role: 'user',
+        content: trimmed,
+        images: imageFiles.map((file, i) => localImageUrl(file, imageBase64[i])),
+        queued: true,
+        _clientKey: newId(),
+      }]);
+      // This is a send too, so it owns the text a refusal would hand back —
+      // otherwise the composer would be refilled with the previous turn's
+      // message and this one lost.
+      lastSentTextRef.current = trimmed;
 
       await wsManager.sendChatRequest(
         trimmed,
@@ -971,4 +1058,9 @@ export function useStreamingChat({
     contextLimit: 0,  // Frontend determines limit from model config
     isCompacting,
   };
+}
+
+/** An image just sent, as a URL the bubble can show before the server's copy is loaded. */
+function localImageUrl(file: File, base64: string): string {
+  return `data:${file.type || 'image/png'};base64,${base64}`;
 }

@@ -37,6 +37,7 @@ export interface Message {
   role: string; // Can be 'user', 'assistant', 'tool', or any custom agent role
   content: string;
   thinking?: string; // Optional thinking content (for assistant messages)
+  /** Image ids the server stores; a message just sent holds `data:` URLs until it is reloaded. */
   images?: string[];
   created_at?: string;
   persona_id?: number; // Which persona spoke this message (assistant messages only)

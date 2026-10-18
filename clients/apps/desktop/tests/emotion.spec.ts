@@ -9,9 +9,9 @@
  * relays. No WebGL is needed: Kurisu is a 3D persona with no model, so the
  * window draws nothing and the messages are the whole of what is asserted.
  *
- * With speech on, the mock's `POST /tts` answers no audio, so each sentence
- * takes the queue's failure path: a silent 4 s segment that still carries its
- * feelings (`FAILED_SENTENCE_MS`), which is what this reads.
+ * With speech on, the mock's `POST /tts` answers a half-second WAV, so each
+ * sentence is a segment as long as the clip, carrying its feelings — which is
+ * what this reads.
  */
 import { test, expect } from './fixtures';
 import type { ElectronApplication, Page } from '@playwright/test';

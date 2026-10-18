@@ -686,6 +686,267 @@ describe('mock backend: streaming', () => {
   });
 });
 
+/**
+ * One turn, answering what the server asks along the way: `answer` sees every
+ * event and may return a reply to send back. Resolves on `done`, or on an
+ * `error` when the turn fails (a failed turn has no `done`).
+ */
+async function converse(
+  payload: Record<string, unknown>,
+  answer: (event: any) => Record<string, unknown> | null = () => null,
+  token = 'test-token',
+): Promise<any[]> {
+  const ws = new WebSocket(`${mock.url.replace('http:', 'ws:')}/ws/chat`, [
+    WS_AUTH_SUBPROTOCOL, token, `${WS_WIRE_SUBPROTOCOL_PREFIX}${WIRE_PROTOCOL}`,
+  ]);
+  const events: any[] = [];
+  await new Promise<void>((resolve, reject) => {
+    ws.on('error', reject);
+    ws.on('message', (raw) => {
+      const event = JSON.parse(raw.toString());
+      events.push(event);
+      if (event.type === 'connected') {
+        ws.send(JSON.stringify({ type: 'chat_request', text: 'hi', ...payload }));
+      }
+      const reply = answer(event);
+      if (reply) ws.send(JSON.stringify(reply));
+      if (event.type === 'done' || event.type === 'error') resolve();
+    });
+  });
+  ws.close();
+  return events;
+}
+
+describe('mock backend: what a turn asks of the client (#312)', () => {
+  it('asks to approve a tool, and an approved call runs and says what it returned', async () => {
+    mock.setStream({
+      chunks: [
+        { content: 'Checking. ', role: 'assistant' },
+        { content: '3 files', role: 'tool', name: 'drive_list', toolArgs: { path: '/' }, ask: { description: 'List /' } },
+        { content: 'You have three.', role: 'assistant' },
+      ],
+    });
+    const events = await converse({ conversation_id: null }, (e) => (
+      e.type === 'tool_approval_request' ? { type: 'tool_approval_response', approval_id: e.approval_id, approved: true } : null
+    ));
+
+    const request = events.find((e) => e.type === 'tool_approval_request');
+    expect(request).toMatchObject({
+      tool_name: 'drive_list', tool_args: { path: '/' }, description: 'List /',
+      execution_location: 'backend', agent_id: 1, name: 'Kurisu',
+    });
+    expect(request.approval_id).toEqual(expect.any(String));
+    const chunks = events.filter((e) => e.type === 'stream_chunk');
+    expect(chunks.map((c) => [c.role, c.content, c.tool_status])).toEqual([
+      ['assistant', 'Checking. ', null], ['tool', '3 files', 'success'], ['assistant', 'You have three.', null],
+    ]);
+    expect(mock.approvalResponses).toEqual([{ tool: 'drive_list', approved: true }]);
+  });
+
+  it('a denied call is stored as denied and ends the turn there, as the server does', async () => {
+    mock.setStream({
+      chunks: [
+        { content: 'Deleting. ', role: 'assistant' },
+        { content: 'deleted', role: 'tool', name: 'drive_delete', toolArgs: { path: '/a.md' }, ask: {} },
+        { content: 'Done.', role: 'assistant' },
+      ],
+    });
+    const events = await converse({ conversation_id: null }, (e) => (
+      e.type === 'tool_approval_request' ? { type: 'tool_approval_response', approval_id: e.approval_id, approved: false } : null
+    ));
+
+    const chunks = events.filter((e) => e.type === 'stream_chunk');
+    expect(chunks.map((c) => [c.role, c.content, c.tool_status])).toEqual([
+      ['assistant', 'Deleting. ', null],
+      ['tool', 'Tool execution denied by user: drive_delete', 'denied'],
+    ]);
+    expect(events[events.length - 1].type).toBe('done');
+    const stored = mock.getConversation(chunks[0].conversation_id)!;
+    expect(stored.messages.map((m) => [m.role, m.tool_status])).toEqual([
+      ['user', null], ['assistant', null], ['tool', 'denied'],
+    ]);
+  });
+
+  it('asks the app to run one of its own tools and reports what the app answered', async () => {
+    mock.setStream({
+      chunks: [
+        { content: '', role: 'tool', name: 'host_read', toolArgs: { path: '/tmp/a.txt' }, onClient: true },
+        { content: 'It says hello.', role: 'assistant' },
+      ],
+    });
+    const events = await converse({ conversation_id: null }, (e) => (
+      e.type === 'tool_call_request'
+        ? { type: 'tool_call_response', request_id: e.request_id, content: 'hello', is_error: false }
+        : null
+    ));
+
+    expect(events.find((e) => e.type === 'tool_call_request')).toMatchObject({
+      tool_name: 'host_read', tool_args: { path: '/tmp/a.txt' }, request_id: expect.any(String),
+    });
+    const tool = events.find((e) => e.type === 'stream_chunk' && e.role === 'tool');
+    expect(tool).toMatchObject({ content: 'hello', tool_status: 'success', name: 'host_read' });
+    expect(mock.toolCallResponses).toEqual([{ tool: 'host_read', content: 'hello', isError: false }]);
+  });
+
+  it('a refusal from the app reads as the server reads it: an error, or a denial', async () => {
+    mock.setStream({
+      chunks: [
+        { content: '', role: 'tool', name: 'host_read', toolArgs: { path: '/etc/x' }, onClient: true },
+        { content: '', role: 'tool', name: 'host_write', toolArgs: { path: '/etc/y' }, onClient: true },
+      ],
+    });
+    const answers = [
+      JSON.stringify({ error: 'Path is outside the allowed paths: /etc/x.' }),
+      JSON.stringify({ error: 'Denied by user.' }),
+    ];
+    const events = await converse({ conversation_id: null }, (e) => (
+      e.type === 'tool_call_request'
+        ? { type: 'tool_call_response', request_id: e.request_id, content: answers.shift(), is_error: true }
+        : null
+    ));
+    const tools = events.filter((e) => e.type === 'stream_chunk' && e.role === 'tool');
+    // A denial ends the turn, so the second call is the last thing it does.
+    expect(tools.map((t) => t.tool_status)).toEqual(['error', 'denied']);
+  });
+
+  it('a turn that fails says so with the server\'s sentence, sends no done, and keeps only what was finished', async () => {
+    mock.setStream({
+      chunks: [
+        { content: 'Looking. ', role: 'assistant' },
+        { content: 'found it', role: 'tool', name: 'drive_list' },
+        { content: 'Half a sente', role: 'assistant' },
+        { content: '', fail: 'Something went wrong on the server. (reference: mock)' },
+        { content: 'never sent', role: 'assistant' },
+      ],
+    });
+    const events = await converse({ conversation_id: null });
+
+    expect(events[events.length - 1]).toMatchObject({
+      type: 'error', code: 'INTERNAL_ERROR', error: 'Something went wrong on the server. (reference: mock)',
+    });
+    expect(events.some((e) => e.type === 'done')).toBe(false);
+    expect(events.some((e) => e.content === 'never sent')).toBe(false);
+    // The server saves a message when the speaker changes, so the reply it was
+    // writing when it failed is not kept; the user's message and the finished ones are.
+    const conversationId = events.find((e) => e.type === 'stream_chunk').conversation_id;
+    expect(mock.getConversation(conversationId)!.messages.map((m) => m.content)).toEqual(['hi', 'Looking. ', 'found it']);
+  });
+
+  it('a message sent while a reply streams waits, and is answered as one more turn after it', async () => {
+    mock.setStream({ chunks: [
+      { content: 'Rep', role: 'assistant', delayMs: 20 },
+      { content: 'ly.', role: 'assistant', delayMs: 300 },
+    ] });
+    const ws = connect();
+    const events: any[] = [];
+    await new Promise<void>((resolve, reject) => {
+      ws.on('error', reject);
+      ws.on('message', (raw) => {
+        const event = JSON.parse(raw.toString());
+        events.push(event);
+        if (event.type === 'connected') {
+          ws.send(JSON.stringify({ type: 'chat_request', text: 'first', conversation_id: null }));
+        }
+        if (event.type === 'stream_chunk' && events.filter((e) => e.type === 'stream_chunk').length === 1) {
+          // Arrives mid-turn; the conversation is known by now.
+          ws.send(JSON.stringify({ type: 'chat_request', text: 'second', conversation_id: event.conversation_id }));
+          ws.send(JSON.stringify({ type: 'chat_request', text: 'third', conversation_id: event.conversation_id }));
+        }
+        if (event.type === 'done' && events.filter((e) => e.type === 'done').length === 2) resolve();
+      });
+    });
+    ws.close();
+
+    // Never two replies at once: the second turn starts after the first is done.
+    expect(events.filter((e) => ['stream_chunk', 'done'].includes(e.type)).map((e) => e.type))
+      .toEqual(['stream_chunk', 'stream_chunk', 'done', 'stream_chunk', 'stream_chunk', 'done']);
+    const conversationId = events.find((e) => e.type === 'stream_chunk').conversation_id;
+    // The queued messages are one follow-up turn, as `_process_queue` merges them.
+    expect(mock.getConversation(conversationId)!.messages.map((m) => [m.role, m.content])).toEqual([
+      ['user', 'first'], ['assistant', 'Reply.'], ['user', 'second'], ['user', 'third'], ['assistant', 'Reply.'],
+    ]);
+  });
+
+  it('keeps the images sent with a message, and serves them', async () => {
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const events = await chat({ conversation_id: null, images: [png.toString('base64')] });
+    const conversationId = events.find((e) => e.type === 'stream_chunk').conversation_id;
+
+    const { body } = await get(`/conversations/${conversationId}`);
+    const user = body.messages.find((m: any) => m.role === 'user');
+    expect(user.images).toHaveLength(1);
+    const res = await fetch(`${mock.url}/images/${user.images[0]}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/png');
+    expect(Buffer.from(await res.arrayBuffer()).equals(png)).toBe(true);
+    // An image nobody sent is not there.
+    expect((await fetch(`${mock.url}/images/00000000-0000-0000-0000-000000000000`)).status).toBe(404);
+  });
+});
+
+describe('mock backend: speech (#312)', () => {
+  const speak = (body: unknown) => fetch(`${mock.url}/tts`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+
+  it('answers a sentence with a WAV and remembers what it was asked', async () => {
+    const res = await speak({ text: 'Hello there.', voice: 'kurisu_ja_01' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('audio/wav');
+    const bytes = Buffer.from(await res.arrayBuffer());
+    expect(bytes.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(bytes.subarray(8, 12).toString('ascii')).toBe('WAVE');
+    expect(mock.speechRequests).toEqual([{ text: 'Hello there.', voice: 'kurisu_ja_01', provider: null }]);
+  });
+
+  it('fails as the speech router does when the engine is down', async () => {
+    mock.failSpeech();
+    const res = await speak({ text: 'Hello.' });
+    expect(res.status).toBe(502);
+    expect((await res.json()).detail).toBe('The speech service is unavailable. (reference: mock)');
+    mock.failSpeech(null);
+    expect((await speak({ text: 'Hello.' })).status).toBe(200);
+  });
+});
+
+describe('mock backend: a session that expires (#312)', () => {
+  const authed = (path: string, token: string, init: RequestInit = {}) =>
+    fetch(`${mock.url}${path}`, { ...init, headers: { ...(init.headers ?? {}), Authorization: `Bearer ${token}` } });
+
+  it('refuses an expired token on every route, and a refresh hands out one that works', async () => {
+    mock.expireAccessToken('test-access-token');
+    for (const path of ['/users/me', '/conversations', '/assistant', '/personas']) {
+      const res = await authed(path, 'test-access-token');
+      expect([path, res.status]).toEqual([path, 401]);
+      expect((await res.json()).detail).toBe('Token has expired');
+    }
+    // No token at all is not this mock's to refuse: it authenticates nobody else.
+    expect((await fetch(`${mock.url}/users/me`)).status).toBe(200);
+
+    const refreshed = await post('/auth/refresh', { refresh_token: 'test-refresh-token' });
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.body.access_token).not.toBe('test-access-token');
+    expect((await authed('/users/me', refreshed.body.access_token)).status).toBe(200);
+    expect(mock.refreshCount).toBe(1);
+  });
+
+  it('a refresh that is refused leaves the session over', async () => {
+    mock.expireAccessToken('test-access-token');
+    mock.refuseRefresh();
+    const refreshed = await post('/auth/refresh', { refresh_token: 'test-refresh-token' });
+    expect(refreshed.status).toBe(401);
+  });
+
+  it('closes the chat socket with 4001 for an expired token', async () => {
+    mock.expireAccessToken('stale-token');
+    const ws = new WebSocket(`${mock.url.replace('http:', 'ws:')}/ws/chat`, [
+      WS_AUTH_SUBPROTOCOL, 'stale-token', `${WS_WIRE_SUBPROTOCOL_PREFIX}${WIRE_PROTOCOL}`,
+    ]);
+    const code = await new Promise<number>((resolve) => ws.on('close', resolve));
+    expect(code).toBe(4001);
+  });
+});
+
 describe('mock backend: compaction', () => {
   it('answers compact_context with context_info twice and compacts in place', async () => {
     // The server stopped forking in #99: the summary lands on the conversation
