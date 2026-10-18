@@ -1,29 +1,18 @@
-import type { Assistant, AssistantUpdate, ModelsResponse, Persona, PersonaCreate, UserProfile } from '@kurisu/models';
+import type { Assistant, AssistantUpdate, ModelsResponse, UserProfile } from '@kurisu/models';
 
 /**
- * Onboarding a new account (#342): the model, an optional first persona, and
- * the wake word, offered once while `GET /users/me` says `onboarding_pending`.
+ * Onboarding a new account (#342): the model, and only the model (#376),
+ * offered once while `GET /users/me` says `onboarding_pending`. Once it has a
+ * model the assistant can be asked for the rest — a persona, a voice, a wake
+ * word — so onboarding asks for nothing else.
  *
- * The model and the wake word are the account's, shared by the assistant and
- * every persona; the persona only changes who speaks. Nothing the user picks
- * is written until they finish — except a provider they connect, which the
- * server must hold before it can list that provider's models. Finishing or
- * skipping ends the flow for the account, on every device.
+ * The model is the account's, shared by the assistant and every persona. The
+ * provider is saved as soon as it is connected, since the server must hold it
+ * before it can list that provider's models; the model is saved on finishing.
+ * Finishing or skipping ends the flow for the account, on every device.
  *
  * No React and no store here: the dialog renders it, and these tests drive it.
  */
-
-export type OnboardingStep = 'model' | 'persona' | 'voice' | 'character' | 'wakeWord';
-
-/** The steps in order. Voice and character belong to a persona and are skipped without one. */
-export function onboardingSteps(withPersona: boolean): OnboardingStep[] {
-  return withPersona ? ['model', 'persona', 'voice', 'character', 'wakeWord'] : ['model', 'persona', 'wakeWord'];
-}
-
-/** The wake word starts as the persona's name, and empty without one. */
-export function defaultWakeWord(personaName: string | null): string {
-  return personaName?.trim() ?? '';
-}
 
 /** The providers an account can connect, and what each needs. */
 export const ONBOARDING_PROVIDERS = [
@@ -40,95 +29,23 @@ export interface OnboardingModel {
   provider: string;
 }
 
-export interface OnboardingChoices {
-  /** Null leaves the account without one; the chat asks at the first message. */
-  model: OnboardingModel | null;
-  /** Null: the assistant answers as itself. */
-  persona: {
-    name: string;
-    preferredName: string;
-    avatarUuid: string | null;
-    voice: string | null;
-    /** A `.vrm` to make its character; null for none yet. */
-    vrmFile: Blob | null;
-  } | null;
-  /** Empty for no wake word. */
-  wakeWord: string;
-}
-
 /** The calls the flow makes — `apiClient`'s, so a test can fake them. */
 export interface OnboardingApi {
   updateUserProfile(fields: Partial<UserProfile> & { onboarded?: true }): Promise<unknown>;
   getModelsWithStatus(): Promise<ModelsResponse>;
-  createPersona(data: PersonaCreate): Promise<Persona>;
-  uploadCharacterModel(personaId: number, file: Blob, opts?: { onProgress?: (loaded: number, total: number) => void }): Promise<unknown>;
   updateAssistant(data: AssistantUpdate): Promise<Assistant>;
 }
 
-/** What finishing is doing now, for the progress screen. */
-export type FinishPart = 'persona' | 'character' | 'assistant' | 'done';
-
 /**
- * Finishing, as one retryable run: each part is done once, so a retry after a
- * failed upload goes on from there instead of making a second persona.
+ * Finish: save [model] for the account, then end the flow. A failed save ends
+ * nothing, so trying again simply saves it again.
  */
-export class OnboardingRun {
-  private personaId: number | null = null;
-  private readonly done = new Set<FinishPart>();
-  /** The part the last attempt stopped at, or null. */
-  failedAt: FinishPart | null = null;
-
-  constructor(private readonly api: OnboardingApi) {}
-
-  async finish(
-    choices: OnboardingChoices,
-    onPart?: (part: FinishPart) => void,
-    onUploadProgress?: (loaded: number, total: number) => void,
-  ): Promise<{ personaId: number | null }> {
-    const persona = choices.persona;
-    const step = async (part: FinishPart, work: () => Promise<void>) => {
-      if (this.done.has(part)) return;
-      onPart?.(part);
-      try {
-        await work();
-      } catch (e) {
-        this.failedAt = part;
-        throw e;
-      }
-      this.done.add(part);
-    };
-    this.failedAt = null;
-
-    if (persona) {
-      await step('persona', async () => {
-        const created = await this.api.createPersona({
-          name: persona.name.trim(),
-          ...(persona.preferredName.trim() ? { preferred_name: persona.preferredName.trim() } : {}),
-          ...(persona.avatarUuid ? { avatar_uuid: persona.avatarUuid } : {}),
-          ...(persona.voice ? { voice_reference: persona.voice } : {}),
-        });
-        this.personaId = created.id;
-      });
-      if (persona.vrmFile) {
-        const file = persona.vrmFile;
-        await step('character', async () => {
-          await this.api.uploadCharacterModel(this.personaId!, file, { onProgress: onUploadProgress });
-        });
-      }
-    }
-
-    await step('assistant', async () => {
-      const wake = choices.wakeWord.trim();
-      await this.api.updateAssistant({
-        ...(choices.model ? { model_name: choices.model.name, provider_type: choices.model.provider } : {}),
-        selected_persona_id: persona ? this.personaId : null,
-        trigger_word: wake || null,
-      });
-    });
-    await this.api.updateUserProfile({ onboarded: true });
-    onPart?.('done');
-    return { personaId: persona ? this.personaId : null };
-  }
+export async function finishOnboarding(
+  api: Pick<OnboardingApi, 'updateAssistant' | 'updateUserProfile'>,
+  model: OnboardingModel,
+): Promise<void> {
+  await api.updateAssistant({ model_name: model.name, provider_type: model.provider });
+  await api.updateUserProfile({ onboarded: true });
 }
 
 /** Skip: nothing from the flow is kept, and nothing asks again on any device. */

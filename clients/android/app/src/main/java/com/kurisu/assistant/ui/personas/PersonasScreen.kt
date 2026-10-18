@@ -722,7 +722,7 @@ private fun CharacterRow(
  * Copy a picked image out of the content provider and into the cache, because
  * the upload needs a real file and a `content://` URI is not one.
  */
-internal fun copyToCache(context: Context, uri: Uri): File? = runCatching {
+private fun copyToCache(context: Context, uri: Uri): File? = runCatching {
     val extension = when (context.contentResolver.getType(uri)) {
         "image/png" -> "png"
         "image/webp" -> "webp"

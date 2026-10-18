@@ -775,8 +775,7 @@ than misread as a persona.
 ```
 
 `onboarding_pending` (#342) says whether a client should walk this account
-through its onboarding — a provider and model, an optional persona, the wake
-word: true until a client reports it finished or skipped (`PATCH {"onboarded":
+through its onboarding — a provider and a model, nothing else (#376): true until a client reports it finished or skipped (`PATCH {"onboarded":
 true}`, from any device), and never once the account has a persona (creating or
 importing one ends it too). `users.onboarded_at` holds when.
 

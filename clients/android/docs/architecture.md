@@ -39,7 +39,7 @@ com.kurisu.assistant/
 │   ├── drive/                   -- Kurisu Drive (#175): a folder at a time, the storage card, row menus, the + menu, the transfer strip and sheet, Move sheet
 │   ├── assistant/               -- The one assistant (wake word, thinking, memory, tools)
 │   ├── personas/                -- Persona CRUD (name, prompt, voice, avatar) + ViewModel
-│   ├── onboarding/              -- A new account's first steps (#342): screen, ViewModel, the gate's ViewModel
+│   ├── onboarding/              -- A new account's model, before the first chat (#342, #376): screen, ViewModel, the gate's ViewModel
 │   ├── common/                  -- Shared UI bits (personaInitials, ModelDropdown)
 │   ├── settings/                -- Settings index + Account, Appearance, Notifications, TTS & ASR, Tools & MCP, Skills screens
 │   ├── faces/                   -- Face Identities CRUD (camera capture via TakePicture intent + FileProvider)

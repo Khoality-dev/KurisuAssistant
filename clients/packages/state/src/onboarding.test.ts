@@ -1,93 +1,44 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  OnboardingRun,
-  connectProvider,
-  defaultWakeWord,
-  onboardingSteps,
-  skipOnboarding,
-  type OnboardingApi,
-  type OnboardingChoices,
-} from './onboarding';
+import { connectProvider, finishOnboarding, skipOnboarding, type OnboardingApi } from './onboarding';
 
-/** A recording fake of the four calls finishing makes. */
+/** A recording fake of the calls onboarding makes. */
 function fakeApi(overrides: Partial<OnboardingApi> = {}) {
   const calls: Array<[string, unknown]> = [];
   const api: OnboardingApi = {
     updateUserProfile: vi.fn(async (fields) => { calls.push(['profile', fields]); }),
     getModelsWithStatus: vi.fn(async () => ({ models: [{ name: 'qwen3:8b', provider: 'ollama' }], unavailable: [] })),
-    createPersona: vi.fn(async (data) => { calls.push(['persona', data]); return { id: 7, name: data.name } as never; }),
-    uploadCharacterModel: vi.fn(async (id, file) => { calls.push(['model', { id, size: (file as Blob).size }]); return {} as never; }),
     updateAssistant: vi.fn(async (data) => { calls.push(['assistant', data]); return {} as never; }),
     ...overrides,
   };
   return { api, calls };
 }
 
-const withPersona: OnboardingChoices = {
-  model: { name: 'qwen3:8b', provider: 'ollama' },
-  persona: { name: 'Kurisu', preferredName: 'Okabe', avatarUuid: 'img-1', voice: 'voice-a', vrmFile: new Blob(['glb']) },
-  wakeWord: 'Kurisu',
-};
-
-describe('onboarding (#342)', () => {
-  it('asks for voice and character only when there is a persona', () => {
-    expect(onboardingSteps(true)).toEqual(['model', 'persona', 'voice', 'character', 'wakeWord']);
-    expect(onboardingSteps(false)).toEqual(['model', 'persona', 'wakeWord']);
-  });
-
-  it("starts the wake word as the persona's name, and empty without one", () => {
-    expect(defaultWakeWord('Kurisu')).toBe('Kurisu');
-    expect(defaultWakeWord('  ')).toBe('');
-    expect(defaultWakeWord(null)).toBe('');
-  });
-
-  it('finishes in order: the persona, its model, then the account, then the flag', async () => {
+describe('onboarding (#342, #376)', () => {
+  it('finishing saves the model, and nothing else, then ends the flow', async () => {
     const { api, calls } = fakeApi();
-    const result = await new OnboardingRun(api).finish(withPersona);
-
-    expect(result).toEqual({ personaId: 7 });
+    await finishOnboarding(api, { name: 'qwen3:8b', provider: 'ollama' });
+    // No persona, no voice, no wake word: once it has a model, the assistant can be asked for the rest.
     expect(calls).toEqual([
-      ['persona', { name: 'Kurisu', preferred_name: 'Okabe', avatar_uuid: 'img-1', voice_reference: 'voice-a' }],
-      ['model', { id: 7, size: 3 }],
-      // One write for the account: the model, the persona in use and the wake word.
-      ['assistant', { model_name: 'qwen3:8b', provider_type: 'ollama', selected_persona_id: 7, trigger_word: 'Kurisu' }],
+      ['assistant', { model_name: 'qwen3:8b', provider_type: 'ollama' }],
       ['profile', { onboarded: true }],
     ]);
   });
 
-  it('without a persona, the assistant answers as itself and an empty wake word is none', async () => {
-    const { api, calls } = fakeApi();
-    await new OnboardingRun(api).finish({ model: null, persona: null, wakeWord: '  ' });
-    expect(calls).toEqual([
-      ['assistant', { selected_persona_id: null, trigger_word: null }],
-      ['profile', { onboarded: true }],
-    ]);
-  });
-
-  it('a retry after a failure goes on from where it stopped, never making a second persona', async () => {
+  it('a failed save ends nothing, and trying again saves it', async () => {
     let fail = true;
     const { api, calls } = fakeApi({
-      uploadCharacterModel: vi.fn(async () => {
-        if (fail) throw new Error('The model is too large.');
-        calls.push(['model', 'ok']);
+      updateAssistant: vi.fn(async (data) => {
+        if (fail) throw new Error('offline');
+        calls.push(['assistant', data]);
         return {} as never;
       }),
     });
-    const run = new OnboardingRun(api);
-    await expect(run.finish(withPersona)).rejects.toThrow('The model is too large.');
-    expect(run.failedAt).toBe('character');
+    await expect(finishOnboarding(api, { name: 'qwen3:8b', provider: 'ollama' })).rejects.toThrow('offline');
+    expect(calls).toEqual([]);
 
     fail = false;
-    await run.finish(withPersona);
-    expect(calls.filter(([k]) => k === 'persona')).toHaveLength(1);
-    expect(calls.map(([k]) => k)).toEqual(['persona', 'model', 'assistant', 'profile']);
-  });
-
-  it('reports each part as it goes, for the progress screen', async () => {
-    const { api } = fakeApi();
-    const seen: string[] = [];
-    await new OnboardingRun(api).finish(withPersona, (part) => seen.push(part));
-    expect(seen).toEqual(['persona', 'character', 'assistant', 'done']);
+    await finishOnboarding(api, { name: 'qwen3:8b', provider: 'ollama' });
+    expect(calls.map(([k]) => k)).toEqual(['assistant', 'profile']);
   });
 
   it('skipping keeps nothing and only ends the flow', async () => {
