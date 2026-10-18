@@ -242,18 +242,6 @@ interface KurisuApiService {
 
     // Character Assets
     @Multipart
-    /**
-     * A persona's VRM model, as a raw body (#236). The server checks `sha256`
-     * against the bytes; a persona with no character becomes a 3D one (#342).
-     */
-    @PUT("/character-assets/{personaId}/vrm/model")
-    suspend fun uploadVrmModel(
-        @Path("personaId") personaId: Int,
-        @Query("sha256") sha256: String,
-        @Query("filename") filename: String?,
-        @Body body: RequestBody,
-    ): JsonObject
-
     @POST("/character-assets/upload-base")
     suspend fun uploadCharacterBase(
         @Query("persona_id") personaId: Int,

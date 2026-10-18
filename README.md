@@ -31,7 +31,7 @@ You need a Kurisu Assistant server URL and an account. If someone else hosts the
 1. Install the [desktop client](https://github.com/Khoality-dev/KurisuAssistant/releases/latest) or [Android client](https://github.com/Khoality-dev/KurisuAssistant/releases/latest).
 2. Open the app and enter the complete server URL, including `http://` or `https://`.
 3. On a fresh self-hosted server, register in the app, then ask the server operator to activate your account before signing in.
-4. The first time you sign in, the app walks you through setup: connect a model provider (an Ollama address, or a Gemini, NVIDIA NIM or Poe key) and pick a model, create a persona if you want one (a name, a voice, a 3D character), and choose the wake word for voice mode. You can skip it; the first message then asks for a model.
+4. The first time you sign in, the app asks for a model: pick a provider (Ollama, Google Gemini, NVIDIA NIM or Poe), enter its address or API key, connect, and pick one of its models. You can skip it; the first message then asks for a model. Anything else — a persona, a voice, a wake word — you can ask the assistant to set up.
 5. Start chatting. Grant microphone or camera permission only when you want those features.
 
 On a physical Android phone, `localhost` means the phone itself. Use the server computer's LAN address or public hostname instead.

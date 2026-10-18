@@ -35,8 +35,8 @@ async def get_user_profile(
     persona it seeded for accounts that had none.
 
     ``onboarding_pending`` (#342) says whether a client should walk this account
-    through its model, an optional persona and the wake word: until a client
-    reports the flow finished or skipped, and never once the account has a persona.
+    through choosing its model (#376): until a client reports the flow finished
+    or skipped, and never once the account has a persona.
     """
     try:
         def _has_persona(session) -> bool:
