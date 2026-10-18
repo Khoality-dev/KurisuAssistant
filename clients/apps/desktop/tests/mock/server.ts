@@ -2571,6 +2571,18 @@ export class MockBackend {
     this.seedDriveEntry(entry);
   }
 
+  /** A drive file's bytes by its path, as a spec reads back what the app wrote; undefined for a folder or nothing there. */
+  public getDriveContent(path: string): Buffer | undefined {
+    let parent: number | null = null;
+    let node: (typeof this.driveNodes)[number] | undefined;
+    for (const name of path.split('/').filter(Boolean)) {
+      node = this.driveChild(parent, name);
+      if (!node) return undefined;
+      parent = node.id;
+    }
+    return node && !node.is_dir ? node.content : undefined;
+  }
+
   public getDrivePaths(): string[] {
     const pathOf = (node: (typeof this.driveNodes)[number]): string => {
       const parent = this.driveNodes.find((n) => n.id === node.parent_id);
