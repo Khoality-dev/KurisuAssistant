@@ -1,0 +1,143 @@
+# Desktop × backend – end to end (#313)
+#
+# Every other client test runs against the desktop's mock backend
+# (clients/apps/desktop/tests/mock/server.ts), which mirrors the backend by
+# hand. When the two disagree the tests follow the mock, and the app breaks
+# against the real server with everything green. This job drives the desktop
+# app against the real backend instead — a real Postgres, the migrations, the
+# server as it ships — with the backend's own mock Ollama as the model, so a
+# difference between what the server does and what the app expects fails here.
+#
+# It runs on a change to either side: a backend change can break the app as
+# surely as an app change can. Linux only: the point is the contract, which
+# does not depend on the OS, and the mock-backed suite already covers Windows.
+
+name: Desktop × backend – End to end
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'clients/apps/desktop/**'
+      - 'clients/packages/**'
+      - 'clients/package.json'
+      - 'clients/package-lock.json'
+      - 'protocol/**'
+      - '.github/workflows/real-backend-e2e.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'clients/apps/desktop/**'
+      - 'clients/packages/**'
+      - 'clients/package.json'
+      - 'clients/package-lock.json'
+      - 'protocol/**'
+      - '.github/workflows/real-backend-e2e.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: real-backend-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Desktop against the real backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # core/security.py writes a key at import when this is unset.
+      JWT_SECRET_KEY: ci-not-a-real-secret
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: kurisu
+      POSTGRES_PASSWORD: kurisu
+      POSTGRES_DB: kurisu
+      # Each test makes and signs into an account of its own, from one address;
+      # the default of ten per five minutes is for people, not for a suite.
+      AUTH_RATE_LIMIT_MAX_ATTEMPTS: "1000"
+      KURISU_REAL_BACKEND_URL: http://127.0.0.1:15597
+      KURISU_MOCK_OLLAMA_URL: http://127.0.0.1:11435
+
+    services:
+      postgres:
+        # The image the stack runs; the migration chain needs pgvector.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: kurisu
+          POSTGRES_PASSWORD: kurisu
+          POSTGRES_DB: kurisu
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kurisu"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements-ci.txt
+
+      - name: Install the backend
+        working-directory: backend
+        run: pip install -r requirements-ci.txt
+
+      - name: Migrate the database
+        working-directory: backend
+        run: python -m scripts.migrate
+
+      - name: Start the mock Ollama and the backend
+        working-directory: backend
+        run: |
+          nohup python -m tests.mock_ollama --port 11435 > "$RUNNER_TEMP/mock-ollama.log" 2>&1 &
+          nohup uvicorn kurisuassistant.main:app --host 127.0.0.1 --port 15597 > "$RUNNER_TEMP/backend.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf "$KURISU_REAL_BACKEND_URL/version" > /dev/null && curl -sf "$KURISU_MOCK_OLLAMA_URL/api/version" > /dev/null; then
+              echo "both up after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::the backend or the mock Ollama did not start"
+          tail -50 "$RUNNER_TEMP/backend.log" "$RUNNER_TEMP/mock-ollama.log"
+          exit 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: clients/package-lock.json
+
+      - name: Install the clients
+        working-directory: clients
+        run: npm ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build renderer + Electron main
+        working-directory: clients/apps/desktop
+        run: npm run test:e2e:build
+
+      - name: Run the desktop app against the backend (under xvfb)
+        working-directory: clients/apps/desktop
+        run: xvfb-run -a npm run test:e2e:real
+
+      - name: Upload artifacts and server logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-backend-e2e
+          path: |
+            clients/apps/desktop/test-results/
+            ${{ runner.temp }}/backend.log
+            ${{ runner.temp }}/mock-ollama.log
+          retention-days: 7
