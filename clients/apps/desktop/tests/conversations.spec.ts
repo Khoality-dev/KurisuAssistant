@@ -4,9 +4,11 @@
  * (`@kurisu/state` `commands.ts`) and never reach the server; what they change
  * on it is asserted on the mock.
  */
+import WebSocket from 'ws';
 import { test, expect } from './fixtures';
 import { Page } from '@playwright/test';
 import { MockBackend } from './mock/server';
+import { WIRE_PROTOCOL, WS_AUTH_SUBPROTOCOL, WS_WIRE_SUBPROTOCOL_PREFIX } from '@kurisu/models';
 
 async function login(page: Page) {
   await page.getByLabel('Username').fill('tester');
@@ -137,4 +139,49 @@ test.describe('conversations', () => {
     await expect(page.getByText('No active conversation')).toBeVisible();
     expect(mock.getConversations()).toHaveLength(2);
   });
+
+  test('/refresh shows what was written in the conversation elsewhere', async ({ page, mock }) => {
+    const { newer } = seedTwo(mock);
+    await login(page);
+    await expect(page.getByText('Flour, eggs and milk.')).toBeVisible({ timeout: 10_000 });
+
+    // Another device takes a turn in the same conversation, on its own socket.
+    mock.setStream({ chunks: [{ content: 'Written on the phone.', role: 'assistant', delayMs: 5 }] });
+    await takeTurnElsewhere(mock, newer, 'And syrup?');
+    await expect(page.getByText('Written on the phone.')).toHaveCount(0);
+
+    await command(page, '/refresh');
+    await expect(page.getByText('Written on the phone.')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('And syrup?', { exact: true })).toBeVisible();
+  });
+
+  test('/context shows what this conversation costs, and /persona opens the persona picker', async ({ page, mock }) => {
+    seedTwo(mock);
+    await login(page);
+    await expect(page.getByText('Flour, eggs and milk.')).toBeVisible({ timeout: 10_000 });
+
+    await command(page, '/context');
+    await expect(page.getByRole('dialog').filter({ hasText: 'Context Breakdown' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog').filter({ hasText: 'Context Breakdown' })).toHaveCount(0);
+
+    await command(page, '/persona');
+    await expect(page.getByText('Saved to your account: every conversation, on every device, answers as it. Press Esc to cancel.')).toBeVisible();
+  });
 });
+
+/** One turn in `conversationId` from another device: a socket of its own, closed when the turn is done. */
+async function takeTurnElsewhere(mock: MockBackend, conversationId: number, text: string) {
+  const ws = new WebSocket(`${mock.url.replace('http:', 'ws:')}/ws/chat`, [
+    WS_AUTH_SUBPROTOCOL, 'phone-token', `${WS_WIRE_SUBPROTOCOL_PREFIX}${WIRE_PROTOCOL}`,
+  ]);
+  await new Promise<void>((resolve, reject) => {
+    ws.on('error', reject);
+    ws.on('message', (raw) => {
+      const event = JSON.parse(raw.toString());
+      if (event.type === 'connected') ws.send(JSON.stringify({ type: 'chat_request', text, conversation_id: conversationId }));
+      if (event.type === 'done') resolve();
+    });
+  });
+  ws.close();
+}

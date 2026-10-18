@@ -189,9 +189,14 @@ export const FullExplorer: React.FC = () => {
     setIsLoading(false);
   }, []);
 
+  // The folder to show: the root listing, or one opened for me — by the
+  // assistant's `app_open_folder`, or from the tree. This view used to start at
+  // the root and stay wherever it was, so a folder the assistant said it had
+  // opened never appeared until a file was open (#312).
+  const workspaceRoot = useExplorerStore((s) => s.workspaceRoot);
   useEffect(() => {
-    loadDirectory('');
-  }, [loadDirectory]);
+    loadDirectory(workspaceRoot || '');
+  }, [loadDirectory, workspaceRoot]);
 
   // Sync selected entries -> live selection chips
   useEffect(() => {

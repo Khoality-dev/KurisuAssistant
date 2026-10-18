@@ -1,6 +1,6 @@
 # Character animation
 
-[← clients/desktop](../CLAUDE.md)
+[← clients/apps/desktop](../CLAUDE.md)
 
 The character: the feed every surface reads, the driver seam every kind of character sits behind, the two surfaces that show it — inline in the chat column and a second window — the 2D engine, and the editor that produces the configuration.
 

@@ -184,3 +184,28 @@ test.describe('the app\'s own tools', () => {
     }
   });
 });
+
+test.describe('Settings → Host Access', () => {
+  test('a folder added there is granted to the app, and removing it takes it back', async ({ page, mock, appPaths }) => {
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'kurisu-grant-'));
+    try {
+      await login(page);
+      await page.locator('button').filter({
+        has: page.locator('[data-testid="SettingsOutlinedIcon"], [data-testid="SettingsIcon"]'),
+      }).first().click();
+      await page.getByText('Host Access', { exact: true }).first().click();
+
+      await page.getByPlaceholder(/Absolute path/).fill(folder);
+      await page.getByRole('button', { name: 'Add', exact: true }).click();
+      await expect(page.getByText(folder, { exact: true })).toBeVisible();
+      const granted = () => (fs.existsSync(appPaths.settingsFile) ? JSON.parse(fs.readFileSync(appPaths.settingsFile, 'utf-8')).allowed_paths ?? [] : []);
+      await expect.poll(granted).toEqual([folder]);
+
+      await page.getByText(folder, { exact: true }).locator('xpath=ancestor::*[.//button][1]').getByRole('button').click();
+      await expect(page.getByText(folder, { exact: true })).toHaveCount(0);
+      await expect.poll(granted).toEqual([]);
+    } finally {
+      fs.rmSync(folder, { recursive: true, force: true });
+    }
+  });
+});

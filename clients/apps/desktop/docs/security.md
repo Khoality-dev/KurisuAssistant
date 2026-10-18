@@ -1,6 +1,6 @@
 # Security model
 
-[← clients/desktop](../CLAUDE.md)
+[← clients/apps/desktop](../CLAUDE.md)
 
 What this client refuses to do, and why each refusal is where it is. Most of it
 is here because it was once the other way round; the issue numbers are the

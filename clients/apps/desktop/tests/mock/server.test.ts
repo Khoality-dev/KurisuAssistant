@@ -884,6 +884,15 @@ describe('mock backend: what a turn asks of the client (#312)', () => {
   });
 });
 
+describe('mock backend: reading the drive back (#312)', () => {
+  it('gives a file\'s bytes by path, and nothing for a folder or a path that is not there', async () => {
+    mock.addDriveEntry({ path: '/Notes/todo.md', content: 'buy milk' });
+    expect(mock.getDriveContent('/Notes/todo.md')?.toString('utf8')).toBe('buy milk');
+    expect(mock.getDriveContent('/Notes')).toBeUndefined();
+    expect(mock.getDriveContent('/Notes/missing.md')).toBeUndefined();
+  });
+});
+
 describe('mock backend: uploads and sign-in (#312)', () => {
   const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
   const upload = (bytes: Buffer, name: string, type: string) => {

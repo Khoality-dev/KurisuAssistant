@@ -6,7 +6,7 @@ Every screenshot here is generated from the mock backend in
 [`tests/mock/server.ts`](../tests/mock/server.ts) — invented personas, invented transcripts, never a
 real install. See [Regenerating these](#regenerating-these).
 
-For the model itself, and how it is stored, see [Agents](../../../backend/docs/agents.md) in the
+For the model itself, and how it is stored, see [Agents](../../../../backend/docs/agents.md) in the
 backend docs. The short version: a **persona** is how the assistant sounds, the **assistant** is
 what it can do, and switching persona changes who answers without changing the model, the tools or
 the memory.
@@ -47,7 +47,7 @@ Each card says which character the persona has — "3D model · kurisu_v2.vrm", 
 uploaded", "2D pose graph · 4 poses" or "No character". The edit dialog's **Character** block
 picks the system with two cards (2D pose graph, 3D model), each saying what that persona has of it;
 picking one saves at once and removes nothing, so switching back needs no upload (#242). Its button
-opens the graph editor or **Set up {name} in 3D**: a live preview with Speak / Think / Wave and the
+opens the graph editor or **Set up {name} in 3D**: a live preview with Speak a line / Think / Wave at her and the
 six faces (a face the model lacks is struck through), and five steps — her model (upload, replace,
 remove), how she moves (Still, Calm, Natural, Lively), feelings, reactions (five on/off recipes,
 each with Try) and framing — plus an optional Fine-tune with every number and her own `.vrma`

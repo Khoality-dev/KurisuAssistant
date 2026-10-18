@@ -84,6 +84,32 @@ describe('personaStore: opening the latest conversation (#321, #354)', () => {
     expect(useConversationStore.getState().currentConversation?.id).toBe(42);
   });
 
+  it('a conversation found late does not reopen one I left with New chat meanwhile', async () => {
+    // Both before and after New chat no conversation is open, so comparing ids
+    // cannot tell them apart; on a slow runner the old run came back and took
+    // the composer away from the message being typed (#312).
+    const loading = usePersonaStore.getState().openLatestConversation();
+    await flush();
+    useConversationStore.getState().clearCurrentConversation();
+
+    answerList([listed(7)]);
+    await loading;
+
+    expect(useConversationStore.getState().currentConversation).toBeNull();
+    expect(apiClient.getConversation).not.toHaveBeenCalled();
+  });
+
+  it('a conversation found late does not replace one I opened meanwhile', async () => {
+    const loading = usePersonaStore.getState().openLatestConversation();
+    await flush();
+    await useConversationStore.getState().loadConversation(3);
+
+    answerList([listed(7)]);
+    await loading;
+
+    expect(useConversationStore.getState().currentConversation?.id).toBe(3);
+  });
+
   it('a conversation found late does not replace one that started meanwhile', async () => {
     const loading = usePersonaStore.getState().openLatestConversation();
     await flush();

@@ -1,6 +1,6 @@
 # MCP servers
 
-[← clients/desktop](../CLAUDE.md)
+[← clients/apps/desktop](../CLAUDE.md)
 
 Two directions, easily confused. Servers this client *starts and calls* (below), and the endpoint this app *is* for an external client, which lives in [security.md](security.md#the-built-in-mcp-server).
 
@@ -18,4 +18,4 @@ Nothing fetches `location: "client"` configs from the backend and spawns them. T
 
 **WebSocket events**: `client_tools_register` (client→server, tool schemas), `tool_call_request` (server→client, request_id + tool_name + args), `tool_call_response` (client→server, request_id + content + is_error).
 
-**UI**: ToolsWindow server cards show Internal/External chip badge. Create/edit dialog has Location dropdown (External=server, Internal=client). Config changes trigger `refreshClientMCPServers()`.
+**UI**: Settings › Tools lists each server you added with a chip, **On this computer** or **On the server**. The create/edit dialog has a Location dropdown ("External (Server)" / "Internal (This Computer)"). Config changes trigger `refreshClientMCPServers()` — which re-registers the tools of servers already running here and does not start an "On this computer" server (#372).

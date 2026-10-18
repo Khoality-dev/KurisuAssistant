@@ -1,13 +1,13 @@
 # Chat runtime
 
-[← clients/desktop](../CLAUDE.md)
+[← clients/apps/desktop](../CLAUDE.md)
 
 How a turn behaves on screen: streaming, speech, the voice call mode, and the conversation it belongs to.
 
 ## Streaming Architecture (ChatWidget)
 - **Store `messages`** = DB-persisted only (never mutated during streaming)
 - **`streamingMessages`** = ephemeral local state (user msg + assistant/tool responses during stream)
-- Render: `[...displayedMessages, ...streamingMessages]` where `displayedMessages` is filtered by display mode
+- Render: `[...messages, ...streamingMessages]`; there is no display-mode filter
 - Uses WebSocket via `wsManager` (StreamChunkEvent, DoneEvent, ErrorEvent, ContextInfoEvent)
 - A task tool's result (`task_start`, `task_schedule`, `task_update`, `task_stop`, `task_delete`) is JSON the chat renders as a card instead of a collapsed tool bubble (`TaskResultCard`, `parseTaskToolResult` in `@kurisu/models`, #352): what was started or scheduled, its schedule and next run, "Open in Tasks", and Stop while a started task runs. Anything else, an error included, stays an ordinary tool bubble.
 - A task run's conversation may be waiting on the user to approve a call (#352). No live turn is attached, so `ChatWidget` takes it from `tasksStore.approvalForConversation` and shows the usual `ToolApprovalBar`; the answer goes over REST (`POST /tasks/approvals/{id}`).
@@ -18,12 +18,12 @@ How a turn behaves on screen: streaming, speech, the voice call mode, and the co
 - On Cancel: streaming messages merged into store, late chunks ignored via `cancelledRef`
 - **Message queue**: Users can send messages during streaming. Frontend shows queued user bubbles immediately, dimmed below the reply; backend queues the request and answers everything that waited as **one** more turn once the current one ends (done, or failed with anything but a missing setting). On that `done` the queued bubbles stop waiting and become the next turn's opening, with a placeholder for its reply, and the turn state is reset so its first chunk opens a bubble of its own — they used to be dropped, which left that reply streaming into nothing until a reload (#312). Cancel clears the queue.
 - **Reconnect**: Auto-reconnect with exponential backoff (1s→2s→4s...30s cap). On WebSocket 4001 (auth failure), auto-refreshes token via `POST /auth/refresh` then reconnects. Manual reconnect still available via status dot. On `ConnectedEvent` with `chat_active`, loads persisted messages from DB (incremental persistence — each message saved server-side on role boundary) and enters streaming mode.
-- Typing indicator: bouncing dots inside bubble before first chunk; "Done" checkmark after
+- Typing indicator: bouncing dots inside bubble before first chunk. There is no "Done" mark after: mounting it on completion and taking it down 3 s later shifted the layout and jumped the scroll
 - **Model**: the header names the assistant's model beside the persona. The menu behind it lists `GET /models` grouped by provider; a pick is `PATCH /assistant` `{model_name, provider_type}` — the provider travels with the name — and applies from the next message, for every persona. It is the only model picker in the client (#197).
 - **Errors**: `ErrorEvent` normally becomes a red MUI Snackbar (`errorToast`) that hides after six seconds. When a reply was streaming, what stays is what the server kept: my message and every bubble it finished go into the store, the one it was writing is dropped (the server saves a message when the speaker changes, so a failure loses that one), and the conversation is reloaded to match. Dropping every streaming bubble, as it used to, took my message off the screen though the server had it (#312). `QUEUE_FULL` refuses only the message that did not fit — its dimmed bubble goes and the reply carries on — and an error with no reply in flight (a refused `/compact`) touches nothing else. Neither this toast nor the info toast closes on a click elsewhere: the click that sends a message or a command is one, and it closed the notice that same click had raised; each is keyed on its text, so a second notice gets its own time. One code is handled apart from the rest: `NO_MODEL_SELECTED` (`WS_ERROR_NO_MODEL_SELECTED` in `@kurisu/models`) means the account has no model chosen yet — a new account always does, because provisioning cannot pick one — so instead of the toast the hook sets `needsModel`, `ChatWidget` renders `NoModelPrompt` above the composer until the user acts, and the **text** of the refused message is pushed back into the composer with `pushExternalDraft` (the server rejected it before saving anything). Only the text: `ChatComposer` has already dropped the attachments and `_doSend` has already cleared the explorer selections, which is why the prompt's copy says so rather than promising the whole message back. "Choose a model" opens the header's model menu in place. Android mirrors this with a bottom sheet off its own header (#149, #197).
 
-## Streaming TTS (Always On)
-- TTS always active (no toggle). Accumulates content in buffer; on sentence boundary (`.!?。！？\n`), queues via `useTTS().queueText()`
+## Streaming TTS
+- On unless Settings → TTS & ASR → **Generate TTS During Responses** is off (`kurisu_tts_auto_play`, on by default); with it off, feelings show as their text arrives and nothing is synthesized until Read aloud. Accumulates content in buffer; on sentence boundary (`.!?。！？\n`), queues via `useTTS().queueText()`
 - Parallel synthesis, sequential FIFO playback
 - Flushes buffer on speaker change or DoneEvent; `clearQueue()` on cancel/new send
 - While the queue plays, the last bubble's Read aloud button reads Stop. `isQueueActive` is part of `MessageBubble`'s memo comparison and of the message list's memo: it was in neither, so Stop stayed up until something else redrew the bubble — after a failed reply, never (#312).
@@ -61,7 +61,7 @@ Settings → Notifications is one switch for this computer (`kurisu_notification
 - **A persona is optional (#302).** With none in use, the assistant answers as itself: chunks carry `persona_id: null` and the name `Assistant` (`ASSISTANT_NAME` in `@kurisu/models`), and the header shows "Assistant" with the default icon. The client never fills a persona in on its own — a selection whose persona is gone falls back to null, never to "the first persona".
 - **Who spoke stays on the message.** `persona_id` and the embedded `persona` on a stored assistant message, and `persona_id`/`persona_name` on an assistant `stream_chunk`, say who produced it: the bubble's name and avatar and the character panel read them, so an old answer keeps the persona that gave it after a switch.
 - **Conversation list** (`ConversationsPage.tsx`, reached from the ActivityBar): the account's conversations from `GET /conversations`, newest first — title, last message preview and relative time, no persona per row (#178, #354). It reads the list again when the open conversation changes or grows, searches titles and previews, and **New chat** clears the open conversation (as `/clear` does). Selecting a row loads that conversation into the chat panel beside it.
-- **On sign-in** `MainLayout` calls `loadPersonas` and `openLatestConversation`, which opens the newest conversation `GET /conversations` lists, whichever persona answered it, or none. It is a round trip the user can outrun: whatever it finds — nothing yet, an older conversation, a failure — is dropped if the chat has moved on to a conversation the user's own send started (#321). It used to clear the conversation just started, so the first message vanished and the next one opened a new conversation. `loadPersonas` alone touches no conversation, because Settings → Personas calls it after every edit.
+- **On sign-in** `MainLayout` calls `loadPersonas` and `openLatestConversation`, which opens the newest conversation `GET /conversations` lists, whichever persona answered it, or none. It is a round trip the user can outrun: whatever it finds — nothing yet, an older conversation, a failure — is dropped if the chat has moved on — a conversation the user's own send started (#321), one they opened, or New chat, which leaves no conversation open before and after and so is counted (`conversationStore.navigations`) rather than compared by id (#312). It used to clear the conversation just started, so the first message vanished and the next one opened a new conversation. `loadPersonas` alone touches no conversation, because Settings → Personas calls it after every edit.
 - Backend auto-creates the conversation on first message with `conversationId=null`, titled after that message. There is no new-chat persona picker — the chat header's persona sheet ("Persona in use"), whose first option is **Assistant** ("No persona — the assistant itself"), marks the persona in use with the **In use** chip, a tinted row and a ringed avatar (as Settings → Personas marks it, #348), says the choice is saved to the account and applies to every conversation, and ends with **Manage personas**, which opens Settings → Personas. A persona without a picture shows the person icon there and in the header; the assistant keeps its robot.
 - There is no local per-persona conversation map any more: `kurisu_persona_conversations` (and its `'unbound'` key) is in `LEGACY_STORAGE_KEYS` and dropped at startup by `storage.clearLegacyAgentKeys()`.
 
@@ -72,13 +72,10 @@ Settings → Notifications is one switch for this computer (`kurisu_notification
 - Tool images: MCP tools returning `ImageContent` produce image UUIDs streamed on tool-role chunks
 - Avatars and face photos: `apiClient.getImageUrl(uuid)` → `GET /images/{uuid}?token=` — **not public since #154**, and served only to the account that owns the image. Same query-param token as the per-user route above, for the same reason: these go into `<img src>`. A UUID belonging to someone else answers 404.
 
-## Display Modes & Token Usage
-- **All Messages** (default): Full conversation history across all frames, paginated on scroll-up
-- **Context Window**: Only messages after compaction watermark (`id > compactedUpToId`) + collapsible compacted context summary banner
-- Toggle via `ToggleButtonGroup` above messages pane; scrolls to bottom on switch
+## Compaction & Token Usage
+- The whole conversation is shown, paginated on scroll-up; there is no display-mode toggle. A conversation whose summary covers it from the start (`compactedUpToId === 0`) shows a **Compacted Conversation** banner with the summary
 - **Context use**: always visible in the chat header as a small bar (`ContextUsageBar`) — the share of the context used, orange past 80% and red past 90%, with the percentage on hover; the exact counts are in the context breakdown it sits beside (#343). Frontend-calculated: `(compacted_context + context_window_messages) * 1.3` word estimate. During streaming, backend `StreamChunkEvent.token_count` overrides
 - Store tracks `compactedUpToId`, `compactedContext`, `systemPromptTokenCount` from `GET /conversations/{id}` response. `ContextInfoEvent` updates watermark live after compaction
-- Compacted messages: resend disabled (backend blocks deletion too)
 
 ## Slash Commands (`@kurisu/state`'s `commands.ts`)
 - `/clear`, `/delete`, `/resume`, `/context`, `/persona`, `/refresh`, `/live-animate`, `/vision`, `/compact` (lazy imports to avoid circular deps)
@@ -86,7 +83,7 @@ Settings → Notifications is one switch for this computer (`kurisu_notification
 - `/persona` — opens the chat header's persona sheet (`kurisu:open-persona-picker`). A switch of the persona in use, for every conversation, saved with `PATCH /assistant` (#354)
 - `/resume` — opens the conversation picker over every conversation; none is tied to a persona (#354)
 - `/compact` — compact conversation context (sends `compact_context` WebSocket event). The backend answers `context_info` twice, `compacting: true` then `compacting: false` carrying the summary and the new watermark, and compacts **in place**: same conversation, same id, same transcript on screen. `useStreamingChat` records the watermark and reloads the conversation. It used to fork into a new conversation announced by `conversation_switched`; that event is gone (#99)
-- `/clear` — start a new empty conversation + clear the persona mapping entry
+- `/clear` — start a new empty conversation (the old one stays in the list)
 - Autocomplete dropdown in `ChatComposer`: filtered on `/` prefix, Enter auto-selects first match, closes dropdown after selection
 - All `/`-prefixed input intercepted client-side, never sent to backend
 - Commands return feedback strings shown as info toasts
@@ -112,7 +109,7 @@ Settings → Notifications is one switch for this computer (`kurisu_notification
 - **Tab**: Select command in dropdown
 
 ## Pagination
-- 20 messages/page, newest first. Scroll to top triggers `loadMoreMessages()`. Position preserved. Loading indicator hidden in Context display mode.
+- 20 messages/page, newest first. Scroll to top triggers `loadMoreMessages()`. Position preserved.
 
 ## Permission mode and tool approval (#360)
 
