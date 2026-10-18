@@ -884,6 +884,47 @@ describe('mock backend: what a turn asks of the client (#312)', () => {
   });
 });
 
+describe('mock backend: uploads and sign-in (#312)', () => {
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const upload = (bytes: Buffer, name: string, type: string) => {
+    const form = new FormData();
+    form.append('file', new Blob([bytes], { type }), name);
+    return fetch(`${mock.url}/images`, { method: 'POST', body: form });
+  };
+
+  it('keeps an uploaded image and serves it back by the id it answers', async () => {
+    const res = await upload(PNG, 'me.png', 'image/png');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ image_uuid: expect.stringMatching(/^[0-9a-f-]{36}$/), url: `/images/${body.image_uuid}` });
+    const served = await fetch(`${mock.url}/images/${body.image_uuid}`);
+    expect(served.status).toBe(200);
+    expect(Buffer.from(await served.arrayBuffer()).equals(PNG)).toBe(true);
+    expect(mock.uploadedImages).toEqual([body.image_uuid]);
+  });
+
+  it('refuses a file that is not an image with the backend\'s sentence', async () => {
+    const res = await upload(Buffer.from('not an image'), 'notes.txt', 'text/plain');
+    expect(res.status).toBe(400);
+    expect((await res.json()).detail).toBe('That file could not be read as an image.');
+  });
+
+  it('signs anyone in until a password is set, then refuses any other', async () => {
+    const login = (password: string) => {
+      const form = new FormData();
+      form.append('username', 'tester');
+      form.append('password', password);
+      return fetch(`${mock.url}/login`, { method: 'POST', body: form });
+    };
+    expect((await login('anything')).status).toBe(200);
+    mock.setPassword('correct horse');
+    const refused = await login('wrong');
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).detail).toBe('Incorrect username or password');
+    expect((await login('correct horse')).status).toBe(200);
+  });
+});
+
 describe('mock backend: speech (#312)', () => {
   const speak = (body: unknown) => fetch(`${mock.url}/tts`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),

@@ -610,8 +610,12 @@ export class MockBackend {
   public approvalResponses: Array<{ tool: string; approved: boolean }> = [];
   /** Every answer to a `tool_call_request` — the app running its own tool — oldest first. */
   public toolCallResponses: Array<{ tool: string; content: string; isError: boolean }> = [];
-  /** Images sent with a chat message, by the id the stored message names. */
-  private chatImages = new Map<string, Buffer>();
+  /** Images by id: those sent with a chat message and those uploaded (`POST /images`). */
+  private images = new Map<string, Buffer>();
+  /** Ids `POST /images` handed out, oldest first. */
+  public uploadedImages: string[] = [];
+  /** The one password `/login` accepts; null signs anyone in. */
+  private password: string | null = null;
   /** Every `POST /tts`, oldest first (#312). */
   public speechRequests: Array<{ text: string; voice: string | null; provider: string | null }> = [];
   /** `POST /tts` fails like this until cleared; see `failSpeech`. */
@@ -920,6 +924,11 @@ export class MockBackend {
     status: 502, detail: 'The speech service is unavailable. (reference: mock)',
   }): void {
     this.speechFailure = failure;
+  }
+
+  /** Accept only this password at `/login` (400 otherwise, as the backend); null signs anyone in. */
+  setPassword(password: string | null): void {
+    this.password = password;
   }
 
   /** The refresh token is no good either: `/auth/refresh` answers 401, and the session is over. */
@@ -1325,6 +1334,12 @@ export class MockBackend {
 
     // Auth endpoints
     if (pathOnly === '/login' && method === 'POST') {
+      if (this.password !== null) {
+        const fields = parseForm(await this.readRaw(req), req.headers['content-type']);
+        if (fields.get('password')?.data.toString('utf8') !== this.password) {
+          return this.error(res, 400, 'Incorrect username or password');
+        }
+      }
       return this.json(res, {
         access_token: 'test-access-token',
         refresh_token: 'test-refresh-token',
@@ -1339,7 +1354,7 @@ export class MockBackend {
       });
     }
     if (pathOnly === '/auth/refresh' && method === 'POST') {
-      if (this.refreshRefused) return this.error(res, 401, 'Invalid refresh token');
+      if (this.refreshRefused) return this.error(res, 401, 'Invalid or expired refresh token');
       this.refreshCount += 1;
       const issued = this.refreshCount === 1
         ? 'test-access-token-refreshed'
@@ -1356,11 +1371,27 @@ export class MockBackend {
       return this.error(res, 401, 'Token has expired');
     }
 
-    // The images sent with chat messages. Behind a token on the real server —
+    // An upload (`routers/images.py`): an avatar, a face photo. The backend
+    // decodes it and refuses what is not an image; this checks the signature.
+    if (pathOnly === '/images' && method === 'POST') {
+      const file = parseForm(await this.readRaw(req), req.headers['content-type']).get('file');
+      const data = file?.data;
+      const isImage = !!data && data.length > 3 && (
+        (data[0] === 0x89 && data.subarray(1, 4).toString('ascii') === 'PNG')
+        || (data[0] === 0xff && data[1] === 0xd8)
+      );
+      if (!isImage) return this.error(res, 400, 'That file could not be read as an image.');
+      const id = randomUUID();
+      this.images.set(id, data!);
+      this.uploadedImages.push(id);
+      return this.json(res, { image_uuid: id, url: `/images/${id}` });
+    }
+
+    // The images sent with chat messages, and uploaded ones. Behind a token on the real server —
     // `?token=` for an <img>, since #154 — and a 404 for any id it does not hold.
     const imageMatch = pathOnly.match(/^\/images\/(?:u\/)?([0-9a-f-]{36})$/);
     if (imageMatch && method === 'GET') {
-      const bytes = this.chatImages.get(imageMatch[1]);
+      const bytes = this.images.get(imageMatch[1]);
       if (!bytes) return this.error(res, 404, 'Image not found');
       res.statusCode = 200;
       res.setHeader('Content-Type', bytes[0] === 0x89 ? 'image/png' : 'image/jpeg');
@@ -2934,7 +2965,7 @@ export class MockBackend {
       const images: string[] = [];
       for (const b64 of Array.isArray(request.images) ? request.images : []) {
         const id = randomUUID();
-        this.chatImages.set(id, Buffer.from(String(b64), 'base64'));
+        this.images.set(id, Buffer.from(String(b64), 'base64'));
         images.push(id);
       }
       return {
@@ -3270,4 +3301,35 @@ function toolStatusOf(content: string): 'success' | 'error' | 'denied' {
   }
   if (stripped.startsWith('Client tool error:') || stripped.startsWith('MCP client not available')) return 'error';
   return 'success';
+}
+
+/**
+ * The fields of a `multipart/form-data` or `application/x-www-form-urlencoded`
+ * body, by name — enough for the uploads and the login form a client sends.
+ */
+function parseForm(body: Buffer, contentType: string | undefined): Map<string, { filename: string | null; data: Buffer }> {
+  const fields = new Map<string, { filename: string | null; data: Buffer }>();
+  const type = contentType ?? '';
+  if (type.startsWith('application/x-www-form-urlencoded')) {
+    for (const [k, v] of new URLSearchParams(body.toString('utf8'))) fields.set(k, { filename: null, data: Buffer.from(v, 'utf8') });
+    return fields;
+  }
+  const boundary = /boundary=(?:"([^"]+)"|([^;]+))/.exec(type);
+  if (!boundary) return fields;
+  const delimiter = Buffer.from(`--${boundary[1] ?? boundary[2]}`);
+  let start = body.indexOf(delimiter);
+  while (start !== -1) {
+    const next = body.indexOf(delimiter, start + delimiter.length);
+    if (next === -1) break;
+    const part = body.subarray(start + delimiter.length + 2, next - 2);
+    const headerEnd = part.indexOf('\r\n\r\n');
+    if (headerEnd !== -1) {
+      const headers = part.subarray(0, headerEnd).toString('utf8');
+      const name = /name="([^"]*)"/.exec(headers)?.[1];
+      const filename = /filename="([^"]*)"/.exec(headers)?.[1] ?? null;
+      if (name) fields.set(name, { filename, data: part.subarray(headerEnd + 4) });
+    }
+    start = next;
+  }
+  return fields;
 }
